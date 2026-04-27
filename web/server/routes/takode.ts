@@ -44,6 +44,7 @@ import {
   refreshGitInfoPublic as refreshGitInfoPublicController,
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "../bridge/session-git-state.js";
+import { buildBoardRowSessionStatuses as buildBoardRowSessionStatusesController } from "../board-row-session-status.js";
 import { getSettings } from "../settings-manager.js";
 import { QUEST_JOURNEY_STATES, type BrowserOutgoingMessage } from "../session-types.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
@@ -54,16 +55,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
   const bridgeAny = ctx.wsBridge as any;
   const { launcher, wsBridge, authenticateTakodeCaller, resolveId, timerManager, pushoverNotifier } = ctx;
   type BridgeSession = NonNullable<ReturnType<typeof wsBridge.getSession>>;
-  type BoardParticipantStatus = {
-    sessionId: string;
-    sessionNum?: number | null;
-    name?: string;
-    status: "running" | "idle" | "disconnected" | "archived";
-  };
-  type BoardRowSessionStatus = {
-    worker?: BoardParticipantStatus;
-    reviewer?: BoardParticipantStatus | null;
-  };
   type LeaderAnswerTarget =
     | {
         kind: "permission";
@@ -280,12 +271,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
   };
   type EnrichedSession = Awaited<ReturnType<typeof buildEnrichedSessions>>[number];
 
-  const deriveSessionStatusLabel = (session: { archived?: boolean; cliConnected?: boolean; state?: string | null }) => {
-    if (session.archived) return "archived" as const;
-    if (session.cliConnected) return session.state === "running" ? ("running" as const) : ("idle" as const);
-    return "disconnected" as const;
-  };
-
   const findMessageIndexById = (session: BridgeSession, messageId: string | null | undefined): number | undefined => {
     if (!messageId) return undefined;
     for (let i = session.messageHistory.length - 1; i >= 0; i--) {
@@ -346,53 +331,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return { notifications: unresolved, resolvedCount };
   };
 
-  const toBoardParticipantStatus = (
-    session: Pick<EnrichedSession, "sessionId" | "sessionNum" | "name" | "archived" | "state"> & {
-      cliConnected?: boolean;
-    },
-  ): BoardParticipantStatus => ({
-    sessionId: session.sessionId,
-    sessionNum: session.sessionNum,
-    name: session.name,
-    status: deriveSessionStatusLabel(session),
-  });
-
-  const buildBoardRowSessionStatuses = async (
-    rows: import("../session-types.js").BoardRow[],
-  ): Promise<Record<string, BoardRowSessionStatus>> => {
+  const buildBoardRowSessionStatuses = async (rows: import("../session-types.js").BoardRow[]) => {
     if (rows.length === 0) return {};
 
     const sessions = await buildEnrichedSessions();
-    const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
-    const sessionsByNum = new Map<number, EnrichedSession>();
-    const activeReviewersByParent = new Map<number, EnrichedSession>();
-
-    for (const session of sessions) {
-      if (session.sessionNum != null) sessionsByNum.set(session.sessionNum, session);
-      if (!session.archived && session.reviewerOf != null && !activeReviewersByParent.has(session.reviewerOf)) {
-        activeReviewersByParent.set(session.reviewerOf, session);
-      }
-    }
-
-    const statuses: Record<string, BoardRowSessionStatus> = {};
-    for (const row of rows) {
-      const workerSession =
-        (row.worker ? sessionsById.get(row.worker) : undefined) ??
-        (row.workerNum != null ? sessionsByNum.get(row.workerNum) : undefined);
-      const reviewerSession =
-        row.workerNum != null
-          ? activeReviewersByParent.get(row.workerNum)
-          : workerSession?.sessionNum != null
-            ? activeReviewersByParent.get(workerSession.sessionNum)
-            : undefined;
-
-      statuses[row.questId] = {
-        ...(workerSession ? { worker: toBoardParticipantStatus(workerSession) } : {}),
-        reviewer: reviewerSession ? toBoardParticipantStatus(reviewerSession) : null,
-      };
-    }
-
-    return statuses;
+    return buildBoardRowSessionStatusesController(rows, sessions);
   };
 
   api.get("/takode/me", (c) => {

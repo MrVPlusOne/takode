@@ -47,6 +47,7 @@ import type { ClaudeSdkSessionMeta } from "./claude-sdk-adapter.js";
 import type { RecorderManager } from "./recorder.js";
 import type { ImageStore } from "./image-store.js";
 import type { CliLauncher } from "./cli-launcher.js";
+import { buildBoardRowSessionStatuses } from "./board-row-session-status.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
 import type { PerfTracer } from "./perf-tracer.js";
@@ -1484,13 +1485,23 @@ export class WsBridge {
   removeBoardRowFromAll(questId: string): void {
     removeBoardRowFromAllSessionsController(this.sessions, questId, {
       broadcastBoard: (targetSession, board, completedBoard) =>
-        this.broadcastToBrowsers(targetSession as Session, { type: "board_updated", board, completedBoard }),
+        this.broadcastToBrowsers(targetSession as Session, {
+          type: "board_updated",
+          board,
+          completedBoard,
+          rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
+        }),
       persistSession: (targetSession) => this.persistSession(targetSession as Session),
       markNotificationDone: (sessionId, notifId, done) =>
         markNotificationDoneBySessionIdController(this.sessions, sessionId, notifId, done, {
           broadcastToBrowsers: (targetSession, msg) => this.broadcastToBrowsers(targetSession as Session, msg),
           broadcastBoard: (targetSession, board, completedBoard) =>
-            this.broadcastToBrowsers(targetSession as Session, { type: "board_updated", board, completedBoard }),
+            this.broadcastToBrowsers(targetSession as Session, {
+              type: "board_updated",
+              board,
+              completedBoard,
+              rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
+            }),
           persistSession: (targetSession) => this.persistSession(targetSession as Session),
         }),
     });
@@ -1598,6 +1609,22 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
     return backendConnectedController(session);
+  }
+
+  getBoardRowSessionStatuses(sessionId: string, board: BoardRow[], completedBoard: BoardRow[]) {
+    if (board.length === 0 && completedBoard.length === 0) return {};
+    const launcherSessions = this.launcher?.listSessions?.() ?? [];
+    return buildBoardRowSessionStatuses(
+      [...board, ...completedBoard],
+      launcherSessions.map((session) => ({
+        sessionId: session.sessionId,
+        sessionNum: session.sessionNum,
+        reviewerOf: session.reviewerOf,
+        archived: session.archived,
+        state: session.state,
+        cliConnected: this.isBackendConnected(session.sessionId),
+      })),
+    );
   }
 
   /** Is any transport attached (even if still initializing)? */
@@ -2043,6 +2070,8 @@ export class WsBridge {
       deriveBackendState: (targetSession: unknown) => deriveBackendStateController(targetSession as Session),
       getBoard: (sessionId: string) => getBoardForSessionController(this.sessions, sessionId),
       getCompletedBoard: (sessionId: string) => getCompletedBoardForSessionController(this.sessions, sessionId),
+      getBoardRowSessionStatuses: (sessionId: string, board: unknown[], completedBoard: unknown[]) =>
+        this.getBoardRowSessionStatuses(sessionId, board as BoardRow[], completedBoard as BoardRow[]),
       recoverToolStartTimesFromHistory: (targetSession: unknown) =>
         this.recoverToolStartTimesFromHistory(targetSession as Session),
       finalizeRecoveredDisconnectedTerminalTools: (targetSession: unknown, reason: string) =>
@@ -2269,7 +2298,12 @@ export class WsBridge {
       markNotificationDone: (sessionId: string, notifId: string, done: boolean) =>
         markNotificationDoneBySessionIdController(this.sessions, sessionId, notifId, done, notificationDeps),
       broadcastBoard: (targetSession: unknown, board: BoardRow[], completedBoard: BoardRow[]) =>
-        this.broadcastToBrowsers(targetSession as Session, { type: "board_updated", board, completedBoard }),
+        this.broadcastToBrowsers(targetSession as Session, {
+          type: "board_updated",
+          board,
+          completedBoard,
+          rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
+        }),
       persistSession: (targetSession: unknown) => this.persistSession(targetSession as Session),
       notifyReview: (sessionId: string, summary: string) =>
         void notifyUserBySessionIdController(this.sessions, sessionId, "review", summary, notificationDeps),

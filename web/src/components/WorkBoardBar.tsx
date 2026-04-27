@@ -56,6 +56,7 @@ function readExpandedState(sessionId: string): boolean {
 
 export function WorkBoardBar({ sessionId }: { sessionId: string }) {
   const board = useStore((s) => s.sessionBoards.get(sessionId));
+  const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses.get(sessionId));
   const completedBoard = useStore((s) => s.sessionCompletedBoards.get(sessionId));
   const isOrchestrator = useStore((s) =>
     s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true),
@@ -94,7 +95,7 @@ export function WorkBoardBar({ sessionId }: { sessionId: string }) {
       {/* Expanded board table -- inline, pushes chat content up */}
       {expanded && (
         <div className="border-t border-cc-border bg-cc-card max-h-[40dvh] overflow-y-auto">
-          {activeCount > 0 && <BoardTable board={board!} />}
+          {activeCount > 0 && <BoardTable board={board!} rowSessionStatuses={rowSessionStatuses} />}
           {activeCount === 0 && <div className="px-3 py-3 text-xs text-cc-muted italic">No active items</div>}
 
           {/* Collapsible completed section */}
@@ -120,7 +121,7 @@ export function WorkBoardBar({ sessionId }: { sessionId: string }) {
               </button>
               {completedExpanded && (
                 <div className="opacity-60">
-                  <BoardTable board={completedBoard!} mode="completed" />
+                  <BoardTable board={completedBoard!} mode="completed" rowSessionStatuses={rowSessionStatuses} />
                 </div>
               )}
             </div>

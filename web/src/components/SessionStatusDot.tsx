@@ -23,6 +23,7 @@ export type SessionVisualStatus =
   | "idle";
 
 export interface SessionStatusDotProps {
+  className?: string;
   /** Whether the session is archived */
   archived?: boolean;
   /** Number of pending permission requests */
@@ -109,7 +110,8 @@ const STATUS_LABEL: Record<SessionVisualStatus, string> = {
 };
 
 export function SessionStatusDot(props: SessionStatusDotProps) {
-  const visualStatus = deriveSessionStatus(props);
+  const { className, ...rest } = props;
+  const visualStatus = deriveSessionStatus(rest);
   const dotColor = DOT_COLOR[visualStatus];
   const showGlow = SHOULD_GLOW[visualStatus];
   const glowColor = GLOW_COLOR[visualStatus];
@@ -128,7 +130,7 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
 
   return (
     <div
-      className="relative shrink-0 mt-[7px]"
+      className={`relative shrink-0 ${className ?? "mt-[7px]"}`}
       title={label}
       aria-label={label}
       data-testid="session-status-dot"

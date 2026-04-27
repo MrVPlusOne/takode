@@ -457,6 +457,18 @@ export interface BoardRow {
   completedAt?: number;
 }
 
+export interface BoardParticipantStatus {
+  sessionId: string;
+  sessionNum?: number | null;
+  name?: string;
+  status: "running" | "idle" | "disconnected" | "archived";
+}
+
+export interface BoardRowSessionStatus {
+  worker?: BoardParticipantStatus;
+  reviewer?: BoardParticipantStatus | null;
+}
+
 export interface HistoryWindowState {
   from_turn: number;
   turn_count: number;
@@ -615,6 +627,7 @@ export type BrowserIncomingMessageBase =
       generationStartedAt?: number | null;
       board?: BoardRow[];
       completedBoard?: BoardRow[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       notifications?: SessionNotification[];
     }
   | { type: "session_stuck" }
@@ -636,7 +649,12 @@ export type BrowserIncomingMessageBase =
       messageId: string | null;
       notification: { category: "needs-input" | "review"; timestamp: number; summary?: string };
     }
-  | { type: "board_updated"; board: BoardRow[]; completedBoard: BoardRow[] }
+  | {
+      type: "board_updated";
+      board: BoardRow[];
+      completedBoard: BoardRow[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+    }
   | { type: "notification_update"; notifications: SessionNotification[] }
   | { type: "timer_update"; timers: import("./timer-types.js").SessionTimer[] }
   | {

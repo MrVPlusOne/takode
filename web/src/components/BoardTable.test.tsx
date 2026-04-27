@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
+import type { ReactNode } from "react";
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { BoardTable, formatCompletedTime, orderBoardRows, type BoardRowData } from "./BoardTable.js";
 
 interface MockStoreState {
   quests: Array<{ questId: string }>;
+  sdkSessions: Array<{ sessionId: string; sessionNum?: number }>;
 }
 
 const { openQuestOverlay, useStoreMock } = vi.hoisted(() => {
@@ -23,9 +25,18 @@ vi.mock("../store.js", () => ({
   countUserPermissions: () => 0,
 }));
 
+vi.mock("./SessionInlineLink.js", () => ({
+  SessionInlineLink: ({ children, className }: { children: ReactNode; className?: string }) => (
+    <span data-testid="session-inline-link" className={className}>
+      {children}
+    </span>
+  ),
+}));
+
 beforeEach(() => {
   mockState = {
     quests: [],
+    sdkSessions: [],
   };
   openQuestOverlay.mockReset();
 });
@@ -38,8 +49,8 @@ describe("BoardTable", () => {
 
     expect(screen.getAllByRole("columnheader").map((node) => node.textContent)).toEqual([
       "Quest",
-      "Worker",
-      "Status",
+      "Sessions",
+      "Journey",
       "Title",
       "Wait For",
     ]);
@@ -111,7 +122,7 @@ describe("BoardTable", () => {
     expect(screen.getByText("CUSTOM_STATUS")).toHaveClass("text-cc-muted");
   });
 
-  it("renders current Quest Journey phase when phase bookkeeping is present", () => {
+  it("renders a reusable Quest Journey timeline when phase bookkeeping is present", () => {
     const board: BoardRowData[] = [
       {
         questId: "q-1",
@@ -128,14 +139,34 @@ describe("BoardTable", () => {
 
     render(<BoardTable board={board} />);
 
-    expect(screen.getByText("Implement")).toHaveAttribute(
-      "title",
-      expect.stringContaining("Alignment -> Implement -> Code Review -> Port"),
+    const timeline = screen.getByTestId("quest-journey-timeline");
+    expect(within(timeline).getByText("Alignment")).toHaveClass("text-cc-muted/65");
+    expect(within(timeline).getByText("Implement")).toHaveClass("font-semibold");
+    expect(within(timeline).getByText("Code Review")).toHaveClass("text-violet-400/90");
+    expect(timeline).toHaveAttribute("title", "Journey revised: Need code review before port");
+  });
+
+  it("renders worker and reviewer session links with their own status dots", () => {
+    const board: BoardRowData[] = [{ questId: "q-1", worker: "worker-1", workerNum: 11, updatedAt: 1 }];
+
+    render(
+      <BoardTable
+        board={board}
+        rowSessionStatuses={{
+          "q-1": {
+            worker: { sessionId: "worker-1", sessionNum: 11, status: "running" },
+            reviewer: { sessionId: "reviewer-1", sessionNum: 12, status: "idle" },
+          },
+        }}
+      />,
     );
-    expect(screen.getByText("Implement")).toHaveAttribute(
-      "title",
-      expect.stringContaining("revised: Need code review before port"),
-    );
+
+    expect(screen.getByText("#11")).toBeInTheDocument();
+    expect(screen.getByText("#12")).toBeInTheDocument();
+    const dots = screen.getAllByTestId("session-status-dot");
+    expect(dots).toHaveLength(2);
+    expect(dots[0]).toHaveAttribute("data-status", "running");
+    expect(dots[1]).toHaveAttribute("data-status", "idle");
   });
 
   it("renders only linked wait-for-input ids for active rows", () => {

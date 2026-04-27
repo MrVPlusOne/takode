@@ -83,6 +83,7 @@ describe("boardSummary", () => {
 
 interface MockStoreState {
   sessionBoards: Map<string, BoardRowData[]>;
+  sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
   sdkSessions: Array<{ sessionId: string; isOrchestrator?: boolean }>;
 }
@@ -92,6 +93,7 @@ let mockState: MockStoreState;
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
     sessionBoards: new Map(),
+    sessionBoardRowStatuses: new Map(),
     sessionCompletedBoards: new Map(),
     sdkSessions: [],
     ...overrides,
@@ -108,7 +110,9 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
   const actual = await importOriginal<typeof import("./BoardTable.js")>();
   return {
     ...actual,
-    BoardTable: ({ board }: { board: BoardRowData[] }) => <div data-testid="board-table">{board.length} rows</div>,
+    BoardTable: ({ board }: { board: BoardRowData[]; rowSessionStatuses?: unknown }) => (
+      <div data-testid="board-table">{board.length} rows</div>
+    ),
   };
 });
 

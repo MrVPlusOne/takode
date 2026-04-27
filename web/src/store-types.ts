@@ -2,6 +2,7 @@ import type { PRStatusResponse, CreateSessionOpts, CreationProgressEvent } from 
 import type { BoardRowData } from "./components/BoardTable.js";
 import type { SearchMatch, SessionSearchCategory, SessionSearchState } from "./store-session-search.js";
 import type {
+  BoardRowSessionStatus,
   ChatMessage,
   ComposerDraftImage,
   HistoryWindowState,
@@ -95,6 +96,8 @@ export interface AppState {
   setLatestBoardToolUseId: (sessionId: string, toolUseId: string) => void;
   sessionBoards: Map<string, BoardRowData[]>;
   setSessionBoard: (sessionId: string, board: BoardRowData[]) => void;
+  sessionBoardRowStatuses: Map<string, Record<string, BoardRowSessionStatus>>;
+  setSessionBoardRowStatuses: (sessionId: string, statuses: Record<string, BoardRowSessionStatus>) => void;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
   setSessionCompletedBoard: (sessionId: string, board: BoardRowData[]) => void;
   backgroundAgentNotifs: Map<string, Map<string, { status: string; outputFile?: string; summary?: string }>>;

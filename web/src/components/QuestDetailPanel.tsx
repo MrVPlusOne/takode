@@ -25,6 +25,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { PickerSessionChip } from "./QuestPickerSessionChip.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { DiffViewer } from "./DiffViewer.js";
+import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
 import { buildQuestReworkDraft } from "./quest-rework.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
@@ -44,6 +45,7 @@ export function QuestDetailPanel() {
   const questOverlayId = useStore((s) => s.questOverlayId);
   const searchHighlight = useStore((s) => s.questOverlaySearchHighlight);
   const quests = useStore((s) => s.quests);
+  const sessionBoards = useStore((s) => s.sessionBoards);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessions = useStore((s) => s.sessions);
   const sessionNames = useStore((s) => s.sessionNames);
@@ -58,6 +60,14 @@ export function QuestDetailPanel() {
     () => (questOverlayId ? (quests.find((q) => q.questId === questOverlayId) ?? null) : null),
     [quests, questOverlayId],
   );
+  const activeBoardRow = useMemo(() => {
+    if (!quest) return null;
+    for (const board of sessionBoards.values()) {
+      const match = board.find((row) => row.questId === quest.questId && row.journey?.phaseIds?.length);
+      if (match) return match;
+    }
+    return null;
+  }, [quest, sessionBoards]);
 
   // Local state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -877,6 +887,11 @@ export function QuestDetailPanel() {
               )}
               <span className="text-[10px] text-cc-muted/50">{timeAgo(getQuestRecencyTs(quest))}</span>
             </div>
+            {activeBoardRow?.journey && (
+              <div className="mt-2 max-w-full">
+                <QuestJourneyTimeline journey={activeBoardRow.journey} status={activeBoardRow.status} />
+              </div>
+            )}
             {quest.tags && quest.tags.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 {quest.tags.map((tag) => (

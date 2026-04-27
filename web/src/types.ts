@@ -1,4 +1,6 @@
 import type {
+  BoardParticipantStatus,
+  BoardRowSessionStatus,
   SessionState,
   CodexAppReference,
   CodexSkillReference,
@@ -35,6 +37,8 @@ import type {
 } from "../server/quest-types.js";
 
 export type {
+  BoardParticipantStatus,
+  BoardRowSessionStatus,
   SessionState,
   CodexAppReference,
   CodexSkillReference,

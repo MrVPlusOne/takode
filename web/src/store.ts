@@ -208,6 +208,13 @@ export const useStore = create<AppState>((set, get) => ({
       next.set(sessionId, board);
       return { sessionBoards: next };
     }),
+  sessionBoardRowStatuses: new Map(),
+  setSessionBoardRowStatuses: (sessionId, statuses) =>
+    set((s) => {
+      const next = new Map(s.sessionBoardRowStatuses);
+      next.set(sessionId, statuses);
+      return { sessionBoardRowStatuses: next };
+    }),
   sessionCompletedBoards: new Map(),
   setSessionCompletedBoard: (sessionId, board) =>
     set((s) => {
@@ -1993,6 +2000,7 @@ export const useStore = create<AppState>((set, get) => ({
       toolResults: new Map(),
       latestBoardToolUseId: new Map(),
       sessionBoards: new Map(),
+      sessionBoardRowStatuses: new Map(),
       sessionCompletedBoards: new Map(),
       backgroundAgentNotifs: new Map(),
       toolStartTimestamps: new Map(),

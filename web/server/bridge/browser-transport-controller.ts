@@ -7,6 +7,7 @@ import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplay } from "./replay-buffer-policy.js";
 import type {
+  BoardRowSessionStatus,
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
   BufferedBrowserEvent,
@@ -106,6 +107,11 @@ export interface BrowserTransportDeps {
   deriveBackendState: (session: BrowserTransportSessionLike) => NonNullable<SessionState["backend_state"]>;
   getBoard: (sessionId: string) => unknown[];
   getCompletedBoard: (sessionId: string) => unknown[];
+  getBoardRowSessionStatuses: (
+    sessionId: string,
+    board: unknown[],
+    completedBoard: unknown[],
+  ) => Record<string, BoardRowSessionStatus>;
   recoverToolStartTimesFromHistory: (session: BrowserTransportSessionLike) => void;
   finalizeRecoveredDisconnectedTerminalTools: (session: BrowserTransportSessionLike, reason: string) => void;
   scheduleCodexToolResultWatchdogs: (session: BrowserTransportSessionLike, reason: string) => void;
@@ -519,6 +525,8 @@ export function sendStateSnapshot(
   ws: BrowserTransportSocketLike,
   deps: BrowserTransportDeps,
 ): void {
+  const board = deps.getBoard(session.id);
+  const completedBoard = deps.getCompletedBoard(session.id);
   sendToBrowser(ws, {
     type: "state_snapshot",
     sessionStatus: deriveSessionStatus(session, deps),
@@ -531,8 +539,9 @@ export function sendStateSnapshot(
     lastReadAt: session.lastReadAt,
     attentionReason: session.attentionReason,
     generationStartedAt: session.generationStartedAt ?? null,
-    board: deps.getBoard(session.id),
-    completedBoard: deps.getCompletedBoard(session.id),
+    board,
+    completedBoard,
+    rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
     notifications: session.notifications,
   } as BrowserIncomingMessage);
 }

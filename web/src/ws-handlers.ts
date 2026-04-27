@@ -1065,6 +1065,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       // and any future live-updating inline boards stay current.
       store.setSessionBoard(sessionId, data.board ?? []);
       store.setSessionCompletedBoard(sessionId, data.completedBoard ?? []);
+      if (data.rowSessionStatuses) {
+        store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
+      }
       break;
     }
 
@@ -1157,6 +1160,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       }
       if (data.completedBoard) {
         store.setSessionCompletedBoard(sessionId, data.completedBoard);
+      }
+      if (data.rowSessionStatuses) {
+        store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
       }
       // Sync notification inbox from server on connect/reconnect
       if (data.notifications) {

@@ -42,6 +42,7 @@ export const BoardBlock = memo(function BoardBlock({
 }: BoardBlockProps) {
   // Subscribe to the latest board ID for this session via Zustand (reactive)
   const latestId = useStore((s) => (sessionId ? s.latestBoardToolUseId.get(sessionId) : undefined));
+  const rowSessionStatuses = useStore((s) => (sessionId ? s.sessionBoardRowStatuses.get(sessionId) : undefined));
   const setLatest = useStore((s) => s.setLatestBoardToolUseId);
 
   // Determine if this board is the latest (should be expanded)
@@ -164,7 +165,7 @@ export const BoardBlock = memo(function BoardBlock({
               />
             </div>
           )}
-          <BoardTable board={board} />
+          <BoardTable board={board} rowSessionStatuses={rowSessionStatuses} />
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />
         </div>
       )}

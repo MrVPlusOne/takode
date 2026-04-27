@@ -5,20 +5,20 @@
  * Extracted so the table layout, QuestLink hover cards, and WorkerLink hover
  * cards are defined once and reused.
  */
-import { useState, useRef, useCallback, useMemo, useEffect, memo, type MouseEvent } from "react";
-import { useStore, countUserPermissions } from "../store.js";
-import { navigateToSession } from "../utils/routing.js";
+import { useState, useRef, useMemo, useEffect, useCallback, memo, type MouseEvent } from "react";
+import { useStore } from "../store.js";
 import {
   QUEST_JOURNEY_STATES,
   formatWaitForRefLabel,
-  getQuestJourneyPhase,
   getQuestJourneyPresentation,
   getWaitForRefKind,
   type QuestJourneyPlanState,
 } from "../../shared/quest-journey.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
-import { SessionHoverCard } from "./SessionHoverCard.js";
-import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
+import { SessionInlineLink } from "./SessionInlineLink.js";
+import { SessionStatusDot } from "./SessionStatusDot.js";
+import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
+import type { BoardParticipantStatus, BoardRowSessionStatus } from "../types.js";
 
 /** A row in the leader's work board (matches server BoardRow). */
 export interface BoardRowData {
@@ -36,6 +36,9 @@ export interface BoardRowData {
 }
 
 export type BoardTableMode = "active" | "completed";
+
+const SESSION_LINK_CLASSNAME =
+  "font-mono-code text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2";
 
 const JOURNEY_STATUS_PRIORITY = new Map([...QUEST_JOURNEY_STATES].reverse().map((status, index) => [status, index]));
 
@@ -194,135 +197,67 @@ export function QuestLink({ questId }: { questId: string }) {
   );
 }
 
-/** Clickable worker session link with hover preview card -- navigates to the worker session. */
+/** Clickable session link with the shared orange inline-session styling. */
 export function WorkerLink({ sessionId, sessionNum }: { sessionId: string; sessionNum?: number }) {
-  const sessions = useStore((s) => s.sessions);
-  const sdkSessions = useStore((s) => s.sdkSessions);
-  const sessionNames = useStore((s) => s.sessionNames);
-  const sessionPreviews = useStore((s) => s.sessionPreviews);
-  const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
-  const pendingPermissions = useStore((s) => s.pendingPermissions);
-  const cliConnected = useStore((s) => s.cliConnected);
-  const sessionStatus = useStore((s) => s.sessionStatus);
-  const askPermission = useStore((s) => s.askPermission);
-  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
-
-  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    },
-    [],
+  return (
+    <SessionInlineLink sessionId={sessionId} sessionNum={sessionNum} className={SESSION_LINK_CLASSNAME}>
+      {`#${sessionNum ?? "?"}`}
+    </SessionInlineLink>
   );
+}
 
-  // Resolve SDK session info for this worker
-  const sdkInfo = useMemo(() => sdkSessions.find((s) => s.sessionId === sessionId), [sdkSessions, sessionId]);
-
-  // Assemble the full SessionItem for the hover card
-  const sessionItem = useMemo<SessionItemType | null>(() => {
-    const bridgeState = sessions.get(sessionId);
-    if (!bridgeState && !sdkInfo) return null;
-
-    const sdkGitAhead = sdkInfo?.gitAhead ?? 0;
-    const sdkGitBehind = sdkInfo?.gitBehind ?? 0;
-    const gitAhead =
-      bridgeState?.git_ahead === 0 && sdkGitAhead > 0 ? sdkGitAhead : (bridgeState?.git_ahead ?? sdkGitAhead);
-    const gitBehind =
-      bridgeState?.git_behind === 0 && sdkGitBehind > 0 ? sdkGitBehind : (bridgeState?.git_behind ?? sdkGitBehind);
-
-    return {
-      id: sessionId,
-      model: bridgeState?.model || sdkInfo?.model || "",
-      cwd: bridgeState?.cwd || sdkInfo?.cwd || "",
-      gitBranch: bridgeState?.git_branch || sdkInfo?.gitBranch || "",
-      isContainerized: bridgeState?.is_containerized || !!sdkInfo?.containerId || false,
-      gitAhead,
-      gitBehind,
-      linesAdded: bridgeState?.total_lines_added ?? sdkInfo?.totalLinesAdded ?? 0,
-      linesRemoved: bridgeState?.total_lines_removed ?? sdkInfo?.totalLinesRemoved ?? 0,
-      isConnected: cliConnected.get(sessionId) ?? sdkInfo?.cliConnected ?? false,
-      status: sessionStatus.get(sessionId) ?? null,
-      sdkState: sdkInfo?.state ?? null,
-      createdAt: sdkInfo?.createdAt ?? 0,
-      archived: sdkInfo?.archived ?? false,
-      archivedAt: sdkInfo?.archivedAt,
-      backendType: bridgeState?.backend_type || sdkInfo?.backendType || "claude",
-      repoRoot: bridgeState?.repo_root || sdkInfo?.repoRoot || "",
-      permCount: countUserPermissions(pendingPermissions.get(sessionId)),
-      cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
-      cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
-      isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
-      worktreeExists: sdkInfo?.worktreeExists,
-      worktreeDirty: sdkInfo?.worktreeDirty,
-      worktreeCleanupStatus: sdkInfo?.worktreeCleanupStatus,
-      worktreeCleanupError: sdkInfo?.worktreeCleanupError,
-      askPermission: askPermission.get(sessionId),
-      idleKilled: cliDisconnectReason.get(sessionId) === "idle_limit",
-      lastActivityAt: sdkInfo?.lastActivityAt,
-      isOrchestrator: sdkInfo?.isOrchestrator || false,
-      herdedBy: sdkInfo?.herdedBy,
-      sessionNum: sdkInfo?.sessionNum ?? sessionNum ?? null,
-    };
-  }, [
-    askPermission,
-    cliConnected,
-    cliDisconnectReason,
-    pendingPermissions,
-    sdkInfo,
-    sessionId,
-    sessionNum,
-    sessionStatus,
-    sessions,
-  ]);
-
-  const handleClick = useCallback(
-    (e: MouseEvent<HTMLButtonElement>) => {
-      e.stopPropagation();
-      navigateToSession(sessionId);
-    },
-    [sessionId],
-  );
-
-  function handleMouseEnter(e: MouseEvent<HTMLButtonElement>) {
-    if (!sessionItem) return;
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    setHoverRect(e.currentTarget.getBoundingClientRect());
+function dotPropsForParticipant(status: BoardParticipantStatus["status"]) {
+  if (status === "archived") {
+    return { archived: true, permCount: 0, isConnected: false, sdkState: "exited" as const, status: null };
   }
-
-  function handleMouseLeave() {
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => setHoverRect(null), 100);
+  if (status === "disconnected") {
+    return { permCount: 0, isConnected: false, sdkState: "exited" as const, status: null };
   }
+  if (status === "running") {
+    return { permCount: 0, isConnected: true, sdkState: "running" as const, status: "running" as const };
+  }
+  return { permCount: 0, isConnected: true, sdkState: "connected" as const, status: "idle" as const };
+}
+
+function BoardSessionEntry({
+  participant,
+  sessionId,
+  sessionNum,
+}: {
+  participant?: BoardParticipantStatus | null;
+  sessionId?: string;
+  sessionNum?: number;
+}) {
+  const resolvedSessionId = participant?.sessionId ?? sessionId ?? null;
+  const resolvedSessionNum = participant?.sessionNum ?? sessionNum ?? undefined;
+  if (!resolvedSessionId) return null;
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={handleClick}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        className="font-mono-code text-green-400 hover:text-green-300 hover:underline cursor-pointer transition-colors"
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      {participant && <SessionStatusDot className="mt-0" {...dotPropsForParticipant(participant.status)} />}
+      <SessionInlineLink
+        sessionId={resolvedSessionId}
+        sessionNum={resolvedSessionNum}
+        className={SESSION_LINK_CLASSNAME}
       >
-        #{sessionNum ?? "?"}
-      </button>
-      {sessionItem && hoverRect && (
-        <SessionHoverCard
-          session={sessionItem}
-          sessionName={sessionNames.get(sessionId)}
-          sessionPreview={sessionPreviews.get(sessionId)}
-          taskHistory={sessionTaskHistory.get(sessionId)}
-          sessionState={sessions.get(sessionId)}
-          cliSessionId={sdkInfo?.cliSessionId}
-          anchorRect={hoverRect}
-          onMouseEnter={() => {
-            if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-          }}
-          onMouseLeave={() => setHoverRect(null)}
-        />
+        {`#${resolvedSessionNum ?? "?"}`}
+      </SessionInlineLink>
+    </span>
+  );
+}
+
+function SessionCell({ row, rowStatus }: { row: BoardRowData; rowStatus?: BoardRowSessionStatus }) {
+  const hasWorker = !!row.worker || !!rowStatus?.worker;
+  const hasReviewer = !!rowStatus?.reviewer;
+  if (!hasWorker && !hasReviewer) return <span className="text-cc-muted">{"\u2014"}</span>;
+
+  return (
+    <div className="flex min-w-0 flex-col gap-1">
+      {hasWorker && (
+        <BoardSessionEntry participant={rowStatus?.worker} sessionId={row.worker} sessionNum={row.workerNum} />
       )}
-    </>
+      {hasReviewer && <BoardSessionEntry participant={rowStatus?.reviewer} />}
+    </div>
   );
 }
 
@@ -354,15 +289,14 @@ function StatusCell({ row }: { row: BoardRowData }) {
   const status = row.status;
   if (!status) return <span className="text-cc-muted">{"\u2014"}</span>;
 
+  if (row.journey?.phaseIds?.length) {
+    return <QuestJourneyTimeline journey={row.journey} status={row.status} compact />;
+  }
+
   const presentation = getQuestJourneyPresentation(status);
-  const currentPhase = getQuestJourneyPhase(row.journey?.currentPhaseId);
-  const plannedPhases = row.journey?.phaseIds.map((phaseId) => getQuestJourneyPhase(phaseId)?.label ?? phaseId);
-  const title = plannedPhases?.length
-    ? `Quest Journey phases: ${plannedPhases.join(" -> ")}${currentPhase ? `; current phase: ${currentPhase.label}` : ""}${row.journey?.revisionReason ? `; revised: ${row.journey.revisionReason}` : ""}`
-    : undefined;
   return (
-    <span title={title} className={`block max-w-full truncate ${presentation?.textClassName ?? "text-cc-muted"}`}>
-      {currentPhase?.label ?? presentation?.label ?? status}
+    <span className={`block max-w-full truncate ${presentation?.textClassName ?? "text-cc-muted"}`}>
+      {presentation?.label ?? status}
     </span>
   );
 }
@@ -371,9 +305,11 @@ function StatusCell({ row }: { row: BoardRowData }) {
 export const BoardTable = memo(function BoardTable({
   board,
   mode = "active",
+  rowSessionStatuses,
 }: {
   board: BoardRowData[];
   mode?: BoardTableMode;
+  rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
 }) {
   if (board.length === 0) {
     return <div className="px-3 py-3 text-xs text-cc-muted italic">Board is empty</div>;
@@ -388,8 +324,8 @@ export const BoardTable = memo(function BoardTable({
         <thead>
           <tr className="text-cc-muted border-b border-cc-border">
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Quest</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Worker</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Status</th>
+            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Sessions</th>
+            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Journey</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Title</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">
               {isCompleted ? "Completed Time" : "Wait For"}
@@ -403,13 +339,9 @@ export const BoardTable = memo(function BoardTable({
                 <QuestLink questId={row.questId} />
               </td>
               <td className="px-3 py-1.5 whitespace-nowrap">
-                {row.worker ? (
-                  <WorkerLink sessionId={row.worker} sessionNum={row.workerNum} />
-                ) : (
-                  <span className="text-cc-muted">{"\u2014"}</span>
-                )}
+                <SessionCell row={row} rowStatus={rowSessionStatuses?.[row.questId]} />
               </td>
-              <td className="px-3 py-1.5 max-w-[250px]">
+              <td className="px-3 py-1.5 max-w-[360px]">
                 <StatusCell row={row} />
               </td>
               <td className="px-3 py-1.5 text-cc-fg max-w-[200px] truncate">{row.title || "\u2014"}</td>

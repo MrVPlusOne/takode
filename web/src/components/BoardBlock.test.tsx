@@ -7,16 +7,23 @@ import type { BoardRowData } from "./BoardTable.js";
 
 vi.mock("../store.js", () => ({
   useStore: (
-    selector: (state: { latestBoardToolUseId: Map<string, string>; setLatestBoardToolUseId: () => void }) => unknown,
+    selector: (state: {
+      latestBoardToolUseId: Map<string, string>;
+      sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
+      setLatestBoardToolUseId: () => void;
+    }) => unknown,
   ) =>
     selector({
       latestBoardToolUseId: new Map<string, string>(),
+      sessionBoardRowStatuses: new Map(),
       setLatestBoardToolUseId: () => {},
     }),
 }));
 
 vi.mock("./BoardTable.js", () => ({
-  BoardTable: ({ board }: { board: BoardRowData[] }) => <div data-testid="board-table">{board.length} rows</div>,
+  BoardTable: ({ board }: { board: BoardRowData[]; rowSessionStatuses?: unknown }) => (
+    <div data-testid="board-table">{board.length} rows</div>
+  ),
 }));
 
 vi.mock("./CollapseFooter.js", () => ({

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import "@testing-library/jest-dom";
 import { useStore } from "../store.js";
 
 // Mock the api module
@@ -146,6 +147,54 @@ describe("QuestDetailPanel", () => {
     // Tags
     expect(screen.getByText("ui")).toBeTruthy();
     expect(screen.getByText("mobile")).toBeTruthy();
+  });
+
+  it("shows the reusable Journey timeline when the quest is active on the board", () => {
+    const quest = makeVerificationQuest({ questId: "q-42", status: "in_progress" });
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: "q-42",
+      sessionBoards: new Map([
+        [
+          "leader-1",
+          [
+            {
+              questId: "q-42",
+              status: "IMPLEMENTING",
+              updatedAt: 1,
+              journey: {
+                presetId: "full-code",
+                phaseIds: ["alignment", "implement", "code-review", "port"],
+                currentPhaseId: "implement",
+              },
+            },
+          ],
+        ],
+      ]),
+    });
+
+    render(<QuestDetailPanel />);
+
+    const timeline = screen.getByTestId("quest-journey-timeline");
+    expect(within(timeline).getByText("Alignment")).toBeInTheDocument();
+    expect(within(timeline).getByText("Implement")).toBeInTheDocument();
+    expect(within(timeline).getByText("Code Review")).toBeInTheDocument();
+    expect(within(timeline).getByText("Port")).toBeInTheDocument();
+  });
+
+  it("does not show the Journey timeline when the quest is not active on the board", () => {
+    const quest = makeVerificationQuest({ questId: "q-42", status: "in_progress" });
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: "q-42",
+      sessionBoards: new Map([
+        ["leader-1", [{ questId: "q-99", status: "IMPLEMENTING", updatedAt: 1, journey: { phaseIds: ["implement"] } }]],
+      ]),
+    });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.queryByTestId("quest-journey-timeline")).toBeNull();
   });
 
   it("renders nothing when questOverlayId does not match any quest", () => {
