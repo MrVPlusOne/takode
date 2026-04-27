@@ -38,6 +38,48 @@ interface SettingsPageProps {
   isActive?: boolean;
 }
 
+interface CodexLeaderThresholdOverrideDraft {
+  modelId: string;
+  thresholdTokens: string;
+}
+
+function codexLeaderThresholdOverrideDraftsFromSettings(
+  overrides: Record<string, number> | undefined,
+): CodexLeaderThresholdOverrideDraft[] {
+  return Object.entries(overrides ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([modelId, thresholdTokens]) => ({
+      modelId,
+      thresholdTokens: String(thresholdTokens),
+    }));
+}
+
+function parseCodexLeaderThresholdOverrideDrafts(
+  drafts: CodexLeaderThresholdOverrideDraft[],
+): { ok: true; value: Record<string, number> } | { ok: false; error: string } {
+  const overrides: Record<string, number> = {};
+  for (const draft of drafts) {
+    const modelId = draft.modelId.trim();
+    const rawThreshold = draft.thresholdTokens.trim();
+    if (!modelId && !rawThreshold) continue;
+    if (!modelId || !rawThreshold) {
+      return { ok: false, error: "Each Codex leader model override needs both a model ID and a threshold." };
+    }
+    const thresholdTokens = Number(rawThreshold);
+    if (!Number.isInteger(thresholdTokens) || thresholdTokens < 1) {
+      return { ok: false, error: `Threshold for ${modelId} must be a positive integer.` };
+    }
+    if (overrides[modelId] !== undefined) {
+      return { ok: false, error: `Duplicate Codex leader model override: ${modelId}` };
+    }
+    overrides[modelId] = thresholdTokens;
+  }
+  return {
+    ok: true,
+    value: Object.fromEntries(Object.entries(overrides).sort(([left], [right]) => left.localeCompare(right))),
+  };
+}
+
 export function SettingsPage({ embedded = false, isActive = true }: SettingsPageProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -84,6 +126,12 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [binError, setBinError] = useState("");
   const [codexLeaderContextWindowOverrideTokens, setCodexLeaderContextWindowOverrideTokens] = useState(1_000_000);
   const [codexLeaderRecycleThresholdTokens, setCodexLeaderRecycleThresholdTokens] = useState(260_000);
+  const [codexLeaderRecycleThresholdTokensByModel, setCodexLeaderRecycleThresholdTokensByModel] = useState<
+    Record<string, number>
+  >({});
+  const [codexLeaderThresholdOverrideDrafts, setCodexLeaderThresholdOverrideDrafts] = useState<
+    CodexLeaderThresholdOverrideDraft[]
+  >([]);
   const [codexLeaderSettingsSaving, setCodexLeaderSettingsSaving] = useState(false);
   const [codexLeaderSettingsError, setCodexLeaderSettingsError] = useState("");
   const [claudeTest, setClaudeTest] = useState<{
@@ -232,6 +280,10 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setCodexBin(s.codexBinary || "");
         setCodexLeaderContextWindowOverrideTokens(s.codexLeaderContextWindowOverrideTokens ?? 1_000_000);
         setCodexLeaderRecycleThresholdTokens(s.codexLeaderRecycleThresholdTokens ?? 260_000);
+        setCodexLeaderRecycleThresholdTokensByModel(s.codexLeaderRecycleThresholdTokensByModel ?? {});
+        setCodexLeaderThresholdOverrideDrafts(
+          codexLeaderThresholdOverrideDraftsFromSettings(s.codexLeaderRecycleThresholdTokensByModel),
+        );
         setDefaultClaudeBackend(s.defaultClaudeBackend || "claude");
         setLogFile(s.logFile || "");
         setMaxKeepAlive(s.maxKeepAlive || 0);
@@ -417,7 +469,11 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     }, 800);
   }
 
-  function debouncedSaveCodexLeaderSettings(newWindow: number, newThreshold: number) {
+  function debouncedSaveCodexLeaderSettings(
+    newWindow: number,
+    newThreshold: number,
+    newThresholdsByModel: Record<string, number>,
+  ) {
     if (codexLeaderSettingsDebounceRef.current) clearTimeout(codexLeaderSettingsDebounceRef.current);
     codexLeaderSettingsDebounceRef.current = setTimeout(async () => {
       setCodexLeaderSettingsSaving(true);
@@ -426,15 +482,46 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         const res = await api.updateSettings({
           codexLeaderContextWindowOverrideTokens: newWindow,
           codexLeaderRecycleThresholdTokens: newThreshold,
+          codexLeaderRecycleThresholdTokensByModel: newThresholdsByModel,
         });
         setCodexLeaderContextWindowOverrideTokens(res.codexLeaderContextWindowOverrideTokens ?? newWindow);
         setCodexLeaderRecycleThresholdTokens(res.codexLeaderRecycleThresholdTokens ?? newThreshold);
+        const nextThresholdsByModel = res.codexLeaderRecycleThresholdTokensByModel ?? newThresholdsByModel;
+        setCodexLeaderRecycleThresholdTokensByModel(nextThresholdsByModel);
+        setCodexLeaderThresholdOverrideDrafts(codexLeaderThresholdOverrideDraftsFromSettings(nextThresholdsByModel));
       } catch (err: unknown) {
         setCodexLeaderSettingsError(err instanceof Error ? err.message : String(err));
       } finally {
         setCodexLeaderSettingsSaving(false);
       }
     }, 800);
+  }
+
+  function updateCodexLeaderThresholdOverrideDrafts(nextDrafts: CodexLeaderThresholdOverrideDraft[]) {
+    setCodexLeaderThresholdOverrideDrafts(nextDrafts);
+    const parsed = parseCodexLeaderThresholdOverrideDrafts(nextDrafts);
+    if (!parsed.ok) {
+      setCodexLeaderSettingsError(parsed.error);
+      return;
+    }
+    setCodexLeaderSettingsError("");
+    setCodexLeaderRecycleThresholdTokensByModel(parsed.value);
+    debouncedSaveCodexLeaderSettings(
+      codexLeaderContextWindowOverrideTokens,
+      codexLeaderRecycleThresholdTokens,
+      parsed.value,
+    );
+  }
+
+  function updateCodexLeaderThresholdOverrideDraft(
+    index: number,
+    patch: Partial<CodexLeaderThresholdOverrideDraft>,
+  ): void {
+    updateCodexLeaderThresholdOverrideDrafts(
+      codexLeaderThresholdOverrideDrafts.map((draft, draftIndex) =>
+        draftIndex === index ? { ...draft, ...patch } : draft,
+      ),
+    );
   }
 
   async function onTestBinary(which: "claude" | "codex") {
@@ -864,7 +951,11 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   onChange={(e) => {
                     const next = Math.max(1, Number(e.target.value) || 1);
                     setCodexLeaderContextWindowOverrideTokens(next);
-                    debouncedSaveCodexLeaderSettings(next, codexLeaderRecycleThresholdTokens);
+                    debouncedSaveCodexLeaderSettings(
+                      next,
+                      codexLeaderRecycleThresholdTokens,
+                      codexLeaderRecycleThresholdTokensByModel,
+                    );
                   }}
                   className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
                 />
@@ -876,7 +967,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
 
               <div hidden={settingsSearch.rowHidden("cli", "codex-leader-recycle-threshold")}>
                 <label className="block text-sm font-medium mb-1.5" htmlFor="codex-leader-recycle-threshold">
-                  Codex Leader Recycle Threshold
+                  Codex Leader Default Recycle Threshold
                 </label>
                 <input
                   id="codex-leader-recycle-threshold"
@@ -887,13 +978,85 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   onChange={(e) => {
                     const next = Math.max(1, Number(e.target.value) || 1);
                     setCodexLeaderRecycleThresholdTokens(next);
-                    debouncedSaveCodexLeaderSettings(codexLeaderContextWindowOverrideTokens, next);
+                    debouncedSaveCodexLeaderSettings(
+                      codexLeaderContextWindowOverrideTokens,
+                      next,
+                      codexLeaderRecycleThresholdTokensByModel,
+                    );
                   }}
                   className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
                 />
                 <p className="mt-1.5 text-xs text-cc-muted">
-                  When tracked Codex leader context usage crosses this many tokens, Takode recycles the underlying Codex
-                  thread in place and reuses the same Takode session.
+                  Fallback threshold for Codex leaders whose model ID does not have an explicit override below.
+                </p>
+              </div>
+
+              <div hidden={settingsSearch.rowHidden("cli", "codex-leader-recycle-threshold-overrides")}>
+                <div className="flex items-center justify-between gap-3 mb-1.5">
+                  <label className="block text-sm font-medium" htmlFor="codex-leader-recycle-threshold-model-0">
+                    Codex Leader Model Threshold Overrides
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCodexLeaderThresholdOverrideDrafts([
+                        ...codexLeaderThresholdOverrideDrafts,
+                        { modelId: "", thresholdTokens: "" },
+                      ])
+                    }
+                    className="px-2.5 py-1 text-xs rounded-md border border-cc-border text-cc-fg bg-cc-hover hover:bg-cc-active cursor-pointer"
+                  >
+                    Add Override
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {codexLeaderThresholdOverrideDrafts.length === 0 && (
+                    <p className="text-xs text-cc-muted">No model-specific overrides. The default threshold applies.</p>
+                  )}
+                  {codexLeaderThresholdOverrideDrafts.map((draft, index) => (
+                    <div
+                      key={`${draft.modelId || "draft"}-${index}`}
+                      className="grid grid-cols-[minmax(0,1fr)_160px_auto] gap-2"
+                    >
+                      <input
+                        id={`codex-leader-recycle-threshold-model-${index}`}
+                        aria-label={`Codex Leader Recycle Threshold Model ${index + 1}`}
+                        type="text"
+                        value={draft.modelId}
+                        placeholder="gpt-5.4"
+                        onChange={(e) => updateCodexLeaderThresholdOverrideDraft(index, { modelId: e.target.value })}
+                        className="min-w-0 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+                      />
+                      <input
+                        aria-label={`Codex Leader Recycle Threshold Tokens ${index + 1}`}
+                        type="number"
+                        min={1}
+                        step={1000}
+                        value={draft.thresholdTokens}
+                        placeholder="430000"
+                        onChange={(e) =>
+                          updateCodexLeaderThresholdOverrideDraft(index, { thresholdTokens: e.target.value })
+                        }
+                        className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateCodexLeaderThresholdOverrideDrafts(
+                            codexLeaderThresholdOverrideDrafts.filter((_, draftIndex) => draftIndex !== index),
+                          )
+                        }
+                        className="px-2.5 py-2 text-xs rounded-md border border-cc-border text-cc-fg bg-cc-hover hover:bg-cc-active cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-xs text-cc-muted">
+                  Match exact Session Info model IDs such as <code>gpt-5.4</code> or <code>gpt-5.5</code>. When tracked
+                  Codex leader usage crosses the resolved threshold, Takode recycles the underlying Codex thread in
+                  place and keeps the same Takode session.
                 </p>
               </div>
 

@@ -388,6 +388,7 @@ export interface AppSettings {
   questmasterViewMode: QuestmasterViewMode;
   codexLeaderContextWindowOverrideTokens: number;
   codexLeaderRecycleThresholdTokens: number;
+  codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -947,6 +948,7 @@ export const api = {
     questmasterViewMode?: QuestmasterViewMode;
     codexLeaderContextWindowOverrideTokens?: number;
     codexLeaderRecycleThresholdTokens?: number;
+    codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   }) => put<AppSettings>("/settings", data),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),

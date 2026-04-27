@@ -145,6 +145,7 @@ beforeEach(() => {
     codexBinary: "",
     codexLeaderContextWindowOverrideTokens: 1_000_000,
     codexLeaderRecycleThresholdTokens: 260_000,
+    codexLeaderRecycleThresholdTokensByModel: {},
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
     editorConfig: { editor: "none" },
@@ -161,6 +162,7 @@ beforeEach(() => {
     codexBinary: "",
     codexLeaderContextWindowOverrideTokens: 1_000_000,
     codexLeaderRecycleThresholdTokens: 260_000,
+    codexLeaderRecycleThresholdTokensByModel: {},
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
     editorConfig: { editor: "none" },
@@ -772,6 +774,7 @@ describe("SettingsPage", () => {
       codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_100_000,
       codexLeaderRecycleThresholdTokens: 275_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       editorConfig: { editor: "none" },
@@ -788,6 +791,7 @@ describe("SettingsPage", () => {
       codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_200_000,
       codexLeaderRecycleThresholdTokens: 280_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       editorConfig: { editor: "none" },
@@ -798,20 +802,39 @@ describe("SettingsPage", () => {
 
     const cliSection = settingsSection("CLI & Backends");
     const windowInput = within(cliSection).getByLabelText("Codex Leader Context Window") as HTMLInputElement;
-    const thresholdInput = within(cliSection).getByLabelText("Codex Leader Recycle Threshold") as HTMLInputElement;
+    const thresholdInput = within(cliSection).getByLabelText(
+      "Codex Leader Default Recycle Threshold",
+    ) as HTMLInputElement;
+    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1") as HTMLInputElement;
+    const overrideInput = within(cliSection).getByLabelText(
+      "Codex Leader Recycle Threshold Tokens 1",
+    ) as HTMLInputElement;
 
     expect(windowInput.value).toBe("1100000");
     expect(thresholdInput.value).toBe("275000");
+    expect(modelInput.value).toBe("gpt-5.4");
+    expect(overrideInput.value).toBe("430000");
 
     vi.useFakeTimers();
     try {
       fireEvent.change(windowInput, { target: { value: "1200000" } });
       fireEvent.change(thresholdInput, { target: { value: "280000" } });
+      fireEvent.click(within(cliSection).getByRole("button", { name: "Add Override" }));
+      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 2"), {
+        target: { value: "gpt-5.5" },
+      });
+      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Tokens 1"), {
+        target: { value: "440000" },
+      });
+      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Tokens 2"), {
+        target: { value: "320000" },
+      });
       await vi.advanceTimersByTimeAsync(900);
 
       expect(mockApi.updateSettings).toHaveBeenLastCalledWith({
         codexLeaderContextWindowOverrideTokens: 1_200_000,
         codexLeaderRecycleThresholdTokens: 280_000,
+        codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
       });
     } finally {
       vi.useRealTimers();

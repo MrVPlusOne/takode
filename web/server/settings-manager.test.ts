@@ -69,6 +69,7 @@ describe("settings-manager", () => {
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
       updatedAt: 0,
+      codexLeaderRecycleThresholdTokensByModel: {},
     });
   });
 
@@ -347,6 +348,28 @@ describe("settings-manager", () => {
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
       updatedAt: 0,
+      codexLeaderRecycleThresholdTokensByModel: {},
+    });
+  });
+
+  it("normalizes per-model Codex leader recycle thresholds from disk", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        codexLeaderRecycleThresholdTokensByModel: {
+          " gpt-5.5 ": 320_000,
+          "": 111,
+          "gpt-5.4": 430_000.9,
+          "gpt-5.3-codex": 0,
+        },
+      }),
+      "utf-8",
+    );
+    _resetForTest(settingsPath);
+
+    expect(getSettings().codexLeaderRecycleThresholdTokensByModel).toEqual({
+      "gpt-5.4": 430_000,
+      "gpt-5.5": 320_000,
     });
   });
 

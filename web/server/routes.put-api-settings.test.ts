@@ -635,6 +635,7 @@ describe("PUT /api/settings", () => {
       questmasterViewMode: "cards",
       codexLeaderContextWindowOverrideTokens: 1_000_000,
       codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: {},
     });
   });
 
@@ -1258,6 +1259,91 @@ describe("PUT /api/settings", () => {
       customVocabulary: "Takode, WsBridge, Questmaster",
     });
     expect(JSON.stringify(json)).not.toContain("persisted-transcription-secret");
+  });
+
+  it("updates per-model Codex leader recycle thresholds", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
+      sleepInhibitorEnabled: false,
+      sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: {
+        "gpt-5.4": 430_000,
+        "gpt-5.5": 320_000,
+      },
+      updatedAt: 456,
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codexLeaderRecycleThresholdTokens: 260_000,
+        codexLeaderRecycleThresholdTokensByModel: {
+          " gpt-5.4 ": 430_000,
+          "gpt-5.5": 320_000,
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codexLeaderRecycleThresholdTokens: 260_000,
+        codexLeaderRecycleThresholdTokensByModel: {
+          "gpt-5.4": 430_000,
+          "gpt-5.5": 320_000,
+        },
+      }),
+    );
+
+    const json = await res.json();
+    expect(json.codexLeaderRecycleThresholdTokensByModel).toEqual({
+      "gpt-5.4": 430_000,
+      "gpt-5.5": 320_000,
+    });
+  });
+
+  it("rejects invalid per-model Codex leader recycle thresholds", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codexLeaderRecycleThresholdTokensByModel: {
+          "gpt-5.4": "430000",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "codexLeaderRecycleThresholdTokensByModel.gpt-5.4 must be a positive integer",
+    });
   });
 
   it("updates editorConfig setting", async () => {

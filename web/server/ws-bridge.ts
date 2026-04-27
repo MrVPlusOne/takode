@@ -2179,7 +2179,14 @@ export class WsBridge {
     const codexRecoveryDeps = this.getCodexRecoveryOrchestratorDeps();
     return {
       ...runtime,
-      getCodexLeaderRecycleThresholdTokens: () => getSettings().codexLeaderRecycleThresholdTokens,
+      getCodexLeaderRecycleThresholdTokens: (modelId?: string) => {
+        const settings = getSettings();
+        const normalizedModelId = typeof modelId === "string" ? modelId.trim() : "";
+        const override = normalizedModelId
+          ? settings.codexLeaderRecycleThresholdTokensByModel?.[normalizedModelId]
+          : undefined;
+        return typeof override === "number" && override >= 1 ? override : settings.codexLeaderRecycleThresholdTokens;
+      },
       getLauncherSessionInfo: (sessionId: string) => this.launcher?.getSession(sessionId),
       touchActivity: (sessionId: string) => this.launcher?.touchActivity(sessionId),
       clearOptimisticRunningTimer: (targetSession: unknown, reason: string) =>

@@ -605,6 +605,7 @@ describe("GET /api/settings", () => {
       questmasterViewMode: "cards",
       codexLeaderContextWindowOverrideTokens: 1_000_000,
       codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: {},
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),
@@ -679,6 +680,7 @@ describe("GET /api/settings", () => {
       questmasterViewMode: "cards",
       codexLeaderContextWindowOverrideTokens: 1_000_000,
       codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: {},
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),

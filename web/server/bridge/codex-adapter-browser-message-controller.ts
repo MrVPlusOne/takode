@@ -54,7 +54,7 @@ function shouldTriggerCodexLeaderThresholdRecycle(
 }
 
 export interface CodexAdapterBrowserMessageDeps {
-  getCodexLeaderRecycleThresholdTokens: () => number;
+  getCodexLeaderRecycleThresholdTokens: (modelId?: string) => number;
   getLauncherSessionInfo: (sessionId: string) => CodexLeaderRecycleLauncherInfo | null | undefined;
   touchActivity: (sessionId: string) => void;
   clearOptimisticRunningTimer: (session: CodexBrowserMessageSessionLike, reason: string) => void;
@@ -146,7 +146,7 @@ export async function handleCodexAdapterBrowserMessage(
     deps.cacheSlashCommandState(session, sanitized);
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
-    const recycleThresholdTokens = deps.getCodexLeaderRecycleThresholdTokens();
+    const recycleThresholdTokens = deps.getCodexLeaderRecycleThresholdTokens(session.state.model);
     const contextTokensUsed = session.state.codex_token_details?.contextTokensUsed;
     if (shouldTriggerCodexLeaderThresholdRecycle(launcherInfo, contextTokensUsed, recycleThresholdTokens)) {
       const recycle = await deps.requestCodexLeaderRecycle(session, "threshold");

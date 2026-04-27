@@ -84,6 +84,38 @@ export function createSettingsRoutes(ctx: RouteContext) {
     return { backend: "claude" };
   }
 
+  function parseCodexLeaderRecycleThresholdTokensByModelFromBody(
+    raw: unknown,
+  ): { ok: true; value: Record<string, number> } | { ok: false; error: string } {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { ok: false, error: "codexLeaderRecycleThresholdTokensByModel must be an object" };
+    }
+    const normalizedEntries: Array<[string, number]> = [];
+    const seenModelIds = new Set<string>();
+    for (const [rawModelId, rawThreshold] of Object.entries(raw as Record<string, unknown>)) {
+      const modelId = rawModelId.trim();
+      if (!modelId) {
+        return { ok: false, error: "codexLeaderRecycleThresholdTokensByModel keys must be non-empty strings" };
+      }
+      if (seenModelIds.has(modelId)) {
+        return {
+          ok: false,
+          error: `codexLeaderRecycleThresholdTokensByModel contains duplicate model key after trimming: ${modelId}`,
+        };
+      }
+      if (typeof rawThreshold !== "number" || rawThreshold < 1 || !Number.isInteger(rawThreshold)) {
+        return {
+          ok: false,
+          error: `codexLeaderRecycleThresholdTokensByModel.${modelId} must be a positive integer`,
+        };
+      }
+      seenModelIds.add(modelId);
+      normalizedEntries.push([modelId, rawThreshold]);
+    }
+    normalizedEntries.sort(([left], [right]) => left.localeCompare(right));
+    return { ok: true, value: Object.fromEntries(normalizedEntries) };
+  }
+
   /** Mask sensitive fields in TranscriptionConfig for API responses. */
   function maskTranscriptionConfig(config: TranscriptionConfig): TranscriptionConfig {
     return { ...config, apiKey: config.apiKey ? "***" : "" };
@@ -181,6 +213,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
       codexLeaderContextWindowOverrideTokens: settings.codexLeaderContextWindowOverrideTokens,
       codexLeaderRecycleThresholdTokens: settings.codexLeaderRecycleThresholdTokens,
+      codexLeaderRecycleThresholdTokensByModel: settings.codexLeaderRecycleThresholdTokensByModel ?? {},
       ...(extras?.includeRuntimeInfo
         ? {
             restartSupported: !!process.env.COMPANION_SUPERVISED,
@@ -213,6 +246,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
   api.put("/settings", async (c) => {
     const body = await c.req.json().catch(() => ({}));
+    const parsedCodexLeaderRecycleThresholdTokensByModel =
+      body.codexLeaderRecycleThresholdTokensByModel !== undefined
+        ? parseCodexLeaderRecycleThresholdTokensByModelFromBody(body.codexLeaderRecycleThresholdTokensByModel)
+        : null;
     if (body.serverName !== undefined && typeof body.serverName !== "string") {
       return c.json({ error: "serverName must be a string" }, 400);
     }
@@ -353,6 +390,13 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: "codexLeaderRecycleThresholdTokens must be a positive integer" }, 400);
     }
+    if (
+      body.codexLeaderRecycleThresholdTokensByModel !== undefined &&
+      parsedCodexLeaderRecycleThresholdTokensByModel &&
+      !parsedCodexLeaderRecycleThresholdTokensByModel.ok
+    ) {
+      return c.json({ error: parsedCodexLeaderRecycleThresholdTokensByModel.error }, 400);
+    }
 
     // Check that at least one known field is present
     const knownFields = [
@@ -379,6 +423,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "questmasterViewMode",
       "codexLeaderContextWindowOverrideTokens",
       "codexLeaderRecycleThresholdTokens",
+      "codexLeaderRecycleThresholdTokensByModel",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -426,6 +471,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
           : undefined,
       codexLeaderRecycleThresholdTokens:
         typeof body.codexLeaderRecycleThresholdTokens === "number" ? body.codexLeaderRecycleThresholdTokens : undefined,
+      codexLeaderRecycleThresholdTokensByModel: parsedCodexLeaderRecycleThresholdTokensByModel?.ok
+        ? parsedCodexLeaderRecycleThresholdTokensByModel.value
+        : undefined,
     });
 
     return c.json(buildSettingsResponse(settings));

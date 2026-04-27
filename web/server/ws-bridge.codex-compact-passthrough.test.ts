@@ -6,6 +6,7 @@ const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue
 const mockGetSettings = vi.hoisted(() =>
   vi.fn(() => ({
     codexLeaderRecycleThresholdTokens: 260_000,
+    codexLeaderRecycleThresholdTokensByModel: {},
   })),
 );
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
@@ -545,6 +546,10 @@ beforeEach(() => {
   bridge.resetTrafficStats();
   mockExecSync.mockReset();
   mockExec.mockReset();
+  mockGetSettings.mockReset().mockReturnValue({
+    codexLeaderRecycleThresholdTokens: 260_000,
+    codexLeaderRecycleThresholdTokensByModel: {},
+  });
   mockShouldSettingsRuleApprove.mockReset().mockResolvedValue(null);
   // Default: mockExec delegates to mockExecSync so tests that set up
   // mockExecSync automatically work for async computeDiffStatsAsync too.
@@ -735,6 +740,79 @@ describe("Codex /compact passthrough", () => {
       expect.objectContaining({ trigger: "threshold" }),
     );
     expect(launcher.relaunch).toHaveBeenCalledWith("leader-threshold");
+  });
+
+  it("uses exact-model Codex leader recycle threshold overrides before the default fallback", async () => {
+    mockGetSettings.mockReturnValue({
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
+    });
+    const browser = makeBrowserSocket("leader-threshold-per-model");
+    const adapter = makeCodexAdapterMock();
+    const launcher = {
+      getSession: vi.fn((sessionId: string) =>
+        sessionId === "leader-threshold-per-model"
+          ? {
+              sessionId,
+              backendType: "codex",
+              isOrchestrator: true,
+              cliSessionId: "thread-threshold-per-model",
+              codexLeaderRecyclePending: null,
+            }
+          : null,
+      ),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-threshold-per-model", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-threshold-per-model", model: "gpt-5.4" });
+    bridge.handleBrowserOpen(browser, "leader-threshold-per-model");
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 31,
+        codex_token_details: {
+          contextTokensUsed: 300_000,
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 1_000_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).not.toHaveBeenCalled();
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 43,
+        codex_token_details: {
+          contextTokensUsed: 430_000,
+          inputTokens: 2,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 1_000_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).toHaveBeenCalledWith(
+      "leader-threshold-per-model",
+      expect.objectContaining({ trigger: "threshold" }),
+    );
+    expect(launcher.relaunch).toHaveBeenCalledWith("leader-threshold-per-model");
   });
 
   it("treats inherited over-threshold usage as informational after resume until it rises past the last threshold recycle", async () => {

@@ -58,6 +58,8 @@ export interface CompanionSettings {
   codexLeaderContextWindowOverrideTokens: number;
   /** Codex leader-only in-place recycle trigger based on tracked context tokens used. */
   codexLeaderRecycleThresholdTokens: number;
+  /** Optional exact-model recycle threshold overrides keyed by user-visible Codex model ID. */
+  codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   updatedAt: number;
 }
 
@@ -152,6 +154,7 @@ let settings: CompanionSettings = {
   questmasterViewMode: "cards",
   codexLeaderContextWindowOverrideTokens: 1_000_000,
   codexLeaderRecycleThresholdTokens: 260_000,
+  codexLeaderRecycleThresholdTokensByModel: {},
   updatedAt: 0,
 };
 let secrets: CompanionSecrets = {
@@ -173,6 +176,19 @@ function deriveSecretsPath(settingsPath: string): string {
 function resetPaths(nextFilePath: string): void {
   filePath = nextFilePath;
   secretsPath = deriveSecretsPath(nextFilePath);
+}
+
+function normalizeCodexLeaderRecycleThresholdTokensByModel(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const normalizedEntries: Array<[string, number]> = [];
+  for (const [rawModelId, rawThreshold] of Object.entries(raw as Record<string, unknown>)) {
+    const modelId = rawModelId.trim();
+    if (!modelId) continue;
+    if (typeof rawThreshold !== "number" || !Number.isFinite(rawThreshold) || rawThreshold < 1) continue;
+    normalizedEntries.push([modelId, Math.floor(rawThreshold)]);
+  }
+  normalizedEntries.sort(([left], [right]) => left.localeCompare(right));
+  return Object.fromEntries(normalizedEntries);
 }
 
 /** Parse namerConfig from raw settings, with backward compat for old flat fields. */
@@ -353,6 +369,9 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       typeof raw?.codexLeaderRecycleThresholdTokens === "number" && raw.codexLeaderRecycleThresholdTokens >= 1
         ? Math.floor(raw.codexLeaderRecycleThresholdTokens)
         : 260_000,
+    codexLeaderRecycleThresholdTokensByModel: normalizeCodexLeaderRecycleThresholdTokensByModel(
+      raw?.codexLeaderRecycleThresholdTokensByModel,
+    ),
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -452,6 +471,7 @@ export function updateSettings(
       | "questmasterViewMode"
       | "codexLeaderContextWindowOverrideTokens"
       | "codexLeaderRecycleThresholdTokens"
+      | "codexLeaderRecycleThresholdTokensByModel"
     >
   >,
 ): CompanionSettings {
