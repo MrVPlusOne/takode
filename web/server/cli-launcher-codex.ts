@@ -26,6 +26,7 @@ const shellEnvPolicySection = "shell_environment_policy";
 const shellEnvPolicyHeader = `[${shellEnvPolicySection}]`;
 const codexFeaturesHeader = "[features]";
 const codexMultiAgentFeature = "multi_agent";
+const codexImageGenerationFeature = "image_generation";
 const dotslashShebang = "#!/usr/bin/env dotslash";
 const codexBootstrapCacheMarker = 'CACHE_DIR = os.path.expanduser("~/.cache/codex")';
 const nodeShebangRe = /^#!.*\bnode(?:\s|$)/;
@@ -395,6 +396,10 @@ function readTopLevelStringSetting(configToml: string, key: string): string | un
   }
 
   return undefined;
+}
+
+function usesMaiLitellmProvider(configToml: string): boolean {
+  return readTopLevelStringSetting(configToml, "model_provider")?.trim().toLowerCase() === "mai-litellm";
 }
 
 function upsertTopLevelStringSetting(configToml: string, key: string, value: string): string {
@@ -870,6 +875,9 @@ async function ensureCodexSessionConfig(
   }
 
   let next = upsertBooleanSettingInSection(current, codexFeaturesHeader, codexMultiAgentFeature, true);
+  if (usesMaiLitellmProvider(next)) {
+    next = upsertBooleanSettingInSection(next, codexFeaturesHeader, codexImageGenerationFeature, false);
+  }
   next = upsertShellEnvironmentIncludeOnly(next, ["PATH", ...envVars]);
   const leaderContextWindowOverrideTokens = options?.leaderContextWindowOverrideTokens;
   const nonLeaderAutoCompactThresholdPercent = options?.nonLeaderAutoCompactThresholdPercent;

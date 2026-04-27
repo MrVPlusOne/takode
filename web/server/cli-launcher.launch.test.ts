@@ -916,6 +916,77 @@ describe("launch", () => {
     }
   });
 
+  it("disables Codex native image generation for mai-litellm session configs", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const {
+      mkdirSync: realMkdirSync,
+      writeFileSync: realWriteFileSync,
+      readFileSync: realReadFileSync,
+    } = require("node:fs");
+    realMkdirSync(sessionHome, { recursive: true });
+    realWriteFileSync(
+      configPath,
+      ['model_provider = "mai-litellm"', "", "[features]", "image_generation = true", ""].join("\n"),
+      "utf-8",
+    );
+
+    try {
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+      });
+      await waitForSpawnCalls(1);
+
+      const updatedConfig = realReadFileSync(configPath, "utf-8");
+      expect(updatedConfig).toContain("[features]");
+      expect(updatedConfig).toContain("multi_agent = true");
+      expect(updatedConfig).toContain("image_generation = false");
+      expect(updatedConfig).not.toContain("image_generation = true");
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it("keeps Codex native image generation enabled for non-MAI providers", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const {
+      mkdirSync: realMkdirSync,
+      writeFileSync: realWriteFileSync,
+      readFileSync: realReadFileSync,
+    } = require("node:fs");
+    realMkdirSync(sessionHome, { recursive: true });
+    realWriteFileSync(configPath, ['model_provider = "openai"', ""].join("\n"), "utf-8");
+
+    try {
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+      });
+      await waitForSpawnCalls(1);
+
+      const updatedConfig = realReadFileSync(configPath, "utf-8");
+      expect(updatedConfig).toContain("[features]");
+      expect(updatedConfig).toContain("multi_agent = true");
+      expect(updatedConfig).not.toContain("image_generation = false");
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
   it("applies the context-window override only to Codex leaders", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
