@@ -319,15 +319,17 @@ function createMockCodexProc(pid = 12345) {
   };
 }
 
-function createMaiWrapperFixture() {
+function createMaiWrapperFixture(options?: { envHost?: string }) {
   const root = mkdtempSync(join(tmpdir(), "mai-wrapper-test-"));
   const envHost =
+    options?.envHost ||
     hostname()
       .replace(/[^A-Za-z0-9._-]/g, "-")
       .replace(/^[._-]+/, "")
       .replace(/[._-]+$/, "")
       .slice(0, 64)
-      .replace(/[._-]+$/, "") || "host";
+      .replace(/[._-]+$/, "") ||
+    "host";
   mkdirSync(join(root, ".run"), { recursive: true });
   writeFileSync(join(root, ".mai-agents-root"), "");
   writeFileSync(
@@ -975,6 +977,84 @@ describe("launch", () => {
       expect(config).toContain("model_context_window = 1000000");
       expect(config).toContain("model_auto_compact_token_limit = 1000000");
     } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it("unwraps MAI-wrapper-backed Codex leaders on initial launch with the session-local CODEX_HOME", async () => {
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const { readFileSync: realReadFileSync } = require("node:fs");
+    const shortHost =
+      hostname()
+        .split(".")[0]
+        ?.replace(/[^A-Za-z0-9._-]/g, "-")
+        .replace(/^[._-]+/, "")
+        .replace(/[._-]+$/, "")
+        .slice(0, 64)
+        .replace(/[._-]+$/, "") || "host";
+    const { root, wrapperPath } = createMaiWrapperFixture({ envHost: shortHost });
+    const originalLitellmApiKey = process.env.LITELLM_API_KEY;
+    const originalLitellmProxyUrl = process.env.LITELLM_PROXY_URL;
+    const originalLitellmBaseUrl = process.env.LITELLM_BASE_URL;
+
+    delete process.env.LITELLM_API_KEY;
+    delete process.env.LITELLM_PROXY_URL;
+    delete process.env.LITELLM_BASE_URL;
+
+    try {
+      mockResolveBinary.mockImplementation((name: string): string | null => {
+        if (name === wrapperPath) return wrapperPath;
+        if (name === "codex") return "/opt/fake/codex";
+        return "/usr/bin/claude";
+      });
+      mockCaptureUserShellEnv.mockReturnValue({});
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexBinary: wrapperPath,
+        codexHome: customHome,
+        codexLeaderContextWindowOverrideTokens: 1_000_000,
+        env: {
+          TAKODE_ROLE: "orchestrator",
+          TAKODE_API_PORT: "3457",
+        },
+      });
+      await waitForSpawnCalls(1);
+
+      const [cmdAndArgs, options] = mockSpawn.mock.calls[0]!;
+      expect(cmdAndArgs[0]).toBe("/opt/fake/codex");
+      expect(cmdAndArgs).toContain("model_provider=litellm");
+      expect(cmdAndArgs).toContain("model=gpt-5.4");
+      expect(cmdAndArgs).toContain("web_search=disabled");
+      expect(options.env.CODEX_HOME).toBe(sessionHome);
+      expect(options.env.LITELLM_API_KEY).toBe("sk-wrapper123");
+      expect(options.env.LITELLM_PROXY_URL).toBe("http://localhost:4000");
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain("model_context_window = 1000000");
+      expect(config).toContain("model_auto_compact_token_limit = 1000000");
+    } finally {
+      if (originalLitellmApiKey === undefined) {
+        delete process.env.LITELLM_API_KEY;
+      } else {
+        process.env.LITELLM_API_KEY = originalLitellmApiKey;
+      }
+      if (originalLitellmProxyUrl === undefined) {
+        delete process.env.LITELLM_PROXY_URL;
+      } else {
+        process.env.LITELLM_PROXY_URL = originalLitellmProxyUrl;
+      }
+      if (originalLitellmBaseUrl === undefined) {
+        delete process.env.LITELLM_BASE_URL;
+      } else {
+        process.env.LITELLM_BASE_URL = originalLitellmBaseUrl;
+      }
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
     }

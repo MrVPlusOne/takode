@@ -1260,12 +1260,7 @@ export class CliLauncher {
           cliSessionId: info.cliSessionId,
           isOrchestrator: info.isOrchestrator,
         },
-        {
-          ...options,
-          codexLeaderContextWindowOverrideTokens: info.isOrchestrator
-            ? options.codexLeaderContextWindowOverrideTokens
-            : undefined,
-        },
+        options,
       );
       spawnCmd = spawnSpec.spawnCmd;
       spawnEnv = spawnSpec.spawnEnv;

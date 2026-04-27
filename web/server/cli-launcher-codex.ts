@@ -156,6 +156,25 @@ function escapeCodexConfigString(value: string): string {
   return value.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
 }
 
+function isCodexLeaderLaunch(info: CodexLaunchInfo, options: CodexLaunchOptions): boolean {
+  return info.isOrchestrator === true || options.env?.TAKODE_ROLE === "orchestrator";
+}
+
+async function readMaiWrapperHostEnv(wrapperRoot: string): Promise<string> {
+  const currentHostname = hostname();
+  const shortHostname = currentHostname.split(".")[0] || currentHostname;
+  const candidates = Array.from(
+    new Set([normalizeMaiHostname(currentHostname), normalizeMaiHostname(shortHostname)]).values(),
+  ).filter(Boolean);
+
+  for (const candidate of candidates) {
+    const hostEnvPath = join(wrapperRoot, ".run", `.env-${candidate}`);
+    const hostEnvRaw = await readFile(hostEnvPath, "utf-8").catch(() => "");
+    if (hostEnvRaw) return hostEnvRaw;
+  }
+  return "";
+}
+
 async function resolveHostCodexWrapperLaunchSpec(
   binary: string,
   options: CodexLaunchOptions,
@@ -179,8 +198,7 @@ async function resolveHostCodexWrapperLaunchSpec(
     throw new MissingCodexBinaryError('Binary "codex" not found in PATH for MAI Codex wrapper launch');
   }
 
-  const hostEnvPath = join(wrapperRoot, ".run", `.env-${normalizeMaiHostname(hostname())}`);
-  const hostEnvRaw = await readFile(hostEnvPath, "utf-8").catch(() => "");
+  const hostEnvRaw = await readMaiWrapperHostEnv(wrapperRoot);
   const litellmApiKey =
     options.env?.LITELLM_API_KEY ||
     parseShellEnvValue(hostEnvRaw, "LITELLM_API_KEY") ||
@@ -191,7 +209,11 @@ async function resolveHostCodexWrapperLaunchSpec(
     parseShellEnvValue(hostEnvRaw, "LITELLM_PROXY_URL") ||
     process.env.LITELLM_PROXY_URL ||
     "";
-  const litellmBaseUrl = options.env?.LITELLM_BASE_URL || process.env.LITELLM_BASE_URL || "";
+  const litellmBaseUrl =
+    options.env?.LITELLM_BASE_URL ||
+    parseShellEnvValue(hostEnvRaw, "LITELLM_BASE_URL") ||
+    process.env.LITELLM_BASE_URL ||
+    "";
   if (!litellmApiKey || !litellmProxyUrl) {
     return null;
   }
@@ -621,6 +643,7 @@ export async function prepareCodexSpawn(
   const serverId = options.env?.COMPANION_SERVER_ID;
   const isContainerized = !!options.containerId;
   const codexHomeRoot = resolveCompanionCodexHome(options.codexHome);
+  const leaderLaunch = isCodexLeaderLaunch(info, options);
 
   let binary = options.codexBinary || "codex";
   if (!isContainerized) {
@@ -645,8 +668,7 @@ export async function prepareCodexSpawn(
   const shellEnvVars = Object.keys(options.env || {}).filter(
     (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
   );
-  const leaderContextWindowOverrideTokens =
-    info.isOrchestrator === true ? options.codexLeaderContextWindowOverrideTokens : undefined;
+  const leaderContextWindowOverrideTokens = leaderLaunch ? options.codexLeaderContextWindowOverrideTokens : undefined;
   let containerLeaderConfigToml: string | undefined;
 
   if (!isContainerized) {
@@ -662,7 +684,7 @@ export async function prepareCodexSpawn(
   }
 
   const hostWrapperLaunchSpec =
-    !isContainerized && info.isOrchestrator === true ? await resolveHostCodexWrapperLaunchSpec(binary, options) : null;
+    !isContainerized && leaderLaunch ? await resolveHostCodexWrapperLaunchSpec(binary, options) : null;
   if (hostWrapperLaunchSpec) {
     binary = hostWrapperLaunchSpec.binary;
   }
