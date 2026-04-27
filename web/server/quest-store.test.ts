@@ -44,13 +44,26 @@ function latestSnapshotPath(): string {
   return join(questDir(), "_latest_snapshot.json");
 }
 
+function liveStoreDir(): string {
+  return join(tempDir, ".companion", "questmaster-live");
+}
+
 function liveStorePath(): string {
+  return join(liveStoreDir(), "store.json");
+}
+
+function legacyCoLocatedLiveStorePath(): string {
   return join(questDir(), "store.json");
 }
 
 function writeLiveStoreFixture(store: unknown): void {
-  mkdirSync(questDir(), { recursive: true });
+  mkdirSync(liveStoreDir(), { recursive: true });
   writeFileSync(liveStorePath(), JSON.stringify(store, null, 2), "utf-8");
+}
+
+function writeLegacyCoLocatedLiveStoreFixture(store: unknown): void {
+  mkdirSync(questDir(), { recursive: true });
+  writeFileSync(legacyCoLocatedLiveStorePath(), JSON.stringify(store, null, 2), "utf-8");
 }
 
 function questFileReads(reads: string[]): string[] {
@@ -319,6 +332,181 @@ describe("live quest store", () => {
     const persisted = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
     expect(persisted.quests).toHaveLength(2);
     expect(persisted.quests.map((quest: { id: string }) => quest.id).sort()).toEqual(["q-1", "q-2"]);
+  });
+
+  it("bootstrap prefers the separate live store when it already exists", async () => {
+    writeLiveStoreFixture({
+      format: "mutable_current_record",
+      version: 1,
+      nextQuestNumber: 2,
+      updatedAt: 0,
+      legacyBackupDir: questDir(),
+      quests: [
+        {
+          id: "q-1",
+          questId: "q-1",
+          version: 2,
+          title: "Preferred live quest",
+          status: "refined",
+          description: "Use me",
+          createdAt: 100,
+          statusChangedAt: 200,
+        },
+      ],
+    });
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy quest",
+          status: "idea",
+          createdAt: 50,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const bootstrap = await questStore.bootstrapQuestStore();
+
+    expect(bootstrap).toMatchObject({
+      mode: "preferred_live",
+      liveStoreFile: liveStorePath(),
+      legacyBackupDir: questDir(),
+    });
+    expect((await questStore.listQuests()).map((quest) => quest.title)).toEqual(["Preferred live quest"]);
+  });
+
+  it("bootstrap migrates the old co-located live store into the preferred live location", async () => {
+    writeLegacyCoLocatedLiveStoreFixture({
+      format: "mutable_current_record",
+      version: 1,
+      nextQuestNumber: 2,
+      updatedAt: 0,
+      legacyBackupDir: join(tempDir, ".companion", "questmaster-legacy-cutover-old"),
+      quests: [
+        {
+          id: "q-1",
+          questId: "q-1",
+          version: 3,
+          title: "Co-located live quest",
+          status: "refined",
+          description: "Move me forward",
+          createdAt: 100,
+          statusChangedAt: 200,
+        },
+      ],
+    });
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy quest",
+          status: "idea",
+          createdAt: 50,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const bootstrap = await questStore.bootstrapQuestStore();
+    const migrated = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
+    const original = JSON.parse(readFileSync(legacyCoLocatedLiveStorePath(), "utf-8"));
+
+    expect(bootstrap).toMatchObject({
+      mode: "migrated_existing_live",
+      liveStoreFile: liveStorePath(),
+      legacyBackupDir: questDir(),
+    });
+    expect(migrated.legacyBackupDir).toBe(questDir());
+    expect(migrated.quests.map((quest: { title: string }) => quest.title)).toEqual(["Co-located live quest"]);
+    expect(original.legacyBackupDir).toBe(join(tempDir, ".companion", "questmaster-legacy-cutover-old"));
+  });
+
+  it("bootstrap best-effort migrates readable legacy quests into the preferred live location", async () => {
+    mkdirSync(questDir(), { recursive: true });
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Readable legacy quest",
+          status: "idea",
+          createdAt: 100,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(join(questDir(), "q-2-v1.json"), "{broken json", "utf-8");
+    writeFileSync(
+      latestSnapshotPath(),
+      JSON.stringify(
+        {
+          version: 3,
+          quests: [{ questId: "q-1" }],
+          latestVersionByQuestId: { "q-1": 1 },
+          latestFileStateByQuestId: {},
+          updatedAt: 0,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const bootstrap = await questStore.bootstrapQuestStore();
+    const migrated = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
+
+    expect(bootstrap).toMatchObject({
+      mode: "migrated_legacy",
+      liveStoreFile: liveStorePath(),
+      legacyBackupDir: questDir(),
+      report: {
+        legacyQuestCount: 2,
+        migratedQuestCount: 1,
+        blockedQuests: [expect.objectContaining({ questId: "q-2" })],
+      },
+    });
+    expect(migrated.legacyBackupDir).toBe(questDir());
+    expect(migrated.quests.map((quest: { questId: string }) => quest.questId)).toEqual(["q-1"]);
+    expect(readFileSync(join(questDir(), "q-1-v1.json"), "utf-8")).toContain("Readable legacy quest");
+    expect(readFileSync(join(questDir(), "q-2-v1.json"), "utf-8")).toBe("{broken json");
+  });
+
+  it("bootstrap fails loudly when the preferred live store is unreadable", async () => {
+    mkdirSync(liveStoreDir(), { recursive: true });
+    writeFileSync(liveStorePath(), "{broken json", "utf-8");
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy quest",
+          status: "idea",
+          createdAt: 100,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    await expect(questStore.bootstrapQuestStore()).rejects.toThrow();
   });
 
   it("prepares live-store migration from legacy version files and reports unreadable quests explicitly", async () => {

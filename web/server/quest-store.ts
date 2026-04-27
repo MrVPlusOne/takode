@@ -163,14 +163,18 @@ function questImagesEqual(
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
-const QUESTMASTER_DIR = join(homedir(), ".companion", "questmaster");
+const COMPANION_DIR = join(homedir(), ".companion");
+const QUESTMASTER_DIR = join(COMPANION_DIR, "questmaster");
 const IMAGES_DIR = join(QUESTMASTER_DIR, "images");
+const LIVE_QUESTMASTER_DIR = join(COMPANION_DIR, "questmaster-live");
+const LIVE_IMAGES_DIR = join(LIVE_QUESTMASTER_DIR, "images");
 const COUNTER_FILE = join(QUESTMASTER_DIR, "_quest_counter.json");
 const CREATE_LOCK_DIR = join(QUESTMASTER_DIR, "_create.lock");
 const LATEST_SNAPSHOT_FILE = join(QUESTMASTER_DIR, "_latest_snapshot.json");
 const LATEST_SNAPSHOT_LOCK_DIR = join(QUESTMASTER_DIR, "_latest_snapshot.lock");
-const LIVE_STORE_FILE = join(QUESTMASTER_DIR, "store.json");
-const LIVE_STORE_LOCK_DIR = join(QUESTMASTER_DIR, "_store.lock");
+const LEGACY_COLOCATED_LIVE_STORE_FILE = join(QUESTMASTER_DIR, "store.json");
+const LIVE_STORE_FILE = join(LIVE_QUESTMASTER_DIR, "store.json");
+const LIVE_STORE_LOCK_DIR = join(LIVE_QUESTMASTER_DIR, "_store.lock");
 const CREATE_LOCK_STALE_MS = 30_000;
 const CREATE_LOCK_RETRY_MS = 10;
 const LATEST_SNAPSHOT_LOCK_STALE_MS = 120_000;
@@ -223,6 +227,28 @@ type QuestStoreMigrationPreparation = {
   canActivate: boolean;
 };
 
+type QuestStoreBootstrapResult =
+  | {
+      mode: "preferred_live";
+      legacyBackupDir?: string;
+      liveStoreFile: string;
+    }
+  | {
+      mode: "migrated_existing_live";
+      legacyBackupDir: string;
+      liveStoreFile: string;
+    }
+  | {
+      mode: "migrated_legacy";
+      legacyBackupDir: string;
+      liveStoreFile: string;
+      report: QuestStoreMigrationReport;
+    }
+  | {
+      mode: "no_data";
+      liveStoreFile: string;
+    };
+
 // Cold-path: synchronous mkdir at module load is fine
 mkdirSync(QUESTMASTER_DIR, { recursive: true });
 
@@ -230,8 +256,12 @@ async function ensureDir(): Promise<void> {
   await mkdir(QUESTMASTER_DIR, { recursive: true });
 }
 
-async function ensureImagesDir(): Promise<void> {
-  await mkdir(IMAGES_DIR, { recursive: true });
+async function ensureLiveDir(): Promise<void> {
+  await mkdir(LIVE_QUESTMASTER_DIR, { recursive: true });
+}
+
+async function ensureLiveImagesDir(): Promise<void> {
+  await mkdir(LIVE_IMAGES_DIR, { recursive: true });
 }
 
 function latestSnapshotTempPath(): string {
@@ -446,9 +476,18 @@ function liveStoreTempPath(): string {
 }
 
 async function readLiveQuestStore(): Promise<LiveQuestStore | null> {
-  await ensureDir();
+  const preferred = await readLiveQuestStoreAtPath(LIVE_STORE_FILE, ensureLiveDir);
+  if (preferred) return preferred;
+  return readLiveQuestStoreAtPath(LEGACY_COLOCATED_LIVE_STORE_FILE, ensureDir);
+}
+
+async function readLiveQuestStoreAtPath(
+  path: string,
+  ensureParentDir: () => Promise<void>,
+): Promise<LiveQuestStore | null> {
+  await ensureParentDir();
   try {
-    const raw = await readFile(LIVE_STORE_FILE, "utf-8");
+    const raw = await readFile(path, "utf-8");
     return normalizeLiveQuestStore(JSON.parse(raw));
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code;
@@ -458,6 +497,7 @@ async function readLiveQuestStore(): Promise<LiveQuestStore | null> {
 }
 
 async function writeLiveQuestStore(store: LiveQuestStore): Promise<void> {
+  await ensureLiveDir();
   const tempPath = liveStoreTempPath();
   const normalized = {
     ...store,
@@ -479,7 +519,7 @@ async function isLiveStoreLockStale(): Promise<boolean> {
 }
 
 async function acquireLiveStoreFilesystemLock(): Promise<() => Promise<void>> {
-  await ensureDir();
+  await ensureLiveDir();
   const startedAt = Date.now();
 
   while (true) {
@@ -1025,16 +1065,15 @@ function buildLiveQuestFromLegacy(result: LegacyQuestLoadResult): QuestmasterTas
   });
 }
 
-async function readLatestSnapshotStatus(): Promise<{
+async function readLatestSnapshotStatusAtPath(snapshotPath: string): Promise<{
   count: number;
   error?: string;
   questIds: string[];
   latestVersionByQuestId: Record<string, number>;
   status: QuestStoreMigrationReport["snapshotStatus"];
 }> {
-  await ensureDir();
   try {
-    const raw = await readFile(LATEST_SNAPSHOT_FILE, "utf-8");
+    const raw = await readFile(snapshotPath, "utf-8");
     const parsed = JSON.parse(raw) as {
       latestVersionByQuestId?: unknown;
       quests?: Array<{ questId?: string; version?: unknown }>;
@@ -1081,11 +1120,23 @@ function defaultLegacyBackupDirName(now = new Date()): string {
 }
 
 export async function prepareLiveQuestStoreMigration(): Promise<QuestStoreMigrationPreparation> {
-  const legacyResults = await loadLegacyQuestResults(QUESTMASTER_DIR);
+  return prepareLiveQuestStoreMigrationForSource({
+    legacyDir: QUESTMASTER_DIR,
+    preservedLegacyDir: defaultLegacyBackupDirName(),
+    snapshotPath: LATEST_SNAPSHOT_FILE,
+  });
+}
+
+async function prepareLiveQuestStoreMigrationForSource(options: {
+  legacyDir: string;
+  preservedLegacyDir: string;
+  snapshotPath: string;
+}): Promise<QuestStoreMigrationPreparation> {
+  const legacyResults = await loadLegacyQuestResults(options.legacyDir);
   const liveQuests = legacyResults
     .map((result) => buildLiveQuestFromLegacy(result))
     .filter((quest): quest is QuestmasterTask => quest !== null);
-  const snapshot = await readLatestSnapshotStatus();
+  const snapshot = await readLatestSnapshotStatusAtPath(options.snapshotPath);
   const legacyQuestIds = legacyResults.map((result) => result.questId);
   const legacyLatestReadableVersionByQuestId = Object.fromEntries(
     legacyResults
@@ -1124,7 +1175,7 @@ export async function prepareLiveQuestStoreMigration(): Promise<QuestStoreMigrat
     quests: sortLatestQuests(liveQuests),
     nextQuestNumber: computeNextQuestNumberFromQuestIds(legacyQuestIds),
     updatedAt: Date.now(),
-    legacyBackupDir: defaultLegacyBackupDirName(),
+    legacyBackupDir: options.preservedLegacyDir,
   } satisfies LiveQuestStore;
   const report: QuestStoreMigrationReport = {
     legacyQuestCount: legacyQuestIds.length,
@@ -1141,6 +1192,105 @@ export async function prepareLiveQuestStoreMigration(): Promise<QuestStoreMigrat
     store,
     backupDir: store.legacyBackupDir!,
     canActivate: blockedQuests.length === 0,
+  };
+}
+
+function formatQuestIdList(questIds: string[], limit = 10): string {
+  if (questIds.length <= limit) return questIds.join(", ");
+  return `${questIds.slice(0, limit).join(", ")} (+${questIds.length - limit} more)`;
+}
+
+function normalizeBootstrapLiveStore(store: LiveQuestStore, legacyBackupDir: string): LiveQuestStore {
+  return normalizeLiveQuestStore({
+    ...store,
+    legacyBackupDir,
+  });
+}
+
+export async function bootstrapQuestStore(options?: {
+  log?: (message: string) => void;
+}): Promise<QuestStoreBootstrapResult> {
+  const log = options?.log;
+  const preferred = await readLiveQuestStoreAtPath(LIVE_STORE_FILE, ensureLiveDir);
+  if (preferred) {
+    log?.(`[quest-store] Using preferred live store at ${LIVE_STORE_FILE}`);
+    return {
+      mode: "preferred_live",
+      liveStoreFile: LIVE_STORE_FILE,
+      ...(preferred.legacyBackupDir ? { legacyBackupDir: preferred.legacyBackupDir } : {}),
+    };
+  }
+
+  const legacyLive = await readLiveQuestStoreAtPath(LEGACY_COLOCATED_LIVE_STORE_FILE, ensureDir);
+  if (legacyLive) {
+    const migrated = normalizeBootstrapLiveStore(legacyLive, QUESTMASTER_DIR);
+    await withLiveStoreWriteLock(async () => {
+      const current = await readLiveQuestStoreAtPath(LIVE_STORE_FILE, ensureLiveDir);
+      if (current) return;
+      await writeLiveQuestStore(migrated);
+    });
+    log?.(
+      `[quest-store] Migrated co-located live store from ${LEGACY_COLOCATED_LIVE_STORE_FILE} to ${LIVE_STORE_FILE}; preserving legacy quest directory at ${QUESTMASTER_DIR}`,
+    );
+    return {
+      mode: "migrated_existing_live",
+      liveStoreFile: LIVE_STORE_FILE,
+      legacyBackupDir: QUESTMASTER_DIR,
+    };
+  }
+
+  const legacyVersionFilesByQuest = await listQuestVersionFilesByQuest();
+  if (legacyVersionFilesByQuest.size === 0) {
+    log?.("[quest-store] No quest data found to migrate");
+    return { mode: "no_data", liveStoreFile: LIVE_STORE_FILE };
+  }
+
+  const prepared = await prepareLiveQuestStoreMigrationForSource({
+    legacyDir: QUESTMASTER_DIR,
+    preservedLegacyDir: QUESTMASTER_DIR,
+    snapshotPath: LATEST_SNAPSHOT_FILE,
+  });
+  await withLiveStoreWriteLock(async () => {
+    const current = await readLiveQuestStoreAtPath(LIVE_STORE_FILE, ensureLiveDir);
+    if (current) return;
+    await writeLiveQuestStore(prepared.store);
+  });
+
+  log?.(
+    `[quest-store] Migrated ${prepared.report.migratedQuestCount}/${prepared.report.legacyQuestCount} legacy quests into ${LIVE_STORE_FILE}; preserving legacy quest directory at ${QUESTMASTER_DIR}`,
+  );
+  if (prepared.report.unreadableFiles.length > 0) {
+    log?.(
+      `[quest-store] Encountered unreadable legacy quest files during startup migration: ${formatQuestIdList([
+        ...new Set(prepared.report.unreadableFiles.map((file) => file.questId)),
+      ])}`,
+    );
+  }
+  if (prepared.report.blockedQuests.length > 0) {
+    log?.(
+      `[quest-store] Skipped unreadable legacy quests during startup migration: ${formatQuestIdList(
+        prepared.report.blockedQuests.map((quest) => quest.questId),
+      )}`,
+    );
+  }
+  if (prepared.report.snapshotMismatchQuestIds.length > 0) {
+    log?.(
+      `[quest-store] Legacy snapshot mismatches were advisory during startup migration: ${formatQuestIdList(
+        prepared.report.snapshotMismatchQuestIds,
+      )}`,
+    );
+  }
+  if (prepared.report.snapshotStatus === "unreadable") {
+    log?.(
+      `[quest-store] Legacy snapshot was unreadable during startup migration: ${prepared.report.snapshotError ?? "Unknown error"}`,
+    );
+  }
+
+  return {
+    mode: "migrated_legacy",
+    liveStoreFile: LIVE_STORE_FILE,
+    legacyBackupDir: QUESTMASTER_DIR,
+    report: prepared.report,
   };
 }
 
@@ -1886,15 +2036,19 @@ const QUEST_MIME_TO_EXT: Record<string, string> = {
 
 /** Save an image to disk and return image metadata. */
 export async function saveQuestImage(filename: string, data: Buffer, mimeType: string): Promise<QuestImage> {
-  await ensureImagesDir();
+  await ensureLiveImagesDir();
   const id = randomBytes(8).toString("hex");
   const ext = QUEST_MIME_TO_EXT[mimeType] || extname(filename) || ".bin";
   const diskName = `${id}${ext}`;
-  const diskPath = join(IMAGES_DIR, diskName);
+  const diskPath = join(LIVE_IMAGES_DIR, diskName);
   const { resizeForStore } = await import("./image-store.js");
   const finalData = await resizeForStore(data, mimeType);
   await writeFile(diskPath, finalData);
   return { id, filename, mimeType, path: diskPath };
+}
+
+function isManagedLiveQuestPath(path: string): boolean {
+  return path === LIVE_QUESTMASTER_DIR || path.startsWith(`${LIVE_QUESTMASTER_DIR}/`);
 }
 
 /** Add images to a quest (in-place patch, no new version). */
@@ -1947,7 +2101,7 @@ export async function removeQuestImage(questId: string, imageId: string): Promis
       };
     });
 
-    if (result.imagePath) {
+    if (result.imagePath && isManagedLiveQuestPath(result.imagePath)) {
       try {
         await unlink(result.imagePath);
       } catch {
@@ -1967,7 +2121,7 @@ export async function removeQuestImage(questId: string, imageId: string): Promis
   await writeQuest(current);
 
   // Delete the file
-  if (image) {
+  if (image?.path && isManagedLiveQuestPath(image.path)) {
     try {
       await unlink(image.path);
     } catch {
@@ -1980,37 +2134,41 @@ export async function removeQuestImage(questId: string, imageId: string): Promis
 
 /** Read an image file from disk. Returns null if not found. */
 export async function readQuestImageFile(imageId: string): Promise<{ data: Buffer; mimeType: string } | null> {
-  await ensureImagesDir();
-  try {
-    const files = await readdir(IMAGES_DIR);
-    const file = files.find((f) => f.startsWith(imageId));
-    if (!file) return null;
-    const fullPath = join(IMAGES_DIR, file);
-    const data = (await readFile(fullPath)) as Buffer;
-    // Derive MIME from extension
-    const ext = extname(file).toLowerCase();
-    const mimeType = Object.entries(QUEST_MIME_TO_EXT).find(([, e]) => e === ext)?.[0] ?? "application/octet-stream";
-    return { data, mimeType };
-  } catch {
-    return null;
+  for (const imageDir of [LIVE_IMAGES_DIR, IMAGES_DIR]) {
+    try {
+      await mkdir(imageDir, { recursive: true });
+      const files = await readdir(imageDir);
+      const file = files.find((f) => f.startsWith(imageId));
+      if (!file) continue;
+      const fullPath = join(imageDir, file);
+      const data = (await readFile(fullPath)) as Buffer;
+      const ext = extname(file).toLowerCase();
+      const mimeType = Object.entries(QUEST_MIME_TO_EXT).find(([, e]) => e === ext)?.[0] ?? "application/octet-stream";
+      return { data, mimeType };
+    } catch {
+      // Try the next known image directory.
+    }
   }
+  return null;
 }
 
 // ─── Test helpers ────────────────────────────────────────────────────────────
 
 /** Reset the store directory. Only for tests. */
 export async function _resetForTests(): Promise<void> {
-  await ensureDir();
-  try {
-    const files = await readdir(QUESTMASTER_DIR);
-    for (const file of files) {
-      try {
-        await rm(join(QUESTMASTER_DIR, file), { recursive: true, force: true });
-      } catch {
-        // ok
+  for (const dir of [QUESTMASTER_DIR, LIVE_QUESTMASTER_DIR]) {
+    await mkdir(dir, { recursive: true });
+    try {
+      const files = await readdir(dir);
+      for (const file of files) {
+        try {
+          await rm(join(dir, file), { recursive: true, force: true });
+        } catch {
+          // ok
+        }
       }
+    } catch {
+      // ok
     }
-  } catch {
-    // ok
   }
 }

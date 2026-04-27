@@ -32,7 +32,7 @@ import { homedir } from "node:os";
 import { TerminalManager } from "./terminal-manager.js";
 import { generateFirstName, evaluateSessionName } from "./session-namer.js";
 import * as sessionNames from "./session-names.js";
-import { getActiveQuestForSession, getQuest } from "./quest-store.js";
+import { bootstrapQuestStore, getActiveQuestForSession, getQuest } from "./quest-store.js";
 import { getServerId, getSettings, getServerName, initWithPort } from "./settings-manager.js";
 import { PushoverNotifier } from "./pushover.js";
 import { PRPoller } from "./pr-poller.js";
@@ -81,6 +81,9 @@ initServerLogger(port);
 const serverLog = createLogger("server");
 
 await initWithPort(port);
+await bootstrapQuestStore({
+  log: (message) => serverLog.info(message),
+});
 const serverId = getServerId();
 initTreeGroupStoreForServer({ serverId, port });
 const sessionStore = new SessionStore(undefined, port);
