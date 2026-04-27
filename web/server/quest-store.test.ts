@@ -411,6 +411,74 @@ describe("live quest store", () => {
     expect(prepared.backupDir).toContain("legacy-backup-");
   });
 
+  it("reports a snapshot mismatch when an existing quest ID has a stale snapshot version", async () => {
+    mkdirSync(questDir(), { recursive: true });
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy quest",
+          status: "idea",
+          createdAt: 100,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      join(questDir(), "q-1-v2.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v2",
+          questId: "q-1",
+          version: 2,
+          prevId: "q-1-v1",
+          title: "Legacy quest",
+          status: "refined",
+          description: "Ready to build",
+          createdAt: 250,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      latestSnapshotPath(),
+      JSON.stringify(
+        {
+          version: 3,
+          quests: [
+            {
+              id: "q-1-v1",
+              questId: "q-1",
+              version: 1,
+              title: "Legacy quest",
+              status: "idea",
+              createdAt: 100,
+            },
+          ],
+          latestVersionByQuestId: { "q-1": 1 },
+          latestFileStateByQuestId: {},
+          updatedAt: 0,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const prepared = await questStore.prepareLiveQuestStoreMigration();
+
+    expect(prepared.canActivate).toBe(true);
+    expect(prepared.report.snapshotMismatchQuestIds).toEqual(["q-1"]);
+    expect(prepared.report.blockedQuests).toEqual([]);
+  });
+
   it("reads history and versions from the preserved legacy backup when the live store is active", async () => {
     const backupDir = join(questDir(), "legacy-backup-manual");
     mkdirSync(backupDir, { recursive: true });

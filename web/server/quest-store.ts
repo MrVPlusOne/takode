@@ -1029,27 +1029,46 @@ async function readLatestSnapshotStatus(): Promise<{
   count: number;
   error?: string;
   questIds: string[];
+  latestVersionByQuestId: Record<string, number>;
   status: QuestStoreMigrationReport["snapshotStatus"];
 }> {
   await ensureDir();
   try {
     const raw = await readFile(LATEST_SNAPSHOT_FILE, "utf-8");
-    const parsed = JSON.parse(raw) as { quests?: Array<{ questId?: string }> };
+    const parsed = JSON.parse(raw) as {
+      latestVersionByQuestId?: unknown;
+      quests?: Array<{ questId?: string; version?: unknown }>;
+    };
     if (!Array.isArray(parsed.quests)) {
-      return { count: 0, questIds: [], status: "unreadable", error: "Snapshot is missing a quests array" };
+      return {
+        count: 0,
+        questIds: [],
+        latestVersionByQuestId: {},
+        status: "unreadable",
+        error: "Snapshot is missing a quests array",
+      };
     }
-    const questIds = parsed.quests
-      .map((quest) => (typeof quest?.questId === "string" ? quest.questId : null))
-      .filter((questId): questId is string => questId !== null);
-    return { count: questIds.length, questIds, status: "readable" };
+    const questIds: string[] = [];
+    const fallbackLatestVersionByQuestId: Record<string, number> = {};
+    for (const quest of parsed.quests) {
+      if (typeof quest?.questId !== "string") continue;
+      questIds.push(quest.questId);
+      if (typeof quest.version === "number" && Number.isInteger(quest.version) && quest.version >= 1) {
+        fallbackLatestVersionByQuestId[quest.questId] = quest.version;
+      }
+    }
+    const latestVersionByQuestId =
+      normalizeLatestVersionByQuestId(parsed.latestVersionByQuestId) ?? fallbackLatestVersionByQuestId;
+    return { count: questIds.length, questIds, latestVersionByQuestId, status: "readable" };
   } catch (error) {
     const code = (error as NodeJS.ErrnoException | undefined)?.code;
     if (code === "ENOENT") {
-      return { count: 0, questIds: [], status: "missing" };
+      return { count: 0, questIds: [], latestVersionByQuestId: {}, status: "missing" };
     }
     return {
       count: 0,
       questIds: [],
+      latestVersionByQuestId: {},
       status: "unreadable",
       error: error instanceof Error ? error.message : String(error),
     };
@@ -1068,8 +1087,22 @@ export async function prepareLiveQuestStoreMigration(): Promise<QuestStoreMigrat
     .filter((quest): quest is QuestmasterTask => quest !== null);
   const snapshot = await readLatestSnapshotStatus();
   const legacyQuestIds = legacyResults.map((result) => result.questId);
+  const legacyLatestReadableVersionByQuestId = Object.fromEntries(
+    legacyResults
+      .map((result) => {
+        const latestReadable = result.readable[result.readable.length - 1];
+        return latestReadable ? ([result.questId, latestReadable.version] as const) : null;
+      })
+      .filter((entry): entry is readonly [string, number] => entry !== null),
+  );
   const snapshotMismatchQuestIds = [...new Set([...legacyQuestIds, ...snapshot.questIds])]
-    .filter((questId) => legacyQuestIds.includes(questId) !== snapshot.questIds.includes(questId))
+    .filter((questId) => {
+      const membershipMismatch = legacyQuestIds.includes(questId) !== snapshot.questIds.includes(questId);
+      if (membershipMismatch) return true;
+      const legacyVersion = legacyLatestReadableVersionByQuestId[questId];
+      if (legacyVersion === undefined || !snapshot.questIds.includes(questId)) return false;
+      return snapshot.latestVersionByQuestId[questId] !== legacyVersion;
+    })
     .sort((a, b) => a.localeCompare(b));
   const unreadableFiles = legacyResults.flatMap((result) =>
     result.unreadable.map((entry) => ({
