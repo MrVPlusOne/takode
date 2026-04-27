@@ -35,6 +35,14 @@ Run these from the repository root unless noted otherwise.
     - `bun run scripts/audit-recordings.ts --latest`
     - `bun run scripts/audit-recordings.ts --session <session-id>`
 
+- [`migrate-prod-port-3455-to-3456.ts`](./migrate-prod-port-3455-to-3456.ts)
+  - One-off operator-run migration for the current local prod state takeover from port `3455` to `3456`.
+  - Dry-run / preflight:
+    - `bun run scripts/migrate-prod-port-3455-to-3456.ts`
+  - Apply after stopping the live `3455` server:
+    - `PORT_MIGRATION_APPLY=1 bun run scripts/migrate-prod-port-3455-to-3456.ts`
+  - Writes timestamped backups under `~/.companion/port-migrations/` and generates a rollback script alongside the manifest.
+
 ## When to use this directory
 
 - Use these scripts for reproducible local workflows and protocol maintenance.
@@ -61,6 +69,9 @@ Run these from the repository root unless noted otherwise.
   - `./scripts/sync-codex-protocol.sh`
 - "Audit real protocol traces to identify parser/UI gaps":
   - `bun run scripts/audit-recordings.ts --latest`
+- "Prepare or run the one-off 3455 -> 3456 prod state migration":
+  - `bun run scripts/migrate-prod-port-3455-to-3456.ts`
+  - `PORT_MIGRATION_APPLY=1 bun run scripts/migrate-prod-port-3455-to-3456.ts`
 
 ## Adding a new script
 
