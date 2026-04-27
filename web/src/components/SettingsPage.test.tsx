@@ -144,6 +144,7 @@ beforeEach(() => {
     claudeBinary: "",
     codexBinary: "",
     codexLeaderContextWindowOverrideTokens: 1_000_000,
+    codexNonLeaderAutoCompactThresholdPercent: 90,
     codexLeaderRecycleThresholdTokens: 260_000,
     codexLeaderRecycleThresholdTokensByModel: {},
     maxKeepAlive: 0,
@@ -161,6 +162,7 @@ beforeEach(() => {
     claudeBinary: "",
     codexBinary: "",
     codexLeaderContextWindowOverrideTokens: 1_000_000,
+    codexNonLeaderAutoCompactThresholdPercent: 90,
     codexLeaderRecycleThresholdTokens: 260_000,
     codexLeaderRecycleThresholdTokensByModel: {},
     maxKeepAlive: 0,
@@ -773,6 +775,7 @@ describe("SettingsPage", () => {
       claudeBinary: "",
       codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_100_000,
+      codexNonLeaderAutoCompactThresholdPercent: 85,
       codexLeaderRecycleThresholdTokens: 275_000,
       codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
       maxKeepAlive: 0,
@@ -790,6 +793,7 @@ describe("SettingsPage", () => {
       claudeBinary: "",
       codexBinary: "",
       codexLeaderContextWindowOverrideTokens: 1_200_000,
+      codexNonLeaderAutoCompactThresholdPercent: 88,
       codexLeaderRecycleThresholdTokens: 280_000,
       codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
       maxKeepAlive: 0,
@@ -801,6 +805,9 @@ describe("SettingsPage", () => {
     await waitForSettingsPage();
 
     const cliSection = settingsSection("CLI & Backends");
+    const autoCompactInput = within(cliSection).getByLabelText(
+      "Codex Non-Leader Auto-Compact Threshold",
+    ) as HTMLInputElement;
     const windowInput = within(cliSection).getByLabelText("Codex Leader Context Window") as HTMLInputElement;
     const thresholdInput = within(cliSection).getByLabelText(
       "Codex Leader Default Recycle Threshold",
@@ -810,6 +817,7 @@ describe("SettingsPage", () => {
       "Codex Leader Recycle Threshold Tokens 1",
     ) as HTMLInputElement;
 
+    expect(autoCompactInput.value).toBe("85");
     expect(windowInput.value).toBe("1100000");
     expect(thresholdInput.value).toBe("275000");
     expect(modelInput.value).toBe("gpt-5.4");
@@ -817,6 +825,7 @@ describe("SettingsPage", () => {
 
     vi.useFakeTimers();
     try {
+      fireEvent.change(autoCompactInput, { target: { value: "88" } });
       fireEvent.change(windowInput, { target: { value: "1200000" } });
       fireEvent.change(thresholdInput, { target: { value: "280000" } });
       fireEvent.click(within(cliSection).getByRole("button", { name: "Add Override" }));
@@ -833,6 +842,7 @@ describe("SettingsPage", () => {
 
       expect(mockApi.updateSettings).toHaveBeenLastCalledWith({
         codexLeaderContextWindowOverrideTokens: 1_200_000,
+        codexNonLeaderAutoCompactThresholdPercent: 88,
         codexLeaderRecycleThresholdTokens: 280_000,
         codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
       });

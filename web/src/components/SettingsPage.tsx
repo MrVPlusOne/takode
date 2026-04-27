@@ -168,6 +168,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [binSaving, setBinSaving] = useState(false);
   const [binError, setBinError] = useState("");
   const [codexLeaderContextWindowOverrideTokens, setCodexLeaderContextWindowOverrideTokens] = useState(1_000_000);
+  const [codexNonLeaderAutoCompactThresholdPercent, setCodexNonLeaderAutoCompactThresholdPercent] = useState(90);
   const [codexLeaderRecycleThresholdTokens, setCodexLeaderRecycleThresholdTokens] = useState(260_000);
   const [codexLeaderRecycleThresholdTokensByModel, setCodexLeaderRecycleThresholdTokensByModel] = useState<
     Record<string, number>
@@ -322,6 +323,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setClaudeBin(s.claudeBinary || "");
         setCodexBin(s.codexBinary || "");
         setCodexLeaderContextWindowOverrideTokens(s.codexLeaderContextWindowOverrideTokens ?? 1_000_000);
+        setCodexNonLeaderAutoCompactThresholdPercent(s.codexNonLeaderAutoCompactThresholdPercent ?? 90);
         setCodexLeaderRecycleThresholdTokens(s.codexLeaderRecycleThresholdTokens ?? 260_000);
         setCodexLeaderRecycleThresholdTokensByModel(s.codexLeaderRecycleThresholdTokensByModel ?? {});
         setCodexLeaderThresholdOverrideDrafts((currentDrafts) =>
@@ -514,6 +516,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
 
   function debouncedSaveCodexLeaderSettings(
     newWindow: number,
+    newNonLeaderAutoCompactThresholdPercent: number,
     newThreshold: number,
     newThresholdsByModel: Record<string, number>,
   ) {
@@ -524,10 +527,14 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       try {
         const res = await api.updateSettings({
           codexLeaderContextWindowOverrideTokens: newWindow,
+          codexNonLeaderAutoCompactThresholdPercent: newNonLeaderAutoCompactThresholdPercent,
           codexLeaderRecycleThresholdTokens: newThreshold,
           codexLeaderRecycleThresholdTokensByModel: newThresholdsByModel,
         });
         setCodexLeaderContextWindowOverrideTokens(res.codexLeaderContextWindowOverrideTokens ?? newWindow);
+        setCodexNonLeaderAutoCompactThresholdPercent(
+          res.codexNonLeaderAutoCompactThresholdPercent ?? newNonLeaderAutoCompactThresholdPercent,
+        );
         setCodexLeaderRecycleThresholdTokens(res.codexLeaderRecycleThresholdTokens ?? newThreshold);
         const nextThresholdsByModel = res.codexLeaderRecycleThresholdTokensByModel ?? newThresholdsByModel;
         setCodexLeaderRecycleThresholdTokensByModel(nextThresholdsByModel);
@@ -553,6 +560,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     setCodexLeaderRecycleThresholdTokensByModel(parsed.value);
     debouncedSaveCodexLeaderSettings(
       codexLeaderContextWindowOverrideTokens,
+      codexNonLeaderAutoCompactThresholdPercent,
       codexLeaderRecycleThresholdTokens,
       parsed.value,
     );
@@ -983,6 +991,36 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 )}
               </div>
 
+              <div hidden={settingsSearch.rowHidden("cli", "codex-non-leader-auto-compact-threshold")}>
+                <label className="block text-sm font-medium mb-1.5" htmlFor="codex-non-leader-auto-compact-threshold">
+                  Codex Non-Leader Auto-Compact Threshold
+                </label>
+                <input
+                  id="codex-non-leader-auto-compact-threshold"
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={codexNonLeaderAutoCompactThresholdPercent}
+                  onChange={(e) => {
+                    const next = Math.min(100, Math.max(1, Number(e.target.value) || 1));
+                    setCodexNonLeaderAutoCompactThresholdPercent(next);
+                    debouncedSaveCodexLeaderSettings(
+                      codexLeaderContextWindowOverrideTokens,
+                      next,
+                      codexLeaderRecycleThresholdTokens,
+                      codexLeaderRecycleThresholdTokensByModel,
+                    );
+                  }}
+                  className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+                />
+                <p className="mt-1.5 text-xs text-cc-muted">
+                  Applied only to new and relaunched non-leader Codex sessions. Takode writes a session-local model
+                  catalog override so provider auto-compaction triggers at this percent of each model&apos;s effective
+                  context window.
+                </p>
+              </div>
+
               <div hidden={settingsSearch.rowHidden("cli", "codex-leader-context-window")}>
                 <label className="block text-sm font-medium mb-1.5" htmlFor="codex-leader-context-window">
                   Codex Leader Context Window
@@ -998,6 +1036,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                     setCodexLeaderContextWindowOverrideTokens(next);
                     debouncedSaveCodexLeaderSettings(
                       next,
+                      codexNonLeaderAutoCompactThresholdPercent,
                       codexLeaderRecycleThresholdTokens,
                       codexLeaderRecycleThresholdTokensByModel,
                     );
@@ -1025,6 +1064,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                     setCodexLeaderRecycleThresholdTokens(next);
                     debouncedSaveCodexLeaderSettings(
                       codexLeaderContextWindowOverrideTokens,
+                      codexNonLeaderAutoCompactThresholdPercent,
                       next,
                       codexLeaderRecycleThresholdTokensByModel,
                     );

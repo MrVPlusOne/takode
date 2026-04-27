@@ -56,6 +56,8 @@ export interface CompanionSettings {
   questmasterViewMode?: QuestmasterViewMode;
   /** Codex leader-only effective context window override for Takode-managed sessions. */
   codexLeaderContextWindowOverrideTokens: number;
+  /** Percent of each non-leader Codex model's effective window to use before auto-compact. */
+  codexNonLeaderAutoCompactThresholdPercent?: number;
   /** Codex leader-only in-place recycle trigger based on tracked context tokens used. */
   codexLeaderRecycleThresholdTokens: number;
   /** Optional exact-model recycle threshold overrides keyed by user-visible Codex model ID. */
@@ -153,6 +155,7 @@ let settings: CompanionSettings = {
   sleepInhibitorDurationMinutes: 5,
   questmasterViewMode: "cards",
   codexLeaderContextWindowOverrideTokens: 1_000_000,
+  codexNonLeaderAutoCompactThresholdPercent: 90,
   codexLeaderRecycleThresholdTokens: 260_000,
   codexLeaderRecycleThresholdTokensByModel: {},
   updatedAt: 0,
@@ -365,6 +368,12 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       typeof raw?.codexLeaderContextWindowOverrideTokens === "number" && raw.codexLeaderContextWindowOverrideTokens >= 1
         ? Math.floor(raw.codexLeaderContextWindowOverrideTokens)
         : 1_000_000,
+    codexNonLeaderAutoCompactThresholdPercent:
+      typeof raw?.codexNonLeaderAutoCompactThresholdPercent === "number" &&
+      raw.codexNonLeaderAutoCompactThresholdPercent >= 1 &&
+      raw.codexNonLeaderAutoCompactThresholdPercent <= 100
+        ? Math.floor(raw.codexNonLeaderAutoCompactThresholdPercent)
+        : 90,
     codexLeaderRecycleThresholdTokens:
       typeof raw?.codexLeaderRecycleThresholdTokens === "number" && raw.codexLeaderRecycleThresholdTokens >= 1
         ? Math.floor(raw.codexLeaderRecycleThresholdTokens)
@@ -470,6 +479,7 @@ export function updateSettings(
       | "sleepInhibitorDurationMinutes"
       | "questmasterViewMode"
       | "codexLeaderContextWindowOverrideTokens"
+      | "codexNonLeaderAutoCompactThresholdPercent"
       | "codexLeaderRecycleThresholdTokens"
       | "codexLeaderRecycleThresholdTokensByModel"
     >

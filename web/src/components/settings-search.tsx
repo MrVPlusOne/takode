@@ -79,6 +79,11 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       { id: "claude", text: "Claude Code binary path command auto-detect" },
       { id: "codex", text: "Codex binary path command auto-detect" },
       {
+        id: "codex-non-leader-auto-compact-threshold",
+        text: "Codex non-leader auto compact threshold percent worker normal session effective context window 90%",
+        aliases: ["auto compact", "non leader", "worker", "percent", "90%", "gpt-5.4", "gpt-5.5"],
+      },
+      {
         id: "codex-leader-context-window",
         text: "Codex leader context window override orchestration recycle compaction tokens 1M",
       },

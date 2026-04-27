@@ -395,6 +395,7 @@ export interface AppSettings {
   sleepInhibitorDurationMinutes: number;
   questmasterViewMode: QuestmasterViewMode;
   codexLeaderContextWindowOverrideTokens: number;
+  codexNonLeaderAutoCompactThresholdPercent?: number;
   codexLeaderRecycleThresholdTokens: number;
   codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   restartSupported: boolean;
@@ -970,6 +971,7 @@ export const api = {
     sleepInhibitorDurationMinutes?: number;
     questmasterViewMode?: QuestmasterViewMode;
     codexLeaderContextWindowOverrideTokens?: number;
+    codexNonLeaderAutoCompactThresholdPercent?: number;
     codexLeaderRecycleThresholdTokens?: number;
     codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   }) => put<AppSettings>("/settings", data),

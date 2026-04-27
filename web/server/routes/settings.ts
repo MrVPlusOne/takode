@@ -315,6 +315,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
       codexLeaderContextWindowOverrideTokens: settings.codexLeaderContextWindowOverrideTokens,
+      ...(typeof settings.codexNonLeaderAutoCompactThresholdPercent === "number"
+        ? { codexNonLeaderAutoCompactThresholdPercent: settings.codexNonLeaderAutoCompactThresholdPercent }
+        : {}),
       codexLeaderRecycleThresholdTokens: settings.codexLeaderRecycleThresholdTokens,
       codexLeaderRecycleThresholdTokensByModel: settings.codexLeaderRecycleThresholdTokensByModel ?? {},
       ...(extras?.includeRuntimeInfo
@@ -486,6 +489,15 @@ export function createSettingsRoutes(ctx: RouteContext) {
       return c.json({ error: "codexLeaderContextWindowOverrideTokens must be a positive integer" }, 400);
     }
     if (
+      body.codexNonLeaderAutoCompactThresholdPercent !== undefined &&
+      (typeof body.codexNonLeaderAutoCompactThresholdPercent !== "number" ||
+        body.codexNonLeaderAutoCompactThresholdPercent < 1 ||
+        body.codexNonLeaderAutoCompactThresholdPercent > 100 ||
+        !Number.isInteger(body.codexNonLeaderAutoCompactThresholdPercent))
+    ) {
+      return c.json({ error: "codexNonLeaderAutoCompactThresholdPercent must be an integer between 1 and 100" }, 400);
+    }
+    if (
       body.codexLeaderRecycleThresholdTokens !== undefined &&
       (typeof body.codexLeaderRecycleThresholdTokens !== "number" ||
         body.codexLeaderRecycleThresholdTokens < 1 ||
@@ -525,6 +537,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sleepInhibitorDurationMinutes",
       "questmasterViewMode",
       "codexLeaderContextWindowOverrideTokens",
+      "codexNonLeaderAutoCompactThresholdPercent",
       "codexLeaderRecycleThresholdTokens",
       "codexLeaderRecycleThresholdTokensByModel",
     ];
@@ -571,6 +584,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
       codexLeaderContextWindowOverrideTokens:
         typeof body.codexLeaderContextWindowOverrideTokens === "number"
           ? body.codexLeaderContextWindowOverrideTokens
+          : undefined,
+      codexNonLeaderAutoCompactThresholdPercent:
+        typeof body.codexNonLeaderAutoCompactThresholdPercent === "number"
+          ? body.codexNonLeaderAutoCompactThresholdPercent
           : undefined,
       codexLeaderRecycleThresholdTokens:
         typeof body.codexLeaderRecycleThresholdTokens === "number" ? body.codexLeaderRecycleThresholdTokens : undefined,

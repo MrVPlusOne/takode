@@ -265,6 +265,8 @@ export interface LaunchOptions {
   codexHome?: string;
   /** Codex leader-only effective context window override for session-local config. */
   codexLeaderContextWindowOverrideTokens?: number;
+  /** Codex non-leader auto-compact threshold as a percent of effective model context. */
+  codexNonLeaderAutoCompactThresholdPercent?: number;
   /** Docker container ID — when set, CLI runs inside container via docker exec */
   containerId?: string;
   /** Docker container name */
@@ -311,6 +313,7 @@ export class CliLauncher {
         claudeBinary: string;
         codexBinary: string;
         codexLeaderContextWindowOverrideTokens?: number;
+        codexNonLeaderAutoCompactThresholdPercent?: number;
       })
     | null = null;
   /** Callback to resolve env profile variables by slug (set by server bootstrap). */
@@ -372,7 +375,12 @@ export class CliLauncher {
 
   /** Attach a settings getter so relaunch() can read current binary settings. */
   setSettingsGetter(
-    fn: () => { claudeBinary: string; codexBinary: string; codexLeaderContextWindowOverrideTokens?: number },
+    fn: () => {
+      claudeBinary: string;
+      codexBinary: string;
+      codexLeaderContextWindowOverrideTokens?: number;
+      codexNonLeaderAutoCompactThresholdPercent?: number;
+    },
   ): void {
     this.settingsGetter = fn;
   }
@@ -884,6 +892,7 @@ export class CliLauncher {
             codexReasoningEffort: info.codexReasoningEffort,
             codexHome: info.codexHome,
             codexLeaderContextWindowOverrideTokens: binSettings.codexLeaderContextWindowOverrideTokens,
+            codexNonLeaderAutoCompactThresholdPercent: binSettings.codexNonLeaderAutoCompactThresholdPercent,
             containerId: info.containerId,
             containerName: info.containerName,
             containerImage: info.containerImage,

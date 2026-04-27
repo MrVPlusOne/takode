@@ -957,6 +957,73 @@ describe("launch", () => {
     }
   });
 
+  it("writes a session-local auto-compact model catalog override for non-leader Codex sessions", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+    const catalogSourcePath = join(sessionHome, "models_cache.json");
+    const catalogPath = join(sessionHome, "takode-model-catalog.json");
+    const {
+      mkdirSync: realMkdirSync,
+      writeFileSync: realWriteFileSync,
+      readFileSync: realReadFileSync,
+    } = require("node:fs");
+
+    realMkdirSync(sessionHome, { recursive: true });
+    realWriteFileSync(configPath, ['model = "gpt-5.5"', ""].join("\n"), "utf-8");
+    realWriteFileSync(
+      catalogSourcePath,
+      JSON.stringify(
+        {
+          models: [
+            {
+              slug: "gpt-5.5",
+              display_name: "GPT-5.5",
+              context_window: 272000,
+              max_context_window: 272000,
+              effective_context_window_percent: 95,
+              auto_compact_token_limit: null,
+            },
+          ],
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    try {
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexHome: customHome,
+        codexNonLeaderAutoCompactThresholdPercent: 90,
+      });
+      await waitForSpawnCalls(1);
+
+      const config = realReadFileSync(configPath, "utf-8");
+      expect(config).toContain(`model_catalog_json = ${JSON.stringify(catalogPath)}`);
+
+      const catalog = JSON.parse(realReadFileSync(catalogPath, "utf-8"));
+      expect(catalog.models).toEqual([
+        {
+          slug: "gpt-5.5",
+          display_name: "GPT-5.5",
+          context_window: 272000,
+          max_context_window: 272000,
+          effective_context_window_percent: 95,
+          auto_compact_token_limit: 232560,
+        },
+      ]);
+    } finally {
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
   it("relaunches MAI-wrapper-backed Codex leaders with the session-local CODEX_HOME", async () => {
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const sessionHome = join(customHome, "test-session-id");

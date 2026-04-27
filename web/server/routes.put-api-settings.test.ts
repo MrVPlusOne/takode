@@ -1329,6 +1329,60 @@ describe("PUT /api/settings", () => {
     });
   });
 
+  it("updates the non-leader Codex auto-compact threshold percent", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
+      sleepInhibitorEnabled: false,
+      sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexNonLeaderAutoCompactThresholdPercent: 88,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      updatedAt: 456,
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codexNonLeaderAutoCompactThresholdPercent: 88,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codexNonLeaderAutoCompactThresholdPercent: 88,
+      }),
+    );
+
+    const json = await res.json();
+    expect(json.codexNonLeaderAutoCompactThresholdPercent).toBe(88);
+  });
+
   it("rejects invalid per-model Codex leader recycle thresholds", async () => {
     const res = await app.request("/api/settings", {
       method: "PUT",
@@ -1343,6 +1397,21 @@ describe("PUT /api/settings", () => {
     expect(res.status).toBe(400);
     expect(await res.json()).toEqual({
       error: "codexLeaderRecycleThresholdTokensByModel.gpt-5.4 must be a positive integer",
+    });
+  });
+
+  it("rejects invalid non-leader Codex auto-compact threshold percent", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codexNonLeaderAutoCompactThresholdPercent: 101,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "codexNonLeaderAutoCompactThresholdPercent must be an integer between 1 and 100",
     });
   });
 
