@@ -442,32 +442,28 @@ async function ensureCodexLeaderModelCatalogOverride(
   if (!modelSlug) return { configToml };
 
   const existingCatalogPathValue = readTopLevelStringSetting(configToml, "model_catalog_json");
-  const sourceCatalogPath = existingCatalogPathValue
-    ? resolveConfigPathValue(codexHome, existingCatalogPathValue)
-    : join(codexHome, "models_cache.json");
-  let parsedCatalog: any = { models: [] };
-  if (await fileExists(sourceCatalogPath)) {
+  const sourceCatalogCandidates = [
+    existingCatalogPathValue ? resolveConfigPathValue(codexHome, existingCatalogPathValue) : undefined,
+    join(codexHome, "models_cache.json"),
+    join(getLegacyCodexHome(), "models_cache.json"),
+  ].filter((candidate, index, all): candidate is string => !!candidate && all.indexOf(candidate) === index);
+
+  let parsedCatalog: any = null;
+  for (const sourceCatalogPath of sourceCatalogCandidates) {
+    if (!(await fileExists(sourceCatalogPath))) continue;
     try {
       parsedCatalog = JSON.parse(await readFile(sourceCatalogPath, "utf-8"));
+      if (Array.isArray(parsedCatalog?.models)) break;
     } catch (error) {
       console.warn(`[cli-launcher] Failed to parse Codex model catalog ${sourceCatalogPath}:`, error);
-      parsedCatalog = { models: [] };
+      parsedCatalog = null;
     }
   }
-
-  if (!Array.isArray(parsedCatalog?.models)) {
-    parsedCatalog = { ...parsedCatalog, models: [] };
-  }
+  if (!Array.isArray(parsedCatalog?.models)) return { configToml };
 
   const modelEntries = parsedCatalog.models as any[];
-  let modelEntry = modelEntries.find((entry: any) => entry?.slug === modelSlug);
-  if (!modelEntry || typeof modelEntry !== "object") {
-    modelEntry = {
-      slug: modelSlug,
-      effective_context_window_percent: 95,
-    };
-    modelEntries.push(modelEntry);
-  }
+  const modelEntry = modelEntries.find((entry: any) => entry?.slug === modelSlug);
+  if (!modelEntry || typeof modelEntry !== "object") return { configToml };
 
   const effectivePercent = coercePositiveNumber(modelEntry.effective_context_window_percent) || 95;
   const rawContextWindow = Math.ceil((leaderContextWindowOverrideTokens * 100) / effectivePercent);
@@ -695,9 +691,22 @@ async function prepareCodexHome(
   const fileSeeds = ["auth.json", "config.toml", "models_cache.json", "version.json"];
   for (const name of fileSeeds) {
     try {
-      const src = join(sourceHome, name);
+      const candidateSources = [join(sourceHome, name)];
+      const legacyCodexHome = resolve(getLegacyCodexHome());
+      if ((name === "auth.json" || name === "models_cache.json") && legacyCodexHome !== sourceHome) {
+        candidateSources.push(join(legacyCodexHome, name));
+      }
+
+      let src: string | null = null;
+      for (const candidate of candidateSources) {
+        if (await fileExists(candidate)) {
+          src = candidate;
+          break;
+        }
+      }
+
       const dest = join(codexHome, name);
-      if (!(await fileExists(src))) continue;
+      if (!src) continue;
       if (name === "auth.json" || !(await fileExists(dest))) {
         await copyFile(src, dest);
       }

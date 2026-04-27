@@ -1147,7 +1147,7 @@ describe("launch", () => {
     }
   });
 
-  it("synthesizes a session-local model catalog override when no source catalog exists", async () => {
+  it("falls back to the legacy Codex model cache when the wrapper host home has no source catalog", async () => {
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const hostCodexHome = mkdtempSync(join(tmpdir(), "codex-host-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
@@ -1155,9 +1155,34 @@ describe("launch", () => {
     const catalogPath = join(sessionHome, "takode-leader-model-catalog.json");
     const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
     const { readFileSync: realReadFileSync } = require("node:fs");
+    const legacyCachePath = join(homedir(), ".codex", "models_cache.json");
 
     try {
       writeFileSync(join(hostCodexHome, "config.toml"), ['model = "gpt-5.5"', ""].join("\n"));
+      mockExistsSync.mockImplementation((path: string) => path === legacyCachePath);
+      mockReadFileSync.mockImplementation((path: string) => {
+        if (path === legacyCachePath) {
+          return JSON.stringify(
+            {
+              models: [
+                {
+                  slug: "gpt-5.5",
+                  display_name: "GPT-5.5",
+                  description: "Newest model",
+                  effective_context_window_percent: 95,
+                  context_window: 272000,
+                  max_context_window: 272000,
+                  auto_compact_token_limit: null,
+                  visibility: "list",
+                },
+              ],
+            },
+            null,
+            2,
+          );
+        }
+        return "";
+      });
 
       mockResolveBinary.mockImplementation((name: string): string | null => {
         if (name === wrapperPath) return wrapperPath;
@@ -1186,12 +1211,58 @@ describe("launch", () => {
       expect(catalog.models).toEqual([
         {
           slug: "gpt-5.5",
+          display_name: "GPT-5.5",
+          description: "Newest model",
           effective_context_window_percent: 95,
           context_window: 1_052_632,
           max_context_window: 1_052_632,
           auto_compact_token_limit: 1_000_000,
+          visibility: "list",
         },
       ]);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(customHome, { recursive: true, force: true });
+      rmSync(hostCodexHome, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the legacy Codex auth file when the wrapper host home has no auth.json", async () => {
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const hostCodexHome = mkdtempSync(join(tmpdir(), "codex-host-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const legacyAuthPath = join(homedir(), ".codex", "auth.json");
+    const sessionAuthPath = join(sessionHome, "auth.json");
+    const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
+
+    try {
+      writeFileSync(join(hostCodexHome, "config.toml"), ['model = "gpt-5.5"', ""].join("\n"));
+
+      mockExistsSync.mockImplementation((path: string) => {
+        if (path === legacyAuthPath) return true;
+        return false;
+      });
+
+      mockResolveBinary.mockImplementation((name: string): string | null => {
+        if (name === wrapperPath) return wrapperPath;
+        return "/usr/bin/claude";
+      });
+      mockCaptureUserShellEnv.mockReturnValue({});
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexBinary: wrapperPath,
+        codexHome: customHome,
+        env: {
+          TAKODE_ROLE: "orchestrator",
+        },
+      });
+      await waitForSpawnCalls(1);
+
+      expect(mockCopyFile).toHaveBeenCalledWith(legacyAuthPath, sessionAuthPath);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
