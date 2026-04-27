@@ -35,6 +35,12 @@ interface MaiWrapperSessionLaunchSpec {
   hostnameShimDir: string;
 }
 
+interface MaiWrapperHostSpec {
+  hostCodexHome?: string;
+  hostEnvRaw: string;
+  wrapperRoot: string;
+}
+
 export class MissingCodexBinaryError extends Error {}
 
 interface CodexLaunchInfo {
@@ -141,6 +147,19 @@ function normalizeMaiHostname(input: string): string {
 function quoteShellEnvValue(value: string): string {
   return `'${value.replace(/'/g, `'\\''`)}'`;
 }
+
+function readShellEnvAssignment(raw: string, key: string): string | undefined {
+  const match = raw.match(new RegExp(`^${escapeRegExp(key)}=(.*)$`, "m"));
+  if (!match) return undefined;
+  const value = match[1]?.trim() || "";
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    return value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/'\\\\''/g, "'");
+  }
+  return value;
+}
 function isCodexLeaderLaunch(info: CodexLaunchInfo, options: CodexLaunchOptions): boolean {
   return info.isOrchestrator === true || options.env?.TAKODE_ROLE === "orchestrator";
 }
@@ -158,6 +177,29 @@ async function readMaiWrapperHostEnv(wrapperRoot: string): Promise<string> {
     if (hostEnvRaw) return hostEnvRaw;
   }
   return "";
+}
+
+async function resolveMaiWrapperHostSpec(binary: string): Promise<MaiWrapperHostSpec | null> {
+  if (basename(binary) !== "codex.sh") return null;
+
+  let resolvedBinary = binary;
+  try {
+    resolvedBinary = await realpath(binary);
+  } catch {
+    resolvedBinary = binary;
+  }
+
+  const wrapperRoot = dirname(resolvedBinary);
+  if (!(await fileExists(join(wrapperRoot, maiWrapperRootMarker)))) {
+    return null;
+  }
+
+  const hostEnvRaw = await readMaiWrapperHostEnv(wrapperRoot);
+  return {
+    hostCodexHome: readShellEnvAssignment(hostEnvRaw, "CODEX_HOME"),
+    hostEnvRaw,
+    wrapperRoot,
+  };
 }
 
 function renderMaiWrapperSessionEnv(hostEnvRaw: string, codexHome: string, options: CodexLaunchOptions): string {
@@ -185,29 +227,14 @@ printf '%s\\n' ${quoteShellEnvValue(hostnameValue)}
 }
 
 async function resolveMaiWrapperSessionLaunchSpec(
-  binary: string,
+  hostSpec: MaiWrapperHostSpec,
   sessionId: string,
   codexHome: string,
   options: CodexLaunchOptions,
 ): Promise<MaiWrapperSessionLaunchSpec | null> {
-  if (basename(binary) !== "codex.sh") return null;
-
-  let resolvedBinary = binary;
-  try {
-    resolvedBinary = await realpath(binary);
-  } catch {
-    resolvedBinary = binary;
-  }
-
-  const wrapperRoot = dirname(resolvedBinary);
-  if (!(await fileExists(join(wrapperRoot, maiWrapperRootMarker)))) {
-    return null;
-  }
-
-  const hostEnvRaw = await readMaiWrapperHostEnv(wrapperRoot);
   const overlayHostname = normalizeMaiHostname(`${maiWrapperEnvHostPrefix}${sessionId}`);
-  const overlayEnvPath = join(wrapperRoot, ".run", `.env-${overlayHostname}`);
-  const overlayEnv = renderMaiWrapperSessionEnv(hostEnvRaw, codexHome, options);
+  const overlayEnvPath = join(hostSpec.wrapperRoot, ".run", `.env-${overlayHostname}`);
+  const overlayEnv = renderMaiWrapperSessionEnv(hostSpec.hostEnvRaw, codexHome, options);
   await mkdir(dirname(overlayEnvPath), { recursive: true });
   await writeFile(overlayEnvPath, overlayEnv, "utf-8");
 
@@ -490,18 +517,22 @@ async function pruneBrokenSymlinks(root: string): Promise<void> {
   }
 }
 
-async function prepareCodexHome(codexHome: string, resumeCliSessionId?: string): Promise<void> {
+async function prepareCodexHome(
+  codexHome: string,
+  resumeCliSessionId?: string,
+  seedSourceHome?: string,
+): Promise<void> {
   await mkdir(codexHome, { recursive: true });
 
-  const legacyHome = getLegacyCodexHome();
-  if (resolve(legacyHome) === resolve(codexHome) || !(await fileExists(legacyHome))) {
+  const sourceHome = resolve(seedSourceHome || getLegacyCodexHome());
+  if (sourceHome === resolve(codexHome) || !(await fileExists(sourceHome))) {
     return;
   }
 
   const fileSeeds = ["auth.json", "config.toml", "models_cache.json", "version.json"];
   for (const name of fileSeeds) {
     try {
-      const src = join(legacyHome, name);
+      const src = join(sourceHome, name);
       const dest = join(codexHome, name);
       if (!(await fileExists(src))) continue;
       if (name === "auth.json" || !(await fileExists(dest))) {
@@ -515,7 +546,7 @@ async function prepareCodexHome(codexHome: string, resumeCliSessionId?: string):
   const dirSeeds = ["skills", "vendor_imports", "prompts", "rules"];
   for (const name of dirSeeds) {
     try {
-      const src = join(legacyHome, name);
+      const src = join(sourceHome, name);
       const dest = join(codexHome, name);
       let copied = false;
       if (!(await fileExists(dest)) && (await fileExists(src))) {
@@ -637,6 +668,7 @@ export async function prepareCodexSpawn(
   const sandboxMode = resolveCodexSandbox(options.permissionMode, options.codexSandbox);
 
   const codexHome = resolveCompanionCodexSessionHome(sessionId, codexHomeRoot);
+  const maiWrapperHostSpec = !isContainerized ? await resolveMaiWrapperHostSpec(binary) : null;
   const shellEnvVars = Object.keys(options.env || {}).filter(
     (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
   );
@@ -644,7 +676,11 @@ export async function prepareCodexSpawn(
   let containerLeaderConfigToml: string | undefined;
 
   if (!isContainerized) {
-    await prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId);
+    await prepareCodexHome(
+      codexHome,
+      options.resumeCliSessionId || info.cliSessionId,
+      maiWrapperHostSpec?.hostCodexHome,
+    );
     await ensureCodexSessionConfig(codexHome, shellEnvVars, {
       leaderContextWindowOverrideTokens,
     });
@@ -655,9 +691,10 @@ export async function prepareCodexSpawn(
     });
   }
 
-  const maiWrapperLaunchSpec = !isContainerized
-    ? await resolveMaiWrapperSessionLaunchSpec(binary, sessionId, codexHome, options)
-    : null;
+  const maiWrapperLaunchSpec =
+    !isContainerized && leaderLaunch && maiWrapperHostSpec
+      ? await resolveMaiWrapperSessionLaunchSpec(maiWrapperHostSpec, sessionId, codexHome, options)
+      : null;
   const args: string[] = [];
   args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
   if (options.codexReasoningEffort) {

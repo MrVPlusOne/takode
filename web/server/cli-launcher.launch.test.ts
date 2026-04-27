@@ -327,7 +327,7 @@ function createMockCodexProc(pid = 12345) {
   };
 }
 
-function createMaiWrapperFixture(options?: { envHost?: string }) {
+function createMaiWrapperFixture(options?: { envHost?: string; hostCodexHome?: string }) {
   const root = mkdtempSync(join(tmpdir(), "mai-wrapper-test-"));
   const envHost =
     options?.envHost ||
@@ -338,6 +338,7 @@ function createMaiWrapperFixture(options?: { envHost?: string }) {
       .slice(0, 64)
       .replace(/[._-]+$/, "") ||
     "host";
+  const hostCodexHome = options?.hostCodexHome || "/Users/test/.codex/hosts/test-host";
   mkdirSync(join(root, ".run"), { recursive: true });
   writeFileSync(join(root, ".mai-agents-root"), "");
   writeFileSync(
@@ -345,7 +346,7 @@ function createMaiWrapperFixture(options?: { envHost?: string }) {
     [
       'LITELLM_API_KEY="sk-wrapper123"',
       'LITELLM_PROXY_URL="http://localhost:4000"',
-      'CODEX_HOME="/Users/test/.codex/hosts/test-host"',
+      `CODEX_HOME="${hostCodexHome}"`,
       "",
     ].join("\n"),
   );
@@ -1051,6 +1052,83 @@ describe("launch", () => {
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it("launches MAI-wrapper-backed Codex workers without installing the wrapper CODEX_HOME overlay", async () => {
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const shimDir = join(sessionHome, ".mai-wrapper-bin");
+    const { existsSync: realExistsSync } = require("node:fs");
+    const { root, wrapperPath } = createMaiWrapperFixture();
+
+    try {
+      mockResolveBinary.mockImplementation((name: string): string | null => {
+        if (name === wrapperPath) return wrapperPath;
+        return "/usr/bin/claude";
+      });
+      mockCaptureUserShellEnv.mockReturnValue({});
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexBinary: wrapperPath,
+        codexHome: customHome,
+      });
+      await waitForSpawnCalls(1);
+
+      const [cmdAndArgs, options] = mockSpawn.mock.calls[0]!;
+      expect(cmdAndArgs[0]).toBe(wrapperPath);
+      expect(options.env.PATH.split(":")[0]).not.toBe(shimDir);
+      expect(realExistsSync(getMaiWrapperSessionEnvPath(root))).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(customHome, { recursive: true, force: true });
+    }
+  });
+
+  it("bootstraps MAI-wrapper-backed Codex session homes from the wrapper CODEX_HOME", async () => {
+    mockResolveBinary.mockReturnValue("/tmp/unused");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const hostCodexHome = "/Users/test/.codex/hosts/test-host";
+    const sessionHome = "/Users/test/.companion/codex-home/test-session-id";
+    const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
+
+    try {
+      mockResolveBinary.mockImplementation((name: string): string | null => {
+        if (name === wrapperPath) return wrapperPath;
+        return "/usr/bin/claude";
+      });
+      mockCaptureUserShellEnv.mockReturnValue({});
+      mockExistsSync.mockImplementation((path: string) => {
+        if (path === hostCodexHome) return true;
+        if (path === join(hostCodexHome, "skills")) return true;
+        if (path === join(hostCodexHome, "vendor_imports")) return true;
+        if (path === join(hostCodexHome, "prompts")) return true;
+        if (path === join(hostCodexHome, "rules")) return true;
+        return false;
+      });
+
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexBinary: wrapperPath,
+        codexHome: "/Users/test/.companion/codex-home",
+      });
+      await waitForSpawnCalls(1);
+
+      expect(mockCp).toHaveBeenCalledWith(join(hostCodexHome, "skills"), join(sessionHome, "skills"), {
+        recursive: true,
+      });
+      expect(mockCp).not.toHaveBeenCalledWith(join(homedir(), ".codex", "skills"), join(sessionHome, "skills"), {
+        recursive: true,
+      });
+    } finally {
+      rmSync(root, { recursive: true, force: true });
     }
   });
 
