@@ -735,13 +735,15 @@ Examples:
   takode board set q-12 --phases planning,explore,outcome-review --preset investigation
   takode board set q-12 --phases implement,outcome-review,code-review,port --preset cli-rollout --revise-reason "Need outcome evidence before final code review"
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
+  takode board set q-12 --status IMPLEMENTING --wait-for-input 3,4
+  takode board set q-12 --clear-wait-for-input
   takode board set q-12 --worker 5 --wait-for q-7,#9
   takode board advance q-12
   takode board rm q-12
 `;
 
-const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]
+const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]
 
 Add or update a board row for a quest.
 
@@ -749,6 +751,8 @@ Quest Journey phases:
   --phases planning,explore,implement,code-review,mental-simulation,execute,outcome-review,bookkeeping,port
   --preset <id> labels the planned phase sequence; use with --phases
   --revise-reason <text> records why an active Journey's remaining phases changed
+  --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
+  --clear-wait-for-input removes any existing linked needs-input wait state
 
 Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` instead of using a special no-code board flag.
 `;
@@ -3297,6 +3301,7 @@ interface BoardRow {
   journey?: QuestJourneyPlanState;
   status?: string;
   waitFor?: string[];
+  waitForInput?: string[];
   createdAt: number;
   updatedAt: number;
   completedAt?: number;
@@ -3312,6 +3317,28 @@ interface BoardParticipantStatus {
 interface BoardRowSessionStatus {
   worker?: BoardParticipantStatus;
   reviewer?: BoardParticipantStatus | null;
+}
+
+function normalizeBoardWaitForInputNotificationId(value: string): string | null {
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (/^\d+$/.test(trimmed)) {
+    const numericId = Number.parseInt(trimmed, 10);
+    return numericId > 0 ? `n-${numericId}` : null;
+  }
+  const match = /^n-(\d+)$/i.exec(trimmed);
+  if (!match) return null;
+  const numericId = Number.parseInt(match[1], 10);
+  return numericId > 0 ? `n-${numericId}` : null;
+}
+
+function formatBoardWaitForInputNotificationLabel(notificationId: string): string {
+  const match = /^n-(\d+)$/i.exec(notificationId.trim());
+  return match ? match[1] : notificationId;
+}
+
+function formatBoardWaitForInputNotificationList(notificationIds: string[]): string {
+  return notificationIds.map((notificationId) => formatBoardWaitForInputNotificationLabel(notificationId)).join(", ");
 }
 
 function formatBoardParticipantStatus(
@@ -3413,7 +3440,8 @@ function printBoardText(
     const owner = ownerStr.slice(0, ownerCol - 1).padEnd(ownerCol);
     const state = (row.status || "--").padEnd(sCol);
 
-    // Wait-for column: distinguish "no deps", "blocked", and "all resolved"
+    // Wait-for column: distinguish input waits, queue deps, and ready states
+    const linkedInputWaits = row.waitForInput || [];
     const allDeps = row.waitFor || [];
     const blockedDeps = allDeps.filter((wf) => {
       const kind = getWaitForRefKind(wf);
@@ -3424,7 +3452,9 @@ function printBoardText(
       return true;
     });
     let waitForStr: string;
-    if (dispatchableQuestIds.has(row.questId)) {
+    if (linkedInputWaits.length > 0) {
+      waitForStr = `input ${formatBoardWaitForInputNotificationList(linkedInputWaits)}`;
+    } else if (dispatchableQuestIds.has(row.questId)) {
       waitForStr = "ready";
     } else if (blockedDeps.length > 0) {
       waitForStr = `wait ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
@@ -3435,7 +3465,9 @@ function printBoardText(
 
     // Next action hint: if blocked, show "blocked"; otherwise show state hint
     let nextAction: string;
-    if (dispatchableQuestIds.has(row.questId)) {
+    if (linkedInputWaits.length > 0) {
+      nextAction = `wait for user input (${formatBoardWaitForInputNotificationList(linkedInputWaits)})`;
+    } else if (dispatchableQuestIds.has(row.questId)) {
       nextAction = "dispatch now";
     } else if (blockedDeps.length > 0) {
       nextAction = `wait for ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
@@ -3543,7 +3575,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     if (!questId)
       err(
-        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]`,
+        `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]`,
       );
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
@@ -3594,6 +3626,30 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
           `Invalid wait-for value(s): ${invalid.join(", ")} -- use q-N for quests, #N for sessions, or ${FREE_WORKER_WAIT_FOR_TOKEN}`,
         );
       body.waitFor = waitFor;
+    }
+    if (flags["clear-wait-for-input"] === true && typeof flags["wait-for-input"] === "string") {
+      err("Use either --wait-for-input or --clear-wait-for-input, not both.");
+    }
+    if (typeof flags["wait-for-input"] === "string") {
+      const rawIds = flags["wait-for-input"]
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+      if (rawIds.length === 0) {
+        err("Invalid wait-for-input value: provide one or more notification IDs like 3 or n-3.");
+      }
+      const normalizedIds = rawIds.map((notificationId) => ({
+        notificationId,
+        normalized: normalizeBoardWaitForInputNotificationId(notificationId),
+      }));
+      const invalid = normalizedIds.filter((entry) => entry.normalized === null).map((entry) => entry.notificationId);
+      if (invalid.length > 0) {
+        err(`Invalid wait-for-input value(s): ${invalid.join(", ")} -- use needs-input notification IDs like 3 or n-3`);
+      }
+      body.waitForInput = [...new Set(normalizedIds.map((entry) => entry.normalized!))];
+    }
+    if (flags["clear-wait-for-input"] === true) {
+      body.clearWaitForInput = true;
     }
     if (typeof flags.worker === "string") {
       const workerRef = flags.worker;

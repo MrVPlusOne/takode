@@ -965,6 +965,39 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
+  it("does not warn for rows intentionally waiting on linked user input", async () => {
+    const { leaderId, dispatcher } = setupBoardStallHarness();
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+    const leaderSession = (bridge as any).sessions.get(leaderId);
+
+    leaderSession.notifications.push({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Need human answer",
+      timestamp: Date.now(),
+      messageId: null,
+      done: false,
+    });
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-1",
+      waitForInput: ["n-1"],
+      status: "IMPLEMENTING",
+      updatedAt: Date.now() - 5 * 60_000,
+    });
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(181_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+    );
+    expect(herdCalls).toHaveLength(0);
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
   it("emits a one-shot leader nudge when a completed quest normalizes a queued row to free-worker", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness();
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");

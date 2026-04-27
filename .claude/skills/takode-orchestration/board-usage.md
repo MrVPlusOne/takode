@@ -10,7 +10,7 @@ While a quest is on the board, the current planned Journey shown there is board-
 
 Display the board with phase boundaries and next-action hints.
 
-### `takode board set <quest-id> [--worker N] [--status STATE] [--wait-for q-X,#Y,free-worker] [--phases phase-a,phase-b] [--preset preset-id] [--revise-reason "why"]`
+### `takode board set <quest-id> [--worker N] [--status STATE] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--phases phase-a,phase-b] [--preset preset-id] [--revise-reason "why"]`
 
 Add or update a row.
 
@@ -18,6 +18,8 @@ Add or update a row.
   - `q-N` for another quest to clear
   - `#N` for a specific session to become reusable
   - `free-worker` when the only blocker is herd worker-slot capacity
+- `--wait-for-input` links an active row to same-session `needs-input` notification IDs when the quest is intentionally paused on a human answer
+- `--clear-wait-for-input` removes that intentional human-input hold and resolves the linked notification(s)
 - `--phases` assembles the row's active Journey from built-in phase IDs
 - `--preset` labels the planned phase sequence
 - `--revise-reason` records why an existing Journey's remaining phases changed
@@ -60,5 +62,6 @@ Remove row(s) manually.
 - Use `takode board advance` for normal phase transitions.
 - Use `takode board set --status ...` for intentional resets or active-boundary changes.
 - Every `QUEUED` row must keep an explicit `--wait-for` reason.
+- Reserve `--wait-for-input` for active rows. Do not use it on `QUEUED` rows.
 - Update the board immediately when herd events change quest state.
 - Do not restate current board rows in chat after updating the board; the UI already shows them live.

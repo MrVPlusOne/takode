@@ -885,6 +885,7 @@ export function PlaygroundInteractiveSections() {
                   worker: "abc123",
                   workerNum: 5,
                   status: "IMPLEMENTING",
+                  waitForInput: ["n-3", "n-4"],
                   updatedAt: Date.now() - 60000,
                 },
                 {
@@ -936,6 +937,7 @@ export function PlaygroundInteractiveSections() {
                       worker: "abc123",
                       workerNum: 5,
                       status: "IMPLEMENTING",
+                      waitForInput: ["n-3"],
                       updatedAt: Date.now() - 60000,
                     },
                     {

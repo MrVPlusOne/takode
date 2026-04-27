@@ -445,8 +445,10 @@ export interface BoardRow {
   journey?: import("../shared/quest-journey.js").QuestJourneyPlanState;
   /** Legacy board state for compatibility; derived from the current Quest Journey phase. */
   status?: string;
-  /** Quest IDs (q-N) or session numbers (#N) this quest is blocked on. */
+  /** Queue-only dependencies: quest IDs (q-N), session numbers (#N), or free-worker. */
   waitFor?: string[];
+  /** Linked same-session needs-input notification IDs that intentionally pause active work. */
+  waitForInput?: string[];
   /** Epoch ms when this row was first added to the board. Used for stable sort. */
   createdAt: number;
   /** Epoch ms when this row was last updated. */

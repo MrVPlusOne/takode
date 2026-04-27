@@ -29,6 +29,7 @@ export interface BoardRowData {
   journey?: QuestJourneyPlanState;
   status?: string;
   waitFor?: string[];
+  waitForInput?: string[];
   createdAt?: number;
   updatedAt: number;
   completedAt?: number;
@@ -338,6 +339,11 @@ function WaitForRef({ depRef }: { depRef: string }) {
   return <span className="text-cc-muted">{formatWaitForRefLabel(depRef)}</span>;
 }
 
+function WaitForInputRef({ notificationId }: { notificationId: string }) {
+  const match = /^n-(\d+)$/i.exec(notificationId.trim());
+  return <span className="text-amber-200/90">{`input ${match ? match[1] : notificationId}`}</span>;
+}
+
 function StatusCell({ row }: { row: BoardRowData }) {
   const status = row.status;
   if (!status) return <span className="text-cc-muted">{"\u2014"}</span>;
@@ -411,9 +417,12 @@ export const BoardTable = memo(function BoardTable({
                   </span>
                 ) : (
                   <>
-                    {row.waitFor && row.waitFor.length > 0 ? (
+                    {(row.waitForInput && row.waitForInput.length > 0) || (row.waitFor && row.waitFor.length > 0) ? (
                       <span className="flex gap-1.5 flex-wrap">
-                        {row.waitFor.map((dep) => (
+                        {row.waitForInput?.map((notificationId) => (
+                          <WaitForInputRef key={notificationId} notificationId={notificationId} />
+                        ))}
+                        {row.waitFor?.map((dep) => (
                           <WaitForRef key={dep} depRef={dep} />
                         ))}
                       </span>

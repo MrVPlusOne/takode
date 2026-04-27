@@ -138,6 +138,24 @@ describe("BoardTable", () => {
     );
   });
 
+  it("renders linked wait-for-input ids distinctly from queue dependencies", () => {
+    const board: BoardRowData[] = [
+      {
+        questId: "q-1",
+        status: "IMPLEMENTING",
+        waitForInput: ["n-3", "n-8"],
+        waitFor: ["q-2"],
+        updatedAt: 1,
+      },
+    ];
+
+    render(<BoardTable board={board} />);
+
+    expect(screen.getByText("input 3")).toBeInTheDocument();
+    expect(screen.getByText("input 8")).toBeInTheDocument();
+    expect(screen.getByText("q-2")).toBeInTheDocument();
+  });
+
   it("orders active rows by journey status priority first", () => {
     const ordered = orderBoardRows([
       { questId: "q-1", status: "PORTING", updatedAt: 1 },

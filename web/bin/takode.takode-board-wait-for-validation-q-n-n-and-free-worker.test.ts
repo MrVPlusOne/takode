@@ -179,4 +179,46 @@ describe("takode board --wait-for validation (q-N, #N, and free-worker)", () => 
     expect(capturedBodies[0].status).toBeUndefined();
     expect(result.stdout).toContain("QUEUED");
   });
+
+  it("accepts --wait-for-input notification ids and normalizes them to raw ids", async () => {
+    const result = await runTakode(
+      ["board", "set", "q-1", "--status", "IMPLEMENTING", "--wait-for-input", "7,n-2,n-7", "--port", String(port)],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies).toHaveLength(1);
+    expect(capturedBodies[0].waitForInput).toEqual(["n-7", "n-2"]);
+  });
+
+  it("sends clearWaitForInput when --clear-wait-for-input is provided", async () => {
+    const result = await runTakode(["board", "set", "q-1", "--clear-wait-for-input", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies).toHaveLength(1);
+    expect(capturedBodies[0].clearWaitForInput).toBe(true);
+  });
+
+  it.each(["0", "n-0", "foo", "#7"])("rejects invalid --wait-for-input value: %j", async (badRef) => {
+    const result = await runTakode(
+      ["board", "set", "q-1", "--status", "IMPLEMENTING", "--wait-for-input", badRef, "--port", String(port)],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Invalid wait-for-input");
+    expect(capturedBodies).toHaveLength(0);
+  });
 });

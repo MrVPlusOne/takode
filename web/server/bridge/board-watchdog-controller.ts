@@ -109,6 +109,43 @@ export function getCompletedBoardCountForSession(sessions: BoardSessionsLike, se
   return sessions.get(sessionId)?.completedBoard.size ?? 0;
 }
 
+function isQueuedBoardRowStatus(status: string | undefined): boolean {
+  return (status || "").trim().toUpperCase() === "QUEUED";
+}
+
+function normalizeBoardWaitForInput(waitForInput: string[] | undefined): string[] | undefined {
+  if (!Array.isArray(waitForInput)) return undefined;
+  const deduped = [...new Set(waitForInput)]
+    .map((notificationId) => notificationId.trim().toLowerCase())
+    .filter((notificationId) => /^n-\d+$/.test(notificationId))
+    .sort((a, b) => Number.parseInt(a.slice(2), 10) - Number.parseInt(b.slice(2), 10));
+  return deduped.length > 0 ? deduped : undefined;
+}
+
+function getBoardRowWaitForInputIds(row: Pick<BoardRow, "waitForInput"> | null | undefined): string[] {
+  return normalizeBoardWaitForInput(row?.waitForInput) ?? [];
+}
+
+function clearBoardRowWaitForInputIds(row: BoardRow | null | undefined): string[] {
+  const notificationIds = getBoardRowWaitForInputIds(row);
+  if (row && notificationIds.length > 0) row.waitForInput = undefined;
+  return notificationIds;
+}
+
+function resolveRemovedBoardWaitForInputIds(
+  session: SessionLike,
+  previousNotificationIds: string[],
+  nextNotificationIds: string[],
+  deps: Pick<WorkBoardStateDeps, "markNotificationDone">,
+): void {
+  if (previousNotificationIds.length === 0) return;
+  const nextIds = new Set(nextNotificationIds);
+  for (const notificationId of previousNotificationIds) {
+    if (nextIds.has(notificationId)) continue;
+    deps.markNotificationDone(session.id, notificationId, true);
+  }
+}
+
 export function getBoardStallSignatureForSession(
   sessions: BoardSessionsLike,
   sessionId: string,
@@ -188,7 +225,12 @@ function completeBoardRow(
   questId: string,
   deps: WorkBoardStateDeps,
 ): { board: BoardRow[]; completed: BoardRow | null } {
+  const row = session.board.get(questId) ?? null;
+  const removedWaitForInput = clearBoardRowWaitForInputIds(row);
   const completed = moveBoardRowToCompleted(session, questId);
+  for (const notificationId of removedWaitForInput) {
+    deps.markNotificationDone(session.id, notificationId, true);
+  }
   const board = commitBoard(session, deps);
   if (completed) {
     deps.notifyReview(session.id, buildBoardCompletionSummary([completed]));
@@ -275,13 +317,24 @@ export function upsertBoardRow(
     journey: normalizeBoardRowJourneyPlan({ journey: baseJourney, noCode }, status),
     status,
     waitFor: row.waitFor !== undefined ? (row.waitFor.length > 0 ? row.waitFor : undefined) : existing?.waitFor,
+    waitForInput:
+      row.waitForInput !== undefined ? normalizeBoardWaitForInput(row.waitForInput) : existing?.waitForInput,
     createdAt: existing?.createdAt ?? now,
     updatedAt: row.updatedAt ?? now,
   };
   if (row.status !== undefined && (merged.status || "").trim() !== "QUEUED" && row.waitFor === undefined) {
     merged.waitFor = undefined;
   }
+  if (isQueuedBoardRowStatus(merged.status)) {
+    merged.waitForInput = undefined;
+  }
   session.board.set(row.questId, merged);
+  resolveRemovedBoardWaitForInputIds(
+    session,
+    getBoardRowWaitForInputIds(existing),
+    getBoardRowWaitForInputIds(merged),
+    deps,
+  );
   return commitBoard(session, deps);
 }
 
@@ -298,7 +351,11 @@ export function upsertBoardRowForSession(
 
 export function removeBoardRows(session: SessionLike, questIds: string[], deps: WorkBoardStateDeps): BoardRow[] {
   const completedRows: BoardRow[] = [];
+  const removedWaitForInput = new Set<string>();
   for (const questId of questIds) {
+    for (const notificationId of clearBoardRowWaitForInputIds(session.board.get(questId) ?? null)) {
+      removedWaitForInput.add(notificationId);
+    }
     const completed = moveBoardRowToCompleted(session, questId);
     if (completed) completedRows.push(completed);
   }
@@ -307,6 +364,9 @@ export function removeBoardRows(session: SessionLike, questIds: string[], deps: 
       session,
       completedRows.map((row) => row.questId),
     );
+  }
+  for (const notificationId of removedWaitForInput) {
+    deps.markNotificationDone(session.id, notificationId, true);
   }
   const board = commitBoard(session, deps);
   if (completedRows.length > 0) {
@@ -329,15 +389,22 @@ export function removeBoardRowsForSession(
 export function removeBoardRowFromAllSessions(
   sessions: BoardSessionsLike,
   questId: string,
-  deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession">,
+  deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
 ): void {
   for (const session of sessions.values()) {
     const hadActive = session.board.has(questId);
     const hadCompleted = session.completedBoard.has(questId);
+    const removedWaitForInput = new Set<string>([
+      ...clearBoardRowWaitForInputIds(session.board.get(questId) ?? null),
+      ...clearBoardRowWaitForInputIds(session.completedBoard.get(questId) ?? null),
+    ]);
     if (hadActive) session.board.delete(questId);
     if (hadCompleted) session.completedBoard.delete(questId);
     if (hadActive || hadCompleted) {
       clearResolvedQuestWaitFor(session, [questId]);
+      for (const notificationId of removedWaitForInput) {
+        deps.markNotificationDone(session.id, notificationId, true);
+      }
       const board = getBoard(session);
       const completedBoard = getCompletedBoard(session);
       deps.broadcastBoard(session, board, completedBoard);
@@ -406,6 +473,7 @@ export function advanceBoardRow(
         nextPhase.boardState,
       );
       if (row.status !== "QUEUED") row.waitFor = undefined;
+      if (isQueuedBoardRowStatus(row.status)) row.waitForInput = undefined;
       row.updatedAt = Date.now();
       session.board.set(questId, row);
       const board = commitBoard(session, deps);
@@ -421,6 +489,7 @@ export function advanceBoardRow(
   row.status = currentIdx === -1 ? states[0] : states[currentIdx + 1];
   row.journey = normalizeBoardRowJourneyPlan(row, row.status);
   if (row.status !== "QUEUED") row.waitFor = undefined;
+  if (isQueuedBoardRowStatus(row.status)) row.waitForInput = undefined;
   row.updatedAt = Date.now();
   session.board.set(questId, row);
   const board = commitBoard(session, deps);
@@ -776,6 +845,7 @@ function buildBoardStallCandidate(
 ): BoardStallCandidate | null {
   const stage = (row.status || "").trim();
   if (!stage || stage === "QUEUED") return null;
+  if (getBoardRowWaitForInputIds(row).length > 0) return null;
   if (getBlockedBoardDeps(session, row, deps).length > 0) return null;
 
   const workerSessionId = resolveBoardSessionId(row.worker, row.workerNum, deps);

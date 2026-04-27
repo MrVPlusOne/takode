@@ -146,6 +146,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
   };
   const notificationPersistDeps = {
     broadcastToBrowsers: (session: BridgeSession, msg: unknown) => wsBridge.broadcastToSession(session.id, msg as any),
+    broadcastBoard: (session: BridgeSession, board: unknown[], completedBoard: unknown[]) =>
+      wsBridge.broadcastToSession(session.id, { type: "board_updated", board, completedBoard } as any),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
   };
   const boardWatchdogDeps = {
@@ -296,6 +298,21 @@ export function createTakodeRoutes(ctx: RouteContext) {
   const parseNotificationNumericId = (notificationId: string): number | null => {
     const match = /^n-(\d+)$/.exec(notificationId);
     return match ? Number.parseInt(match[1], 10) : null;
+  };
+
+  const normalizeNeedsInputNotificationId = (value: unknown): string | null => {
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+      return `n-${value}`;
+    }
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) {
+      const numericId = Number.parseInt(trimmed, 10);
+      return numericId > 0 ? `n-${numericId}` : null;
+    }
+    const numericId = parseNotificationNumericId(trimmed.toLowerCase());
+    return numericId !== null ? `n-${numericId}` : null;
   };
 
   const buildSelfNeedsInputNotifications = (session: BridgeSession) => {
@@ -1370,9 +1387,61 @@ export function createTakodeRoutes(ctx: RouteContext) {
       }
       waitFor = parsed;
     }
+    if (body.waitFor !== undefined && !Array.isArray(body.waitFor)) {
+      return c.json({ error: "waitFor must be an array when provided" }, 400);
+    }
+
+    let waitForInput: string[] | undefined;
+    const clearWaitForInput = body.clearWaitForInput === true;
+    if (clearWaitForInput && body.waitForInput !== undefined) {
+      return c.json({ error: "Use either waitForInput or clearWaitForInput, not both" }, 400);
+    }
+    if (Array.isArray(body.waitForInput)) {
+      const parsed: Array<{ value: unknown; normalized: string | null }> = body.waitForInput
+        .map((value: unknown) => ({ value, normalized: normalizeNeedsInputNotificationId(value) }))
+        .filter((entry: { value: unknown; normalized: string | null }) => entry.value !== undefined);
+      const invalid = parsed.filter((entry) => entry.normalized === null).map((entry) => String(entry.value).trim());
+      if (invalid.length > 0) {
+        return c.json(
+          {
+            error: `Invalid wait-for-input value(s): ${invalid.join(", ")} -- use same-session needs-input notification IDs like 3 or n-3`,
+          },
+          400,
+        );
+      }
+      const normalizedIds = parsed
+        .map((entry) => entry.normalized)
+        .filter((notificationId): notificationId is string => typeof notificationId === "string");
+      waitForInput = [...new Set(normalizedIds)].sort(
+        (a: string, b: string) => Number.parseInt(a.slice(2), 10) - Number.parseInt(b.slice(2), 10),
+      );
+    } else if (body.waitForInput !== undefined) {
+      return c.json({ error: "waitForInput must be an array when provided" }, 400);
+    }
+    if (clearWaitForInput) waitForInput = [];
 
     const bridgeSession = wsBridge.getSession(id);
     const existingRow = bridgeSession?.board.get(questId) ?? null;
+    if (waitForInput && waitForInput.length > 0) {
+      if (!bridgeSession) return c.json({ error: "Session not found in bridge" }, 404);
+      const missing = waitForInput.filter(
+        (notificationId) =>
+          !bridgeSession.notifications.some(
+            (notification) =>
+              notification.id === notificationId &&
+              notification.category === "needs-input" &&
+              notification.done !== true,
+          ),
+      );
+      if (missing.length > 0) {
+        return c.json(
+          {
+            error: `Unknown or already-resolved same-session needs-input notification ID(s): ${missing.join(", ")}`,
+          },
+          400,
+        );
+      }
+    }
     let journey: QuestJourneyPlanState | undefined;
     let firstPlannedPhaseState: string | undefined;
     const revisionReason =
@@ -1453,10 +1522,19 @@ export function createTakodeRoutes(ctx: RouteContext) {
         ? body.status.trim() || undefined
         : (implicitQueuedStatus ?? existingRow?.status?.trim() ?? firstPlannedPhaseState);
     const mergedWaitFor = waitFor !== undefined ? waitFor : existingRow?.waitFor;
+    const mergedWaitForInput = waitForInput !== undefined ? waitForInput : existingRow?.waitForInput;
     if (mergedStatus === "QUEUED" && (!mergedWaitFor || mergedWaitFor.length === 0)) {
       return c.json(
         {
           error: `Queued rows require an explicit wait-for reason -- use q-N, #N, or ${FREE_WORKER_WAIT_FOR_TOKEN}`,
+        },
+        400,
+      );
+    }
+    if (mergedStatus === "QUEUED" && mergedWaitForInput && mergedWaitForInput.length > 0) {
+      return c.json(
+        {
+          error: "wait-for-input is only valid on active board rows; clear it before moving a row to QUEUED.",
         },
         400,
       );
@@ -1480,6 +1558,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
             journey,
             status: statusForUpsert,
             waitFor,
+            waitForInput,
           },
           workBoardStateDeps,
         )

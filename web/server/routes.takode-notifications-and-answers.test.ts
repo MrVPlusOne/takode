@@ -744,6 +744,38 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge._sessions["orch-1"].notifications[0].done).toBe(true);
   });
 
+  it("clears linked board wait-for-input state when a needs-input notification is resolved", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-4", category: "needs-input", summary: "Resolve me", timestamp: 1000, messageId: null, done: false },
+      { id: "n-5", category: "needs-input", summary: "Keep me", timestamp: 1001, messageId: null, done: false },
+    ];
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          waitForInput: ["n-4", "n-5"],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/notifications/needs-input/4/resolve", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["orch-1"].board.get("q-9")).toMatchObject({
+      waitForInput: ["n-5"],
+    });
+  });
+
   it("treats resolving an already-resolved notification as a no-op", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].notifications = [

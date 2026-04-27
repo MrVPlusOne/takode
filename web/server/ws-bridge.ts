@@ -1486,6 +1486,13 @@ export class WsBridge {
       broadcastBoard: (targetSession, board, completedBoard) =>
         this.broadcastToBrowsers(targetSession as Session, { type: "board_updated", board, completedBoard }),
       persistSession: (targetSession) => this.persistSession(targetSession as Session),
+      markNotificationDone: (sessionId, notifId, done) =>
+        markNotificationDoneBySessionIdController(this.sessions, sessionId, notifId, done, {
+          broadcastToBrowsers: (targetSession, msg) => this.broadcastToBrowsers(targetSession as Session, msg),
+          broadcastBoard: (targetSession, board, completedBoard) =>
+            this.broadcastToBrowsers(targetSession as Session, { type: "board_updated", board, completedBoard }),
+          persistSession: (targetSession) => this.persistSession(targetSession as Session),
+        }),
     });
   }
 

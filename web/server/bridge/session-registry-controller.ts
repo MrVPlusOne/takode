@@ -1,6 +1,6 @@
 import { sessionTag } from "../session-tag.js";
 import type { PersistedSession } from "../session-store.js";
-import type { ContentBlock, SessionTaskEntry, SessionNotification } from "../session-types.js";
+import type { BoardRow, ContentBlock, SessionTaskEntry, SessionNotification } from "../session-types.js";
 import { detectQuestEvent } from "./quest-detector.js";
 import type {
   BrowserIncomingMessage,
@@ -20,6 +20,7 @@ export interface SessionRegistryDeps {
   persistSession: (session: SessionLike) => void;
   persistSessionSync: (sessionId: string) => void;
   broadcastToBrowsers?: (session: SessionLike, msg: BrowserIncomingMessage) => void;
+  broadcastBoard?: (session: SessionLike, board: BoardRow[], completedBoard: BoardRow[]) => void;
   broadcastSessionUpdate?: (session: SessionLike, update: Record<string, unknown>) => void;
   requestCliRelaunch?: (sessionId: string) => void;
   emitTakodeEvent?: (sessionId: string, type: string, data: Record<string, unknown>) => void;
@@ -1008,19 +1009,64 @@ export function notifyUserBySessionId(
   return notifyUser(session, category, summary, deps);
 }
 
+function getSortedBoardRows(session: SessionLike): BoardRow[] {
+  if (!session.board?.values) return [];
+  return Array.from(session.board.values() as Iterable<BoardRow>).sort((a, b) => a.createdAt - b.createdAt);
+}
+
+function getSortedCompletedBoardRows(session: SessionLike): BoardRow[] {
+  if (!session.completedBoard?.values) return [];
+  return Array.from(session.completedBoard.values() as Iterable<BoardRow>).sort(
+    (a, b) => (b.completedAt ?? 0) - (a.completedAt ?? 0),
+  );
+}
+
+function removeNotificationLinksFromBoardRows(session: SessionLike, notifId: string): boolean {
+  const normalizedNotificationId = notifId.trim().toLowerCase();
+  if (!/^n-\d+$/.test(normalizedNotificationId)) return false;
+
+  let changed = false;
+  const boardMaps = [session.board, session.completedBoard].filter(
+    (boardMap): boardMap is Map<string, BoardRow> => !!boardMap?.values,
+  );
+  for (const boardMap of boardMaps) {
+    for (const row of boardMap.values()) {
+      if (!Array.isArray(row.waitForInput) || row.waitForInput.length === 0) continue;
+      const currentIds = [
+        ...new Set(row.waitForInput.map((notificationId: string) => notificationId.trim().toLowerCase())),
+      ]
+        .filter((notificationId) => /^n-\d+$/.test(notificationId))
+        .sort((a, b) => Number.parseInt(a.slice(2), 10) - Number.parseInt(b.slice(2), 10));
+      if (!currentIds.includes(normalizedNotificationId)) continue;
+
+      const nextIds = currentIds.filter((notificationId) => notificationId !== normalizedNotificationId);
+      row.waitForInput = nextIds.length > 0 ? nextIds : undefined;
+      boardMap.set(row.questId, row);
+      changed = true;
+    }
+  }
+
+  return changed;
+}
+
 export function markNotificationDone(
   session: SessionLike,
   notifId: string,
   done: boolean,
-  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession">,
+  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession" | "broadcastBoard">,
 ): boolean {
   const notif = session.notifications.find((entry: SessionNotification) => entry.id === notifId);
   if (!notif) return false;
   notif.done = done;
+  const clearedBoardWaits =
+    done && notif.category === "needs-input" ? removeNotificationLinksFromBoardRows(session, notifId) : false;
   deps.broadcastToBrowsers?.(session, {
     type: "notification_update",
     notifications: session.notifications,
   } as BrowserIncomingMessage);
+  if (clearedBoardWaits) {
+    deps.broadcastBoard?.(session, getSortedBoardRows(session), getSortedCompletedBoardRows(session));
+  }
   if (done) clearActionAttentionIfNoNotifications(session, deps);
   deps.persistSession(session);
   return true;
@@ -1031,7 +1077,7 @@ export function markNotificationDoneBySessionId(
   sessionId: string,
   notifId: string,
   done: boolean,
-  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession">,
+  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession" | "broadcastBoard">,
 ): boolean {
   const session = sessions.get(sessionId);
   if (!session) return false;
@@ -1041,12 +1087,16 @@ export function markNotificationDoneBySessionId(
 export function markAllNotificationsDone(
   session: SessionLike,
   done: boolean,
-  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession">,
+  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession" | "broadcastBoard">,
 ): number {
   let count = 0;
+  let clearedBoardWaits = false;
   for (const notif of session.notifications) {
     if (notif.done === done) continue;
     notif.done = done;
+    if (done && notif.category === "needs-input") {
+      clearedBoardWaits = removeNotificationLinksFromBoardRows(session, notif.id) || clearedBoardWaits;
+    }
     count += 1;
   }
   if (count > 0) {
@@ -1054,6 +1104,9 @@ export function markAllNotificationsDone(
       type: "notification_update",
       notifications: session.notifications,
     } as BrowserIncomingMessage);
+    if (clearedBoardWaits) {
+      deps.broadcastBoard?.(session, getSortedBoardRows(session), getSortedCompletedBoardRows(session));
+    }
     if (done) clearActionAttentionIfNoNotifications(session, deps);
     deps.persistSession(session);
   }
@@ -1064,7 +1117,7 @@ export function markAllNotificationsDoneBySessionId(
   sessions: Map<string, SessionLike>,
   sessionId: string,
   done: boolean,
-  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession">,
+  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession" | "broadcastBoard">,
 ): number {
   const session = sessions.get(sessionId);
   if (!session) return -1;

@@ -204,6 +204,67 @@ describe("takode board output modes", () => {
     }
   });
 
+  it("renders linked wait-for-input state explicitly in board show output", async () => {
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-board-input", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-board-input/board?resolve=true") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [
+              {
+                questId: "q-12",
+                title: "Wait for rollout answer",
+                worker: "worker-1",
+                workerNum: 5,
+                status: "IMPLEMENTING",
+                waitForInput: ["n-3", "n-8"],
+                createdAt: 1,
+                updatedAt: 2,
+              },
+            ],
+            rowSessionStatuses: {
+              "q-12": {
+                worker: { sessionId: "worker-1", sessionNum: 5, status: "idle" },
+                reviewer: null,
+              },
+            },
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["board", "show", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board-input",
+        COMPANION_AUTH_TOKEN: "auth-board-input",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("input 3, 8");
+      expect(result.stdout).toContain("wait for user input (3, 8)");
+    } finally {
+      server.close();
+    }
+  });
+
   it("emits structured board JSON only in --json mode", async () => {
     const server = createServer((req, res) => {
       const method = req.method || "";
