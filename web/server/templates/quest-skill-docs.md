@@ -65,7 +65,7 @@ quest list   [--status <s1,s2>] [--tag <t>] [--tags "t1,t2"] [--session <sid>] [
 quest grep   <pattern> [--count N] [--json]                  Search quest title, description, and feedback/comments
 quest show   <id> [--json]                                    Show quest detail
 quest status <id> [--json]                                    Show compact action-oriented status and next action
-quest history <id> [--json]                                   Show version history
+quest history <id> [--json]                                   Show quest history (legacy backup after cutover)
 quest tags   [--json]                                         List all existing tags with counts
 quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
 quest claim  <id> [--session <sid>] [--json]                  Claim for your session
@@ -326,7 +326,7 @@ quest cancel q-5 --notes-file /tmp/quest-closeout.txt
 
 When the user asks you to work on a quest — whether via the Companion "Assign" button or free-form text like "work on q-5" — follow this order:
 
-1. **Read and verify**: `quest show q-N` — understand the full scope. Prefer the plain-text form for normal reading and judgment; it is more scannable and token-efficient than `--json`. Use `quest status q-N` for a compact next-action summary. Use `quest feedback list/latest/show` for indexed feedback inspection, and reserve `--json` for exact machine fields such as `commitShas` or version-local metadata from `quest history`. **Verify the title matches what you expect.** If the quest title/description doesn't match the task you were asked to work on, STOP — you may have the wrong quest ID. If the quest has a **Feedback** section, read it carefully — these are review comments from the human that must be addressed.
+1. **Read and verify**: `quest show q-N` — understand the full scope. Prefer the plain-text form for normal reading and judgment; it is more scannable and token-efficient than `--json`. Use `quest status q-N` for a compact next-action summary. Use `quest feedback list/latest/show` for indexed feedback inspection, and reserve `--json` for exact machine fields such as `commitShas` or legacy backup metadata from `quest history`. **Verify the title matches what you expect.** If the quest title/description doesn't match the task you were asked to work on, STOP — you may have the wrong quest ID. If the quest has a **Feedback** section, read it carefully — these are review comments from the human that must be addressed.
    - When you need to search across many quests or within quest comments for prior decisions, prefer `quest grep <pattern>` over manually scanning `quest show` output or relying on `quest list --text`.
 2. **Claim immediately**: `quest claim q-N` — always claim first, regardless of the quest's current status. This links it to your session. If this fails because another session already claimed it, **STOP and tell the user** — do not proceed.
 3. **Polish metadata (required before coding)**:

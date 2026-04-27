@@ -41,6 +41,10 @@ function isVerificationInboxUnreadQuest(q: QuestmasterTask): boolean {
   return q.status === "needs_verification" && !!(q as { verificationInboxUnread?: boolean }).verificationInboxUnread;
 }
 
+function questRecencyTs(q: QuestmasterTask): number {
+  return Math.max(q.createdAt, (q as { updatedAt?: number }).updatedAt ?? 0, q.statusChangedAt ?? 0);
+}
+
 export function formatSessionLabel(
   sid: string,
   sessionMetadata?: Map<string, SessionMetadata>,
@@ -94,7 +98,7 @@ export function formatQuestDetail(
   options?: FormatQuestOptions,
 ): string {
   const lines: string[] = [];
-  lines.push(`Quest ${q.questId} (v${q.version}, ${STATUS_LABELS[q.status] ?? q.status})`);
+  lines.push(`Quest ${q.questId} (rev ${q.version}, ${STATUS_LABELS[q.status] ?? q.status})`);
   lines.push(`Title:       ${q.title}`);
   if ("description" in q && q.description) {
     lines.push(`Description: ${q.description}`);
@@ -184,9 +188,10 @@ export function formatQuestDetail(
   if ("completedAt" in q) {
     lines.push(`Completed:   ${timeAgo((q as { completedAt: number }).completedAt)}`);
   }
+  lines.push(`Last Active: ${timeAgo(questRecencyTs(q))}`);
   lines.push(`Created:     ${timeAgo(q.createdAt)}`);
-  if (q.prevId) {
-    lines.push(`Previous:    ${q.prevId}`);
+  if (q.statusChangedAt && q.statusChangedAt !== q.createdAt) {
+    lines.push(`Status:      ${timeAgo(q.statusChangedAt)}`);
   }
   return lines.join("\n");
 }

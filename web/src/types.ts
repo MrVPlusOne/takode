@@ -31,6 +31,7 @@ import type {
   QuestCreateInput,
   QuestPatchInput,
   QuestTransitionInput,
+  QuestHistoryView,
 } from "../server/quest-types.js";
 
 export type {
@@ -78,6 +79,7 @@ export type {
   QuestCreateInput,
   QuestPatchInput,
   QuestTransitionInput,
+  QuestHistoryView,
 };
 
 /** Tool names that spawn subagent sessions. Older CLI versions use "Task",

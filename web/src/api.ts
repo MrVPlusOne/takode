@@ -1276,7 +1276,7 @@ export const api = {
   },
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
   getQuestHistory: (id: string) =>
-    get<import("./types.js").QuestmasterTask[]>(`/quests/${encodeURIComponent(id)}/history`),
+    get<import("./types.js").QuestHistoryView>(`/quests/${encodeURIComponent(id)}/history`),
   getQuestCommit: (id: string, sha: string) =>
     get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}`),
   createQuest: (input: import("./types.js").QuestCreateInput) =>

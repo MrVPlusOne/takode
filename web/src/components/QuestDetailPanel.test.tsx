@@ -10,6 +10,7 @@ const mockMarkQuestDone = vi.fn();
 const mockAddQuestFeedback = vi.fn();
 const mockEditQuestFeedback = vi.fn();
 const mockDeleteQuestFeedback = vi.fn();
+const mockGetQuestHistory = vi.fn();
 const mockGetQuestCommit = vi.fn();
 const mockMarkNotificationDone = vi.fn();
 const mockMarkAllNotificationsDone = vi.fn();
@@ -25,6 +26,7 @@ vi.mock("../api.js", () => ({
     addQuestFeedback: (...args: unknown[]) => mockAddQuestFeedback(...args),
     editQuestFeedback: (...args: unknown[]) => mockEditQuestFeedback(...args),
     deleteQuestFeedback: (...args: unknown[]) => mockDeleteQuestFeedback(...args),
+    getQuestHistory: (...args: unknown[]) => mockGetQuestHistory(...args),
     getQuestCommit: (...args: unknown[]) => mockGetQuestCommit(...args),
     markNotificationDone: (...args: unknown[]) => mockMarkNotificationDone(...args),
     markAllNotificationsDone: (...args: unknown[]) => mockMarkAllNotificationsDone(...args),
@@ -117,6 +119,7 @@ describe("QuestDetailPanel", () => {
     mockAddQuestFeedback.mockReset();
     mockEditQuestFeedback.mockReset();
     mockDeleteQuestFeedback.mockReset();
+    mockGetQuestHistory.mockReset();
     mockGetQuestCommit.mockReset();
     mockMarkNotificationDone.mockReset();
     mockMarkAllNotificationsDone.mockReset();
@@ -387,32 +390,57 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByPlaceholderText("Leave feedback...")).toBeTruthy();
   });
 
-  it("shows edit and delete controls only for agent feedback entries", () => {
+  it("shows legacy backup history when requested", async () => {
+    const quest = makeVerificationQuest();
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+    mockGetQuestHistory.mockResolvedValue({
+      mode: "legacy_backup",
+      backupDir: "/tmp/legacy-backup",
+      entries: [
+        {
+          id: "q-42-v1",
+          questId: "q-42",
+          version: 1,
+          title: "Initial quest",
+          status: "idea",
+          createdAt: Date.now() - 86400000,
+        },
+      ],
+    });
+
+    render(<QuestDetailPanel />);
+
+    fireEvent.click(screen.getByText("show history"));
+
+    await waitFor(() => {
+      expect(screen.getByText("Legacy backup history")).toBeTruthy();
+      expect(screen.getByText("Initial quest")).toBeTruthy();
+    });
+  });
+
+  it("shows edit controls for human and agent feedback, with delete only for agent feedback", () => {
     const quest = makeVerificationQuest();
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
 
     render(<QuestDetailPanel />);
 
-    // Human reviewer comments should stay immutable from this inline path.
-    expect(screen.queryByLabelText("Edit agent feedback 1")).toBeNull();
+    expect(screen.getByLabelText("Edit feedback 1")).toBeTruthy();
     expect(screen.queryByLabelText("Delete agent feedback 1")).toBeNull();
 
-    // Agent-authored comments get the management affordances requested by q-311.
-    expect(screen.getByLabelText("Edit agent feedback 2")).toBeTruthy();
+    expect(screen.getByLabelText("Edit feedback 2")).toBeTruthy();
     expect(screen.getByLabelText("Delete agent feedback 2")).toBeTruthy();
   });
 
-  it("edits agent feedback and updates the quest in store", async () => {
-    // Editing should persist the agent reply through the API and refresh the quest overlay state.
+  it("edits human feedback and updates the quest in store", async () => {
     const quest = makeVerificationQuest();
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
     const updatedQuest = advanceQuestUpdate(
       makeVerificationQuest({
         feedback: [
-          { author: "human", text: "Check iPad mini too", ts: Date.now() - 7200000, addressed: true },
+          { author: "human", text: "Check iPad mini and Safari too", ts: Date.now() - 7200000, addressed: true },
           {
             author: "agent",
-            text: "Updated agent summary.",
+            text: "Confirmed working on iPad mini.",
             ts: Date.now() - 3600000,
             authorSessionId: "session-abc",
           },
@@ -423,20 +451,20 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText("Edit agent feedback 2"));
-    fireEvent.change(screen.getByDisplayValue("Confirmed working on iPad mini."), {
-      target: { value: "Updated agent summary." },
+    fireEvent.click(screen.getByLabelText("Edit feedback 1"));
+    fireEvent.change(screen.getByDisplayValue("Check iPad mini too"), {
+      target: { value: "Check iPad mini and Safari too" },
     });
     fireEvent.click(screen.getByText("Save"));
 
-    expect(mockEditQuestFeedback).toHaveBeenCalledWith("q-42", 1, {
-      text: "Updated agent summary.",
+    expect(mockEditQuestFeedback).toHaveBeenCalledWith("q-42", 0, {
+      text: "Check iPad mini and Safari too",
       images: [],
     });
 
     await waitFor(() => {
       expect(useStore.getState().quests.find((q) => q.questId === "q-42")).toMatchObject({
-        feedback: expect.arrayContaining([expect.objectContaining({ text: "Updated agent summary." })]),
+        feedback: expect.arrayContaining([expect.objectContaining({ text: "Check iPad mini and Safari too" })]),
       });
     });
   });
@@ -474,7 +502,7 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText("Edit agent feedback 2"));
+    fireEvent.click(screen.getByLabelText("Edit feedback 2"));
     fireEvent.click(screen.getByLabelText("Remove feedback image attachment.png"));
     fireEvent.click(screen.getByText("Save"));
 
@@ -521,7 +549,7 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText("Edit agent feedback 2"));
+    fireEvent.click(screen.getByLabelText("Edit feedback 2"));
     expect(screen.getByText("Save")).toBeTruthy();
 
     fireEvent.keyDown(document, { key: "Escape" });

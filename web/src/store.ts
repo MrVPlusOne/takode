@@ -114,6 +114,10 @@ function shouldPauseQuestBackgroundRefresh(): boolean {
   return typeof document !== "undefined" && document.visibilityState === "hidden";
 }
 
+function questRecencyTs(quest: QuestmasterTask): number {
+  return Math.max(quest.createdAt, (quest as { updatedAt?: number }).updatedAt ?? 0, quest.statusChangedAt ?? 0);
+}
+
 const QUEST_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 2_000;
 let pendingQuestBackgroundRefresh: Promise<void> | null = null;
 let lastQuestBackgroundRefreshAt = 0;
@@ -231,7 +235,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => {
       const quests = state.quests
         .map((q) => (q.questId === updated.questId ? updated : q))
-        .sort((a, b) => b.createdAt - a.createdAt);
+        .sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
       const nextQuests = reconcileQuestList(state.quests, quests);
       return nextQuests === state.quests ? {} : { quests: nextQuests };
     });

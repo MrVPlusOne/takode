@@ -174,7 +174,7 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.get("/quests/:questId/history", async (c) => {
-    const history = await questStore.getQuestHistory(c.req.param("questId"));
+    const history = await questStore.getQuestHistoryView(c.req.param("questId"));
     return c.json(history);
   });
 
@@ -586,7 +586,6 @@ export function createQuestRoutes(ctx: RouteContext) {
           ? ((current as { feedback?: import("../quest-types.js").QuestFeedbackEntry[] }).feedback ?? [])
           : [];
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
-      if (existing[index]?.author !== "agent") return c.json({ error: "Only agent feedback can be edited" }, 400);
       const updated = [...existing];
       if (typeof body.text === "string" && body.text.trim())
         updated[index] = { ...updated[index], text: body.text.trim() };

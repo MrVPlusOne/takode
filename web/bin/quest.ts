@@ -12,7 +12,7 @@
  *   mine       List quests owned by current session
  *   show       Show full quest detail
  *   status     Show compact action-oriented quest status
- *   history    Show all versions of a quest
+ *   history    Show quest history (live or legacy backup)
  *   create     Create a new quest
  *   claim      Claim a quest for a session
  *   complete   Transition to needs_verification with checklist
@@ -25,14 +25,14 @@
  *   check      Toggle a verification checkbox
  *   feedback   Add a feedback entry to a quest's thread
  *   address    Toggle feedback addressed status
- *   delete     Delete a quest and all versions
+ *   delete     Delete a quest
  *   resize-image  Resize an image to fit within a max pixel dimension
  */
 
 import {
   listQuests,
   getQuest,
-  getQuestHistory,
+  getQuestHistoryView,
   createQuest,
   claimQuest,
   completeQuest,
@@ -893,15 +893,29 @@ async function cmdHistory(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest history <questId>");
 
-  const versions = await getQuestHistory(id);
-  if (versions.length === 0) die(`Quest ${id} not found`);
+  const quest = await getQuest(id);
+  if (!quest) die(`Quest ${id} not found`);
+  const history = await getQuestHistoryView(id);
 
   if (jsonOutput) {
-    out(versions);
+    out(history);
     return;
   }
-  for (const v of versions) {
-    console.log(`v${v.version} (${STATUS_LABELS[v.status] ?? v.status}) — ${timeAgo(v.createdAt)}  [${v.id}]`);
+
+  if (history.mode === "legacy_backup") {
+    console.log("Legacy backup history");
+  } else if (history.mode === "unavailable") {
+    console.log(history.message ?? "History is unavailable.");
+    return;
+  }
+
+  if (history.entries.length === 0) {
+    console.log(history.message ?? "No previous versions.");
+    return;
+  }
+
+  for (const v of history.entries) {
+    console.log(`v${v.version} (${STATUS_LABELS[v.status] ?? v.status}) -- ${timeAgo(v.createdAt)}  [${v.id}]`);
   }
 }
 
@@ -1671,7 +1685,7 @@ async function cmdDelete(): Promise<void> {
   if (jsonOutput) {
     out({ deleted: true, questId: id });
   } else {
-    console.log(`Deleted ${id} and all versions`);
+    console.log(`Deleted ${id}`);
   }
 }
 
@@ -1769,7 +1783,7 @@ Commands:
   grep   <pattern> [--count N] [--json]                  Search inside quest title, description, and feedback/comments with snippets
   show   <id> [--json]                                   Show quest detail
   status <id> [--json]                                   Show compact action-oriented quest status
-  history <id> [--json]                                  Show version history
+  history <id> [--json]                                  Show quest history
   tags   [--json]                                        List all existing tags with counts
   create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json]
                                                          Create a quest

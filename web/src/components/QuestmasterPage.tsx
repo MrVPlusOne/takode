@@ -47,7 +47,7 @@ const FILTER_TABS: Array<{ value: QuestStatus | "all"; label: string }> = [
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
 function questRecencyTs(quest: QuestmasterTask): number {
-  return (quest as { updatedAt?: number }).updatedAt ?? quest.createdAt;
+  return Math.max(quest.createdAt, (quest as { updatedAt?: number }).updatedAt ?? 0, quest.statusChangedAt ?? 0);
 }
 
 function classifyQuestSearchToken(token: string): { kind: "positiveTag" | "negatedTag" | "text"; value: string } {
@@ -430,7 +430,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       const currentQuests = useStore.getState().quests;
       setQuests(
         [createdQuest, ...currentQuests.filter((q) => q.questId !== createdQuest.questId)].sort(
-          (a, b) => b.createdAt - a.createdAt,
+          (a, b) => questRecencyTs(b) - questRecencyTs(a),
         ),
       );
       setNewTitle("");
@@ -1459,9 +1459,7 @@ const QuestCard = memo(function QuestCard({
                   )}
                 </span>
               )}
-              <span className="text-[10px] text-cc-muted/50">
-                {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
-              </span>
+              <span className="text-[10px] text-cc-muted/50">{timeAgo(questRecencyTs(quest))}</span>
             </div>
             {quest.tags && quest.tags.length > 0 && (
               <div className="flex items-center gap-1.5 mt-0.5">
@@ -1613,9 +1611,7 @@ const CompactQuestRow = memo(function CompactQuestRow({
           <span className="text-cc-muted">{"\u2014"}</span>
         )}
       </td>
-      <td className="px-3 py-1.5 whitespace-nowrap align-middle text-cc-muted/70">
-        {timeAgo((quest as { updatedAt?: number }).updatedAt ?? quest.createdAt)}
-      </td>
+      <td className="px-3 py-1.5 whitespace-nowrap align-middle text-cc-muted/70">{timeAgo(questRecencyTs(quest))}</td>
     </tr>
   );
 });

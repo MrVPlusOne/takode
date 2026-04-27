@@ -2,8 +2,11 @@
 //
 // Progressive types: each stage extends the previous, strictly adding fields
 // where practical.
-// Linked-list versioning: every status transition creates a new version object
-// linked to the previous. No data is ever lost.
+//
+// Legacy quest storage persisted a full version chain on disk (`q-1-v1.json`,
+// `q-1-v2.json`, ...). The newer live store keeps only one mutable current
+// record per quest on the hot path, but it preserves the latest revision-shaped
+// `id`/`version` fields for compatibility with existing UI and CLI code.
 //
 // ─── Quest ownership model ───────────────────────────────────────────────────
 //
@@ -56,20 +59,22 @@ export interface QuestImage {
 // ─── Base fields shared by all stages ────────────────────────────────────────
 
 interface QuestBase {
-  /** Unique per version: "q-1-v3" */
+  /** Opaque current-record identifier. Legacy backups use ids like "q-1-v3". */
   id: string;
   /** Stable across versions: "q-1" */
   questId: string;
-  /** Monotonically increasing: 1, 2, 3... */
+  /** Monotonic live revision counter for the current quest record. */
   version: number;
-  /** Links to previous version: "q-1-v2" */
+  /** Legacy-only backlink used when reading version-history backups. */
   prevId?: string;
   title: string;
-  /** When this version was created (stable — never mutated after creation) */
+  /** When the quest was originally created. */
   createdAt: number;
   /** Last in-place modification (checkbox toggle, patch, image change).
    *  Only set by in-place mutations; absent on freshly created versions. */
   updatedAt?: number;
+  /** Last status transition time. Preserves Questmaster recency ordering. */
+  statusChangedAt?: number;
   tags?: string[];
   /** Stable questId of parent task (for subtasks) */
   parentId?: string;
@@ -130,6 +135,40 @@ export type QuestDone = Omit<QuestNeedsVerification, "status" | "sessionId" | "c
 // ─── Union type ──────────────────────────────────────────────────────────────
 
 export type QuestmasterTask = QuestIdea | QuestRefined | QuestInProgress | QuestNeedsVerification | QuestDone;
+
+export type QuestHistoryMode = "live" | "legacy_backup" | "unavailable";
+
+export interface QuestHistoryView {
+  mode: QuestHistoryMode;
+  entries: QuestmasterTask[];
+  message?: string;
+  backupDir?: string;
+}
+
+export interface QuestMigrationUnreadableFile {
+  file: string;
+  questId: string;
+  error: string;
+}
+
+export interface QuestMigrationBlockedQuest {
+  questId: string;
+  files: string[];
+  errors: string[];
+}
+
+export type QuestMigrationSnapshotStatus = "readable" | "missing" | "unreadable";
+
+export interface QuestStoreMigrationReport {
+  legacyQuestCount: number;
+  migratedQuestCount: number;
+  snapshotQuestCount: number;
+  snapshotStatus: QuestMigrationSnapshotStatus;
+  snapshotError?: string;
+  snapshotMismatchQuestIds: string[];
+  unreadableFiles: QuestMigrationUnreadableFile[];
+  blockedQuests: QuestMigrationBlockedQuest[];
+}
 
 // ─── Input types (for APIs) ──────────────────────────────────────────────────
 

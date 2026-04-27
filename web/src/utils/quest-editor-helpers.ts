@@ -19,8 +19,8 @@ export function getQuestFeedback(quest: QuestmasterTask): QuestFeedbackEntry[] {
   return "feedback" in quest ? ((quest as { feedback?: QuestFeedbackEntry[] }).feedback ?? []) : [];
 }
 
-export function getQuestUpdatedAt(quest: QuestmasterTask): number {
-  return (quest as { updatedAt?: number }).updatedAt ?? quest.createdAt;
+export function getQuestRecencyTs(quest: QuestmasterTask): number {
+  return Math.max(quest.createdAt, (quest as { updatedAt?: number }).updatedAt ?? 0, quest.statusChangedAt ?? 0);
 }
 
 // ─── Clipboard helpers ──────────────────────────────────────────────────────
