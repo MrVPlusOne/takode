@@ -958,7 +958,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2", "q-3"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2", "q-3"] });
     const board = bridge.getBoard("s1");
     expect(board[0].waitFor).toEqual(["q-2", "q-3"]);
   });
@@ -968,7 +968,7 @@ describe("work board", () => {
     bridge.handleBrowserOpen(browser, "s1");
 
     // Set initial waitFor
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2"] });
     expect(bridge.getBoard("s1")[0].waitFor).toEqual(["q-2"]);
 
     // Clear with empty array
@@ -980,7 +980,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2"] });
     // Update title without touching waitFor
     bridge.upsertBoardRow("s1", { questId: "q-1", title: "Updated" });
     const row = bridge.getBoard("s1")[0];
@@ -992,10 +992,10 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2", "#5"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2", "#5"] });
     bridge.upsertBoardRow("s1", { questId: "q-2", title: "Dependency quest" });
-    bridge.upsertBoardRow("s1", { questId: "q-3", waitFor: ["q-2", "q-99"] });
-    bridge.upsertBoardRow("s1", { questId: "q-4", waitFor: ["q-2"] });
+    bridge.upsertBoardRow("s1", { questId: "q-3", status: "QUEUED", waitFor: ["q-2", "q-99"] });
+    bridge.upsertBoardRow("s1", { questId: "q-4", status: "QUEUED", waitFor: ["q-2"] });
 
     bridge.removeBoardRows("s1", ["q-2"]);
 
@@ -1009,7 +1009,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2", "#7"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2", "#7"] });
     bridge.upsertBoardRow("s1", { questId: "q-2", title: "Dependency quest" });
 
     bridge.removeBoardRowFromAll("q-2");
@@ -1021,7 +1021,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2"] });
     bridge.upsertBoardRow("s1", { questId: "q-2", title: "Dependency quest" });
 
     bridge.removeBoardRowFromAll("q-2");
@@ -1515,6 +1515,38 @@ describe("work board", () => {
     expect(session.attentionReason).toBe("review");
   });
 
+  it("advanceBoardRow resolves linked wait-for-input notifications when completing the final phase", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const session = (bridge as any).sessions.get("s1");
+    session.notifications = [
+      { id: "n-1", category: "needs-input", summary: "Need answer", timestamp: 1, messageId: null, done: false },
+      {
+        id: "n-2",
+        category: "needs-input",
+        summary: "Need another answer",
+        timestamp: 2,
+        messageId: null,
+        done: false,
+      },
+    ];
+    session.notificationCounter = 2;
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      title: "Quest 1",
+      status: "PORTING",
+      waitForInput: ["n-1", "n-2"],
+    });
+
+    const result = bridge.advanceBoardRow("s1", "q-1");
+
+    expect(result?.removed).toBe(true);
+    expect(session.notifications.find((notification: any) => notification.id === "n-1")?.done).toBe(true);
+    expect(session.notifications.find((notification: any) => notification.id === "n-2")?.done).toBe(true);
+  });
+
   it("advanceBoardRow sets QUEUED when status is unrecognized", () => {
     // Handles rows with freeform status text from before Quest Journey
     const browser = makeBrowserSocket("s1");
@@ -1601,6 +1633,28 @@ describe("work board", () => {
     expect(bridge.getBoard("s1")).toHaveLength(0);
   });
 
+  it("removeBoardRowFromAll resolves linked wait-for-input notifications", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const session = (bridge as any).sessions.get("s1");
+    session.notifications = [
+      { id: "n-4", category: "needs-input", summary: "Need answer", timestamp: 4, messageId: null, done: false },
+    ];
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-2",
+      title: "Quest 2",
+      status: "IMPLEMENTING",
+      waitForInput: ["n-4"],
+    });
+
+    bridge.removeBoardRowFromAll("q-2");
+
+    expect(bridge.getBoard("s1")).toHaveLength(0);
+    expect(session.notifications).toMatchObject([{ id: "n-4", done: true }]);
+  });
+
   it("getCompletedBoard returns empty for unknown session", () => {
     expect(bridge.getCompletedBoard("nonexistent")).toEqual([]);
   });
@@ -1660,7 +1714,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2", "#9"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2", "#9"] });
     bridge.upsertBoardRow("s1", { questId: "q-2", title: "Dependency quest" });
     browser.send.mockClear();
 

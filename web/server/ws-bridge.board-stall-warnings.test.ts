@@ -682,7 +682,7 @@ describe("board stall warnings", () => {
       title: "Investigate stall warning",
       worker: workerId,
       workerNum: 2,
-      status: opts?.reviewer ? (opts.reviewStage ?? "CODE_REVIEWING") : "IMPLEMENTING",
+      status: opts?.blocked ? "QUEUED" : opts?.reviewer ? (opts.reviewStage ?? "CODE_REVIEWING") : "IMPLEMENTING",
       ...(opts?.blocked ? { waitFor: ["#9"] } : {}),
       updatedAt: now - 5 * 60_000,
     });
@@ -948,7 +948,7 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
-  it("does not warn for blocked rows even when the worker is disconnected", async () => {
+  it("does not warn for queued rows with unresolved wait-for dependencies", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness({ blocked: true });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
 

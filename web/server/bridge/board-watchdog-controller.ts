@@ -126,6 +126,14 @@ function getBoardRowWaitForInputIds(row: Pick<BoardRow, "waitForInput"> | null |
   return normalizeBoardWaitForInput(row?.waitForInput) ?? [];
 }
 
+function applyBoardWaitStateInvariant(row: Pick<BoardRow, "status" | "waitFor" | "waitForInput">): void {
+  if (isQueuedBoardRowStatus(row.status)) {
+    row.waitForInput = undefined;
+    return;
+  }
+  row.waitFor = undefined;
+}
+
 function clearBoardRowWaitForInputIds(row: BoardRow | null | undefined): string[] {
   const notificationIds = getBoardRowWaitForInputIds(row);
   if (row && notificationIds.length > 0) row.waitForInput = undefined;
@@ -322,12 +330,7 @@ export function upsertBoardRow(
     createdAt: existing?.createdAt ?? now,
     updatedAt: row.updatedAt ?? now,
   };
-  if (row.status !== undefined && (merged.status || "").trim() !== "QUEUED" && row.waitFor === undefined) {
-    merged.waitFor = undefined;
-  }
-  if (isQueuedBoardRowStatus(merged.status)) {
-    merged.waitForInput = undefined;
-  }
+  applyBoardWaitStateInvariant(merged);
   session.board.set(row.questId, merged);
   resolveRemovedBoardWaitForInputIds(
     session,
@@ -472,8 +475,7 @@ export function advanceBoardRow(
         },
         nextPhase.boardState,
       );
-      if (row.status !== "QUEUED") row.waitFor = undefined;
-      if (isQueuedBoardRowStatus(row.status)) row.waitForInput = undefined;
+      applyBoardWaitStateInvariant(row);
       row.updatedAt = Date.now();
       session.board.set(questId, row);
       const board = commitBoard(session, deps);
@@ -488,8 +490,7 @@ export function advanceBoardRow(
 
   row.status = currentIdx === -1 ? states[0] : states[currentIdx + 1];
   row.journey = normalizeBoardRowJourneyPlan(row, row.status);
-  if (row.status !== "QUEUED") row.waitFor = undefined;
-  if (isQueuedBoardRowStatus(row.status)) row.waitForInput = undefined;
+  applyBoardWaitStateInvariant(row);
   row.updatedAt = Date.now();
   session.board.set(questId, row);
   const board = commitBoard(session, deps);
@@ -731,6 +732,7 @@ function retireBoardDispatchState(session: SessionLike, questId: string, deps: B
 }
 
 function getBlockedBoardDeps(session: SessionLike, row: BoardRow, deps: BoardWatchdogDeps): string[] {
+  if (!isQueuedBoardRowStatus(row.status)) return [];
   const activeQuestIds = new Set(session.board.keys());
   const blocked: string[] = [];
   const workerSlotsUsed = getLeaderWorkerSlotUsage(session.id, deps);

@@ -138,7 +138,7 @@ describe("BoardTable", () => {
     );
   });
 
-  it("renders linked wait-for-input ids distinctly from queue dependencies", () => {
+  it("renders only linked wait-for-input ids for active rows", () => {
     const board: BoardRowData[] = [
       {
         questId: "q-1",
@@ -153,7 +153,7 @@ describe("BoardTable", () => {
 
     expect(screen.getByText("input 3")).toBeInTheDocument();
     expect(screen.getByText("input 8")).toBeInTheDocument();
-    expect(screen.getByText("q-2")).toBeInTheDocument();
+    expect(screen.queryByText("q-2")).not.toBeInTheDocument();
   });
 
   it("orders active rows by journey status priority first", () => {
@@ -176,21 +176,21 @@ describe("BoardTable", () => {
     expect(ordered.map((row) => row.questId)).toEqual(["q-2", "q-3", "q-1"]);
   });
 
-  it("topologically orders rows within a status group based on quest wait-for dependencies", () => {
+  it("topologically orders queued rows based on quest wait-for dependencies", () => {
     const ordered = orderBoardRows([
-      { questId: "q-3", status: "IMPLEMENTING", updatedAt: 9_000, waitFor: ["q-2"] },
-      { questId: "q-1", status: "IMPLEMENTING", updatedAt: 1_000 },
-      { questId: "q-2", status: "IMPLEMENTING", updatedAt: 5_000, waitFor: ["q-1"] },
+      { questId: "q-3", status: "QUEUED", updatedAt: 9_000, waitFor: ["q-2"] },
+      { questId: "q-1", status: "QUEUED", updatedAt: 1_000 },
+      { questId: "q-2", status: "QUEUED", updatedAt: 5_000, waitFor: ["q-1"] },
     ]);
 
     expect(ordered.map((row) => row.questId)).toEqual(["q-1", "q-2", "q-3"]);
   });
 
-  it("ignores missing dependencies and falls back safely on cycles within a status group", () => {
+  it("ignores missing dependencies and falls back safely on cycles within queued rows", () => {
     const ordered = orderBoardRows([
-      { questId: "q-1", status: "IMPLEMENTING", updatedAt: 1_000, waitFor: ["q-999"] },
-      { questId: "q-2", status: "IMPLEMENTING", updatedAt: 3_000, waitFor: ["q-3"] },
-      { questId: "q-3", status: "IMPLEMENTING", updatedAt: 2_000, waitFor: ["q-2"] },
+      { questId: "q-1", status: "QUEUED", updatedAt: 1_000, waitFor: ["q-999"] },
+      { questId: "q-2", status: "QUEUED", updatedAt: 3_000, waitFor: ["q-3"] },
+      { questId: "q-3", status: "QUEUED", updatedAt: 2_000, waitFor: ["q-2"] },
     ]);
 
     expect(ordered.map((row) => row.questId)).toEqual(["q-2", "q-3", "q-1"]);

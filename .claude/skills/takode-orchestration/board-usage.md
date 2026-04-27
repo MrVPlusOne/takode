@@ -62,6 +62,7 @@ Remove row(s) manually.
 - Use `takode board advance` for normal phase transitions.
 - Use `takode board set --status ...` for intentional resets or active-boundary changes.
 - Every `QUEUED` row must keep an explicit `--wait-for` reason.
+- `--wait-for` and `--wait-for-input` are mutually exclusive on a single row.
 - Reserve `--wait-for-input` for active rows. Do not use it on `QUEUED` rows.
 - Update the board immediately when herd events change quest state.
 - Do not restate current board rows in chat after updating the board; the UI already shows them live.

@@ -3439,6 +3439,7 @@ function printBoardText(
     const ownerStr = formatBoardWorkerReviewerSummary(row, rowStatus);
     const owner = ownerStr.slice(0, ownerCol - 1).padEnd(ownerCol);
     const state = (row.status || "--").padEnd(sCol);
+    const isQueuedRow = (row.status || "").trim().toUpperCase() === "QUEUED";
 
     // Wait-for column: distinguish input waits, queue deps, and ready states
     const linkedInputWaits = row.waitForInput || [];
@@ -3452,11 +3453,11 @@ function printBoardText(
       return true;
     });
     let waitForStr: string;
-    if (linkedInputWaits.length > 0) {
+    if (!isQueuedRow && linkedInputWaits.length > 0) {
       waitForStr = `input ${formatBoardWaitForInputNotificationList(linkedInputWaits)}`;
-    } else if (dispatchableQuestIds.has(row.questId)) {
+    } else if (isQueuedRow && dispatchableQuestIds.has(row.questId)) {
       waitForStr = "ready";
-    } else if (blockedDeps.length > 0) {
+    } else if (isQueuedRow && blockedDeps.length > 0) {
       waitForStr = `wait ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
     } else {
       waitForStr = "--";
@@ -3465,11 +3466,11 @@ function printBoardText(
 
     // Next action hint: if blocked, show "blocked"; otherwise show state hint
     let nextAction: string;
-    if (linkedInputWaits.length > 0) {
+    if (!isQueuedRow && linkedInputWaits.length > 0) {
       nextAction = `wait for user input (${formatBoardWaitForInputNotificationList(linkedInputWaits)})`;
-    } else if (dispatchableQuestIds.has(row.questId)) {
+    } else if (isQueuedRow && dispatchableQuestIds.has(row.questId)) {
       nextAction = "dispatch now";
-    } else if (blockedDeps.length > 0) {
+    } else if (isQueuedRow && blockedDeps.length > 0) {
       nextAction = `wait for ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
     } else {
       nextAction = row.journey?.nextLeaderAction ?? (QUEST_JOURNEY_HINTS[row.status || ""] || "--");
@@ -3615,6 +3616,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       }
       body.revisionReason = flags["revise-reason"];
     }
+    const explicitStatus = typeof flags.status === "string" ? flags.status.trim().toUpperCase() : null;
     if (typeof flags["wait-for"] === "string") {
       const waitFor = flags["wait-for"]
         .split(",")
@@ -3629,6 +3631,15 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     }
     if (flags["clear-wait-for-input"] === true && typeof flags["wait-for-input"] === "string") {
       err("Use either --wait-for-input or --clear-wait-for-input, not both.");
+    }
+    if (typeof flags["wait-for"] === "string" && typeof flags["wait-for-input"] === "string") {
+      err("Invalid board update: --wait-for and --wait-for-input cannot be combined on the same row.");
+    }
+    if (typeof flags["wait-for"] === "string" && explicitStatus && explicitStatus !== "QUEUED") {
+      err("Invalid board update: --wait-for is only valid on QUEUED rows.");
+    }
+    if (typeof flags["wait-for-input"] === "string" && explicitStatus === "QUEUED") {
+      err("Invalid board update: --wait-for-input is only valid on active rows.");
     }
     if (typeof flags["wait-for-input"] === "string") {
       const rawIds = flags["wait-for-input"]

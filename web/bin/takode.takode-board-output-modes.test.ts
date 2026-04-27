@@ -121,8 +121,7 @@ describe("takode board output modes", () => {
 
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("#558 idle / #560 running");
-      expect(result.stdout).toContain("wait #560");
-      expect(result.stdout).toContain("wait for #560");
+      expect(result.stdout).toContain("read the code-review leader brief");
     } finally {
       server.close();
     }
@@ -149,7 +148,7 @@ describe("takode board output modes", () => {
                 title: "Simplify board output",
                 worker: "worker-1",
                 workerNum: 5,
-                status: "PLANNING",
+                status: "QUEUED",
                 waitFor: ["q-9"],
                 createdAt: 1,
                 updatedAt: 2,

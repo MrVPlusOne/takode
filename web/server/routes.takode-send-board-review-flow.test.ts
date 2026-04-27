@@ -777,12 +777,32 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("rejects wait-for dependencies on explicit active rows", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        status: "IMPLEMENTING",
+        waitFor: ["q-1"],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("wait-for is only valid on QUEUED board rows"),
+    });
+  });
+
   it("resolves removed wait-for-input notifications when a row is updated", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].notifications = [
       { id: "n-1", category: "needs-input", summary: "Need answer one", timestamp: 1000, messageId: null, done: false },
       { id: "n-2", category: "needs-input", summary: "Need answer two", timestamp: 1001, messageId: null, done: false },
     ];
+    bridge._sessions["orch-1"].notificationCounter = 2;
     bridge._sessions["orch-1"].board = new Map([
       [
         "q-9",
@@ -819,6 +839,85 @@ describe("Takode server-authoritative auth", () => {
       { id: "n-1", done: true },
       { id: "n-2", done: false },
     ]);
+  });
+
+  it("clears stale queue wait-for metadata when an active row is updated with wait-for-input", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-2", category: "needs-input", summary: "Need answer two", timestamp: 1001, messageId: null, done: false },
+    ];
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          waitFor: ["q-1"],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        waitForInput: ["2"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "IMPLEMENTING",
+          waitForInput: ["n-2"],
+        },
+      ],
+    });
+    expect(bridge._sessions["orch-1"].board.get("q-9")?.waitFor).toBeUndefined();
+  });
+
+  it("resolves linked wait-for-input notifications when board rows are removed", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-1", category: "needs-input", summary: "Need answer one", timestamp: 1000, messageId: null, done: false },
+      { id: "n-2", category: "needs-input", summary: "Need answer two", timestamp: 1001, messageId: null, done: false },
+    ];
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          waitForInput: ["n-1", "n-2"],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board/q-9", {
+      method: "DELETE",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [],
+      completedCount: 1,
+    });
+    expect(bridge._sessions["orch-1"].notifications.find((notification: any) => notification.id === "n-1")?.done).toBe(
+      true,
+    );
+    expect(bridge._sessions["orch-1"].notifications.find((notification: any) => notification.id === "n-2")?.done).toBe(
+      true,
+    );
   });
 
   it("stores lightweight planned phases on board rows", async () => {

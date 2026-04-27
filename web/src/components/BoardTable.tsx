@@ -48,6 +48,10 @@ function compareByRecencyDesc(a: BoardRowData, b: BoardRowData): number {
   return b.updatedAt - a.updatedAt || a.questId.localeCompare(b.questId);
 }
 
+function isQueuedRowStatus(status?: string): boolean {
+  return (status || "").trim().toUpperCase() === "QUEUED";
+}
+
 function topologicallySortStatusGroup(rows: BoardRowData[]): BoardRowData[] {
   if (rows.length <= 1) return [...rows];
 
@@ -115,7 +119,9 @@ export function orderBoardRows(board: BoardRowData[], mode: BoardTableMode = "ac
       if (byPriority !== 0) return byPriority;
       return statusA.localeCompare(statusB);
     })
-    .flatMap(([, rows]) => topologicallySortStatusGroup(rows));
+    .flatMap(([status, rows]) =>
+      isQueuedRowStatus(status) ? topologicallySortStatusGroup(rows) : rows.sort(compareByRecencyDesc),
+    );
 }
 
 export function formatCompletedTime(timestamp?: number): string {
@@ -417,14 +423,14 @@ export const BoardTable = memo(function BoardTable({
                   </span>
                 ) : (
                   <>
-                    {(row.waitForInput && row.waitForInput.length > 0) || (row.waitFor && row.waitFor.length > 0) ? (
+                    {(isQueuedRowStatus(row.status) && row.waitFor && row.waitFor.length > 0) ||
+                    (!isQueuedRowStatus(row.status) && row.waitForInput && row.waitForInput.length > 0) ? (
                       <span className="flex gap-1.5 flex-wrap">
-                        {row.waitForInput?.map((notificationId) => (
-                          <WaitForInputRef key={notificationId} notificationId={notificationId} />
-                        ))}
-                        {row.waitFor?.map((dep) => (
-                          <WaitForRef key={dep} depRef={dep} />
-                        ))}
+                        {isQueuedRowStatus(row.status)
+                          ? row.waitFor?.map((dep) => <WaitForRef key={dep} depRef={dep} />)
+                          : row.waitForInput?.map((notificationId) => (
+                              <WaitForInputRef key={notificationId} notificationId={notificationId} />
+                            ))}
                       </span>
                     ) : (
                       <span className="text-cc-muted">{"\u2014"}</span>

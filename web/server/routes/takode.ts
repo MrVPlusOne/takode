@@ -1523,18 +1523,36 @@ export function createTakodeRoutes(ctx: RouteContext) {
         : (implicitQueuedStatus ?? existingRow?.status?.trim() ?? firstPlannedPhaseState);
     const mergedWaitFor = waitFor !== undefined ? waitFor : existingRow?.waitFor;
     const mergedWaitForInput = waitForInput !== undefined ? waitForInput : existingRow?.waitForInput;
-    if (mergedStatus === "QUEUED" && (!mergedWaitFor || mergedWaitFor.length === 0)) {
+    const mergedIsQueued = (mergedStatus || "").trim().toUpperCase() === "QUEUED";
+    if (mergedIsQueued && mergedWaitForInput && mergedWaitForInput.length > 0) {
       return c.json(
         {
-          error: `Queued rows require an explicit wait-for reason -- use q-N, #N, or ${FREE_WORKER_WAIT_FOR_TOKEN}`,
+          error: "wait-for-input is only valid on active board rows; clear it before moving a row to QUEUED.",
         },
         400,
       );
     }
-    if (mergedStatus === "QUEUED" && mergedWaitForInput && mergedWaitForInput.length > 0) {
+    if (waitFor && waitFor.length > 0 && waitForInput && waitForInput.length > 0) {
       return c.json(
         {
-          error: "wait-for-input is only valid on active board rows; clear it before moving a row to QUEUED.",
+          error:
+            "wait-for and wait-for-input cannot both be set on the same row. Use wait-for for QUEUED rows or wait-for-input for active rows.",
+        },
+        400,
+      );
+    }
+    if (!mergedIsQueued && waitFor && waitFor.length > 0) {
+      return c.json(
+        {
+          error: "wait-for is only valid on QUEUED board rows; clear it before moving a row active.",
+        },
+        400,
+      );
+    }
+    if (mergedIsQueued && (!mergedWaitFor || mergedWaitFor.length === 0)) {
+      return c.json(
+        {
+          error: `Queued rows require an explicit wait-for reason -- use q-N, #N, or ${FREE_WORKER_WAIT_FOR_TOKEN}`,
         },
         400,
       );

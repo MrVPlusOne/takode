@@ -221,4 +221,46 @@ describe("takode board --wait-for validation (q-N, #N, and free-worker)", () => 
     expect(result.stderr).toContain("Invalid wait-for-input");
     expect(capturedBodies).toHaveLength(0);
   });
+
+  it("rejects combining --wait-for with --wait-for-input", async () => {
+    const result = await runTakode(
+      [
+        "board",
+        "set",
+        "q-1",
+        "--status",
+        "IMPLEMENTING",
+        "--wait-for",
+        "q-2",
+        "--wait-for-input",
+        "n-7",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("--wait-for and --wait-for-input cannot be combined");
+    expect(capturedBodies).toHaveLength(0);
+  });
+
+  it("rejects --wait-for on explicit active rows", async () => {
+    const result = await runTakode(
+      ["board", "set", "q-1", "--status", "IMPLEMENTING", "--wait-for", "q-2", "--port", String(port)],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("--wait-for is only valid on QUEUED rows");
+    expect(capturedBodies).toHaveLength(0);
+  });
 });
