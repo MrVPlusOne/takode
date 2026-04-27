@@ -697,9 +697,10 @@ describe("claimQuest", () => {
       latestSnapshotPath(),
       JSON.stringify(
         {
-          version: 2,
+          version: 3,
           quests: [],
           activeQuestBySessionId: {},
+          latestFileStateByQuestId: {},
           latestVersionByQuestId: {},
           updatedAt: Date.now(),
         },
@@ -718,6 +719,23 @@ describe("claimQuest", () => {
     await expect(questStore.claimQuest("q-2", "sess-1")).rejects.toThrow(
       'Session already has an active quest: q-1 "Already active".',
     );
+  });
+
+  it("reconciles a parseable stale snapshot after a same-version patchQuest rewrite", async () => {
+    await questStore.createQuest({ title: "Before title" });
+    const staleSnapshot = await readFile(latestSnapshotPath(), "utf-8");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await questStore.patchQuest("q-1", { title: "After rewritten title" });
+
+    await writeFile(latestSnapshotPath(), staleSnapshot, "utf-8");
+
+    const listed = await questStore.listQuests();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.title).toBe("After rewritten title");
+
+    const quest = await questStore.getQuest("q-1");
+    expect(quest?.title).toBe("After rewritten title");
   });
 });
 
