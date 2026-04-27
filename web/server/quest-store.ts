@@ -175,9 +175,16 @@ let pendingCreate: Promise<unknown> = Promise.resolve();
 
 type LatestQuestSnapshot = {
   activeQuestBySessionId: Record<string, string>;
+  latestVersionByQuestId: Record<string, number>;
   quests: QuestmasterTask[];
   updatedAt: number;
-  version: 1;
+  version: 2;
+};
+
+type QuestVersionFile = {
+  file: string;
+  questId: string;
+  version: number;
 };
 
 // Cold-path: synchronous mkdir at module load is fine
@@ -316,12 +323,46 @@ function sortLatestQuests(quests: QuestmasterTask[]): QuestmasterTask[] {
   return [...quests].sort((a, b) => b.createdAt - a.createdAt);
 }
 
-function buildLatestSnapshot(quests: QuestmasterTask[]): LatestQuestSnapshot {
+function deriveLatestVersionByQuestId(quests: QuestmasterTask[]): Record<string, number> {
+  return Object.fromEntries(quests.map((quest) => [quest.questId, quest.version]));
+}
+
+function normalizeLatestVersionByQuestId(value: unknown): Record<string, number> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  const normalized: Record<string, number> = {};
+  for (const [questId, version] of Object.entries(value as Record<string, unknown>)) {
+    if (!/^q-\d+$/.test(questId)) return null;
+    if (typeof version !== "number" || !Number.isInteger(version) || version < 1) return null;
+    normalized[questId] = version;
+  }
+  return normalized;
+}
+
+function latestVersionByQuestIdEqual(a: Record<string, number>, b: Record<string, number>): boolean {
+  const aEntries = Object.entries(a);
+  const bEntries = Object.entries(b);
+  if (aEntries.length !== bEntries.length) return false;
+  return aEntries.every(([questId, version]) => b[questId] === version);
+}
+
+function buildLatestVersionByQuestId(versionFilesByQuest: Map<string, QuestVersionFile[]>): Record<string, number> {
+  return Object.fromEntries(
+    [...versionFilesByQuest.entries()]
+      .filter(([, versionFiles]) => versionFiles.length > 0)
+      .map(([questId, versionFiles]) => [questId, versionFiles[0].version]),
+  );
+}
+
+function buildLatestSnapshot(
+  quests: QuestmasterTask[],
+  latestVersionByQuestId: Record<string, number> = deriveLatestVersionByQuestId(quests),
+): LatestQuestSnapshot {
   const normalized = sortLatestQuests(quests.map((quest) => normalizeQuestOwnership(quest)));
   return {
-    version: 1,
+    version: 2,
     quests: normalized,
     activeQuestBySessionId: buildActiveQuestBySessionId(normalized),
+    latestVersionByQuestId,
     updatedAt: Date.now(),
   };
 }
@@ -337,16 +378,19 @@ async function readLatestSnapshotFile(): Promise<LatestQuestSnapshot | null> {
   try {
     const raw = await readFile(LATEST_SNAPSHOT_FILE, "utf-8");
     const parsed = JSON.parse(raw) as {
+      latestVersionByQuestId?: Record<string, number>;
       quests?: QuestmasterTask[];
       updatedAt?: number;
       version?: number;
     };
-    if (parsed.version !== 1 || !Array.isArray(parsed.quests)) return null;
+    const latestVersionByQuestId = normalizeLatestVersionByQuestId(parsed.latestVersionByQuestId);
+    if (parsed.version !== 2 || !Array.isArray(parsed.quests) || latestVersionByQuestId === null) return null;
     const quests = sortLatestQuests(parsed.quests.map((quest) => normalizeQuestOwnership(quest)));
     return {
-      version: 1,
+      version: 2,
       quests,
       activeQuestBySessionId: buildActiveQuestBySessionId(quests),
+      latestVersionByQuestId,
       updatedAt: typeof parsed.updatedAt === "number" ? parsed.updatedAt : Date.now(),
     };
   } catch {
@@ -400,9 +444,9 @@ async function withLatestSnapshotLock<T>(fn: () => Promise<T>): Promise<T> {
   }
 }
 
-async function listLatestQuestVersionFiles(): Promise<{ file: string; questId: string; version: number }[]> {
+async function listQuestVersionFilesByQuest(): Promise<Map<string, QuestVersionFile[]>> {
   await ensureDir();
-  const latestByQuestId = new Map<string, { file: string; questId: string; version: number }>();
+  const versionFilesByQuest = new Map<string, QuestVersionFile[]>();
   try {
     const files = await readdir(QUESTMASTER_DIR);
     for (const file of files) {
@@ -410,34 +454,73 @@ async function listLatestQuestVersionFiles(): Promise<{ file: string; questId: s
       if (!match) continue;
       const questId = match[1];
       const version = Number(match[2]);
-      const current = latestByQuestId.get(questId);
-      if (!current || version > current.version) {
-        latestByQuestId.set(questId, { file, questId, version });
-      }
+      const current = versionFilesByQuest.get(questId) ?? [];
+      current.push({ file, questId, version });
+      versionFilesByQuest.set(questId, current);
     }
   } catch {
-    return [];
+    return new Map();
   }
-  return [...latestByQuestId.values()];
+  for (const versionFiles of versionFilesByQuest.values()) {
+    versionFiles.sort((a, b) => b.version - a.version);
+  }
+  return versionFilesByQuest;
 }
 
-async function buildLatestSnapshotFromDisk(): Promise<LatestQuestSnapshot> {
-  const latestVersionFiles = await listLatestQuestVersionFiles();
-  if (latestVersionFiles.length === 0) {
-    return buildLatestSnapshot([]);
+async function readLatestReadableQuestFromVersionFiles(versionFiles: QuestVersionFile[]): Promise<QuestmasterTask | null> {
+  for (const { file } of versionFiles) {
+    const quest = await readQuestAtPath(join(QUESTMASTER_DIR, file));
+    if (quest) return quest;
   }
-  const quests = await Promise.all(latestVersionFiles.map(({ file }) => readQuestAtPath(join(QUESTMASTER_DIR, file))));
-  return buildLatestSnapshot(quests.filter((quest): quest is QuestmasterTask => quest !== null));
+  return null;
+}
+
+async function buildLatestSnapshotFromDisk(
+  versionFilesByQuest?: Map<string, QuestVersionFile[]>,
+): Promise<LatestQuestSnapshot> {
+  const resolvedVersionFilesByQuest = versionFilesByQuest ?? (await listQuestVersionFilesByQuest());
+  if (resolvedVersionFilesByQuest.size === 0) {
+    return buildLatestSnapshot([], {});
+  }
+  const latestVersionByQuestId = buildLatestVersionByQuestId(resolvedVersionFilesByQuest);
+  const quests = await Promise.all(
+    [...resolvedVersionFilesByQuest.values()].map((versionFiles) => readLatestReadableQuestFromVersionFiles(versionFiles)),
+  );
+  return buildLatestSnapshot(
+    quests.filter((quest): quest is QuestmasterTask => quest !== null),
+    latestVersionByQuestId,
+  );
+}
+
+async function readFreshLatestSnapshot(
+  versionFilesByQuest: Map<string, QuestVersionFile[]>,
+): Promise<LatestQuestSnapshot | null> {
+  const cached = await readLatestSnapshotFile();
+  if (!cached) return null;
+  const latestVersionByQuestId = buildLatestVersionByQuestId(versionFilesByQuest);
+  return latestVersionByQuestIdEqual(cached.latestVersionByQuestId, latestVersionByQuestId) ? cached : null;
+}
+
+async function readFreshLatestSnapshotOrRebuild(
+  versionFilesByQuest: Map<string, QuestVersionFile[]>,
+): Promise<LatestQuestSnapshot> {
+  return (await readFreshLatestSnapshot(versionFilesByQuest)) ?? buildLatestSnapshotFromDisk(versionFilesByQuest);
 }
 
 async function loadLatestSnapshot(): Promise<LatestQuestSnapshot> {
-  const cached = await readLatestSnapshotFile();
-  if (cached) return cached;
+  const currentVersionFilesByQuest = await listQuestVersionFilesByQuest();
+  const cached = await readFreshLatestSnapshot(currentVersionFilesByQuest);
+  if (cached) {
+    return cached;
+  }
 
   return withLatestSnapshotLock(async () => {
-    const afterLock = await readLatestSnapshotFile();
-    if (afterLock) return afterLock;
-    const rebuilt = await buildLatestSnapshotFromDisk();
+    const lockedVersionFilesByQuest = await listQuestVersionFilesByQuest();
+    const afterLock = await readFreshLatestSnapshot(lockedVersionFilesByQuest);
+    if (afterLock) {
+      return afterLock;
+    }
+    const rebuilt = await buildLatestSnapshotFromDisk(lockedVersionFilesByQuest);
     await writeLatestSnapshot(rebuilt);
     return rebuilt;
   });
@@ -445,18 +528,28 @@ async function loadLatestSnapshot(): Promise<LatestQuestSnapshot> {
 
 async function updateLatestSnapshotWithQuest(quest: QuestmasterTask): Promise<void> {
   await withLatestSnapshotLock(async () => {
-    const current = (await readLatestSnapshotFile()) ?? (await buildLatestSnapshotFromDisk());
+    const currentVersionFilesByQuest = await listQuestVersionFilesByQuest();
+    const current = await readFreshLatestSnapshotOrRebuild(currentVersionFilesByQuest);
     const nextQuest = normalizeQuestOwnership(quest);
     const remaining = current.quests.filter((existing) => existing.questId !== nextQuest.questId);
-    const nextSnapshot = buildLatestSnapshot([...remaining, nextQuest]);
+    const nextSnapshot = buildLatestSnapshot([...remaining, nextQuest], {
+      ...current.latestVersionByQuestId,
+      [nextQuest.questId]: nextQuest.version,
+    });
     await writeLatestSnapshot(nextSnapshot);
   });
 }
 
 async function removeQuestFromLatestSnapshot(questId: string): Promise<void> {
   await withLatestSnapshotLock(async () => {
-    const current = (await readLatestSnapshotFile()) ?? (await buildLatestSnapshotFromDisk());
-    const nextSnapshot = buildLatestSnapshot(current.quests.filter((quest) => quest.questId !== questId));
+    const currentVersionFilesByQuest = await listQuestVersionFilesByQuest();
+    const current = await readFreshLatestSnapshotOrRebuild(currentVersionFilesByQuest);
+    const nextLatestVersionByQuestId = { ...current.latestVersionByQuestId };
+    delete nextLatestVersionByQuestId[questId];
+    const nextSnapshot = buildLatestSnapshot(
+      current.quests.filter((quest) => quest.questId !== questId),
+      nextLatestVersionByQuestId,
+    );
     await writeLatestSnapshot(nextSnapshot);
   });
 }

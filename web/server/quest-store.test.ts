@@ -243,6 +243,22 @@ describe("listQuests", () => {
     expect(quests.map((quest) => quest.id)).toEqual(["q-2-v1", "q-1-v2"]);
     expect(questFileReads(rebuildReads).sort()).toEqual(["q-1-v2.json", "q-2-v1.json"]);
   });
+
+  it("falls back to the latest readable version during snapshot rebuild when the newest file is unreadable", async () => {
+    const reads: string[] = [];
+    const instrumentedStore = await importQuestStoreWithReadSpy(reads);
+
+    await instrumentedStore.createQuest({ title: "Stable" });
+    await writeFile(join(questDir(), "q-1-v2.json"), "{not json", "utf-8");
+    await writeFile(latestSnapshotPath(), "", "utf-8");
+
+    reads.length = 0;
+    const quests = await instrumentedStore.listQuests();
+    expect(quests).toHaveLength(1);
+    expect(quests[0]?.id).toBe("q-1-v1");
+    expect(quests[0]?.title).toBe("Stable");
+    expect(questFileReads(reads).sort()).toEqual(["q-1-v1.json", "q-1-v2.json"]);
+  });
 });
 
 // ===========================================================================
@@ -662,6 +678,46 @@ describe("claimQuest", () => {
     );
     expect(questFileReads(reads)).toEqual(["q-2-v2.json"]);
     expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
+  });
+
+  it("reconciles a parseable stale snapshot before enforcing active quest ownership", async () => {
+    await questStore.createQuest({ title: "Already active" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Primary details",
+    });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.createQuest({ title: "Second quest" });
+    await questStore.transitionQuest("q-2", {
+      status: "refined",
+      description: "Secondary details",
+    });
+
+    await writeFile(
+      latestSnapshotPath(),
+      JSON.stringify(
+        {
+          version: 2,
+          quests: [],
+          activeQuestBySessionId: {},
+          latestVersionByQuestId: {},
+          updatedAt: Date.now(),
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const active = await questStore.getActiveQuestForSession("sess-1");
+    expect(active?.questId).toBe("q-1");
+
+    const listed = await questStore.listQuests();
+    expect(listed.map((quest) => quest.id).sort()).toEqual(["q-1-v3", "q-2-v2"]);
+
+    await expect(questStore.claimQuest("q-2", "sess-1")).rejects.toThrow(
+      'Session already has an active quest: q-1 "Already active".',
+    );
   });
 });
 
