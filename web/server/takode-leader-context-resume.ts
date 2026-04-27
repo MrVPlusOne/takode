@@ -131,10 +131,23 @@ type LeaderDirectedTurn = {
   startTimestamp: number;
   endTimestamp: number;
   content: string;
+  primaryPhaseId?: string;
   phaseIds: string[];
   resultSummary: string;
   resultSource?: LeaderContextResumeMessageSource;
   startSource: LeaderContextResumeMessageSource;
+};
+
+type MatchedPhaseMention = {
+  phaseId: string;
+  start: number;
+  end: number;
+};
+
+type DerivedTurnResult = {
+  summary: string;
+  sourceIndex: number;
+  sourceTimestamp: number;
 };
 
 const PHASE_PATTERNS: Record<string, RegExp[]> = {
@@ -179,33 +192,69 @@ function extractAssistantText(message: Extract<BrowserIncomingMessage, { type: "
     .trim();
 }
 
-function deriveTurnResultSummary(messages: BrowserIncomingMessage[], startIndex: number, endIndex: number): string {
-  let lastAssistantText = "";
+function deriveTurnResultSummary(
+  messages: BrowserIncomingMessage[],
+  startIndex: number,
+  endIndex: number,
+  fallbackResultTimestamp: number,
+): DerivedTurnResult | null {
+  let lastAssistant: DerivedTurnResult | null = null;
   for (let index = startIndex; index <= endIndex; index += 1) {
     const message = messages[index];
     if (message?.type === "assistant") {
       const text = extractAssistantText(message);
-      if (text) lastAssistantText = text;
+      if (text) {
+        lastAssistant = {
+          summary: truncate(text),
+          sourceIndex: index,
+          sourceTimestamp: extractTimestamp(message),
+        };
+      }
       continue;
     }
     if (message?.type === "result") {
       const resultText = message.data.result?.trim();
-      if (resultText) return truncate(resultText);
-      if (lastAssistantText) return truncate(lastAssistantText);
+      if (resultText) {
+        return {
+          summary: truncate(resultText),
+          sourceIndex: index,
+          sourceTimestamp: fallbackResultTimestamp,
+        };
+      }
+      if (lastAssistant) return lastAssistant;
       if (message.data.is_error && message.data.errors?.length) {
-        return truncate(message.data.errors.join("; "));
+        return {
+          summary: truncate(message.data.errors.join("; ")),
+          sourceIndex: index,
+          sourceTimestamp: fallbackResultTimestamp,
+        };
       }
     }
   }
-  return truncate(lastAssistantText);
+  return lastAssistant;
+}
+
+function matchPhaseMentions(content: string): MatchedPhaseMention[] {
+  const matches: MatchedPhaseMention[] = [];
+  for (const [phaseId, patterns] of Object.entries(PHASE_PATTERNS)) {
+    let earliestMatch: MatchedPhaseMention | null = null;
+    for (const pattern of patterns) {
+      const match = pattern.exec(content);
+      if (!match || match.index == null) continue;
+      const candidate = {
+        phaseId,
+        start: match.index,
+        end: match.index + match[0].length,
+      };
+      if (!earliestMatch || candidate.start < earliestMatch.start) earliestMatch = candidate;
+    }
+    if (earliestMatch) matches.push(earliestMatch);
+  }
+  return matches.sort((left, right) => left.start - right.start || left.end - right.end);
 }
 
 function phaseIdsForMessage(content: string): string[] {
-  const matches: string[] = [];
-  for (const [phaseId, patterns] of Object.entries(PHASE_PATTERNS)) {
-    if (patterns.some((pattern) => pattern.test(content))) matches.push(phaseId);
-  }
-  return matches;
+  return matchPhaseMentions(content).map((match) => match.phaseId);
 }
 
 function isQuestRelevant(content: string, questId: string, participant: LeaderContextResumeParticipant): boolean {
@@ -239,7 +288,8 @@ function collectLeaderDirectedTurns(
     if (startMessage?.type !== "user_message") continue;
     if (startMessage.agentSource?.sessionId !== leaderSessionId) continue;
     if (!isQuestRelevant(startMessage.content || "", questId, participant)) continue;
-    const phaseIds = phaseIdsForMessage(startMessage.content || "");
+    const phaseMentions = matchPhaseMentions(startMessage.content || "");
+    const phaseIds = phaseMentions.map((mention) => mention.phaseId);
     const endIndex = turn.endIdx >= 0 ? turn.endIdx : participant.messageHistory.length - 1;
     const resultMessage =
       turn.endIdx >= 0 && participant.messageHistory[turn.endIdx]?.type === "result"
@@ -249,6 +299,10 @@ function collectLeaderDirectedTurns(
     const endTimestamp = resultMessage
       ? startTimestamp + (((resultMessage.data as CLIResultMessage).duration_ms as number | undefined) ?? 0)
       : startTimestamp;
+    const derivedResult =
+      turn.endIdx >= 0
+        ? deriveTurnResultSummary(participant.messageHistory, turn.startIdx, endIndex, endTimestamp)
+        : null;
     collected.push({
       participant,
       startIndex: turn.startIdx,
@@ -256,10 +310,12 @@ function collectLeaderDirectedTurns(
       startTimestamp,
       endTimestamp,
       content: startMessage.content || "",
+      primaryPhaseId: phaseMentions[0]?.phaseId,
       phaseIds,
-      resultSummary:
-        turn.endIdx >= 0 ? deriveTurnResultSummary(participant.messageHistory, turn.startIdx, endIndex) : "",
-      resultSource: turn.endIdx >= 0 ? makeMessageSource(participant, turn.endIdx, endTimestamp) : undefined,
+      resultSummary: derivedResult?.summary ?? "",
+      resultSource: derivedResult
+        ? makeMessageSource(participant, derivedResult.sourceIndex, derivedResult.sourceTimestamp)
+        : undefined,
       startSource: makeMessageSource(participant, turn.startIdx, startTimestamp),
     });
   }
@@ -281,15 +337,30 @@ function describeMatchedInstruction(phase: QuestJourneyPhase | null): string {
   return `explicit \`${phaseDispatchLabel(phase)}\` dispatch`;
 }
 
+function describeDerivedPhaseContext(turn: LeaderDirectedTurn): string | null {
+  const primaryPhaseId = turn.primaryPhaseId;
+  if (!primaryPhaseId) return null;
+  const primaryLabel = `\`${phaseDispatchLabelForPhaseId(primaryPhaseId)}\``;
+  const secondaryLabels = turn.phaseIds
+    .filter((phaseId) => phaseId !== primaryPhaseId)
+    .map((phaseId) => `\`${phaseDispatchLabelForPhaseId(phaseId)}\``);
+  if (secondaryLabels.length === 0) return primaryLabel;
+  return `${primaryLabel} turn that also mentions ${secondaryLabels.join(" and ")}`;
+}
+
 function describeFallbackInstruction(turn: LeaderDirectedTurn): string {
-  if (turn.phaseIds[0]) return `earlier \`${phaseDispatchLabelForPhaseId(turn.phaseIds[0])}\` dispatch`;
+  const phaseContext = describeDerivedPhaseContext(turn);
+  if (phaseContext?.includes(" turn that also mentions ")) return `earlier dispatch from a ${phaseContext}`;
+  if (phaseContext) return `earlier ${phaseContext} dispatch`;
   return "earlier quest-relevant leader turn";
 }
 
 function describeFallbackResult(turn: LeaderDirectedTurn): string {
-  if (turn.phaseIds[0]) {
-    return `supporting earlier \`${phaseDispatchLabelForPhaseId(turn.phaseIds[0])}\` ${turn.participant.role} result "${turn.resultSummary}"`;
+  const phaseContext = describeDerivedPhaseContext(turn);
+  if (phaseContext?.includes(" turn that also mentions ")) {
+    return `supporting earlier ${turn.participant.role} result from a ${phaseContext} "${turn.resultSummary}"`;
   }
+  if (phaseContext) return `supporting earlier ${phaseContext} ${turn.participant.role} result "${turn.resultSummary}"`;
   return `supporting earlier quest-relevant ${turn.participant.role} result "${turn.resultSummary}"`;
 }
 
@@ -617,7 +688,7 @@ export async function buildLeaderContextResume(input: LeaderContextResumeInput):
               participantRole: fallbackInstruction.participant.role,
               participantSessionId: fallbackInstruction.participant.sessionId,
               participantSessionNum: fallbackInstruction.participant.sessionNum,
-              phaseId: fallbackInstruction.phaseIds[0],
+              phaseId: fallbackInstruction.primaryPhaseId,
               summary: describeFallbackInstruction(fallbackInstruction),
               source: fallbackInstruction.startSource,
             },
@@ -641,7 +712,7 @@ export async function buildLeaderContextResume(input: LeaderContextResumeInput):
               participantRole: supportingResult.participant.role,
               participantSessionId: supportingResult.participant.sessionId,
               participantSessionNum: supportingResult.participant.sessionNum,
-              phaseId: supportingResult.phaseIds[0],
+              phaseId: supportingResult.primaryPhaseId,
               summary: supportingResult.resultSummary,
               source: supportingResult.resultSource!,
             },

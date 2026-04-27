@@ -466,6 +466,246 @@ describe("takode leader-context-resume", () => {
     expect(rendered).not.toContain("read the reviewer result and either send rework or advance");
   });
 
+  it("labels supporting earlier reviewer context by the earliest mentioned phase instead of pattern order", async () => {
+    const workerHistory: BrowserIncomingMessage[] = [
+      makeUserMessage("Perform the approved IMPLEMENT phase for [q-918](quest:q-918).", 4_000, {
+        sessionId: "leader-session",
+        sessionLabel: "#1132 Leader",
+      }),
+    ];
+    const reviewerHistory: BrowserIncomingMessage[] = [
+      makeUserMessage(
+        "Perform the approved CODE-REVIEW phase for [q-918](quest:q-918). Review the IMPLEMENT rework and pressure-test edge cases before you report back.",
+        3_000,
+        {
+          sessionId: "leader-session",
+          sessionLabel: "#1132 Leader",
+        },
+      ),
+      makeAssistant(
+        "The phase matching looks narrower, but the supporting context wording still needs one more pass.",
+        3_010,
+      ),
+      makeResult("The review found supporting-context labeling drift around multi-phase prompts.", 25),
+    ];
+
+    const model = await buildLeaderContextResume({
+      leader: {
+        sessionId: "leader-session",
+        sessionNum: 1132,
+        name: "Leader",
+        isOrchestrator: true,
+        messageHistory: [],
+        notifications: [],
+        board: [
+          {
+            questId: "q-918",
+            title: "Design takode leader-context-resume for leader post-compaction recovery",
+            worker: "worker-session",
+            status: "IMPLEMENTING",
+            journey: {
+              phaseIds: ["implement", "code-review", "port"],
+              currentPhaseId: "implement",
+              nextLeaderAction: "wait for the worker report and choose the next phase",
+            },
+            createdAt: 1_500,
+            updatedAt: 4_000,
+          },
+        ],
+      },
+      rowSessionStatuses: {
+        "q-918": {
+          worker: {
+            sessionId: "worker-session",
+            sessionNum: 1143,
+            name: "q-918 implement worker",
+            status: "idle",
+          },
+          reviewer: {
+            sessionId: "reviewer-session",
+            sessionNum: 1146,
+            name: "q-918 reviewer",
+            status: "idle",
+          },
+        },
+      },
+      participants: new Map([
+        [
+          "worker-session",
+          makeParticipant({
+            sessionId: "worker-session",
+            sessionNum: 1143,
+            name: "q-918 implement worker",
+            role: "worker",
+            status: "idle",
+            claimedQuestId: "q-918",
+            claimedQuestStatus: "in_progress",
+            messageHistory: workerHistory,
+          }),
+        ],
+        [
+          "reviewer-session",
+          makeParticipant({
+            sessionId: "reviewer-session",
+            sessionNum: 1146,
+            name: "q-918 reviewer",
+            role: "reviewer",
+            status: "idle",
+            claimedQuestId: "q-918",
+            claimedQuestStatus: "in_progress",
+            messageHistory: reviewerHistory,
+          }),
+        ],
+      ]),
+      loadQuest: async () => ({
+        id: "q-918-v2",
+        questId: "q-918",
+        version: 2,
+        title: "Design takode leader-context-resume for leader post-compaction recovery",
+        description: "Multi-phase reviewer wording regression fixture.",
+        status: "in_progress",
+        sessionId: "worker-session",
+        claimedAt: 1_500,
+        createdAt: 1_400,
+      }),
+    });
+
+    const observedQuest = model.observed.activeBoardQuests[0]!;
+    const synthesizedQuest = model.synthesized.activeBoardQuests[0]!;
+
+    expect(observedQuest.currentPhaseInstructionMatched).toBe(true);
+    expect(observedQuest.latestSupportingResult).toMatchObject({
+      participantRole: "reviewer",
+      participantSessionId: "reviewer-session",
+      phaseId: "code-review",
+      summary: "The review found supporting-context labeling drift around multi-phase prompts.",
+    });
+    expect(synthesizedQuest.whyHere).toContain(
+      "supporting earlier reviewer result from a `CODE_REVIEW` turn that also mentions `IMPLEMENT`",
+    );
+    expect(synthesizedQuest.whyHere).not.toContain("supporting earlier `IMPLEMENT` reviewer result");
+
+    const rendered = renderLeaderContextResumeText(model);
+    expect(rendered).toContain(
+      "supporting earlier reviewer result from a `CODE_REVIEW` turn that also mentions `IMPLEMENT`",
+    );
+    expect(rendered).not.toContain("supporting earlier `IMPLEMENT` reviewer result");
+  });
+
+  it("uses the substantive assistant finding as the supporting-result source when the result wrapper is empty", async () => {
+    const workerHistory: BrowserIncomingMessage[] = [
+      makeUserMessage("Perform the approved IMPLEMENT phase for [q-918](quest:q-918).", 4_000, {
+        sessionId: "leader-session",
+        sessionLabel: "#1132 Leader",
+      }),
+    ];
+    const reviewerHistory: BrowserIncomingMessage[] = [
+      makeUserMessage("Perform the approved CODE-REVIEW phase for [q-918](quest:q-918).", 3_000, {
+        sessionId: "leader-session",
+        sessionLabel: "#1132 Leader",
+      }),
+      makeAssistant(
+        "**Findings**\n\n1. The substantive reviewer finding is here, not in the empty result shell.",
+        3_010,
+      ),
+      makeResult("", 25),
+    ];
+
+    const model = await buildLeaderContextResume({
+      leader: {
+        sessionId: "leader-session",
+        sessionNum: 1132,
+        name: "Leader",
+        isOrchestrator: true,
+        messageHistory: [],
+        notifications: [],
+        board: [
+          {
+            questId: "q-918",
+            title: "Design takode leader-context-resume for leader post-compaction recovery",
+            worker: "worker-session",
+            status: "IMPLEMENTING",
+            journey: {
+              phaseIds: ["implement", "code-review", "port"],
+              currentPhaseId: "implement",
+              nextLeaderAction: "wait for the worker report and choose the next phase",
+            },
+            createdAt: 1_500,
+            updatedAt: 4_000,
+          },
+        ],
+      },
+      rowSessionStatuses: {
+        "q-918": {
+          worker: {
+            sessionId: "worker-session",
+            sessionNum: 1143,
+            name: "q-918 implement worker",
+            status: "idle",
+          },
+          reviewer: {
+            sessionId: "reviewer-session",
+            sessionNum: 1146,
+            name: "q-918 reviewer",
+            status: "idle",
+          },
+        },
+      },
+      participants: new Map([
+        [
+          "worker-session",
+          makeParticipant({
+            sessionId: "worker-session",
+            sessionNum: 1143,
+            name: "q-918 implement worker",
+            role: "worker",
+            status: "idle",
+            claimedQuestId: "q-918",
+            claimedQuestStatus: "in_progress",
+            messageHistory: workerHistory,
+          }),
+        ],
+        [
+          "reviewer-session",
+          makeParticipant({
+            sessionId: "reviewer-session",
+            sessionNum: 1146,
+            name: "q-918 reviewer",
+            role: "reviewer",
+            status: "idle",
+            claimedQuestId: "q-918",
+            claimedQuestStatus: "in_progress",
+            messageHistory: reviewerHistory,
+          }),
+        ],
+      ]),
+      loadQuest: async () => ({
+        id: "q-918-v3",
+        questId: "q-918",
+        version: 3,
+        title: "Design takode leader-context-resume for leader post-compaction recovery",
+        description: "Assistant-derived result provenance regression fixture.",
+        status: "in_progress",
+        sessionId: "worker-session",
+        claimedAt: 1_500,
+        createdAt: 1_400,
+      }),
+    });
+
+    const observedQuest = model.observed.activeBoardQuests[0]!;
+    const synthesizedQuest = model.synthesized.activeBoardQuests[0]!;
+
+    expect(observedQuest.latestSupportingResult?.source.messageIndex).toBe(1);
+    expect(observedQuest.latestSupportingResult?.summary).toContain("The substantive reviewer finding is here");
+    expect(synthesizedQuest.whyHereSource?.messageIndex).toBe(1);
+    expect(synthesizedQuest.whyHere).toContain("supporting earlier `CODE_REVIEW` reviewer result");
+    expect(model.synthesized.suggestedCommands).toContain("takode read 1146 1");
+
+    const rendered = renderLeaderContextResumeText(model);
+    expect(rendered).toContain("from [#1146 msg 1](session:1146:1)");
+    expect(rendered).not.toContain("from [#1146 msg 2](session:1146:2)");
+  });
+
   it("keeps observed facts and synthesized interpretation separated in json output", async () => {
     const model = await buildLeaderContextResume({
       leader: {
