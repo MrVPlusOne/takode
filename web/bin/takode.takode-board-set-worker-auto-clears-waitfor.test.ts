@@ -213,7 +213,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies).toHaveLength(1);
     expect(capturedBodies[0].worker).toBe("worker-session-abc");
     expect(capturedBodies[0].workerNum).toBe(3);
-    expect(capturedBodies[0].phases).toEqual(["planning", "implement", "code-review"]);
+    expect(capturedBodies[0].phases).toEqual(["alignment", "implement", "code-review"]);
     expect(capturedBodies[0].presetId).toBe("lightweight-code");
   });
 
