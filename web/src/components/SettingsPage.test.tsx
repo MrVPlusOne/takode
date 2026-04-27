@@ -841,6 +841,58 @@ describe("SettingsPage", () => {
     }
   });
 
+  it("keeps the same override row input mounted while typing a model id", async () => {
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      editorConfig: { editor: "none" },
+    });
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const cliSection = settingsSection("CLI & Backends");
+    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1") as HTMLInputElement;
+
+    modelInput.focus();
+    expect(document.activeElement).toBe(modelInput);
+
+    fireEvent.change(modelInput, { target: { value: "gpt-5.4." } });
+    expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1")).toBe(modelInput);
+    expect(document.activeElement).toBe(modelInput);
+
+    fireEvent.change(modelInput, { target: { value: "gpt-5.4.1" } });
+    expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1")).toBe(modelInput);
+    expect(document.activeElement).toBe(modelInput);
+    expect(modelInput.value).toBe("gpt-5.4.1");
+  });
+
+  it("keeps the model override surface discoverable in Settings search", async () => {
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
+      target: { value: "gpt-5.4" },
+    });
+
+    const cliSection = settingsSection("CLI & Backends");
+    expect(within(cliSection).getByText("Codex Leader Model Threshold Overrides")).toBeVisible();
+    expect(within(cliSection).getByRole("button", { name: "Add Override" })).toBeVisible();
+    expect(within(cliSection).getByLabelText("Codex Leader Default Recycle Threshold")).not.toBeVisible();
+  });
+
   it("shows an empty state when no settings match", async () => {
     render(<SettingsPage />);
     await waitForSettingsPage();

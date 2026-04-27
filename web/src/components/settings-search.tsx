@@ -86,6 +86,11 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
         id: "codex-leader-recycle-threshold",
         text: "Codex leader recycle threshold orchestration compaction tokens 260k",
       },
+      {
+        id: "codex-leader-recycle-threshold-overrides",
+        text: "Codex leader model threshold overrides per-model exact model ids gpt-5.4 gpt-5.5 fallback override",
+        aliases: ["override", "model id", "gpt-5.4", "gpt-5.5"],
+      },
       { id: "default-backend", text: "Default Backend Claude CLI Claude SDK backend" },
       { id: "log-file", text: "Log File server runtime logs" },
       { id: "editor", text: "File Link Editor VSCode local remote Cursor none editor", aliases: ["vscode"] },

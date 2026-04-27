@@ -39,19 +39,48 @@ interface SettingsPageProps {
 }
 
 interface CodexLeaderThresholdOverrideDraft {
+  draftId: string;
   modelId: string;
   thresholdTokens: string;
 }
 
+let codexLeaderThresholdOverrideDraftIdCounter = 0;
+
+function createCodexLeaderThresholdOverrideDraft(
+  modelId = "",
+  thresholdTokens = "",
+  draftId?: string,
+): CodexLeaderThresholdOverrideDraft {
+  codexLeaderThresholdOverrideDraftIdCounter += 1;
+  return {
+    draftId: draftId ?? `codex-leader-threshold-draft-${codexLeaderThresholdOverrideDraftIdCounter}`,
+    modelId,
+    thresholdTokens,
+  };
+}
+
 function codexLeaderThresholdOverrideDraftsFromSettings(
   overrides: Record<string, number> | undefined,
+  existingDrafts: CodexLeaderThresholdOverrideDraft[] = [],
 ): CodexLeaderThresholdOverrideDraft[] {
-  return Object.entries(overrides ?? {})
+  const nextEntries = Object.entries(overrides ?? {})
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([modelId, thresholdTokens]) => ({
       modelId,
       thresholdTokens: String(thresholdTokens),
     }));
+  const unusedDraftIds = new Set(existingDrafts.map((draft) => draft.draftId));
+  return nextEntries.map(({ modelId, thresholdTokens }) => {
+    const matchingDraft = existingDrafts.find(
+      (draft) =>
+        unusedDraftIds.has(draft.draftId) && draft.modelId === modelId && draft.thresholdTokens === thresholdTokens,
+    );
+    if (matchingDraft) {
+      unusedDraftIds.delete(matchingDraft.draftId);
+      return { ...matchingDraft, modelId, thresholdTokens };
+    }
+    return createCodexLeaderThresholdOverrideDraft(modelId, thresholdTokens);
+  });
 }
 
 function parseCodexLeaderThresholdOverrideDrafts(
@@ -281,8 +310,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setCodexLeaderContextWindowOverrideTokens(s.codexLeaderContextWindowOverrideTokens ?? 1_000_000);
         setCodexLeaderRecycleThresholdTokens(s.codexLeaderRecycleThresholdTokens ?? 260_000);
         setCodexLeaderRecycleThresholdTokensByModel(s.codexLeaderRecycleThresholdTokensByModel ?? {});
-        setCodexLeaderThresholdOverrideDrafts(
-          codexLeaderThresholdOverrideDraftsFromSettings(s.codexLeaderRecycleThresholdTokensByModel),
+        setCodexLeaderThresholdOverrideDrafts((currentDrafts) =>
+          codexLeaderThresholdOverrideDraftsFromSettings(s.codexLeaderRecycleThresholdTokensByModel, currentDrafts),
         );
         setDefaultClaudeBackend(s.defaultClaudeBackend || "claude");
         setLogFile(s.logFile || "");
@@ -488,7 +517,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setCodexLeaderRecycleThresholdTokens(res.codexLeaderRecycleThresholdTokens ?? newThreshold);
         const nextThresholdsByModel = res.codexLeaderRecycleThresholdTokensByModel ?? newThresholdsByModel;
         setCodexLeaderRecycleThresholdTokensByModel(nextThresholdsByModel);
-        setCodexLeaderThresholdOverrideDrafts(codexLeaderThresholdOverrideDraftsFromSettings(nextThresholdsByModel));
+        setCodexLeaderThresholdOverrideDrafts((currentDrafts) =>
+          codexLeaderThresholdOverrideDraftsFromSettings(nextThresholdsByModel, currentDrafts),
+        );
       } catch (err: unknown) {
         setCodexLeaderSettingsError(err instanceof Error ? err.message : String(err));
       } finally {
@@ -1001,7 +1032,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                     onClick={() =>
                       setCodexLeaderThresholdOverrideDrafts([
                         ...codexLeaderThresholdOverrideDrafts,
-                        { modelId: "", thresholdTokens: "" },
+                        createCodexLeaderThresholdOverrideDraft(),
                       ])
                     }
                     className="px-2.5 py-1 text-xs rounded-md border border-cc-border text-cc-fg bg-cc-hover hover:bg-cc-active cursor-pointer"
@@ -1014,10 +1045,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                     <p className="text-xs text-cc-muted">No model-specific overrides. The default threshold applies.</p>
                   )}
                   {codexLeaderThresholdOverrideDrafts.map((draft, index) => (
-                    <div
-                      key={`${draft.modelId || "draft"}-${index}`}
-                      className="grid grid-cols-[minmax(0,1fr)_160px_auto] gap-2"
-                    >
+                    <div key={draft.draftId} className="grid grid-cols-[minmax(0,1fr)_160px_auto] gap-2">
                       <input
                         id={`codex-leader-recycle-threshold-model-${index}`}
                         aria-label={`Codex Leader Recycle Threshold Model ${index + 1}`}
