@@ -1336,7 +1336,7 @@ describe("launch", () => {
       });
       await waitForSpawnCalls(1);
 
-      expect(mockCp).toHaveBeenCalledWith(join(hostCodexHome, "skills"), join(sessionHome, "skills"), {
+      expect(mockCp).toHaveBeenCalledWith(join(hostCodexHome, "vendor_imports"), join(sessionHome, "vendor_imports"), {
         recursive: true,
       });
       expect(mockCp).not.toHaveBeenCalledWith(join(homedir(), ".codex", "skills"), join(sessionHome, "skills"), {
@@ -1347,7 +1347,7 @@ describe("launch", () => {
     }
   });
 
-  it("refreshes stale MAI-wrapper-backed copied skills when the wrapper host home now exposes a symlink", async () => {
+  it("rebuilds MAI-wrapper-backed skills without imagegen even when the wrapper host home exposes a symlink", async () => {
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const hostCodexHome = mkdtempSync(join(tmpdir(), "codex-host-home-test-"));
     const sharedSkills = mkdtempSync(join(tmpdir(), "codex-shared-skills-test-"));
@@ -1358,6 +1358,10 @@ describe("launch", () => {
     try {
       mkdirSync(join(sharedSkills, ".system"), { recursive: true });
       writeFileSync(join(sharedSkills, ".system", "README.txt"), "shared skill\n");
+      mkdirSync(join(sharedSkills, ".system", "imagegen"), { recursive: true });
+      writeFileSync(join(sharedSkills, ".system", "imagegen", "SKILL.md"), "shared imagegen skill\n");
+      mkdirSync(join(sharedSkills, "quest"), { recursive: true });
+      writeFileSync(join(sharedSkills, "quest", "SKILL.md"), "shared quest skill\n");
       symlinkSync(sharedSkills, join(hostCodexHome, "skills"));
 
       mkdirSync(join(sessionSkills, ".system", "imagegen"), { recursive: true });
@@ -1379,8 +1383,9 @@ describe("launch", () => {
       });
       await waitForSpawnCalls(1);
 
-      expect(lstatSync(sessionSkills).isSymbolicLink()).toBe(true);
-      expect(realpathSync(sessionSkills)).toBe(realpathSync(sharedSkills));
+      expect(lstatSync(sessionSkills).isSymbolicLink()).toBe(false);
+      expect(existsSync(join(sessionSkills, "quest", "SKILL.md"))).toBe(true);
+      expect(existsSync(join(sessionSkills, ".system", "README.txt"))).toBe(true);
       expect(existsSync(join(sessionSkills, ".system", "imagegen", "SKILL.md"))).toBe(false);
     } finally {
       rmSync(root, { recursive: true, force: true });

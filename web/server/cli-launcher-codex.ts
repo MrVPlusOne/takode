@@ -33,6 +33,7 @@ const hostCodexShellEnvVars = ["LITELLM_API_KEY", "LITELLM_PROXY_URL", "LITELLM_
 const maiWrapperRootMarker = ".mai-agents-root";
 const maiWrapperEnvHostPrefix = "companion-codex-home-";
 const maiWrapperHostnameShimDirName = ".mai-wrapper-bin";
+const imagegenSkillRelativePath = ".system/imagegen";
 
 type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
 interface MaiWrapperSessionLaunchSpec {
@@ -676,10 +677,64 @@ async function syncSeededDirectory(src: string, dest: string): Promise<"missing"
   return "created";
 }
 
+function normalizeRelativeSeedPath(path: string): string {
+  return path
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/")
+    .replace(/\/$/, "");
+}
+
+function isExcludedSeedPath(path: string, excludedRelativePaths: Set<string>): boolean {
+  const normalized = normalizeRelativeSeedPath(path);
+  if (!normalized) return false;
+  for (const excluded of excludedRelativePaths) {
+    if (normalized === excluded || normalized.startsWith(`${excluded}/`)) return true;
+  }
+  return false;
+}
+
+async function copyDirectoryWithExclusions(
+  src: string,
+  dest: string,
+  excludedRelativePaths: Set<string>,
+): Promise<"missing" | "unchanged" | "created"> {
+  if (!(await fileExists(src))) return "missing";
+
+  const sourceRoot = await realpath(src).catch(() => src);
+  await rm(dest, { recursive: true, force: true }).catch(() => {});
+  await mkdir(dest, { recursive: true });
+
+  const stack: Array<{ srcDir: string; destDir: string }> = [{ srcDir: sourceRoot, destDir: dest }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+
+    const entries = await readdir(current.srcDir, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      const entrySrc = join(current.srcDir, entry.name);
+      const entryDest = join(current.destDir, entry.name);
+      const relativePath = normalizeRelativeSeedPath(relative(sourceRoot, entrySrc));
+      if (isExcludedSeedPath(relativePath, excludedRelativePaths)) continue;
+
+      if (entry.isDirectory() && !entry.isSymbolicLink()) {
+        await mkdir(entryDest, { recursive: true });
+        stack.push({ srcDir: entrySrc, destDir: entryDest });
+        continue;
+      }
+
+      await cp(entrySrc, entryDest, { recursive: true });
+    }
+  }
+
+  return "created";
+}
+
 async function prepareCodexHome(
   codexHome: string,
   resumeCliSessionId?: string,
   seedSourceHome?: string,
+  options?: { filterImagegenSkill?: boolean },
 ): Promise<void> {
   await mkdir(codexHome, { recursive: true });
 
@@ -720,7 +775,10 @@ async function prepareCodexHome(
     try {
       const src = join(sourceHome, name);
       const dest = join(codexHome, name);
-      const synced = await syncSeededDirectory(src, dest);
+      const synced =
+        name === "skills" && options?.filterImagegenSkill
+          ? await copyDirectoryWithExclusions(src, dest, new Set([imagegenSkillRelativePath]))
+          : await syncSeededDirectory(src, dest);
       if (name === "skills" && (synced === "created" || (await fileExists(dest)))) {
         await pruneBrokenSymlinks(dest);
       }
@@ -860,6 +918,7 @@ export async function prepareCodexSpawn(
       codexHome,
       options.resumeCliSessionId || info.cliSessionId,
       maiWrapperHostSpec?.hostCodexHome,
+      { filterImagegenSkill: !!maiWrapperHostSpec },
     );
     await ensureCodexSessionConfig(codexHome, shellEnvVars, {
       leaderContextWindowOverrideTokens,
