@@ -14,9 +14,48 @@ type CodexBrowserMessageAdapterLike = {
   sendBrowserMessage(msg: unknown): void;
 };
 
+type CodexLeaderRecycleLauncherInfo = {
+  isOrchestrator?: boolean;
+  codexLeaderRecycleLineage?: {
+    recycleEvents?: Array<{
+      trigger?: "manual_compact" | "threshold";
+      tokenUsage?: {
+        contextTokensUsed?: number;
+      };
+    }>;
+  };
+};
+
+function getLatestThresholdRecycleWatermark(
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
+): number | null {
+  const recycleEvents = launcherInfo?.codexLeaderRecycleLineage?.recycleEvents;
+  if (!Array.isArray(recycleEvents) || recycleEvents.length === 0) return null;
+  for (let index = recycleEvents.length - 1; index >= 0; index -= 1) {
+    const recycleEvent = recycleEvents[index];
+    const watermark = recycleEvent?.tokenUsage?.contextTokensUsed;
+    if (recycleEvent?.trigger !== "threshold" || typeof watermark !== "number") continue;
+    return watermark;
+  }
+  return null;
+}
+
+function shouldTriggerCodexLeaderThresholdRecycle(
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
+  contextTokensUsed: number | undefined,
+  recycleThresholdTokens: number,
+): boolean {
+  if (!launcherInfo?.isOrchestrator) return false;
+  if (typeof contextTokensUsed !== "number") return false;
+  if (recycleThresholdTokens <= 0 || contextTokensUsed < recycleThresholdTokens) return false;
+  const latestThresholdWatermark = getLatestThresholdRecycleWatermark(launcherInfo);
+  if (latestThresholdWatermark !== null && contextTokensUsed <= latestThresholdWatermark) return false;
+  return true;
+}
+
 export interface CodexAdapterBrowserMessageDeps {
   getCodexLeaderRecycleThresholdTokens: () => number;
-  getLauncherSessionInfo: (sessionId: string) => { isOrchestrator?: boolean } | null | undefined;
+  getLauncherSessionInfo: (sessionId: string) => CodexLeaderRecycleLauncherInfo | null | undefined;
   touchActivity: (sessionId: string) => void;
   clearOptimisticRunningTimer: (session: CodexBrowserMessageSessionLike, reason: string) => void;
   setCodexImageSendStage: (
@@ -109,12 +148,7 @@ export async function handleCodexAdapterBrowserMessage(
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
     const recycleThresholdTokens = deps.getCodexLeaderRecycleThresholdTokens();
     const contextTokensUsed = session.state.codex_token_details?.contextTokensUsed;
-    if (
-      launcherInfo?.isOrchestrator &&
-      typeof contextTokensUsed === "number" &&
-      recycleThresholdTokens > 0 &&
-      contextTokensUsed >= recycleThresholdTokens
-    ) {
+    if (shouldTriggerCodexLeaderThresholdRecycle(launcherInfo, contextTokensUsed, recycleThresholdTokens)) {
       const recycle = await deps.requestCodexLeaderRecycle(session, "threshold");
       if (!recycle.ok) {
         deps.broadcastToBrowsers(session, {

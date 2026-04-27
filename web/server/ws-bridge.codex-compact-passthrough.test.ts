@@ -736,4 +736,169 @@ describe("Codex /compact passthrough", () => {
     );
     expect(launcher.relaunch).toHaveBeenCalledWith("leader-threshold");
   });
+
+  it("treats inherited over-threshold usage as informational after resume until it rises past the last threshold recycle", async () => {
+    const browser = makeBrowserSocket("leader-threshold-resume");
+    const adapter = makeCodexAdapterMock();
+    const launcher = {
+      getSession: vi.fn((sessionId: string) =>
+        sessionId === "leader-threshold-resume"
+          ? {
+              sessionId,
+              backendType: "codex",
+              isOrchestrator: true,
+              cliSessionId: "thread-resumed",
+              codexLeaderRecyclePending: null,
+              codexLeaderRecycleLineage: {
+                cliSessionIds: ["thread-before", "thread-resumed"],
+                recycleEvents: [
+                  {
+                    trigger: "threshold",
+                    requestedAt: 1,
+                    previousCliSessionId: "thread-before",
+                    nextCliSessionId: "thread-resumed",
+                    tokenUsage: {
+                      contextTokensUsed: 428_284,
+                      contextUsedPercent: 45,
+                      modelContextWindow: 950_000,
+                    },
+                  },
+                ],
+              },
+            }
+          : null,
+      ),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-threshold-resume", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-resumed" });
+    bridge.handleBrowserOpen(browser, "leader-threshold-resume");
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 45,
+        codex_token_details: {
+          contextTokensUsed: 428_284,
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 950_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+  });
+
+  it("does not retrigger immediately after reconnect clears a pending threshold recycle, but re-arms once usage grows", async () => {
+    const browser = makeBrowserSocket("leader-threshold-reconnect");
+    const adapter = makeCodexAdapterMock();
+    const launcherSession: any = {
+      sessionId: "leader-threshold-reconnect",
+      backendType: "codex",
+      isOrchestrator: true,
+      cliSessionId: "thread-before",
+      codexLeaderRecyclePending: {
+        eventIndex: 0,
+        trigger: "threshold" as const,
+        requestedAt: 1,
+      },
+      codexLeaderRecycleLineage: {
+        cliSessionIds: ["thread-before"],
+        recycleEvents: [
+          {
+            trigger: "threshold" as const,
+            requestedAt: 1,
+            previousCliSessionId: "thread-before",
+            tokenUsage: {
+              contextTokensUsed: 428_284,
+              contextUsedPercent: 45,
+              modelContextWindow: 950_000,
+            },
+          },
+        ],
+      },
+    };
+    const launcher = {
+      getSession: vi.fn((sessionId: string) => (sessionId === launcherSession.sessionId ? launcherSession : null)),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(() => {
+        launcherSession.codexLeaderRecyclePending = null;
+      }),
+      setCLISessionId: vi.fn((_sessionId: string, cliSessionId: string) => {
+        launcherSession.cliSessionId = cliSessionId;
+        if (!launcherSession.codexLeaderRecycleLineage.cliSessionIds.includes(cliSessionId)) {
+          launcherSession.codexLeaderRecycleLineage.cliSessionIds.push(cliSessionId);
+        }
+        const recycleEvent = launcherSession.codexLeaderRecycleLineage.recycleEvents[0];
+        if (recycleEvent && !recycleEvent.nextCliSessionId) {
+          recycleEvent.nextCliSessionId = cliSessionId;
+        }
+      }),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-threshold-reconnect", adapter as any);
+    bridge.handleBrowserOpen(browser, "leader-threshold-reconnect");
+
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-after" });
+
+    expect(launcher.completeCodexLeaderRecycle).toHaveBeenCalledWith("leader-threshold-reconnect");
+    expect(launcherSession.codexLeaderRecyclePending).toBeNull();
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 45,
+        codex_token_details: {
+          contextTokensUsed: 428_284,
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 950_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 46,
+        codex_token_details: {
+          contextTokensUsed: 428_285,
+          inputTokens: 2,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 950_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).toHaveBeenCalledWith(
+      "leader-threshold-reconnect",
+      expect.objectContaining({ trigger: "threshold" }),
+    );
+    expect(launcher.relaunch).toHaveBeenCalledWith("leader-threshold-reconnect");
+  });
 });
