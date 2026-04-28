@@ -549,7 +549,7 @@ function FileHeader({
 }) {
   const { dirLabel, baseLabel } = formatFileHeaderPath(fileName);
   return (
-    <div className="diff-file-header" title={fileName}>
+    <div className="diff-file-header diff-file-header-opaque" title={fileName}>
       <div className="diff-file-header-content">
         {collapsible && (
           <button

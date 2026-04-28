@@ -122,6 +122,14 @@ diff --git a/src/b.ts b/src/b.ts
     expect(container.querySelector(".diff-sticky-file-headers")).toBeTruthy();
   });
 
+  it("marks file headers as opaque surfaces for sticky layering", () => {
+    const { container } = render(
+      <DiffViewer oldText="old" newText="new" mode="full" fileName="src/app.ts" stickyFileHeaders />,
+    );
+
+    expect(container.querySelector(".diff-file-header")?.classList.contains("diff-file-header-opaque")).toBe(true);
+  });
+
   it("renders full mode with line numbers when explicitly enabled", () => {
     const { container } = render(<DiffViewer oldText="hello" newText="world" mode="full" showLineNumbers />);
     expect(container.querySelector(".diff-full")).toBeTruthy();
