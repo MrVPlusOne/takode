@@ -44,6 +44,7 @@ import { IdleManager } from "./idle-manager.js";
 import { SleepInhibitor } from "./sleep-inhibitor.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
+import { resumeRestartContinuations } from "./restart-continuation-store.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -887,6 +888,20 @@ await ensureSkillSymlinks([
   "playwright-e2e-tester",
   "random-memory-ideas",
 ]);
+
+{
+  const resumed = await resumeRestartContinuations(sessionStore.directory, wsBridge);
+  if (resumed.plan) {
+    serverLog.info("Resumed restart-interrupted sessions", {
+      operationId: resumed.plan.operationId,
+      sessions: resumed.plan.sessions.length,
+      sent: resumed.sent,
+      queued: resumed.queued,
+      dropped: resumed.dropped,
+      noSession: resumed.noSession,
+    });
+  }
+}
 
 // ── Idle session manager — enforce maxKeepAlive ─────────────────────────────
 const idleManager = new IdleManager(launcher, wsBridge, getSettings);

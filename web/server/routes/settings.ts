@@ -5,6 +5,11 @@ import { promisify } from "node:util";
 import { resolveBinary, getEnrichedPath } from "../path-resolver.js";
 import type { RestartPrepOperationSnapshot, RestartPrepSessionSummary } from "../herd-event-dispatcher.js";
 import {
+  buildRestartContinuationPlan,
+  saveRestartContinuationPlan,
+  type RestartContinuationTarget,
+} from "../restart-continuation-store.js";
+import {
   getSettings,
   updateSettings,
   getServerName,
@@ -26,7 +31,7 @@ import type { RouteContext } from "./context.js";
 
 export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
-  const { launcher, wsBridge, options, pushoverNotifier } = ctx;
+  const { launcher, wsBridge, sessionStore, options, pushoverNotifier } = ctx;
   const execPromise = promisify(execCb);
   const restartPrepTimeoutMs = Number(process.env.COMPANION_RESTART_PREP_TIMEOUT_MS || "8000");
 
@@ -325,6 +330,33 @@ export function createSettingsRoutes(ctx: RouteContext) {
     };
   }
 
+  async function queueRestartContinuations(options: {
+    operationId: string | null;
+    interrupted: RestartPrepResult["interrupted"];
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!options.operationId) return { ok: true };
+
+    const sessions: RestartContinuationTarget[] = options.interrupted
+      .filter((item) => item.reasons.includes("running"))
+      .map((item) => ({ sessionId: item.sessionId, label: item.label }));
+    if (sessions.length === 0) return { ok: true };
+
+    try {
+      await saveRestartContinuationPlan(
+        sessionStore.directory,
+        buildRestartContinuationPlan({ operationId: options.operationId, sessions }),
+      );
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: `Restart continuation queue could not be saved: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+  }
+
   // ─── Server restart ───────────────────────────────────────────────
 
   api.post("/server/restart", async (c) => {
@@ -364,20 +396,24 @@ export function createSettingsRoutes(ctx: RouteContext) {
           409,
         );
       }
+      const continuation = await queueRestartContinuations({ operationId, interrupted });
+      const result = buildRestartPrepResult({
+        mode: "restart",
+        operationId,
+        restartRequested: continuation.ok,
+        timedOut: false,
+        interrupted,
+        skipped,
+        failures,
+        protectedLeaders,
+        unresolvedBlockers: [],
+      });
+      if (!continuation.ok) {
+        return c.json({ error: continuation.error, result }, 500);
+      }
+
       options.requestRestart();
-      return c.json(
-        buildRestartPrepResult({
-          mode: "restart",
-          operationId,
-          restartRequested: true,
-          timedOut: false,
-          interrupted,
-          skipped,
-          failures,
-          protectedLeaders,
-          unresolvedBlockers: [],
-        }),
-      );
+      return c.json(result);
     }
     options.requestRestart();
     return c.json({ ok: true, restartRequested: true });

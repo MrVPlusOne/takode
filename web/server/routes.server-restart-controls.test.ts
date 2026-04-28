@@ -1,5 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 vi.mock("./settings-manager.js", () => ({
   getSettings: vi.fn(() => ({
@@ -56,9 +59,11 @@ describe("server restart controls", () => {
   let requestRestart: ReturnType<typeof vi.fn>;
   let sentOrder: string[];
   let cliSockets: Record<string, TestCliSocket>;
+  let tempDir: string;
 
-  beforeEach(() => {
+  beforeEach(async () => {
     vi.clearAllMocks();
+    tempDir = await mkdtemp(join(tmpdir(), "takode-restart-controls-"));
     bridge = new WsBridge();
     sentOrder = [];
     cliSockets = {};
@@ -86,14 +91,16 @@ describe("server restart controls", () => {
       createSettingsRoutes({
         launcher,
         wsBridge: bridge,
+        sessionStore: { directory: tempDir },
         options: { requestRestart },
         pushoverNotifier: undefined,
       } as any),
     );
   });
 
-  afterEach(() => {
+  afterEach(async () => {
     delete process.env.COMPANION_RESTART_PREP_TIMEOUT_MS;
+    await rm(tempDir, { recursive: true, force: true });
   });
 
   function attachBlockingSession(
@@ -249,5 +256,41 @@ describe("server restart controls", () => {
     expect(cliSockets.leader?.send).not.toHaveBeenCalled();
     const snapshot = (bridge as any).herdEventDispatcher.getRestartPrepOperationSnapshot(body.operationId);
     expect(snapshot.suppressedHerdEvents).toBe(1);
+  });
+
+  it("queues concise continuation prompts for successfully interrupted running sessions before restart", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "leader", state: "connected", name: "Leader session", isOrchestrator: true },
+      { sessionId: "worker", state: "connected", name: "Worker session", herdedBy: "leader" },
+    ]);
+    attachBlockingSession("worker", { isGenerating: true });
+
+    const originalInterruptSession = bridge.interruptSession.bind(bridge);
+    vi.spyOn(bridge, "interruptSession").mockImplementation(async (...args) => {
+      const routed = await originalInterruptSession(...args);
+      const session = bridge.getSession(args[0]);
+      if (session) session.isGenerating = false;
+      return routed;
+    });
+
+    const res = await app.request("/api/server/restart", { method: "POST" });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(requestRestart).toHaveBeenCalledTimes(1);
+    expect(body).toMatchObject({
+      ok: true,
+      mode: "restart",
+      restartRequested: true,
+      interrupted: [{ sessionId: "worker", label: "Worker session", reasons: ["running"] }],
+    });
+
+    const plan = JSON.parse(await readFile(join(tempDir, "restart-continuations.json"), "utf-8"));
+    expect(plan).toMatchObject({
+      version: 1,
+      operationId: body.operationId,
+      message: "Continue.",
+      sessions: [{ sessionId: "worker", label: "Worker session" }],
+    });
   });
 });
