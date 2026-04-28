@@ -615,10 +615,14 @@ describe("Compaction recovery prompts", () => {
     );
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("/takode-orchestration");
+    expect(recoveryCalls[0][1]).toContain("takode leader-context-resume <your-session-number>");
     expect(recoveryCalls[0][1]).toContain("takode board show");
     expect(recoveryCalls[0][1]).toContain("takode scan <your-session-number>");
+    expect(recoveryCalls[0][1]).toContain("takode list");
+    expect(recoveryCalls[0][1]).not.toContain("takode board show && takode list");
     expect(recoveryCalls[0][1]).toContain("recover enough earlier context");
-    expect(recoveryCalls[0][1]).toContain("Inspect your own session history with Takode tools before resuming");
+    expect(recoveryCalls[0][1]).toContain("first pass");
+    expect(recoveryCalls[0][1]).toContain("summary is stale, insufficient");
     expect(recoveryCalls[0][1]).toContain("phase-explicit");
     expect(recoveryCalls[0][1]).toContain("plan only");
     expect(recoveryCalls[0][1]).toContain("approved next phase and stop");

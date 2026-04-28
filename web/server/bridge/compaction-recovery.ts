@@ -6,9 +6,11 @@ import { sessionTag } from "../session-tag.js";
 export const LEADER_COMPACTION_RECOVERY_PROMPT = `Context was compacted. Before continuing, recover enough context to safely resume orchestration:
 
 1. Load skills: /takode-orchestration, /leader-dispatch, and /quest
-2. Run: takode board show && takode list
+2. Run the preferred leader recovery summary: \`takode leader-context-resume <your-session-number>\`
 3. Key rules:
-   - Inspect your own session history with Takode tools before resuming. Start with \`takode scan <your-session-number>\` and keep digging until you recover enough earlier context for the current orchestration state
+   - Treat the recovery summary as the first pass, then use manual follow-ups when the summary is stale, insufficient, or leaves phase history or user intent unclear
+   - Use \`takode scan <your-session-number>\` to inspect your own session history and recover enough earlier context before acting
+   - Use \`takode board show\` to verify active Journey state and \`takode list\` to reconcile herd/session state when board or worker context matters
    - Use \`takode spawn\` to create workers (never Agent tool)
    - Invoke /leader-dispatch before every dispatch
    - Follow quest-journey.md for lifecycle transitions
