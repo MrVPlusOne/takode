@@ -11,6 +11,7 @@ import {
   QUEST_JOURNEY_STATES,
   formatWaitForRefLabel,
   getQuestJourneyPresentation,
+  getQuestJourneyPhaseForState,
   getWaitForRefKind,
   type QuestJourneyPlanState,
 } from "../../shared/quest-journey.js";
@@ -293,12 +294,17 @@ function StatusCell({ row }: { row: BoardRowData }) {
     return <QuestJourneyTimeline journey={row.journey} status={row.status} compact />;
   }
 
+  const phase = getQuestJourneyPhaseForState(status);
+  if (phase) {
+    return (
+      <span className="block max-w-full truncate text-cc-fg" style={{ color: phase.color.accent }}>
+        {phase.label}
+      </span>
+    );
+  }
+
   const presentation = getQuestJourneyPresentation(status);
-  return (
-    <span className={`block max-w-full truncate ${presentation?.textClassName ?? "text-cc-muted"}`}>
-      {presentation?.label ?? status}
-    </span>
-  );
+  return <span className="block max-w-full truncate text-cc-muted">{presentation?.label ?? status}</span>;
 }
 
 /** Shared board table -- renders the rows without any card chrome or collapse logic. */

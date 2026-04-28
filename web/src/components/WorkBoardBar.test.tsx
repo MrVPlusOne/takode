@@ -5,6 +5,7 @@ import "@testing-library/jest-dom";
 import { boardSummary } from "./WorkBoardBar.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { scopedKey } from "../utils/scoped-storage.js";
+import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 
 // ─── boardSummary unit tests ──────────────────────────────────────────────────
 
@@ -13,12 +14,18 @@ describe("boardSummary", () => {
     expect(boardSummary([], 0)).toEqual([{ text: "Empty", className: "text-cc-muted" }]);
   });
 
-  it("summarises a single status with correct color", () => {
+  it("summarises a single status with the phase metadata color", () => {
     const board: BoardRowData[] = [
       { questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 },
       { questId: "q-2", status: "IMPLEMENTING", updatedAt: 2 },
     ];
-    expect(boardSummary(board, 0)).toEqual([{ text: "2 Implement", className: "text-green-400" }]);
+    expect(boardSummary(board, 0)).toEqual([
+      {
+        text: "2 Implement",
+        className: "text-cc-fg",
+        style: { color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent },
+      },
+    ]);
   });
 
   it("summarises current Quest Journey phases when phase bookkeeping exists", () => {
@@ -34,7 +41,13 @@ describe("boardSummary", () => {
         updatedAt: 1,
       },
     ];
-    expect(boardSummary(board, 0)).toEqual([{ text: "1 Implement", className: "text-green-400" }]);
+    expect(boardSummary(board, 0)).toEqual([
+      {
+        text: "1 Implement",
+        className: "text-cc-fg",
+        style: { color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent },
+      },
+    ]);
   });
 
   it("summarises multiple statuses with distinct colors", () => {
@@ -46,9 +59,21 @@ describe("boardSummary", () => {
     ];
     const result = boardSummary(board, 0);
     expect(result).toEqual([
-      { text: "1 Port", className: "text-blue-400" },
-      { text: "1 Code Review", className: "text-violet-500" },
-      { text: "2 Implement", className: "text-green-400" },
+      {
+        text: "1 Port",
+        className: "text-cc-fg",
+        style: { color: getQuestJourneyPhaseForState("PORTING")?.color.accent },
+      },
+      {
+        text: "1 Code Review",
+        className: "text-cc-fg",
+        style: { color: getQuestJourneyPhaseForState("CODE_REVIEWING")?.color.accent },
+      },
+      {
+        text: "2 Implement",
+        className: "text-cc-fg",
+        style: { color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent },
+      },
     ]);
   });
 
@@ -68,7 +93,11 @@ describe("boardSummary", () => {
   it("includes completed count as muted segment", () => {
     const board: BoardRowData[] = [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }];
     expect(boardSummary(board, 3)).toEqual([
-      { text: "1 Implement", className: "text-green-400" },
+      {
+        text: "1 Implement",
+        className: "text-cc-fg",
+        style: { color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent },
+      },
       { text: "3 done", className: "text-cc-muted" },
     ]);
   });

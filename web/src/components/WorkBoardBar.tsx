@@ -10,6 +10,7 @@
  * Follows the TodoStatusLine pattern: shrink-0 at the bottom of the flex
  * column, outside the scrollable message feed.
  */
+import type { CSSProperties } from "react";
 import { useState, useEffect } from "react";
 import { useStore } from "../store.js";
 import {
@@ -24,30 +25,30 @@ import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 export interface BoardSummarySegment {
   text: string;
   className: string;
+  style?: CSSProperties;
 }
 
 /**
  * Build a compact status summary for the collapsed board bar.
- * Returns colored segments for rendering, e.g. [{text:"2 Implement", className:"text-green-400"}, ...].
+ * Active phase colors come from phase metadata; non-phase statuses stay neutral.
  */
 export function boardSummary(board: BoardRowData[], completedCount: number): BoardSummarySegment[] {
   if (board.length === 0 && completedCount === 0) return [{ text: "Empty", className: "text-cc-muted" }];
-  const counts = new Map<string, { count: number; className: string }>();
+  const counts = new Map<string, { count: number; className: string; style?: CSSProperties }>();
   for (const row of orderBoardRows(board)) {
-    const pres = row.status ? getQuestJourneyPresentation(row.status) : null;
-    const label =
-      getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status))?.label ??
-      pres?.label ??
-      row.status ??
-      "unknown";
-    const className = pres?.textClassName ?? "text-cc-fg/80";
+    const currentPhase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
+    const presentation = getQuestJourneyPresentation(row.status);
+    const label = currentPhase?.label ?? presentation?.label ?? row.status ?? "unknown";
+    const className = currentPhase ? "text-cc-fg" : presentation ? "text-cc-muted" : "text-cc-fg/80";
+    const style = currentPhase ? { color: currentPhase.color.accent } : undefined;
     const entry = counts.get(label);
     if (entry) entry.count++;
-    else counts.set(label, { count: 1, className });
+    else counts.set(label, { count: 1, className, style });
   }
-  const segments: BoardSummarySegment[] = [...counts.entries()].map(([label, { count, className }]) => ({
+  const segments: BoardSummarySegment[] = [...counts.entries()].map(([label, { count, className, style }]) => ({
     text: `${count} ${label}`,
     className,
+    ...(style ? { style } : {}),
   }));
   if (completedCount > 0) segments.push({ text: `${completedCount} done`, className: "text-cc-muted" });
   return segments;
@@ -153,7 +154,9 @@ export function WorkBoardBar({ sessionId }: { sessionId: string }) {
         <span className="text-[11px] truncate flex-1 text-left">
           {boardSummary(board ?? [], completedCount).map((seg, i, arr) => (
             <span key={i}>
-              <span className={seg.className}>{seg.text}</span>
+              <span className={seg.className} style={seg.style}>
+                {seg.text}
+              </span>
               {i < arr.length - 1 && <span className="text-cc-fg/40">, </span>}
             </span>
           ))}

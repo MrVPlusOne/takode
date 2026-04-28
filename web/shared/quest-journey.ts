@@ -458,22 +458,21 @@ export function normalizeQuestJourneyPlan(
 
 export interface QuestJourneyPresentation {
   label: string;
-  textClassName: string;
 }
 
-/** Human-facing labels and text-only color treatment for quest phases in the UI. */
+/** Human-facing labels for quest phases in the UI. Color lives on phase metadata. */
 export const QUEST_JOURNEY_PRESENTATION: Record<QuestJourneyState, QuestJourneyPresentation> = {
-  PROPOSED: { label: "Proposed", textClassName: "text-amber-200" },
-  QUEUED: { label: "Queued", textClassName: "text-cc-muted" },
-  PLANNING: { label: "Alignment", textClassName: "text-green-400" },
-  EXPLORING: { label: "Explore", textClassName: "text-amber-400" },
-  IMPLEMENTING: { label: "Implement", textClassName: "text-green-400" },
-  CODE_REVIEWING: { label: "Code Review", textClassName: "text-violet-500" },
-  MENTAL_SIMULATING: { label: "Mental Simulation", textClassName: "text-fuchsia-400" },
-  EXECUTING: { label: "Execute", textClassName: "text-orange-400" },
-  OUTCOME_REVIEWING: { label: "Outcome Review", textClassName: "text-cyan-400" },
-  BOOKKEEPING: { label: "Bookkeeping", textClassName: "text-yellow-300" },
-  PORTING: { label: "Port", textClassName: "text-blue-400" },
+  PROPOSED: { label: "Proposed" },
+  QUEUED: { label: "Queued" },
+  PLANNING: { label: "Alignment" },
+  EXPLORING: { label: "Explore" },
+  IMPLEMENTING: { label: "Implement" },
+  CODE_REVIEWING: { label: "Code Review" },
+  MENTAL_SIMULATING: { label: "Mental Simulation" },
+  EXECUTING: { label: "Execute" },
+  OUTCOME_REVIEWING: { label: "Outcome Review" },
+  BOOKKEEPING: { label: "Bookkeeping" },
+  PORTING: { label: "Port" },
 };
 
 /** Returns the UI presentation metadata for a known quest-journey state. */
