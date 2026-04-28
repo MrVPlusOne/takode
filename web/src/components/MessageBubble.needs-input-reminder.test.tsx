@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
 import { render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import type { ChatMessage } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -79,7 +80,7 @@ describe("MessageBubble needs-input reminder messages", () => {
     markNotificationDoneMock.mockClear();
   });
 
-  it("renders resolved historical reminder state instead of stale unresolved text", () => {
+  it("renders all-mentioned-resolved reminders as compact historical rows by default", async () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const nextNotifications = new Map(prevNotifications);
     nextNotifications.set("reminder-session", [
@@ -98,9 +99,15 @@ describe("MessageBubble needs-input reminder messages", () => {
       render(<MessageBubble message={makeNeedsInputReminderMessage()} sessionId="reminder-session" />);
 
       expect(screen.getByText("Historical needs-input reminder")).toBeTruthy();
-      expect(screen.getByText("All referenced needs-input notifications have since been resolved.")).toBeTruthy();
       expect(screen.getByText("resolved")).toBeTruthy();
+      expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
+      expect(screen.queryByText("Confirm rollout scope")).toBeNull();
       expect(screen.queryByText("Unresolved same-session needs-input notifications: 1.")).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: "Expand Historical needs-input reminder" }));
+
+      expect(screen.getByText("All referenced needs-input notifications have since been resolved.")).toBeTruthy();
+      expect(screen.getByText("Confirm rollout scope")).toBeTruthy();
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }
@@ -143,13 +150,14 @@ describe("MessageBubble needs-input reminder messages", () => {
       await waitFor(() => {
         expect(screen.getByText("Historical needs-input reminder")).toBeTruthy();
       });
-      expect(screen.getByText("All referenced needs-input notifications have since been resolved.")).toBeTruthy();
+      expect(screen.getByText("resolved")).toBeTruthy();
+      expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }
   });
 
-  it("renders missing notification references as historical state unavailable", () => {
+  it("renders missing notification references compactly without claiming resolution", async () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const nextNotifications = new Map(prevNotifications);
     nextNotifications.set("reminder-session", []);
@@ -159,9 +167,15 @@ describe("MessageBubble needs-input reminder messages", () => {
       render(<MessageBubble message={makeNeedsInputReminderMessage()} sessionId="reminder-session" />);
 
       expect(screen.getByText("Historical needs-input reminder")).toBeTruthy();
-      expect(screen.getByText("Notification state is no longer available for this historical reminder.")).toBeTruthy();
       expect(screen.getByText("state unavailable")).toBeTruthy();
+      expect(screen.queryByText("Notification state is no longer available for this historical reminder.")).toBeNull();
+      expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
       expect(screen.queryByText("Unresolved same-session needs-input notifications: 1.")).toBeNull();
+
+      await userEvent.click(screen.getByRole("button", { name: "Expand Historical needs-input reminder" }));
+
+      expect(screen.getByText("Notification state is no longer available for this historical reminder.")).toBeTruthy();
+      expect(screen.getByText("Confirm rollout scope")).toBeTruthy();
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }
@@ -213,6 +227,7 @@ describe("MessageBubble needs-input reminder messages", () => {
       expect(
         screen.getByText("1 unlisted needs-input notification from this reminder may still be unresolved."),
       ).toBeTruthy();
+      expect(screen.getByText("Newest pending question")).toBeTruthy();
       expect(screen.queryByText("Historical needs-input reminder")).toBeNull();
       expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
     } finally {
@@ -261,6 +276,7 @@ describe("MessageBubble needs-input reminder messages", () => {
           "This reminder originally had 4 unresolved notifications but only listed 3; 1 unlisted notification state is unavailable.",
         ),
       ).toBeTruthy();
+      expect(screen.getByText("Newest pending question")).toBeTruthy();
       expect(screen.queryByText("Historical needs-input reminder")).toBeNull();
       expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
     } finally {

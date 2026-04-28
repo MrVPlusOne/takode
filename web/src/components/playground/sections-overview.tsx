@@ -90,6 +90,7 @@ import {
   PlaygroundLightboxDemo,
   PlaygroundMcpRow,
   PlaygroundAddressedNotifyToolBlock,
+  PlaygroundNeedsInputReminderMessage,
   PlaygroundSectionGroup,
   TaskRow,
 } from "./shared.js";
@@ -392,6 +393,15 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="User message (from agent)">
             <MessageBubble message={MSG_USER_AGENT} />
+          </Card>
+          <Card label="Needs-input reminder (resolved, compact by default)">
+            <PlaygroundNeedsInputReminderMessage variant="resolved" />
+          </Card>
+          <Card label="Needs-input reminder (active, details visible)">
+            <PlaygroundNeedsInputReminderMessage variant="active" />
+          </Card>
+          <Card label="Needs-input reminder (partial, details visible)">
+            <PlaygroundNeedsInputReminderMessage variant="partial" />
           </Card>
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />

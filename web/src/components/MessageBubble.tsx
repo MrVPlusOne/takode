@@ -1127,7 +1127,24 @@ function UserMessage({
 
 function NeedsInputReminderView({ reminder }: { reminder: NeedsInputReminderViewModel }) {
   const hasActive = reminder.activeCount > 0;
-  const statusLabel = hasActive ? "active" : reminder.hasPartialState ? "partial state" : "historical";
+  const isFullyResolved =
+    !hasActive && !reminder.hasPartialState && reminder.resolvedCount > 0 && reminder.unknownCount === 0;
+  const shouldCollapseByDefault = !hasActive && !reminder.hasPartialState;
+  const [collapsed, setCollapsed] = useState(shouldCollapseByDefault);
+
+  useEffect(() => {
+    setCollapsed(shouldCollapseByDefault);
+  }, [shouldCollapseByDefault]);
+
+  const statusLabel = hasActive
+    ? "active"
+    : reminder.hasPartialState
+      ? "partial state"
+      : isFullyResolved
+        ? "resolved"
+        : reminder.unknownCount > 0
+          ? "state unavailable"
+          : "historical";
   const toneClass = hasActive
     ? "border-amber-500/25 bg-amber-500/6 text-amber-100"
     : reminder.hasPartialState
@@ -1135,8 +1152,21 @@ function NeedsInputReminderView({ reminder }: { reminder: NeedsInputReminderView
       : "border-cc-border/50 bg-cc-hover/30 text-cc-muted";
 
   return (
-    <div className="space-y-2">
-      <div className="flex items-start gap-2">
+    <div className={collapsed ? "" : "space-y-2"}>
+      <button
+        type="button"
+        className="flex w-full min-w-0 items-start gap-2 rounded-md text-left transition-colors hover:bg-cc-hover/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary/60"
+        onClick={() => setCollapsed((value) => !value)}
+        aria-expanded={!collapsed}
+        aria-label={`${collapsed ? "Expand" : "Collapse"} ${reminder.title}`}
+      >
+        <svg
+          viewBox="0 0 16 16"
+          fill="currentColor"
+          className={`mt-1 h-3 w-3 shrink-0 transition-transform ${collapsed ? "" : "rotate-90"} text-cc-muted/60`}
+        >
+          <path d="M6 4l4 4-4 4" />
+        </svg>
         <svg
           viewBox="0 0 16 16"
           fill="currentColor"
@@ -1144,18 +1174,20 @@ function NeedsInputReminderView({ reminder }: { reminder: NeedsInputReminderView
         >
           <path d="M8 1.5A3.5 3.5 0 004.5 5v2.5c0 .78-.26 1.54-.73 2.16L3 10.66V11.5h10v-.84l-.77-1A3.49 3.49 0 0111.5 7.5V5A3.5 3.5 0 008 1.5zM6.5 13a1.5 1.5 0 003 0h-3z" />
         </svg>
-        <div className="min-w-0">
-          <div className="flex flex-wrap items-center gap-1.5">
+        <span className="min-w-0 flex-1">
+          <span className="flex flex-wrap items-center gap-1.5">
             <span className="text-sm font-medium">{reminder.title}</span>
             <span className={`rounded-full border px-1.5 py-0.5 text-[10px] font-mono-code ${toneClass}`}>
               {statusLabel}
             </span>
-          </div>
-          <p className="mt-0.5 text-xs leading-relaxed text-cc-muted">{reminder.description}</p>
-        </div>
-      </div>
+          </span>
+          {!collapsed && (
+            <span className="mt-0.5 block text-xs leading-relaxed text-cc-muted">{reminder.description}</span>
+          )}
+        </span>
+      </button>
 
-      {reminder.entries.length > 0 && (
+      {!collapsed && reminder.entries.length > 0 && (
         <div className="space-y-1 font-mono-code text-[12px] leading-relaxed">
           {reminder.entries.map((entry) => (
             <div key={`${entry.notificationId}-${entry.rawId}`} className="flex min-w-0 items-start gap-2">
