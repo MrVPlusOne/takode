@@ -1,5 +1,4 @@
-import { useState } from "react";
-import { api, type InterruptRestartBlockersResponse, type ServerInterruptResultItem } from "../api.js";
+import type { InterruptRestartBlockersResponse, ServerInterruptResultItem } from "../api.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import type { SettingsSearchResults, SettingsSectionId } from "./settings-search.js";
 
@@ -139,32 +138,7 @@ export function SettingsServerDiagnosticsSection({
     id: SettingsSectionId;
   };
 }) {
-  const [interrupting, setInterrupting] = useState(false);
-  const [interruptError, setInterruptError] = useState("");
-  const [interruptResult, setInterruptResult] = useState<InterruptRestartBlockersResponse | null>(null);
-  const visibleRestartPrepResult = interruptResult ?? restartPrepResult ?? null;
-
-  async function onInterruptRestartBlockers() {
-    if (
-      !window.confirm(
-        "Prepare restart by interrupting active restart blockers? This stops active work, protects idle leaders from prep-related herd wakeups, and reports blockers that remain unresolved.",
-      )
-    ) {
-      return;
-    }
-
-    setInterrupting(true);
-    setInterruptError("");
-    setInterruptResult(null);
-    try {
-      const result = await api.interruptRestartBlockers();
-      setInterruptResult(result);
-    } catch (error) {
-      setInterruptError(error instanceof Error ? error.message : String(error));
-    } finally {
-      setInterrupting(false);
-    }
-  }
+  const visibleRestartPrepResult = restartPrepResult ?? null;
 
   return (
     <CollapsibleSection
@@ -205,7 +179,8 @@ export function SettingsServerDiagnosticsSection({
         <div className="border-t border-cc-border pt-3 space-y-3">
           <p className="text-xs text-cc-muted">
             Restart the server process. Useful after pulling new code. Sessions will reconnect automatically. If restart
-            readiness is blocked by active turns or pending permission dialogs, interrupt those blockers here first.
+            readiness is blocked by active turns or pending permission dialogs, restart prep interrupts active blockers
+            first and reports anything still unresolved.
           </p>
 
           {!restartSupported && (
@@ -213,12 +188,6 @@ export function SettingsServerDiagnosticsSection({
               Restart not available. Start the server with{" "}
               <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">make dev</code> or{" "}
               <code className="font-mono bg-cc-hover px-1 py-0.5 rounded">make serve</code> to enable.
-            </div>
-          )}
-
-          {interruptError && (
-            <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-              {interruptError}
             </div>
           )}
 
@@ -232,35 +201,19 @@ export function SettingsServerDiagnosticsSection({
             <button
               type="button"
               onClick={onRestartServer}
-              disabled={restarting || interrupting || !restartSupported}
+              disabled={restarting || !restartSupported}
               className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                restarting || interrupting || !restartSupported
+                restarting || !restartSupported
                   ? "bg-cc-hover text-cc-muted cursor-not-allowed"
                   : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
               }`}
             >
               {restarting ? "Restarting..." : "Restart Server"}
             </button>
-
-            <button
-              type="button"
-              onClick={onInterruptRestartBlockers}
-              disabled={interrupting || restarting}
-              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                interrupting || restarting
-                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                  : "bg-amber-500/15 text-amber-700 dark:text-amber-300 hover:bg-amber-500/25 cursor-pointer"
-              }`}
-            >
-              {interrupting ? "Interrupting..." : "Interrupt Restart Blockers"}
-            </button>
           </div>
 
           {visibleRestartPrepResult && (
-            <RestartPrepResultPanel
-              result={visibleRestartPrepResult}
-              title={interruptResult ? "Interrupt Result" : "Restart Prep Result"}
-            />
+            <RestartPrepResultPanel result={visibleRestartPrepResult} title="Restart Prep Result" />
           )}
         </div>
       </div>
