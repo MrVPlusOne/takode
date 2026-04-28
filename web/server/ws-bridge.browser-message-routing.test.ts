@@ -1276,7 +1276,7 @@ describe("Browser message routing", () => {
     spy.mockRestore();
   });
 
-  it("routeBrowserMessage interrupt from leader emits turn_end with interrupt_source=leader", async () => {
+  it("interruptSession from leader emits turn_end with interrupt_source=leader", async () => {
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
     bridge.handleBrowserMessage(
@@ -1286,10 +1286,8 @@ describe("Browser message routing", () => {
         content: "start work",
       }),
     );
-    await (bridge as any).routeBrowserMessage(bridge.getSession("s1")!, {
-      type: "interrupt",
-      interruptSource: "leader",
-    });
+    const interrupted = await bridge.interruptSession("s1", "leader");
+    expect(interrupted).toBe(true);
     bridge.handleCLIMessage(
       cli,
       JSON.stringify({

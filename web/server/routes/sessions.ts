@@ -1398,12 +1398,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
       wsBridge.broadcastToSession(id, historyEntry as any);
     }
 
-    const targetSession = session || wsBridge.getOrCreateSession(id, workerInfo.backendType || "claude");
-    if (typeof bridgeAny.routeBrowserMessage === "function") {
-      await bridgeAny.routeBrowserMessage(targetSession, { type: "interrupt", interruptSource: "leader" });
-    } else {
-      await bridgeAny.routeExternalInterrupt?.(targetSession, "leader");
+    if (!session) {
+      wsBridge.getOrCreateSession(id, workerInfo.backendType || "claude");
     }
+    const interrupted = await wsBridge.interruptSession(id, "leader");
+    if (!interrupted) return c.json({ error: "Session not found" }, 404);
 
     return c.json({ ok: true, sessionId: id, interruptedBy: callerSessionId });
   };
