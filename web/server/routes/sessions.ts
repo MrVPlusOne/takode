@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { resolveBinary, expandTilde } from "../path-resolver.js";
-import { readFile, writeFile, stat, readdir, access as accessAsync } from "node:fs/promises";
+import { readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import type { CliLauncher, LaunchOptions } from "../cli-launcher.js";
@@ -10,11 +10,10 @@ import * as gitUtils from "../git-utils.js";
 import * as sessionNames from "../session-names.js";
 import * as treeGroupStore from "../tree-group-store.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "../container-manager.js";
-import type { CreationStepId, SessionNotification, TakodeSessionArchivedEventData } from "../session-types.js";
+import type { CreationStepId, TakodeSessionArchivedEventData } from "../session-types.js";
 import { hasContainerClaudeAuth } from "../claude-container-auth.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
 import { getSettings, getClaudeUserDefaultModel, getServerId } from "../settings-manager.js";
-import { searchSessionDocuments, type SessionSearchDocument } from "../session-search.js";
 import { buildReadResponse } from "../takode-messages.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { trafficStats } from "../traffic-stats.js";
@@ -26,9 +25,7 @@ import { resolveSessionCreateModel } from "./session-create-model.js";
 import {
   applyInitialSessionState as applyInitialSessionStateController,
   clearAttentionAndMarkRead as clearAttentionAndMarkReadController,
-  countPendingUserPermissions,
   markSessionUnread as markSessionUnreadController,
-  summarizePendingPermissions,
 } from "../bridge/session-registry-controller.js";
 import {
   refreshGitInfoPublic as refreshGitInfoPublicController,
@@ -51,26 +48,8 @@ import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
 import { createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
-
-type NotificationUrgency = "needs-input" | "review" | null;
-
-function summarizeActiveNotifications(
-  notifications: ReadonlyArray<Pick<SessionNotification, "category" | "done">> | undefined,
-): { notificationUrgency: NotificationUrgency; activeNotificationCount: number } {
-  let activeNotificationCount = 0;
-  let hasNeedsInput = false;
-  let hasReview = false;
-  for (const notification of notifications ?? []) {
-    if (notification.done) continue;
-    activeNotificationCount += 1;
-    if (notification.category === "needs-input") hasNeedsInput = true;
-    if (notification.category === "review") hasReview = true;
-  }
-  return {
-    notificationUrgency: hasNeedsInput ? "needs-input" : hasReview ? "review" : null,
-    activeNotificationCount,
-  };
-}
+import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
+import { registerSessionSearchRoute } from "./session-search-route.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -1137,107 +1116,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
   });
 
-  const buildEnrichedSessions = async (filterFn?: (s: ReturnType<CliLauncher["listSessions"]>[number]) => boolean) => {
-    const sessions = launcher.listSessions();
-    const names = sessionNames.getAllNames();
-    const pool = filterFn ? sessions.filter(filterFn) : sessions;
-    const heavyRepoModeEnabled = getSettings().heavyRepoModeEnabled;
-    return Promise.all(
-      pool.map(async (s) => {
-        const pendingTimerCount = ctx.timerManager?.listTimers(s.sessionId).length ?? 0;
-        let notificationSummary: ReturnType<typeof summarizeActiveNotifications> = {
-          notificationUrgency: null,
-          activeNotificationCount: 0,
-        };
-        try {
-          if (s.worktreeCleanupStatus === "pending" && !pendingWorktreeCleanups.has(s.sessionId)) {
-            launcher.setWorktreeCleanupState(s.sessionId, {
-              status: "failed",
-              error: s.worktreeCleanupError || "Cleanup was interrupted before completion.",
-              startedAt: s.worktreeCleanupStartedAt,
-              finishedAt: Date.now(),
-            });
-            s = launcher.getSession(s.sessionId) ?? s;
-          }
-
-          const { sessionAuthToken: _token, injectedSystemPrompt: _prompt, ...safeSession } = s;
-          const bridgeSession = wsBridge.getSession(s.sessionId);
-          notificationSummary = summarizeActiveNotifications(bridgeSession?.notifications);
-          if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
-            await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
-              broadcastUpdate: true,
-              notifyPoller: true,
-            });
-          }
-          const currentBridgeSession = wsBridge.getSession(s.sessionId) ?? bridgeSession;
-          const bridge = currentBridgeSession?.state;
-          const attention = currentBridgeSession
-            ? {
-                lastReadAt: currentBridgeSession.lastReadAt,
-                attentionReason: currentBridgeSession.attentionReason,
-                pendingPermissionCount: countPendingUserPermissions(currentBridgeSession),
-                pendingPermissionSummary: summarizePendingPermissions(currentBridgeSession),
-              }
-            : null;
-          const cliConnected = wsBridge.isBackendConnected(s.sessionId);
-          const effectiveState = cliConnected && currentBridgeSession?.isGenerating ? "running" : safeSession.state;
-          let gitAhead = bridge?.git_ahead || 0;
-          let gitBehind = bridge?.git_behind || 0;
-          // Worktree sessions are force-refreshed above so external git resets
-          // clear stale +/- stats; non-worktree sessions still use cached bridge
-          // values to avoid expensive git calls on every sidebar poll.
-          return {
-            ...safeSession,
-            // Bridge model (from system.init) is more accurate than launcher model
-            // (creation-time value, often empty for "default").
-            model: bridge?.model || safeSession.model,
-            state: effectiveState,
-            sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
-            name: names[s.sessionId] ?? s.name,
-            gitBranch: bridge?.git_branch || "",
-            gitDefaultBranch: bridge?.git_default_branch || "",
-            diffBaseBranch: bridge?.diff_base_branch || "",
-            gitAhead,
-            gitBehind,
-            totalLinesAdded: bridge?.total_lines_added || 0,
-            totalLinesRemoved: bridge?.total_lines_removed || 0,
-            numTurns: bridge?.num_turns || 0,
-            contextUsedPercent: bridge?.context_used_percent || 0,
-            messageHistoryBytes: bridge?.message_history_bytes || 0,
-            codexRetainedPayloadBytes: bridge?.codex_retained_payload_bytes || 0,
-            ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
-            ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
-            lastMessagePreview: currentBridgeSession?.lastUserMessage || "",
-            cliConnected,
-            taskHistory: currentBridgeSession?.taskHistory ?? [],
-            keywords: currentBridgeSession?.keywords ?? [],
-            claimedQuestId: bridge?.claimedQuestId ?? null,
-            claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
-            pendingTimerCount,
-            ...notificationSummary,
-            ...(attention ?? {}),
-            // Worktree liveness status for archived worktree sessions
-            // Only check existence (one async access() call), skip expensive git status
-            ...(s.isWorktree && s.archived
-              ? await (async () => {
-                  let exists = false;
-                  try {
-                    await accessAsync(s.cwd);
-                    exists = true;
-                  } catch {
-                    /* not found */
-                  }
-                  return { worktreeExists: exists };
-                })()
-              : {}),
-          };
-        } catch (e) {
-          console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);
-          return { ...s, name: names[s.sessionId] ?? s.name, pendingTimerCount, ...notificationSummary };
-        }
-      }),
+  const buildEnrichedSessions = (filterFn?: (s: ReturnType<CliLauncher["listSessions"]>[number]) => boolean) =>
+    buildEnrichedSessionsSnapshot(
+      { launcher, wsBridge, timerManager: ctx.timerManager, pendingWorktreeCleanups },
+      filterFn,
     );
-  };
 
   const backfillSessionProjectMeta = async (
     info: { cwd: string; repoRoot?: string },
@@ -1260,65 +1143,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const enriched = await buildEnrichedSessions();
     return c.json(enriched);
   });
-  api.get("/sessions/search", (c) => {
-    const rawQuery = (c.req.query("q") || "").trim();
-    if (!rawQuery) {
-      return c.json({ error: "q is required" }, 400);
-    }
-
-    const limitParam = Number.parseInt(c.req.query("limit") || "50", 10);
-    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(limitParam, 200)) : 50;
-
-    const msgLimitParam = Number.parseInt(c.req.query("messageLimitPerSession") || "400", 10);
-    const messageLimitPerSession = Number.isFinite(msgLimitParam) ? Math.max(50, Math.min(msgLimitParam, 2000)) : 400;
-
-    const includeArchivedRaw = c.req.query("includeArchived");
-    const includeArchived =
-      includeArchivedRaw === undefined ? true : !["0", "false", "no"].includes(includeArchivedRaw.toLowerCase());
-    const includeReviewersRaw = c.req.query("includeReviewers");
-    const includeReviewers =
-      includeReviewersRaw !== undefined && ["1", "true", "yes"].includes(includeReviewersRaw.toLowerCase());
-
-    const startedAt = Date.now();
-    const sessions = launcher.listSessions();
-    const names = sessionNames.getAllNames();
-
-    const docs: SessionSearchDocument[] = sessions.map((s) => {
-      const bridgeSession = wsBridge.getSession(s.sessionId);
-      const bridge = bridgeSession?.state;
-      return {
-        sessionId: s.sessionId,
-        sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
-        archived: !!s.archived,
-        reviewerOf: s.reviewerOf,
-        createdAt: s.createdAt || 0,
-        lastActivityAt: s.lastActivityAt,
-        name: names[s.sessionId] ?? s.name ?? "",
-        taskHistory: bridgeSession?.taskHistory ?? [],
-        keywords: bridgeSession?.keywords ?? [],
-        gitBranch: bridge?.git_branch || "",
-        cwd: bridge?.cwd || s.cwd || "",
-        repoRoot: bridge?.repo_root || s.repoRoot || "",
-        messageHistory: bridgeSession?.messageHistory || [],
-        searchExcerpts: bridgeSession?.searchExcerpts ?? [],
-      };
-    });
-
-    const { results, totalMatches } = searchSessionDocuments(docs, {
-      query: rawQuery,
-      limit,
-      includeArchived,
-      includeReviewers,
-      messageLimitPerSession,
-    });
-
-    return c.json({
-      query: rawQuery,
-      tookMs: Date.now() - startedAt,
-      totalMatches,
-      results,
-    });
-  });
+  registerSessionSearchRoute(api, { launcher, wsBridge });
   api.get("/sessions/:id", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
