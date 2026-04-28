@@ -172,7 +172,7 @@ vi.mock("./usage-limits.js", () => ({
 import { Hono } from "hono";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
-import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
@@ -534,14 +534,17 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
   return events;
 }
 
-describe("GET /api/images/:sessionId/:imageId/thumb", () => {
+// The image thumb route uses Bun.file() internally, so these tests only work on Bun.
+const describeBun = typeof globalThis.Bun !== "undefined" ? describe : describe.skip;
+
+describeBun("GET /api/images/:sessionId/:imageId/thumb", () => {
   it("serves the real thumbnail with immutable caching when it exists", async () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "routes-thumb-"));
     const thumbPath = join(tempRoot, "thumb.jpeg");
     const origPath = join(tempRoot, "orig.png");
     try {
-      await Bun.write(thumbPath, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
-      await Bun.write(origPath, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+      await writeFile(thumbPath, new Uint8Array([0xff, 0xd8, 0xff, 0xd9]));
+      await writeFile(origPath, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
 
       const imageStore = {
         getThumbnailPath: vi.fn(async () => thumbPath),
@@ -579,7 +582,7 @@ describe("GET /api/images/:sessionId/:imageId/thumb", () => {
     const tempRoot = await mkdtemp(join(tmpdir(), "routes-thumb-fallback-"));
     const origPath = join(tempRoot, "orig.png");
     try {
-      await Bun.write(origPath, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
+      await writeFile(origPath, new Uint8Array([0x89, 0x50, 0x4e, 0x47]));
 
       const imageStore = {
         getThumbnailPath: vi.fn(async () => null),

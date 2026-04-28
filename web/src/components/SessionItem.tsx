@@ -1,4 +1,4 @@
-import { useRef, useCallback, useState, type RefObject } from "react";
+import { useRef, useCallback, useState, useEffect, type RefObject } from "react";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { deriveSessionStatus, type SessionVisualStatus } from "./SessionStatusDot.js";
 import { useStore } from "../store.js";
@@ -634,6 +634,11 @@ export function SessionItem({
                       e.preventDefault();
                       onCancelRename();
                     }
+                    e.stopPropagation();
+                  }}
+                  onKeyUp={(e) => {
+                    // Prevent Space keyup from bubbling to the parent <button>,
+                    // which the browser would interpret as a button activation click.
                     e.stopPropagation();
                   }}
                   onBlur={onConfirmRename}
