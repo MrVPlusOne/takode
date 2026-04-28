@@ -1529,7 +1529,7 @@ describe("launch", () => {
       });
       await waitForSpawnCalls(1);
 
-      expect(mockCopyFile).toHaveBeenCalledWith(legacyAuthPath, sessionAuthPath);
+      expect(mockSymlink).toHaveBeenCalledWith(legacyAuthPath, sessionAuthPath);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
@@ -1787,7 +1787,7 @@ describe("launch", () => {
     });
     await waitForSpawnCalls(1);
 
-    expect(mockCopyFile).toHaveBeenCalledWith(legacyAuth, sessionAuth);
+    expect(mockSymlink).toHaveBeenCalledWith(legacyAuth, sessionAuth);
   });
 
   it("prunes broken legacy skill symlinks from the session Codex home", async () => {

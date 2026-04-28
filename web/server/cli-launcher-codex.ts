@@ -829,7 +829,11 @@ async function prepareCodexHome(
 
       const dest = join(codexHome, name);
       if (!src) continue;
-      if (name === "auth.json" || !(await fileExists(dest))) {
+      if (name === "auth.json") {
+        await linkCodexAuthFile(src, dest);
+        continue;
+      }
+      if (!(await fileExists(dest))) {
         await copyFile(src, dest);
       }
     } catch (error) {
@@ -858,6 +862,19 @@ async function prepareCodexHome(
     await seedCodexResumeRollout(codexHome, resumeCliSessionId);
   } catch (error) {
     console.warn(`[cli-launcher] Failed to seed resume rollout for ${resumeCliSessionId}:`, error);
+  }
+}
+
+async function linkCodexAuthFile(src: string, dest: string): Promise<void> {
+  await unlink(dest).catch(() => {});
+  try {
+    await symlink(src, dest);
+  } catch (error) {
+    // Prefer a live link so Codex's rotating refresh token stays shared across
+    // session homes. Copying is only a fallback for filesystems that disallow
+    // symlinks.
+    await copyFile(src, dest);
+    console.warn(`[cli-launcher] Failed to symlink Codex auth.json into session home; copied instead:`, error);
   }
 }
 
@@ -928,6 +945,16 @@ function renderContainerCodexFileWrite(path: string, contents: string, heredocMa
 
 function renderContainerCodexConfigWrite(configToml: string): string {
   return renderContainerCodexFileWrite("/root/.codex/config.toml", configToml, "__COMPANION_CODEX_CONFIG__");
+}
+
+function renderContainerCodexAuthRefresh(): string {
+  return [
+    "if [ -f /companion-host-codex/auth.json ]; then",
+    "mkdir -p /root/.codex",
+    "rm -f /root/.codex/auth.json",
+    "cp /companion-host-codex/auth.json /root/.codex/auth.json 2>/dev/null || true",
+    "fi",
+  ].join("\n");
 }
 
 async function resolveHostCodexLaunchBinary(
@@ -1054,7 +1081,7 @@ export async function prepareCodexSpawn(
     dockerArgs.push("-e", "CODEX_HOME=/root/.codex");
     dockerArgs.push(options.containerId!);
     const innerCmd = [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" ");
-    const shellCommands: string[] = [];
+    const shellCommands: string[] = [renderContainerCodexAuthRefresh()];
     if (containerModelCatalogJson) {
       shellCommands.push(
         renderContainerCodexFileWrite(

@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { lstatSync, mkdirSync, mkdtempSync, readFileSync, readlinkSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { vi } from "vitest";
@@ -141,7 +141,7 @@ describe("Codex launch env", () => {
     expect(options.env.OPENAI_API_KEY).toBe("sk-test");
   });
 
-  it("preserves explicit OPENAI_API_KEY even when session auth.json is copied", async () => {
+  it("preserves explicit OPENAI_API_KEY while linking session auth.json to the shared source", async () => {
     const legacyHome = join(tempDir, "legacy-codex-home");
     const customHome = mkdtempSync(join(tempDir, "codex-home-"));
     const sessionHome = join(customHome, "test-session-id");
@@ -160,6 +160,8 @@ describe("Codex launch env", () => {
     });
     await waitForSpawnCalls(1);
 
+    expect(lstatSync(sessionAuth).isSymbolicLink()).toBe(true);
+    expect(readlinkSync(sessionAuth)).toBe(legacyAuth);
     expect(readFileSync(sessionAuth, "utf-8")).toBe('{"tokens":{"id_token":"legacy"}}\n');
     const [, options] = mockSpawn.mock.calls[0];
     expect(options.env.OPENAI_API_KEY).toBe("sk-test");

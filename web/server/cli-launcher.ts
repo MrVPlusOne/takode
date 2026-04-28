@@ -27,6 +27,13 @@ import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex
 import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
 import { isRecoverableCodexInitError } from "./codex-adapter-utils.js";
+import {
+  classifyCliStreamLogLevel,
+  isCodexRefreshTokenReusedNoise,
+  maybeFormatCodexTokenRefreshLogLine,
+  type CliStreamLogLevel,
+  type CodexTokenRefreshNoiseState,
+} from "./cli-stream-log-classifier.js";
 import { sessionTag } from "./session-tag.js";
 import type { HerdChangeEvent, HerdSessionsResponse } from "../shared/herd-types.js";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
@@ -304,6 +311,7 @@ export class CliLauncher {
   private processes = new Map<string, Subprocess>();
   /** Runtime-only env vars per session (kept out of persisted launcher state). */
   private sessionEnvs = new Map<string, Record<string, string>>();
+  private codexTokenRefreshNoiseBySession = new Map<string, CodexTokenRefreshNoiseState>();
   private port: number;
   private serverId: string;
   private store: SessionStore | null = null;
@@ -1930,7 +1938,6 @@ export class CliLauncher {
     if (!stream) return;
     const reader = stream.getReader();
     const decoder = new TextDecoder();
-    const log = label === "stdout" ? console.log : console.error;
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -1940,12 +1947,30 @@ export class CliLauncher {
         if (text.trim()) {
           const sessionNum = this.getSessionNum(sessionId);
           const sessionLabel = sessionNum !== undefined ? `#${sessionNum}` : sessionId.slice(0, 8);
-          log(`[session:${sessionLabel}:${label}] ${text.trimEnd()}`);
+          const line = `[session:${sessionLabel}:${label}] ${text.trimEnd()}`;
+          const level = classifyCliStreamLogLevel(label, text);
+          const suppressedLine =
+            label === "stderr" && isCodexRefreshTokenReusedNoise(text)
+              ? maybeFormatCodexTokenRefreshLogLine(this.codexTokenRefreshNoiseBySession, sessionId, line)
+              : line;
+          if (suppressedLine) this.logCliStreamLine(level, suppressedLine);
         }
       }
     } catch {
       // stream closed
     }
+  }
+
+  private logCliStreamLine(level: CliStreamLogLevel, line: string): void {
+    if (level === "info") {
+      console.log(line);
+      return;
+    }
+    if (level === "warn") {
+      console.warn(line);
+      return;
+    }
+    console.error(line);
   }
 
   private pipeOutput(sessionId: string, proc: Subprocess): void {
