@@ -623,6 +623,10 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("recover enough earlier context");
     expect(recoveryCalls[0][1]).toContain("first pass");
     expect(recoveryCalls[0][1]).toContain("summary is stale, insufficient");
+    expect(recoveryCalls[0][1]).toContain("Hard stop");
+    expect(recoveryCalls[0][1]).toContain("unresolved user decisions");
+    expect(recoveryCalls[0][1]).toContain("needs-input");
+    expect(recoveryCalls[0][1]).toContain("do not dispatch, advance quests");
     expect(recoveryCalls[0][1]).toContain("phase-explicit");
     expect(recoveryCalls[0][1]).toContain("plan only");
     expect(recoveryCalls[0][1]).toContain("approved next phase and stop");

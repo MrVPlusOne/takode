@@ -9,6 +9,7 @@ export const LEADER_COMPACTION_RECOVERY_PROMPT = `Context was compacted. Before 
 2. Run the preferred leader recovery summary: \`takode leader-context-resume <your-session-number>\`
 3. Key rules:
    - Treat the recovery summary as the first pass, then use manual follow-ups when the summary is stale, insufficient, or leaves phase history or user intent unclear
+   - Hard stop: if the summary or notifications show unresolved user decisions or \`needs-input\` prompts, do not dispatch, advance quests, or answer on the user's behalf until the decision is resolved
    - Use \`takode scan <your-session-number>\` to inspect your own session history and recover enough earlier context before acting
    - Use \`takode board show\` to verify active Journey state and \`takode list\` to reconcile herd/session state when board or worker context matters
    - Use \`takode spawn\` to create workers (never Agent tool)
