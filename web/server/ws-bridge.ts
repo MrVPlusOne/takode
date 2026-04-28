@@ -841,7 +841,12 @@ export class WsBridge {
       this.broadcastSessionActivityUpdateGlobally({
         type: "session_activity_update",
         session_id: sessionId,
-        session: getSessionActivitySnapshotController(session),
+        session: {
+          ...getSessionActivitySnapshotController(session),
+          status: deriveSessionStatusController(session, {
+            backendConnected: (targetSession) => backendConnectedController(targetSession as Session),
+          }) as "compacting" | "reverting" | "idle" | "running" | null,
+        },
       });
     }
     this.herdEventDispatcher?.onSessionActivityStateChanged?.(sessionId, reason);
@@ -1643,14 +1648,18 @@ export class WsBridge {
     const launcherSessions = this.launcher?.listSessions?.() ?? [];
     return buildBoardRowSessionStatuses(
       [...board, ...completedBoard],
-      launcherSessions.map((session) => ({
-        sessionId: session.sessionId,
-        sessionNum: session.sessionNum,
-        reviewerOf: session.reviewerOf,
-        archived: session.archived,
-        state: session.state,
-        cliConnected: this.isBackendConnected(session.sessionId),
-      })),
+      launcherSessions.map((session) => {
+        const bridgeSession = this.sessions.get(session.sessionId);
+        const cliConnected = this.isBackendConnected(session.sessionId);
+        return {
+          sessionId: session.sessionId,
+          sessionNum: session.sessionNum,
+          reviewerOf: session.reviewerOf,
+          archived: session.archived,
+          state: cliConnected && bridgeSession?.isGenerating ? "running" : session.state,
+          cliConnected,
+        };
+      }),
     );
   }
 

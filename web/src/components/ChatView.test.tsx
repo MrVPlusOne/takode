@@ -18,7 +18,15 @@ interface MockStoreState {
   cliEverConnected: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
-  sdkSessions: Array<{ sessionId: string; archived?: boolean; isOrchestrator?: boolean }>;
+  sdkSessions: Array<{
+    sessionId: string;
+    archived?: boolean;
+    isOrchestrator?: boolean;
+    sessionNum?: number;
+    state?: "starting" | "connected" | "running" | "exited";
+    cliConnected?: boolean;
+  }>;
+  sessionAttention: Map<string, "action" | "error" | "review" | null>;
   sessionBoards: Map<string, unknown[]>;
   sessionCompletedBoards: Map<string, unknown[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
@@ -42,6 +50,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     cliDisconnectReason: new Map([["s1", null]]),
     sessionStatus: new Map([["s1", "idle"]]),
     sdkSessions: [{ sessionId: "s1", archived: false }],
+    sessionAttention: new Map(),
     sessionBoards: new Map(),
     sessionCompletedBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
@@ -169,7 +178,24 @@ vi.mock("./SessionInlineLink.js", () => ({
 }));
 
 vi.mock("./SessionStatusDot.js", () => ({
-  SessionStatusDot: () => <span data-testid="session-status-dot" />,
+  SessionStatusDot: ({
+    isConnected,
+    sdkState,
+    status,
+    archived,
+  }: {
+    isConnected: boolean;
+    sdkState?: string | null;
+    status?: string | null;
+    archived?: boolean;
+  }) => {
+    const visualStatus = archived
+      ? "archived"
+      : !isConnected && sdkState !== "starting"
+        ? "disconnected"
+        : status || "idle";
+    return <span data-testid="session-status-dot" data-status={visualStatus} />;
+  },
 }));
 
 vi.mock("./QuestJourneyTimeline.js", () => ({
@@ -362,6 +388,113 @@ describe("ChatView backend banners", () => {
 
     fireEvent.click(within(row).getByText("Quest thread MVP with a longer title"));
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
+  });
+
+  it("renders thread participant chips from live session status before stale board status", () => {
+    // Worker/reviewer chips should match the same live session status source as
+    // the sidebar, even if the board snapshot has not refreshed yet.
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [
+        { sessionId: "s1", archived: false, isOrchestrator: true, state: "connected", cliConnected: true },
+        { sessionId: "worker-running", archived: false, sessionNum: 1153, state: "connected", cliConnected: true },
+        { sessionId: "reviewer-disconnected", archived: false, sessionNum: 1155, state: "exited", cliConnected: false },
+        { sessionId: "worker-idle", archived: false, sessionNum: 1154, state: "connected", cliConnected: true },
+      ],
+      cliConnected: new Map([
+        ["s1", true],
+        ["worker-running", true],
+        ["reviewer-disconnected", false],
+        ["worker-idle", true],
+      ]),
+      cliDisconnectReason: new Map([
+        ["s1", null],
+        ["worker-running", null],
+        ["reviewer-disconnected", "broken"],
+        ["worker-idle", null],
+      ]),
+      sessionStatus: new Map([
+        ["s1", "idle"],
+        ["worker-running", "running"],
+        ["reviewer-disconnected", null],
+        ["worker-idle", "idle"],
+      ]),
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m-running",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 1,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+            {
+              id: "m-idle",
+              role: "assistant",
+              content: "q-942 update",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-942", questId: "q-942", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      sessionBoards: new Map([
+        [
+          "s1",
+          [
+            {
+              questId: "q-941",
+              title: "Running thread",
+              worker: "worker-running",
+              workerNum: 1153,
+              updatedAt: 3,
+              createdAt: 1,
+            },
+            {
+              questId: "q-942",
+              title: "Idle thread",
+              worker: "worker-idle",
+              workerNum: 1154,
+              updatedAt: 2,
+              createdAt: 2,
+            },
+          ],
+        ],
+      ]),
+      sessionBoardRowStatuses: new Map([
+        [
+          "s1",
+          {
+            "q-941": {
+              worker: { sessionId: "worker-running", sessionNum: 1153, status: "idle" },
+              reviewer: { sessionId: "reviewer-disconnected", sessionNum: 1155, status: "idle" },
+            },
+            "q-942": {
+              worker: { sessionId: "worker-idle", sessionNum: 1154, status: "running" },
+              reviewer: null,
+            },
+          },
+        ],
+      ]),
+      quests: [
+        { questId: "q-941", title: "Running thread", status: "in_progress" },
+        { questId: "q-942", title: "Idle thread", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const rows = within(view.container).getAllByTestId("leader-thread-row");
+    const runningRow = rows.find((row) => row.getAttribute("data-thread-key") === "q-941")!;
+    const idleRow = rows.find((row) => row.getAttribute("data-thread-key") === "q-942")!;
+
+    expect(
+      within(runningRow)
+        .getAllByTestId("session-status-dot")
+        .map((dot) => dot.getAttribute("data-status")),
+    ).toEqual(["running", "disconnected"]);
+    expect(within(idleRow).getByTestId("session-status-dot")).toHaveAttribute("data-status", "idle");
   });
 
   it("hides empty quest threads and separates nonempty off-board threads into Done", () => {

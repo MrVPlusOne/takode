@@ -764,6 +764,41 @@ describe("status_change: running on user_message", () => {
     expect(snapshot.sessionStatus).toBe("running");
   });
 
+  it("board row participant statuses mirror live generation state", () => {
+    bridge.setLauncher({
+      listSessions: () => [
+        {
+          sessionId: "s1",
+          sessionNum: 1153,
+          state: "connected",
+          archived: false,
+        },
+      ],
+      getSession: (sessionId: string) =>
+        sessionId === "s1"
+          ? {
+              sessionId: "s1",
+              sessionNum: 1153,
+              state: "connected",
+              archived: false,
+            }
+          : undefined,
+      getSessionNum: (sessionId: string) => (sessionId === "s1" ? 1153 : undefined),
+    });
+
+    const session = bridge.getSession("s1");
+    expect(session).toBeDefined();
+    session!.isGenerating = true;
+
+    const statuses = (bridge as any).getBoardRowSessionStatuses(
+      "s1",
+      [{ questId: "q-955", worker: "s1", workerNum: 1153, updatedAt: 1, createdAt: 1 }],
+      [],
+    );
+
+    expect(statuses["q-955"].worker.status).toBe("running");
+  });
+
   it("deriveSessionStatus returns 'idle' after result even if history ends with assistant", async () => {
     // Send a user message (isGenerating = true)
     bridge.handleBrowserMessage(

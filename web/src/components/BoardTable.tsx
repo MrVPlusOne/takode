@@ -19,6 +19,7 @@ import {
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
+import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import { QuestJourneyPreviewCard, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import type { BoardParticipantStatus, BoardRowSessionStatus } from "../types.js";
 import type { QuestmasterTask } from "../types.js";
@@ -209,19 +210,6 @@ export function WorkerLink({ sessionId, sessionNum }: { sessionId: string; sessi
   );
 }
 
-function dotPropsForParticipant(status: BoardParticipantStatus["status"]) {
-  if (status === "archived") {
-    return { archived: true, permCount: 0, isConnected: false, sdkState: "exited" as const, status: null };
-  }
-  if (status === "disconnected") {
-    return { permCount: 0, isConnected: false, sdkState: "exited" as const, status: null };
-  }
-  if (status === "running") {
-    return { permCount: 0, isConnected: true, sdkState: "running" as const, status: "running" as const };
-  }
-  return { permCount: 0, isConnected: true, sdkState: "connected" as const, status: "idle" as const };
-}
-
 function BoardSessionEntry({
   participant,
   sessionId,
@@ -233,11 +221,12 @@ function BoardSessionEntry({
 }) {
   const resolvedSessionId = participant?.sessionId ?? sessionId ?? null;
   const resolvedSessionNum = participant?.sessionNum ?? sessionNum ?? undefined;
+  const dotProps = useParticipantSessionStatusDotProps(resolvedSessionId, participant?.status);
   if (!resolvedSessionId) return null;
 
   return (
     <span className="inline-flex min-w-0 items-center gap-1.5">
-      {participant && <SessionStatusDot className="mt-0" {...dotPropsForParticipant(participant.status)} />}
+      {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
       <SessionInlineLink
         sessionId={resolvedSessionId}
         sessionNum={resolvedSessionNum}

@@ -3,7 +3,15 @@ import { DiffViewer } from "../DiffViewer.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { SessionCreationProgress } from "../SessionCreationProgress.js";
 import { StepList } from "../SessionCreationView.js";
-import { CatPawAvatar, CatPawLeft, CatPawRight, YarnBallDot, YarnBallSpinner, SleepingCat } from "../CatIcons.js";
+import {
+  CatPawAvatar,
+  CatPawLeft,
+  CatPawRight,
+  YarnBallDot,
+  YarnBallSpinner,
+  SleepingCat,
+  PowerPlugDot,
+} from "../CatIcons.js";
 import { HighlightedText } from "../HighlightedText.js";
 import { PawTrailAvatar } from "../PawTrail.js";
 import type { CreationProgressEvent } from "../../types.js";
@@ -1089,13 +1097,28 @@ export function PlaygroundStateSections() {
                   <span className="shrink-0 text-xs font-medium font-mono-code text-blue-300">q-43</span>
                   <span className="min-w-0 truncate text-xs font-medium text-cc-fg">Resize images at store time</span>
                 </div>
-                <div className="mt-1 flex items-center gap-1.5">
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
                   <span className="inline-flex items-center gap-1 rounded-full border border-cc-border/60 bg-cc-card/70 px-1.5 py-0.5 text-[10px] text-cc-muted">
                     <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
                     Implement
                   </span>
-                  <span className="rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px]">
+                  <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
+                    <span
+                      className="h-2 w-2 rounded-full bg-emerald-500"
+                      style={{
+                        animation: "yarn-glow-breathe 2s ease-in-out infinite",
+                        ["--glow-color" as string]: "rgba(34, 197, 94, 0.6)",
+                      }}
+                    />
                     W <span className="font-mono-code text-amber-400">#70</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
+                    <span className="h-2 w-2 rounded-full bg-cc-muted/50" />R{" "}
+                    <span className="font-mono-code text-amber-400">#71</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
+                    <PowerPlugDot className="h-2.5 w-2.5 text-cc-muted/60" />W{" "}
+                    <span className="font-mono-code text-amber-400">#72</span>
                   </span>
                 </div>
                 <div className="mt-1 text-[10px] tabular-nums text-cc-muted/85">3 messages</div>

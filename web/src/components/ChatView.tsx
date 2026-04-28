@@ -22,6 +22,7 @@ import { QuestJourneyPreviewCard } from "./QuestJourneyTimeline.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
+import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import {
   getQuestJourneyCurrentPhaseId,
   getQuestJourneyPhase,
@@ -159,19 +160,6 @@ function buildLeaderThreadRows({
   return [...rows.values()].sort((a, b) => a.createdAt - b.createdAt || a.threadKey.localeCompare(b.threadKey));
 }
 
-function participantDotProps(status: BoardParticipantStatus["status"]) {
-  if (status === "archived") {
-    return { archived: true, permCount: 0, isConnected: false, sdkState: "exited" as const, status: null };
-  }
-  if (status === "disconnected") {
-    return { permCount: 0, isConnected: false, sdkState: "exited" as const, status: null };
-  }
-  if (status === "running") {
-    return { permCount: 0, isConnected: true, sdkState: "running" as const, status: "running" as const };
-  }
-  return { permCount: 0, isConnected: true, sdkState: "connected" as const, status: "idle" as const };
-}
-
 function phaseLabelForThread(row: LeaderThreadRow): { label: string; color?: string } | null {
   if (row.journey?.phaseIds?.length) {
     const phase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.boardStatus));
@@ -199,10 +187,11 @@ function ThreadParticipantChip({
 }) {
   const sessionId = participant?.sessionId ?? fallbackSessionId ?? null;
   const sessionNum = participant?.sessionNum ?? fallbackSessionNum ?? null;
+  const dotProps = useParticipantSessionStatusDotProps(sessionId, participant?.status);
   if (!sessionId) return null;
   return (
     <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
-      {participant && <SessionStatusDot className="mt-0" {...participantDotProps(participant.status)} />}
+      {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
       <span className="text-cc-muted">{label}</span>
       <SessionInlineLink
         sessionId={sessionId}

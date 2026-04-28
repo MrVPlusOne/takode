@@ -15,7 +15,18 @@ interface MockStoreState {
     version?: number;
     id?: string;
   }>;
-  sdkSessions: Array<{ sessionId: string; sessionNum?: number }>;
+  sdkSessions: Array<{
+    sessionId: string;
+    sessionNum?: number;
+    archived?: boolean;
+    state?: "starting" | "connected" | "running" | "exited";
+    cliConnected?: boolean;
+  }>;
+  cliConnected: Map<string, boolean>;
+  cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
+  sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
+  pendingPermissions: Map<string, Map<string, unknown>>;
+  sessionAttention: Map<string, "action" | "error" | "review" | null>;
   zoomLevel?: number;
 }
 
@@ -46,6 +57,11 @@ beforeEach(() => {
   mockState = {
     quests: [],
     sdkSessions: [],
+    cliConnected: new Map(),
+    cliDisconnectReason: new Map(),
+    sessionStatus: new Map(),
+    pendingPermissions: new Map(),
+    sessionAttention: new Map(),
   };
   openQuestOverlay.mockReset();
 });
@@ -303,6 +319,57 @@ describe("BoardTable", () => {
     expect(dots).toHaveLength(2);
     expect(dots[0]).toHaveAttribute("data-status", "running");
     expect(dots[1]).toHaveAttribute("data-status", "idle");
+  });
+
+  it("prefers live session status over stale participant snapshots", () => {
+    // Board rows can be less fresh than the sidebar. Participant chips should
+    // use the same live store status as the sidebar when that session is known.
+    mockState.sdkSessions = [
+      { sessionId: "worker-live", sessionNum: 11, state: "connected", archived: false, cliConnected: true },
+      { sessionId: "reviewer-live", sessionNum: 12, state: "exited", archived: false, cliConnected: false },
+      { sessionId: "worker-idle", sessionNum: 13, state: "connected", archived: false, cliConnected: true },
+    ];
+    mockState.cliConnected = new Map([
+      ["worker-live", true],
+      ["reviewer-live", false],
+      ["worker-idle", true],
+    ]);
+    mockState.cliDisconnectReason = new Map([
+      ["worker-live", null],
+      ["reviewer-live", "broken"],
+      ["worker-idle", null],
+    ]);
+    mockState.sessionStatus = new Map([
+      ["worker-live", "running"],
+      ["reviewer-live", null],
+      ["worker-idle", "idle"],
+    ]);
+    const board: BoardRowData[] = [
+      { questId: "q-1", worker: "worker-live", workerNum: 11, updatedAt: 2 },
+      { questId: "q-2", worker: "worker-idle", workerNum: 13, updatedAt: 1 },
+    ];
+
+    render(
+      <BoardTable
+        board={board}
+        rowSessionStatuses={{
+          "q-1": {
+            worker: { sessionId: "worker-live", sessionNum: 11, status: "idle" },
+            reviewer: { sessionId: "reviewer-live", sessionNum: 12, status: "running" },
+          },
+          "q-2": {
+            worker: { sessionId: "worker-idle", sessionNum: 13, status: "running" },
+            reviewer: null,
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getAllByTestId("session-status-dot").map((dot) => dot.getAttribute("data-status"))).toEqual([
+      "running",
+      "disconnected",
+      "idle",
+    ]);
   });
 
   it("renders only linked wait-for-input ids for active rows", () => {
