@@ -568,6 +568,28 @@ describe("GET /api/sessions/search", () => {
     expect(json.results.some((r: any) => r.sessionId === "s-archived")).toBe(true);
   });
 
+  it("preserves includeArchived default-true semantics for empty and unknown values", async () => {
+    // Before session search was extracted from routes/sessions.ts, any
+    // includeArchived value except 0/false/no kept archived matches visible.
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "s-active", state: "running", cwd: "/active", createdAt: 1, archived: false },
+      { sessionId: "s-archived", state: "exited", cwd: "/archived", createdAt: 2, archived: true },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({
+      "s-active": "Needle active",
+      "s-archived": "Needle archived",
+    });
+
+    for (const includeArchivedValue of ["", "foo"]) {
+      const res = await app.request(`/api/sessions/search?q=needle&includeArchived=${includeArchivedValue}`, {
+        method: "GET",
+      });
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.results.map((r: any) => r.sessionId)).toContain("s-archived");
+    }
+  });
+
   it("applies ranking and includeArchived=false filter", async () => {
     launcher.listSessions.mockReturnValue([
       { sessionId: "s-meta", state: "running", cwd: "/meta", createdAt: 1, archived: false, lastActivityAt: 10 },

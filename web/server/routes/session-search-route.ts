@@ -22,8 +22,8 @@ export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDe
 
     const msgLimitParam = Number.parseInt(c.req.query("messageLimitPerSession") || "400", 10);
     const messageLimitPerSession = Number.isFinite(msgLimitParam) ? Math.max(50, Math.min(msgLimitParam, 2000)) : 400;
-    const includeArchived = parseOptionalBoolean(c.req.query("includeArchived"), true);
-    const includeReviewers = parseOptionalBoolean(c.req.query("includeReviewers"), false);
+    const includeArchived = parseIncludeArchived(c.req.query("includeArchived"));
+    const includeReviewers = parseAffirmativeBoolean(c.req.query("includeReviewers"));
 
     const startedAt = Date.now();
     const sessions = launcher.listSessions();
@@ -66,7 +66,12 @@ export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDe
   });
 }
 
-function parseOptionalBoolean(rawValue: string | undefined, defaultValue: boolean): boolean {
-  if (rawValue === undefined) return defaultValue;
+function parseIncludeArchived(rawValue: string | undefined): boolean {
+  if (rawValue === undefined) return true;
+  return !["0", "false", "no"].includes(rawValue.toLowerCase());
+}
+
+function parseAffirmativeBoolean(rawValue: string | undefined): boolean {
+  if (rawValue === undefined) return false;
   return ["1", "true", "yes"].includes(rawValue.toLowerCase());
 }
