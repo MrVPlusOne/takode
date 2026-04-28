@@ -85,7 +85,7 @@ describe("applyQuestListFilters", () => {
     const quest = makeQuest({
       questId: "q-6",
       title: "Long feedback quest",
-      status: "needs_verification",
+      status: "done",
       verificationInboxUnread: false,
     });
     quest.tldr = "Short quest scanline";
