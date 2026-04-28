@@ -178,7 +178,7 @@ describe("BoardTable", () => {
     expect(mentalSimulationLabels[1]).toHaveClass("font-semibold");
   });
 
-  it("renders worker and reviewer session links with their own status dots", () => {
+  it("renders worker and reviewer session links in a wrapping same-line row with their own status dots", () => {
     const board: BoardRowData[] = [{ questId: "q-1", worker: "worker-1", workerNum: 11, updatedAt: 1 }];
 
     render(
@@ -195,6 +195,11 @@ describe("BoardTable", () => {
 
     expect(screen.getByText("#11")).toBeInTheDocument();
     expect(screen.getByText("#12")).toBeInTheDocument();
+    const sessionsCell = screen.getByText("#11").closest("td");
+    expect(sessionsCell).toHaveClass("min-w-[8rem]", "whitespace-normal");
+    const sessionsLayout = screen.getByText("#11").closest("div");
+    expect(sessionsLayout).toHaveClass("flex-row", "flex-wrap", "gap-x-3", "gap-y-1");
+    expect(sessionsLayout).not.toHaveClass("flex-col");
     const dots = screen.getAllByTestId("session-status-dot");
     expect(dots).toHaveLength(2);
     expect(dots[0]).toHaveAttribute("data-status", "running");

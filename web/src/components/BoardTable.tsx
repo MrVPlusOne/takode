@@ -252,7 +252,7 @@ function SessionCell({ row, rowStatus }: { row: BoardRowData; rowStatus?: BoardR
   if (!hasWorker && !hasReviewer) return <span className="text-cc-muted">{"\u2014"}</span>;
 
   return (
-    <div className="flex min-w-0 flex-col gap-1">
+    <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-3 gap-y-1">
       {hasWorker && (
         <BoardSessionEntry participant={rowStatus?.worker} sessionId={row.worker} sessionNum={row.workerNum} />
       )}
@@ -324,7 +324,7 @@ export const BoardTable = memo(function BoardTable({
         <thead>
           <tr className="text-cc-muted border-b border-cc-border">
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Quest</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Sessions</th>
+            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap min-w-[8rem]">Sessions</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Journey</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Title</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">
@@ -338,7 +338,7 @@ export const BoardTable = memo(function BoardTable({
               <td className="px-3 py-1.5 whitespace-nowrap">
                 <QuestLink questId={row.questId} />
               </td>
-              <td className="px-3 py-1.5 whitespace-nowrap">
+              <td className="px-3 py-1.5 min-w-[8rem] whitespace-normal">
                 <SessionCell row={row} rowStatus={rowSessionStatuses?.[row.questId]} />
               </td>
               <td className="px-3 py-1.5 max-w-[360px]">
