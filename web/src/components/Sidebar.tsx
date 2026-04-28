@@ -46,6 +46,9 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
   x: 0,
 });
 
+const SIDEBAR_SESSION_POLL_INTERVAL_MS = 5_000;
+const SIDEBAR_SESSION_STALE_REFRESH_MS = 3 * 60_000;
+
 function sessionTaskHistoryEqual(a: SessionTaskEntry[] | undefined, b: SessionTaskEntry[] | undefined): boolean {
   if (a === b) return true;
   if (!a || !b) return !a && !b;
@@ -211,75 +214,104 @@ export function Sidebar() {
     return `Group ${n}`;
   }, [treeGroups]);
 
-  // Poll for SDK sessions on mount
+  // Refresh sidebar session snapshots. The fixed 5s poll is existing behavior;
+  // focus/pageshow only adds a stale-gated one-shot for mobile/background restores.
   useEffect(() => {
     let active = true;
-    async function poll() {
-      try {
-        const list = await api.listSessions();
-        if (active) {
-          const store = useStore.getState();
-          store.setSdkSessions(list.map(stripSearchMetadata));
-          // Hydrate session names from server (server is source of truth for auto-generated names)
-          let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
-          for (const s of list) {
-            if (s.name) {
-              const currentStoreName = store.sessionNames.get(s.sessionId);
-              if (currentStoreName !== s.name) {
-                const hadRandomName = !!currentStoreName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentStoreName);
-                store.setSessionName(s.sessionId, s.name);
-                if (hadRandomName) {
-                  store.markRecentlyRenamed(s.sessionId);
-                }
-              }
+    let refreshInFlight: Promise<void> | null = null;
+    let lastRefreshStartedAt = 0;
+
+    function hydrateSessionList(list: SdkSessionInfo[]) {
+      const store = useStore.getState();
+      store.setSdkSessions(list.map(stripSearchMetadata));
+      // Hydrate session names from server (server is source of truth for auto-generated names)
+      let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
+      for (const s of list) {
+        if (s.name) {
+          const currentStoreName = store.sessionNames.get(s.sessionId);
+          if (currentStoreName !== s.name) {
+            const hadRandomName = !!currentStoreName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentStoreName);
+            store.setSessionName(s.sessionId, s.name);
+            if (hadRandomName) {
+              store.markRecentlyRenamed(s.sessionId);
             }
-            if (!s.isOrchestrator && questOwnsSessionName(s.claimedQuestStatus ?? undefined)) {
-              store.markQuestNamed(s.sessionId);
-            } else {
-              store.clearQuestNamed(s.sessionId);
-            }
-            // Hydrate last message preview from server (only if client doesn't have one yet)
-            if (s.lastMessagePreview && !store.sessionPreviews.has(s.sessionId)) {
-              store.setSessionPreview(s.sessionId, s.lastMessagePreview);
-            }
-            // Hydrate task history and keywords from server for search
-            const nextTaskHistory = s.taskHistory ?? [];
-            const currentTaskHistory = store.sessionTaskHistory.get(s.sessionId);
-            if (!sessionTaskHistoryEqual(currentTaskHistory, nextTaskHistory)) {
-              store.setSessionTaskHistory(s.sessionId, nextTaskHistory);
-            }
-            const nextKeywords = s.keywords ?? [];
-            const currentKeywords = store.sessionKeywords.get(s.sessionId);
-            if (!stringArrayEqual(currentKeywords, nextKeywords)) {
-              store.setSessionKeywords(s.sessionId, nextKeywords);
-            }
-            // Batch server-authoritative attention state changes
-            if (s.attentionReason !== undefined) {
-              const currentAttention = store.sessionAttention.get(s.sessionId);
-              if (currentAttention !== s.attentionReason) {
-                // Suppress attention for the session the user is currently viewing
-                if (store.currentSessionId === s.sessionId && s.attentionReason) {
-                  api.markSessionRead(s.sessionId).catch(() => {});
-                } else {
-                  if (!batchedAttention) batchedAttention = new Map(store.sessionAttention);
-                  batchedAttention.set(s.sessionId, s.attentionReason ?? null);
-                }
-              }
-            }
-          }
-          if (batchedAttention) {
-            useStore.setState({ sessionAttention: batchedAttention });
           }
         }
-      } catch (e) {
-        console.warn("[sidebar] session poll failed:", e);
+        if (!s.isOrchestrator && questOwnsSessionName(s.claimedQuestStatus ?? undefined)) {
+          store.markQuestNamed(s.sessionId);
+        } else {
+          store.clearQuestNamed(s.sessionId);
+        }
+        // Hydrate last message preview from server (only if client doesn't have one yet)
+        if (s.lastMessagePreview && !store.sessionPreviews.has(s.sessionId)) {
+          store.setSessionPreview(s.sessionId, s.lastMessagePreview);
+        }
+        // Hydrate task history and keywords from server for search
+        const nextTaskHistory = s.taskHistory ?? [];
+        const currentTaskHistory = store.sessionTaskHistory.get(s.sessionId);
+        if (!sessionTaskHistoryEqual(currentTaskHistory, nextTaskHistory)) {
+          store.setSessionTaskHistory(s.sessionId, nextTaskHistory);
+        }
+        const nextKeywords = s.keywords ?? [];
+        const currentKeywords = store.sessionKeywords.get(s.sessionId);
+        if (!stringArrayEqual(currentKeywords, nextKeywords)) {
+          store.setSessionKeywords(s.sessionId, nextKeywords);
+        }
+        // Batch server-authoritative attention state changes
+        if (s.attentionReason !== undefined) {
+          const currentAttention = store.sessionAttention.get(s.sessionId);
+          if (currentAttention !== s.attentionReason) {
+            // Suppress attention for the session the user is currently viewing
+            if (store.currentSessionId === s.sessionId && s.attentionReason) {
+              api.markSessionRead(s.sessionId).catch(() => {});
+            } else {
+              if (!batchedAttention) batchedAttention = new Map(store.sessionAttention);
+              batchedAttention.set(s.sessionId, s.attentionReason ?? null);
+            }
+          }
+        }
+      }
+      if (batchedAttention) {
+        useStore.setState({ sessionAttention: batchedAttention });
       }
     }
-    poll();
-    const interval = setInterval(poll, 5000);
+
+    function refreshSessionList(force: boolean) {
+      const now = Date.now();
+      if (!force && now - lastRefreshStartedAt < SIDEBAR_SESSION_STALE_REFRESH_MS) {
+        return refreshInFlight ?? Promise.resolve();
+      }
+      if (refreshInFlight) return refreshInFlight;
+      lastRefreshStartedAt = now;
+      refreshInFlight = (async () => {
+        try {
+          const list = await api.listSessions();
+          if (active) hydrateSessionList(list);
+        } catch (e) {
+          console.warn("[sidebar] session poll failed:", e);
+        } finally {
+          refreshInFlight = null;
+        }
+      })();
+      return refreshInFlight;
+    }
+
+    function refreshIfVisibleAndStale() {
+      if (document.visibilityState === "hidden") return;
+      refreshSessionList(false);
+    }
+
+    refreshSessionList(true);
+    const interval = setInterval(() => refreshSessionList(true), SIDEBAR_SESSION_POLL_INTERVAL_MS);
+    window.addEventListener("focus", refreshIfVisibleAndStale);
+    window.addEventListener("pageshow", refreshIfVisibleAndStale);
+    document.addEventListener("visibilitychange", refreshIfVisibleAndStale);
     return () => {
       active = false;
       clearInterval(interval);
+      window.removeEventListener("focus", refreshIfVisibleAndStale);
+      window.removeEventListener("pageshow", refreshIfVisibleAndStale);
+      document.removeEventListener("visibilitychange", refreshIfVisibleAndStale);
     };
   }, []);
 

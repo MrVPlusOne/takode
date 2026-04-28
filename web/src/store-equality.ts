@@ -146,6 +146,8 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.cronJobId === b.cronJobId &&
     a.cronJobName === b.cronJobName &&
     a.pendingTimerCount === b.pendingTimerCount &&
+    a.notificationUrgency === b.notificationUrgency &&
+    a.activeNotificationCount === b.activeNotificationCount &&
     a.lastMessagePreview === b.lastMessagePreview &&
     a.cliConnected === b.cliConnected &&
     a.isWorktree === b.isWorktree &&

@@ -368,6 +368,44 @@ describe("Session management", () => {
     expect(state.sdkSessions[0]?.pendingTimerCount).toBe(1);
   });
 
+  it("setSdkSessions: updates sdkSessions when only notification summary changes", () => {
+    // Non-selected sidebar rows derive restored notification markers from the
+    // polled sdkSessions snapshot, so a summary-only change must trigger
+    // reconciliation even when the full notification inbox is not loaded.
+    useStore.getState().setCurrentSession("current");
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        cliConnected: true,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+      },
+    ]);
+    const previousRef = useStore.getState().sdkSessions;
+
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        cliConnected: true,
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+      },
+    ]);
+
+    const state = useStore.getState();
+    expect(state.sdkSessions).not.toBe(previousRef);
+    expect(state.sdkSessions[0]).toMatchObject({
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+    });
+  });
+
   it("setSessionTaskHistory: preserves the existing map when tasks are unchanged", () => {
     const tasks = [{ title: "Task", action: "new", timestamp: 1, triggerMessageId: "m1" }] as const;
     useStore.getState().setSessionTaskHistory("s1", [...tasks]);

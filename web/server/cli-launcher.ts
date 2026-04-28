@@ -199,6 +199,10 @@ export interface SdkSessionInfo {
   cronJobName?: string;
   /** Number of active timers currently waiting on this session. */
   pendingTimerCount?: number;
+  /** Highest active Takode notification urgency restored from the session inbox. */
+  notificationUrgency?: "needs-input" | "review" | null;
+  /** Number of unresolved Takode notifications for sidebar snapshots. */
+  activeNotificationCount?: number;
   /** Set by idle manager before killing — lets the UI show a less alarming indicator */
   killedByIdleManager?: boolean;
   /** Whether --resume has already been retried once after a fast exit */

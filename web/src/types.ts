@@ -221,6 +221,10 @@ export interface SdkSessionInfo {
   cronJobName?: string;
   /** Number of active timers currently waiting on this session. */
   pendingTimerCount?: number;
+  /** Highest active Takode notification urgency restored from the session inbox. */
+  notificationUrgency?: "needs-input" | "review" | null;
+  /** Number of unresolved Takode notifications for sidebar snapshots. */
+  activeNotificationCount?: number;
   /** Truncated preview of the last user message */
   lastMessagePreview?: string;
   /** Whether the CLI process is currently connected (from REST API) */

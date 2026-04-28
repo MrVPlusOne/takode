@@ -10,7 +10,7 @@ import * as gitUtils from "../git-utils.js";
 import * as sessionNames from "../session-names.js";
 import * as treeGroupStore from "../tree-group-store.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "../container-manager.js";
-import type { CreationStepId, TakodeSessionArchivedEventData } from "../session-types.js";
+import type { CreationStepId, SessionNotification, TakodeSessionArchivedEventData } from "../session-types.js";
 import { hasContainerClaudeAuth } from "../claude-container-auth.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
 import { getSettings, getClaudeUserDefaultModel, getServerId } from "../settings-manager.js";
@@ -51,6 +51,26 @@ import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
 import { createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
+
+type NotificationUrgency = "needs-input" | "review" | null;
+
+function summarizeActiveNotifications(
+  notifications: ReadonlyArray<Pick<SessionNotification, "category" | "done">> | undefined,
+): { notificationUrgency: NotificationUrgency; activeNotificationCount: number } {
+  let activeNotificationCount = 0;
+  let hasNeedsInput = false;
+  let hasReview = false;
+  for (const notification of notifications ?? []) {
+    if (notification.done) continue;
+    activeNotificationCount += 1;
+    if (notification.category === "needs-input") hasNeedsInput = true;
+    if (notification.category === "review") hasReview = true;
+  }
+  return {
+    notificationUrgency: hasNeedsInput ? "needs-input" : hasReview ? "review" : null,
+    activeNotificationCount,
+  };
+}
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -1125,6 +1145,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return Promise.all(
       pool.map(async (s) => {
         const pendingTimerCount = ctx.timerManager?.listTimers(s.sessionId).length ?? 0;
+        let notificationSummary: ReturnType<typeof summarizeActiveNotifications> = {
+          notificationUrgency: null,
+          activeNotificationCount: 0,
+        };
         try {
           if (s.worktreeCleanupStatus === "pending" && !pendingWorktreeCleanups.has(s.sessionId)) {
             launcher.setWorktreeCleanupState(s.sessionId, {
@@ -1138,6 +1162,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
           const { sessionAuthToken: _token, injectedSystemPrompt: _prompt, ...safeSession } = s;
           const bridgeSession = wsBridge.getSession(s.sessionId);
+          notificationSummary = summarizeActiveNotifications(bridgeSession?.notifications);
           if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
             await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
               broadcastUpdate: true,
@@ -1189,6 +1214,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
             claimedQuestId: bridge?.claimedQuestId ?? null,
             claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
             pendingTimerCount,
+            ...notificationSummary,
             ...(attention ?? {}),
             // Worktree liveness status for archived worktree sessions
             // Only check existence (one async access() call), skip expensive git status
@@ -1207,7 +1233,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           };
         } catch (e) {
           console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);
-          return { ...s, name: names[s.sessionId] ?? s.name, pendingTimerCount };
+          return { ...s, name: names[s.sessionId] ?? s.name, pendingTimerCount, ...notificationSummary };
         }
       }),
     );

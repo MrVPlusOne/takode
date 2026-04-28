@@ -6,7 +6,7 @@ import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
-import { getHighestNotificationUrgency } from "../utils/notification-urgency.js";
+import { getHighestNotificationUrgency, type NotificationUrgency } from "../utils/notification-urgency.js";
 
 type SearchMatchedField = "session_number" | "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message";
 
@@ -99,17 +99,26 @@ function timeAgo(epochMs: number): string {
 }
 
 /** Derives a notification marker from the session's notification inbox.
- *  needs-input (amber) takes precedence over review (blue). Only shows for unaddressed (not done) notifications. */
-function useNotificationUrgency(sessionId: string) {
+ *  Falls back to the lightweight /api/sessions summary before a session WebSocket is opened. */
+function useNotificationUrgency(sessionId: string, fallbackUrgency: NotificationUrgency = null) {
   return useStore((s) => {
     const notifications = s.sessionNotifications?.get(sessionId);
+    if (!notifications) return fallbackUrgency;
     const activeNotifications = notifications?.filter((n) => !n.done);
-    return getHighestNotificationUrgency(activeNotifications);
+    const liveUrgency = getHighestNotificationUrgency(activeNotifications);
+    if (liveUrgency) return liveUrgency;
+    return s.currentSessionId === sessionId ? null : fallbackUrgency;
   });
 }
 
-function NotificationMarker({ sessionId }: { sessionId: string }) {
-  const urgency = useNotificationUrgency(sessionId);
+function NotificationMarker({
+  sessionId,
+  fallbackUrgency,
+}: {
+  sessionId: string;
+  fallbackUrgency?: NotificationUrgency;
+}) {
+  const urgency = useNotificationUrgency(sessionId, fallbackUrgency);
 
   if (urgency === "needs-input") {
     return (
@@ -260,7 +269,7 @@ export function SessionItem({
   const reviewerAttention = useStore((st) =>
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
-  const inboxUrgency = useNotificationUrgency(s.id);
+  const inboxUrgency = useNotificationUrgency(s.id, s.notificationUrgency ?? null);
   const currentSessionId = useStore((st) => st.currentSessionId);
   const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
   const canSwipeToArchive = !archived && !reorderMode;
@@ -935,9 +944,10 @@ export function SessionItem({
       )}
 
       {/* Notification inbox markers (shown when no server attention, permission, or timer-status icon is active).
-          Derived from the per-session notification inbox -- surfaces unaddressed notifications
-          on sidebar chips so the user can see which sessions need attention at a glance. */}
-      {!archived && !attention && permCount === 0 && !showScheduledTimerIcon && <NotificationMarker sessionId={s.id} />}
+          Uses the live inbox when loaded, otherwise the lightweight /api/sessions snapshot for restored sessions. */}
+      {!archived && !attention && permCount === 0 && !showScheduledTimerIcon && (
+        <NotificationMarker sessionId={s.id} fallbackUrgency={s.notificationUrgency ?? null} />
+      )}
 
       {/* Action buttons */}
       {archived ? (

@@ -572,6 +572,8 @@ describe("GET /api/sessions", () => {
         claimedQuestId: null,
         claimedQuestStatus: null,
         pendingTimerCount: 0,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
       },
       {
         sessionId: "s2",
@@ -596,6 +598,8 @@ describe("GET /api/sessions", () => {
         claimedQuestId: null,
         claimedQuestStatus: null,
         pendingTimerCount: 0,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
       },
     ]);
   });
@@ -616,6 +620,40 @@ describe("GET /api/sessions", () => {
     const json = await res.json();
     expect(json[0]).toMatchObject({ sessionId: "s1", pendingTimerCount: 0 });
     expect(json[1]).toMatchObject({ sessionId: "s2", pendingTimerCount: 1 });
+  });
+
+  it("includes lightweight active notification summaries in regular session snapshots", async () => {
+    // Sidebar rows for non-selected sessions cannot rely on per-session
+    // WebSockets after a server restart, so /api/sessions carries only the
+    // urgency and count needed to restore notification markers.
+    launcher.listSessions.mockReturnValue([{ sessionId: "s1", state: "connected", cwd: "/a" }]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+    bridge._sessions.s1 = {
+      id: "s1",
+      state: {},
+      messageHistory: [],
+      notifications: [
+        { id: "n1", category: "review", timestamp: 1000, messageId: null, done: false },
+        { id: "n2", category: "needs-input", timestamp: 2000, messageId: null, done: true },
+        { id: "n3", category: "needs-input", timestamp: 3000, messageId: null, done: false },
+      ],
+      pendingPermissions: new Map(),
+      taskHistory: [],
+      keywords: [],
+      lastReadAt: 0,
+      attentionReason: null,
+      isGenerating: false,
+    };
+
+    const res = await app.request("/api/sessions", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json[0]).toMatchObject({
+      sessionId: "s1",
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 2,
+    });
   });
 
   it("preserves pendingTimerCount when regular session enrichment falls back after an error", async () => {

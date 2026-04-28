@@ -111,6 +111,8 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
         repoRoot: bridgeState?.repo_root || sdkInfo?.repoRoot || "",
         permCount: countUserPermissions(pendingPermissions.get(id)),
         pendingTimerCount: sdkInfo?.pendingTimerCount ?? 0,
+        notificationUrgency: sdkInfo?.notificationUrgency ?? null,
+        activeNotificationCount: sdkInfo?.activeNotificationCount ?? 0,
         cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
         cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
         isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,

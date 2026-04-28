@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import type { SessionState, SdkSessionInfo } from "../types.js";
+import type { SessionNotification, SessionState, SdkSessionInfo } from "../types.js";
 
 // ─── Mock setup ──────────────────────────────────────────────────────────────
 
@@ -85,6 +85,7 @@ interface MockStoreState {
   sessionTaskPreview: Map<string, string>;
   sessionTaskHistory: Map<string, Array<{ title: string; action: string; timestamp: number }>>;
   sessionKeywords: Map<string, string[]>;
+  sessionNotifications: Map<string, SessionNotification[]>;
   recentlyRenamed: Set<string>;
   questNamedSessions: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
@@ -189,6 +190,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionTaskPreview: new Map(),
     sessionTaskHistory: new Map(),
     sessionKeywords: new Map(),
+    sessionNotifications: new Map(),
     recentlyRenamed: new Set(),
     questNamedSessions: new Set(),
     pendingPermissions: new Map(),
@@ -309,6 +311,84 @@ describe("Sidebar", { timeout: 10000 }, () => {
       expect(mockState.setSdkSessions).toHaveBeenCalledWith(listed);
     });
     expect(mockConnectAllSessions).not.toHaveBeenCalled();
+  });
+
+  it("hydrates notification markers from the session-list snapshot without per-session sockets", async () => {
+    // Non-current sessions may not have a WebSocket after restart. The sidebar
+    // should still render restored notification state from /api/sessions.
+    const listed = [
+      makeSdkSession("s1", {
+        createdAt: 1000,
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+      }),
+    ];
+    mockState = createMockState({
+      sessionNotifications: new Map([["s1", []]]),
+      setSdkSessions: vi.fn((sessions: SdkSessionInfo[]) => {
+        mockState.sdkSessions = sessions;
+      }),
+    });
+    mockApi.listSessions.mockResolvedValueOnce(listed);
+
+    const { rerender } = render(<Sidebar />);
+
+    await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledWith(listed));
+    rerender(<Sidebar />);
+
+    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "needs-input");
+    expect(mockConnectSession).not.toHaveBeenCalled();
+    expect(mockConnectAllSessions).not.toHaveBeenCalled();
+  });
+
+  it("focus refresh is stale-gated to avoid extra foreground churn", async () => {
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    mockApi.listSessions.mockResolvedValue([makeSdkSession("s1")]);
+
+    try {
+      render(<Sidebar />);
+
+      await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledTimes(1));
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      expect(mockApi.listSessions).toHaveBeenCalledTimes(1);
+
+      dateNow.mockReturnValue(1_000 + 3 * 60_000 + 1);
+      window.dispatchEvent(new Event("focus"));
+
+      await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledTimes(2));
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it("dedupes stale focus and pageshow refreshes while a session-list request is in flight", async () => {
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    mockApi.listSessions.mockResolvedValueOnce([makeSdkSession("s1")]);
+    let resolveSecond: (sessions: SdkSessionInfo[]) => void = () => {};
+    const secondRequest = new Promise<SdkSessionInfo[]>((resolve) => {
+      resolveSecond = resolve;
+    });
+
+    try {
+      render(<Sidebar />);
+
+      await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledTimes(1));
+      mockApi.listSessions.mockReturnValueOnce(secondRequest);
+      dateNow.mockReturnValue(1_000 + 3 * 60_000 + 1);
+      window.dispatchEvent(new Event("focus"));
+      await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledTimes(2));
+
+      dateNow.mockReturnValue(1_000 + 6 * 60_000 + 2);
+      window.dispatchEvent(new Event("pageshow"));
+      await Promise.resolve();
+      expect(mockApi.listSessions).toHaveBeenCalledTimes(2);
+
+      resolveSecond([makeSdkSession("s2")]);
+      await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledTimes(2));
+    } finally {
+      dateNow.mockRestore();
+    }
   });
 
   it("polling strips search metadata from sdkSessions and skips unchanged task/keyword hydration", async () => {

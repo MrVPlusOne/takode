@@ -19,6 +19,8 @@ export interface SidebarSessionItem {
   repoRoot: string;
   permCount: number;
   pendingTimerCount?: number;
+  notificationUrgency?: "needs-input" | "review" | null;
+  activeNotificationCount?: number;
   cronJobId?: string;
   cronJobName?: string;
   isWorktree?: boolean;
