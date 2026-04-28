@@ -17,6 +17,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
+import { RelaunchQueue } from "./relaunch-queue.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
   advanceBoardRow as advanceBoardRowController,
@@ -899,6 +900,52 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(session.state.backend_state).toBe("recovering");
     expect(session.pendingCodexInputs.map((input: any) => input.content)).toContain("inject wake missing adapter");
     recoverySpy.mockRestore();
+  });
+
+  it("requests only one relaunch when injecting into an exited SDK session with no adapter", async () => {
+    // SDK missing-adapter routing already requests relaunch. The shared
+    // injectUserMessage fallback must not add a second request, because
+    // RelaunchQueue would preserve it as trailing work after cooldown.
+    vi.useFakeTimers();
+    try {
+      const sid = "s-inject-sdk-missing-adapter";
+      let finishRelaunch!: () => void;
+      const firstRelaunch = new Promise<void>((resolve) => {
+        finishRelaunch = resolve;
+      });
+      const runRelaunch = vi.fn(() => firstRelaunch);
+      const relaunchQueue = new RelaunchQueue(runRelaunch, 10);
+      const requestRelaunch = vi.fn((sessionId: string) => relaunchQueue.request(sessionId));
+      bridge.onCLIRelaunchNeededCallback(requestRelaunch);
+      bridge.setLauncher({
+        touchActivity: vi.fn(),
+        touchUserMessage: vi.fn(),
+        getSession: vi.fn(() => ({ backendType: "claude-sdk", state: "exited", killedByIdleManager: false })),
+      } as any);
+
+      const session = bridge.getOrCreateSession(sid);
+      session.backendType = "claude-sdk";
+      session.state.backend_type = "claude-sdk";
+      session.claudeSdkAdapter = null;
+
+      const delivery = bridge.injectUserMessage(sid, "startup continue for SDK session", {
+        sessionId: "system:restart-continuation:prep-1",
+      });
+
+      expect(delivery).toBe("queued");
+      expect(requestRelaunch).toHaveBeenCalledTimes(1);
+      expect(requestRelaunch).toHaveBeenCalledWith(sid);
+      expect(runRelaunch).toHaveBeenCalledTimes(1);
+      expect(session.pendingMessages).toHaveLength(1);
+
+      finishRelaunch();
+      await Promise.resolve();
+      await vi.advanceTimersByTimeAsync(11);
+
+      expect(runRelaunch).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("wakes idle-killed SDK session when browser sends user_message (adapter path)", async () => {

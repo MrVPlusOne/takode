@@ -42,6 +42,7 @@ export interface BrowserTransportSessionLike {
   pendingPermissions: Map<string, PermissionRequest>;
   pendingCodexInputs: PendingCodexInput[];
   pendingCodexTurns: CodexOutboundTurn[];
+  claudeSdkAdapter?: unknown | null;
   taskHistory: SessionTaskEntry[];
   eventBuffer: BufferedBrowserEvent[];
   lastReadAt: number;
@@ -423,6 +424,7 @@ export function injectUserMessage(
   }
 
   const backendLive = deps.backendConnected(session);
+  const sdkAdapterMissingBeforeRoute = session.backendType === "claude-sdk" && !session.claudeSdkAdapter;
   const pendingCodexCountBefore = session.pendingCodexInputs.length;
   const hadRouteInFlight = hasSessionRouteInFlight(session.id, deps);
   const browserMessage: BrowserOutgoingMessage = {
@@ -454,6 +456,12 @@ export function injectUserMessage(
       launcherInfo.state === "exited" &&
       session.state.backend_state !== "broken"
     ) {
+      // Claude SDK's missing-adapter route already queues the message and
+      // requests relaunch. The post-route fallback remains needed when an SDK
+      // adapter object exists but is disconnected and queues internally.
+      if (sdkAdapterMissingBeforeRoute) {
+        return "queued";
+      }
       if (launcherInfo.killedByIdleManager) {
         launcherInfo.killedByIdleManager = false;
         console.log(`[ws-bridge] Clearing idle-killed flag for session ${sessionTag(session.id)} (message inject)`);

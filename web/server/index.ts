@@ -45,6 +45,7 @@ import { SleepInhibitor } from "./sleep-inhibitor.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import { resumeRestartContinuations } from "./restart-continuation-store.js";
+import { runStartupRecovery } from "./startup-recovery.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -891,9 +892,25 @@ await ensureSkillSymlinks([
   "random-memory-ideas",
 ]);
 
-{
+const startupInjectedRelaunchSessionIds = new Set<string>();
+async function captureStartupInjectedRelaunches<T>(operation: () => Promise<T>): Promise<T> {
+  const original = wsBridge.onCLIRelaunchNeeded;
+  wsBridge.onCLIRelaunchNeeded = (sessionId) => {
+    startupInjectedRelaunchSessionIds.add(sessionId);
+    original?.(sessionId);
+  };
+  try {
+    return await operation();
+  } finally {
+    wsBridge.onCLIRelaunchNeeded = original;
+  }
+}
+
+const restartContinuationSessionIds: string[] = [];
+await captureStartupInjectedRelaunches(async () => {
   const resumed = await resumeRestartContinuations(sessionStore.directory, wsBridge);
   if (resumed.plan) {
+    restartContinuationSessionIds.push(...resumed.plan.sessions.map((session) => session.sessionId));
     serverLog.info("Resumed restart-interrupted sessions", {
       operationId: resumed.plan.operationId,
       sessions: resumed.plan.sessions.length,
@@ -903,7 +920,31 @@ await ensureSkillSymlinks([
       noSession: resumed.noSession,
     });
   }
-}
+});
+
+await captureStartupInjectedRelaunches(async () => {
+  const recovery = await runStartupRecovery({
+    listLauncherSessions: () => launcher.listSessions(),
+    getSession: (sessionId) => wsBridge.getSession(sessionId),
+    isBackendConnected: (sessionId) => wsBridge.isBackendConnected(sessionId),
+    requestCliRelaunch: (sessionId) => wsBridge.onCLIRelaunchNeeded?.(sessionId),
+    timerManager,
+    restartContinuationSessionIds,
+    alreadyRequestedRelaunchSessionIds: startupInjectedRelaunchSessionIds,
+    log: (message, data) => serverLog.info(message, data),
+  });
+  if (recovery.recovered.length > 0) {
+    serverLog.info("Startup recovery requested backend relaunch for server-owned work", {
+      sessions: recovery.recovered.map((session) => ({
+        sessionId: session.sessionId,
+        reasons: session.reasons,
+        requestedRelaunch: session.requestedRelaunch,
+        clearedIdleKilled: session.clearedIdleKilled,
+        skippedReason: session.skippedReason,
+      })),
+    });
+  }
+});
 
 // ── Idle session manager — enforce maxKeepAlive ─────────────────────────────
 const idleManager = new IdleManager(launcher, wsBridge, getSettings);
