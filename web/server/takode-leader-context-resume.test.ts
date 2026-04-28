@@ -106,7 +106,7 @@ function makeVerificationQuest(
     version: 1,
     title,
     description: `${title} description.`,
-    status: "needs_verification",
+    status: "done",
     sessionId: `session-${questId}`,
     claimedAt: 1_000,
     createdAt: 900,
@@ -865,7 +865,7 @@ describe("takode leader-context-resume", () => {
     expect(model.observed.reviewNotificationQuests.map((quest) => quest.questId)).toEqual(["q-924", "q-720"]);
     expect(model.observed.reviewNotificationQuests[1]).toMatchObject({
       questId: "q-720",
-      questStatus: "needs_verification",
+      questStatus: "done",
       verificationInboxUnread: true,
       verificationCheckedCount: 0,
       verificationTotalCount: 3,
@@ -875,22 +875,22 @@ describe("takode leader-context-resume", () => {
     expect(model.observed.reviewNotificationQuests[1]?.latestNotification.source?.messageIndex).toBe(0);
     expect(model.synthesized.reviewNotificationQuests[0]).toMatchObject({
       questId: "q-924",
-      statusSummary: "verification; unread inbox; verification 0/3; commits 2",
-      nextLeaderAction: "human verification inbox review",
+      statusSummary: "done; unread review inbox; verification 0/3; commits 2",
+      nextLeaderAction: "human review inbox triage",
       warnings: [],
     });
 
     const rendered = renderLeaderContextResumeText(model);
-    expect(rendered.indexOf("Review notifications / verification-ready quests")).toBeLessThan(
+    expect(rendered.indexOf("Review notifications / review-ready quests")).toBeLessThan(
       rendered.indexOf("Active quests: 0"),
     );
     expect(rendered).toContain("[q-924](quest:q-924) -- Render proposed and active Quest Journey UI from board data");
-    expect(rendered).toContain("- status: verification; unread inbox; verification 0/3; commits 2");
+    expect(rendered).toContain("- status: done; unread review inbox; verification 0/3; commits 2");
     expect(rendered).toContain("from [#1132 msg 1](session:1132:1)");
     expect(rendered).toContain(
       "- latest summary: #0 Summary: Render proposed and active Quest Journey UI from board data landed",
     );
-    expect(rendered).toContain("- next leader action: human verification inbox review");
+    expect(rendered).toContain("- next leader action: human review inbox triage");
     expect(rendered).toContain("Active quests: 0");
   });
 
@@ -939,7 +939,7 @@ describe("takode leader-context-resume", () => {
     });
 
     const rendered = renderLeaderContextResumeText(model);
-    expect(rendered).toContain("Review notifications / verification-ready quests: 2 quests from 1 notification");
+    expect(rendered).toContain("Review notifications / review-ready quests: 2 quests from 1 notification");
     expect(rendered).toContain("[q-1](quest:q-1) -- First aggregate quest");
     expect(rendered).toContain("[q-2](quest:q-2) -- Second aggregate quest");
     expect(rendered).not.toContain("Other unresolved same-session notifications");
@@ -963,7 +963,7 @@ describe("takode leader-context-resume", () => {
           {
             questId: "q-1",
             title: "First aggregate quest",
-            questStatus: "needs_verification",
+            questStatus: "done",
             verificationInboxUnread: true,
             verificationCheckedCount: 0,
             verificationTotalCount: 1,
@@ -986,8 +986,8 @@ describe("takode leader-context-resume", () => {
         reviewNotificationQuests: [
           {
             questId: "q-1",
-            statusSummary: "verification; unread inbox; verification 0/1; commits 1",
-            nextLeaderAction: "human verification inbox review",
+            statusSummary: "done; unread review inbox; verification 0/1; commits 1",
+            nextLeaderAction: "human review inbox triage",
             warnings: [],
           },
         ],
@@ -1051,7 +1051,7 @@ describe("takode leader-context-resume", () => {
 
     const rendered = renderLeaderContextResumeText(model);
     expect(model.observed.reviewNotificationQuests).toHaveLength(57);
-    expect(rendered).toContain("Review notifications / verification-ready quests: 57 quests from 57 notifications");
+    expect(rendered).toContain("Review notifications / review-ready quests: 57 quests from 57 notifications");
     expect(rendered).toContain("[q-924](quest:q-924) -- Render proposed and active Quest Journey UI from board data");
     expect(rendered).toContain("[q-720](quest:q-720) -- Add lightweight Journey scheduling data and phase notes");
     expect(rendered).toContain("omitted 49 older/lower-priority review quests");

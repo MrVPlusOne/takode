@@ -639,7 +639,7 @@ describe("Codex adapter result handling", () => {
             content: JSON.stringify({
               questId: "q-74",
               title: "Fix Codex quest lifecycle chips",
-              status: "needs_verification",
+              status: "done",
             }),
             is_error: false,
           },
@@ -668,7 +668,8 @@ describe("Codex adapter result handling", () => {
     expect(questEvents[1].quest).toEqual({
       id: "q-74",
       title: "Fix Codex quest lifecycle chips",
-      status: "needs_verification",
+      status: "done",
+      verificationInboxUnread: true,
     });
     expect(
       calls.find(
@@ -680,7 +681,7 @@ describe("Codex adapter result handling", () => {
     const session = bridge.getSession("s1")!;
     expect(session.state.claimedQuestId).toBe("q-74");
     expect(session.state.claimedQuestTitle).toBe("Fix Codex quest lifecycle chips");
-    expect(session.state.claimedQuestStatus).toBe("needs_verification");
+    expect(session.state.claimedQuestStatus).toBe("done");
   });
 
   it("preserves ordering for separate claim then done tool_results in one assistant message", async () => {
@@ -872,7 +873,7 @@ describe("Codex adapter result handling", () => {
             content: JSON.stringify({
               questId: "q-74",
               title: "Fix Codex quest lifecycle chips",
-              status: "needs_verification",
+              status: "done",
             }),
             is_error: false,
           },
@@ -901,13 +902,14 @@ describe("Codex adapter result handling", () => {
     expect(questEvents[1].quest).toEqual({
       id: "q-74",
       title: "Fix Codex quest lifecycle chips",
-      status: "needs_verification",
+      status: "done",
+      verificationInboxUnread: true,
     });
 
     const session = bridge.getSession("s1")!;
     expect(session.state.claimedQuestId).toBe("q-74");
     expect(session.state.claimedQuestTitle).toBe("Fix Codex quest lifecycle chips");
-    expect(session.state.claimedQuestStatus).toBe("needs_verification");
+    expect(session.state.claimedQuestStatus).toBe("done");
   });
 
   it("preserves ordering for claim then done across separate assistant messages", async () => {
@@ -1032,7 +1034,7 @@ describe("Codex adapter result handling", () => {
     expect(session.state.claimedQuestStatus).toBeUndefined();
   });
 
-  it("reconciles Codex quest complete command into needs_verification quest state", async () => {
+  it("reconciles Codex quest complete command into done quest state", async () => {
     const browser = makeBrowserSocket("s1");
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
@@ -1082,7 +1084,8 @@ describe("Codex adapter result handling", () => {
             content: JSON.stringify({
               questId: "q-74",
               title: "Fix Codex quest lifecycle chips",
-              status: "needs_verification",
+              status: "done",
+              verificationInboxUnread: true,
             }),
             is_error: false,
           },
@@ -1102,7 +1105,8 @@ describe("Codex adapter result handling", () => {
     expect(questEvents[0].quest).toEqual({
       id: "q-74",
       title: "Fix Codex quest lifecycle chips",
-      status: "needs_verification",
+      status: "done",
+      verificationInboxUnread: true,
     });
   });
 
@@ -1241,7 +1245,8 @@ describe("Codex adapter result handling", () => {
 }
 {
   "id": "q-74-v3",
-  "status": "needs_verification"
+  "status": "done",
+  "verificationInboxUnread": true
 }`,
             is_error: false,
           },
@@ -1261,7 +1266,8 @@ describe("Codex adapter result handling", () => {
     expect(questEvents[0].quest).toEqual({
       id: "q-74",
       title: "Fix Codex quest lifecycle chips",
-      status: "needs_verification",
+      status: "done",
+      verificationInboxUnread: true,
     });
     expect(calls.find((c: any) => c.type === "session_task_history")).toBeUndefined();
   });

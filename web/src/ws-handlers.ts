@@ -469,14 +469,14 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         data.session.claimedQuestId &&
         data.session.claimedQuestTitle &&
         !isOrchestrator &&
-        questOwnsSessionName(data.session.claimedQuestStatus)
+        questOwnsSessionName(data.session.claimedQuestStatus, data.session.claimedQuestVerificationInboxUnread)
       ) {
         store.setSessionName(sessionId, data.session.claimedQuestTitle);
         store.markQuestNamed(sessionId);
       } else if (
         data.session.claimedQuestId &&
         !isOrchestrator &&
-        questOwnsSessionName(data.session.claimedQuestStatus)
+        questOwnsSessionName(data.session.claimedQuestStatus, data.session.claimedQuestVerificationInboxUnread)
       ) {
         store.markQuestNamed(sessionId);
       } else {
@@ -1291,6 +1291,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       const claimedQuest = store.sessions.get(sessionId);
       const claimedQuestStatus = claimedQuest?.claimedQuestStatus;
       const claimedQuestTitle = claimedQuest?.claimedQuestTitle;
+      const claimedQuestVerificationInboxUnread = claimedQuest?.claimedQuestVerificationInboxUnread;
       console.log(
         `[ws] session_name_update for ${sessionId}: "${prevName}" → "${data.name}" source=${(data as Record<string, unknown>).source ?? "none"}`,
       );
@@ -1299,7 +1300,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       if (
         store.questNamedSessions.has(sessionId) &&
         data.source !== "quest" &&
-        questOwnsSessionName(claimedQuestStatus) &&
+        questOwnsSessionName(claimedQuestStatus, claimedQuestVerificationInboxUnread) &&
         (!claimedQuestTitle || data.name === claimedQuestTitle)
       ) {
         console.log(`[ws] Ignoring non-quest name update for quest-named session ${sessionId}`);
@@ -1312,7 +1313,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       // Track whether this name was set by a quest claim (for amber styling)
       if (
         data.source === "quest" ||
-        (questOwnsSessionName(claimedQuestStatus) && !!claimedQuestTitle && data.name === claimedQuestTitle)
+        (questOwnsSessionName(claimedQuestStatus, claimedQuestVerificationInboxUnread) &&
+          !!claimedQuestTitle &&
+          data.name === claimedQuestTitle)
       ) {
         store.markQuestNamed(sessionId);
       } else {
@@ -1396,11 +1399,17 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         claimedQuestId: data.quest?.id ?? undefined,
         claimedQuestTitle: data.quest?.title ?? undefined,
         claimedQuestStatus: data.quest?.status ?? undefined,
+        claimedQuestVerificationInboxUnread: data.quest?.verificationInboxUnread,
       });
       const isOrchestrator =
         store.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.isOrchestrator === true ||
         store.sessions.get(sessionId)?.isOrchestrator === true;
-      if (data.quest?.id && data.quest?.title && questOwnsSessionName(data.quest?.status) && !isOrchestrator) {
+      if (
+        data.quest?.id &&
+        data.quest?.title &&
+        questOwnsSessionName(data.quest?.status, data.quest?.verificationInboxUnread) &&
+        !isOrchestrator
+      ) {
         // Override session name with quest title and mark as quest-named
         // through review handoff so the checkbox prefix stays stable until
         // the quest claim is actually cleared.
@@ -1420,7 +1429,10 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           store.updateQuestTitleInMessages(sessionId, questId, data.quest.title);
           break;
         }
-        const isSubmitted = isStatusChange && data.quest.status === "needs_verification";
+        const isSubmitted =
+          isStatusChange &&
+          (data.quest.status === "needs_verification" ||
+            (data.quest.status === "done" && data.quest.verificationInboxUnread !== undefined));
         const variant = isSubmitted ? ("quest_submitted" as const) : ("quest_claimed" as const);
         const label = isSubmitted ? "Quest submitted" : "Quest claimed";
         // Only insert chat message for new claims or submission — skip redundant status updates
@@ -1461,7 +1473,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
                   quest: {
                     questId: questId,
                     title: data.quest!.title,
-                    status: data.quest!.status ?? (isSubmitted ? "needs_verification" : "in_progress"),
+                    status: data.quest!.status ?? (isSubmitted ? "done" : "in_progress"),
                   },
                 },
               });

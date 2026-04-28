@@ -812,6 +812,34 @@ describe("getQuest", () => {
       expect(q.previousOwnerSessionIds).toEqual(["sess-legacy"]);
     }
   });
+
+  it("normalizes legacy needs_verification records to done review metadata", async () => {
+    const legacy = {
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Legacy review",
+      createdAt: 100,
+      statusChangedAt: 300,
+      status: "needs_verification",
+      description: "Old review state",
+      sessionId: "sess-review",
+      claimedAt: 200,
+      verificationItems: [{ text: "verify legacy", checked: false }],
+      verificationInboxUnread: true,
+    };
+    await writeFile(join(questDir(), "q-1-v3.json"), JSON.stringify(legacy), "utf-8");
+
+    const q = await questStore.getQuest("q-1");
+    expect(q?.status).toBe("done");
+    if (q?.status === "done") {
+      expect(q.completedAt).toBe(300);
+      expect(q.verificationItems).toEqual([{ text: "verify legacy", checked: false }]);
+      expect(q.verificationInboxUnread).toBe(true);
+      expect(q.sessionId).toBeUndefined();
+      expect(q.previousOwnerSessionIds).toEqual(["sess-review"]);
+    }
+  });
 });
 
 describe("getQuestVersion", () => {
@@ -911,7 +939,7 @@ describe("getActiveQuestForSession", () => {
 // Forward transitions
 // ===========================================================================
 describe("forward transitions", () => {
-  it("idea → refined → in_progress → needs_verification → done", async () => {
+  it("idea → refined → in_progress → done review handoff → done closure", async () => {
     // Create idea
     const idea = await questStore.createQuest({ title: "Full lifecycle" });
     expect(idea.status).toBe("idea");
@@ -941,23 +969,25 @@ describe("forward transitions", () => {
       expect(inProgress.description).toBe("Full description"); // carried forward
     }
 
-    // → needs_verification
-    const needsVerification = await questStore.transitionQuest("q-1", {
-      status: "needs_verification",
+    // → done review handoff
+    const reviewHandoff = await questStore.transitionQuest("q-1", {
+      status: "done",
       verificationItems: [
         { text: "Check mobile", checked: false },
         { text: "Run e2e", checked: false },
       ],
+      verificationInboxUnread: true,
     });
-    expect(needsVerification?.status).toBe("needs_verification");
-    expect(needsVerification?.version).toBe(4);
-    if (needsVerification?.status === "needs_verification") {
-      expect(needsVerification.verificationItems).toHaveLength(2);
-      expect(needsVerification.sessionId).toBe("sess-1"); // carried forward
-      expect(needsVerification.verificationInboxUnread).toBe(true);
+    expect(reviewHandoff?.status).toBe("done");
+    expect(reviewHandoff?.version).toBe(4);
+    if (reviewHandoff?.status === "done") {
+      expect(reviewHandoff.verificationItems).toHaveLength(2);
+      expect(reviewHandoff.sessionId).toBeUndefined();
+      expect(reviewHandoff.previousOwnerSessionIds).toContain("sess-1");
+      expect(reviewHandoff.verificationInboxUnread).toBe(true);
     }
 
-    // → done
+    // → done closure after review metadata is cleared
     const done = await questStore.transitionQuest("q-1", { status: "done" });
     expect(done?.status).toBe("done");
     expect(done?.version).toBe(5);
@@ -989,8 +1019,8 @@ describe("forward transitions", () => {
 // Backward transitions (the linked-list feature)
 // ===========================================================================
 describe("backward transitions", () => {
-  it("needs_verification → in_progress creates a new version preserving history", async () => {
-    // Build up to needs_verification
+  it("done → in_progress creates a new version preserving history", async () => {
+    // Build up to done
     await questStore.createQuest({ title: "Rework test" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
@@ -1006,7 +1036,7 @@ describe("backward transitions", () => {
     });
 
     expect(rework?.status).toBe("in_progress");
-    expect(rework?.version).toBe(5); // v1=idea, v2=refined, v3=in_progress, v4=needs_verification, v5=rework
+    expect(rework?.version).toBe(5); // v1=idea, v2=refined, v3=in_progress, v4=done, v5=rework
     expect(rework?.prevId).toBe("q-1-v4");
     if (rework?.status === "in_progress") {
       expect(rework.sessionId).toBe("sess-2");
@@ -1020,7 +1050,7 @@ describe("backward transitions", () => {
       "idea",
       "refined",
       "in_progress",
-      "needs_verification",
+      "done",
       "in_progress", // rework
     ]);
   });
@@ -1218,7 +1248,7 @@ describe("claimQuest", () => {
 });
 
 describe("completeQuest", () => {
-  it("transitions to needs_verification with items", async () => {
+  it("transitions to done with items", async () => {
     await questStore.createQuest({ title: "Complete me" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
@@ -1231,8 +1261,8 @@ describe("completeQuest", () => {
       { text: "Check dark mode", checked: false },
     ]);
 
-    expect(completed?.status).toBe("needs_verification");
-    if (completed?.status === "needs_verification") {
+    expect(completed?.status).toBe("done");
+    if (completed?.status === "done") {
       expect(completed.verificationItems).toHaveLength(2);
       expect(completed.verificationInboxUnread).toBe(true);
     }
@@ -1250,7 +1280,7 @@ describe("completeQuest", () => {
       commitShas: ["BEEF1234", "beef1234", "deadbeefcafebabe"],
     });
 
-    expect(completed?.status).toBe("needs_verification");
+    expect(completed?.status).toBe("done");
     expect(completed?.commitShas).toEqual(["beef1234", "deadbeefcafebabe"]);
   });
 
@@ -1267,10 +1297,12 @@ describe("completeQuest", () => {
       sessionId: "worker-1",
     });
 
-    expect(completed?.status).toBe("needs_verification");
-    if (completed?.status === "needs_verification") {
-      expect(completed.sessionId).toBe("worker-1");
+    expect(completed?.status).toBe("done");
+    if (completed?.status === "done") {
+      expect(completed.sessionId).toBeUndefined();
+      expect(completed.previousOwnerSessionIds).toContain("worker-1");
       expect(completed.verificationItems).toEqual([{ text: "Verify handoff", checked: false }]);
+      expect(completed.verificationInboxUnread).toBe(true);
     }
   });
 });
@@ -1351,8 +1383,8 @@ describe("cancelQuest", () => {
     }
   });
 
-  it("cancels a needs_verification quest, carrying forward verificationItems", async () => {
-    // Build up to needs_verification
+  it("cancels a done quest, carrying forward verificationItems", async () => {
+    // Build up to done
     await questStore.createQuest({ title: "Cancel needs verification" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
@@ -1425,7 +1457,7 @@ describe("checkVerificationItem", () => {
     ]);
 
     const toggled = await questStore.checkVerificationItem("q-1", 0, true);
-    if (toggled?.status === "needs_verification") {
+    if (toggled?.status === "done") {
       expect(toggled.verificationItems[0].checked).toBe(true);
       expect(toggled.verificationItems[1].checked).toBe(false);
     }
@@ -1499,8 +1531,8 @@ describe("transition validation", () => {
     await expect(questStore.transitionQuest("q-1", { status: "in_progress" })).rejects.toThrow("sessionId is required");
   });
 
-  it("allows needs_verification with empty verificationItems (auto-pass)", async () => {
-    // When no --items are provided, the quest transitions to needs_verification
+  it("allows done with empty verificationItems (auto-pass)", async () => {
+    // When no --items are provided, the quest transitions to done
     // with an empty items array. quest done will auto-pass since there's nothing to verify.
     await questStore.createQuest({ title: "No items" });
     await questStore.transitionQuest("q-1", {
@@ -1508,10 +1540,10 @@ describe("transition validation", () => {
       description: "Ready",
     });
     await questStore.claimQuest("q-1", "sess-1");
-    const quest = await questStore.transitionQuest("q-1", { status: "needs_verification" });
+    const quest = await questStore.transitionQuest("q-1", { status: "done" });
     expect(quest).not.toBeNull();
-    expect(quest?.status).toBe("needs_verification");
-    if (quest?.status === "needs_verification") {
+    expect(quest?.status).toBe("done");
+    if (quest?.status === "done") {
       expect(quest.verificationItems).toEqual([]);
     }
   });
@@ -1529,7 +1561,7 @@ describe("transition validation", () => {
         sessionId: "sess-1",
         commitShas: ["abc1234"],
       }),
-    ).rejects.toThrow("commitShas can only be set when transitioning to needs_verification");
+    ).rejects.toThrow("commitShas can only be set when completing a quest");
   });
 
   it("preserves and appends commit SHAs on a re-submitted verification handoff", async () => {
@@ -1549,13 +1581,13 @@ describe("transition validation", () => {
     });
 
     const resubmitted = await questStore.transitionQuest("q-1", {
-      status: "needs_verification",
+      status: "done",
       sessionId: "sess-1",
       verificationItems: [{ text: "Verify v2", checked: false }],
       commitShas: ["DEADBEEF", "cafebabe"],
     });
 
-    expect(resubmitted?.status).toBe("needs_verification");
+    expect(resubmitted?.status).toBe("done");
     expect(resubmitted?.commitShas).toEqual(["abc1234", "deadbeef", "cafebabe"]);
   });
 
@@ -1580,12 +1612,12 @@ describe("transition validation", () => {
   });
 
   it("allows done transition with empty verification items (auto-pass)", async () => {
-    // When a quest reaches needs_verification with no items, quest done should
+    // When a quest reaches done with no items, quest done should
     // succeed immediately — there's nothing to verify.
     await questStore.createQuest({ title: "Auto-pass done" });
     await questStore.transitionQuest("q-1", { status: "refined", description: "Ready" });
     await questStore.claimQuest("q-1", "sess-1");
-    await questStore.transitionQuest("q-1", { status: "needs_verification" });
+    await questStore.transitionQuest("q-1", { status: "done" });
     const done = await questStore.markDone("q-1", { notes: "No items to verify" });
     expect(done).not.toBeNull();
     expect(done?.status).toBe("done");
@@ -1604,7 +1636,7 @@ describe("transition validation", () => {
 // Feedback thread
 // ===========================================================================
 describe("feedback", () => {
-  /** Helper: create a quest in needs_verification state */
+  /** Helper: create a quest in done state */
   async function setupVerificationQuest() {
     await questStore.createQuest({ title: "Feedback test" });
     await questStore.transitionQuest("q-1", { status: "refined", description: "Ready" });
@@ -1635,7 +1667,7 @@ describe("feedback", () => {
     expect((result as { feedback?: unknown[] }).feedback).toBeUndefined();
   });
 
-  it("carries forward feedback on needs_verification → in_progress transition", async () => {
+  it("carries forward feedback on done → in_progress transition", async () => {
     await setupVerificationQuest();
     const entry = { author: "human" as const, text: "Fix this", ts: Date.now() };
     await questStore.patchQuest("q-1", { feedback: [entry] });
@@ -1649,7 +1681,7 @@ describe("feedback", () => {
     expect(fb![0].text).toBe("Fix this");
   });
 
-  it("carries forward feedback on needs_verification → refined transition", async () => {
+  it("carries forward feedback on done → refined transition", async () => {
     await setupVerificationQuest();
     const entries = [
       { author: "human" as const, text: "Please reopen this for rework", ts: Date.now() },
@@ -1667,7 +1699,7 @@ describe("feedback", () => {
     expect(result?.feedback).toEqual(entries);
   });
 
-  it("carries forward feedback on in_progress → needs_verification transition", async () => {
+  it("carries forward feedback on in_progress → done transition", async () => {
     await setupVerificationQuest();
     const entry = { author: "human" as const, text: "Fix this", ts: Date.now() };
     await questStore.patchQuest("q-1", { feedback: [entry] });
@@ -1676,7 +1708,7 @@ describe("feedback", () => {
     await questStore.transitionQuest("q-1", { status: "in_progress", sessionId: "sess-1" });
     // Agent submits again with new verification items — feedback thread persists
     const result = await questStore.transitionQuest("q-1", {
-      status: "needs_verification",
+      status: "done",
       verificationItems: [{ text: "New check", checked: false }],
     });
     expect(result).not.toBeNull();
@@ -1749,8 +1781,8 @@ describe("feedback", () => {
     });
 
     const result = await questStore.getQuest("q-1");
-    expect(result?.status).toBe("needs_verification");
-    if (result?.status === "needs_verification") {
+    expect(result?.status).toBe("done");
+    if (result?.status === "done") {
       expect(result.verificationInboxUnread).toBe(true);
     }
   });
@@ -1768,8 +1800,8 @@ describe("feedback", () => {
     });
 
     const result = await questStore.getQuest("q-1");
-    expect(result?.status).toBe("needs_verification");
-    if (result?.status === "needs_verification") {
+    expect(result?.status).toBe("done");
+    if (result?.status === "done") {
       expect(result.verificationInboxUnread).toBe(true);
     }
   });
@@ -1785,8 +1817,8 @@ describe("feedback", () => {
     await questStore.patchQuest("q-1", { feedback: [] });
 
     const result = await questStore.getQuest("q-1");
-    expect(result?.status).toBe("needs_verification");
-    if (result?.status === "needs_verification") {
+    expect(result?.status).toBe("done");
+    if (result?.status === "done") {
       expect(result.verificationInboxUnread).toBe(true);
     }
   });
@@ -1804,8 +1836,8 @@ describe("feedback", () => {
     });
 
     const result = await questStore.getQuest("q-1");
-    expect(result?.status).toBe("needs_verification");
-    if (result?.status === "needs_verification") {
+    expect(result?.status).toBe("done");
+    if (result?.status === "done") {
       expect(result.verificationInboxUnread).toBeFalsy();
     }
   });
@@ -1821,12 +1853,12 @@ describe("verification inbox", () => {
     await questStore.completeQuest("q-1", [{ text: "Verify", checked: false }]);
 
     const before = await questStore.getQuest("q-1");
-    expect(before?.status).toBe("needs_verification");
-    if (before?.status === "needs_verification") {
+    expect(before?.status).toBe("done");
+    if (before?.status === "done") {
       expect(before.verificationInboxUnread).toBe(true);
       const readQuest = await questStore.markQuestVerificationRead("q-1");
-      expect(readQuest?.status).toBe("needs_verification");
-      if (readQuest?.status === "needs_verification") {
+      expect(readQuest?.status).toBe("done");
+      if (readQuest?.status === "done") {
         expect(readQuest.version).toBe(before.version);
         expect(readQuest.verificationInboxUnread).toBe(false);
       }
@@ -1843,12 +1875,12 @@ describe("verification inbox", () => {
     await questStore.markQuestVerificationRead("q-1");
 
     const before = await questStore.getQuest("q-1");
-    expect(before?.status).toBe("needs_verification");
-    if (before?.status === "needs_verification") {
+    expect(before?.status).toBe("done");
+    if (before?.status === "done") {
       expect(before.verificationInboxUnread).toBe(false);
       const inboxQuest = await questStore.markQuestVerificationInboxUnread("q-1");
-      expect(inboxQuest?.status).toBe("needs_verification");
-      if (inboxQuest?.status === "needs_verification") {
+      expect(inboxQuest?.status).toBe("done");
+      if (inboxQuest?.status === "done") {
         expect(inboxQuest.version).toBe(before.version);
         expect(inboxQuest.verificationInboxUnread).toBe(true);
       }

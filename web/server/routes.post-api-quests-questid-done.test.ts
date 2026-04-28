@@ -537,13 +537,13 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 describe("POST /api/quests/:questId/done", () => {
   it("clears claimed quest from the pre-transition active owner", async () => {
     ensureBridgeSession(bridge, "session-1", {
-      state: { claimedQuestId: "q-1", claimedQuestTitle: "Quest", claimedQuestStatus: "needs_verification" },
+      state: { claimedQuestId: "q-1", claimedQuestTitle: "Quest", claimedQuestStatus: "done" },
     });
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v2",
       questId: "q-1",
       title: "Quest",
-      status: "needs_verification",
+      status: "done",
       sessionId: "session-1",
       createdAt: Date.now(),
       claimedAt: Date.now(),

@@ -671,7 +671,7 @@ describe("quest CLI safer rich-text inputs", () => {
       if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
         seenBodies.push(await readJson(req));
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "needs_verification" }));
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "done" }));
         return;
       }
       if (req.method === "POST" && req.url === "/api/quests/_notify") {
@@ -731,7 +731,7 @@ describe("quest CLI safer rich-text inputs", () => {
       if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
         seenBodies.push(await readJson(req));
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "needs_verification" }));
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "done" }));
         return;
       }
       if (req.method === "POST" && req.url === "/api/quests/_notify") {
@@ -796,7 +796,7 @@ describe("quest CLI safer rich-text inputs", () => {
       if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
         seenBodies.push(await readJson(req));
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "needs_verification" }));
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "done" }));
         return;
       }
       if (req.method === "POST" && req.url === "/api/quests/_notify") {
@@ -976,7 +976,7 @@ describe("quest CLI auth fallback", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             feedback: [{ author: "agent", text: "Addressed" }],
           }),
         );
@@ -1198,7 +1198,7 @@ describe("quest CLI grep", () => {
           prevId: "q-2-v1",
           title: "Feedback quest",
           createdAt: 2,
-          status: "needs_verification",
+          status: "done",
           description:
             "Beta appears in the description too, and the surrounding text is intentionally long so the rendered snippet has to be compact and easy to scan in grouped output.",
           sessionId: "session-2",
@@ -1229,7 +1229,7 @@ describe("quest CLI grep", () => {
       expect(result.stdout).toContain('3 quest matches for "beta"');
       expect(result.stdout).toContain("q-1    Add beta search (refined)");
       expect(result.stdout).toContain("title");
-      expect(result.stdout).toContain("q-2    Feedback quest (verification)");
+      expect(result.stdout).toContain("q-2    Feedback quest (done)");
       expect(result.stdout).toContain("description");
       expect(result.stdout).toContain("feedback[0] | human |");
       expect(result.stdout).not.toContain("field:");
@@ -1253,7 +1253,7 @@ describe("quest CLI grep", () => {
           version: 1,
           title: "Context quest",
           createdAt: 3,
-          status: "needs_verification",
+          status: "done",
           description: "alpha in description",
           sessionId: "session-3",
           claimedAt: 3,
@@ -1360,7 +1360,7 @@ describe("quest CLI verification inbox commands", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationInboxUnread: false,
             verificationItems: [{ text: "check", checked: false }],
           }),
@@ -1424,7 +1424,7 @@ describe("quest CLI verification inbox commands", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationInboxUnread: true,
             verificationItems: [{ text: "check", checked: false }],
           }),
@@ -1487,7 +1487,7 @@ describe("quest CLI completion reminder", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationItems: [{ text: "Visual check", checked: false }],
           }),
         );
@@ -1557,7 +1557,7 @@ describe("quest CLI completion reminder", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationItems: [{ text: "Review artifact", checked: false }],
           }),
         );
@@ -1632,7 +1632,7 @@ describe("quest CLI completion reminder", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationItems: [{ text: "Visual check", checked: false }],
             commitShas: ["abc1234", "deadbeef"],
           }),
@@ -1696,7 +1696,7 @@ describe("quest CLI completion reminder", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             sessionId: "worker-1",
             verificationItems: [{ text: "Visual check", checked: false }],
           }),

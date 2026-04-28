@@ -71,7 +71,8 @@ function PlaygroundQuestStatusPanelDemo({ variant }: { variant: "claimed" | "boa
         ...baseSession,
         claimedQuestId: "q-941",
         claimedQuestTitle: "Implement first milestone of left-right orchestration UI",
-        claimedQuestStatus: "needs_verification",
+        claimedQuestStatus: "done",
+        claimedQuestVerificationInboxUnread: true,
       });
       sessions.set("playground-quest-status-board", {
         ...baseSession,
@@ -120,11 +121,12 @@ function PlaygroundQuestStatusPanelDemo({ variant }: { variant: "claimed" | "boa
           questId: "q-941",
           version: 3,
           title: "Implement first milestone of left-right orchestration UI",
-          status: "needs_verification",
+          status: "done",
           description: "Make quest/status facts visible in the right-side surface.",
           createdAt: Date.now() - 86400000,
-          sessionId: "playground-quest-status-claimed",
+          previousOwnerSessionIds: ["playground-quest-status-claimed"],
           claimedAt: Date.now() - 3600000,
+          completedAt: Date.now() - 600000,
           verificationInboxUnread: true,
           verificationItems: [
             { text: "Quest summary visible", checked: true },
@@ -1488,13 +1490,14 @@ export function PlaygroundInteractiveSections() {
                         questId: "q-42",
                         version: 3,
                         title: "Fix mobile sidebar overflow on small screens",
-                        status: "needs_verification" as const,
+                        status: "done" as const,
                         description:
                           "The sidebar overflows on screens narrower than 375px. Need to add `overflow-hidden` and a scrollable wrapper.\n\n## Steps\n1. Add wrapper div\n2. Set max-height\n3. Test on iPhone SE",
                         createdAt: Date.now() - 86400000,
                         updatedAt: Date.now() - 3600000,
-                        sessionId: "abc-123",
+                        previousOwnerSessionIds: ["abc-123"],
                         claimedAt: Date.now() - 43200000,
+                        completedAt: Date.now() - 3600000,
                         tags: ["ui", "mobile", "bug"],
                         verificationItems: [
                           { text: "Sidebar does not overflow on iPhone SE", checked: true },

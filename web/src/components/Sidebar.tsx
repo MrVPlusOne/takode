@@ -238,7 +238,10 @@ export function Sidebar() {
             }
           }
         }
-        if (!s.isOrchestrator && questOwnsSessionName(s.claimedQuestStatus ?? undefined)) {
+        if (
+          !s.isOrchestrator &&
+          questOwnsSessionName(s.claimedQuestStatus ?? undefined, s.claimedQuestVerificationInboxUnread)
+        ) {
           store.markQuestNamed(s.sessionId);
         } else {
           store.clearQuestNamed(s.sessionId);

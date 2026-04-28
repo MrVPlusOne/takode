@@ -141,20 +141,21 @@ describe("handleMessage: session_quest_claimed", () => {
     expect(state.questNamedSessions.has("s1")).toBe(true);
   });
 
-  it("keeps needs_verification quest titles quest-named for checked-box rendering", () => {
+  it("keeps review-pending done quest titles quest-named for checked-box rendering", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     useStore.getState().setSessionName("s1", "Worker Session");
 
     fireMessage({
       type: "session_quest_claimed",
-      quest: { id: "q-348", title: "Prevent leader auto-renames", status: "needs_verification" },
+      quest: { id: "q-348", title: "Prevent leader auto-renames", status: "done", verificationInboxUnread: true },
     });
 
     const state = useStore.getState();
     expect(state.sessionNames.get("s1")).toBe("Prevent leader auto-renames");
     expect(state.questNamedSessions.has("s1")).toBe(true);
-    expect(state.sessions.get("s1")?.claimedQuestStatus).toBe("needs_verification");
+    expect(state.sessions.get("s1")?.claimedQuestStatus).toBe("done");
+    expect(state.sessions.get("s1")?.claimedQuestVerificationInboxUnread).toBe(true);
   });
 
   it("does not rename or mark orchestrator sessions as quest-named", () => {

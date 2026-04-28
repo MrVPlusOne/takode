@@ -183,7 +183,7 @@ describe("TaskPanel", () => {
             backend_type: "codex",
             claimedQuestId: "q-42",
             claimedQuestTitle: "Fallback claimed title",
-            claimedQuestStatus: "needs_verification",
+            claimedQuestStatus: "done",
           },
         ],
         ["worker-1", { backend_type: "codex" }],
@@ -204,7 +204,7 @@ describe("TaskPanel", () => {
           questId: "q-42",
           version: 3,
           title: "Verify right panel quest status",
-          status: "needs_verification",
+          status: "done",
           description: "Show the accepted quest status facts.",
           createdAt: 1,
           sessionId: "worker-1",
@@ -228,7 +228,7 @@ describe("TaskPanel", () => {
     expect(screen.getByText("Selected session quest")).toBeInTheDocument();
     expect(screen.getByText("q-42")).toBeInTheDocument();
     expect(screen.getByText("Verify right panel quest status")).toBeInTheDocument();
-    expect(screen.getByText("Verification")).toBeInTheDocument();
+    expect(screen.getByText("Done")).toBeInTheDocument();
     expect(screen.getByText("Verify")).toBeInTheDocument();
     expect(screen.getByText("1/2")).toBeInTheDocument();
     expect(screen.getByText("unread")).toBeInTheDocument();

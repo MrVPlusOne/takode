@@ -31,6 +31,7 @@ export interface SessionViewModel {
   isOrchestrator?: boolean;
   herdedBy?: string;
   claimedQuestStatus?: string;
+  claimedQuestVerificationInboxUnread?: boolean;
   askPermission?: boolean;
 }
 
@@ -64,6 +65,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       messageHistoryBytes: session.message_history_bytes,
       codexRetainedPayloadBytes: session.codex_retained_payload_bytes,
       claimedQuestStatus: session.claimedQuestStatus,
+      claimedQuestVerificationInboxUnread: session.claimedQuestVerificationInboxUnread,
       askPermission: session.askPermission,
     };
   }
@@ -96,6 +98,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     isOrchestrator: session.isOrchestrator,
     herdedBy: session.herdedBy,
     claimedQuestStatus: undefined,
+    claimedQuestVerificationInboxUnread: undefined,
     askPermission: undefined,
   };
 }

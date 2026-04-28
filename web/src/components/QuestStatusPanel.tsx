@@ -2,6 +2,7 @@ import { useMemo } from "react";
 import { useStore } from "../store.js";
 import type { QuestFeedbackEntry, QuestmasterTask, QuestVerificationItem } from "../types.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
+import { isQuestUnderReview, isVerificationInboxUnread } from "../utils/quest-editor-helpers.js";
 import { formatWaitForRefLabel } from "../../shared/quest-journey.js";
 import { orderBoardRows, type BoardRowData } from "./BoardTable.js";
 import { QuestJourneyCompactSummary } from "./QuestJourneyTimeline.js";
@@ -50,10 +51,7 @@ function questCounts(quest?: QuestmasterTask): QuestCounts {
   const feedback = humanFeedback(quest);
   return {
     verification: verificationProgress(questVerificationItems(quest)),
-    inboxUnread:
-      quest?.status === "needs_verification" &&
-      "verificationInboxUnread" in quest &&
-      quest.verificationInboxUnread === true,
+    inboxUnread: quest ? isVerificationInboxUnread(quest) : false,
     unaddressedFeedback: feedback.filter((entry) => !entry.addressed).length,
     addressedFeedback: feedback.filter((entry) => entry.addressed).length,
     commits: quest?.commitShas?.length ?? 0,
@@ -77,7 +75,7 @@ function boardRowAttentionScore(row: BoardRowData, quest?: QuestmasterTask): num
   if ((row.waitForInput?.length ?? 0) > 0) return 0;
   if (counts.unaddressedFeedback > 0) return 1;
   if (counts.inboxUnread) return 2;
-  if (quest?.status === "needs_verification") return 3;
+  if (quest && isQuestUnderReview(quest)) return 3;
   if (hasReviewState(row)) return 4;
   if ((row.waitFor?.length ?? 0) > 0) return 5;
   if (!isProposedRow(row)) return 6;
@@ -165,10 +163,10 @@ function attentionLine(context: QuestStatusContext, counts: QuestCounts): string
     return `${counts.unaddressedFeedback} unaddressed human feedback`;
   }
   if (counts.inboxUnread) {
-    return "Verification inbox needs review";
+    return "Review inbox needs attention";
   }
-  if (context.quest?.status === "needs_verification") {
-    return "Needs verification";
+  if (context.quest && isQuestUnderReview(context.quest)) {
+    return "Under review";
   }
   if (hasReviewState(row)) {
     return `Review phase: ${row!.status}`;
@@ -285,7 +283,7 @@ export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
               <MetricPill
                 label="Verify"
                 value={`${counts.verification.checked}/${counts.verification.total}`}
-                tone={context.quest?.status === "needs_verification" ? "attention" : "muted"}
+                tone={context.quest && isQuestUnderReview(context.quest) ? "attention" : "muted"}
               />
             )}
             {counts.inboxUnread && <MetricPill label="Inbox" value="unread" tone="attention" />}

@@ -15,11 +15,11 @@ import type {
   QuestIdea,
   QuestRefined,
   QuestInProgress,
-  QuestNeedsVerification,
   QuestDone,
   QuestHistoryView,
   QuestStoreMigrationReport,
 } from "./quest-types.js";
+import { hasQuestReviewMetadata } from "./quest-types.js";
 import { getName } from "./session-names.js";
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -90,8 +90,45 @@ function getPreviousOwnerSessionIds(quest: QuestmasterTask): string[] {
   return [...unique];
 }
 
+type LegacyQuestRecord = Omit<QuestmasterTask, "status"> & {
+  status: import("./quest-types.js").LegacyQuestStatus;
+  completedAt?: number;
+  verificationItems?: QuestVerificationItem[];
+  verificationInboxUnread?: boolean;
+  sessionId?: string;
+  claimedAt?: number;
+};
+
+function normalizeLegacyNeedsVerificationQuest(quest: LegacyQuestRecord): QuestmasterTask {
+  if (quest.status !== "needs_verification") return quest as QuestmasterTask;
+
+  const previousOwners = getPreviousOwnerSessionIds(quest as QuestmasterTask);
+  const active = getActiveSessionId(quest as QuestmasterTask);
+  if (active && !previousOwners.includes(active)) previousOwners.push(active);
+
+  const updatedAt = (quest as { updatedAt?: number }).updatedAt;
+  const completedAt =
+    typeof quest.completedAt === "number" && quest.completedAt > 0
+      ? quest.completedAt
+      : (quest.statusChangedAt ?? updatedAt ?? quest.createdAt);
+
+  const normalized: QuestDone = {
+    ...(quest as Omit<LegacyQuestRecord, "status">),
+    status: "done",
+    description: typeof quest.description === "string" ? quest.description : "",
+    completedAt,
+    verificationItems: Array.isArray(quest.verificationItems) ? quest.verificationItems : [],
+    verificationInboxUnread: typeof quest.verificationInboxUnread === "boolean" ? quest.verificationInboxUnread : false,
+    ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
+  };
+  return normalized;
+}
+
 function normalizeQuestOwnership(quest: QuestmasterTask): QuestmasterTask {
-  const normalized = { ...quest } as QuestmasterTask & { previousOwnerSessionIds?: string[]; sessionId?: string };
+  const normalized = { ...normalizeLegacyNeedsVerificationQuest(quest as LegacyQuestRecord) } as QuestmasterTask & {
+    previousOwnerSessionIds?: string[];
+    sessionId?: string;
+  };
   const previous = getPreviousOwnerSessionIds(normalized);
   const active = getActiveSessionId(normalized);
 
@@ -119,7 +156,7 @@ function shouldMarkVerificationInboxUnreadFromFeedbackPatch(
   current: QuestmasterTask,
   nextFeedback: QuestFeedbackEntry[] | undefined,
 ): boolean {
-  if (current.status !== "needs_verification") return false;
+  if (!hasQuestReviewMetadata(current)) return false;
   const previous = current.feedback ?? [];
   if (previous.length === 0 && (!nextFeedback || nextFeedback.length === 0)) return false;
 
@@ -1412,7 +1449,8 @@ function buildTransitionedQuest(
     !input.verificationItems &&
     !input.commitShas &&
     !input.notes &&
-    !input.cancelled
+    !input.cancelled &&
+    !(targetStatus === "done" && hasQuestReviewMetadata(current))
   ) {
     return current;
   }
@@ -1437,8 +1475,8 @@ function buildTransitionedQuest(
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
     ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
   };
-  if (input.commitShas !== undefined && targetStatus !== "needs_verification") {
-    throw new Error("commitShas can only be set when transitioning to needs_verification");
+  if (input.commitShas !== undefined && targetStatus !== "done") {
+    throw new Error("commitShas can only be set when completing a quest");
   }
   const inputCommitShas =
     input.commitShas && input.commitShas.length > 0 ? normalizeCommitShas(input.commitShas) : undefined;
@@ -1502,54 +1540,18 @@ function buildTransitionedQuest(
       } as QuestInProgress;
       break;
     }
-    case "needs_verification": {
-      const description = input.description ?? ("description" in current ? current.description : undefined);
-      if (!description?.trim()) {
-        throw new Error("Description is required for needs_verification status");
-      }
-      const sessionId =
-        input.sessionId ?? ("sessionId" in current ? (current as QuestInProgress).sessionId : undefined);
-      if (!sessionId) {
-        throw new Error("sessionId is required for needs_verification status");
-      }
-      if (
-        currentActiveSessionId &&
-        currentActiveSessionId !== sessionId &&
-        !previousOwners.includes(currentActiveSessionId)
-      ) {
-        previousOwners.push(currentActiveSessionId);
-      }
-      const nextPreviousOwners = previousOwners.filter((sid) => sid !== sessionId);
-      const rawItems =
-        input.verificationItems ??
-        ("verificationItems" in current ? (current as QuestNeedsVerification).verificationItems : undefined);
-      const verificationItems = rawItems && rawItems.length > 0 ? normalizeVerificationItems(rawItems) : [];
-      quest = {
-        ...base,
-        status: "needs_verification",
-        description,
-        sessionId,
-        claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,
-        verificationItems,
-        verificationInboxUnread: true,
-        ...(nextPreviousOwners.length ? { previousOwnerSessionIds: nextPreviousOwners } : {}),
-        ...(inputCommitShas?.length
-          ? { commitShas: normalizeCommitShas([...(current.commitShas ?? []), ...inputCommitShas]) }
-          : {}),
-      } as QuestNeedsVerification;
-      break;
-    }
     case "done": {
       const description = input.description ?? ("description" in current ? current.description : undefined);
       if (!description?.trim()) {
         throw new Error("Description is required for done status");
       }
-      if (currentActiveSessionId && !previousOwners.includes(currentActiveSessionId)) {
-        previousOwners.push(currentActiveSessionId);
+      const completedOwnerSessionId = currentActiveSessionId ?? input.sessionId;
+      if (completedOwnerSessionId && !previousOwners.includes(completedOwnerSessionId)) {
+        previousOwners.push(completedOwnerSessionId);
       }
       const rawItems =
         input.verificationItems ??
-        ("verificationItems" in current ? (current as QuestNeedsVerification).verificationItems : undefined);
+        ("verificationItems" in current ? (current as QuestDone).verificationItems : undefined);
       const verificationItems = rawItems && rawItems.length > 0 ? normalizeVerificationItems(rawItems) : [];
       quest = {
         ...base,
@@ -1558,8 +1560,15 @@ function buildTransitionedQuest(
         claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,
         verificationItems,
         ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
-        ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
+        ...(inputCommitShas?.length
+          ? { commitShas: normalizeCommitShas([...(current.commitShas ?? []), ...inputCommitShas]) }
+          : current.commitShas?.length
+            ? { commitShas: current.commitShas }
+            : {}),
         completedAt: now,
+        ...(input.verificationInboxUnread !== undefined
+          ? { verificationInboxUnread: input.verificationInboxUnread }
+          : {}),
         ...(input.notes ? { notes: input.notes } : {}),
         ...(input.cancelled ? { cancelled: true } : {}),
       } as QuestDone;
@@ -1604,7 +1613,7 @@ function buildCancelledQuest(current: QuestmasterTask, notes: string | undefined
     status: "done",
     ...(description ? { description } : {}),
     claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,
-    verificationItems: "verificationItems" in current ? (current as QuestNeedsVerification).verificationItems : [],
+    verificationItems: "verificationItems" in current ? (current as QuestDone).verificationItems : [],
     completedAt: now,
     cancelled: true,
     ...(notes ? { notes } : {}),
@@ -1708,8 +1717,8 @@ export async function patchQuest(
         (updated as { feedback?: QuestFeedbackEntry[] }).feedback =
           patch.feedback.length > 0 ? patch.feedback : undefined;
       }
-      if (markVerificationInboxUnread && updated.status === "needs_verification") {
-        (updated as QuestNeedsVerification).verificationInboxUnread = true;
+      if (markVerificationInboxUnread && hasQuestReviewMetadata(updated)) {
+        (updated as QuestDone).verificationInboxUnread = true;
       }
 
       return { store: upsertLiveQuest(store, updated), result: normalizeLiveQuest(updated) };
@@ -1731,8 +1740,8 @@ export async function patchQuest(
   if (patch.feedback !== undefined) {
     (updated as { feedback?: QuestFeedbackEntry[] }).feedback = patch.feedback.length > 0 ? patch.feedback : undefined;
   }
-  if (markVerificationInboxUnread && updated.status === "needs_verification") {
-    (updated as QuestNeedsVerification).verificationInboxUnread = true;
+  if (markVerificationInboxUnread && hasQuestReviewMetadata(updated)) {
+    (updated as QuestDone).verificationInboxUnread = true;
   }
 
   await writeQuest(updated);
@@ -1857,15 +1866,16 @@ export async function claimQuest(
   });
 }
 
-/** Convenience: complete a quest (transition to needs_verification). */
+/** Convenience: complete a quest (mark done and enter the review inbox). */
 export async function completeQuest(
   questId: string,
   items: QuestVerificationItem[],
   opts?: { commitShas?: string[]; sessionId?: string },
 ): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
-    status: "needs_verification",
+    status: "done",
     verificationItems: items,
+    verificationInboxUnread: true,
     ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
     ...(opts?.commitShas?.length ? { commitShas: opts.commitShas } : {}),
   });
@@ -1920,7 +1930,7 @@ export async function checkVerificationItem(
         throw new Error("Quest does not have verification items");
       }
 
-      const items = [...(current as QuestNeedsVerification).verificationItems];
+      const items = [...(current as QuestDone).verificationItems];
       if (index < 0 || index >= items.length) {
         throw new Error(`Verification item index ${index} out of range`);
       }
@@ -1942,7 +1952,7 @@ export async function checkVerificationItem(
     throw new Error("Quest does not have verification items");
   }
 
-  const items = (current as QuestNeedsVerification).verificationItems;
+  const items = (current as QuestDone).verificationItems;
   if (index < 0 || index >= items.length) {
     throw new Error(`Verification item index ${index} out of range`);
   }
@@ -1953,18 +1963,18 @@ export async function checkVerificationItem(
   return current;
 }
 
-/** Mark a verification quest as read so it leaves the verification inbox. */
+/** Mark a review-pending quest as read so it leaves the review inbox. */
 export async function markQuestVerificationRead(questId: string): Promise<QuestmasterTask | null> {
   const liveStore = await readLiveQuestStore();
   if (liveStore) {
     return mutateLiveQuestStore(async (store) => {
       const current = getLiveQuestById(store, questId);
       if (!current) return { store, result: null };
-      if (current.status !== "needs_verification" || !current.verificationInboxUnread) {
+      if (!hasQuestReviewMetadata(current) || !current.verificationInboxUnread) {
         return { store, result: current };
       }
 
-      const updated: QuestNeedsVerification = {
+      const updated: QuestDone = {
         ...current,
         verificationInboxUnread: false,
         updatedAt: Date.now(),
@@ -1975,10 +1985,10 @@ export async function markQuestVerificationRead(questId: string): Promise<Questm
 
   const current = await getQuest(questId);
   if (!current) return null;
-  if (current.status !== "needs_verification") return current;
+  if (!hasQuestReviewMetadata(current)) return current;
   if (!current.verificationInboxUnread) return current;
 
-  const updated: QuestNeedsVerification = {
+  const updated: QuestDone = {
     ...current,
     verificationInboxUnread: false,
     updatedAt: Date.now(),
@@ -1987,18 +1997,18 @@ export async function markQuestVerificationRead(questId: string): Promise<Questm
   return updated;
 }
 
-/** Mark a verification quest as unread so it returns to the verification inbox. */
+/** Mark a review-pending quest as unread so it returns to the review inbox. */
 export async function markQuestVerificationInboxUnread(questId: string): Promise<QuestmasterTask | null> {
   const liveStore = await readLiveQuestStore();
   if (liveStore) {
     return mutateLiveQuestStore(async (store) => {
       const current = getLiveQuestById(store, questId);
       if (!current) return { store, result: null };
-      if (current.status !== "needs_verification" || current.verificationInboxUnread) {
+      if (!hasQuestReviewMetadata(current) || current.verificationInboxUnread) {
         return { store, result: current };
       }
 
-      const updated: QuestNeedsVerification = {
+      const updated: QuestDone = {
         ...current,
         verificationInboxUnread: true,
         updatedAt: Date.now(),
@@ -2009,10 +2019,10 @@ export async function markQuestVerificationInboxUnread(questId: string): Promise
 
   const current = await getQuest(questId);
   if (!current) return null;
-  if (current.status !== "needs_verification") return current;
+  if (!hasQuestReviewMetadata(current)) return current;
   if (current.verificationInboxUnread) return current;
 
-  const updated: QuestNeedsVerification = {
+  const updated: QuestDone = {
     ...current,
     verificationInboxUnread: true,
     updatedAt: Date.now(),

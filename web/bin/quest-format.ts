@@ -1,4 +1,5 @@
 import type { QuestmasterTask } from "../server/quest-types.js";
+import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/quest-types.js";
 import type { SessionMetadata } from "./quest-session-metadata.js";
 export type { SessionMetadata } from "./quest-session-metadata.js";
 
@@ -14,7 +15,6 @@ const STATUS_ICONS: Record<string, string> = {
   idea: "○",
   refined: "●",
   in_progress: "◐",
-  needs_verification: "◑",
   done: "✓",
 };
 
@@ -22,7 +22,6 @@ const STATUS_LABELS: Record<string, string> = {
   idea: "idea",
   refined: "refined",
   in_progress: "in_progress",
-  needs_verification: "verification",
   done: "done",
 };
 
@@ -38,7 +37,7 @@ function timeAgo(ts: number): string {
 }
 
 function isVerificationInboxUnreadQuest(q: QuestmasterTask): boolean {
-  return q.status === "needs_verification" && !!(q as { verificationInboxUnread?: boolean }).verificationInboxUnread;
+  return isQuestReviewInboxUnread(q);
 }
 
 function questRecencyTs(q: QuestmasterTask): number {
@@ -85,7 +84,8 @@ export function formatQuestLine(
   })();
   const statusLabel = (() => {
     if (cancelled) return "cancelled";
-    if (isVerificationInboxUnreadQuest(q)) return "verification_inbox";
+    if (isVerificationInboxUnreadQuest(q)) return "review_inbox";
+    if (hasQuestReviewMetadata(q)) return "under_review";
     return STATUS_LABELS[q.status] ?? q.status;
   })();
   const pad = (s: string, len: number) => s.padEnd(len);
@@ -126,7 +126,7 @@ export function formatQuestDetail(
     const checked = items.filter((i) => i.checked).length;
     lines.push(`Verification: ${checked}/${items.length}`);
     lines.push(
-      `Inbox:        ${isVerificationInboxUnreadQuest(q) ? "unread (Verification Inbox)" : "acknowledged (Verification)"}`,
+      `Inbox:        ${hasQuestReviewMetadata(q) ? (isVerificationInboxUnreadQuest(q) ? "unread (Review Inbox)" : "acknowledged (under review)") : "n/a"}`,
     );
     for (let i = 0; i < items.length; i++) {
       lines.push(`  [${items[i].checked ? "x" : " "}] ${i}: ${items[i].text}`);

@@ -1345,11 +1345,12 @@ export const api = {
     get<{ sessions: CliSession[] }>(`/cli-sessions${backend ? `?backend=${backend}` : ""}`),
 
   // Questmaster
-  listQuests: (filters?: { status?: string; parentId?: string; sessionId?: string }) => {
+  listQuests: (filters?: { status?: string; parentId?: string; sessionId?: string; verification?: string }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.set("status", filters.status);
     if (filters?.parentId) params.set("parentId", filters.parentId);
     if (filters?.sessionId) params.set("sessionId", filters.sessionId);
+    if (filters?.verification) params.set("verification", filters.verification);
     const qs = params.toString();
     return get<import("./types.js").QuestmasterTask[]>(`/quests${qs ? `?${qs}` : ""}`);
   },

@@ -93,10 +93,11 @@ function buildVerificationQuest(input: {
     version: 3,
     title: input.title,
     createdAt: Date.now(),
-    status: "needs_verification",
+    status: "done",
     description: "Needs review",
     sessionId: "session-1",
     claimedAt: Date.now(),
+    completedAt: Date.now(),
     verificationItems: [{ text: "Verify behavior", checked: false }],
     verificationInboxUnread: input.verificationInboxUnread,
     tags: ["ui", "questmaster"],
@@ -213,22 +214,22 @@ afterEach(() => {
   promptSpy.mockRestore();
 });
 
-describe("QuestmasterPage verification inbox", () => {
-  it("renders inbox quests separately from regular verification quests", () => {
+describe("QuestmasterPage review inbox", () => {
+  it("renders inbox quests separately from regular review quests", () => {
     // Inbox should be a distinct section so reviewers can triage fresh updates first.
     renderQuestmaster();
 
-    expect(screen.getByText("Verification Inbox")).toBeInTheDocument();
-    expect(screen.getByText(/^Verification$/)).toBeInTheDocument();
+    expect(screen.getByText("Review Inbox")).toBeInTheDocument();
+    expect(screen.getByText("Under Review")).toBeInTheDocument();
     expect(screen.getByText("Inbox quest")).toBeInTheDocument();
     expect(screen.getByText("Regular verification quest")).toBeInTheDocument();
   });
 
-  it("collapses and expands the verification inbox section", () => {
+  it("collapses and expands the review inbox section", () => {
     // Inbox should behave like other grouped sections and support collapse toggling.
     renderQuestmaster();
 
-    const inboxHeader = screen.getByText("Verification Inbox");
+    const inboxHeader = screen.getByText("Review Inbox");
     expect(screen.getByText("Inbox quest")).toBeInTheDocument();
 
     fireEvent.click(inboxHeader);
@@ -280,7 +281,7 @@ describe("QuestmasterPage verification inbox", () => {
     expect(screen.getAllByRole("columnheader", { name: "Owner" })).toHaveLength(1);
     expect(screen.getAllByRole("columnheader", { name: "Verify" })).toHaveLength(1);
     expect(screen.getAllByRole("table")).toHaveLength(1);
-    expect(screen.queryByText("Verification Inbox")).not.toBeVisible();
+    expect(screen.queryByText("Review Inbox")).not.toBeVisible();
     expect(screen.getByRole("button", { name: /q-1 Inbox quest/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /q-2 Regular verification quest/ })).toBeInTheDocument();
   });
@@ -465,7 +466,7 @@ describe("QuestmasterPage verification inbox", () => {
     // Compact view is flat: a previously-collapsed Cards group must not prevent overlay.
     renderQuestmaster();
 
-    fireEvent.click(screen.getByText("Verification Inbox"));
+    fireEvent.click(screen.getByText("Review Inbox"));
     expect(screen.queryByText("Inbox quest")).toBeNull();
 
     fireEvent.click(screen.getByRole("button", { name: "Compact" }));

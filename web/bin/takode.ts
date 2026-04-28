@@ -514,6 +514,7 @@ type TakodeSessionInfo = {
   claimedQuestId?: string | null;
   claimedQuestTitle?: string | null;
   claimedQuestStatus?: string | null;
+  claimedQuestVerificationInboxUnread?: boolean;
   pendingTimerCount?: number;
   uiMode?: string | null;
   attentionReason?: string | null;
@@ -1213,6 +1214,7 @@ async function handleList(base: string, args: string[]): Promise<void> {
     reviewerOf?: number;
     claimedQuestId?: string | null;
     claimedQuestStatus?: string | null;
+    claimedQuestVerificationInboxUnread?: boolean;
     pendingTimerCount?: number;
     taskHistory?: Array<{ title: string; timestamp: number }>;
   }>;
@@ -1377,6 +1379,7 @@ function printSessionLine(
     isWorktree?: boolean;
     claimedQuestId?: string | null;
     claimedQuestStatus?: string | null;
+    claimedQuestVerificationInboxUnread?: boolean;
     pendingTimerCount?: number;
   },
   opts?: {
@@ -1404,8 +1407,11 @@ function printSessionLine(
       : "";
 
   // Quest indicator: "📋 q-42 in_progress"
+  const questStatus = s.claimedQuestStatus
+    ? `${s.claimedQuestStatus}${s.claimedQuestVerificationInboxUnread !== undefined ? " review" : ""}`
+    : "";
   const quest = s.claimedQuestId
-    ? ` 📋 ${formatInlineText(s.claimedQuestId)}${s.claimedQuestStatus ? ` ${formatInlineText(s.claimedQuestStatus)}` : ""}`
+    ? ` 📋 ${formatInlineText(s.claimedQuestId)}${questStatus ? ` ${formatInlineText(questStatus)}` : ""}`
     : "";
   const timers = ` ⏰${s.pendingTimerCount ?? 0}`;
   let reviewerSummary = "";
@@ -1632,7 +1638,10 @@ function printSessionInfo(data: TakodeSessionInfo): void {
 
   // ── Quest ──
   if (data.claimedQuestId) {
-    const questLine = `${formatInlineText(data.claimedQuestId)}${data.claimedQuestStatus ? ` (${formatInlineText(data.claimedQuestStatus)})` : ""}`;
+    const questStatus = data.claimedQuestStatus
+      ? `${data.claimedQuestStatus}${data.claimedQuestVerificationInboxUnread !== undefined ? " review" : ""}`
+      : "";
+    const questLine = `${formatInlineText(data.claimedQuestId)}${questStatus ? ` (${formatInlineText(questStatus)})` : ""}`;
     console.log(`  Quest          ${questLine}`);
     if (data.claimedQuestTitle) console.log(`                 ${formatInlineText(data.claimedQuestTitle)}`);
   }

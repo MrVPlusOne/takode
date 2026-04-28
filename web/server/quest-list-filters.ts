@@ -1,4 +1,5 @@
 import type { QuestmasterTask } from "./quest-types.js";
+import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
 import { normalizeForSearch } from "../shared/search-utils.js";
 
 export interface QuestListFilterOptions {
@@ -19,18 +20,23 @@ function parseCsv(value: string | undefined): string[] {
 }
 
 export function applyQuestListFilters(quests: QuestmasterTask[], filters: QuestListFilterOptions): QuestmasterTask[] {
-  const statuses = new Set(parseCsv(filters.status));
+  const requestedStatuses = parseCsv(filters.status);
+  const statuses = new Set(requestedStatuses.filter((status) => status !== "needs_verification"));
+  const wantsReviewStatusAlias = requestedStatuses.includes("needs_verification");
   const tagTokens = new Set([...parseCsv(filters.tags), ...parseCsv(filters.tag)].map((tag) => tag.toLowerCase()));
   const verificationScopes = new Set(parseCsv(filters.verification).map((scope) => scope.toLowerCase()));
   const sessionId = filters.session?.trim() || "";
   const textQuery = normalizeForSearch(filters.text ?? "");
 
   return quests.filter((quest) => {
-    if (statuses.size > 0 && !statuses.has(quest.status)) return false;
+    if (statuses.size > 0 || wantsReviewStatusAlias) {
+      const statusMatches = statuses.has(quest.status) || (wantsReviewStatusAlias && hasQuestReviewMetadata(quest));
+      if (!statusMatches) return false;
+    }
 
     if (verificationScopes.size > 0) {
-      const isVerification = quest.status === "needs_verification";
-      const inInbox = isVerification && !!(quest as { verificationInboxUnread?: boolean }).verificationInboxUnread;
+      const isReview = hasQuestReviewMetadata(quest);
+      const inInbox = isQuestReviewInboxUnread(quest);
       const wantsAnyVerification =
         verificationScopes.has("all") ||
         verificationScopes.has("verification") ||
@@ -45,9 +51,9 @@ export function applyQuestListFilters(quests: QuestmasterTask[], filters: QuestL
         verificationScopes.has("acknowledged");
 
       let matchesVerificationScope = false;
-      if (wantsAnyVerification && isVerification) matchesVerificationScope = true;
+      if (wantsAnyVerification && isReview) matchesVerificationScope = true;
       if (wantsInbox && inInbox) matchesVerificationScope = true;
-      if (wantsReviewed && isVerification && !inInbox) matchesVerificationScope = true;
+      if (wantsReviewed && isReview && !inInbox) matchesVerificationScope = true;
       if (!matchesVerificationScope) return false;
     }
 
@@ -65,7 +71,8 @@ export function applyQuestListFilters(quests: QuestmasterTask[], filters: QuestL
 
     if (sessionId) {
       const owner = "sessionId" in quest ? (quest as { sessionId?: string }).sessionId : undefined;
-      if (owner !== sessionId) return false;
+      const previousOwners = Array.isArray(quest.previousOwnerSessionIds) ? quest.previousOwnerSessionIds : [];
+      if (owner !== sessionId && !previousOwners.includes(sessionId)) return false;
     }
 
     if (textQuery) {

@@ -47,7 +47,7 @@ describe("QuestClaimBlock", () => {
         quest={{
           questId: "q-75",
           title: "Image quest",
-          status: "needs_verification",
+          status: "done",
           images: [{ id: "img-1", filename: "preview.png", mimeType: "image/png", path: "/tmp/preview.png" }],
         }}
       />,

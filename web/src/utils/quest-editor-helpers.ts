@@ -67,8 +67,14 @@ export function findHashtagTokenAtCursor(
 
 /** Check whether a quest is an unread verification inbox item. */
 export function isVerificationInboxUnread(quest: QuestmasterTask): boolean {
+  return !!(quest as { verificationInboxUnread?: boolean }).verificationInboxUnread;
+}
+
+/** Check whether a completed quest is still in the human review workflow. */
+export function isQuestUnderReview(quest: QuestmasterTask): boolean {
   return (
-    quest.status === "needs_verification" && !!(quest as { verificationInboxUnread?: boolean }).verificationInboxUnread
+    quest.status === "done" &&
+    typeof (quest as { verificationInboxUnread?: boolean }).verificationInboxUnread === "boolean"
   );
 }
 

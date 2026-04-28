@@ -444,13 +444,15 @@ async function getClaimedQuestForNamer(sessionId: string): Promise<{ id: string;
 
 /** Check whether a quest owns the session name (suppresses auto-namer).
  *  Checks both the quest store (in_progress quests) AND the session's claimedQuestId
- *  (which persists through needs_verification until done/cancelled). */
+ *  (which persists through review handoff until final done/cancelled). */
 async function isQuestOwningSessionName(sessionId: string): Promise<boolean> {
   if (await getActiveQuestForSession(sessionId)) return true;
   const state = wsBridge.getSession(sessionId)?.state;
   return (
     !!state?.claimedQuestId &&
-    (state?.claimedQuestStatus === "in_progress" || state?.claimedQuestStatus === "needs_verification")
+    (state?.claimedQuestStatus === "in_progress" ||
+      state?.claimedQuestStatus === "needs_verification" ||
+      (state?.claimedQuestStatus === "done" && state.claimedQuestVerificationInboxUnread !== undefined))
   );
 }
 

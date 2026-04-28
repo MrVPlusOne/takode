@@ -20,6 +20,7 @@ function makeQuest(
           verificationItems: [{ text: "check", checked: false }],
         }
       : {}),
+    ...(input.status === "done" ? { completedAt: 2, verificationItems: [{ text: "check", checked: false }] } : {}),
     ...("sessionId" in input ? { sessionId: (input as { sessionId?: string }).sessionId, claimedAt: 1 } : {}),
   } as QuestmasterTask;
 }
@@ -44,13 +45,13 @@ describe("applyQuestListFilters", () => {
     makeQuest({
       questId: "q-4",
       title: "Submit worker fix",
-      status: "needs_verification",
+      status: "done",
       verificationInboxUnread: true,
     }),
     makeQuest({
       questId: "q-5",
       title: "Investigate backlog",
-      status: "needs_verification",
+      status: "done",
       verificationInboxUnread: false,
     }),
   ];
@@ -97,20 +98,26 @@ describe("applyQuestListFilters", () => {
   });
 
   it("filters verification inbox quests", () => {
-    // verification=inbox should include only needs_verification quests that are unread in the inbox.
+    // verification=inbox should include only done quests that are unread in the review inbox.
     const result = applyQuestListFilters(quests, { verification: "inbox" });
     expect(result.map((q) => q.questId)).toEqual(["q-4"]);
   });
 
   it("filters acknowledged verification quests", () => {
-    // verification=reviewed should include only needs_verification quests that were acknowledged (not in inbox).
+    // verification=reviewed should include only done review quests that were acknowledged (not in inbox).
     const result = applyQuestListFilters(quests, { verification: "reviewed" });
     expect(result.map((q) => q.questId)).toEqual(["q-5"]);
   });
 
-  it("supports verification=all as all needs_verification quests", () => {
+  it("supports verification=all as all review-pending done quests", () => {
     // verification=all is useful for quickly narrowing to all verification items regardless of inbox bucket.
     const result = applyQuestListFilters(quests, { verification: "all" });
+    expect(result.map((q) => q.questId)).toEqual(["q-4", "q-5"]);
+  });
+
+  it("keeps --status needs_verification as a deprecated review-filter alias", () => {
+    // Compatibility callers should still find done quests that remain in the review workflow.
+    const result = applyQuestListFilters(quests, { status: "needs_verification" });
     expect(result.map((q) => q.questId)).toEqual(["q-4", "q-5"]);
   });
 });

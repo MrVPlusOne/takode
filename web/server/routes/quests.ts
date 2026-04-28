@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
+import { hasQuestReviewMetadata } from "../quest-types.js";
+import { applyQuestListFilters } from "../quest-list-filters.js";
 import { SERVER_GIT_CMD } from "../constants.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -73,7 +75,10 @@ export function createQuestRoutes(ctx: RouteContext) {
   const api = new Hono();
   const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional, execCaptureStdoutAsync } = ctx;
 
-  const setClaimedQuest = (sessionId: string, quest: { id: string; title: string; status?: string } | null) => {
+  const setClaimedQuest = (
+    sessionId: string,
+    quest: { id: string; title: string; status?: string; verificationInboxUnread?: boolean } | null,
+  ) => {
     const session = wsBridge.getSession(sessionId);
     if (!session) return;
     setSessionClaimedQuestController(session, quest, {
@@ -140,6 +145,10 @@ export function createQuestRoutes(ctx: RouteContext) {
     const current = await questStore.getQuest(questId);
     const currentSessionId =
       current && "sessionId" in current && typeof current.sessionId === "string" ? current.sessionId : null;
+    const currentReviewOwnerSessionId =
+      current && hasQuestReviewMetadata(current)
+        ? (current.previousOwnerSessionIds?.[current.previousOwnerSessionIds.length - 1] ?? null)
+        : null;
     const quest = await questStore.transitionQuest(questId, input);
     if (!quest) return null;
 
@@ -147,12 +156,25 @@ export function createQuestRoutes(ctx: RouteContext) {
     if (currentSessionId && currentSessionId !== nextSessionId) {
       setClaimedQuest(currentSessionId, null);
     }
+    if (currentReviewOwnerSessionId && !hasQuestReviewMetadata(quest)) {
+      setClaimedQuest(currentReviewOwnerSessionId, null);
+    }
     if (nextSessionId) {
       setClaimedQuest(nextSessionId, {
         id: quest.questId,
         title: quest.title,
         status: quest.status,
       });
+    } else if (hasQuestReviewMetadata(quest)) {
+      const reviewOwner = quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1];
+      if (reviewOwner) {
+        setClaimedQuest(reviewOwner, {
+          id: quest.questId,
+          title: quest.title,
+          status: quest.status,
+          verificationInboxUnread: quest.verificationInboxUnread,
+        });
+      }
     }
 
     broadcastQuestUpdate(wsBridge);
@@ -160,14 +182,22 @@ export function createQuestRoutes(ctx: RouteContext) {
   };
 
   api.get("/quests", async (c) => {
-    const statusFilter = c.req.query("status")?.split(",") as import("../quest-types.js").QuestStatus[] | undefined;
     const parentId = c.req.query("parentId");
     const sessionId = c.req.query("sessionId");
-    let quests = await questStore.listQuests();
-    if (statusFilter?.length) quests = quests.filter((q) => statusFilter.includes(q.status));
+    let quests = applyQuestListFilters(await questStore.listQuests(), {
+      status: c.req.query("status"),
+      verification: c.req.query("verification"),
+      tags: c.req.query("tags"),
+      tag: c.req.query("tag"),
+      text: c.req.query("text"),
+    });
     if (parentId) quests = quests.filter((q) => q.parentId === parentId);
     if (sessionId)
-      quests = quests.filter((q) => "sessionId" in q && (q as { sessionId: string }).sessionId === sessionId);
+      quests = quests.filter((q) => {
+        const activeOwner = "sessionId" in q ? (q as { sessionId?: string }).sessionId : undefined;
+        const previousOwners = Array.isArray(q.previousOwnerSessionIds) ? q.previousOwnerSessionIds : [];
+        return activeOwner === sessionId || previousOwners.includes(sessionId);
+      });
     return c.json(quests);
   });
 
@@ -423,6 +453,11 @@ export function createQuestRoutes(ctx: RouteContext) {
           return c.json({ error: "Only leader sessions can complete a quest owned by another session" }, 403);
         }
       }
+      const currentQuest = await questStore.getQuest(c.req.param("questId"));
+      const currentOwnerSessionId =
+        currentQuest && "sessionId" in currentQuest && typeof currentQuest.sessionId === "string"
+          ? currentQuest.sessionId
+          : "";
       const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
       const quest = await questStore.completeQuest(c.req.param("questId"), items, {
         commitShas,
@@ -430,10 +465,19 @@ export function createQuestRoutes(ctx: RouteContext) {
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
-      // Update session's quest status so browsers can show "pending review" badge
-      if ("sessionId" in quest) {
-        const sid = (quest as { sessionId: string }).sessionId;
-        setClaimedQuest(sid, { id: quest.questId, title: quest.title, status: quest.status });
+      // Update session's quest status so browsers can show review-pending state.
+      const reviewOwnerSessionId =
+        targetSessionId ||
+        currentOwnerSessionId ||
+        quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1] ||
+        "";
+      if (reviewOwnerSessionId && hasQuestReviewMetadata(quest)) {
+        setClaimedQuest(reviewOwnerSessionId, {
+          id: quest.questId,
+          title: quest.title,
+          status: quest.status,
+          verificationInboxUnread: quest.verificationInboxUnread,
+        });
       }
       return c.json(quest);
     } catch (e: unknown) {
@@ -468,6 +512,10 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (current && "sessionId" in current && typeof current.sessionId === "string") {
         setClaimedQuest(current.sessionId, null);
       }
+      if (current && hasQuestReviewMetadata(current)) {
+        const reviewOwner = current.previousOwnerSessionIds?.[current.previousOwnerSessionIds.length - 1];
+        if (reviewOwner) setClaimedQuest(reviewOwner, null);
+      }
       wsBridge.removeBoardRowFromAll(c.req.param("questId"));
       return c.json(quest);
     } catch (e: unknown) {
@@ -494,6 +542,17 @@ export function createQuestRoutes(ctx: RouteContext) {
       const quest = await questStore.markQuestVerificationRead(c.req.param("questId"));
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
+      if (hasQuestReviewMetadata(quest)) {
+        const reviewOwner = quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1];
+        if (reviewOwner) {
+          setClaimedQuest(reviewOwner, {
+            id: quest.questId,
+            title: quest.title,
+            status: quest.status,
+            verificationInboxUnread: quest.verificationInboxUnread,
+          });
+        }
+      }
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -505,6 +564,17 @@ export function createQuestRoutes(ctx: RouteContext) {
       const quest = await questStore.markQuestVerificationInboxUnread(c.req.param("questId"));
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
+      if (hasQuestReviewMetadata(quest)) {
+        const reviewOwner = quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1];
+        if (reviewOwner) {
+          setClaimedQuest(reviewOwner, {
+            id: quest.questId,
+            title: quest.title,
+            status: quest.status,
+            verificationInboxUnread: quest.verificationInboxUnread,
+          });
+        }
+      }
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);

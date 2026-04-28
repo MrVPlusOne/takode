@@ -1316,7 +1316,7 @@ export function broadcastNameUpdate(
 
 export function setSessionClaimedQuest(
   session: SessionLike,
-  quest: { id: string; title: string; status?: string } | null,
+  quest: { id: string; title: string; status?: string; verificationInboxUnread?: boolean } | null,
   deps: Pick<
     SessionRegistryDeps,
     "broadcastToBrowsers" | "persistSession" | "getLauncherSessionInfo" | "onSessionNamedByQuest"
@@ -1328,16 +1328,28 @@ export function setSessionClaimedQuest(
   const prevId = session.state.claimedQuestId ?? null;
   const prevTitle = session.state.claimedQuestTitle ?? null;
   const prevStatus = session.state.claimedQuestStatus ?? null;
+  const prevReviewInboxUnread = session.state.claimedQuestVerificationInboxUnread;
   const nextId = quest?.id ?? null;
   const nextTitle = quest?.title ?? null;
   const nextStatus = quest?.status ?? null;
-  if (prevId === nextId && prevTitle === nextTitle && prevStatus === nextStatus) {
+  const nextReviewInboxUnread = quest?.verificationInboxUnread;
+  if (
+    prevId === nextId &&
+    prevTitle === nextTitle &&
+    prevStatus === nextStatus &&
+    prevReviewInboxUnread === nextReviewInboxUnread
+  ) {
     return;
   }
   session.state.claimedQuestId = quest?.id;
   session.state.claimedQuestTitle = quest?.title;
   session.state.claimedQuestStatus = quest?.status;
-  const isQuestActive = !!quest?.title && (quest?.status === "in_progress" || quest?.status === "needs_verification");
+  session.state.claimedQuestVerificationInboxUnread = quest?.verificationInboxUnread;
+  const isQuestActive =
+    !!quest?.title &&
+    (quest?.status === "in_progress" ||
+      quest?.status === "needs_verification" ||
+      (quest?.status === "done" && quest.verificationInboxUnread !== undefined));
   const isOrchestrator = deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
   if (isQuestActive && !isOrchestrator && deps.onSessionNamedByQuest) {
     deps.onSessionNamedByQuest(session.id, quest.title);
@@ -1355,7 +1367,7 @@ export function setSessionClaimedQuest(
 export function setSessionClaimedQuestBySessionId(
   sessions: Map<string, SessionLike>,
   sessionId: string,
-  quest: { id: string; title: string; status?: string } | null,
+  quest: { id: string; title: string; status?: string; verificationInboxUnread?: boolean } | null,
   deps: Pick<
     SessionRegistryDeps,
     "broadcastToBrowsers" | "persistSession" | "getLauncherSessionInfo" | "onSessionNamedByQuest"
@@ -1648,6 +1660,7 @@ export function trackCodexQuestCommands(session: SessionLike, content: ContentBl
     session.pendingQuestCommands.set(block.id, {
       questId: parsed.questId,
       targetStatus: parsed.targetStatus,
+      verificationInboxUnread: parsed.verificationInboxUnread,
     });
   }
 }
@@ -1677,6 +1690,11 @@ export async function reconcileCodexQuestToolResult(
   if (!questId || !status) return;
   const title = await resolveQuestLifecycleTitle(session, questId, parsedResult?.title, deps);
   if (status === "done") {
+    const verificationInboxUnread = parsedResult.verificationInboxUnread ?? pending.verificationInboxUnread;
+    if (verificationInboxUnread !== undefined) {
+      setSessionClaimedQuest(session, { id: questId, title, status, verificationInboxUnread }, deps);
+      return;
+    }
     if (session.state.claimedQuestId === questId) {
       setSessionClaimedQuest(session, null, deps);
     }

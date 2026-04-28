@@ -388,6 +388,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
             keywords: currentBridgeSession?.keywords ?? [],
             claimedQuestId: bridge?.claimedQuestId ?? null,
             claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
+            claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
             ...(attention ?? {}),
             ...(s.isWorktree && s.archived
               ? await (async () => {
@@ -625,6 +626,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       claimedQuestId: bridge?.claimedQuestId ?? null,
       claimedQuestTitle: bridge?.claimedQuestTitle ?? null,
       claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
+      claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
       uiMode: bridge?.uiMode ?? null,
       pendingTimerCount: timerManager?.listTimers(sessionId).length ?? 0,
       ...(attention ?? {}),
@@ -682,7 +684,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const participantSessionNum = launcher.getSessionNum(participantId) ?? null;
       const participantState =
         (participantBridge?.state as
-          | { claimedQuestId?: string | null; claimedQuestStatus?: string | null }
+          | {
+              claimedQuestId?: string | null;
+              claimedQuestStatus?: string | null;
+              claimedQuestVerificationInboxUnread?: boolean;
+            }
           | undefined) ?? {};
       const role = participantLauncher.reviewerOf != null ? "reviewer" : "worker";
       participants.set(participantId, {
@@ -693,6 +699,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         status: participantStatus,
         claimedQuestId: participantState.claimedQuestId ?? null,
         claimedQuestStatus: participantState.claimedQuestStatus ?? null,
+        verificationInboxUnread: participantState.claimedQuestVerificationInboxUnread,
         messageHistory: participantBridge?.messageHistory ?? [],
       });
     }
@@ -745,6 +752,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
           id: sessionState.claimedQuestId,
           title: sessionState.claimedQuestTitle || "",
           status: sessionState.claimedQuestStatus || "",
+          verificationInboxUnread: sessionState.claimedQuestVerificationInboxUnread,
         }
       : null;
 

@@ -10,18 +10,11 @@ const QUESTMASTER_COLLAPSE_GROUPS: Set<QuestmasterCollapsedGroup> = new Set([
   "idea",
   "refined",
   "in_progress",
-  "needs_verification",
   "done",
   VERIFICATION_INBOX_COLLAPSE_KEY,
 ]);
 
-const VALID_QUEST_STATUSES: Set<QuestStatus> = new Set([
-  "idea",
-  "refined",
-  "in_progress",
-  "needs_verification",
-  "done",
-]);
+const VALID_QUEST_STATUSES: Set<QuestStatus> = new Set(["idea", "refined", "in_progress", "done"]);
 
 export type QuestmasterViewState = {
   scrollTop: number;

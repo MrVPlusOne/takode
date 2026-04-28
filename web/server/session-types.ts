@@ -682,7 +682,10 @@ export type BrowserIncomingMessageBase =
   | { type: "session_stuck" }
   | { type: "session_unstuck" }
   | { type: "quest_list_updated" }
-  | { type: "session_quest_claimed"; quest: { id: string; title: string; status?: string } | null }
+  | {
+      type: "session_quest_claimed";
+      quest: { id: string; title: string; status?: string; verificationInboxUnread?: boolean } | null;
+    }
   | {
       type: "task_notification";
       task_id: string;
@@ -871,6 +874,8 @@ export interface SessionState {
   claimedQuestTitle?: string;
   /** Questmaster: current status of the claimed quest */
   claimedQuestStatus?: string;
+  /** Questmaster: present while a completed claimed quest is still in review workflow */
+  claimedQuestVerificationInboxUnread?: boolean;
   /** Codex-only visual stage for image-attached user sends. */
   codex_image_send_stage?: "uploading" | "processing" | "responding" | null;
   /** Per-session notification inbox entries (server-only, never from CLI) */

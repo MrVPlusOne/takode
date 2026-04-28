@@ -7,7 +7,7 @@ import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 
 const mockStoreState = {
   questNamedSessions: new Set<string>(),
-  sessions: new Map<string, { claimedQuestStatus?: string }>(),
+  sessions: new Map<string, { claimedQuestStatus?: string; claimedQuestVerificationInboxUnread?: boolean }>(),
   sessionTaskPreview: new Map<string, { text: string; updatedAt: number }>(),
   sessionPreviewUpdatedAt: new Map<string, number>(),
   sessionAttention: new Map<string, "action" | "error" | "review" | null>(),
@@ -781,7 +781,7 @@ describe("SessionItem reviewer badge", () => {
 
 describe("SessionItem quest title label", () => {
   // Quest-named sessions display a checkbox prefix to indicate status:
-  // ☐ for in-progress, ☑ for needs_verification.
+  // ☐ for in-progress, ☑ for done.
   // Non-quest sessions show the plain name with no prefix.
 
   afterEach(() => {
@@ -799,9 +799,9 @@ describe("SessionItem quest title label", () => {
     expect(screen.getByText("☐ Fix auth bug")).toBeInTheDocument();
   });
 
-  it("shows ☑ prefix for needs_verification quest sessions", () => {
+  it("shows ☑ prefix for done quest sessions under review", () => {
     mockStoreState.questNamedSessions.add("s1");
-    mockStoreState.sessions.set("s1", { claimedQuestStatus: "needs_verification" });
+    mockStoreState.sessions.set("s1", { claimedQuestStatus: "done", claimedQuestVerificationInboxUnread: true });
 
     renderSessionItem({ sessionName: "Fix auth bug" });
 
@@ -811,7 +811,7 @@ describe("SessionItem quest title label", () => {
   it("can derive the checked prefix from sidebar session data when bridge quest state is missing", () => {
     renderSessionItem({
       sessionName: "Fix auth bug",
-      session: makeSession({ claimedQuestStatus: "needs_verification" }),
+      session: makeSession({ claimedQuestStatus: "done", claimedQuestVerificationInboxUnread: true }),
     });
 
     expect(screen.getByText("☑ Fix auth bug")).toBeInTheDocument();
@@ -820,7 +820,7 @@ describe("SessionItem quest title label", () => {
   it("does not derive a quest checkbox prefix for orchestrator rows", () => {
     renderSessionItem({
       sessionName: "Leader 7",
-      session: makeSession({ isOrchestrator: true, claimedQuestStatus: "needs_verification" }),
+      session: makeSession({ isOrchestrator: true, claimedQuestStatus: "done" }),
     });
 
     const span = screen.getByText("Leader 7");
@@ -847,8 +847,8 @@ describe("SessionItem quest title label", () => {
     expect(screen.getByText("☐ Mystery quest")).toBeInTheDocument();
   });
 
-  it("shows ☐ prefix for non-verification statuses like 'done'", () => {
-    // Confirms the ☑ check is strict -- only "needs_verification" gets a checked box.
+  it("shows ☐ prefix for final done quests without review metadata", () => {
+    // Confirms the ☑ check is strict -- only review-pending done gets a checked box.
     mockStoreState.questNamedSessions.add("s1");
     mockStoreState.sessions.set("s1", { claimedQuestStatus: "done" });
 

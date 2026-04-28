@@ -264,8 +264,11 @@ export function SessionItem({
   const isEditing = editingSessionId === s.id;
   const storeQuestNamed = useStore((st) => st.questNamedSessions.has(s.id));
   const bridgeQuestStatus = useStore((st) => st.sessions.get(s.id)?.claimedQuestStatus);
+  const bridgeQuestReviewInboxUnread = useStore((st) => st.sessions.get(s.id)?.claimedQuestVerificationInboxUnread);
   const questStatus = s.claimedQuestStatus ?? bridgeQuestStatus;
-  const isQuestNamed = !s.isOrchestrator && (storeQuestNamed || questOwnsSessionName(questStatus));
+  const questReviewInboxUnread = s.claimedQuestVerificationInboxUnread ?? bridgeQuestReviewInboxUnread;
+  const isQuestNamed =
+    !s.isOrchestrator && (storeQuestNamed || questOwnsSessionName(questStatus, questReviewInboxUnread));
   const reviewerAttention = useStore((st) =>
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
@@ -622,7 +625,7 @@ export function SessionItem({
                 className={`text-[13px] truncate leading-snug text-cc-fg ${attention || (s.isOrchestrator && !useStatusBar) ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
                 onAnimationEnd={() => onClearRecentlyRenamed(s.id)}
               >
-                {questLabel(label, isQuestNamed, questStatus)}
+                {questLabel(label, isQuestNamed, questStatus, questReviewInboxUnread)}
               </span>
             )}
             {archived && s.archivedAt && (

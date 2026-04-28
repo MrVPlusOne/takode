@@ -15,13 +15,13 @@
  *   history    Show quest history (live or legacy backup)
  *   create     Create a new quest
  *   claim      Claim a quest for a session
- *   complete   Transition to needs_verification with checklist
+ *   complete   Mark done and enter review inbox with checklist
  *   done       Mark quest as done
  *   cancel     Cancel a quest from any status
  *   transition Generic status transition
  *   edit       In-place edit (no new version)
- *   later      Move needs_verification quest out of verification inbox
- *   inbox      Move needs_verification quest back to verification inbox
+ *   later      Move review-pending quest out of review inbox
+ *   inbox      Move review-pending quest back to review inbox
  *   check      Toggle a verification checkbox
  *   feedback   Add a feedback entry to a quest's thread
  *   address    Toggle feedback addressed status
@@ -46,6 +46,7 @@ import {
   deleteQuest,
 } from "../server/quest-store.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
+import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/quest-types.js";
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { grepQuests } from "../server/quest-grep.js";
 import { getName } from "../server/session-names.js";
@@ -351,7 +352,6 @@ const STATUS_LABELS: Record<string, string> = {
   idea: "idea",
   refined: "refined",
   in_progress: "in_progress",
-  needs_verification: "verification",
   done: "done",
 };
 
@@ -377,9 +377,9 @@ function parseVerificationFilterTokens(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function requireNeedsVerificationQuest(quest: QuestmasterTask, questId: string, action: "later" | "inbox"): void {
-  if (quest.status === "needs_verification") return;
-  die(`Quest ${questId} is ${quest.status}; quest ${action} only applies to needs_verification quests.`);
+function requireReviewPendingQuest(quest: QuestmasterTask, questId: string, action: "later" | "inbox"): void {
+  if (hasQuestReviewMetadata(quest)) return;
+  die(`Quest ${questId} is ${quest.status}; quest ${action} only applies to quests under review.`);
 }
 
 const currentSessionId = getCurrentSessionId();
@@ -502,12 +502,7 @@ function formatStatusSummary(quest: QuestmasterTask, sessionMetadata?: Map<strin
     "verificationItems" in quest
       ? `${quest.verificationItems.filter((item) => item.checked).length}/${quest.verificationItems.length}`
       : "none";
-  const inbox =
-    quest.status === "needs_verification"
-      ? (quest as { verificationInboxUnread?: boolean }).verificationInboxUnread
-        ? "unread"
-        : "acknowledged"
-      : "n/a";
+  const inbox = hasQuestReviewMetadata(quest) ? (isQuestReviewInboxUnread(quest) ? "unread" : "acknowledged") : "n/a";
   const humanEntries = filterFeedbackEntries(quest, { author: "human" });
   const unaddressed = unaddressedHumanFeedbackEntries(quest);
   const latestSummary = latestAgentSummaryFeedback(quest);
@@ -544,12 +539,7 @@ function statusSummaryForJson(quest: QuestmasterTask): Record<string, unknown> {
             total: quest.verificationItems.length,
           }
         : { checked: 0, total: 0 },
-    inbox:
-      quest.status === "needs_verification"
-        ? (quest as { verificationInboxUnread?: boolean }).verificationInboxUnread
-          ? "unread"
-          : "acknowledged"
-        : null,
+    inbox: hasQuestReviewMetadata(quest) ? (isQuestReviewInboxUnread(quest) ? "unread" : "acknowledged") : null,
     commitCount: quest.commitShas?.length ?? 0,
     commitShas: quest.commitShas ?? [],
     humanFeedbackCount: humanEntries.length,
@@ -568,10 +558,10 @@ function suggestNextQuestAction(quest: QuestmasterTask): string {
   if (quest.status === "refined") return "claim the quest before implementation";
   if (quest.status === "in_progress")
     return "implement and add a consolidated Summary: feedback comment before handoff";
-  if (quest.status === "needs_verification") {
-    return (quest as { verificationInboxUnread?: boolean }).verificationInboxUnread
-      ? "human verification inbox review"
-      : "await verification or respond to new feedback";
+  if (hasQuestReviewMetadata(quest)) {
+    return isQuestReviewInboxUnread(quest)
+      ? "human review inbox triage"
+      : "await final review or respond to new feedback";
   }
   if (quest.status === "done") return "no action";
   return "inspect quest details";
@@ -1243,6 +1233,11 @@ async function cmdTransition(): Promise<void> {
 
   const status = option("status");
   if (!status) die("--status is required");
+  if (status === "needs_verification" || status === "verification") {
+    die(
+      "needs_verification is no longer a lifecycle transition target. Use `quest complete` for review handoff or `quest list --verification ...` for review filters.",
+    );
+  }
 
   const description = await readOptionalRichTextOption({
     inlineFlag: "desc",
@@ -1251,8 +1246,8 @@ async function cmdTransition(): Promise<void> {
   });
   const sessionId = option("session") || currentSessionId;
   const commitShas = parseCommitShasFromFlags();
-  if (commitShas.length > 0 && status !== "needs_verification") {
-    die("--commit/--commits can only be used when transitioning to needs_verification");
+  if (commitShas.length > 0 && status !== "done") {
+    die("--commit/--commits can only be used when completing a quest");
   }
 
   try {
@@ -1294,11 +1289,11 @@ async function cmdLater(): Promise<void> {
         die((err as { error: string }).error || res.statusText);
       }
       const quest = (await res.json()) as QuestmasterTask;
-      requireNeedsVerificationQuest(quest, id, "later");
+      requireReviewPendingQuest(quest, id, "later");
       if (jsonOutput) {
         out(quest);
       } else {
-        console.log(`Marked ${quest.questId} as acknowledged (left Verification Inbox, stays in Verification)`);
+        console.log(`Marked ${quest.questId} as acknowledged (left Review Inbox, stays under review)`);
       }
       return;
     } catch (e) {
@@ -1313,12 +1308,12 @@ async function cmdLater(): Promise<void> {
   try {
     const quest = await markQuestVerificationRead(id);
     if (!quest) die(`Quest ${id} not found`);
-    requireNeedsVerificationQuest(quest, id, "later");
+    requireReviewPendingQuest(quest, id, "later");
     await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
-      console.log(`Marked ${quest.questId} as acknowledged (left Verification Inbox, stays in Verification)`);
+      console.log(`Marked ${quest.questId} as acknowledged (left Review Inbox, stays under review)`);
     }
   } catch (e) {
     die((e as Error).message);
@@ -1345,11 +1340,11 @@ async function cmdInbox(): Promise<void> {
         die((err as { error: string }).error || res.statusText);
       }
       const quest = (await res.json()) as QuestmasterTask;
-      requireNeedsVerificationQuest(quest, id, "inbox");
+      requireReviewPendingQuest(quest, id, "inbox");
       if (jsonOutput) {
         out(quest);
       } else {
-        console.log(`Moved ${quest.questId} back to Verification Inbox`);
+        console.log(`Moved ${quest.questId} back to Review Inbox`);
       }
       return;
     } catch (e) {
@@ -1364,12 +1359,12 @@ async function cmdInbox(): Promise<void> {
   try {
     const quest = await markQuestVerificationInboxUnread(id);
     if (!quest) die(`Quest ${id} not found`);
-    requireNeedsVerificationQuest(quest, id, "inbox");
+    requireReviewPendingQuest(quest, id, "inbox");
     await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
-      console.log(`Moved ${quest.questId} back to Verification Inbox`);
+      console.log(`Moved ${quest.questId} back to Review Inbox`);
     }
   } catch (e) {
     die((e as Error).message);
@@ -1789,15 +1784,15 @@ Commands:
                                                          Create a quest
   claim  <id> [--session <sid>] [--json]                 Claim for session
   complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>] [--commit <sha>] [--commits "s1,s2"] [--json]
-                                                         Submit for verification
+                                                         Mark done and submit for review
   done   <id> [--notes "..." | --notes-file <path>|-] [--cancelled] [--json]
                                                          Mark as done/cancelled
   cancel <id> [--notes "reason" | --notes-file <path>|-] [--json]
                                                          Cancel from any status
   transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--commit <sha>] [--commits "s1,s2"] [--json]
                                                          Change status
-  later  <id> [--json]                                   Move verification quest out of inbox
-  inbox  <id> [--json]                                   Move verification quest back to inbox
+  later  <id> [--json]                                   Move review-pending quest out of inbox
+  inbox  <id> [--json]                                   Move review-pending quest back to inbox
   edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tags "t1,t2"] [--json]
                                                          Edit in place
   check  <id> <index> [--json]                           Toggle verification item
@@ -1823,9 +1818,9 @@ Auth fallback:
   .companion/session-auth.json (or legacy .codex/.claude paths)
 
 Verification scopes:
-  --verification inbox      needs_verification quests in Verification Inbox
-  --verification reviewed   needs_verification quests in Verification (acknowledged)
-  --verification all        all needs_verification quests
+  --verification inbox      done quests in Review Inbox
+  --verification reviewed   done quests acknowledged and still under review
+  --verification all        all done quests still under review
 
 Search tips:
   quest list --text "foo"   Filter quests broadly by text

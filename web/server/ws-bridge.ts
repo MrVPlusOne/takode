@@ -354,7 +354,10 @@ interface Session {
   /** Retained live tool output tails (tool_use_id -> output) for transcript fallback. */
   toolProgressOutput: Map<string, string>;
   /** Parsed quest lifecycle commands pending completion, keyed by tool_use_id. */
-  pendingQuestCommands: Map<string, { questId: string; targetStatus?: QuestLifecycleStatus }>;
+  pendingQuestCommands: Map<
+    string,
+    { questId: string; targetStatus?: QuestLifecycleStatus; verificationInboxUnread?: boolean }
+  >;
   /** Set after compact_boundary; the next user text message is the summary */
   awaitingCompactSummary?: boolean;
   /** Claude WebSocket only: a real compact_boundary arrived for the current compaction cycle. */

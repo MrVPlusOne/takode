@@ -123,10 +123,10 @@ describe("ensureQuestmasterIntegration", () => {
     const skill = String(codexSkillWrite?.[1] ?? "");
     expect(skill).toContain("Title rule for refined and later");
     expect(skill).toContain("less than 10 words");
-    expect(skill).toContain("refined`, `in_progress`, `needs_verification`, or `done");
+    expect(skill).toContain("`refined`, `in_progress`, or `done`");
   });
 
-  it("tells worktree workers to sync to main before needs_verification", async () => {
+  it("tells worktree workers to sync to main before done", async () => {
     await ensureQuestmasterIntegration(3456, "/repo/web");
 
     const codexSkillWrite = fsMocks.writeFileSync.mock.calls.find(
@@ -256,7 +256,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("quest later  <id> [--json]");
     expect(skill).toContain("quest inbox  <id> [--json]");
     expect(skill).toContain("--verification <scope>");
-    expect(skill).toContain("Verification Inbox workflow");
+    expect(skill).toContain("Review inbox workflow");
     expect(skill).toContain("quest list --verification inbox");
   });
 

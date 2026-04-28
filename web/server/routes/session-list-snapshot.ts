@@ -95,6 +95,7 @@ export async function buildEnrichedSessionsSnapshot(
           keywords: currentBridgeSession?.keywords ?? [],
           claimedQuestId: bridge?.claimedQuestId ?? null,
           claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
+          claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
           pendingTimerCount,
           ...notificationSummary,
           ...(attention ?? {}),

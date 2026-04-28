@@ -6,6 +6,7 @@ import type {
   SessionNotification,
 } from "./session-types.js";
 import type { QuestmasterTask } from "./quest-types.js";
+import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
 import { findTurnBoundaries } from "./takode-messages.js";
 import {
   QUEST_JOURNEY_HINTS,
@@ -34,6 +35,7 @@ export interface LeaderContextResumeParticipant extends LeaderContextResumeSessi
   status: ParticipantStatus;
   claimedQuestId?: string | null;
   claimedQuestStatus?: string | null;
+  verificationInboxUnread?: boolean;
   messageHistory: BrowserIncomingMessage[];
 }
 
@@ -447,7 +449,6 @@ function parseNotificationQuestIds(summary: string): string[] {
 }
 
 function formatQuestStatus(status: string | null | undefined): string {
-  if (status === "needs_verification") return "verification";
   return status ?? "unknown";
 }
 
@@ -459,7 +460,7 @@ function getVerificationProgress(
   return {
     checked: items.filter((item) => item.checked).length,
     total: items.length,
-    ...(quest.status === "needs_verification" ? { inboxUnread: quest.verificationInboxUnread === true } : {}),
+    ...(hasQuestReviewMetadata(quest) ? { inboxUnread: isQuestReviewInboxUnread(quest) } : {}),
   };
 }
 
@@ -481,8 +482,8 @@ function buildReviewNotificationStatusSummary(
   observation: LeaderContextResumeReviewNotificationQuestObservation,
 ): string {
   const parts = [formatQuestStatus(observation.questStatus)];
-  if (observation.questStatus === "needs_verification") {
-    parts.push(observation.verificationInboxUnread ? "unread inbox" : "reviewed inbox");
+  if (isReviewPendingObservation(observation)) {
+    parts.push(observation.verificationInboxUnread ? "unread review inbox" : "under review");
   }
   if (observation.verificationTotalCount != null && observation.verificationCheckedCount != null) {
     parts.push(`verification ${observation.verificationCheckedCount}/${observation.verificationTotalCount}`);
@@ -494,10 +495,10 @@ function buildReviewNotificationStatusSummary(
 }
 
 function buildReviewNotificationNextAction(observation: LeaderContextResumeReviewNotificationQuestObservation): string {
-  if (observation.questStatus === "needs_verification") {
+  if (isReviewPendingObservation(observation)) {
     return observation.verificationInboxUnread
-      ? "human verification inbox review"
-      : "inspect verification state and resolve the stale review notification if no follow-up is needed";
+      ? "human review inbox triage"
+      : "inspect review state and resolve the stale review notification if no follow-up is needed";
   }
   if (observation.questStatus === "done") {
     return "resolve the stale review notification if no follow-up is needed";
@@ -513,10 +514,12 @@ function buildReviewNotificationNextAction(observation: LeaderContextResumeRevie
 function buildReviewNotificationWarnings(observation: LeaderContextResumeReviewNotificationQuestObservation): string[] {
   const warnings: string[] = [];
   if (observation.questStatus === null) warnings.push("quest details unavailable");
-  if (observation.questStatus === "needs_verification" && observation.verificationInboxUnread !== true) {
-    warnings.push("review notification remains unresolved although the verification inbox is not unread");
+  if (isReviewPendingObservation(observation) && observation.verificationInboxUnread !== true) {
+    warnings.push("review notification remains unresolved although the review inbox is not unread");
   }
-  if (observation.questStatus === "done") warnings.push("review notification remains unresolved for a done quest");
+  if (observation.questStatus === "done" && !isReviewPendingObservation(observation)) {
+    warnings.push("review notification remains unresolved for a final done quest");
+  }
   if (observation.activeBoardQuest && observation.questStatus !== "in_progress") {
     warnings.push("quest lifecycle and active board state may be out of sync");
   }
@@ -524,12 +527,16 @@ function buildReviewNotificationWarnings(observation: LeaderContextResumeReviewN
 }
 
 function rankReviewNotificationQuest(observation: LeaderContextResumeReviewNotificationQuestObservation): number {
-  if (observation.questStatus === "needs_verification" && observation.verificationInboxUnread === true) return 0;
-  if (observation.questStatus === "needs_verification") return 1;
+  if (isReviewPendingObservation(observation) && observation.verificationInboxUnread === true) return 0;
+  if (isReviewPendingObservation(observation)) return 1;
   if (observation.activeBoardQuest) return 2;
   if (observation.questStatus === "in_progress") return 3;
   if (observation.questStatus === "done") return 4;
   return 5;
+}
+
+function isReviewPendingObservation(observation: LeaderContextResumeReviewNotificationQuestObservation): boolean {
+  return observation.questStatus === "needs_verification" || observation.verificationInboxUnread !== undefined;
 }
 
 function buildMismatchNote(
@@ -1010,7 +1017,7 @@ export function renderLeaderContextResumeText(model: LeaderContextResumeModel): 
     lines.push("Review notifications / verification-ready quests: none");
   } else {
     lines.push(
-      `Review notifications / verification-ready quests: ${reviewNotificationQuests.length} quest${reviewNotificationQuests.length === 1 ? "" : "s"} from ${reviewNotificationCount.size} notification${reviewNotificationCount.size === 1 ? "" : "s"}`,
+      `Review notifications / review-ready quests: ${reviewNotificationQuests.length} quest${reviewNotificationQuests.length === 1 ? "" : "s"} from ${reviewNotificationCount.size} notification${reviewNotificationCount.size === 1 ? "" : "s"}`,
     );
     const visibleReviewNotificationQuests = reviewNotificationQuests.slice(0, MAX_REVIEW_NOTIFICATION_QUESTS_IN_TEXT);
     for (const [index, observedQuest] of visibleReviewNotificationQuests.entries()) {

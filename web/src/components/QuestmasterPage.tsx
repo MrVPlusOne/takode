@@ -19,6 +19,7 @@ import {
   extractHashtags,
   findHashtagTokenAtCursor,
   isVerificationInboxUnread,
+  isQuestUnderReview,
   autoResizeTextarea,
 } from "../utils/quest-editor-helpers.js";
 import { Lightbox } from "./Lightbox.js";
@@ -30,17 +31,16 @@ import type { QuestmasterTask, QuestStatus, QuestFeedbackEntry, QuestImage } fro
 
 const STATUS_CONFIG = QUEST_STATUS_THEME;
 
-const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "needs_verification", "done"];
+const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "done"];
 
 // Display order: most-needs-attention → least
-const DISPLAY_ORDER: QuestStatus[] = ["needs_verification", "in_progress", "refined", "idea", "done"];
+const DISPLAY_ORDER: QuestStatus[] = ["in_progress", "refined", "idea", "done"];
 
 const FILTER_TABS: Array<{ value: QuestStatus | "all"; label: string }> = [
   { value: "all", label: "All" },
   { value: "idea", label: "Idea" },
   { value: "refined", label: "Refined" },
   { value: "in_progress", label: "In Progress" },
-  { value: "needs_verification", label: "Verification" },
   { value: "done", label: "Done" },
 ];
 
@@ -670,31 +670,41 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     collapseGroup?: QuestmasterCollapsedGroup;
   };
 
-  const showVerificationSplit = allSelected || filter.has("needs_verification");
-  const verificationInboxQuests = showVerificationSplit ? filtered.filter((q) => isVerificationInboxUnread(q)) : [];
-  const regularVerificationQuests = showVerificationSplit
-    ? filtered.filter((q) => q.status === "needs_verification" && !isVerificationInboxUnread(q))
+  const showReviewSplit = allSelected || filter.has("done");
+  const reviewInboxQuests = showReviewSplit ? filtered.filter((q) => isVerificationInboxUnread(q)) : [];
+  const underReviewQuests = showReviewSplit
+    ? filtered.filter((q) => isQuestUnderReview(q) && !isVerificationInboxUnread(q))
     : [];
   const sortByRecencyDesc = (items: QuestmasterTask[]): QuestmasterTask[] =>
     [...items].sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
   const compactQuests = sortByRecencyDesc(filtered);
 
   const questSections: QuestSection[] = [];
-  if (showVerificationSplit && verificationInboxQuests.length > 0) {
+  if (showReviewSplit && reviewInboxQuests.length > 0) {
     questSections.push({
       key: VERIFICATION_INBOX_COLLAPSE_KEY,
-      label: "Verification Inbox",
+      label: "Review Inbox",
       dotClass: "bg-amber-400",
       textClass: "text-amber-300",
-      quests: sortByRecencyDesc(verificationInboxQuests),
+      quests: sortByRecencyDesc(reviewInboxQuests),
       ...(filter.size > 1 ? { collapseGroup: VERIFICATION_INBOX_COLLAPSE_KEY } : {}),
+    });
+  }
+
+  if (showReviewSplit && underReviewQuests.length > 0) {
+    questSections.push({
+      key: "under_review",
+      label: "Under Review",
+      dotClass: "bg-blue-400",
+      textClass: "text-blue-300",
+      quests: sortByRecencyDesc(underReviewQuests),
     });
   }
 
   for (const status of allSelected ? DISPLAY_ORDER : ALL_STATUSES) {
     const sectionQuests =
-      status === "needs_verification" && showVerificationSplit
-        ? regularVerificationQuests
+      status === "done" && showReviewSplit
+        ? filtered.filter((q) => q.status === "done" && !isQuestUnderReview(q))
         : filtered.filter((q) => q.status === status);
     if (sectionQuests.length === 0) continue;
     const cfg = STATUS_CONFIG[status];
@@ -1292,8 +1302,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                   const isCollapsed = !!section.collapseGroup && collapsedGroups.has(section.collapseGroup);
                   const showSectionHeader =
                     filter.size > 1 ||
-                    (filter.has("needs_verification") &&
-                      (section.key === VERIFICATION_INBOX_COLLAPSE_KEY || section.key === "needs_verification"));
+                    (filter.has("done") &&
+                      (section.key === VERIFICATION_INBOX_COLLAPSE_KEY || section.key === "under_review"));
                   return (
                     <div key={section.key}>
                       {showSectionHeader &&

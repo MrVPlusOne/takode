@@ -1,6 +1,7 @@
 export interface SidebarSessionItem {
   id: string;
   claimedQuestStatus?: string;
+  claimedQuestVerificationInboxUnread?: boolean;
   model: string;
   cwd: string;
   gitBranch: string;

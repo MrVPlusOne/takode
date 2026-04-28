@@ -21,10 +21,11 @@
 //   - getActiveQuestForSession(sessionId) returns the single in_progress quest
 //     for a session, or null. It's used by the auto-namer to include quest
 //     context in naming prompts.
-//   - Quests in other states (done, needs_verification, refined, idea) are
+//   - Quests in other states (done, refined, idea) are
 //     unaffected — a session can have any number of those.
 
-export type QuestStatus = "idea" | "refined" | "in_progress" | "needs_verification" | "done";
+export type QuestStatus = "idea" | "refined" | "in_progress" | "done";
+export type LegacyQuestStatus = QuestStatus | "needs_verification";
 
 export interface QuestVerificationItem {
   text: string;
@@ -110,22 +111,21 @@ export type QuestInProgress = Omit<QuestRefined, "status"> & {
   claimedAt: number;
 };
 
-/** Needs Verification: agent done, human checks required */
-export type QuestNeedsVerification = Omit<QuestInProgress, "status"> & {
-  status: "needs_verification";
-  verificationItems: QuestVerificationItem[];
-  /** True when this verification quest is in the review inbox and needs a fresh human read. */
-  verificationInboxUnread?: boolean;
-};
-
-/** Done: all verification complete (or cancelled) */
-export type QuestDone = Omit<QuestNeedsVerification, "status" | "sessionId" | "claimedAt"> & {
+/** Done: completed, optionally awaiting human review through separate metadata. */
+export type QuestDone = Omit<QuestInProgress, "status" | "sessionId" | "claimedAt"> & {
   status: "done";
   /** Active owner is cleared when done; sessionId may be present in legacy data. */
   sessionId?: string;
   /** Preserved for compatibility/history display when available. */
   claimedAt?: number;
   completedAt: number;
+  verificationItems: QuestVerificationItem[];
+  /**
+   * Present only while a completed quest is still in the review workflow.
+   * true means fresh review inbox; false means acknowledged/under review.
+   * Undefined means final done, not in review surfaces.
+   */
+  verificationInboxUnread?: boolean;
   /** Free-form closure notes (commit hashes, reasoning, references, etc.) */
   notes?: string;
   /** If true, this quest was cancelled/aborted rather than completed */
@@ -134,7 +134,15 @@ export type QuestDone = Omit<QuestNeedsVerification, "status" | "sessionId" | "c
 
 // ─── Union type ──────────────────────────────────────────────────────────────
 
-export type QuestmasterTask = QuestIdea | QuestRefined | QuestInProgress | QuestNeedsVerification | QuestDone;
+export type QuestmasterTask = QuestIdea | QuestRefined | QuestInProgress | QuestDone;
+
+export function hasQuestReviewMetadata(quest: QuestmasterTask | null | undefined): quest is QuestDone {
+  return quest?.status === "done" && quest.cancelled !== true && typeof quest.verificationInboxUnread === "boolean";
+}
+
+export function isQuestReviewInboxUnread(quest: QuestmasterTask | null | undefined): boolean {
+  return hasQuestReviewMetadata(quest) && quest.verificationInboxUnread === true;
+}
 
 export type QuestHistoryMode = "live" | "legacy_backup" | "unavailable";
 
@@ -198,10 +206,12 @@ export interface QuestTransitionInput {
   description?: string;
   /** Required for in_progress+ */
   sessionId?: string;
-  /** Required for needs_verification+. Accepts strings (normalized to {text, checked:false}) or full objects. */
+  /** Human-review checklist. Accepts strings (normalized to {text, checked:false}) or full objects. */
   verificationItems?: (QuestVerificationItem | string)[];
   /** Ordered synced commit SHAs to attach at verification handoff. */
   commitShas?: string[];
+  /** Review inbox state for done quests that are awaiting/under human review. */
+  verificationInboxUnread?: boolean;
   /** Closure notes for done status (commit hashes, reasoning, etc.) */
   notes?: string;
   /** If true, marks this as cancelled/aborted rather than completed */

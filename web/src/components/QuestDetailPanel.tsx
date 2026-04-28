@@ -9,6 +9,7 @@ import {
   extractHashtags,
   findHashtagTokenAtCursor,
   isVerificationInboxUnread,
+  isQuestUnderReview,
   getDoneVerificationItems,
   autoResizeTextarea,
   isQuestCancelled,
@@ -35,7 +36,7 @@ import type { QuestCommitLookup } from "../api.js";
 type EditorTarget = "editTitle" | "editDescription";
 
 const STATUS_CONFIG = QUEST_STATUS_THEME;
-const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "needs_verification", "done"];
+const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "done"];
 
 function sortQuestsByRecency(quests: QuestmasterTask[]): QuestmasterTask[] {
   return [...quests].sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a));
@@ -1561,14 +1562,14 @@ export function QuestDetailPanel() {
                   )}
                 </div>
 
-                {quest.status === "needs_verification" &&
+                {isQuestUnderReview(quest) &&
                   (isInboxVerification ? (
                     <button
                       onClick={async () => {
                         const marked = await handleMarkVerificationRead(quest.questId);
                         if (marked) closePanel();
                       }}
-                      title="Remove from Verification Inbox and keep it in Verification for now."
+                      title="Remove from Review Inbox and keep it under review for now."
                       className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
                     >
                       Later
@@ -1576,7 +1577,7 @@ export function QuestDetailPanel() {
                   ) : (
                     <button
                       onClick={() => handleMarkVerificationInbox(quest.questId)}
-                      title="Move this quest back to Verification Inbox to prioritize it again."
+                      title="Move this quest back to Review Inbox to prioritize it again."
                       className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
                     >
                       Inbox
@@ -1815,7 +1816,7 @@ function QuestVersionHistory({ questId }: { questId: string }) {
     const sessionId = "sessionId" in ver && typeof ver.sessionId === "string" ? ver.sessionId : undefined;
     if (!sessionId) return;
 
-    const variant = ver.status === "needs_verification" ? "quest_submitted" : "quest_claimed";
+    const variant = isQuestUnderReview(ver) ? "quest_submitted" : "quest_claimed";
     const prefix = `${variant}-${ver.questId}-`;
 
     const messages = useStore.getState().messages.get(sessionId) ?? [];

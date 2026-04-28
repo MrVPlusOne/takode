@@ -146,7 +146,7 @@ describe("quest CLI feedback inspection", () => {
       version: 3,
       title: "Status quest",
       createdAt: Date.now() - 60_000,
-      status: "needs_verification",
+      status: "done",
       description: "Compact status.",
       sessionId: "session-test",
       claimedAt: Date.now() - 30_000,
@@ -167,7 +167,7 @@ describe("quest CLI feedback inspection", () => {
       expect(result.stderr).toBe("");
       expect(parsed).toMatchObject({
         questId: "q-3",
-        status: "needs_verification",
+        status: "done",
         inbox: "unread",
         commitCount: 1,
         humanFeedbackCount: 1,
@@ -254,7 +254,7 @@ describe("quest CLI feedback inspection", () => {
       const parsed = JSON.parse(result.stdout);
 
       expect(result.status).toBe(0);
-      expect(parsed).toMatchObject({ questId: "q-5", status: "needs_verification" });
+      expect(parsed).toMatchObject({ questId: "q-5", status: "done" });
       expect(result.stderr).toContain("unaddressed human feedback remains at #1");
       expect(result.stderr).toContain("latest human feedback is newer than the latest agent summary");
       expect(result.stderr).toContain("commit-like SHA text exists");
@@ -290,7 +290,7 @@ describe("quest CLI feedback inspection", () => {
       const parsed = JSON.parse(result.stdout);
 
       expect(result.status).toBe(0);
-      expect(parsed).toMatchObject({ questId: "q-6", status: "needs_verification" });
+      expect(parsed).toMatchObject({ questId: "q-6", status: "done" });
       expect(result.stderr).not.toContain("commit-like SHA text exists");
       expect(result.stderr).toContain("verification item(s) 1 look self-verifiable");
       expect(result.stderr).not.toContain("verification item(s) 0 look self-verifiable");
@@ -329,7 +329,7 @@ describe("quest CLI feedback inspection", () => {
       const parsed = JSON.parse(result.stdout);
 
       expect(result.status).toBe(0);
-      expect(parsed).toMatchObject({ questId: "q-7", status: "needs_verification" });
+      expect(parsed).toMatchObject({ questId: "q-7", status: "done" });
       expect(result.stderr).toContain("verification item(s) 0 look like implementation details or port metadata");
       expect(result.stderr).toContain("use structured --commit/--commits metadata for synced SHAs");
       expect(result.stderr).not.toContain("verification item(s) 1 look like implementation details");

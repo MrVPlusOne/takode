@@ -413,7 +413,12 @@ export function usePlaygroundSeed() {
     // Seed quest-named state for sidebar quest demo rows.
     // SessionItem reads isQuestNamed + claimedQuestStatus from the store.
     store.addSession({ ...session, session_id: questInProgressId, claimedQuestStatus: "in_progress" });
-    store.addSession({ ...session, session_id: questVerificationId, claimedQuestStatus: "needs_verification" });
+    store.addSession({
+      ...session,
+      session_id: questVerificationId,
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
     store.markQuestNamed(questInProgressId);
     store.markQuestNamed(questVerificationId);
     store.setSessionTimers("leader-alpha", [

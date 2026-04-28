@@ -208,13 +208,13 @@ describe("handleMessage: session_name_update", () => {
     expect(useStore.getState().sessionNames.get("s1")).toBe("Another Auto Title");
   });
 
-  it("keeps the quest-owned marker on same-title updates during needs_verification", () => {
+  it("keeps the quest-owned marker on same-title updates during review-pending done", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
     fireMessage({
       type: "session_quest_claimed",
-      quest: { id: "q-348", title: "Fix Authentication Bug", status: "needs_verification" },
+      quest: { id: "q-348", title: "Fix Authentication Bug", status: "done", verificationInboxUnread: true },
     });
 
     fireMessage({ type: "session_name_update", name: "Fix Authentication Bug" });

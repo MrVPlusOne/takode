@@ -61,7 +61,7 @@ function makeVerificationQuest(overrides?: Partial<QuestmasterTask>): Questmaste
     questId: "q-42",
     version: 3,
     title: "Fix mobile sidebar overflow",
-    status: "needs_verification",
+    status: "done",
     description: "The sidebar overflows on narrow screens.\n\n## Steps\n1. Add wrapper\n2. Test",
     createdAt: Date.now() - 86400000,
     updatedAt: Date.now() - 3600000,
@@ -143,7 +143,7 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByTestId("quest-detail-panel")).toBeTruthy();
     expect(screen.getByText("Fix mobile sidebar overflow")).toBeTruthy();
     // Status badge
-    expect(screen.getAllByText("Verification").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText("Done").length).toBeGreaterThanOrEqual(1);
     // Tags
     expect(screen.getByText("ui")).toBeTruthy();
     expect(screen.getByText("mobile")).toBeTruthy();
@@ -878,7 +878,7 @@ describe("QuestDetailPanel", () => {
   });
 
   it("shows Finish Quest button for non-done quests", () => {
-    const quest = makeVerificationQuest();
+    const quest = makeVerificationQuest({ status: "in_progress" });
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
 
     render(<QuestDetailPanel />);
@@ -917,7 +917,7 @@ describe("QuestDetailPanel", () => {
   });
 
   it("calls markQuestDone API on Finish Quest and closes panel", async () => {
-    const quest = makeVerificationQuest();
+    const quest = makeVerificationQuest({ status: "in_progress" });
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
     const doneQuest = makeVerificationQuest({ status: "done" });
     mockMarkQuestDone.mockResolvedValue(doneQuest);

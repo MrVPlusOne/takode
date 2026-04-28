@@ -6,7 +6,6 @@ describe("quest-status-theme", () => {
     expect(QUEST_STATUS_THEME.idea.text).toBe("text-zinc-400");
     expect(QUEST_STATUS_THEME.refined.text).toBe("text-amber-400");
     expect(QUEST_STATUS_THEME.in_progress.text).toBe("text-green-400");
-    expect(QUEST_STATUS_THEME.needs_verification.text).toBe("text-blue-400");
     expect(QUEST_STATUS_THEME.done.text).toBe("text-purple-400");
   });
 

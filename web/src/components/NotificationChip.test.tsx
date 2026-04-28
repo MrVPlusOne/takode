@@ -350,7 +350,7 @@ describe("NotificationChip", () => {
         id: "q-345-v1",
         questId: "q-345",
         title: "Compress herd events more aggressively",
-        status: "needs_verification",
+        status: "done",
         tags: ["ui", "notifications"],
       },
     ]);
@@ -370,7 +370,7 @@ describe("NotificationChip", () => {
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-345" }));
 
     expect(screen.getByText("Compress herd events more aggressively")).toBeInTheDocument();
-    expect(screen.getByText("Verification")).toBeInTheDocument();
+    expect(screen.getByText("Done")).toBeInTheDocument();
   });
 
   it("shows a Read All control and marks all active notifications done", () => {
