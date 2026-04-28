@@ -49,4 +49,19 @@ describe("Playground", () => {
     const appendRecordingLabel = within(appendRow).getByText("Recording");
     expect(appendToggle.compareDocumentPosition(appendRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
+
+  it("documents explicit leader messages and collapsed private activity", () => {
+    render(<Playground />);
+
+    expect(screen.getByText("Collapsed leader turn — explicit user-message visible")).toBeTruthy();
+    expect(screen.getByText("Collapsed leader turn — private activity only")).toBeTruthy();
+    expect(screen.getAllByText("Leader activity").length).toBeGreaterThanOrEqual(2);
+    expect(
+      screen.getByText(
+        "Approved #70's plan for q-43. It's a clean unification: resize once at store time (1920px max).",
+      ),
+    ).toBeTruthy();
+    expect(screen.queryByText(/@to\(user\)/)).toBeNull();
+    expect(screen.queryByText("Dispatched #264 to work on q-42. Spawned skeptic reviewer #265.")).toBeNull();
+  });
 });

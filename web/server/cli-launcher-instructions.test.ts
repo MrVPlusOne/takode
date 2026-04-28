@@ -40,12 +40,14 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("test-branch");
   });
 
-  it("orders needs-input notifications after detailed text", () => {
+  it("orders leader needs-input notifications after explicit user-visible text", () => {
     const result = buildCompanionInstructions({ sessionNum: 1, backend: "codex" });
     // Agents must make the actual question or decision visible before firing
     // the notification chip; otherwise the user sees an alert without context.
-    expect(result).toContain("first output the detailed question, decision options, or confirmation text");
-    expect(result).toContain("After that text is complete, call `takode notify needs-input`");
+    expect(result).toContain("first publish the detailed question, decision options, or confirmation text");
+    expect(result).toContain("`takode user-message --text-file -`");
+    expect(result).toContain("normal worker and reviewer sessions should ignore `takode user-message`");
+    expect(result).toContain("After that text is visible, call `takode notify needs-input`");
     expect(result).toContain("Do not fire the notification before the detailed text is visible");
     expect(result).toContain("one to three `--suggest <answer>` options");
     expect(result).toContain("never use suggestions instead of writing the full context in chat");
@@ -81,7 +83,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("approval-gated runs");
     expect(result).toContain("route back deliberately: `implement`");
     expect(result).toContain("point the worker at the exact prior messages, quests, or discussions");
-    expect(result).toContain("after that text is complete, call `takode notify needs-input`");
+    expect(result).toContain("After that user-visible text exists, call `takode notify needs-input`");
   });
 
   it("returns codex-flavored guardrails for codex backend", () => {

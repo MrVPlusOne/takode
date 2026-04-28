@@ -406,7 +406,7 @@ export function PlaygroundOverviewSections() {
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />
           </Card>
-          <Card label="Assistant message (deprecated tag shown raw)">
+          <Card label="Assistant message (explicit leader user-message)">
             <MessageBubble message={MSG_ASSISTANT_LEADER_USER} />
           </Card>
           <Card label="Assistant message (with tool calls)">

@@ -604,8 +604,9 @@ export const MSG_ASSISTANT: ChatMessage = {
 export const MSG_ASSISTANT_LEADER_USER: ChatMessage = {
   id: "msg-leader-user",
   role: "assistant",
-  content: "Worker #7 finished q-126 and opened a PR. Please review the leader chat behavior. @to(user)",
+  content: "Worker #7 finished q-126 and opened a PR. Please review the leader chat behavior.",
   timestamp: Date.now() - 48000,
+  metadata: { leaderUserMessage: true },
 };
 
 export const MSG_ASSISTANT_TOOLS: ChatMessage = {

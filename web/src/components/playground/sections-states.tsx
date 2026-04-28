@@ -1052,9 +1052,8 @@ export function PlaygroundStateSections() {
               </button>
             </div>
           </Card>
-          <Card label="Collapsed leader turn — deprecated tags stay in raw text">
+          <Card label="Collapsed leader turn — explicit user-message visible">
             <div className="space-y-3">
-              {/* Collapsed activity card */}
               <div className="flex items-start gap-3">
                 <PawTrailAvatar />
                 <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
@@ -1062,6 +1061,8 @@ export function PlaygroundStateSections() {
                     <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
                       <path d="M6 4l4 4-4 4" />
                     </svg>
+                    <span>Leader activity</span>
+                    <span className="text-cc-muted/40">&middot;</span>
                     <span>3 messages</span>
                     <span className="text-cc-muted/40">&middot;</span>
                     <span>6 tools</span>
@@ -1077,22 +1078,24 @@ export function PlaygroundStateSections() {
                   id: "playground-collapsed-touser",
                   role: "assistant",
                   content:
-                    "Approved #70's plan for q-43. It's a clean unification: resize once at store time (1920px max). @to(user)",
+                    "Approved #70's plan for q-43. It's a clean unification: resize once at store time (1920px max).",
                   timestamp: Date.now() - 60000,
+                  metadata: { leaderUserMessage: true },
                 }}
               />
             </div>
           </Card>
-          <Card label="Collapsed leader turn — sub-conclusions (no herd summary lines)">
+          <Card label="Collapsed leader turn — private activity only">
             <div className="space-y-3">
               <div className="flex items-start gap-3">
                 <PawTrailAvatar />
                 <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
-                  {/* Collapsed activity bar */}
                   <button className="w-full flex items-center gap-1.5 py-1.5 px-3 border-l-2 border-cc-border/40 bg-cc-hover/10 hover:bg-cc-hover/30 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code">
                     <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
                       <path d="M6 4l4 4-4 4" />
                     </svg>
+                    <span>Leader activity</span>
+                    <span className="text-cc-muted/40">&middot;</span>
                     <span>12 messages</span>
                     <span className="text-cc-muted/40">&middot;</span>
                     <span>15 tools</span>
@@ -1101,36 +1104,6 @@ export function PlaygroundStateSections() {
                     <span className="text-cc-muted/40">&middot;</span>
                     <span>45m</span>
                   </button>
-                  {/* Sub-conclusions (herd summary lines omitted in collapsed view) */}
-                  <div className="px-3 pt-2 space-y-1.5">
-                    <MessageBubble
-                      message={{
-                        id: "playground-subconc-1",
-                        role: "assistant",
-                        content: "Dispatched #264 to work on q-42. Spawned skeptic reviewer #265.",
-                        timestamp: Date.now() - 120000,
-                      }}
-                    />
-                    <MessageBubble
-                      message={{
-                        id: "playground-subconc-2",
-                        role: "assistant",
-                        content: "q-42 complete! Skeptic ACCEPTED. Now dispatching q-43 to #266.",
-                        timestamp: Date.now() - 60000,
-                      }}
-                    />
-                  </div>
-                  {/* Final response entry */}
-                  <div className="px-3 py-2.5">
-                    <MessageBubble
-                      message={{
-                        id: "playground-subconc-final",
-                        role: "assistant",
-                        content: "All 3 quests dispatched and verified. Porting commits to main now.",
-                        timestamp: Date.now() - 30000,
-                      }}
-                    />
-                  </div>
                 </div>
               </div>
             </div>
