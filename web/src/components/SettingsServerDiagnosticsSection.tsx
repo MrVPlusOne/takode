@@ -21,6 +21,28 @@ function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; 
   );
 }
 
+function SessionSummaryList({
+  items,
+  emptyText,
+}: {
+  items: Array<{ sessionId: string; label: string }>;
+  emptyText: string;
+}) {
+  if (items.length === 0) {
+    return <p className="text-xs text-cc-muted">{emptyText}</p>;
+  }
+
+  return (
+    <ul className="space-y-2 text-xs text-cc-fg">
+      {items.map((item) => (
+        <li key={item.sessionId} className="rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2">
+          <div className="font-medium">{item.label}</div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
 export function SettingsServerDiagnosticsSection({
   logFile,
   restartSupported,
@@ -46,7 +68,7 @@ export function SettingsServerDiagnosticsSection({
   async function onInterruptRestartBlockers() {
     if (
       !window.confirm(
-        "Interrupt all restart-blocking sessions? This will stop active work and clear pending permission blockers so the server can be restarted safely.",
+        "Prepare restart by interrupting active restart blockers? This stops active work, protects idle leaders from prep-related herd wakeups, and reports blockers that remain unresolved.",
       )
     ) {
       return;
@@ -164,7 +186,15 @@ export function SettingsServerDiagnosticsSection({
                   interruptResult.skipped.length === 0 &&
                   interruptResult.failures.length === 0
                     ? "No restart-blocking sessions were active."
-                    : "Sessions were targeted using the same blocker rules as the restart safety check."}
+                    : interruptResult.restartRequested
+                      ? "Restart was requested after blockers cleared."
+                      : interruptResult.unresolvedBlockers.length > 0
+                        ? "Restart prep ran, but some blockers are still unresolved."
+                        : "Restart prep ran and no restart request was sent."}
+                </p>
+                <p className="mt-1 text-xs text-cc-muted">
+                  Mode: {interruptResult.mode}. Restart requested: {interruptResult.restartRequested ? "yes" : "no"}.
+                  {interruptResult.timedOut ? " Blocker wait timed out." : ""}
                 </p>
               </div>
 
@@ -176,6 +206,27 @@ export function SettingsServerDiagnosticsSection({
               <div className="space-y-2">
                 <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Skipped</p>
                 <ResultList items={interruptResult.skipped} emptyText="No sessions were skipped." />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Unresolved Blockers</p>
+                <ResultList items={interruptResult.unresolvedBlockers} emptyText="No blockers remain reported." />
+              </div>
+
+              <div className="space-y-2">
+                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Protected Leaders</p>
+                <SessionSummaryList
+                  items={interruptResult.protectedLeaders}
+                  emptyText="No idle leaders needed herd-delivery protection."
+                />
+              </div>
+
+              <div className="space-y-1">
+                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Herd Delivery</p>
+                <p className="text-xs text-cc-muted">
+                  Suppressed prep events: {interruptResult.herdDelivery.suppressed}. Held unrelated events:{" "}
+                  {interruptResult.herdDelivery.held}.
+                </p>
               </div>
 
               <div className="space-y-2">

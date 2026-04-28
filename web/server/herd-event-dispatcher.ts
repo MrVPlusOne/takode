@@ -144,6 +144,45 @@ export interface LauncherHandle {
   getSession?(sessionId: string): { state?: string; killedByIdleManager?: boolean } | undefined;
 }
 
+export type RestartPrepMode = "standalone" | "restart";
+
+export interface RestartPrepSessionSummary {
+  sessionId: string;
+  label: string;
+}
+
+export interface RestartPrepOperationSnapshot {
+  operationId: string;
+  mode: RestartPrepMode;
+  startedAt: number;
+  timeoutMs: number;
+  suppressionTtlMs: number;
+  targetedSessions: RestartPrepSessionSummary[];
+  protectedLeaders: RestartPrepSessionSummary[];
+  suppressedHerdEvents: number;
+  heldHerdEvents: number;
+  unresolvedBlockers: RestartPrepSessionSummary[];
+}
+
+interface RestartPrepOperation {
+  operationId: string;
+  mode: RestartPrepMode;
+  startedAt: number;
+  timeoutMs: number;
+  suppressionTtlMs: number;
+  targetSessionIds: Set<string>;
+  protectedLeaderIds: Set<string>;
+  targetSummaries: RestartPrepSessionSummary[];
+  protectedLeaderSummaries: RestartPrepSessionSummary[];
+  suppressedHerdEvents: number;
+  heldHerdEvents: number;
+  unresolvedBlockers: RestartPrepSessionSummary[];
+  holdUntil: number;
+  suppressUntil: number;
+  releaseTimer: ReturnType<typeof setTimeout>;
+  cleanupTimer: ReturnType<typeof setTimeout>;
+}
+
 export function isSessionIdleRuntime(
   session:
     | {
@@ -220,6 +259,7 @@ interface InboxEntry {
   event: TakodeEvent;
   /** Monotonic sequence number within this inbox */
   seq: number;
+  heldByRestartPrepOperationId?: string;
 }
 
 interface DeliveryRecord {
@@ -227,7 +267,7 @@ interface DeliveryRecord {
   sessionName: string;
   ts: number;
   deliveredAt: number | null;
-  status: "pending" | "in_flight" | "confirmed" | "redelivered";
+  status: "pending" | "held" | "in_flight" | "confirmed" | "redelivered" | "suppressed";
 }
 
 interface HerdInbox {
@@ -258,6 +298,7 @@ export class HerdEventDispatcher {
   private takodeEventNextId = 0;
   private static readonly TAKODE_EVENT_LOG_LIMIT = 1000;
   private leaderGroupIdleStates: LeaderIdleStateLike["leaderGroupIdleStates"] = new Map();
+  private restartPrepOperations = new Map<string, RestartPrepOperation>();
 
   constructor(
     private wsBridge: WsBridgeHandle,
@@ -312,6 +353,55 @@ export class HerdEventDispatcher {
       callback,
       sinceEventId,
     );
+  }
+
+  beginRestartPrepOperation(options: {
+    operationId: string;
+    mode: RestartPrepMode;
+    targetSessions: RestartPrepSessionSummary[];
+    protectedLeaders: RestartPrepSessionSummary[];
+    timeoutMs: number;
+    suppressionTtlMs?: number;
+  }): RestartPrepOperationSnapshot {
+    const startedAt = Date.now();
+    const suppressionTtlMs = options.suppressionTtlMs ?? Math.max(options.timeoutMs * 6, 60_000);
+    const releaseTimer = setTimeout(() => {
+      this.releaseHeldRestartPrepEvents(options.operationId);
+    }, options.timeoutMs);
+    const cleanupTimer = setTimeout(() => {
+      this.restartPrepOperations.delete(options.operationId);
+    }, suppressionTtlMs);
+    const operation: RestartPrepOperation = {
+      operationId: options.operationId,
+      mode: options.mode,
+      startedAt,
+      timeoutMs: options.timeoutMs,
+      suppressionTtlMs,
+      targetSessionIds: new Set(options.targetSessions.map((session) => session.sessionId)),
+      protectedLeaderIds: new Set(options.protectedLeaders.map((session) => session.sessionId)),
+      targetSummaries: options.targetSessions,
+      protectedLeaderSummaries: options.protectedLeaders,
+      suppressedHerdEvents: 0,
+      heldHerdEvents: 0,
+      unresolvedBlockers: [],
+      holdUntil: startedAt + options.timeoutMs,
+      suppressUntil: startedAt + suppressionTtlMs,
+      releaseTimer,
+      cleanupTimer,
+    };
+    this.restartPrepOperations.set(operation.operationId, operation);
+    return this.snapshotRestartPrepOperation(operation);
+  }
+
+  updateRestartPrepUnresolvedBlockers(operationId: string, blockers: RestartPrepSessionSummary[]): void {
+    const operation = this.restartPrepOperations.get(operationId);
+    if (!operation) return;
+    operation.unresolvedBlockers = blockers;
+  }
+
+  getRestartPrepOperationSnapshot(operationId: string): RestartPrepOperationSnapshot | null {
+    const operation = this.restartPrepOperations.get(operationId);
+    return operation ? this.snapshotRestartPrepOperation(operation) : null;
   }
 
   onSessionActivityStateChanged(sessionId: string, reason: string): void {
@@ -398,9 +488,20 @@ export class HerdEventDispatcher {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
 
+    const policy = this.getRestartPrepDeliveryPolicy(orchId, event);
+    if (policy.kind === "suppress") {
+      this.recordRestartPrepSuppressed(policy.operation, event);
+      return;
+    }
+
     // Append to inbox (pure in-memory, never fails)
     const seq = inbox.nextSeq++;
-    inbox.entries.push({ event, seq });
+    const entry: InboxEntry = { event, seq };
+    if (policy.kind === "hold") {
+      entry.heldByRestartPrepOperationId = policy.operation.operationId;
+      policy.operation.heldHerdEvents += 1;
+    }
+    inbox.entries.push(entry);
 
     // Track in delivery history
     inbox.deliveryHistory.push({
@@ -408,7 +509,7 @@ export class HerdEventDispatcher {
       sessionName: event.sessionName,
       ts: event.ts,
       deliveredAt: null,
-      status: "pending",
+      status: policy.kind === "hold" ? "held" : "pending",
     });
     if (inbox.deliveryHistory.length > HISTORY_CAP) {
       inbox.deliveryHistory.splice(0, inbox.deliveryHistory.length - HISTORY_CAP);
@@ -447,6 +548,8 @@ export class HerdEventDispatcher {
         inbox.confirmedUpTo = Math.max(inbox.confirmedUpTo, inbox.entries[0].seq);
       }
     }
+
+    if (policy.kind === "hold") return;
 
     // If orchestrator is idle, schedule delivery
     if (this.isSessionIdle(orchId)) {
@@ -546,7 +649,7 @@ export class HerdEventDispatcher {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return 0;
     this.pruneStaleBoardStallEntries(orchId, inbox);
-    const pending = this.getPendingEntries(inbox);
+    const pending = this.getDeliverablePendingEntries(orchId, inbox);
     if (pending.length === 0) return 0;
 
     const events = pending.map((e) => e.event);
@@ -619,7 +722,7 @@ export class HerdEventDispatcher {
     if (!inbox) return;
     this.pruneStaleBoardStallEntries(orchId, inbox);
 
-    const pending = this.getPendingEntries(inbox);
+    const pending = this.getDeliverablePendingEntries(orchId, inbox);
     if (pending.length === 0) {
       this.maybeRetireInbox(orchId, inbox);
       return;
@@ -694,9 +797,103 @@ export class HerdEventDispatcher {
     return inbox.entries.filter((e) => e.seq >= startSeq);
   }
 
+  private getDeliverablePendingEntries(orchId: string, inbox: HerdInbox): InboxEntry[] {
+    const deliverable: InboxEntry[] = [];
+    for (const entry of this.getPendingEntries(inbox)) {
+      const policy = this.getRestartPrepDeliveryPolicy(orchId, entry.event);
+      if (policy.kind === "deliver") {
+        if (entry.heldByRestartPrepOperationId) {
+          entry.heldByRestartPrepOperationId = undefined;
+        }
+        deliverable.push(entry);
+        continue;
+      }
+      if (policy.kind === "hold") {
+        if (!entry.heldByRestartPrepOperationId) {
+          entry.heldByRestartPrepOperationId = policy.operation.operationId;
+          policy.operation.heldHerdEvents += 1;
+          this.markDeliveryHistoryStatus(inbox, entry, "held");
+        }
+        continue;
+      }
+      this.recordRestartPrepSuppressed(policy.operation, entry.event);
+      this.markDeliveryHistoryStatus(inbox, entry, "suppressed");
+      inbox.entries = inbox.entries.filter((candidate) => candidate !== entry);
+    }
+    return deliverable;
+  }
+
   /** Count of events waiting to be delivered. */
   private pendingCount(inbox: HerdInbox): number {
     return this.getPendingEntries(inbox).length;
+  }
+
+  private getRestartPrepDeliveryPolicy(
+    orchId: string,
+    event: TakodeEvent,
+  ): { kind: "deliver" } | { kind: "hold" | "suppress"; operation: RestartPrepOperation } {
+    const now = Date.now();
+    for (const operation of this.restartPrepOperations.values()) {
+      if (!operation.protectedLeaderIds.has(orchId)) continue;
+      if (operation.targetSessionIds.has(event.sessionId) && now <= operation.suppressUntil) {
+        return { kind: "suppress", operation };
+      }
+      if (now <= operation.holdUntil) {
+        return { kind: "hold", operation };
+      }
+    }
+    return { kind: "deliver" };
+  }
+
+  private recordRestartPrepSuppressed(operation: RestartPrepOperation, event: TakodeEvent): void {
+    operation.suppressedHerdEvents += 1;
+    if (event.event === "turn_end" || event.event === "session_disconnected") {
+      operation.targetSessionIds.delete(event.sessionId);
+    }
+  }
+
+  private markDeliveryHistoryStatus(inbox: HerdInbox, entry: InboxEntry, status: DeliveryRecord["status"]): void {
+    const record = inbox.deliveryHistory.findLast(
+      (item) =>
+        item.event === entry.event.event && item.sessionName === entry.event.sessionName && item.ts === entry.event.ts,
+    );
+    if (record) record.status = status;
+  }
+
+  private releaseHeldRestartPrepEvents(operationId: string): void {
+    const operation = this.restartPrepOperations.get(operationId);
+    if (!operation) return;
+    operation.holdUntil = 0;
+    for (const leaderId of operation.protectedLeaderIds) {
+      const inbox = this.inboxes.get(leaderId);
+      if (!inbox) continue;
+      for (const entry of inbox.entries) {
+        if (entry.heldByRestartPrepOperationId !== operationId) continue;
+        entry.heldByRestartPrepOperationId = undefined;
+        this.markDeliveryHistoryStatus(inbox, entry, "pending");
+      }
+      if (this.pendingCount(inbox) === 0) continue;
+      if (this.isSessionIdle(leaderId)) {
+        this.scheduleDelivery(leaderId);
+      } else if (this.wakeIdleKilledSession(leaderId)) {
+        console.log(`[herd-dispatcher] Woke idle-killed leader ${leaderId} after restart-prep hold expired`);
+      }
+    }
+  }
+
+  private snapshotRestartPrepOperation(operation: RestartPrepOperation): RestartPrepOperationSnapshot {
+    return {
+      operationId: operation.operationId,
+      mode: operation.mode,
+      startedAt: operation.startedAt,
+      timeoutMs: operation.timeoutMs,
+      suppressionTtlMs: operation.suppressionTtlMs,
+      targetedSessions: operation.targetSummaries,
+      protectedLeaders: operation.protectedLeaderSummaries,
+      suppressedHerdEvents: operation.suppressedHerdEvents,
+      heldHerdEvents: operation.heldHerdEvents,
+      unresolvedBlockers: operation.unresolvedBlockers,
+    };
   }
 
   private isSessionIdle(sessionId: string): boolean {
@@ -767,6 +964,11 @@ export class HerdEventDispatcher {
       if (idleState.timer) clearTimeout(idleState.timer);
     }
     this.leaderGroupIdleStates.clear();
+    for (const operation of this.restartPrepOperations.values()) {
+      clearTimeout(operation.releaseTimer);
+      clearTimeout(operation.cleanupTimer);
+    }
+    this.restartPrepOperations.clear();
   }
 
   /** Get diagnostic info about an orchestrator's herd event state. */

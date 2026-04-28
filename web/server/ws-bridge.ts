@@ -379,6 +379,9 @@ interface Session {
   interruptedDuringTurn: boolean;
   /** Source of the current turn interruption (if interruptedDuringTurn=true). */
   interruptSourceDuringTurn: InterruptSource | null;
+  /** Optional restart-prep metadata for a user-sourced interrupt. */
+  restartPrepInterruptOperationId?: string | null;
+  restartPrepInterruptOrigin?: "restart_prep" | null;
   /** Consecutive SDK/adapter disconnect count without a successful turn completion.
    *  Used to cap auto-relaunch attempts and prevent infinite respawn loops. */
   consecutiveAdapterFailures: number;
@@ -1171,9 +1174,17 @@ export class WsBridge {
     return this.sessions.get(sessionId);
   }
 
-  async interruptSession(sessionId: string, source: InterruptSource = "user"): Promise<boolean> {
+  async interruptSession(
+    sessionId: string,
+    source: InterruptSource = "user",
+    options?: { interruptOrigin?: "restart_prep"; restartPrepOperationId?: string },
+  ): Promise<boolean> {
     const session = this.sessions.get(sessionId);
     if (!session) return false;
+    if (options?.interruptOrigin === "restart_prep" && session.isGenerating) {
+      session.restartPrepInterruptOrigin = "restart_prep";
+      session.restartPrepInterruptOperationId = options.restartPrepOperationId ?? null;
+    }
     await routeBrowserMessageController(
       session,
       { type: "interrupt", interruptSource: source },

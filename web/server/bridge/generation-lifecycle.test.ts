@@ -204,6 +204,28 @@ describe("setGenerating(false) — queued turn handling", () => {
       expect.objectContaining({ interrupted: true, interrupt_source: "system" }),
     );
   });
+
+  it("emits restart-prep origin metadata without changing user interrupt semantics", () => {
+    setGenerating(deps, session, true, "initial");
+
+    session.restartPrepInterruptOrigin = "restart_prep";
+    session.restartPrepInterruptOperationId = "prep-1";
+    markTurnInterrupted(session, "user");
+    setGenerating(deps, session, false, "interrupt");
+
+    expect(deps.emitTakodeEvent).toHaveBeenLastCalledWith(
+      session.id,
+      "turn_end",
+      expect.objectContaining({
+        interrupted: true,
+        interrupt_source: "user",
+        interrupt_origin: "restart_prep",
+        restart_prep_operation_id: "prep-1",
+      }),
+    );
+    expect(session.restartPrepInterruptOrigin).toBeNull();
+    expect(session.restartPrepInterruptOperationId).toBeNull();
+  });
 });
 
 describe("RECOVERY_REASONS", () => {

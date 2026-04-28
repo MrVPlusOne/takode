@@ -1,7 +1,9 @@
 import { Hono } from "hono";
 import { exec as execCb } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { resolveBinary, getEnrichedPath } from "../path-resolver.js";
+import type { RestartPrepOperationSnapshot, RestartPrepSessionSummary } from "../herd-event-dispatcher.js";
 import {
   getSettings,
   updateSettings,
@@ -26,6 +28,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
   const { launcher, wsBridge, options, pushoverNotifier } = ctx;
   const execPromise = promisify(execCb);
+  const restartPrepTimeoutMs = Number(process.env.COMPANION_RESTART_PREP_TIMEOUT_MS || "8000");
 
   interface RestartBlockingSession {
     sessionId: string;
@@ -33,6 +36,36 @@ export function createSettingsRoutes(ctx: RouteContext) {
     herdedBy: string | null;
     reasons: string[];
     originalIndex: number;
+  }
+
+  interface RestartPrepResult {
+    ok: boolean;
+    operationId: string | null;
+    mode: "standalone" | "restart";
+    restartRequested: boolean;
+    timedOut: boolean;
+    interrupted: Array<{ sessionId: string; label: string; reasons: string[] }>;
+    skipped: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }>;
+    failures: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }>;
+    protectedLeaders: RestartPrepSessionSummary[];
+    unresolvedBlockers: Array<{ sessionId: string; label: string; reasons: string[]; detail?: string }>;
+    herdDelivery: {
+      suppressed: number;
+      held: number;
+    };
+  }
+
+  interface RestartPrepCoordinator {
+    beginRestartPrepOperation: (options: {
+      operationId: string;
+      mode: "standalone" | "restart";
+      targetSessions: RestartPrepSessionSummary[];
+      protectedLeaders: RestartPrepSessionSummary[];
+      timeoutMs: number;
+      suppressionTtlMs?: number;
+    }) => RestartPrepOperationSnapshot;
+    updateRestartPrepUnresolvedBlockers: (operationId: string, blockers: RestartPrepSessionSummary[]) => void;
+    getRestartPrepOperationSnapshot: (operationId: string) => RestartPrepOperationSnapshot | null;
   }
 
   function getRestartBlockingSessions(): RestartBlockingSession[] {
@@ -95,37 +128,109 @@ export function createSettingsRoutes(ctx: RouteContext) {
     });
   }
 
-  // ─── Server restart ───────────────────────────────────────────────
+  function getRestartPrepCoordinator(): RestartPrepCoordinator | null {
+    return (
+      ((wsBridge as unknown as { herdEventDispatcher?: unknown }).herdEventDispatcher as RestartPrepCoordinator) ?? null
+    );
+  }
 
-  api.post("/server/restart", (c) => {
-    if (!options?.requestRestart) {
-      return c.json({ error: "Restart not supported in this mode" }, 503);
-    }
-    // Block restart while sessions are still holding the restart readiness gate.
-    const busySessions = getRestartBlockingSessions();
-    if (busySessions.length > 0) {
-      return c.json(
-        {
-          error: `Cannot restart while ${busySessions.length} session(s) are still blocking restart readiness. Please stop them first: ${busySessions
-            .map((session) => session.label)
-            .join(", ")}`,
-        },
-        409,
-      );
-    }
-    options.requestRestart();
-    return c.json({ ok: true });
-  });
+  function summarizeSession(sessionId: string, fallbackLabel?: string): RestartPrepSessionSummary {
+    const sessionInfo = launcher.getSession(sessionId);
+    const sessionNum = typeof launcher.getSessionNum === "function" ? launcher.getSessionNum(sessionId) : null;
+    return {
+      sessionId,
+      label: sessionInfo?.name || fallbackLabel || (sessionNum != null ? `#${sessionNum}` : sessionId.slice(0, 8)),
+    };
+  }
 
-  api.post("/server/interrupt-all", async (c) => {
-    const blockers = sortInterruptSessionsByDependency(getRestartBlockingSessions());
-    const interrupted: Array<{ sessionId: string; label: string; reasons: string[] }> = [];
-    const skipped: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }> = [];
-    const failures: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }> = [];
+  function getProtectedLeaders(blockers: RestartBlockingSession[]): RestartPrepSessionSummary[] {
+    const protectedById = new Map<string, RestartPrepSessionSummary>();
+    const launcherSessions = new Map(
+      launcher.listSessions().map((sessionInfo) => [sessionInfo.sessionId, sessionInfo]),
+    );
 
     for (const blocker of blockers) {
+      const blockerInfo = launcherSessions.get(blocker.sessionId);
+      if (blockerInfo?.isOrchestrator) {
+        protectedById.set(blocker.sessionId, summarizeSession(blocker.sessionId, blocker.label));
+      }
+
+      const seen = new Set<string>([blocker.sessionId]);
+      let leaderId = blocker.herdedBy;
+      while (leaderId && !seen.has(leaderId)) {
+        seen.add(leaderId);
+        protectedById.set(leaderId, summarizeSession(leaderId));
+        leaderId = launcherSessions.get(leaderId)?.herdedBy ?? null;
+      }
+    }
+
+    return [...protectedById.values()];
+  }
+
+  function blockerToResultItem(blocker: RestartBlockingSession): {
+    sessionId: string;
+    label: string;
+    reasons: string[];
+    detail?: string;
+  } {
+    const permissionReason = blocker.reasons.find((reason) => reason.includes("pending permission"));
+    return {
+      sessionId: blocker.sessionId,
+      label: blocker.label,
+      reasons: blocker.reasons,
+      ...(permissionReason
+        ? {
+            detail:
+              "Pending permission blockers remain unresolved until the backend reports cancellation or resolution.",
+          }
+        : {}),
+    };
+  }
+
+  function snapshotHerdDelivery(operationId: string | null): { suppressed: number; held: number } {
+    if (!operationId) return { suppressed: 0, held: 0 };
+    const snapshot = getRestartPrepCoordinator()?.getRestartPrepOperationSnapshot(operationId);
+    return {
+      suppressed: snapshot?.suppressedHerdEvents ?? 0,
+      held: snapshot?.heldHerdEvents ?? 0,
+    };
+  }
+
+  function beginRestartPrepOperation(
+    blockers: RestartBlockingSession[],
+    mode: "standalone" | "restart",
+    timeoutMs: number,
+  ): string | null {
+    if (blockers.length === 0) return null;
+    const coordinator = getRestartPrepCoordinator();
+    if (!coordinator) return null;
+
+    const operationId = randomUUID();
+    coordinator.beginRestartPrepOperation({
+      operationId,
+      mode,
+      targetSessions: blockers.map((blocker) => ({ sessionId: blocker.sessionId, label: blocker.label })),
+      protectedLeaders: getProtectedLeaders(blockers),
+      timeoutMs,
+    });
+    return operationId;
+  }
+
+  async function interruptRestartBlockers(
+    blockers: RestartBlockingSession[],
+    operationId: string | null,
+  ): Promise<Pick<RestartPrepResult, "interrupted" | "skipped" | "failures">> {
+    const interrupted: RestartPrepResult["interrupted"] = [];
+    const skipped: RestartPrepResult["skipped"] = [];
+    const failures: RestartPrepResult["failures"] = [];
+
+    for (const blocker of sortInterruptSessionsByDependency(blockers)) {
       try {
-        const routed = await wsBridge.interruptSession(blocker.sessionId, "user");
+        const routed = await wsBridge.interruptSession(
+          blocker.sessionId,
+          "user",
+          operationId ? { interruptOrigin: "restart_prep", restartPrepOperationId: operationId } : undefined,
+        );
         if (!routed) {
           skipped.push({
             sessionId: blocker.sessionId,
@@ -150,12 +255,131 @@ export function createSettingsRoutes(ctx: RouteContext) {
       }
     }
 
-    return c.json({
-      ok: failures.length === 0,
-      interrupted,
-      skipped,
-      failures,
-    });
+    return { interrupted, skipped, failures };
+  }
+
+  async function waitForRestartReadiness(
+    timeoutMs: number,
+  ): Promise<{ timedOut: boolean; blockers: RestartBlockingSession[] }> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const blockers = getRestartBlockingSessions();
+      if (blockers.length === 0) return { timedOut: false, blockers: [] };
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const blockers = getRestartBlockingSessions();
+    return { timedOut: blockers.length > 0, blockers };
+  }
+
+  function buildRestartPrepResult(options: {
+    mode: "standalone" | "restart";
+    operationId: string | null;
+    restartRequested: boolean;
+    timedOut: boolean;
+    interrupted: RestartPrepResult["interrupted"];
+    skipped: RestartPrepResult["skipped"];
+    failures: RestartPrepResult["failures"];
+    protectedLeaders: RestartPrepSessionSummary[];
+    unresolvedBlockers: RestartBlockingSession[];
+  }): RestartPrepResult {
+    const unresolvedBlockers = options.unresolvedBlockers.map(blockerToResultItem);
+    if (options.operationId) {
+      getRestartPrepCoordinator()?.updateRestartPrepUnresolvedBlockers(options.operationId, unresolvedBlockers);
+    }
+    return {
+      ok: options.failures.length === 0 && unresolvedBlockers.length === 0,
+      operationId: options.operationId,
+      mode: options.mode,
+      restartRequested: options.restartRequested,
+      timedOut: options.timedOut,
+      interrupted: options.interrupted,
+      skipped: options.skipped,
+      failures: options.failures,
+      protectedLeaders: options.protectedLeaders,
+      unresolvedBlockers,
+      herdDelivery: snapshotHerdDelivery(options.operationId),
+    };
+  }
+
+  // ─── Server restart ───────────────────────────────────────────────
+
+  api.post("/server/restart", async (c) => {
+    if (!options?.requestRestart) {
+      return c.json({ error: "Restart not supported in this mode" }, 503);
+    }
+    // Block restart while sessions are still holding the restart readiness gate.
+    const busySessions = getRestartBlockingSessions();
+    if (busySessions.length > 0) {
+      const timeoutMs = restartPrepTimeoutMs;
+      const operationId = beginRestartPrepOperation(busySessions, "restart", timeoutMs);
+      const protectedLeaders = getProtectedLeaders(busySessions);
+      const { interrupted, skipped, failures } = await interruptRestartBlockers(busySessions, operationId);
+      const readiness =
+        failures.length === 0
+          ? await waitForRestartReadiness(timeoutMs)
+          : { timedOut: false, blockers: getRestartBlockingSessions() };
+      if (readiness.blockers.length > 0 || failures.length > 0) {
+        const result = buildRestartPrepResult({
+          mode: "restart",
+          operationId,
+          restartRequested: false,
+          timedOut: readiness.timedOut,
+          interrupted,
+          skipped,
+          failures,
+          protectedLeaders,
+          unresolvedBlockers: readiness.blockers,
+        });
+        return c.json(
+          {
+            error: `Cannot restart while ${readiness.blockers.length} session(s) are still blocking restart readiness: ${readiness.blockers
+              .map((session) => session.label)
+              .join(", ")}`,
+            result,
+          },
+          409,
+        );
+      }
+      options.requestRestart();
+      return c.json(
+        buildRestartPrepResult({
+          mode: "restart",
+          operationId,
+          restartRequested: true,
+          timedOut: false,
+          interrupted,
+          skipped,
+          failures,
+          protectedLeaders,
+          unresolvedBlockers: [],
+        }),
+      );
+    }
+    options.requestRestart();
+    return c.json({ ok: true, restartRequested: true });
+  });
+
+  api.post("/server/interrupt-all", async (c) => {
+    const blockers = getRestartBlockingSessions();
+    const timeoutMs = restartPrepTimeoutMs;
+    const operationId = beginRestartPrepOperation(blockers, "standalone", timeoutMs);
+    const protectedLeaders = getProtectedLeaders(blockers);
+    const { interrupted, skipped, failures } = await interruptRestartBlockers(blockers, operationId);
+    const unresolvedBlockers = getRestartBlockingSessions();
+
+    return c.json(
+      buildRestartPrepResult({
+        mode: "standalone",
+        operationId,
+        restartRequested: false,
+        timedOut: false,
+        interrupted,
+        skipped,
+        failures,
+        protectedLeaders,
+        unresolvedBlockers,
+      }),
+    );
   });
 
   // ─── Settings (~/.companion/settings-{port}.json; migrates legacy settings.json) ────────────────────────

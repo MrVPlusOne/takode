@@ -709,6 +709,145 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("suppresses restart-prep target events before enqueue or idle-killed wake", () => {
+    // Restart-prep worker interruptions should not wake an idle-killed leader
+    // through the normal herd delivery path.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "standalone",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    vi.mocked(bridge.wakeIdleKilledSession).mockReturnValue(true);
+
+    triggerEvent(makeEvent({ event: "turn_end", sessionId: "worker-1" }));
+
+    expect(bridge.wakeIdleKilledSession).not.toHaveBeenCalled();
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(dispatcher._getInbox("orch-1")?.entries).toHaveLength(0);
+    expect(dispatcher.getRestartPrepOperationSnapshot("prep-1")?.suppressedHerdEvents).toBe(1);
+
+    dispatcher.destroy();
+  });
+
+  it("holds unrelated protected-leader events during standalone prep and releases them after timeout", () => {
+    // Unrelated herd events should not wake the leader during restart prep, but
+    // they can be delivered after the standalone prep window expires.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "standalone",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    triggerEvent(makeEvent({ event: "permission_request", sessionId: "worker-2", sessionName: "other-worker" }));
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(dispatcher._getInbox("orch-1")?.deliveryHistory[0]?.status).toBe("held");
+
+    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(dispatcher.getRestartPrepOperationSnapshot("prep-1")?.heldHerdEvents).toBe(1);
+
+    dispatcher.destroy();
+  });
+
+  it("wakes an idle-killed protected leader only after unrelated held events are released", () => {
+    // Held unrelated events should not wake a protected leader during prep, but
+    // after the hold window expires they return to the normal delivery policy.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "standalone",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    vi.mocked(bridge.wakeIdleKilledSession).mockReturnValue(true);
+    triggerEvent(makeEvent({ event: "permission_request", sessionId: "worker-2", sessionName: "other-worker" }));
+
+    expect(bridge.wakeIdleKilledSession).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+
+    expect(bridge.wakeIdleKilledSession).toHaveBeenCalledWith("orch-1");
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    dispatcher.destroy();
+  });
+
+  it("suppresses late target events after blocker timeout while suppression is still active", () => {
+    // The blocker wait timeout should not become the herd suppression lifetime:
+    // late prep-target turn_end events must still avoid leader wakeups.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "restart",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.advanceTimersByTime(1500);
+    triggerEvent(makeEvent({ event: "turn_end", sessionId: "worker-1" }));
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(dispatcher.getRestartPrepOperationSnapshot("prep-1")?.suppressedHerdEvents).toBe(1);
+
+    dispatcher.destroy();
+  });
+
+  it("does not force-flush held or suppressed restart-prep events", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "restart",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    triggerEvent(makeEvent({ event: "permission_request", sessionId: "worker-2", sessionName: "other-worker" }));
+    triggerEvent(makeEvent({ event: "turn_end", sessionId: "worker-1" }));
+
+    const flushed = dispatcher.forceFlushPendingEvents("orch-1");
+
+    expect(flushed).toBe(0);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(dispatcher.getRestartPrepOperationSnapshot("prep-1")?.suppressedHerdEvents).toBe(1);
+
+    dispatcher.destroy();
+  });
+
   it("flushes synchronously on turnEnd, not via microtask or 500ms debounce", () => {
     // Regression: flushing via microtask raced with promoteNextQueuedTurn()
     // which sets isGenerating=true synchronously after onOrchestratorTurnEnd,

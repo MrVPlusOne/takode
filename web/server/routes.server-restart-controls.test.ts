@@ -1,4 +1,4 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 
 vi.mock("./settings-manager.js", () => ({
@@ -25,6 +25,7 @@ vi.mock("./path-resolver.js", () => ({
 import { createSettingsRoutes } from "./routes/settings.js";
 import type { PermissionRequest } from "./session-types.js";
 import { WsBridge } from "./ws-bridge.js";
+import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
 
 type TestCliSocket = {
   send: ReturnType<typeof vi.fn>;
@@ -49,6 +50,8 @@ describe("server restart controls", () => {
   let launcher: {
     listSessions: ReturnType<typeof vi.fn>;
     getSessionNum: ReturnType<typeof vi.fn>;
+    getSession: ReturnType<typeof vi.fn>;
+    getHerdedSessions: ReturnType<typeof vi.fn>;
   };
   let requestRestart: ReturnType<typeof vi.fn>;
   let sentOrder: string[];
@@ -60,10 +63,22 @@ describe("server restart controls", () => {
     sentOrder = [];
     cliSockets = {};
     requestRestart = vi.fn();
+    process.env.COMPANION_RESTART_PREP_TIMEOUT_MS = "20";
     launcher = {
       listSessions: vi.fn(() => []),
       getSessionNum: vi.fn((sessionId: string) => ({ leader: 5, worker: 11, approval: 17 })[sessionId] ?? null),
+      getSession: vi.fn((sessionId: string) =>
+        (launcher.listSessions as unknown as () => Array<{ sessionId: string }>)().find(
+          (session) => session.sessionId === sessionId,
+        ),
+      ),
+      getHerdedSessions: vi.fn((leaderId: string) =>
+        (launcher.listSessions as unknown as () => Array<{ herdedBy?: string }>)().filter(
+          (session) => session.herdedBy === leaderId,
+        ),
+      ),
     };
+    (bridge as any).herdEventDispatcher = new HerdEventDispatcher(bridge as any, launcher as any);
 
     app = new Hono();
     app.route(
@@ -75,6 +90,10 @@ describe("server restart controls", () => {
         pushoverNotifier: undefined,
       } as any),
     );
+  });
+
+  afterEach(() => {
+    delete process.env.COMPANION_RESTART_PREP_TIMEOUT_MS;
   });
 
   function attachBlockingSession(
@@ -108,9 +127,20 @@ describe("server restart controls", () => {
     const res = await app.request("/api/server/restart", { method: "POST" });
 
     expect(res.status).toBe(409);
-    await expect(res.json()).resolves.toEqual({
-      error:
-        "Cannot restart while 1 session(s) are still blocking restart readiness. Please stop them first: Needs approval",
+    const body = await res.json();
+    expect(body.error).toBe("Cannot restart while 1 session(s) are still blocking restart readiness: Needs approval");
+    expect(body.result).toMatchObject({
+      ok: false,
+      mode: "restart",
+      restartRequested: false,
+      timedOut: true,
+      unresolvedBlockers: [
+        expect.objectContaining({
+          sessionId: "approval",
+          label: "Needs approval",
+          reasons: ["1 pending permission"],
+        }),
+      ],
     });
     expect(requestRestart).not.toHaveBeenCalled();
   });
@@ -135,7 +165,11 @@ describe("server restart controls", () => {
     expect(res.status).toBe(200);
     expect(sentOrder).toEqual(["worker", "leader", "approval"]);
     expect(body).toEqual({
-      ok: true,
+      ok: false,
+      operationId: expect.any(String),
+      mode: "standalone",
+      restartRequested: false,
+      timedOut: false,
       interrupted: [
         { sessionId: "worker", label: "Worker session", reasons: ["running"] },
         { sessionId: "leader", label: "Leader session", reasons: ["running"] },
@@ -143,12 +177,26 @@ describe("server restart controls", () => {
       ],
       skipped: [],
       failures: [],
+      protectedLeaders: [{ sessionId: "leader", label: "Leader session" }],
+      unresolvedBlockers: [
+        { sessionId: "leader", label: "Leader session", reasons: ["running"] },
+        { sessionId: "worker", label: "Worker session", reasons: ["running"] },
+        {
+          sessionId: "approval",
+          label: "Needs approval",
+          reasons: ["2 pending permissions"],
+          detail: "Pending permission blockers remain unresolved until the backend reports cancellation or resolution.",
+        },
+      ],
+      herdDelivery: { suppressed: 0, held: 0 },
     });
 
     const workerSession = bridge.getSession("worker");
     const leaderSession = bridge.getSession("leader");
     expect(workerSession?.interruptSourceDuringTurn).toBe("user");
     expect(workerSession?.interruptedDuringTurn).toBe(true);
+    expect(workerSession?.restartPrepInterruptOrigin).toBe("restart_prep");
+    expect(workerSession?.restartPrepInterruptOperationId).toBe(body.operationId);
     expect(workerSession?.messageHistory).not.toContainEqual(expect.objectContaining({ type: "user_message" }));
     expect(leaderSession?.interruptSourceDuringTurn).toBe("user");
 
@@ -158,5 +206,35 @@ describe("server restart controls", () => {
       expect(payload.type).toBe("control_request");
       expect(payload.request?.subtype).toBe("interrupt");
     }
+  });
+
+  it("protects an idle leader when only its running worker is interrupted", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "leader", state: "connected", name: "Leader session", isOrchestrator: true },
+      { sessionId: "worker", state: "connected", name: "Worker session", herdedBy: "leader" },
+    ]);
+    attachBlockingSession("worker", { isGenerating: true });
+    const leaderSession = bridge.getOrCreateSession("leader");
+    leaderSession.cliInitReceived = true;
+    cliSockets.leader = makeCliSocket("leader", sentOrder);
+    leaderSession.backendSocket = cliSockets.leader as any;
+
+    const res = await app.request("/api/server/interrupt-all", { method: "POST" });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(sentOrder).toEqual(["worker"]);
+    expect(body.protectedLeaders).toEqual([{ sessionId: "leader", label: "Leader session" }]);
+
+    (bridge as any).herdEventDispatcher.setupForOrchestrator("leader");
+    (bridge as any).herdEventDispatcher.emitTakodeEvent("worker", "turn_end", {
+      duration_ms: 1000,
+      interrupted: true,
+      interrupt_source: "user",
+    });
+
+    expect(cliSockets.leader?.send).not.toHaveBeenCalled();
+    const snapshot = (bridge as any).herdEventDispatcher.getRestartPrepOperationSnapshot(body.operationId);
+    expect(snapshot.suppressedHerdEvents).toBe(1);
   });
 });

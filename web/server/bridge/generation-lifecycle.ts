@@ -21,6 +21,8 @@ export interface GenerationLifecycleSession {
   messageCountAtTurnStart: number;
   interruptedDuringTurn: boolean;
   interruptSourceDuringTurn: InterruptSource | null;
+  restartPrepInterruptOperationId?: string | null;
+  restartPrepInterruptOrigin?: "restart_prep" | null;
   compactedDuringTurn: boolean;
   userMessageIdsThisTurn: number[];
   queuedTurnStarts: number;
@@ -230,6 +232,8 @@ function startQueuedTurn<S extends GenerationLifecycleSession>(
   session.messageCountAtTurnStart = session.messageHistory.length;
   session.interruptedDuringTurn = false;
   session.interruptSourceDuringTurn = null;
+  session.restartPrepInterruptOperationId = null;
+  session.restartPrepInterruptOrigin = null;
   session.compactedDuringTurn = false;
   session.userMessageIdsThisTurn = [...entry.userMessageIds];
   console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${turnReason})`);
@@ -309,6 +313,8 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.messageCountAtTurnStart = session.messageHistory.length;
     session.interruptedDuringTurn = false;
     session.interruptSourceDuringTurn = null;
+    session.restartPrepInterruptOperationId = null;
+    session.restartPrepInterruptOrigin = null;
     session.compactedDuringTurn = false;
     session.userMessageIdsThisTurn = [];
     console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
@@ -331,15 +337,21 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     const toolSummary = deps.buildTurnToolSummary(session);
     const interrupted = session.interruptedDuringTurn;
     const interruptSource = interrupted ? session.interruptSourceDuringTurn || "system" : null;
+    const interruptOrigin = interrupted ? session.restartPrepInterruptOrigin || null : null;
+    const restartPrepOperationId = interrupted ? session.restartPrepInterruptOperationId || null : null;
     const compacted = session.compactedDuringTurn;
     const turnSource = deps.getCurrentTurnTriggerSource?.(session) ?? "unknown";
     session.interruptedDuringTurn = false;
     session.interruptSourceDuringTurn = null;
+    session.restartPrepInterruptOperationId = null;
+    session.restartPrepInterruptOrigin = null;
     session.compactedDuringTurn = false;
     deps.emitTakodeEvent(session.id, "turn_end", {
       reason,
       duration_ms: elapsed,
       ...(interrupted ? { interrupted: true, interrupt_source: interruptSource } : {}),
+      ...(interruptOrigin ? { interrupt_origin: interruptOrigin } : {}),
+      ...(restartPrepOperationId ? { restart_prep_operation_id: restartPrepOperationId } : {}),
       ...(compacted ? { compacted: true } : {}),
       ...toolSummary,
       turn_source: turnSource,

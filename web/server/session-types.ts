@@ -995,6 +995,8 @@ export interface TakodeTurnEndEventData {
   is_error?: boolean;
   interrupted?: boolean;
   interrupt_source?: "user" | "leader" | "system";
+  interrupt_origin?: "restart_prep";
+  restart_prep_operation_id?: string;
   compacted?: boolean;
   tools?: Record<string, number>;
   resultPreview?: string;

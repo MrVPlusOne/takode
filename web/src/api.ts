@@ -686,9 +686,19 @@ export interface ServerInterruptResultItem {
 
 export interface InterruptRestartBlockersResponse {
   ok: boolean;
+  operationId: string | null;
+  mode: "standalone" | "restart";
+  restartRequested: boolean;
+  timedOut: boolean;
   interrupted: ServerInterruptResultItem[];
   skipped: ServerInterruptResultItem[];
   failures: ServerInterruptResultItem[];
+  protectedLeaders: Array<{ sessionId: string; label: string }>;
+  unresolvedBlockers: ServerInterruptResultItem[];
+  herdDelivery: {
+    suppressed: number;
+    held: number;
+  };
 }
 
 export const api = {
