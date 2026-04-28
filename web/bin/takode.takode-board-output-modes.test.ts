@@ -88,6 +88,11 @@ describe("takode board output modes", () => {
                 workerNum: 558,
                 status: "CODE_REVIEWING",
                 waitFor: ["#560"],
+                journey: {
+                  phaseIds: ["alignment", "implement", "code-review", "port"],
+                  activePhaseIndex: 2,
+                  revisionReason: "Need another pass before port",
+                },
                 createdAt: 1,
                 updatedAt: 2,
               },
@@ -122,6 +127,8 @@ describe("takode board output modes", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("#558 idle / #560 running");
       expect(result.stdout).toContain("read the code-review leader brief");
+      expect(result.stdout).not.toContain("revised:");
+      expect(result.stdout).not.toContain("Need another pass before port");
     } finally {
       server.close();
     }

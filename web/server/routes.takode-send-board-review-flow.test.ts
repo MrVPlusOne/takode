@@ -1066,7 +1066,7 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("preserves the active phase and records a revision reason when revising remaining phases", async () => {
+  it("preserves completed phases and records revision metadata without requiring a reason", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -1080,6 +1080,7 @@ describe("Takode server-authoritative auth", () => {
           journey: {
             presetId: "full-code",
             phaseIds: ["alignment", "implement", "code-review", "port"],
+            activePhaseIndex: 1,
             currentPhaseId: "implement",
           },
         },
@@ -1091,9 +1092,8 @@ describe("Takode server-authoritative auth", () => {
       headers: authHeaders("orch-1", "tok-1"),
       body: JSON.stringify({
         questId: "q-9",
-        phases: ["implement", "outcome-review", "code-review", "port"],
+        phases: ["alignment", "implement", "outcome-review", "code-review", "port"],
         presetId: "cli-rollout",
-        revisionReason: "Need real outcome evidence before final review",
       }),
     });
 
@@ -1105,13 +1105,163 @@ describe("Takode server-authoritative auth", () => {
           status: "IMPLEMENTING",
           journey: {
             presetId: "cli-rollout",
-            phaseIds: ["implement", "outcome-review", "code-review", "port"],
+            phaseIds: ["alignment", "implement", "outcome-review", "code-review", "port"],
+            activePhaseIndex: 1,
             currentPhaseId: "implement",
-            revisionReason: "Need real outcome evidence before final review",
             revisionCount: 1,
           },
         },
       ],
+    });
+  });
+
+  it("rejects revisions that mutate completed phase occurrences", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "CODE_REVIEWING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "full-code",
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            activePhaseIndex: 2,
+            currentPhaseId: "code-review",
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["implement", "code-review", "port"],
+        presetId: "rewritten-history",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Completed Journey phase occurrences cannot be revised in place"),
+    });
+  });
+
+  it("rejects phase note edits against completed phase occurrences", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "CODE_REVIEWING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "full-code",
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            activePhaseIndex: 2,
+            currentPhaseId: "code-review",
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phaseNoteEdits: [{ index: 1, note: "Rewrite completed implementation notes" }],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Completed Journey phase notes cannot be revised in place"),
+    });
+  });
+
+  it("rejects active boundary changes into the completed prefix", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "CODE_REVIEWING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "full-code",
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            activePhaseIndex: 2,
+            currentPhaseId: "code-review",
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        status: "IMPLEMENTING",
+        activePhaseIndex: 1,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("completed phase position"),
+    });
+  });
+
+  it("fails closed when a legacy active row has an ambiguous completed boundary", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "legacy-rework-loop",
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review", "implement", "port"],
+            currentPhaseId: "implement",
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
+        presetId: "legacy-rework-loop",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("completed phase boundary cannot be inferred"),
     });
   });
 
@@ -1880,7 +2030,7 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
-  it("realigns the current custom Journey phase when board set applies an explicit reset status", async () => {
+  it("realigns a queued custom Journey phase when board set applies an explicit start status", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -1888,13 +2038,12 @@ describe("Takode server-authoritative auth", () => {
         {
           questId: "q-9",
           title: "Investigate board lifecycle",
-          status: "OUTCOME_REVIEWING",
+          status: "QUEUED",
           createdAt: 1,
           updatedAt: 1,
           journey: {
             presetId: "investigation",
             phaseIds: ["alignment", "explore", "outcome-review"],
-            currentPhaseId: "outcome-review",
             nextLeaderAction: "stale outcome review action",
           },
         },

@@ -17,6 +17,7 @@ import {
   normalizeQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
   rebaseQuestJourneyPhaseNotes,
+  validateQuestJourneyCompletedPrefixRevision,
   type QuestJourneyLifecycleMode,
   type QuestJourneyPhaseId,
   type QuestJourneyPhaseNoteRebaseWarning,
@@ -1905,18 +1906,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
       }
       typedPhaseIds = normalizeQuestJourneyPhaseIds(phaseIds) as QuestJourneyPhaseId[];
       firstPlannedPhaseState = getQuestJourneyPhase(typedPhaseIds[0])?.boardState;
-      const phasesChanged =
-        typedPhaseIds.length !== existingPhaseIds.length ||
-        typedPhaseIds.some((phaseId, index) => phaseId !== existingPhaseIds[index]);
-      if (existingRow && phasesChanged && !revisionReason) {
-        return c.json(
-          {
-            error:
-              "Updating an existing Quest Journey requires a revision reason. Re-run with --revise-reason / revisionReason.",
-          },
-          400,
-        );
-      }
       const existingCurrentPhaseId = getQuestJourneyPhase(existingJourney?.currentPhaseId)?.id;
       if (
         targetMode === "active" &&
@@ -2002,6 +1991,21 @@ export function createTakodeRoutes(ctx: RouteContext) {
       );
     }
 
+    if (
+      existingJourney &&
+      existingMode === "active" &&
+      targetMode === "active" &&
+      (typedPhaseIds || phaseNoteEdits || explicitActivePhaseIndex !== null || explicitStatusPhase)
+    ) {
+      const historyError = validateQuestJourneyCompletedPrefixRevision({
+        existingPlan: existingJourney,
+        existingStatus: existingRow?.status,
+        ...(typedPhaseIds ? { nextPhaseIds: typedPhaseIds } : {}),
+        ...(phaseNoteEdits ? { phaseNoteEditIndices: phaseNoteEdits.map((edit) => edit.index) } : {}),
+      });
+      if (historyError) return c.json({ error: historyError }, 400);
+    }
+
     let phaseNoteRebaseWarnings: QuestJourneyPhaseNoteRebaseWarning[] = [];
     let phaseNotes = existingJourney?.phaseNotes;
     if (typedPhaseIds && existingJourney) {
@@ -2055,6 +2059,19 @@ export function createTakodeRoutes(ctx: RouteContext) {
           },
           400,
         );
+      }
+      if (
+        existingJourney &&
+        existingMode === "active" &&
+        (explicitActivePhaseIndex !== null || explicitStatusPhase) &&
+        activePhaseIndex !== undefined
+      ) {
+        const historyError = validateQuestJourneyCompletedPrefixRevision({
+          existingPlan: existingJourney,
+          existingStatus: existingRow?.status,
+          nextActivePhaseIndex: activePhaseIndex,
+        });
+        if (historyError) return c.json({ error: historyError }, 400);
       }
     }
 

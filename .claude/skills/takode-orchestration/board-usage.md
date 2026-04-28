@@ -10,7 +10,7 @@ While a quest is on the board, the current planned Journey shown there is board-
 
 Display the board with phase boundaries, the full Journey path, indexed phase notes, and next-action hints.
 
-### `takode board propose <quest-id> (--phases phase-a,phase-b | --spec-file proposal.json) [--preset preset-id] [--revise-reason "why"] [--wait-for-input 3,4 | --clear-wait-for-input]`
+### `takode board propose <quest-id> (--phases phase-a,phase-b | --spec-file proposal.json) [--preset preset-id] [--wait-for-input 3,4 | --clear-wait-for-input]`
 
 Draft or revise a proposed pre-dispatch Journey row. Proposed rows:
 
@@ -50,7 +50,7 @@ Normal promotion requires the current draft to have been presented. `--force-pro
 
 Add or clear one lightweight free-form note for a specific phase occurrence. Phase positions are 1-based in the CLI, so repeated phases can carry different notes.
 
-### `takode board set <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--phases phase-a,phase-b] [--preset preset-id] [--revise-reason "why"]`
+### `takode board set <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--phases phase-a,phase-b] [--preset preset-id]`
 
 Add or update a row.
 
@@ -62,7 +62,6 @@ Add or update a row.
 - `--clear-wait-for-input` removes that intentional human-input hold and resolves the linked notification(s)
 - `--phases` assembles the row's Journey from built-in phase IDs; repeated phases are allowed
 - `--preset` labels the planned phase sequence
-- `--revise-reason` records why an existing Journey's remaining phases changed
 - `--active-phase-position` pins the active occurrence for repeated phases using a 1-based position when `--status` alone would be ambiguous
 - phase notes rebase by phase occurrence during revisions; when a revision removes the target occurrence, the CLI warns so the leader can reattach the dropped reminder explicitly
 
@@ -93,9 +92,11 @@ Examples:
 - Scenario/design replay:
   `takode board set q-12 --worker 5 --phases alignment,mental-simulation --preset design-validation`
 - Revise the remaining Journey:
-  `takode board set q-12 --phases implement,outcome-review,code-review,port --preset cli-rollout --revise-reason "Need real outcome evidence before final review"`
+  `takode board set q-12 --phases alignment,implement,outcome-review,code-review,port --preset cli-rollout`
 - Add a note to the second `code-review` occurrence in a rework loop:
   `takode board note q-12 5 --text "inspect only the follow-up diff"`
+
+When revising an active row, already completed phase occurrences are historical. Keep the completed prefix unchanged and append a later repeated phase occurrence when requirements change after a phase has run.
 
 When `--phases` is supplied for a new active row and `--status` is omitted, the board starts that row at the first planned phase. When revising an existing active row, omitting `--status` preserves the current phase occurrence by index as long as the revised phase list still includes that active boundary.
 If a repeated phase is active and the occurrence itself matters, use `--active-phase-position` so the board state and UI do not have to guess which occurrence is current.

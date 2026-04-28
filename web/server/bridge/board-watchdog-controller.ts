@@ -249,6 +249,20 @@ function normalizeBoardRowJourneyPlan(
   );
 }
 
+function hasBoardJourneyRevision(
+  existing: BoardRow["journey"] | undefined,
+  incoming: BoardRow["journey"] | undefined,
+): boolean {
+  if (!existing || !incoming) return false;
+  if (incoming.revisionReason !== undefined) return true;
+  if (incoming.presetId !== undefined && incoming.presetId !== existing.presetId) return true;
+  if (incoming.phaseIds && incoming.phaseIds.join("\0") !== (existing.phaseIds ?? []).join("\0")) return true;
+  if (incoming.phaseNotes !== undefined) {
+    return JSON.stringify(incoming.phaseNotes ?? {}) !== JSON.stringify(existing.phaseNotes ?? {});
+  }
+  return false;
+}
+
 function completeBoardRow(
   session: SessionLike,
   questId: string,
@@ -324,14 +338,15 @@ export function upsertBoardRow(
   const now = Date.now();
   const status = mergeStr(row.status, existing?.status);
   const noCode = row.noCode !== undefined ? row.noCode : existing?.noCode;
+  const journeyRevised = hasBoardJourneyRevision(existing?.journey, row.journey);
   const baseJourney =
     row.journey || existing?.journey
       ? {
           ...existing?.journey,
           ...row.journey,
-          ...(row.journey?.revisionReason !== undefined
+          ...(journeyRevised
             ? {
-                revisedAt: row.journey.revisedAt ?? now,
+                revisedAt: row.journey?.revisedAt ?? now,
                 revisionCount: (existing?.journey?.revisionCount ?? 0) + 1,
               }
             : {}),

@@ -170,7 +170,7 @@ describe("BoardTable", () => {
     expect(within(summary).getByText("Implement")).toBeInTheDocument();
     expect(within(summary).getByText("2/4")).toBeInTheDocument();
     expect(within(summary).getByText("1 note")).toBeInTheDocument();
-    expect(summary).toHaveAttribute("title", "Journey revised: Need code review before port");
+    expect(summary).not.toHaveAttribute("title");
     expect(screen.queryByText("Alignment")).not.toBeInTheDocument();
     expect(screen.queryByText("Inspect only the follow-up diff")).not.toBeInTheDocument();
   });

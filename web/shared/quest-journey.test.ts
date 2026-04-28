@@ -19,6 +19,7 @@ import {
   QUEST_JOURNEY_PHASES,
   DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   QUEST_JOURNEY_HINTS,
+  validateQuestJourneyCompletedPrefixRevision,
   rebaseQuestJourneyPhaseNotes,
   type QuestJourneyPhaseId,
 } from "./quest-journey.js";
@@ -504,5 +505,61 @@ describe("Quest Journey phases", () => {
       },
       warnings: [],
     });
+  });
+
+  it("allows active Journey revisions that preserve the completed prefix", () => {
+    expect(
+      validateQuestJourneyCompletedPrefixRevision({
+        existingPlan: {
+          mode: "active",
+          phaseIds: ["alignment", "implement", "code-review", "port"],
+          activePhaseIndex: 2,
+        },
+        existingStatus: "CODE_REVIEWING",
+        nextPhaseIds: ["alignment", "implement", "code-review", "mental-simulation", "port"],
+      }),
+    ).toBeUndefined();
+  });
+
+  it("rejects active Journey revisions that rewrite completed phase occurrences", () => {
+    expect(
+      validateQuestJourneyCompletedPrefixRevision({
+        existingPlan: {
+          mode: "active",
+          phaseIds: ["alignment", "implement", "code-review", "port"],
+          activePhaseIndex: 2,
+        },
+        existingStatus: "CODE_REVIEWING",
+        nextPhaseIds: ["implement", "code-review", "port"],
+      }),
+    ).toMatch("Completed Journey phase occurrences cannot be revised in place");
+  });
+
+  it("rejects phase note edits against completed phase occurrences", () => {
+    expect(
+      validateQuestJourneyCompletedPrefixRevision({
+        existingPlan: {
+          mode: "active",
+          phaseIds: ["alignment", "implement", "code-review", "port"],
+          activePhaseIndex: 2,
+        },
+        existingStatus: "CODE_REVIEWING",
+        phaseNoteEditIndices: [1],
+      }),
+    ).toMatch("Completed Journey phase notes cannot be revised in place");
+  });
+
+  it("rejects ambiguous legacy active Journeys whose completed boundary cannot be inferred", () => {
+    expect(
+      validateQuestJourneyCompletedPrefixRevision({
+        existingPlan: {
+          mode: "active",
+          phaseIds: ["alignment", "implement", "code-review", "implement", "port"],
+          currentPhaseId: "implement",
+        },
+        existingStatus: "IMPLEMENTING",
+        nextPhaseIds: ["alignment", "implement", "code-review", "implement", "mental-simulation", "port"],
+      }),
+    ).toMatch("completed phase boundary cannot be inferred");
   });
 });

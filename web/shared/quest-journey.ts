@@ -243,6 +243,20 @@ export interface QuestJourneyPhaseNoteRebaseResult {
   warnings: QuestJourneyPhaseNoteRebaseWarning[];
 }
 
+export interface QuestJourneyCompletedPrefixResult {
+  ok: boolean;
+  prefixLength?: number;
+  error?: string;
+}
+
+export interface QuestJourneyCompletedPrefixRevision {
+  existingPlan: Partial<QuestJourneyPlanState> | undefined;
+  existingStatus?: string | null;
+  nextPhaseIds?: readonly QuestJourneyPhaseId[];
+  phaseNoteEditIndices?: readonly number[];
+  nextActivePhaseIndex?: number;
+}
+
 export const QUEST_JOURNEY_PHASE_BY_ID: Record<QuestJourneyPhaseId, QuestJourneyPhase> = Object.fromEntries(
   QUEST_JOURNEY_PHASES.map((phase) => [phase.id, phase]),
 ) as Record<QuestJourneyPhaseId, QuestJourneyPhase>;
@@ -374,6 +388,66 @@ export function rebaseQuestJourneyPhaseNotes(
       : {}),
     warnings,
   };
+}
+
+export function getQuestJourneyCompletedPrefixLength(
+  plan: Partial<QuestJourneyPlanState> | undefined,
+  status?: string | null,
+): QuestJourneyCompletedPrefixResult {
+  const phaseIds = normalizeQuestJourneyPhaseIds(plan?.phaseIds);
+  const mode = canonicalizeQuestJourneyLifecycleMode(plan?.mode);
+  const normalizedStatus = typeof status === "string" ? status.trim().toUpperCase() : "";
+  if (
+    mode === "proposed" ||
+    normalizedStatus === "PROPOSED" ||
+    normalizedStatus === "QUEUED" ||
+    phaseIds.length === 0
+  ) {
+    return { ok: true, prefixLength: 0 };
+  }
+
+  const activePhaseIndex = getQuestJourneyCurrentPhaseIndex(plan, status);
+  if (activePhaseIndex === undefined) {
+    return {
+      ok: false,
+      error:
+        "Cannot revise this active Journey because the completed phase boundary cannot be inferred for this legacy row. Re-run with --active-phase-position / activePhaseIndex to pin the current phase occurrence before revising phases, notes, or status.",
+    };
+  }
+
+  return { ok: true, prefixLength: activePhaseIndex };
+}
+
+export function validateQuestJourneyCompletedPrefixRevision(
+  revision: QuestJourneyCompletedPrefixRevision,
+): string | undefined {
+  const prefixResult = getQuestJourneyCompletedPrefixLength(revision.existingPlan, revision.existingStatus);
+  if (!prefixResult.ok) return prefixResult.error;
+
+  const completedPrefixLength = prefixResult.prefixLength ?? 0;
+  if (completedPrefixLength <= 0) return undefined;
+
+  const existingPhaseIds = normalizeQuestJourneyPhaseIds(revision.existingPlan?.phaseIds);
+  if (revision.nextPhaseIds) {
+    const nextPhaseIds = normalizeQuestJourneyPhaseIds(revision.nextPhaseIds);
+    const changedCompletedPrefix =
+      nextPhaseIds.length < completedPrefixLength ||
+      existingPhaseIds.slice(0, completedPrefixLength).some((phaseId, index) => nextPhaseIds[index] !== phaseId);
+    if (changedCompletedPrefix) {
+      return `Completed Journey phase occurrences cannot be revised in place. Keep phase positions 1-${completedPrefixLength} unchanged and append a new later occurrence for changed requirements.`;
+    }
+  }
+
+  const completedNoteIndex = revision.phaseNoteEditIndices?.find((index) => index < completedPrefixLength);
+  if (completedNoteIndex !== undefined) {
+    return `Completed Journey phase notes cannot be revised in place. Phase note position ${completedNoteIndex + 1} belongs to a completed phase occurrence; append a new later occurrence instead.`;
+  }
+
+  if (revision.nextActivePhaseIndex !== undefined && revision.nextActivePhaseIndex < completedPrefixLength) {
+    return `activePhaseIndex ${revision.nextActivePhaseIndex} points to completed phase position ${revision.nextActivePhaseIndex + 1}; completed phase occurrences cannot become current again. Append a new later occurrence instead.`;
+  }
+
+  return undefined;
 }
 
 function normalizeQuestJourneyPhaseNotes(

@@ -791,7 +791,7 @@ Examples:
   takode board set q-12 --status PLANNING
   takode board set q-12 --phases planning,implement,code-review,port --preset full-code
   takode board set q-12 --phases planning,explore,outcome-review --preset investigation
-  takode board set q-12 --phases implement,outcome-review,code-review,port --preset cli-rollout --revise-reason "Need outcome evidence before final code review"
+  takode board set q-12 --phases planning,implement,outcome-review,code-review,port --preset cli-rollout
   takode board set q-12 --status MENTAL_SIMULATING --active-phase-position 5
   takode board propose q-12 --phases alignment,implement,code-review,port --preset full-code --wait-for-input 3
   takode board present q-12 --wait-for-input 3
@@ -805,15 +805,14 @@ Examples:
   takode board rm q-12
 `;
 
-const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]
+const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--json]
 
 Add or update a board row for a quest.
 
 Quest Journey phases:
   --phases planning,explore,implement,code-review,mental-simulation,execute,outcome-review,bookkeeping,port
   --preset <id> labels the planned phase sequence; use with --phases
-  --revise-reason <text> records why an active Journey's remaining phases changed
   --active-phase-position <n> pins the active occurrence for repeated phases using a 1-based phase position
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
   --clear-wait-for-input removes any existing linked needs-input wait state
@@ -821,7 +820,7 @@ Quest Journey phases:
 Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` instead of using a special no-code board flag.
 `;
 
-const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--revise-reason <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
+const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
 
 Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates.
 `;
@@ -3936,9 +3935,6 @@ function printBoardText(
       nextAction = `wait for ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
     } else {
       nextAction = row.journey?.nextLeaderAction ?? (QUEST_JOURNEY_HINTS[row.status || ""] || "--");
-      if (row.journey?.revisionReason) {
-        nextAction = `revised: ${row.journey.revisionReason}; ${nextAction}`;
-      }
     }
 
     console.log(`${quest} ${title} ${owner} ${state} ${waitForDisplay} ${nextAction}`);
@@ -4058,10 +4054,10 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     const usageBySub =
       sub === "propose"
-        ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids> | --spec-file <path|->] [--preset <id>] [--revise-reason <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]`
+        ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids> | --spec-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]`
         : sub === "promote"
           ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--force-promote-unpresented] [--json]`
-          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]`;
+          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--json]`;
     if (!questId) err(usageBySub);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));

@@ -143,7 +143,6 @@ export function QuestJourneyCompactSummary({
       className={`flex min-w-0 max-w-full items-center gap-2 ${className ?? ""}`.trim()}
       data-testid="quest-journey-compact-summary"
       data-journey-mode={proposed ? "proposed" : "active"}
-      title={journey.revisionReason ? `Journey revised: ${journey.revisionReason}` : undefined}
     >
       <span
         className={`h-2.5 w-2.5 shrink-0 rounded-full border ${currentItem ? "" : "border-cc-muted/45 bg-transparent"}`.trim()}
@@ -180,7 +179,6 @@ function HorizontalJourney({
   return (
     <div
       className={`flex max-w-full flex-wrap items-center gap-y-1 ${compact ? "gap-x-0.5" : "gap-x-1"} ${className ?? ""}`.trim()}
-      title={journey.revisionReason ? `Journey revised: ${journey.revisionReason}` : undefined}
       data-testid="quest-journey-timeline"
       data-journey-mode={isProposedJourney(journey, status) ? "proposed" : "active"}
     >
@@ -238,7 +236,6 @@ function VerticalJourney({
   return (
     <div
       className={`rounded-md border border-cc-border bg-cc-hover/20 p-2 ${className ?? ""}`.trim()}
-      title={journey.revisionReason ? `Journey revised: ${journey.revisionReason}` : undefined}
       data-testid="quest-journey-timeline"
       data-journey-mode={proposed ? "proposed" : "active"}
     >
@@ -247,9 +244,6 @@ function VerticalJourney({
           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
             {proposed ? "Proposed Journey" : "Active Journey"}
           </div>
-          {journey.revisionReason && (
-            <div className="mt-0.5 truncate text-[11px] text-cc-muted">{journey.revisionReason}</div>
-          )}
         </div>
         <div className="shrink-0 text-[10px] text-cc-muted">{`${items.length} phase${items.length === 1 ? "" : "s"}`}</div>
       </div>

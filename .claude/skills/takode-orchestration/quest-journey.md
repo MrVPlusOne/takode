@@ -74,13 +74,14 @@ Use:
 
 ```bash
 takode board set q-12 --phases implement,outcome-review,code-review,port \
-  --preset cli-rollout \
-  --revise-reason "Need real CLI behavior evidence before final code review"
+  --preset cli-rollout
 ```
 
 Rules:
 
-- Revising an active Journey requires `--revise-reason`.
+- Already completed phase occurrences are historical and cannot be revised in place.
+- Keep completed prefix positions unchanged; append a later repeated phase when requirements change after a phase has run.
+- Proposed rows with no executed phases can be revised freely.
 - When revising an active row without changing `--status`, include the current phase in `--phases`.
 - Repeated phases are first-class. Insert or append them directly instead of pretending the Journey reset to an earlier abstract state.
 - Indexed phase notes rebase by phase occurrence, not raw index. If the same occurrence still exists after a phase-list revision, the note follows it even when its position shifts.
