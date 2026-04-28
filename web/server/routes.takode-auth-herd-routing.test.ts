@@ -642,6 +642,67 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge.persistSessionById).toHaveBeenCalledWith("orch-1");
   });
 
+  it("attaches multiple explicit Main message indices to a quest thread", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory = [
+      { type: "assistant", message: { id: "a1", content: [] } },
+      { type: "assistant", message: { id: "a2", content: [] } },
+      { type: "assistant", message: { id: "a3", content: [] } },
+      { type: "assistant", message: { id: "a4", content: [] } },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", messages: [0, 2] }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, questId: "q-941", attached: [0, 2], outOfRange: [] });
+    expect(bridge._sessions["orch-1"].messageHistory[0].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[1].threadRefs).toBeUndefined();
+    expect(bridge._sessions["orch-1"].messageHistory[2].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+  });
+
+  it("attaches an existing Main turn to a quest thread", async () => {
+    // The user-visible attach path should work with turn numbers from
+    // takode scan/peek, not only raw messageHistory array indices.
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory = [
+      { type: "user_message", content: "first turn", timestamp: 1 },
+      { type: "assistant", message: { id: "a1", content: [] }, parent_tool_use_id: null },
+      { type: "result", data: { duration_ms: 10, is_error: false } },
+      { type: "user_message", content: "second turn", timestamp: 2 },
+      { type: "assistant", message: { id: "a2", content: [] }, parent_tool_use_id: null },
+      { type: "result", data: { duration_ms: 20, is_error: false } },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", turn: 1 }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, questId: "q-941", attached: [3, 4, 5], outOfRange: [] });
+    expect(bridge._sessions["orch-1"].messageHistory[2].threadRefs).toBeUndefined();
+    expect(bridge._sessions["orch-1"].messageHistory[3].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[4].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[5].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+  });
+
   it("returns cached takode worktree rows in heavy repo mode without scheduling git refreshes", async () => {
     const defaultSettings = vi.mocked(settingsManager.getSettings).getMockImplementation()?.() as ReturnType<
       typeof settingsManager.getSettings

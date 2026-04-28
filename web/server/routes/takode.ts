@@ -992,6 +992,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     const indices = new Set<number>();
     if (Number.isInteger(body.message)) indices.add(body.message);
+    if (Array.isArray(body.messages)) {
+      for (const message of body.messages) {
+        if (!Number.isInteger(message)) return c.json({ error: "messages must contain integer message indices" }, 400);
+        indices.add(message);
+      }
+    }
     if (typeof body.range === "string") {
       const match = /^(\d+)-(\d+)$/.exec(body.range.trim());
       if (!match) return c.json({ error: "range must use start-end message indices" }, 400);
@@ -1000,8 +1006,16 @@ export function createTakodeRoutes(ctx: RouteContext) {
       if (end < start) return c.json({ error: "range end must be greater than or equal to start" }, 400);
       for (let index = start; index <= end; index++) indices.add(index);
     }
+    if (Number.isInteger(body.turn)) {
+      const turn = findTurnBoundaries(session.messageHistory)[body.turn];
+      if (!turn) {
+        return c.json({ error: "turn is out of range" }, 400);
+      }
+      const end = turn.endIdx >= 0 ? turn.endIdx : session.messageHistory.length - 1;
+      for (let index = turn.startIdx; index <= end; index++) indices.add(index);
+    }
     if (indices.size === 0) {
-      return c.json({ error: "Provide --message <index> or --range <start-end>" }, 400);
+      return c.json({ error: "Provide --message <index>, --range <start-end>, or --turn <turn>" }, 400);
     }
 
     const ref: ThreadRef = {

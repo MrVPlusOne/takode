@@ -681,10 +681,13 @@ Options:
   --json                Output JSON
 `;
 
-const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [--json]
+const THREAD_HELP = `Usage: takode thread attach <quest-id> --message <index> [more-indices...] [--json]
        takode thread attach <quest-id> --range <start-end> [--json]
+       takode thread attach <quest-id> --turn <turn> [--json]
 
 Associate existing Main-thread history entries with a quest thread without moving or duplicating them.
+Turn numbers match the visible turn numbers from takode scan/peek.
+Message indices may be repeated after --message or comma-separated.
 `;
 
 const RENAME_HELP = `Usage: takode rename <session> <name> [--json]
@@ -2509,25 +2512,32 @@ async function handleThread(base: string, args: string[]): Promise<void> {
   if (!questId) err(THREAD_HELP.trim());
   if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
 
-  const flags = parseFlags(args.slice(2));
-  assertKnownFlags(flags, new Set(["json", "message", "range"]), THREAD_HELP.trim());
-  const message = flags.message;
+  const optionArgs = args.slice(2);
+  const flags = parseFlags(optionArgs);
+  assertKnownFlags(flags, new Set(["json", "message", "range", "turn"]), THREAD_HELP.trim());
+  const messages = collectThreadAttachMessageIndices(optionArgs);
   const range = flags.range;
-  if (message === undefined && range === undefined) {
-    err(`${THREAD_HELP.trim()}\n\nProvide --message <index> or --range <start-end>.`);
+  const turn = flags.turn;
+  if (messages.length === 0 && range === undefined && turn === undefined) {
+    err(`${THREAD_HELP.trim()}\n\nProvide --message <index>, --range <start-end>, or --turn <turn>.`);
   }
-  if (message !== undefined && message === true) err("--message requires a numeric history index.");
   if (range !== undefined && range === true) err("--range requires a start-end value.");
+  if (turn !== undefined && turn === true) err("--turn requires a visible turn number from takode scan/peek.");
 
   const body: Record<string, unknown> = { questId };
-  if (message !== undefined) {
-    const parsed = Number(message);
-    if (!Number.isInteger(parsed) || parsed < 0) err("--message must be a non-negative integer history index.");
-    body.message = parsed;
+  if (messages.length === 1) {
+    body.message = messages[0];
+  } else if (messages.length > 1) {
+    body.messages = messages;
   }
   if (range !== undefined) {
     if (!/^\d+-\d+$/.test(range)) err("--range must use start-end message indices, e.g. 174-182.");
     body.range = range;
+  }
+  if (turn !== undefined) {
+    const parsed = Number(turn);
+    if (!Number.isInteger(parsed) || parsed < 0) err("--turn must be a non-negative integer turn number.");
+    body.turn = parsed;
   }
 
   const selfId = getCallerSessionId();
@@ -2542,6 +2552,32 @@ async function handleThread(base: string, args: string[]): Promise<void> {
   const attached = result.attached?.join(", ") || "none";
   const skipped = result.outOfRange?.length ? ` (${result.outOfRange.length} out of range)` : "";
   console.log(`[${formatTime(Date.now())}] \u2713 Attached ${attached} to ${questId}${skipped}`);
+}
+
+function collectThreadAttachMessageIndices(args: string[]): number[] {
+  const values: string[] = [];
+  for (let index = 0; index < args.length; index++) {
+    if (args[index] !== "--message") continue;
+    index++;
+    let sawValue = false;
+    while (index < args.length && !args[index].startsWith("--")) {
+      sawValue = true;
+      values.push(
+        ...args[index]
+          .split(",")
+          .map((value) => value.trim())
+          .filter(Boolean),
+      );
+      index++;
+    }
+    index--;
+    if (!sawValue) err("--message requires at least one numeric history index.");
+  }
+  const parsed = values.map((value) => Number(value));
+  if (parsed.some((value) => !Number.isInteger(value) || value < 0)) {
+    err("--message values must be non-negative integer history indices.");
+  }
+  return [...new Set(parsed)];
 }
 
 // ─── Spawn handler ───────────────────────────────────────────────────────────

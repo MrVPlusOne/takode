@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   extractActivityPreview,
   getAssistantContentAppendBlocks,
+  handleAssistantMessage,
   handleAssistantMessageWithRuntime,
   type AssistantMessageSessionLike,
 } from "./claude-message-controller.js";
+import type { BrowserIncomingMessage, CLIAssistantMessage, ContentBlock } from "../session-types.js";
 
 function makeSession(): AssistantMessageSessionLike {
   return {
@@ -24,6 +26,38 @@ function makeSession(): AssistantMessageSessionLike {
       context_used_percent: 0,
     },
   };
+}
+
+function makeAssistant(
+  content: ContentBlock[],
+  id = `assistant-${Math.random().toString(36).slice(2)}`,
+): CLIAssistantMessage {
+  return {
+    type: "assistant",
+    parent_tool_use_id: null,
+    uuid: `${id}-uuid`,
+    session_id: "s-assistant",
+    message: {
+      id,
+      type: "message",
+      role: "assistant",
+      model: "claude-sonnet-4-5-20250929",
+      content,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    },
+  };
+}
+
+function routeAssistantMessage(session: AssistantMessageSessionLike, content: ContentBlock[]): BrowserIncomingMessage {
+  const broadcasts: BrowserIncomingMessage[] = [];
+  handleAssistantMessage(session, makeAssistant(content), {
+    hasAssistantReplay: () => false,
+    broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+    persistSession: () => {},
+  });
+  expect(broadcasts).toHaveLength(1);
+  return broadcasts[0];
 }
 
 describe("assistant-message-controller", () => {
@@ -171,5 +205,75 @@ describe("assistant-message-controller", () => {
     );
 
     expect(session.messageHistory).toHaveLength(0);
+  });
+
+  it("strips leader thread text prefixes and persists quest thread metadata", () => {
+    // The controller path, not only the parser, must store the routed body and
+    // metadata that drive quest-thread projections in the UI.
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nRouted update" }]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
+      { type: "text", text: "Routed update" },
+    ]);
+    expect(session.messageHistory[0]).toMatchObject(msg);
+  });
+
+  it("turns missing leader thread prefixes into a routing reminder", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "Unmarked leader text" }]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadRoutingError: { reason: "missing", rawContent: "Unmarked leader text" },
+    });
+    const content = msg.type === "assistant" ? msg.message.content : [];
+    expect(content).toHaveLength(1);
+    expect(content[0]).toMatchObject({ type: "text" });
+    expect(content[0].type === "text" ? content[0].text : "").toContain("Thread routing reminder");
+    expect(content[0].type === "text" ? content[0].text : "").not.toContain("Unmarked leader text");
+  });
+
+  it("turns invalid leader thread prefixes into a routing reminder", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:side]\nWrong marker" }]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadRoutingError: { reason: "invalid", marker: "[thread:side]" },
+    });
+    const content = msg.type === "assistant" ? msg.message.content : [];
+    expect(content[0].type === "text" ? content[0].text : "").toContain("Thread routing reminder");
+    expect(content[0].type === "text" ? content[0].text : "").not.toContain("Wrong marker");
+  });
+
+  it("strips Bash command thread comments and persists command thread metadata", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "# thread:q-941\npwd" } },
+    ]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    const block = msg.type === "assistant" ? msg.message.content[0] : null;
+    expect(block).toMatchObject({ type: "tool_use", input: { command: "pwd" } });
   });
 });
