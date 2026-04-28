@@ -354,6 +354,9 @@ export interface PendingCodexInput {
   agentSource?: { sessionId: string; sessionLabel?: string };
   takodeHerdBatch?: TakodeHerdBatchSnapshot;
   vscodeSelection?: VsCodeSelectionMetadata;
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
 }
 
 export interface CodexPendingBatchInput {

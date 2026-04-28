@@ -1926,6 +1926,9 @@ export function routeAdapterBrowserMessage(
           ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
           ...(msg.takodeHerdBatch ? { takodeHerdBatch: msg.takodeHerdBatch } : {}),
           ...(msg.vscodeSelection ? { vscodeSelection: msg.vscodeSelection } : {}),
+          ...(ingested.historyEntry.threadKey ? { threadKey: ingested.historyEntry.threadKey } : {}),
+          ...(ingested.historyEntry.questId ? { questId: ingested.historyEntry.questId } : {}),
+          ...(ingested.historyEntry.threadRefs ? { threadRefs: ingested.historyEntry.threadRefs } : {}),
         });
         emitUserMessageTakodeEvent(
           session,

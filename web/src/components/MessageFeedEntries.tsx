@@ -1007,7 +1007,13 @@ function SubagentResult({
   );
 }
 
-export const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }) {
+export const FeedFooter = memo(function FeedFooter({
+  sessionId,
+  visibleToolUseIds,
+}: {
+  sessionId: string;
+  visibleToolUseIds?: Set<string>;
+}) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const rawStreamingText = useStore((s) => s.streaming.get(sessionId));
   const rawThinkingText = useStore((s) => s.streamingThinking.get(sessionId));
@@ -1035,7 +1041,10 @@ export const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: s
         !rawStreamingText &&
         !isCodexSession &&
         (() => {
-          const nonTaskProgress = Array.from(toolProgress.values()).filter((p) => !isSubagentToolName(p.toolName));
+          const nonTaskProgress = Array.from(toolProgress.entries())
+            .filter(([toolUseId]) => !visibleToolUseIds || visibleToolUseIds.has(toolUseId))
+            .map(([, progress]) => progress)
+            .filter((p) => !isSubagentToolName(p.toolName));
           if (nonTaskProgress.length === 0) return null;
           return (
             <div

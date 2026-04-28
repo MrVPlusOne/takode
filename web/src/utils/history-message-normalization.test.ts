@@ -307,6 +307,102 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     expect(normalized.metadata).toEqual({ threadKey: "main" });
   });
 
+  it("repairs persisted Bash command thread comments as tool routing metadata", () => {
+    // Tool calls use shell-comment routing syntax, not chat text prefixes. Older
+    // persisted tool-use-only messages may need this repair after history sync.
+    const normalized = normalizeHistoryMessageToChatMessages(
+      {
+        type: "assistant",
+        timestamp: 200,
+        parent_tool_use_id: null,
+        message: {
+          id: "a-thread-bash-command",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 2,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          content: [{ type: "tool_use", id: "tool-1", name: "Bash", input: { command: "# thread:q-941\npwd" } }],
+        },
+      },
+      16,
+    )[0]!;
+
+    expect(normalized.contentBlocks).toEqual([
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "pwd" } },
+    ]);
+    expect(normalized.metadata).toMatchObject({
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+  });
+
+  it("repairs persisted main Bash command comments without adding a quest projection", () => {
+    const normalized = normalizeHistoryMessageToChatMessages(
+      {
+        type: "assistant",
+        timestamp: 200,
+        parent_tool_use_id: null,
+        message: {
+          id: "a-thread-main-bash-command",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 2,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          content: [{ type: "tool_use", id: "tool-1", name: "Bash", input: { command: "# thread:main\npwd" } }],
+        },
+      },
+      17,
+    )[0]!;
+
+    expect(normalized.contentBlocks).toEqual([
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "pwd" } },
+    ]);
+    expect(normalized.metadata).toEqual({ threadKey: "main" });
+  });
+
+  it("does not repair non-standalone Bash command comments", () => {
+    const normalized = normalizeHistoryMessageToChatMessages(
+      {
+        type: "assistant",
+        timestamp: 200,
+        parent_tool_use_id: null,
+        message: {
+          id: "a-thread-inline-bash-comment",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 2,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          content: [{ type: "tool_use", id: "tool-1", name: "Bash", input: { command: "# thread:q-941 && pwd" } }],
+        },
+      },
+      18,
+    )[0]!;
+
+    expect(normalized.contentBlocks).toEqual([
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "# thread:q-941 && pwd" } },
+    ]);
+    expect(normalized.metadata).toBeUndefined();
+  });
+
   it("matches replay semantics for visible task_notification messages", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(123456);
     const message: BrowserIncomingMessage = {

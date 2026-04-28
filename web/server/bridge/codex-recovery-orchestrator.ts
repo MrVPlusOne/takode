@@ -1061,6 +1061,9 @@ function commitPendingCodexInput(
     ...(pending.clientMsgId ? { client_msg_id: pending.clientMsgId } : {}),
     ...(pending.vscodeSelection ? { vscodeSelection: pending.vscodeSelection } : {}),
     ...(pending.agentSource ? { agentSource: pending.agentSource } : {}),
+    ...(pending.threadKey ? { threadKey: pending.threadKey } : {}),
+    ...(pending.questId ? { questId: pending.questId } : {}),
+    ...(pending.threadRefs ? { threadRefs: pending.threadRefs } : {}),
   };
   session.messageHistory.push(userHistoryEntry);
   const userMsgHistoryIdx = session.messageHistory.length - 1;

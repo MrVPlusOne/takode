@@ -331,21 +331,21 @@ function LeaderThreadRowItem({
       data-thread-key={row.threadKey}
       data-thread-section={row.section}
     >
-      <div className="flex min-w-0 items-start justify-between gap-2">
+      <div className="flex min-w-0 items-start gap-1.5">
         {row.questId ? (
-          <QuestInlineLink
-            questId={row.questId}
-            stopPropagation
-            className="min-w-0 truncate text-left text-xs font-medium text-blue-300 hover:text-blue-200 hover:underline"
-          >
-            <span className="font-mono-code">{row.questId}</span>
-            <span className="text-cc-muted"> · </span>
-            <span>{row.title}</span>
-          </QuestInlineLink>
+          <>
+            <QuestInlineLink
+              questId={row.questId}
+              stopPropagation
+              className="shrink-0 text-left text-xs font-medium font-mono-code text-blue-300 hover:text-blue-200 hover:underline"
+            >
+              {row.questId}
+            </QuestInlineLink>
+            <span className="min-w-0 truncate text-xs font-medium text-cc-fg">{row.title}</span>
+          </>
         ) : (
           <span className="min-w-0 truncate text-xs font-medium text-cc-fg">{row.title}</span>
         )}
-        <span className="shrink-0 text-[10px] tabular-nums text-cc-muted">{row.messageCount}</span>
       </div>
       <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
         {phase && <ThreadJourneyHover row={row} label={phase} />}
@@ -356,6 +356,9 @@ function LeaderThreadRowItem({
           fallbackSessionNum={row.boardRow?.workerNum}
         />
         <ThreadParticipantChip label="R" participant={row.rowStatus?.reviewer} />
+      </div>
+      <div className="mt-1 text-[10px] tabular-nums text-cc-muted/85" data-testid="leader-thread-row-stats">
+        {row.messageCount} message{row.messageCount !== 1 ? "s" : ""}
       </div>
     </div>
   );

@@ -194,6 +194,16 @@ function messageToolUseIds(message: ChatMessage): string[] {
   return (message.contentBlocks ?? []).map(contentBlockToolUseId).filter((id): id is string => Boolean(id));
 }
 
+function collectMessageToolUseIds(messages: ChatMessage[]): Set<string> {
+  const ids = new Set<string>();
+  for (const message of messages) {
+    for (const toolUseId of messageToolUseIds(message)) {
+      ids.add(toolUseId);
+    }
+  }
+  return ids;
+}
+
 function messageHasThreadRef(message: ChatMessage, threadKey: string): boolean {
   const normalized = threadKey.toLowerCase();
   const metadata = message.metadata;
@@ -242,6 +252,10 @@ export function MessageFeed({
 }) {
   const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const messages = useMemo(() => filterMessagesForThread(allMessages, threadKey), [allMessages, threadKey]);
+  const visibleToolUseIds = useMemo(
+    () => (threadKey.toLowerCase() === "main" ? undefined : collectMessageToolUseIds(messages)),
+    [messages, threadKey],
+  );
   const pendingUserUploads = useStore((s) => s.pendingUserUploads.get(sessionId) ?? EMPTY_PENDING_USER_UPLOADS);
   const pendingCodexInputs = useStore((s) => s.pendingCodexInputs.get(sessionId) ?? EMPTY_PENDING_CODEX_INPUTS);
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
@@ -1588,7 +1602,7 @@ export function MessageFeed({
                 {isCodexSession && pendingCodexInputs.length > 0 && (
                   <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
                 )}
-                <FeedFooter sessionId={sessionId} />
+                <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} />
                 <div
                   aria-hidden="true"
                   className="pointer-events-none"

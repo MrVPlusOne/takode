@@ -1,5 +1,9 @@
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage } from "../types.js";
-import { parseThreadTextPrefix } from "../../shared/thread-routing.js";
+import {
+  parseCommandThreadComment,
+  parseThreadTextPrefix,
+  stripCommandThreadComment,
+} from "../../shared/thread-routing.js";
 
 interface NormalizeHistoryMessageOptions {
   includeSuccessfulResult?: boolean;
@@ -80,14 +84,36 @@ function repairThreadPrefixInContentBlocks(blocks: ContentBlock[]): {
   metadata?: ChatMessage["metadata"];
 } {
   const firstTextIndex = blocks.findIndex((block) => block.type === "text" && block.text.trim());
-  if (firstTextIndex < 0) return { blocks };
-  const block = blocks[firstTextIndex];
-  if (!block || block.type !== "text") return { blocks };
-  const repaired = repairThreadPrefixInText(block.text);
-  if (!repaired.metadata) return { blocks };
+  if (firstTextIndex >= 0) {
+    const block = blocks[firstTextIndex];
+    if (!block || block.type !== "text") return { blocks };
+    const repaired = repairThreadPrefixInText(block.text);
+    if (repaired.metadata) {
+      const next = blocks.slice();
+      next[firstTextIndex] = { ...block, text: repaired.text };
+      return { blocks: next, metadata: repaired.metadata };
+    }
+  }
+
+  const firstBashIndex = blocks.findIndex(
+    (block) => block.type === "tool_use" && block.name === "Bash" && typeof block.input?.command === "string",
+  );
+  if (firstBashIndex < 0) return { blocks };
+  const block = blocks[firstBashIndex];
+  if (!block || block.type !== "tool_use" || block.name !== "Bash" || typeof block.input?.command !== "string") {
+    return { blocks };
+  }
+  const target = parseCommandThreadComment(block.input.command);
+  if (!target) return { blocks };
   const next = blocks.slice();
-  next[firstTextIndex] = { ...block, text: repaired.text };
-  return { blocks: next, metadata: repaired.metadata };
+  next[firstBashIndex] = {
+    ...block,
+    input: {
+      ...block.input,
+      command: stripCommandThreadComment(block.input.command),
+    },
+  };
+  return { blocks: next, metadata: threadRefForRepairedTarget(target) };
 }
 
 function getReplaySensitiveBlockSignature(block: ContentBlock): string | null {

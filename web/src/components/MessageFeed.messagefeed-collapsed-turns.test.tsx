@@ -546,6 +546,72 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByText("Main-only setup")).toBeNull();
   });
 
+  it("shows user-composed quest-thread messages and subsequent routed assistant messages", () => {
+    const sid = "test-quest-thread-user-and-assistant";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u-q941",
+        role: "user",
+        content: "User reply from the q-941 thread",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-q941",
+        role: "assistant",
+        content: "Leader response routed to q-941",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+      makeMessage({ id: "a-main", role: "assistant", content: "Unrelated Main update" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+
+    expect(screen.getByText("User reply from the q-941 thread")).toBeTruthy();
+    expect(screen.getByText("Leader response routed to q-941")).toBeTruthy();
+    expect(screen.queryByText("Unrelated Main update")).toBeNull();
+  });
+
+  it("projects routed Bash tool groups and filters unrelated live progress in quest-thread views", () => {
+    const sid = "test-quest-thread-tool-group";
+    setStoreSessionBackend(sid, "claude");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "a-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "tu-routed", name: "Bash", input: { command: "pwd" } }],
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-result",
+        role: "assistant",
+        content: "tool result",
+        contentBlocks: [{ type: "tool_result", tool_use_id: "tu-routed", content: "workspace path" }],
+      }),
+      makeMessage({
+        id: "a-other-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "tu-other", name: "Bash", input: { command: "date" } }],
+        metadata: { threadRefs: [{ threadKey: "q-942", questId: "q-942", source: "explicit" }] },
+      }),
+    ]);
+    setStoreToolProgress(sid, [
+      { toolUseId: "tu-routed", toolName: "Bash", elapsedSeconds: 12 },
+      { toolUseId: "tu-other", toolName: "Bash", elapsedSeconds: 34 },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+
+    expect(screen.getByText("pwd")).toBeTruthy();
+    expect(screen.getByText("workspace path")).toBeTruthy();
+    expect(screen.getAllByText("12s").length).toBeGreaterThan(0);
+    expect(screen.queryByText("date")).toBeNull();
+    expect(screen.queryByText("34s")).toBeNull();
+    expect(screen.queryByText("Main-only setup")).toBeNull();
+  });
+
   it("non-last turns default to collapsed, showing activity bar + response", () => {
     // First turn auto-collapses since it's not the last turn.
     // The collapsed view shows: user msg + activity bar + final response entry.

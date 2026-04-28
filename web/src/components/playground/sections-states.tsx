@@ -1085,13 +1085,9 @@ export function PlaygroundStateSections() {
               </div>
               <div className="px-2 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70">Active</div>
               <div className="mt-1 rounded-md px-2 py-1.5 text-cc-muted">
-                <div className="flex items-start justify-between gap-2">
-                  <div className="truncate text-xs text-blue-300">
-                    <span className="font-mono-code">q-43</span>
-                    <span className="text-cc-muted"> · </span>
-                    <span>Resize images at store time</span>
-                  </div>
-                  <div className="text-[10px] tabular-nums">3</div>
+                <div className="flex items-start gap-1.5">
+                  <span className="shrink-0 text-xs font-medium font-mono-code text-blue-300">q-43</span>
+                  <span className="min-w-0 truncate text-xs font-medium text-cc-fg">Resize images at store time</span>
                 </div>
                 <div className="mt-1 flex items-center gap-1.5">
                   <span className="inline-flex items-center gap-1 rounded-full border border-cc-border/60 bg-cc-card/70 px-1.5 py-0.5 text-[10px] text-cc-muted">
@@ -1102,6 +1098,7 @@ export function PlaygroundStateSections() {
                     W <span className="font-mono-code text-amber-400">#70</span>
                   </span>
                 </div>
+                <div className="mt-1 text-[10px] tabular-nums text-cc-muted/85">3 messages</div>
               </div>
               <div className="px-2 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70">Done</div>
               <div className="mt-1 rounded-md px-2 py-1.5 text-cc-muted">

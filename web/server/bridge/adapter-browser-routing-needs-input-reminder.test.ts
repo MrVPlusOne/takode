@@ -397,6 +397,52 @@ describe("direct user needs-input reminders", () => {
     expect(session.lastUserMessage).toBe("[reply] Continue the work");
   });
 
+  it("preserves quest-thread metadata through queued Codex pending input commit", () => {
+    // Messages composed from a selected quest thread are queued for Codex before
+    // becoming durable history, so the pending input must carry projection metadata.
+    const session = makeSession();
+    session.backendType = "codex";
+    const deps = makeDeps();
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    const routed = routeAdapterBrowserMessage(
+      session,
+      userMessage({
+        content: "Follow up from the q-941 thread",
+        threadKey: "q-941",
+        questId: "q-941",
+      }),
+      null,
+      deps,
+    );
+
+    expect(routed).toBe(true);
+    expect(session.pendingCodexInputs[0]).toMatchObject({
+      content: "Follow up from the q-941 thread",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+
+    commitPendingCodexInputs(session as any, [session.pendingCodexInputs[0]!.id], {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      onUserMessage: vi.fn(),
+    } as any);
+
+    expect(session.messageHistory[0]).toMatchObject({
+      type: "user_message",
+      content: "Follow up from the q-941 thread",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+  });
+
   it("does not commit an all-resolved queued Codex reminder into chat history", () => {
     // Codex can queue a reminder while a notification is active, then commit the
     // pending input after the user has already resolved that notification. The

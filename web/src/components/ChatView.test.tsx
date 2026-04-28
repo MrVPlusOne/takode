@@ -139,12 +139,14 @@ vi.mock("./QuestInlineLink.js", () => ({
     questId,
     children,
     className,
+    stopPropagation,
   }: {
     questId: string;
     children?: ReactNode;
     className?: string;
+    stopPropagation?: boolean;
   }) => (
-    <a href={`#quest-${questId}`} className={className}>
+    <a href={`#quest-${questId}`} className={className} data-stop-propagation={stopPropagation ? "true" : "false"}>
       {children ?? questId}
     </a>
   ),
@@ -317,6 +319,49 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "q-941");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-quest-id", "q-941");
+  });
+
+  it("makes only the quest token a quest link and keeps title clicks routed to the thread", () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m1",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 1,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+            {
+              id: "m2",
+              role: "assistant",
+              content: "q-941 follow-up",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      quests: [{ questId: "q-941", title: "Quest thread MVP with a longer title", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    const row = scope.getByTestId("leader-thread-row");
+    const questLink = within(row).getByRole("link", { name: "q-941" });
+
+    expect(questLink).toHaveAttribute("href", "#quest-q-941");
+    expect(questLink).toHaveAttribute("data-stop-propagation", "true");
+    expect(within(row).getByText("Quest thread MVP with a longer title")).toBeInTheDocument();
+    expect(within(row).getByTestId("leader-thread-row-stats")).toHaveTextContent("2 messages");
+    expect(within(row).queryByRole("link", { name: /Quest thread MVP/i })).not.toBeInTheDocument();
+
+    fireEvent.click(within(row).getByText("Quest thread MVP with a longer title"));
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
   });
 
   it("hides empty quest threads and separates nonempty off-board threads into Done", () => {
