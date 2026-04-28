@@ -934,7 +934,7 @@ describe("launch", () => {
 
       const updatedConfig = realReadFileSync(configPath, "utf-8");
       expect(updatedConfig).toContain('model_provider = "companion-openai-env"');
-      expect(updatedConfig).toContain('[model_providers.companion-openai-env]');
+      expect(updatedConfig).toContain("[model_providers.companion-openai-env]");
       expect(updatedConfig).toContain('env_key = "OPENAI_API_KEY"');
     } finally {
       rmSync(customHome, { recursive: true, force: true });
@@ -3027,6 +3027,7 @@ describe("cat herding", () => {
         injectUserMessage: vi.fn(() => "sent" as const),
         isSessionIdle: vi.fn(() => true),
         wakeIdleKilledSession: vi.fn(() => false),
+        getSession: vi.fn(() => ({ messageHistory: [] })),
         getSessionMessages: vi.fn(() => null),
       };
       const emitTakodeEvent = (event: TakodeEvent) => {
@@ -3054,7 +3055,6 @@ describe("cat herding", () => {
         dispatcher,
         wsBridge: {
           emitTakodeEvent: emitBridgeEvent,
-          onHerdMembershipChanged: vi.fn(),
         },
         launcher: herdLauncher,
         getSessionName: () => undefined,

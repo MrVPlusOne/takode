@@ -24,6 +24,7 @@ import {
   getOrchestratorGuardrails as renderOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
+import { stripInheritedTelemetryEnv } from "./cli-launcher-env.js";
 import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
 import { sessionTag } from "./session-tag.js";
 import type { HerdChangeEvent, HerdSessionsResponse } from "../shared/herd-types.js";

@@ -19,6 +19,7 @@ import {
 import { join, resolve, relative, dirname, basename } from "node:path";
 import { homedir, hostname } from "node:os";
 import { getLegacyCodexHome, resolveCompanionCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
+import { stripInheritedTelemetryEnv } from "./cli-launcher-env.js";
 import { resolveBinary, getEnrichedPath, captureUserShellEnv } from "./path-resolver.js";
 import { sessionTag } from "./session-tag.js";
 
@@ -1107,7 +1108,7 @@ export async function prepareCodexSpawn(
   return {
     spawnCmd,
     spawnEnv: {
-      ...process.env,
+      ...stripInheritedTelemetryEnv(process.env),
       ...shellEnv,
       CLAUDECODE: undefined,
       MAI_CODEX_DEBUG_WRAPPER: "1",
