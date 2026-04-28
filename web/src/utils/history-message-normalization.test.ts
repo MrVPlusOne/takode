@@ -148,6 +148,103 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     ]);
   });
 
+  it("repairs persisted assistant thread prefixes in newline form", () => {
+    // Older persisted history may contain the raw marker without routing
+    // metadata. History sync repairs that so quest threads project correctly.
+    const normalized = normalizeHistoryMessageToChatMessages(
+      {
+        type: "assistant",
+        timestamp: 200,
+        parent_tool_use_id: null,
+        message: {
+          id: "a-thread-newline",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 2,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          content: [{ type: "text", text: "[thread:q-941]\nImplementation update" }],
+        },
+      },
+      12,
+    )[0]!;
+
+    expect(normalized.content).toBe("Implementation update");
+    expect(normalized.contentBlocks).toEqual([{ type: "text", text: "Implementation update" }]);
+    expect(normalized.metadata).toMatchObject({
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+  });
+
+  it("repairs persisted assistant thread prefixes in same-line form", () => {
+    const normalized = normalizeHistoryMessageToChatMessages(
+      {
+        type: "assistant",
+        timestamp: 200,
+        parent_tool_use_id: null,
+        message: {
+          id: "a-thread-same-line",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 2,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          content: [{ type: "text", text: "[thread:q-941] Same-line update" }],
+        },
+      },
+      13,
+    )[0]!;
+
+    expect(normalized.content).toBe("Same-line update");
+    expect(normalized.contentBlocks).toEqual([{ type: "text", text: "Same-line update" }]);
+    expect(normalized.metadata).toMatchObject({
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+  });
+
+  it("hides persisted main thread markers without adding a quest projection", () => {
+    const normalized = normalizeHistoryMessageToChatMessages(
+      {
+        type: "assistant",
+        timestamp: 200,
+        parent_tool_use_id: null,
+        message: {
+          id: "a-thread-main",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 2,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          content: [{ type: "text", text: "[thread:main] General update" }],
+        },
+      },
+      14,
+    )[0]!;
+
+    expect(normalized.content).toBe("General update");
+    expect(normalized.contentBlocks).toEqual([{ type: "text", text: "General update" }]);
+    expect(normalized.metadata).toEqual({ threadKey: "main" });
+  });
+
   it("matches replay semantics for visible task_notification messages", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(123456);
     const message: BrowserIncomingMessage = {

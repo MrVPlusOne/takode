@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { fireEvent, render, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import type { ReactNode } from "react";
 
 interface MockStoreState {
   pendingPermissions: Map<string, Map<string, { tool_name?: string; request_id?: string }>>;
@@ -20,8 +21,10 @@ interface MockStoreState {
   sdkSessions: Array<{ sessionId: string; archived?: boolean; isOrchestrator?: boolean }>;
   sessionBoards: Map<string, unknown[]>;
   sessionCompletedBoards: Map<string, unknown[]>;
+  sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   messages: Map<string, unknown[]>;
   quests: Array<{ questId: string; title: string; status: string }>;
+  zoomLevel: number;
   openQuestOverlay: (questId: string) => void;
 }
 
@@ -41,8 +44,10 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sdkSessions: [{ sessionId: "s1", archived: false }],
     sessionBoards: new Map(),
     sessionCompletedBoards: new Map(),
+    sessionBoardRowStatuses: new Map(),
     messages: new Map(),
     quests: [],
+    zoomLevel: 1,
     openQuestOverlay: mockOpenQuestOverlay,
     ...overrides,
   };
@@ -127,6 +132,48 @@ vi.mock("./WorkBoardBar.js", () => ({
 
 vi.mock("./CatIcons.js", () => ({
   YarnBallDot: () => <span data-testid="yarnball-dot" />,
+}));
+
+vi.mock("./QuestInlineLink.js", () => ({
+  QuestInlineLink: ({
+    questId,
+    children,
+    className,
+  }: {
+    questId: string;
+    children?: ReactNode;
+    className?: string;
+  }) => (
+    <a href={`#quest-${questId}`} className={className}>
+      {children ?? questId}
+    </a>
+  ),
+}));
+
+vi.mock("./SessionInlineLink.js", () => ({
+  SessionInlineLink: ({
+    sessionNum,
+    children,
+    className,
+  }: {
+    sessionNum?: number | null;
+    children: ReactNode;
+    className?: string;
+  }) => (
+    <a href={`#session-${sessionNum ?? "unknown"}`} className={className}>
+      {children}
+    </a>
+  ),
+}));
+
+vi.mock("./SessionStatusDot.js", () => ({
+  SessionStatusDot: () => <span data-testid="session-status-dot" />,
+}));
+
+vi.mock("./QuestJourneyTimeline.js", () => ({
+  QuestJourneyPreviewCard: ({ quest }: { quest?: { questId: string; title?: string } }) => (
+    <div data-testid="quest-journey-preview-card">{quest?.questId}</div>
+  ),
 }));
 
 import { ChatView } from "./ChatView.js";
@@ -270,5 +317,72 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "q-941");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-quest-id", "q-941");
+  });
+
+  it("hides empty quest threads and separates nonempty off-board threads into Done", () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m-active",
+              role: "assistant",
+              content: "active update",
+              timestamp: 200,
+              metadata: { threadRefs: [{ threadKey: "q-200", questId: "q-200", source: "explicit" }] },
+            },
+            {
+              id: "m-done",
+              role: "assistant",
+              content: "verification update",
+              timestamp: 300,
+              metadata: { threadRefs: [{ threadKey: "q-300", questId: "q-300", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      sessionBoards: new Map([
+        [
+          "s1",
+          [
+            {
+              questId: "q-100",
+              title: "Empty active thread",
+              status: "IMPLEMENT",
+              updatedAt: 500,
+              createdAt: 100,
+              journey: { mode: "active", phaseIds: ["implement"], currentPhaseIndex: 0 },
+            },
+            {
+              questId: "q-200",
+              title: "Active thread",
+              status: "IMPLEMENT",
+              updatedAt: 400,
+              createdAt: 200,
+              journey: { mode: "active", phaseIds: ["implement"], currentPhaseIndex: 0 },
+            },
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-100", title: "Empty active thread", status: "in_progress" },
+        { questId: "q-200", title: "Active thread", status: "in_progress" },
+        { questId: "q-300", title: "Needs verification thread", status: "needs_verification" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    const rows = scope.getAllByTestId("leader-thread-row");
+
+    expect(scope.queryByText(/q-100/i)).not.toBeInTheDocument();
+    expect(rows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-200", "q-300"]);
+    expect(rows.map((row) => row.getAttribute("data-thread-section"))).toEqual(["active", "done"]);
+    expect(scope.getByText("Done")).toBeInTheDocument();
+    expect(scope.queryByText("needs_verification")).not.toBeInTheDocument();
+    expect(scope.queryByText("Open quest")).not.toBeInTheDocument();
   });
 });

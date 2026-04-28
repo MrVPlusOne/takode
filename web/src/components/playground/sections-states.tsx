@@ -1083,10 +1083,33 @@ export function PlaygroundStateSections() {
                 <div className="font-semibold">Main</div>
                 <div className="text-[10px] text-cc-muted">Complete leader transcript</div>
               </div>
+              <div className="px-2 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70">Active</div>
               <div className="mt-1 rounded-md px-2 py-1.5 text-cc-muted">
-                <div className="font-mono-code text-[11px] text-blue-400">q-43</div>
-                <div className="truncate text-cc-fg">Resize images at store time</div>
-                <div className="text-[10px]">3 associated messages</div>
+                <div className="flex items-start justify-between gap-2">
+                  <div className="truncate text-xs text-blue-300">
+                    <span className="font-mono-code">q-43</span>
+                    <span className="text-cc-muted"> · </span>
+                    <span>Resize images at store time</span>
+                  </div>
+                  <div className="text-[10px] tabular-nums">3</div>
+                </div>
+                <div className="mt-1 flex items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-cc-border/60 bg-cc-card/70 px-1.5 py-0.5 text-[10px] text-cc-muted">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    Implement
+                  </span>
+                  <span className="rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px]">
+                    W <span className="font-mono-code text-amber-400">#70</span>
+                  </span>
+                </div>
+              </div>
+              <div className="px-2 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70">Done</div>
+              <div className="mt-1 rounded-md px-2 py-1.5 text-cc-muted">
+                <div className="truncate text-xs text-blue-300">
+                  <span className="font-mono-code">q-41</span>
+                  <span className="text-cc-muted"> · </span>
+                  <span>Finalize quest handoff</span>
+                </div>
               </div>
             </div>
           </Card>

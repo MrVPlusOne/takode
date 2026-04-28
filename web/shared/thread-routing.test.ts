@@ -15,6 +15,16 @@ describe("thread-routing", () => {
       target: { threadKey: "main" },
       body: "General note",
     });
+    expect(parseThreadTextPrefix("[thread:q-941] Same-line implementation update")).toEqual({
+      ok: true,
+      target: { threadKey: "q-941", questId: "q-941" },
+      body: "Same-line implementation update",
+    });
+    expect(parseThreadTextPrefix("[thread:main]\tSame-line main note")).toEqual({
+      ok: true,
+      target: { threadKey: "main" },
+      body: "Same-line main note",
+    });
   });
 
   it("reports missing or invalid text prefixes without guessing", () => {

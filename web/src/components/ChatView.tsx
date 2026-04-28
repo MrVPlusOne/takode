@@ -1,4 +1,5 @@
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useRef, useLayoutEffect, type KeyboardEvent, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -16,9 +17,18 @@ import { WorkBoardBar } from "./WorkBoardBar.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
-import { orderBoardRows, type BoardRowData } from "./BoardTable.js";
-import { QuestJourneyCompactSummary } from "./QuestJourneyTimeline.js";
-import type { ChatMessage, QuestmasterTask } from "../types.js";
+import type { BoardRowData } from "./BoardTable.js";
+import { QuestJourneyPreviewCard } from "./QuestJourneyTimeline.js";
+import { QuestInlineLink } from "./QuestInlineLink.js";
+import { SessionInlineLink } from "./SessionInlineLink.js";
+import { SessionStatusDot } from "./SessionStatusDot.js";
+import {
+  getQuestJourneyCurrentPhaseId,
+  getQuestJourneyPhase,
+  getQuestJourneyPhaseForState,
+  getQuestJourneyPresentation,
+} from "../../shared/quest-journey.js";
+import type { BoardParticipantStatus, BoardRowSessionStatus, ChatMessage, QuestmasterTask } from "../types.js";
 
 type LeaderThreadRow = {
   threadKey: string;
@@ -27,7 +37,11 @@ type LeaderThreadRow = {
   status?: string;
   boardStatus?: string;
   journey?: BoardRowData["journey"];
+  boardRow?: BoardRowData;
+  rowStatus?: BoardRowSessionStatus;
   messageCount: number;
+  createdAt: number;
+  section: "active" | "done";
 };
 
 const EMPTY_BOARD_ROWS: BoardRowData[] = [];
@@ -51,26 +65,51 @@ function buildLeaderThreadRows({
   completedBoard,
   messages,
   quests,
+  rowSessionStatuses,
 }: {
   activeBoard: BoardRowData[];
   completedBoard: BoardRowData[];
   messages: ChatMessage[];
   quests: QuestmasterTask[];
+  rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
 }): LeaderThreadRow[] {
   const questById = new Map(quests.map((quest) => [quest.questId.toLowerCase(), quest]));
   const rows = new Map<string, LeaderThreadRow>();
   const counts = new Map<string, number>();
+  const firstMessageAt = new Map<string, number>();
 
   for (const message of messages) {
     for (const key of messageThreadKeys(message)) {
       counts.set(key, (counts.get(key) ?? 0) + 1);
+      firstMessageAt.set(key, Math.min(firstMessageAt.get(key) ?? Number.POSITIVE_INFINITY, message.timestamp));
     }
   }
+
+  const activeKeys = new Set(activeBoard.map((row) => row.questId.toLowerCase()));
+  const boardRowById = new Map<string, BoardRowData>();
+  for (const row of [...activeBoard, ...completedBoard]) {
+    boardRowById.set(row.questId.toLowerCase(), row);
+  }
+
+  const creationTimeFor = (questId: string, row?: BoardRowData) => {
+    const key = questId.toLowerCase();
+    return (
+      questById.get(key)?.createdAt ??
+      row?.createdAt ??
+      firstMessageAt.get(key) ??
+      row?.updatedAt ??
+      Number.MAX_SAFE_INTEGER
+    );
+  };
 
   const addQuestRow = (questId: string, partial: Partial<LeaderThreadRow> = {}) => {
     const key = questId.toLowerCase();
     const quest = questById.get(key);
     const existing = rows.get(key);
+    const boardRow = partial.boardRow ?? existing?.boardRow ?? boardRowById.get(key);
+    const messageCount = counts.get(key) ?? existing?.messageCount ?? 0;
+    if (messageCount <= 0) return;
+    const section = activeKeys.has(key) ? "active" : "done";
     rows.set(key, {
       threadKey: key,
       questId: key,
@@ -78,21 +117,248 @@ function buildLeaderThreadRows({
       status: partial.status ?? existing?.status ?? quest?.status,
       boardStatus: partial.boardStatus ?? existing?.boardStatus,
       journey: partial.journey ?? existing?.journey,
-      messageCount: counts.get(key) ?? existing?.messageCount ?? 0,
+      boardRow,
+      rowStatus: partial.rowStatus ?? existing?.rowStatus ?? rowSessionStatuses?.[key],
+      messageCount,
+      createdAt: Math.min(
+        partial.createdAt ?? Number.MAX_SAFE_INTEGER,
+        existing?.createdAt ?? creationTimeFor(key, boardRow),
+      ),
+      section,
     });
   };
 
-  for (const row of orderBoardRows(activeBoard)) {
-    addQuestRow(row.questId, { title: row.title, boardStatus: row.status, journey: row.journey });
+  for (const row of activeBoard) {
+    const key = row.questId.toLowerCase();
+    addQuestRow(row.questId, {
+      title: row.title,
+      boardStatus: row.status,
+      journey: row.journey,
+      boardRow: row,
+      rowStatus: rowSessionStatuses?.[key],
+      createdAt: creationTimeFor(key, row),
+    });
   }
-  for (const row of orderBoardRows(completedBoard, "completed")) {
-    addQuestRow(row.questId, { title: row.title, boardStatus: row.status, journey: row.journey });
+  for (const row of completedBoard) {
+    const key = row.questId.toLowerCase();
+    addQuestRow(row.questId, {
+      title: row.title,
+      boardStatus: row.status,
+      journey: row.journey,
+      boardRow: row,
+      rowStatus: rowSessionStatuses?.[key],
+      createdAt: creationTimeFor(key, row),
+    });
   }
   for (const key of counts.keys()) {
-    if (/^q-\d+$/.test(key)) addQuestRow(key);
+    if (/^q-\d+$/.test(key)) {
+      addQuestRow(key, { createdAt: creationTimeFor(key, boardRowById.get(key)) });
+    }
   }
 
-  return [...rows.values()];
+  return [...rows.values()].sort((a, b) => a.createdAt - b.createdAt || a.threadKey.localeCompare(b.threadKey));
+}
+
+function participantDotProps(status: BoardParticipantStatus["status"]) {
+  if (status === "archived") {
+    return { archived: true, permCount: 0, isConnected: false, sdkState: "exited" as const, status: null };
+  }
+  if (status === "disconnected") {
+    return { permCount: 0, isConnected: false, sdkState: "exited" as const, status: null };
+  }
+  if (status === "running") {
+    return { permCount: 0, isConnected: true, sdkState: "running" as const, status: "running" as const };
+  }
+  return { permCount: 0, isConnected: true, sdkState: "connected" as const, status: "idle" as const };
+}
+
+function phaseLabelForThread(row: LeaderThreadRow): { label: string; color?: string } | null {
+  if (row.journey?.phaseIds?.length) {
+    const phase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.boardStatus));
+    if (phase) return { label: phase.label, color: phase.color.accent };
+  }
+  const phase = getQuestJourneyPhaseForState(row.boardStatus);
+  if (phase) return { label: phase.label, color: phase.color.accent };
+  const presentation = getQuestJourneyPresentation(row.boardStatus);
+  if (presentation) return { label: presentation.label };
+  if (row.status === "needs_verification") return { label: "Verification" };
+  if (row.status === "done") return { label: "Done" };
+  return null;
+}
+
+function ThreadParticipantChip({
+  label,
+  participant,
+  fallbackSessionId,
+  fallbackSessionNum,
+}: {
+  label: string;
+  participant?: BoardParticipantStatus | null;
+  fallbackSessionId?: string;
+  fallbackSessionNum?: number;
+}) {
+  const sessionId = participant?.sessionId ?? fallbackSessionId ?? null;
+  const sessionNum = participant?.sessionNum ?? fallbackSessionNum ?? null;
+  if (!sessionId) return null;
+  return (
+    <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
+      {participant && <SessionStatusDot className="mt-0" {...participantDotProps(participant.status)} />}
+      <span className="text-cc-muted">{label}</span>
+      <SessionInlineLink
+        sessionId={sessionId}
+        sessionNum={sessionNum}
+        className="font-mono-code text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2"
+      >
+        {`#${sessionNum ?? "?"}`}
+      </SessionInlineLink>
+    </span>
+  );
+}
+
+function ThreadJourneyHover({ row, label }: { row: LeaderThreadRow; label: { label: string; color?: string } }) {
+  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const zoomLevel = useStore((s) => s.zoomLevel ?? 1);
+  const cardWidth = 360;
+  const gap = 6;
+
+  useEffect(
+    () => () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    if (!cardRef.current || !hoverRect) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const el = cardRef.current;
+    if (rect.right > window.innerWidth - 8) {
+      el.style.left = `${Math.max(8, window.innerWidth - cardWidth - 8)}px`;
+    }
+    if (rect.bottom > window.innerHeight - 8) {
+      el.style.top = `${Math.max(8, hoverRect.top - rect.height - gap)}px`;
+    }
+  }, [hoverRect]);
+
+  function handleMouseEnter(e: MouseEvent<HTMLDivElement>) {
+    if (!row.journey?.phaseIds?.length) return;
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setHoverRect(e.currentTarget.getBoundingClientRect());
+  }
+
+  function handleMouseLeave() {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => setHoverRect(null), 100);
+  }
+
+  return (
+    <>
+      <div
+        className="inline-flex max-w-full items-center gap-1 rounded-full border border-cc-border/60 bg-cc-card/70 px-1.5 py-0.5 text-[10px] leading-none text-cc-muted"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        data-testid="leader-thread-journey-hover-target"
+      >
+        <span
+          className="h-1.5 w-1.5 shrink-0 rounded-full bg-current"
+          style={label.color ? { color: label.color } : undefined}
+        />
+        <span className="truncate" style={label.color ? { color: label.color } : undefined}>
+          {label.label}
+        </span>
+      </div>
+      {hoverRect &&
+        row.journey &&
+        createPortal(
+          <div
+            ref={cardRef}
+            className="fixed z-50 pointer-events-auto hidden-on-touch"
+            style={{
+              left: hoverRect.left,
+              top: hoverRect.bottom + gap,
+              width: cardWidth,
+              transform: `scale(${zoomLevel})`,
+              transformOrigin: "top left",
+            }}
+            onMouseEnter={() => {
+              if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+            }}
+            onMouseLeave={() => setHoverRect(null)}
+            data-testid="leader-thread-journey-hover-card"
+          >
+            <div className="rounded-lg border border-cc-border bg-cc-card p-2.5 shadow-xl">
+              <QuestJourneyPreviewCard
+                journey={row.journey}
+                status={row.boardStatus}
+                quest={{ questId: row.questId ?? row.threadKey, title: row.title }}
+                onQuestClick={() => row.questId && useStore.getState().openQuestOverlay(row.questId)}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function LeaderThreadRowItem({
+  row,
+  selected,
+  onSelect,
+}: {
+  row: LeaderThreadRow;
+  selected: boolean;
+  onSelect: () => void;
+}) {
+  const phase = phaseLabelForThread(row);
+  const handleKeyDown = (event: KeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    onSelect();
+  };
+  return (
+    <div
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={handleKeyDown}
+      className={`min-w-52 shrink-0 cursor-pointer border-r border-cc-border/60 px-2.5 py-2 outline-none transition-colors sm:min-w-0 sm:w-full sm:border-r-0 sm:border-b ${
+        selected ? "bg-cc-hover" : "hover:bg-cc-hover/50 focus:bg-cc-hover/50"
+      }`}
+      data-testid="leader-thread-row"
+      data-thread-key={row.threadKey}
+      data-thread-section={row.section}
+    >
+      <div className="flex min-w-0 items-start justify-between gap-2">
+        {row.questId ? (
+          <QuestInlineLink
+            questId={row.questId}
+            stopPropagation
+            className="min-w-0 truncate text-left text-xs font-medium text-blue-300 hover:text-blue-200 hover:underline"
+          >
+            <span className="font-mono-code">{row.questId}</span>
+            <span className="text-cc-muted"> · </span>
+            <span>{row.title}</span>
+          </QuestInlineLink>
+        ) : (
+          <span className="min-w-0 truncate text-xs font-medium text-cc-fg">{row.title}</span>
+        )}
+        <span className="shrink-0 text-[10px] tabular-nums text-cc-muted">{row.messageCount}</span>
+      </div>
+      <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5">
+        {phase && <ThreadJourneyHover row={row} label={phase} />}
+        <ThreadParticipantChip
+          label="W"
+          participant={row.rowStatus?.worker}
+          fallbackSessionId={row.boardRow?.worker}
+          fallbackSessionNum={row.boardRow?.workerNum}
+        />
+        <ThreadParticipantChip label="R" participant={row.rowStatus?.reviewer} />
+      </div>
+    </div>
+  );
 }
 
 function LeaderThreadSwitcher({
@@ -108,11 +374,13 @@ function LeaderThreadSwitcher({
   const completedBoard = useStore((s) => s.sessionCompletedBoards.get(sessionId) ?? EMPTY_BOARD_ROWS);
   const messages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const quests = useStore((s) => s.quests);
-  const openQuestOverlay = useStore((s) => s.openQuestOverlay);
+  const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses.get(sessionId));
   const rows = useMemo(
-    () => buildLeaderThreadRows({ activeBoard, completedBoard, messages, quests }),
-    [activeBoard, completedBoard, messages, quests],
+    () => buildLeaderThreadRows({ activeBoard, completedBoard, messages, quests, rowSessionStatuses }),
+    [activeBoard, completedBoard, messages, quests, rowSessionStatuses],
   );
+  const activeRows = rows.filter((row) => row.section === "active");
+  const doneRows = rows.filter((row) => row.section === "done");
   const normalizedSelected = selectedThreadKey.toLowerCase();
 
   return (
@@ -130,41 +398,36 @@ function LeaderThreadSwitcher({
         <div className="text-xs font-semibold">Main</div>
         <div className="text-[10px] text-cc-muted/80 tabular-nums">{messages.length} messages</div>
       </button>
-      {rows.map((row) => {
-        const selected = normalizedSelected === row.threadKey;
-        return (
-          <div
-            key={row.threadKey}
-            className={`min-w-56 shrink-0 border-r border-cc-border/60 sm:min-w-0 sm:w-full sm:border-r-0 sm:border-b ${
-              selected ? "bg-cc-hover" : "hover:bg-cc-hover/50"
-            }`}
-          >
-            <button type="button" onClick={() => onSelectThread(row.threadKey)} className="w-full px-3 py-2 text-left">
-              <div className="flex items-center gap-2">
-                <span className="font-mono-code text-[11px] text-blue-400">{row.threadKey}</span>
-                {row.boardStatus && <span className="truncate text-[10px] text-cc-muted">{row.boardStatus}</span>}
-              </div>
-              <div className="mt-0.5 truncate text-xs text-cc-fg">{row.title}</div>
-              <div className="mt-1 flex items-center gap-2 text-[10px] text-cc-muted">
-                {row.status && <span className="truncate">{row.status}</span>}
-                <span className="tabular-nums">{row.messageCount} msgs</span>
-              </div>
-              {row.journey && (
-                <QuestJourneyCompactSummary journey={row.journey} status={row.boardStatus} className="mt-1" />
-              )}
-            </button>
-            {row.questId && (
-              <button
-                type="button"
-                onClick={() => openQuestOverlay(row.questId!)}
-                className="mx-3 mb-2 text-[10px] text-blue-400 hover:text-blue-300 hover:underline"
-              >
-                Open quest
-              </button>
-            )}
+      {activeRows.length > 0 && (
+        <div className="flex shrink-0 sm:block">
+          <div className="hidden px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70 sm:block">
+            Active
           </div>
-        );
-      })}
+          {activeRows.map((row) => (
+            <LeaderThreadRowItem
+              key={row.threadKey}
+              row={row}
+              selected={normalizedSelected === row.threadKey}
+              onSelect={() => onSelectThread(row.threadKey)}
+            />
+          ))}
+        </div>
+      )}
+      {doneRows.length > 0 && (
+        <div className="flex shrink-0 sm:block">
+          <div className="hidden px-2.5 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70 sm:block">
+            Done
+          </div>
+          {doneRows.map((row) => (
+            <LeaderThreadRowItem
+              key={row.threadKey}
+              row={row}
+              selected={normalizedSelected === row.threadKey}
+              onSelect={() => onSelectThread(row.threadKey)}
+            />
+          ))}
+        </div>
+      )}
     </aside>
   );
 }

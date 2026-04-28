@@ -1,4 +1,5 @@
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage } from "../types.js";
+import { parseThreadTextPrefix } from "../../shared/thread-routing.js";
 
 interface NormalizeHistoryMessageOptions {
   includeSuccessfulResult?: boolean;
@@ -37,6 +38,56 @@ function dedupeAssistantContentBlocks(blocks: ContentBlock[]): ContentBlock[] {
   }
 
   return result;
+}
+
+function threadRefForRepairedTarget(target: { threadKey: string; questId?: string }): ChatMessage["metadata"] {
+  const metadata: ChatMessage["metadata"] = { threadKey: target.threadKey };
+  if (target.questId) {
+    metadata.questId = target.questId;
+    metadata.threadRefs = [{ threadKey: target.threadKey, questId: target.questId, source: "explicit" }];
+  }
+  return metadata;
+}
+
+function mergeThreadMetadata(
+  existing: ChatMessage["metadata"] | undefined,
+  repaired: ChatMessage["metadata"] | undefined,
+): ChatMessage["metadata"] | undefined {
+  if (!existing && !repaired) return undefined;
+  if (!repaired) return existing;
+  const refs = new Map<string, NonNullable<NonNullable<ChatMessage["metadata"]>["threadRefs"]>[number]>();
+  for (const ref of existing?.threadRefs ?? []) {
+    refs.set(ref.threadKey.toLowerCase(), ref);
+  }
+  for (const ref of repaired.threadRefs ?? []) {
+    refs.set(ref.threadKey.toLowerCase(), ref);
+  }
+  return {
+    ...existing,
+    ...repaired,
+    ...(refs.size > 0 ? { threadRefs: [...refs.values()] } : {}),
+  };
+}
+
+function repairThreadPrefixInText(text: string): { text: string; metadata?: ChatMessage["metadata"] } {
+  const parsed = parseThreadTextPrefix(text);
+  if (!parsed.ok) return { text };
+  return { text: parsed.body, metadata: threadRefForRepairedTarget(parsed.target) };
+}
+
+function repairThreadPrefixInContentBlocks(blocks: ContentBlock[]): {
+  blocks: ContentBlock[];
+  metadata?: ChatMessage["metadata"];
+} {
+  const firstTextIndex = blocks.findIndex((block) => block.type === "text" && block.text.trim());
+  if (firstTextIndex < 0) return { blocks };
+  const block = blocks[firstTextIndex];
+  if (!block || block.type !== "text") return { blocks };
+  const repaired = repairThreadPrefixInText(block.text);
+  if (!repaired.metadata) return { blocks };
+  const next = blocks.slice();
+  next[firstTextIndex] = { ...block, text: repaired.text };
+  return { blocks: next, metadata: repaired.metadata };
 }
 
 function getReplaySensitiveBlockSignature(block: ContentBlock): string | null {
@@ -107,20 +158,23 @@ export function normalizeHistoryMessageToChatMessages(
   }
 
   if (histMsg.type === "leader_user_message") {
+    const existingMetadata: ChatMessage["metadata"] = {
+      leaderUserMessage: true,
+      ...(histMsg.threadRefs ? { threadRefs: histMsg.threadRefs } : {}),
+      ...(histMsg.threadKey ? { threadKey: histMsg.threadKey } : {}),
+      ...(histMsg.questId ? { questId: histMsg.questId } : {}),
+      ...(histMsg.threadRoutingError ? { threadRoutingError: histMsg.threadRoutingError } : {}),
+    };
+    const repaired = repairThreadPrefixInText(histMsg.content);
+    const metadata = mergeThreadMetadata(existingMetadata, repaired.metadata);
     return [
       {
         id: histMsg.id || `hist-leader-user-${historyIndex}`,
         role: "assistant",
-        content: histMsg.content,
+        content: repaired.text,
         timestamp: histMsg.timestamp,
         historyIndex,
-        metadata: {
-          leaderUserMessage: true,
-          ...(histMsg.threadRefs ? { threadRefs: histMsg.threadRefs } : {}),
-          ...(histMsg.threadKey ? { threadKey: histMsg.threadKey } : {}),
-          ...(histMsg.questId ? { questId: histMsg.questId } : {}),
-          ...(histMsg.threadRoutingError ? { threadRoutingError: histMsg.threadRoutingError } : {}),
-        },
+        metadata,
         ...(histMsg.notification ? { notification: histMsg.notification } : {}),
       },
     ];
@@ -128,7 +182,19 @@ export function normalizeHistoryMessageToChatMessages(
 
   if (histMsg.type === "assistant") {
     const msg = histMsg.message;
-    const normalizedContent = dedupeAssistantContentBlocks(msg.content);
+    const dedupedContent = dedupeAssistantContentBlocks(msg.content);
+    const repairedContent = repairThreadPrefixInContentBlocks(dedupedContent);
+    const normalizedContent = repairedContent.blocks;
+    const existingMetadata: ChatMessage["metadata"] | undefined =
+      histMsg.threadRefs || histMsg.threadKey || histMsg.questId || histMsg.threadRoutingError
+        ? {
+            ...(histMsg.threadRefs ? { threadRefs: histMsg.threadRefs } : {}),
+            ...(histMsg.threadKey ? { threadKey: histMsg.threadKey } : {}),
+            ...(histMsg.questId ? { questId: histMsg.questId } : {}),
+            ...(histMsg.threadRoutingError ? { threadRoutingError: histMsg.threadRoutingError } : {}),
+          }
+        : undefined;
+    const metadata = mergeThreadMetadata(existingMetadata, repairedContent.metadata);
     return [
       {
         id: msg.id,
@@ -144,16 +210,7 @@ export function normalizeHistoryMessageToChatMessages(
         ...((histMsg as Record<string, unknown>).notification
           ? { notification: (histMsg as Record<string, unknown>).notification as ChatMessage["notification"] }
           : {}),
-        ...(histMsg.threadRefs || histMsg.threadKey || histMsg.questId || histMsg.threadRoutingError
-          ? {
-              metadata: {
-                ...(histMsg.threadRefs ? { threadRefs: histMsg.threadRefs } : {}),
-                ...(histMsg.threadKey ? { threadKey: histMsg.threadKey } : {}),
-                ...(histMsg.questId ? { questId: histMsg.questId } : {}),
-                ...(histMsg.threadRoutingError ? { threadRoutingError: histMsg.threadRoutingError } : {}),
-              },
-            }
-          : {}),
+        ...(metadata ? { metadata } : {}),
         ...(typeof (histMsg as Record<string, unknown>).turn_duration_ms === "number"
           ? { turnDurationMs: (histMsg as Record<string, unknown>).turn_duration_ms as number }
           : {}),

@@ -7,7 +7,7 @@ export type ThreadRouteParseResult =
   | { ok: true; target: ThreadRouteTarget; body: string }
   | { ok: false; reason: "missing" | "invalid"; marker?: string; body: string };
 
-const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)\]$/;
+const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)\](?:[ \t]+(.*))?$/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
 
 export function isQuestThreadKey(threadKey: string): boolean {
@@ -34,7 +34,7 @@ export function parseThreadTextPrefix(text: string): ThreadRouteParseResult {
 
   const target = normalizeThreadTarget(match[1]);
   if (!target) return { ok: false, reason: "invalid", marker: first.text, body: text };
-  return { ok: true, target, body: removeLineAt(lines, first.index) };
+  return { ok: true, target, body: removeThreadMarker(lines, first.index, match[2] ?? "") };
 }
 
 export function parseCommandThreadComment(command: string): ThreadRouteTarget | null {
@@ -63,5 +63,12 @@ function firstNonEmptyLine(lines: string[]): { index: number; text: string } | n
 function removeLineAt(lines: string[], index: number): string {
   const next = lines.slice();
   next.splice(index, 1);
+  return next.join("\n").replace(/^\n+/, "");
+}
+
+function removeThreadMarker(lines: string[], index: number, sameLineBody: string): string {
+  if (!sameLineBody.trim()) return removeLineAt(lines, index);
+  const next = lines.slice();
+  next[index] = sameLineBody;
   return next.join("\n").replace(/^\n+/, "");
 }

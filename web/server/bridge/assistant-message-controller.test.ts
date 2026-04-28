@@ -227,6 +227,23 @@ describe("assistant-message-controller", () => {
     expect(session.messageHistory[0]).toMatchObject(msg);
   });
 
+  it("strips same-line leader thread prefixes and persists quest thread metadata", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941] Same-line routed update" }]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
+      { type: "text", text: "Same-line routed update" },
+    ]);
+  });
+
   it("turns missing leader thread prefixes into a routing reminder", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
