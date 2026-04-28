@@ -15,22 +15,29 @@ function formatReminderSummary(summary: string | undefined): string {
   return summary?.trim().replace(/\s+/g, " ") || "(no summary)";
 }
 
-function extractReminderNotificationIds(reminderText: string): string[] {
+function extractReminderNotificationInfo(reminderText: string): { referencedIds: string[]; totalCount: number | null } {
+  let totalCount: number | null = null;
   const ids: string[] = [];
   for (const line of reminderText.split(/\r?\n/)) {
+    const totalMatch = /^Unresolved same-session needs-input notifications: (\d+)\./.exec(line.trim());
+    if (totalMatch) {
+      totalCount = Number.parseInt(totalMatch[1], 10);
+      continue;
+    }
     const match = /^\s*(n-\d+|\d+)\.\s+/.exec(line);
     if (!match) continue;
     ids.push(match[1].startsWith("n-") ? match[1] : `n-${Number.parseInt(match[1], 10)}`);
   }
-  return ids;
+  return { referencedIds: ids, totalCount };
 }
 
 export function shouldCommitNeedsInputReminderHistoryEntry(
   reminderText: string,
   notifications: ReadonlyArray<SessionNotification> | undefined,
 ): boolean {
-  const referencedIds = extractReminderNotificationIds(reminderText);
+  const { referencedIds, totalCount } = extractReminderNotificationInfo(reminderText);
   if (referencedIds.length === 0) return true;
+  if (totalCount !== null && totalCount > referencedIds.length) return true;
 
   let knownCount = 0;
   for (const notificationId of referencedIds) {

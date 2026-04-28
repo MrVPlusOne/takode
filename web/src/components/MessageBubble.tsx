@@ -1127,10 +1127,12 @@ function UserMessage({
 
 function NeedsInputReminderView({ reminder }: { reminder: NeedsInputReminderViewModel }) {
   const hasActive = reminder.activeCount > 0;
-  const statusLabel = hasActive ? "active" : "historical";
+  const statusLabel = hasActive ? "active" : reminder.hasPartialState ? "partial state" : "historical";
   const toneClass = hasActive
     ? "border-amber-500/25 bg-amber-500/6 text-amber-100"
-    : "border-cc-border/50 bg-cc-hover/30 text-cc-muted";
+    : reminder.hasPartialState
+      ? "border-cc-border/60 bg-cc-hover/40 text-cc-muted"
+      : "border-cc-border/50 bg-cc-hover/30 text-cc-muted";
 
   return (
     <div className="space-y-2">

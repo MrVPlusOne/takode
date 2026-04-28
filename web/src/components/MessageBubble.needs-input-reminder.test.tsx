@@ -53,6 +53,26 @@ function makeNeedsInputReminderMessage(): ChatMessage {
   };
 }
 
+function makeTruncatedNeedsInputReminderMessage(): ChatMessage {
+  return {
+    id: "needs-input-reminder-4",
+    role: "user",
+    content: [
+      "[Needs-input reminder]",
+      "Unresolved same-session needs-input notifications: 4. Showing newest 3.",
+      "  6. Newest pending question",
+      "  5. Second newest pending question",
+      "  3. Third newest pending question",
+      "Review or resolve these before assuming the user's latest message answered them.",
+    ].join("\n"),
+    timestamp: 1000,
+    agentSource: {
+      sessionId: "system:needs-input-reminder",
+      sessionLabel: "Needs Input Reminder",
+    },
+  };
+}
+
 describe("MessageBubble needs-input reminder messages", () => {
   beforeEach(() => {
     revertToMessageMock.mockClear();
@@ -142,6 +162,107 @@ describe("MessageBubble needs-input reminder messages", () => {
       expect(screen.getByText("Notification state is no longer available for this historical reminder.")).toBeTruthy();
       expect(screen.getByText("state unavailable")).toBeTruthy();
       expect(screen.queryByText("Unresolved same-session needs-input notifications: 1.")).toBeNull();
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
+
+  it("keeps truncated reminders active when an unlisted older notification is still unresolved", () => {
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const nextNotifications = new Map(prevNotifications);
+    nextNotifications.set("reminder-session", [
+      {
+        id: "n-6",
+        category: "needs-input",
+        summary: "Newest pending question",
+        timestamp: 600,
+        messageId: null,
+        done: true,
+      },
+      {
+        id: "n-5",
+        category: "needs-input",
+        summary: "Second newest pending question",
+        timestamp: 500,
+        messageId: null,
+        done: true,
+      },
+      {
+        id: "n-3",
+        category: "needs-input",
+        summary: "Third newest pending question",
+        timestamp: 300,
+        messageId: null,
+        done: true,
+      },
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Hidden older question",
+        timestamp: 100,
+        messageId: null,
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: nextNotifications });
+
+    try {
+      render(<MessageBubble message={makeTruncatedNeedsInputReminderMessage()} sessionId="reminder-session" />);
+
+      expect(screen.getByText("Needs-input reminder")).toBeTruthy();
+      expect(
+        screen.getByText("1 unlisted needs-input notification from this reminder may still be unresolved."),
+      ).toBeTruthy();
+      expect(screen.queryByText("Historical needs-input reminder")).toBeNull();
+      expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
+
+  it("renders truncated all-listed-resolved reminders as partial state instead of fully resolved", () => {
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const nextNotifications = new Map(prevNotifications);
+    nextNotifications.set("reminder-session", [
+      {
+        id: "n-6",
+        category: "needs-input",
+        summary: "Newest pending question",
+        timestamp: 600,
+        messageId: null,
+        done: true,
+      },
+      {
+        id: "n-5",
+        category: "needs-input",
+        summary: "Second newest pending question",
+        timestamp: 500,
+        messageId: null,
+        done: true,
+      },
+      {
+        id: "n-3",
+        category: "needs-input",
+        summary: "Third newest pending question",
+        timestamp: 300,
+        messageId: null,
+        done: true,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: nextNotifications });
+
+    try {
+      render(<MessageBubble message={makeTruncatedNeedsInputReminderMessage()} sessionId="reminder-session" />);
+
+      expect(screen.getByText("Needs-input reminder")).toBeTruthy();
+      expect(screen.getByText("partial state")).toBeTruthy();
+      expect(
+        screen.getByText(
+          "This reminder originally had 4 unresolved notifications but only listed 3; 1 unlisted notification state is unavailable.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByText("Historical needs-input reminder")).toBeNull();
+      expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }

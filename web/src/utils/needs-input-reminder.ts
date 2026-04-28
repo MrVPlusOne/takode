@@ -16,6 +16,8 @@ export interface NeedsInputReminderViewModel {
   activeCount: number;
   resolvedCount: number;
   unknownCount: number;
+  unlistedCount: number;
+  hasPartialState: boolean;
   title: string;
   description: string;
 }
@@ -28,6 +30,7 @@ interface ParsedNeedsInputReminderEntry {
 
 interface ParsedNeedsInputReminder {
   entries: ParsedNeedsInputReminderEntry[];
+  totalCount: number | null;
 }
 
 function normalizeReminderNotificationId(rawId: string): string | null {
@@ -40,6 +43,8 @@ function normalizeReminderNotificationId(rawId: string): string | null {
 function parseNeedsInputReminderContent(content: string): ParsedNeedsInputReminder | null {
   const lines = content.split(/\r?\n/);
   if (lines[0]?.trim() !== "[Needs-input reminder]") return null;
+  const totalMatch = lines[1]?.match(/^Unresolved same-session needs-input notifications: (\d+)\./);
+  const totalCount = totalMatch ? Number.parseInt(totalMatch[1], 10) : null;
 
   const entries: ParsedNeedsInputReminderEntry[] = [];
   for (const line of lines.slice(1)) {
@@ -54,7 +59,7 @@ function parseNeedsInputReminderContent(content: string): ParsedNeedsInputRemind
     });
   }
 
-  return { entries };
+  return { entries, totalCount };
 }
 
 function findNeedsInputNotification(
@@ -68,7 +73,49 @@ function findNeedsInputNotification(
   );
 }
 
-function describeReminderCounts(activeCount: number, resolvedCount: number, unknownCount: number): string {
+function countUnlistedActiveNotifications(
+  notifications: ReadonlyArray<SessionNotification> | undefined,
+  listedIds: ReadonlySet<string>,
+  reminderTimestamp: number | undefined,
+  unlistedCount: number,
+): number {
+  if (!notifications || unlistedCount <= 0) return 0;
+
+  const activeUnlisted = notifications.filter((notification) => {
+    if (notification.category !== "needs-input" || notification.done || listedIds.has(notification.id)) return false;
+    if (typeof reminderTimestamp !== "number") return true;
+    return notification.timestamp <= reminderTimestamp;
+  });
+  return Math.min(activeUnlisted.length, unlistedCount);
+}
+
+function describeReminderCounts({
+  listedActiveCount,
+  activeCount,
+  resolvedCount,
+  unknownCount,
+  unlistedCount,
+  unlistedActiveCount,
+  listedCount,
+  totalCount,
+}: {
+  listedActiveCount: number;
+  activeCount: number;
+  resolvedCount: number;
+  unknownCount: number;
+  unlistedCount: number;
+  unlistedActiveCount: number;
+  listedCount: number;
+  totalCount: number | null;
+}): string {
+  if (unlistedActiveCount > 0) {
+    const hiddenLabel =
+      unlistedActiveCount === 1
+        ? "1 unlisted needs-input notification from this reminder may still be unresolved."
+        : `${unlistedActiveCount} unlisted needs-input notifications from this reminder may still be unresolved.`;
+    if (listedActiveCount === 0) return hiddenLabel;
+  }
+
   if (activeCount > 0) {
     const activeLabel =
       activeCount === 1
@@ -78,6 +125,15 @@ function describeReminderCounts(activeCount: number, resolvedCount: number, unkn
     if (resolvedCount > 0) historicalParts.push(`${resolvedCount} resolved`);
     if (unknownCount > 0) historicalParts.push(`${unknownCount} unavailable`);
     return historicalParts.length > 0 ? `${activeLabel} Historical: ${historicalParts.join(", ")}.` : activeLabel;
+  }
+
+  if (unlistedCount > 0) {
+    const originalCount = totalCount ?? listedCount + unlistedCount;
+    const unlistedLabel =
+      unlistedCount === 1
+        ? "1 unlisted notification state is unavailable."
+        : `${unlistedCount} unlisted notification states are unavailable.`;
+    return `This reminder originally had ${originalCount} unresolved notifications but only listed ${listedCount}; ${unlistedLabel}`;
   }
 
   if (resolvedCount > 0 && unknownCount === 0) {
@@ -93,7 +149,7 @@ function describeReminderCounts(activeCount: number, resolvedCount: number, unkn
 }
 
 export function buildNeedsInputReminderViewModel(
-  message: Pick<ChatMessage, "agentSource" | "content">,
+  message: Pick<ChatMessage, "agentSource" | "content" | "timestamp">,
   notifications: ReadonlyArray<SessionNotification> | undefined,
 ): NeedsInputReminderViewModel | null {
   if (message.agentSource?.sessionId !== NEEDS_INPUT_REMINDER_SOURCE_ID) return null;
@@ -109,16 +165,39 @@ export function buildNeedsInputReminderViewModel(
       };
     }) ?? [];
 
-  const activeCount = entries.filter((entry) => entry.status === "active").length;
+  const listedIds = new Set(entries.map((entry) => entry.notificationId));
+  const listedActiveCount = entries.filter((entry) => entry.status === "active").length;
   const resolvedCount = entries.filter((entry) => entry.status === "resolved").length;
-  const unknownCount = entries.filter((entry) => entry.status === "unknown").length;
+  const listedUnknownCount = entries.filter((entry) => entry.status === "unknown").length;
+  const unlistedCount = Math.max(0, (parsed?.totalCount ?? entries.length) - entries.length);
+  const unlistedActiveCount = countUnlistedActiveNotifications(
+    notifications,
+    listedIds,
+    message.timestamp,
+    unlistedCount,
+  );
+  const unlistedUnknownCount = Math.max(0, unlistedCount - unlistedActiveCount);
+  const activeCount = listedActiveCount + unlistedActiveCount;
+  const unknownCount = listedUnknownCount + unlistedUnknownCount;
+  const hasPartialState = activeCount === 0 && unlistedCount > 0;
 
   return {
     entries,
     activeCount,
     resolvedCount,
     unknownCount,
-    title: activeCount > 0 ? "Needs-input reminder" : "Historical needs-input reminder",
-    description: describeReminderCounts(activeCount, resolvedCount, unknownCount),
+    unlistedCount,
+    hasPartialState,
+    title: activeCount > 0 || hasPartialState ? "Needs-input reminder" : "Historical needs-input reminder",
+    description: describeReminderCounts({
+      listedActiveCount,
+      activeCount,
+      resolvedCount,
+      unknownCount,
+      unlistedCount,
+      unlistedActiveCount,
+      listedCount: entries.length,
+      totalCount: parsed?.totalCount ?? null,
+    }),
   };
 }

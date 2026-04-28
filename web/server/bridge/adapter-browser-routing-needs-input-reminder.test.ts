@@ -322,4 +322,48 @@ describe("direct user needs-input reminders", () => {
     expect(session.messageHistory).toHaveLength(1);
     expect(session.messageHistory[0]).toMatchObject({ type: "user_message", content: "Fresh user message" });
   });
+
+  it("commits truncated queued Codex reminders when an unlisted notification remains active", () => {
+    // The reminder text only lists the newest three unresolved notifications.
+    // If those listed IDs resolve while an older hidden notification remains
+    // active, the queued reminder is still meaningful and must not be suppressed.
+    const session = makeSession([
+      needsInput("n-1", "Hidden older question", 100),
+      needsInput("n-3", "Third newest pending question", 300),
+      needsInput("n-5", "Second newest pending question", 500),
+      needsInput("n-6", "Newest pending question", 600),
+    ]);
+    session.backendType = "codex";
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    routeAdapterBrowserMessage(session, userMessage(), null, deps);
+    expect(session.pendingCodexInputs[0]?.needsInputReminderText).toContain(
+      "Unresolved same-session needs-input notifications: 4. Showing newest 3.",
+    );
+    for (const notification of session.notifications ?? []) {
+      if (notification.id === "n-1") continue;
+      notification.done = true;
+    }
+
+    commitPendingCodexInputs(session as any, [session.pendingCodexInputs[0]!.id], {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      onUserMessage: vi.fn(),
+    } as any);
+
+    expect(session.messageHistory).toHaveLength(2);
+    expect(session.messageHistory[0]).toMatchObject({
+      content: expect.stringContaining("Unresolved same-session needs-input notifications: 4. Showing newest 3."),
+      agentSource: {
+        sessionId: "system:needs-input-reminder",
+        sessionLabel: "Needs Input Reminder",
+      },
+    });
+    expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
+  });
 });
