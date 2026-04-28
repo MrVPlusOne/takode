@@ -1865,6 +1865,15 @@ export function createTakodeRoutes(ctx: RouteContext) {
       normalizeJourneyMode(existingJourney?.mode) ??
       ((existingRow?.status || "").trim().toUpperCase() === "PROPOSED" ? "proposed" : "active");
     const targetMode = requestedMode ?? (explicitStatusUpper === "PROPOSED" ? "proposed" : (existingMode ?? "active"));
+    if (existingRow && existingMode === "active" && targetMode === "proposed") {
+      return c.json(
+        {
+          error:
+            "Active Journey rows cannot be converted back to proposed drafts. Revise current/future active phases or append later occurrences instead.",
+        },
+        400,
+      );
+    }
     const revisionReason =
       typeof body.revisionReason === "string" && body.revisionReason.trim() ? body.revisionReason.trim() : undefined;
     if (typeof body.revisionReason === "string" && !revisionReason) {

@@ -1265,6 +1265,143 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it.each([
+    [
+      "delete completed occurrences",
+      {
+        phases: ["code-review", "port"],
+        presetId: "delete-history",
+      },
+    ],
+    [
+      "reorder completed occurrences",
+      {
+        phases: ["implement", "alignment", "code-review", "port"],
+        presetId: "reorder-history",
+      },
+    ],
+    [
+      "renote completed occurrences",
+      {
+        phases: ["alignment", "implement", "code-review", "port"],
+        presetId: "renote-history",
+        phaseNoteEdits: [{ index: 1, note: "Rewrite already-executed implementation phase" }],
+      },
+    ],
+    [
+      "convert an active Journey back to draft state",
+      {
+        phases: ["alignment", "implement", "code-review", "port"],
+        presetId: "draft-history",
+      },
+    ],
+  ])("rejects active-to-proposed Journey rewrites that %s", async (_label, proposalPatch) => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "CODE_REVIEWING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "full-code",
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            activePhaseIndex: 2,
+            currentPhaseId: "code-review",
+            phaseNotes: {
+              "1": "Existing implementation note",
+            },
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        journeyMode: "proposed",
+        status: "PROPOSED",
+        ...proposalPatch,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Active Journey rows cannot be converted back to proposed drafts"),
+    });
+    expect(bridge._sessions["orch-1"].board.get("q-9")).toMatchObject({
+      status: "CODE_REVIEWING",
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "implement", "code-review", "port"],
+        activePhaseIndex: 2,
+        phaseNotes: {
+          "1": "Existing implementation note",
+        },
+      },
+    });
+  });
+
+  it("keeps existing proposed rows freely revisable before execution", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "PROPOSED",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            presetId: "draft",
+            mode: "proposed",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            phaseNotes: {
+              "1": "Old draft implementation note",
+            },
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        journeyMode: "proposed",
+        status: "PROPOSED",
+        phases: ["alignment", "explore", "implement", "port"],
+        presetId: "revised-draft",
+        phaseNoteEdits: [{ index: 1, note: "Explore the draft before implementation" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "PROPOSED",
+          journey: {
+            mode: "proposed",
+            phaseIds: ["alignment", "explore", "implement", "port"],
+            phaseNotes: {
+              "1": "Explore the draft before implementation",
+            },
+          },
+        },
+      ],
+    });
+  });
+
   it("preserves repeated active phase occurrences by index when revising a Journey", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
