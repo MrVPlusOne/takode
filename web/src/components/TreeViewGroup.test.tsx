@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import type { ComponentProps } from "react";
 import type { SidebarSessionItem } from "../utils/sidebar-session-item.js";
 import type { TreeViewGroupData } from "../utils/tree-grouping.js";
 
@@ -64,7 +65,7 @@ function makeSession(id: string, overrides: Partial<SidebarSessionItem> = {}): S
   };
 }
 
-function renderTreeViewGroup(group: TreeViewGroupData) {
+function renderTreeViewGroup(group: TreeViewGroupData, overrides: Partial<ComponentProps<typeof TreeViewGroup>> = {}) {
   return render(
     <TreeViewGroup
       group={group}
@@ -92,6 +93,7 @@ function renderTreeViewGroup(group: TreeViewGroupData) {
       editInputRef={{ current: null }}
       isFirst
       sessionAttention={mockStoreState.sessionAttention}
+      {...overrides}
     />,
   );
 }
@@ -127,5 +129,32 @@ describe("TreeViewGroup leader herd summary", () => {
     );
     expect(runningIndicator).toBeTruthy();
     expect(runningIndicator?.querySelector(".bg-cc-success.rounded-full")).toBeInTheDocument();
+  });
+
+  it("keeps create available on collapsed Session Spaces without toggling collapse", () => {
+    // The per-space create button is the primary creation path after the
+    // global sidebar button is removed, so it must stay independent from the
+    // collapse target even when the Session Space is collapsed.
+    const onCreateSession = vi.fn();
+    const onToggleGroupCollapse = vi.fn();
+    const group: TreeViewGroupData = {
+      id: "team-alpha",
+      name: "Takode",
+      nodes: [{ leader: makeSession("leader-1"), workers: [], reviewers: [] }],
+      runningCount: 0,
+      permCount: 0,
+      unreadCount: 0,
+    };
+
+    renderTreeViewGroup(group, {
+      isGroupCollapsed: true,
+      onCreateSession,
+      onToggleGroupCollapse,
+    });
+
+    screen.getByLabelText("Create session in Takode Session Space").click();
+
+    expect(onCreateSession).toHaveBeenCalledWith("team-alpha");
+    expect(onToggleGroupCollapse).not.toHaveBeenCalled();
   });
 });

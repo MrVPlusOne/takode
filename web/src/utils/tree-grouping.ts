@@ -149,10 +149,9 @@ export function buildTreeViewGroups(
   for (const group of orderedGroups) {
     const bucket = groupBuckets.get(group.id);
     if (!bucket || bucket.length === 0) {
-      // Include empty non-default groups so the user can see and manage them
-      if (group.id !== "default") {
-        result.push({ id: group.id, name: group.name, nodes: [], runningCount: 0, permCount: 0, unreadCount: 0 });
-      }
+      // Empty Session Spaces still need a visible creation path, including
+      // the default space in a brand-new install with zero sessions.
+      result.push({ id: group.id, name: group.name, nodes: [], runningCount: 0, permCount: 0, unreadCount: 0 });
       continue;
     }
 

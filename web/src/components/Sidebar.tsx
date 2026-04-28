@@ -97,7 +97,7 @@ function buildMoveToSubmenu(
   if (otherGroups.length === 0) return [];
   return [
     {
-      label: "Move to...",
+      label: "Move to Session Space...",
       onClick: () => {},
       children: otherGroups.map((g) => ({
         label: g.name,
@@ -190,6 +190,7 @@ export function Sidebar() {
   const [bulkSelectedSessionIds, setBulkSelectedSessionIds] = useState<Set<string>>(new Set());
   const [bulkTargetGroupId, setBulkTargetGroupId] = useState("");
   const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [bulkSourceMenuOpen, setBulkSourceMenuOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sessionScrollerRef = useRef<HTMLDivElement>(null);
   const route = parseHash(hash);
@@ -210,8 +211,8 @@ export function Sidebar() {
   const nextAutoGroupName = useCallback(() => {
     const existing = new Set(treeGroups.map((g) => g.name));
     let n = 1;
-    while (existing.has(`Group ${n}`)) n++;
-    return `Group ${n}`;
+    while (existing.has(`Session Space ${n}`)) n++;
+    return `Session Space ${n}`;
   }, [treeGroups]);
 
   // Refresh sidebar session snapshots. The fixed 5s poll is existing behavior;
@@ -454,13 +455,6 @@ export function Sidebar() {
     setSearchPreviewSessionId(sessionId);
   }
 
-  function handleNewSession() {
-    useStore.getState().openNewSessionModal();
-    if (!isDesktopLayout) {
-      useStore.getState().setSidebarOpen(false);
-    }
-  }
-
   useEffect(() => {
     function handleFocusGlobalSearch() {
       requestAnimationFrame(() => {
@@ -499,6 +493,7 @@ export function Sidebar() {
       if (collapsedTreeGroups.has(groupId)) {
         toggleTreeGroupCollapse(groupId);
       }
+      setBulkSourceMenuOpen(false);
       setBulkSelectionGroupId(groupId);
       setBulkSelectedSessionIds(new Set());
       const firstTarget = treeGroups.find((group) => group.id !== groupId)?.id || "";
@@ -536,7 +531,7 @@ export function Sidebar() {
       await refreshTreeGroups();
       setBulkTargetGroupId(created.group.id);
     } catch (err) {
-      console.warn("[sidebar] failed to create bulk target group:", err);
+      console.warn("[sidebar] failed to create bulk target Session Space:", err);
     }
   }, [nextAutoGroupName, refreshTreeGroups]);
 
@@ -893,6 +888,12 @@ export function Sidebar() {
     };
   }, [searchQuery]);
 
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      setBulkSourceMenuOpen(false);
+    }
+  }, [searchQuery]);
+
   // Search filtering: map server-side results back to current session rows.
   const filteredSessions = useMemo(() => {
     if (!searchQuery.trim()) return null;
@@ -950,6 +951,11 @@ export function Sidebar() {
 
   // Show sort/reorder controls when the session list is visible and has multiple sessions.
   const showSortControls = !searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1;
+  const bulkSourceGroups = treeViewGroups.filter((group) => group.nodes.length > 0);
+  const activeBulkSourceGroup = bulkSelectionGroupId
+    ? treeViewGroups.find((group) => group.id === bulkSelectionGroupId)
+    : undefined;
+  const bulkDisabledBySearch = searchQuery.trim().length > 0;
 
   const herdHoverHighlights = useMemo(() => new Map<string, "leader" | "worker">(), []);
   const herdGroupBadgeThemes = useMemo(() => {
@@ -1039,17 +1045,6 @@ export function Sidebar() {
             </span>
           )}
         </div>
-
-        <button
-          onClick={handleNewSession}
-          title={getShortcutTitle("New session", shortcutSettings, "new_session", shortcutPlatform)}
-          className="w-full py-2 px-3 text-sm font-medium rounded-[10px] bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-            <path d="M8 3v10M3 8h10" />
-          </svg>
-          New Session
-        </button>
       </div>
 
       {/* Session list */}
@@ -1140,6 +1135,35 @@ export function Sidebar() {
                 </button>
               )}
             </div>
+            {bulkSourceGroups.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (bulkDisabledBySearch) return;
+                  setBulkSourceMenuOpen((open) => !open);
+                }}
+                disabled={bulkDisabledBySearch}
+                title={
+                  bulkDisabledBySearch
+                    ? "Clear search to bulk organize Session Spaces"
+                    : activeBulkSourceGroup
+                      ? `Bulk organizing ${activeBulkSourceGroup.name} Session Space`
+                      : "Bulk organize sessions by source Session Space"
+                }
+                aria-label={
+                  bulkDisabledBySearch
+                    ? "Clear search to bulk organize Session Spaces"
+                    : "Bulk organize sessions by source Session Space"
+                }
+                className={`shrink-0 h-7 px-2 inline-flex items-center justify-center rounded-md text-[10px] font-semibold transition-colors ${
+                  bulkSelectionGroupId
+                    ? "bg-cc-primary/15 text-cc-primary"
+                    : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                } ${bulkDisabledBySearch ? "opacity-45 cursor-not-allowed" : "cursor-pointer"}`}
+              >
+                Bulk
+              </button>
+            )}
             {/* Edit/Done reorder toggle — mobile only, hidden in activity sort mode */}
             {showSortControls && sessionSortMode !== "activity" && (
               <button
@@ -1177,6 +1201,34 @@ export function Sidebar() {
           </div>
         )}
 
+        {bulkSourceMenuOpen && !bulkDisabledBySearch && bulkSourceGroups.length > 0 && (
+          <div className="mx-2 mb-1.5 rounded-md border border-cc-border/70 bg-cc-card/70 p-1.5 shadow-sm">
+            <div className="px-1 pb-1 text-[10px] font-medium text-cc-muted">Choose source Session Space</div>
+            <div className="space-y-1">
+              {bulkSourceGroups.map((group) => {
+                const rootSessionIds = group.nodes.map((node) => node.leader.id);
+                const sessionCount = rootSessionIds.length;
+                return (
+                  <button
+                    key={group.id}
+                    type="button"
+                    onClick={() => startBulkSelection(group.id, rootSessionIds)}
+                    className="w-full min-w-0 rounded px-2 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                    aria-label={`Bulk organize ${group.name} Session Space`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate">{group.name}</span>
+                      <span className="shrink-0 text-[10px] text-cc-muted">
+                        {sessionCount} {sessionCount === 1 ? "session" : "sessions"}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
         {filteredSessions !== null ? (
           /* Search results: flat list across all sessions */
           filteredSessions.length === 0 ? (
@@ -1207,7 +1259,10 @@ export function Sidebar() {
               ))}
             </div>
           )
-        ) : activeSessions.length === 0 && cronSessions.length === 0 && archivedSessions.length === 0 ? (
+        ) : treeViewGroups.length === 0 &&
+          activeSessions.length === 0 &&
+          cronSessions.length === 0 &&
+          archivedSessions.length === 0 ? (
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">No sessions yet.</p>
         ) : (
           <>
@@ -1280,7 +1335,6 @@ export function Sidebar() {
                               bulkTargetGroupId={bulkTargetGroupId}
                               bulkAssigning={bulkAssigning}
                               availableBulkTargetGroups={treeGroups.filter((candidate) => candidate.id !== group.id)}
-                              onStartBulkSelection={startBulkSelection}
                               onCancelBulkSelection={cancelBulkSelection}
                               onToggleBulkSession={toggleBulkSession}
                               onToggleBulkSelectAll={toggleBulkSelectAll}
@@ -1304,7 +1358,7 @@ export function Sidebar() {
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
                 <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
               </svg>
-              <span className="font-medium">New Group</span>
+              <span className="font-medium">New Session Space</span>
             </button>
 
             {cronSessions.length > 0 && (

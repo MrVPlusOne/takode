@@ -92,17 +92,18 @@ describe("buildTreeViewGroups", () => {
     expect(groupA!.nodes[0].workers).toHaveLength(1);
     expect(groupA!.nodes[0].workers[0].id).toBe("worker-1");
 
-    // Default should be empty (filtered out)
+    // Default stays visible even when empty so there is always a creation path.
     const defaultGroup = result.find((g) => g.id === "default");
-    expect(defaultGroup).toBeUndefined(); // empty groups are excluded
+    expect(defaultGroup).toBeTruthy();
+    expect(defaultGroup!.nodes).toHaveLength(0);
   });
 
-  it("includes empty non-default groups so newly created groups are visible", () => {
+  it("includes empty Session Spaces so creation controls stay visible", () => {
     // When a user creates a new group before assigning any sessions to it,
     // it should still appear in the result so the UI can render its header.
     const groups: TreeGroup[] = [
       { id: "default", name: "Default" },
-      { id: "empty-group", name: "My New Group" },
+      { id: "empty-group", name: "My New Session Space" },
     ];
     const sessions = [makeSession({ id: "s1", sessionNum: 1 })];
 
@@ -111,6 +112,21 @@ describe("buildTreeViewGroups", () => {
     expect(emptyGroup).toBeTruthy();
     expect(emptyGroup!.nodes).toHaveLength(0);
     expect(emptyGroup!.runningCount).toBe(0);
+  });
+
+  it("includes the default Session Space when no sessions exist", () => {
+    const result = buildTreeViewGroups([], defaultGroups, emptyAssignments);
+
+    expect(result).toEqual([
+      {
+        id: "default",
+        name: "Default",
+        nodes: [],
+        runningCount: 0,
+        permCount: 0,
+        unreadCount: 0,
+      },
+    ]);
   });
 
   it("reviewers are collected as chips, not separate tree nodes", () => {

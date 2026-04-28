@@ -52,7 +52,6 @@ interface TreeViewGroupProps {
   bulkTargetGroupId?: string;
   bulkAssigning?: boolean;
   availableBulkTargetGroups?: Array<{ id: string; name: string }>;
-  onStartBulkSelection?: (groupId: string, sessionIds: string[]) => void;
   onCancelBulkSelection?: () => void;
   onToggleBulkSession?: (sessionId: string) => void;
   onToggleBulkSelectAll?: (sessionIds: string[]) => void;
@@ -139,7 +138,6 @@ export function TreeViewGroup({
   bulkTargetGroupId,
   bulkAssigning,
   availableBulkTargetGroups,
-  onStartBulkSelection,
   onCancelBulkSelection,
   onToggleBulkSession,
   onToggleBulkSelectAll,
@@ -471,47 +469,26 @@ export function TreeViewGroup({
         </button>
         <button
           type="button"
+          onPointerDown={(e) => e.stopPropagation()}
           onClick={(e) => {
             e.stopPropagation();
             onCreateSession(group.id);
           }}
-          className="shrink-0 w-5 h-5 inline-flex items-center justify-center rounded text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
-          title={`Create session in ${group.name}`}
-          aria-label={`Create session in ${group.name}`}
+          className="shrink-0 h-8 min-w-8 px-2 inline-flex items-center justify-center gap-1 rounded-md border border-cc-primary/25 bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20 hover:text-cc-fg transition-colors cursor-pointer"
+          title={`Create session in ${group.name} Session Space`}
+          aria-label={`Create session in ${group.name} Session Space`}
         >
           <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
             <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
           </svg>
+          <span className="hidden sm:inline text-[10px] font-semibold leading-none">New</span>
         </button>
-        {group.nodes.length > 0 && (
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              if (bulkSelectionActive) onCancelBulkSelection?.();
-              else onStartBulkSelection?.(group.id, rootNodeIds);
-            }}
-            className={`shrink-0 px-1.5 h-5 inline-flex items-center justify-center rounded text-[10px] font-medium transition-colors cursor-pointer ${
-              bulkSelectionActive
-                ? "bg-cc-primary/15 text-cc-primary"
-                : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-            }`}
-            title={
-              bulkSelectionActive ? `Cancel bulk assignment in ${group.name}` : `Bulk assign sessions in ${group.name}`
-            }
-            aria-label={
-              bulkSelectionActive ? `Cancel bulk assignment in ${group.name}` : `Bulk assign sessions in ${group.name}`
-            }
-          >
-            Bulk
-          </button>
-        )}
         {groupDragHandleProps && (
           <button
             type="button"
             className="shrink-0 w-5 h-5 inline-flex items-center justify-center text-cc-muted hover:text-cc-fg cursor-grab active:cursor-grabbing touch-none"
-            title="Drag to reorder groups"
-            aria-label={`Drag to reorder group ${group.name}`}
+            title="Drag to reorder Session Spaces"
+            aria-label={`Drag to reorder Session Space ${group.name}`}
             onClick={(e) => e.stopPropagation()}
             {...(groupDragHandleProps.listeners || {})}
             {...(groupDragHandleProps.attributes || {})}
@@ -535,7 +512,7 @@ export function TreeViewGroup({
               {allSelectableSessionsSelected ? "Clear" : "All"}
             </button>
             <label className="sr-only" htmlFor={`bulk-target-${group.id}`}>
-              Bulk target group
+              Bulk target Session Space
             </label>
             <select
               id={`bulk-target-${group.id}`}
@@ -543,7 +520,7 @@ export function TreeViewGroup({
               onChange={(e) => onBulkTargetGroupChange?.(e.target.value)}
               className="min-w-0 flex-1 px-2 py-1 rounded-md text-[10px] text-cc-fg bg-cc-input-bg border border-cc-border focus:outline-none focus:border-cc-primary/60"
             >
-              <option value="">Choose target group</option>
+              <option value="">Choose target space</option>
               {(availableBulkTargetGroups ?? []).map((candidate) => (
                 <option key={candidate.id} value={candidate.id}>
                   {candidate.name}
@@ -554,7 +531,7 @@ export function TreeViewGroup({
               type="button"
               onClick={() => onCreateGroupForBulkAssignment?.()}
               className="px-1.5 py-0.5 rounded text-[10px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-              title="Create a new target group"
+              title="Create a new target Session Space"
             >
               New
             </button>
@@ -565,6 +542,13 @@ export function TreeViewGroup({
               className="px-2 py-1 rounded-md text-[10px] font-medium bg-cc-primary/15 text-cc-primary disabled:opacity-50 disabled:cursor-not-allowed cursor-pointer"
             >
               {bulkAssigning ? "Assigning..." : "Assign"}
+            </button>
+            <button
+              type="button"
+              onClick={() => onCancelBulkSelection?.()}
+              className="px-1.5 py-0.5 rounded text-[10px] text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+            >
+              Cancel
             </button>
           </div>
         </div>
@@ -591,7 +575,7 @@ export function TreeViewGroup({
         </SortableContext>
       )}
       {!isGroupCollapsed && group.nodes.length === 0 && (
-        <div className="px-4 py-2 text-[11px] text-cc-muted/50 italic">No sessions -- use + to create one</div>
+        <div className="px-4 py-2 text-[11px] text-cc-muted/50 italic">No sessions. Use + to create one.</div>
       )}
 
       {/* Context menu for non-default groups */}
