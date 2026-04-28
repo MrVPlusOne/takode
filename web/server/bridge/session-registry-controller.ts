@@ -938,18 +938,19 @@ export function notifyUser(
   const timestamp = Date.now();
   const suggestedAnswers =
     category === "needs-input" && options.suggestedAnswers?.length ? options.suggestedAnswers : undefined;
+  const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
+  session.notificationCounter = nextNotificationCounter;
+  const notificationId = `n-${nextNotificationCounter}`;
   const anchoredNotification = {
+    id: notificationId,
     category,
     timestamp,
     summary,
     ...(suggestedAnswers ? { suggestedAnswers } : {}),
   } as const;
 
-  const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
-  session.notificationCounter = nextNotificationCounter;
-
   const notif: SessionNotification = {
-    id: `n-${nextNotificationCounter}`,
+    id: notificationId,
     category,
     summary,
     ...(suggestedAnswers ? { suggestedAnswers } : {}),

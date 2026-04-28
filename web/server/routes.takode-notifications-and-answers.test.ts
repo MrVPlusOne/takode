@@ -636,6 +636,11 @@ describe("Takode server-authoritative auth", () => {
 
   it("stores normalized suggested answers for needs-input notifications", async () => {
     setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "text", text: "Need approval" }] },
+      timestamp: 1000,
+    });
 
     const res = await app.request("/api/sessions/orch-1/notify", {
       method: "POST",
@@ -660,6 +665,23 @@ describe("Takode server-authoritative auth", () => {
         done: false,
       },
     ]);
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Need deployment approval",
+      suggestedAnswers: ["yes", "not yet"],
+    });
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
+      "orch-1",
+      expect.objectContaining({
+        type: "notification_anchored",
+        messageId: "asst-1",
+        notification: expect.objectContaining({
+          id: "n-1",
+          suggestedAnswers: ["yes", "not yet"],
+        }),
+      }),
+    );
   });
 
   it("rejects suggested answers outside needs-input notifications", async () => {

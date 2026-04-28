@@ -1201,7 +1201,11 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
           : typeof evt.data.notificationId === "string" && evt.data.notificationId
             ? ` --target ${evt.data.notificationId}`
             : "";
-      const actions = [`Answer: takode answer ${evt.sessionNum}${answerTarget} <response>`];
+      const actions =
+        Array.isArray(evt.data.suggestedAnswers) && evt.data.suggestedAnswers.length > 0
+          ? [`Suggestions: ${evt.data.suggestedAnswers.map((answer) => truncate(answer, 32)).join(", ")}`]
+          : [];
+      actions.push(`Answer: takode answer ${evt.sessionNum}${answerTarget} <response>`);
       if (typeof evt.data.msg_index === "number") {
         actions.push(`Read: takode read ${evt.sessionNum} ${evt.data.msg_index}`);
       }

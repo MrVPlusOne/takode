@@ -1255,6 +1255,65 @@ describe("MessageBubble - assistant messages", () => {
     }
   });
 
+  it("uses notification metadata IDs through the real assistant message path", () => {
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const prevDrafts = useStore.getState().composerDrafts;
+    const prevReplyContexts = useStore.getState().replyContexts;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "First prompt",
+        suggestedAnswers: ["wrong"],
+        timestamp: Date.now(),
+        messageId: "asst-shared-anchor",
+        done: false,
+      },
+      {
+        id: "n-2",
+        category: "needs-input",
+        summary: "Second prompt",
+        suggestedAnswers: ["ship", "hold"],
+        timestamp: Date.now(),
+        messageId: "asst-shared-anchor",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      const msg = makeMessage({
+        id: "asst-shared-anchor",
+        role: "assistant",
+        content: "I need one more decision.",
+        notification: {
+          id: "n-2",
+          category: "needs-input",
+          timestamp: Date.now(),
+          summary: "Second prompt",
+          suggestedAnswers: ["ship", "hold"],
+        },
+      });
+
+      render(<MessageBubble message={msg} sessionId="notify-session" />);
+      fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: ship" }));
+
+      expect(useStore.getState().replyContexts.get("notify-session")).toEqual({
+        messageId: "asst-shared-anchor",
+        notificationId: "n-2",
+        previewText: "Second prompt",
+      });
+      expect(useStore.getState().composerDrafts.get("notify-session")).toMatchObject({ text: "ship" });
+    } finally {
+      useStore.setState({
+        sessionNotifications: prevNotifications,
+        composerDrafts: prevDrafts,
+        replyContexts: prevReplyContexts,
+      });
+    }
+  });
+
   it("uses the custom answer action without replacing the existing draft", () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const prevDrafts = useStore.getState().composerDrafts;

@@ -493,6 +493,7 @@ export interface SessionTaskEntry {
 }
 
 export interface TakodeNotificationPayload {
+  id?: string;
   category: "needs-input" | "review";
   summary?: string;
   suggestedAnswers?: string[];
@@ -1081,6 +1082,7 @@ export interface TakodeUserMessageEventData {
 
 export interface TakodeNotificationNeedsInputEventData {
   summary?: string;
+  suggestedAnswers?: string[];
   notificationId?: string;
   messageId?: string | null;
   msg_index?: number;

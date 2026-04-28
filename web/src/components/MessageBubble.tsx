@@ -870,7 +870,7 @@ export function NotificationMarker({
     return notifications.find((n) => n.messageId === messageId && n.category === category) ?? null;
   });
 
-  const canToggleDone = !!onToggleDone || (!!sessionId && !!messageId);
+  const canToggleDone = !!onToggleDone || (!!sessionId && (!!messageId || !!notificationId));
   const isDone = doneOverride ?? notif?.done ?? false;
   const isToggleReady = !!onToggleDone || !!notif;
   const suggestedAnswers = isAction && !isDone ? (notif?.suggestedAnswers ?? []) : [];
@@ -890,16 +890,22 @@ export function NotificationMarker({
         onToggleDone();
         return;
       }
-      if (!sessionId || !messageId) return;
+      if (!sessionId) return;
       const liveNotif =
+        notif ??
         useStore
           .getState()
           .sessionNotifications.get(sessionId)
-          ?.find((n) => n.messageId === messageId && n.category === category) ?? null;
+          ?.find((n) =>
+            notificationId
+              ? n.id === notificationId && n.category === category
+              : n.messageId === messageId && n.category === category,
+          ) ??
+        null;
       if (!liveNotif) return;
       api.markNotificationDone(sessionId, liveNotif.id, !liveNotif.done).catch(() => {});
     },
-    [sessionId, messageId, category, onToggleDone],
+    [sessionId, messageId, notificationId, category, onToggleDone, notif],
   );
 
   const handleReply = useCallback(
@@ -1493,7 +1499,7 @@ function AssistantMessage({
             <NotificationMarker
               category={resolvedNotification.category}
               summary={resolvedNotification.summary}
-              notificationId={"id" in resolvedNotification ? String(resolvedNotification.id) : undefined}
+              notificationId={resolvedNotification.id}
               sessionId={sessionId}
               messageId={message.id}
             />
@@ -1560,7 +1566,7 @@ function AssistantMessage({
           <NotificationMarker
             category={resolvedNotification.category}
             summary={resolvedNotification.summary}
-            notificationId={"id" in resolvedNotification ? String(resolvedNotification.id) : undefined}
+            notificationId={resolvedNotification.id}
             sessionId={sessionId}
             messageId={message.id}
           />

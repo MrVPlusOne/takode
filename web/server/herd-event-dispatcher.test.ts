@@ -1292,12 +1292,13 @@ describe("formatHerdEventBatch", () => {
     const events = [
       makeEvent({
         event: "notification_needs_input",
-        data: { summary: "Need decision on rollout", msg_index: 18 },
+        data: { summary: "Need decision on rollout", suggestedAnswers: ["ship", "hold"], msg_index: 18 },
       }),
     ];
     const result = formatHerdEventBatch(events);
     expect(result).toContain("notification_needs_input");
     expect(result).toContain("msg [18]");
+    expect(result).toContain("Suggestions: ship, hold");
     expect(result).toContain("Answer: takode answer 5 --message 18 <response>");
     expect(result).toContain("Read: takode read 5 18");
   });

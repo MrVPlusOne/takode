@@ -147,6 +147,7 @@ export interface ChatMessage {
   cliUuid?: string;
   /** Notification anchored to this message (set by takode notify). */
   notification?: {
+    id?: string;
     category: "needs-input" | "review";
     timestamp: number;
     summary?: string;
