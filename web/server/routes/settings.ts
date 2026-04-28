@@ -52,6 +52,9 @@ export function createSettingsRoutes(ctx: RouteContext) {
     herdDelivery: {
       suppressed: number;
       held: number;
+      trackingActive: boolean;
+      countsFinal: boolean;
+      detail?: string;
     };
   }
 
@@ -187,12 +190,33 @@ export function createSettingsRoutes(ctx: RouteContext) {
     };
   }
 
-  function snapshotHerdDelivery(operationId: string | null): { suppressed: number; held: number } {
-    if (!operationId) return { suppressed: 0, held: 0 };
+  function snapshotHerdDelivery(operationId: string | null): RestartPrepResult["herdDelivery"] {
+    if (!operationId) {
+      return {
+        suppressed: 0,
+        held: 0,
+        trackingActive: false,
+        countsFinal: true,
+        detail: "No restart-prep herd delivery operation was created.",
+      };
+    }
     const snapshot = getRestartPrepCoordinator()?.getRestartPrepOperationSnapshot(operationId);
+    if (!snapshot) {
+      return {
+        suppressed: 0,
+        held: 0,
+        trackingActive: false,
+        countsFinal: true,
+        detail: "Restart-prep herd delivery tracking is no longer active.",
+      };
+    }
     return {
-      suppressed: snapshot?.suppressedHerdEvents ?? 0,
-      held: snapshot?.heldHerdEvents ?? 0,
+      suppressed: snapshot.suppressedHerdEvents,
+      held: snapshot.heldHerdEvents,
+      trackingActive: true,
+      countsFinal: false,
+      detail:
+        "Restart-prep herd delivery tracking is active. Counts are current as of this response and may increase as worker events settle.",
     };
   }
 

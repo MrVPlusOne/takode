@@ -43,10 +43,87 @@ function SessionSummaryList({
   );
 }
 
+function HerdDeliverySummary({ result }: { result: InterruptRestartBlockersResponse }) {
+  const delivery = result.herdDelivery;
+  if (!delivery.countsFinal) {
+    return (
+      <div className="space-y-1 text-xs text-cc-muted">
+        <p>{delivery.detail ?? "Restart-prep herd delivery tracking is active."}</p>
+        <p>
+          Current suppressed prep events: {delivery.suppressed}. Current held unrelated events: {delivery.held}.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-xs text-cc-muted">
+      Suppressed prep events: {delivery.suppressed}. Held unrelated events: {delivery.held}.
+    </p>
+  );
+}
+
+function RestartPrepResultPanel({ result, title }: { result: InterruptRestartBlockersResponse; title: string }) {
+  return (
+    <div className="space-y-3 rounded-lg border border-cc-border bg-cc-hover/30 px-3 py-3">
+      <div>
+        <p className="text-sm font-medium text-cc-fg">{title}</p>
+        <p className="mt-0.5 text-xs text-cc-muted">
+          {result.interrupted.length === 0 && result.skipped.length === 0 && result.failures.length === 0
+            ? "No restart-blocking sessions were active."
+            : result.restartRequested
+              ? "Restart was requested after blockers cleared."
+              : result.unresolvedBlockers.length > 0
+                ? "Restart prep ran, but some blockers are still unresolved."
+                : "Restart prep ran and no restart request was sent."}
+        </p>
+        <p className="mt-1 text-xs text-cc-muted">
+          Mode: {result.mode}. Restart requested: {result.restartRequested ? "yes" : "no"}.
+          {result.timedOut ? " Blocker wait timed out." : ""}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Interrupted</p>
+        <ResultList items={result.interrupted} emptyText="No sessions needed interruption." />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Skipped</p>
+        <ResultList items={result.skipped} emptyText="No sessions were skipped." />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Unresolved Blockers</p>
+        <ResultList items={result.unresolvedBlockers} emptyText="No blockers remain reported." />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Protected Leaders</p>
+        <SessionSummaryList
+          items={result.protectedLeaders}
+          emptyText="No idle leaders needed herd-delivery protection."
+        />
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Herd Delivery</p>
+        <HerdDeliverySummary result={result} />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Failures</p>
+        <ResultList items={result.failures} emptyText="No interrupt failures." />
+      </div>
+    </div>
+  );
+}
+
 export function SettingsServerDiagnosticsSection({
   logFile,
   restartSupported,
   restartError,
+  restartPrepResult,
   restarting,
   onRestartServer,
   sectionSearch,
@@ -54,6 +131,7 @@ export function SettingsServerDiagnosticsSection({
   logFile: string;
   restartSupported: boolean;
   restartError: string;
+  restartPrepResult?: InterruptRestartBlockersResponse | null;
   restarting: boolean;
   onRestartServer: () => void;
   sectionSearch?: {
@@ -64,6 +142,7 @@ export function SettingsServerDiagnosticsSection({
   const [interrupting, setInterrupting] = useState(false);
   const [interruptError, setInterruptError] = useState("");
   const [interruptResult, setInterruptResult] = useState<InterruptRestartBlockersResponse | null>(null);
+  const visibleRestartPrepResult = interruptResult ?? restartPrepResult ?? null;
 
   async function onInterruptRestartBlockers() {
     if (
@@ -177,63 +256,11 @@ export function SettingsServerDiagnosticsSection({
             </button>
           </div>
 
-          {interruptResult && (
-            <div className="space-y-3 rounded-lg border border-cc-border bg-cc-hover/30 px-3 py-3">
-              <div>
-                <p className="text-sm font-medium text-cc-fg">Interrupt Result</p>
-                <p className="mt-0.5 text-xs text-cc-muted">
-                  {interruptResult.interrupted.length === 0 &&
-                  interruptResult.skipped.length === 0 &&
-                  interruptResult.failures.length === 0
-                    ? "No restart-blocking sessions were active."
-                    : interruptResult.restartRequested
-                      ? "Restart was requested after blockers cleared."
-                      : interruptResult.unresolvedBlockers.length > 0
-                        ? "Restart prep ran, but some blockers are still unresolved."
-                        : "Restart prep ran and no restart request was sent."}
-                </p>
-                <p className="mt-1 text-xs text-cc-muted">
-                  Mode: {interruptResult.mode}. Restart requested: {interruptResult.restartRequested ? "yes" : "no"}.
-                  {interruptResult.timedOut ? " Blocker wait timed out." : ""}
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Interrupted</p>
-                <ResultList items={interruptResult.interrupted} emptyText="No sessions needed interruption." />
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Skipped</p>
-                <ResultList items={interruptResult.skipped} emptyText="No sessions were skipped." />
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Unresolved Blockers</p>
-                <ResultList items={interruptResult.unresolvedBlockers} emptyText="No blockers remain reported." />
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Protected Leaders</p>
-                <SessionSummaryList
-                  items={interruptResult.protectedLeaders}
-                  emptyText="No idle leaders needed herd-delivery protection."
-                />
-              </div>
-
-              <div className="space-y-1">
-                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Herd Delivery</p>
-                <p className="text-xs text-cc-muted">
-                  Suppressed prep events: {interruptResult.herdDelivery.suppressed}. Held unrelated events:{" "}
-                  {interruptResult.herdDelivery.held}.
-                </p>
-              </div>
-
-              <div className="space-y-2">
-                <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Failures</p>
-                <ResultList items={interruptResult.failures} emptyText="No interrupt failures." />
-              </div>
-            </div>
+          {visibleRestartPrepResult && (
+            <RestartPrepResultPanel
+              result={visibleRestartPrepResult}
+              title={interruptResult ? "Interrupt Result" : "Restart Prep Result"}
+            />
           )}
         </div>
       </div>

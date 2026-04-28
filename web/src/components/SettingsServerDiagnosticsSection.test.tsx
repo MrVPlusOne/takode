@@ -62,7 +62,7 @@ describe("SettingsServerDiagnosticsSection", () => {
           detail: "Pending permission blockers remain unresolved until the backend reports cancellation or resolution.",
         },
       ],
-      herdDelivery: { suppressed: 2, held: 1 },
+      herdDelivery: { suppressed: 2, held: 1, trackingActive: false, countsFinal: true },
     });
 
     render(
@@ -91,6 +91,94 @@ describe("SettingsServerDiagnosticsSection", () => {
     expect(screen.getByText("Interrupt routing unavailable")).toBeInTheDocument();
     expect(screen.getByText(/Suppressed prep events: 2/)).toBeInTheDocument();
     expect(screen.getByText(/Held unrelated events: 1/)).toBeInTheDocument();
+  });
+
+  it("renders restart prep details supplied by the Restart Server failure path", () => {
+    render(
+      <SettingsServerDiagnosticsSection
+        logFile=""
+        restartSupported
+        restartError="Cannot restart while 1 session(s) are still blocking restart readiness: Approval session"
+        restartPrepResult={{
+          ok: false,
+          operationId: "prep-restart",
+          mode: "restart",
+          restartRequested: false,
+          timedOut: true,
+          interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
+          skipped: [],
+          failures: [],
+          protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
+          unresolvedBlockers: [
+            {
+              sessionId: "approval-1",
+              label: "Approval session",
+              reasons: ["1 pending permission"],
+              detail:
+                "Pending permission blockers remain unresolved until the backend reports cancellation or resolution.",
+            },
+          ],
+          herdDelivery: {
+            suppressed: 1,
+            held: 0,
+            trackingActive: true,
+            countsFinal: false,
+            detail:
+              "Restart-prep herd delivery tracking is active. Counts are current as of this response and may increase as worker events settle.",
+          },
+        }}
+        restarting={false}
+        onRestartServer={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Restart Prep Result")).toBeInTheDocument();
+    expect(screen.getByText("Worker session")).toBeInTheDocument();
+    expect(screen.getByText("Approval session")).toBeInTheDocument();
+    expect(screen.getByText("Leader session")).toBeInTheDocument();
+    expect(screen.getByText(/Blocker wait timed out/)).toBeInTheDocument();
+    expect(screen.getByText(/Current suppressed prep events: 1/)).toBeInTheDocument();
+    expect(screen.getByText(/Current held unrelated events: 0/)).toBeInTheDocument();
+  });
+
+  it("does not present active standalone herd delivery tracking counts as final", async () => {
+    mockInterruptRestartBlockers.mockResolvedValue({
+      ok: false,
+      operationId: "prep-standalone",
+      mode: "standalone",
+      restartRequested: false,
+      timedOut: false,
+      interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
+      skipped: [],
+      failures: [],
+      protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
+      unresolvedBlockers: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
+      herdDelivery: {
+        suppressed: 0,
+        held: 0,
+        trackingActive: true,
+        countsFinal: false,
+        detail:
+          "Restart-prep herd delivery tracking is active. Counts are current as of this response and may increase as worker events settle.",
+      },
+    });
+
+    render(
+      <SettingsServerDiagnosticsSection
+        logFile=""
+        restartSupported
+        restartError=""
+        restarting={false}
+        onRestartServer={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Interrupt Restart Blockers" }));
+    await waitFor(() => expect(mockInterruptRestartBlockers).toHaveBeenCalledTimes(1));
+
+    expect(screen.getByText(/tracking is active/)).toBeInTheDocument();
+    expect(screen.getByText(/Current suppressed prep events: 0/)).toBeInTheDocument();
+    expect(screen.queryByText("Suppressed prep events: 0. Held unrelated events: 0.")).not.toBeInTheDocument();
   });
 
   it("does nothing when the confirmation is declined", () => {

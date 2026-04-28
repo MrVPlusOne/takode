@@ -64,6 +64,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
 const mockApi = {
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
+  restartServer: vi.fn(),
   getNamerLogs: vi.fn(),
   getNamerLogEntry: vi.fn(),
   testPushover: vi.fn(),
@@ -77,10 +78,25 @@ const mockApi = {
   getAutoApprovalLogEntry: vi.fn(),
 };
 
+const mockApiErrorClass = vi.hoisted(
+  () =>
+    class ApiError extends Error {
+      constructor(
+        message: string,
+        public readonly status: number,
+        public readonly body: unknown,
+      ) {
+        super(message);
+        this.name = "ApiError";
+      }
+    },
+);
+
 vi.mock("../api.js", () => ({
   api: {
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     updateSettings: (...args: unknown[]) => mockApi.updateSettings(...args),
+    restartServer: (...args: unknown[]) => mockApi.restartServer(...args),
     getNamerLogs: (...args: unknown[]) => mockApi.getNamerLogs(...args),
     getNamerLogEntry: (...args: unknown[]) => mockApi.getNamerLogEntry(...args),
     testPushover: (...args: unknown[]) => mockApi.testPushover(...args),
@@ -92,6 +108,12 @@ vi.mock("../api.js", () => ({
     deleteAutoApprovalConfig: (...args: unknown[]) => mockApi.deleteAutoApprovalConfig(...args),
     getAutoApprovalLogs: (...args: unknown[]) => mockApi.getAutoApprovalLogs(...args),
     getAutoApprovalLogEntry: (...args: unknown[]) => mockApi.getAutoApprovalLogEntry(...args),
+  },
+  ApiError: mockApiErrorClass,
+  isInterruptRestartBlockersResponse: (value: unknown) => {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as { mode?: unknown; herdDelivery?: unknown };
+    return (candidate.mode === "standalone" || candidate.mode === "restart") && !!candidate.herdDelivery;
   },
 }));
 
@@ -141,6 +163,8 @@ beforeEach(() => {
     pushoverEventFilters: { needsInput: true, review: true, error: true },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
+    restartSupported: true,
+    namerConfig: { backend: "claude" },
     claudeBinary: "",
     codexBinary: "",
     codexLeaderContextWindowOverrideTokens: 1_000_000,
@@ -151,6 +175,7 @@ beforeEach(() => {
     heavyRepoModeEnabled: false,
     editorConfig: { editor: "none" },
   });
+  mockApi.restartServer.mockResolvedValue({ ok: true });
   mockApi.updateSettings.mockResolvedValue({
     serverName: "",
     serverId: "test-id",
@@ -159,6 +184,8 @@ beforeEach(() => {
     pushoverEventFilters: { needsInput: true, review: true, error: true },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
+    restartSupported: true,
+    namerConfig: { backend: "claude" },
     claudeBinary: "",
     codexBinary: "",
     codexLeaderContextWindowOverrideTokens: 1_000_000,
@@ -192,6 +219,51 @@ describe("SettingsPage", () => {
     expect(mockApi.getSettings).toHaveBeenCalledTimes(1);
     // Wait for loading to complete — section headings are visible
     await waitForSettingsPage();
+  });
+
+  it("surfaces rich restart-prep details when Restart Server auto-prep fails", async () => {
+    const restartPrepResult = {
+      ok: false,
+      operationId: "prep-restart",
+      mode: "restart",
+      restartRequested: false,
+      timedOut: true,
+      interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
+      skipped: [],
+      failures: [],
+      protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
+      unresolvedBlockers: [{ sessionId: "approval-1", label: "Approval session", reasons: ["1 pending permission"] }],
+      herdDelivery: {
+        suppressed: 0,
+        held: 0,
+        trackingActive: true,
+        countsFinal: false,
+        detail:
+          "Restart-prep herd delivery tracking is active. Counts are current as of this response and may increase as worker events settle.",
+      },
+    };
+    mockApi.restartServer.mockRejectedValue(
+      new mockApiErrorClass(
+        "Cannot restart while 1 session(s) are still blocking restart readiness: Approval session",
+        409,
+        {
+          error: "Cannot restart while 1 session(s) are still blocking restart readiness: Approval session",
+          result: restartPrepResult,
+        },
+      ),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+    expect(await screen.findByText("Restart Prep Result")).toBeInTheDocument();
+    expect(screen.getByText("Worker session")).toBeInTheDocument();
+    expect(screen.getByText("Approval session")).toBeInTheDocument();
+    expect(screen.getByText("Leader session")).toBeInTheDocument();
+    expect(screen.getByText(/Current suppressed prep events: 0/)).toBeInTheDocument();
   });
 
   it("shows shortcuts disabled by default in a compact state", async () => {

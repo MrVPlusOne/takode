@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { api, getTranscriptionRequestTimeoutMs, resolveAudioUploadFilename } from "./api.js";
+import { ApiError, api, getTranscriptionRequestTimeoutMs, resolveAudioUploadFilename } from "./api.js";
 import type { VoiceTranscriptionResult } from "./api.js";
 
 const mockFetch = vi.fn();
@@ -238,6 +238,30 @@ describe("post() error handling", () => {
     mockFetch.mockResolvedValueOnce(mockResponse({ error: "Session not found" }, 404));
 
     await expect(api.killSession("nonexistent")).rejects.toThrow("Session not found");
+  });
+
+  it("preserves structured error bodies for callers that need rich failure details", async () => {
+    const result = {
+      ok: false,
+      operationId: "prep-1",
+      mode: "restart",
+      restartRequested: false,
+      timedOut: true,
+      interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
+      skipped: [],
+      failures: [],
+      protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
+      unresolvedBlockers: [{ sessionId: "approval-1", label: "Approval session", reasons: ["1 pending permission"] }],
+      herdDelivery: { suppressed: 0, held: 0, trackingActive: true, countsFinal: false },
+    };
+    mockFetch.mockResolvedValueOnce(mockResponse({ error: "Cannot restart", result }, 409));
+
+    await expect(api.restartServer()).rejects.toMatchObject({
+      name: "ApiError",
+      message: "Cannot restart",
+      status: 409,
+      body: { error: "Cannot restart", result },
+    } satisfies Partial<ApiError>);
   });
 
   it("falls back to statusText when JSON body has no error field", async () => {

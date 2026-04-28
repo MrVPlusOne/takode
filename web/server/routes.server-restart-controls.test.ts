@@ -134,6 +134,13 @@ describe("server restart controls", () => {
       mode: "restart",
       restartRequested: false,
       timedOut: true,
+      herdDelivery: {
+        suppressed: 0,
+        held: 0,
+        trackingActive: true,
+        countsFinal: false,
+        detail: expect.stringContaining("tracking is active"),
+      },
       unresolvedBlockers: [
         expect.objectContaining({
           sessionId: "approval",
@@ -188,7 +195,13 @@ describe("server restart controls", () => {
           detail: "Pending permission blockers remain unresolved until the backend reports cancellation or resolution.",
         },
       ],
-      herdDelivery: { suppressed: 0, held: 0 },
+      herdDelivery: {
+        suppressed: 0,
+        held: 0,
+        trackingActive: true,
+        countsFinal: false,
+        detail: expect.stringContaining("tracking is active"),
+      },
     });
 
     const workerSession = bridge.getSession("worker");

@@ -1,13 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import {
   api,
+  ApiError,
   checkHealth,
+  isInterruptRestartBlockersResponse,
   type ImportStats,
   type AutoApprovalConfig,
   type NamerConfig,
   type TranscriptionConfig,
   type EditorKind,
   type PushoverEventFilters,
+  type InterruptRestartBlockersResponse,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
 import { recordShortcutBindingFromEvent, type ShortcutActionId } from "../shortcuts.js";
@@ -244,6 +247,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   // Server restart state
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState("");
+  const [restartPrepResult, setRestartPrepResult] = useState<InterruptRestartBlockersResponse | null>(null);
   const [restartSupported, setRestartSupported] = useState(true);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const healthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -666,6 +670,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
 
     setRestarting(true);
     setRestartError("");
+    setRestartPrepResult(null);
     useStore.getState().setServerRestarting(true);
 
     try {
@@ -676,6 +681,12 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       const msg = e instanceof Error ? e.message : String(e);
       const isNetworkError = !msg || msg.includes("fetch") || msg.includes("Failed") || msg.includes("ECONNREFUSED");
       if (!isNetworkError) {
+        if (e instanceof ApiError) {
+          const result = e.body && typeof e.body === "object" ? (e.body as { result?: unknown }).result : undefined;
+          if (isInterruptRestartBlockersResponse(result)) {
+            setRestartPrepResult(result);
+          }
+        }
         setRestartError(msg);
         setRestarting(false);
         useStore.getState().setServerRestarting(false);
@@ -2313,6 +2324,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               logFile={logFile}
               restartSupported={restartSupported}
               restartError={restartError}
+              restartPrepResult={restartPrepResult}
               restarting={restarting}
               onRestartServer={onRestartServer}
               sectionSearch={settingsSearch.childSectionSearch("server")}

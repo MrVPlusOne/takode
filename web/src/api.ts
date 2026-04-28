@@ -8,6 +8,17 @@ const TRANSCRIPTION_REQUEST_BASE_TIMEOUT_MS = 45_000;
 const TRANSCRIPTION_REQUEST_TIMEOUT_CAP_MS = 180_000;
 const TRANSCRIPTION_REQUEST_BYTES_PER_EXTRA_SECOND = 64 * 1024;
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body: unknown,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
 /**
  * The transcription route does not start streaming SSE until after the browser
  * finishes sending the request body and the server starts the SSE response. A
@@ -55,7 +66,11 @@ async function post<T = unknown>(path: string, body?: object): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || res.statusText);
+    throw new ApiError(
+      typeof err.error === "string" && err.error.length > 0 ? err.error : res.statusText,
+      res.status,
+      err,
+    );
   }
   return res.json();
 }
@@ -698,7 +713,36 @@ export interface InterruptRestartBlockersResponse {
   herdDelivery: {
     suppressed: number;
     held: number;
+    trackingActive: boolean;
+    countsFinal: boolean;
+    detail?: string;
   };
+}
+
+export function isInterruptRestartBlockersResponse(value: unknown): value is InterruptRestartBlockersResponse {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<InterruptRestartBlockersResponse>;
+  const herdDelivery =
+    candidate.herdDelivery && typeof candidate.herdDelivery === "object"
+      ? (candidate.herdDelivery as Partial<InterruptRestartBlockersResponse["herdDelivery"]>)
+      : null;
+  return (
+    typeof candidate.ok === "boolean" &&
+    (candidate.operationId === null || typeof candidate.operationId === "string") &&
+    (candidate.mode === "standalone" || candidate.mode === "restart") &&
+    typeof candidate.restartRequested === "boolean" &&
+    typeof candidate.timedOut === "boolean" &&
+    Array.isArray(candidate.interrupted) &&
+    Array.isArray(candidate.skipped) &&
+    Array.isArray(candidate.failures) &&
+    Array.isArray(candidate.protectedLeaders) &&
+    Array.isArray(candidate.unresolvedBlockers) &&
+    herdDelivery !== null &&
+    typeof herdDelivery.suppressed === "number" &&
+    typeof herdDelivery.held === "number" &&
+    typeof herdDelivery.trackingActive === "boolean" &&
+    typeof herdDelivery.countsFinal === "boolean"
+  );
 }
 
 export const api = {
