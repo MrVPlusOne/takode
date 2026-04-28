@@ -675,6 +675,23 @@ describe("Composer quest/session reference autocomplete", () => {
     expect(within(preview).getByRole("link", { name: "#687" })).toBeTruthy();
   });
 
+  it("mounts reference previews above the textarea instead of in the footer toolbar", () => {
+    setupMockStore({
+      draftText: "Please review q-41 ",
+      quests: [makeQuest({ questId: "q-41", title: "Autocomplete ranking polish" })],
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const preview = screen.getByTestId("composer-reference-preview");
+    const footer = screen.getByTestId("composer-footer-toolbar");
+
+    // The preview must live in the top composer stack so appearing references
+    // grow the composer upward without reflowing typed text into the footer.
+    expect(preview.compareDocumentPosition(textarea) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(textarea.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(footer.contains(preview)).toBe(false);
+  });
+
   it("sends plain quest and session references without converting them to Markdown", () => {
     setupMockStore({
       quests: [makeQuest({ questId: "q-41", title: "Autocomplete ranking polish" })],

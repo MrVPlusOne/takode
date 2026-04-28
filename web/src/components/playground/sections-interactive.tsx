@@ -477,14 +477,7 @@ export function PlaygroundInteractiveSections() {
                     </div>
                   ))}
                 </div>
-                <textarea
-                  readOnly
-                  value="Follow up on q-477 and sync with #687"
-                  rows={1}
-                  className="w-full px-4 pt-3 pb-1 text-sm bg-transparent resize-none text-cc-fg font-sans-ui"
-                  style={{ minHeight: "36px" }}
-                />
-                <div className="mx-2 mb-1.5 flex flex-wrap items-center gap-1.5 border-t border-cc-border/40 px-2 pt-2">
+                <div className="flex flex-wrap items-center gap-1.5 px-4 pt-2">
                   {["q-477", "#687"].map((ref) => (
                     <span
                       key={ref}
@@ -494,6 +487,13 @@ export function PlaygroundInteractiveSections() {
                     </span>
                   ))}
                 </div>
+                <textarea
+                  readOnly
+                  value="Follow up on q-477 and sync with #687"
+                  rows={1}
+                  className="w-full px-4 pt-3 pb-1 text-sm bg-transparent resize-none text-cc-fg font-sans-ui"
+                  style={{ minHeight: "36px" }}
+                />
                 <div className="flex items-center justify-between px-2.5 pb-2.5">
                   <div className="flex items-center gap-1.5 px-2 py-1 rounded-md text-[12px] font-medium text-cc-muted">
                     <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">

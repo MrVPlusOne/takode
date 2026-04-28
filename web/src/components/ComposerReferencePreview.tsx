@@ -15,7 +15,7 @@ export function ComposerReferencePreview({ references }: { references: PlainTako
     <div
       data-testid="composer-reference-preview"
       aria-label="Detected references"
-      className="mx-2 mb-1.5 flex flex-wrap items-center gap-1.5 border-t border-cc-border/40 px-2 pt-2"
+      className="flex flex-wrap items-center gap-1.5 px-4 pt-2"
     >
       {visibleReferences.map((reference) =>
         reference.kind === "quest" ? (

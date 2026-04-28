@@ -1479,11 +1479,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
                   persistPreferredVoiceMode("append");
                 }}
               />
+              <ComposerReferencePreview references={plainReferencePreviews} />
             </>
           }
           bottomChildren={
             <>
-              <ComposerReferencePreview references={plainReferencePreviews} />
               <ComposerMetaToolbar
                 sessionId={sessionId}
                 sessionView={sessionView}
