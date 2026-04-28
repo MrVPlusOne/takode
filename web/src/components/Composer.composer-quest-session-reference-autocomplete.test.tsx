@@ -675,6 +675,37 @@ describe("Composer quest/session reference autocomplete", () => {
     expect(within(preview).getByRole("link", { name: "#687" })).toBeTruthy();
   });
 
+  it("does not preview plain references that do not resolve to loaded quests or sessions", () => {
+    setupMockStore({
+      draftText: "Please review q-9999 and sync with #1332 ",
+      quests: [makeQuest({ questId: "q-41", title: "Autocomplete ranking polish" })],
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+    // Nonexistent references stay as plain editable text and should not imply
+    // a valid target by rendering a composer preview chip.
+    expect(textarea.value).toBe("Please review q-9999 and sync with #1332 ");
+    expect(screen.queryByTestId("composer-reference-preview")).toBeNull();
+  });
+
+  it("filters nonexistent references while preserving valid composer preview chips", () => {
+    setupMockStore({
+      draftText: "Please review q-41 and q-9999, then sync with #687 and #1332 ",
+      quests: [makeQuest({ questId: "q-41", title: "Autocomplete ranking polish" })],
+      sdkSessions: [makeSdkSession({ sessionId: "worker-1", sessionNum: 687 })],
+      sessionNames: new Map([["worker-1", "Frontend worker"]]),
+    });
+    render(<Composer sessionId="s1" />);
+
+    const preview = screen.getByTestId("composer-reference-preview");
+    expect(within(preview).getByRole("link", { name: "q-41" })).toBeTruthy();
+    expect(within(preview).getByRole("link", { name: "#687" })).toBeTruthy();
+    expect(within(preview).queryByRole("link", { name: "q-9999" })).toBeNull();
+    expect(within(preview).queryByRole("link", { name: "#1332" })).toBeNull();
+  });
+
   it("mounts reference previews above the textarea instead of in the footer toolbar", () => {
     setupMockStore({
       draftText: "Please review q-41 ",
