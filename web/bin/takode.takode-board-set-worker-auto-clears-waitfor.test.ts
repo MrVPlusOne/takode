@@ -257,6 +257,110 @@ describe("takode board set --worker auto-clears waitFor", () => {
     });
   });
 
+  it("posts proposed Journey spec files as one batch phase and note update", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "takode-board-spec-"));
+    const specPath = join(dir, "proposal.json");
+    writeFileSync(
+      specPath,
+      JSON.stringify({
+        title: "Draft proposal workflow",
+        presetId: "proposal-flow",
+        phases: [
+          { id: "alignment", note: "Confirm the proposed approval contract." },
+          { id: "implement", note: "Build the draft/present path." },
+          { id: "code-review" },
+        ],
+        presentation: {
+          summary: "Proposed Journey for approval",
+          scheduling: { intent: "dispatch-after-approval" },
+        },
+      }),
+    );
+
+    const result = await runTakode(
+      ["board", "propose", "q-1", "--spec-file", specPath, "--revise-reason", "Batch draft", "--port", String(port)],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      title: "Draft proposal workflow",
+      journeyMode: "proposed",
+      status: "PROPOSED",
+      phases: ["alignment", "implement", "code-review"],
+      presetId: "proposal-flow",
+      revisionReason: "Batch draft",
+      phaseNoteEdits: [
+        { index: 0, note: "Confirm the proposed approval contract." },
+        { index: 1, note: "Build the draft/present path." },
+      ],
+      presentation: {
+        summary: "Proposed Journey for approval",
+        scheduling: { intent: "dispatch-after-approval" },
+      },
+    });
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("presents proposed Journey drafts as explicit proposal review output", async () => {
+    nextBoardResponse = {
+      proposalReview: {
+        questId: "q-1",
+        title: "Draft proposal workflow",
+        status: "PROPOSED",
+        presentedAt: 123,
+        summary: "Proposed Journey for approval",
+        journey: {
+          mode: "proposed",
+          phaseIds: ["alignment", "implement"],
+        },
+      },
+    };
+
+    const result = await runTakode(
+      [
+        "board",
+        "present",
+        "q-1",
+        "--summary",
+        "Proposed Journey for approval",
+        "--wait-for-input",
+        "3",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      presentProposal: true,
+      waitForInput: ["n-3"],
+      presentation: {
+        summary: "Proposed Journey for approval",
+      },
+    });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      __takode_board__: true,
+      operation: "present q-1",
+      proposalReview: {
+        questId: "q-1",
+        summary: "Proposed Journey for approval",
+      },
+    });
+  });
+
   it("promotes proposed rows into active mode and clears approval hold by default", async () => {
     const result = await runTakode(["board", "promote", "q-1", "--worker", "3", "--port", String(port)], {
       ...process.env,
@@ -273,6 +377,22 @@ describe("takode board set --worker auto-clears waitFor", () => {
       clearWaitForInput: true,
     });
     expect(capturedBodies[0].phases).toBeUndefined();
+  });
+
+  it("sends explicit force-promote override only when requested", async () => {
+    const result = await runTakode(["board", "promote", "q-1", "--force-promote-unpresented", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      journeyMode: "active",
+      forcePromoteUnpresented: true,
+      clearWaitForInput: true,
+    });
   });
 
   it("sends board note edits keyed by 1-based phase positions", async () => {

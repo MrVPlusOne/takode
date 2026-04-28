@@ -167,6 +167,7 @@ describe("QuestDetailPanel", () => {
                 phaseIds: ["alignment", "implement", "code-review", "port"],
                 currentPhaseId: "implement",
                 phaseNotes: {
+                  "0": "Finished alignment note dims with the title",
                   "2": "Inspect only the follow-up diff",
                 },
               },
@@ -186,9 +187,15 @@ describe("QuestDetailPanel", () => {
     expect(within(timeline).getByText("Code Review")).toBeInTheDocument();
     expect(within(timeline).getByText("Port")).toBeInTheDocument();
     expect(within(timeline).getByText("Inspect only the follow-up diff")).toBeInTheDocument();
-    expect(within(timeline).getByText(/Do a lightweight read-in/)).toHaveAttribute("data-purpose-kind", "default");
+    const completedNote = within(timeline).getByText("Finished alignment note dims with the title");
+    expect(completedNote.tagName).toBe("SPAN");
+    expect(completedNote.className).toContain("text-cc-muted");
+    expect(completedNote.className).not.toContain("bg-amber");
+    expect(within(timeline).getByText("Alignment").closest("li")).toHaveAttribute("data-phase-state", "completed");
+    expect(within(timeline).getByText(/Make approved code, docs/)).toHaveAttribute("data-purpose-kind", "default");
     expect(within(timeline).getByText("current")).toBeInTheDocument();
     expect(within(timeline).getByText("Code Review").closest("li")).toHaveAttribute("data-phase-color", "violet");
+    expect(screen.getByTestId("quest-detail-journey-section").parentElement).toHaveClass("overflow-y-auto");
   });
 
   it("shows proposed board Journeys as preview details without current phase semantics", () => {

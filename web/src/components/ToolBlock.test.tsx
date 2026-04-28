@@ -2027,6 +2027,27 @@ describe("parseBoardFromResult", () => {
     expect(result).toEqual({ board, operation: undefined, queueWarnings });
   });
 
+  it("extracts proposal review payloads when present", () => {
+    const board = [{ questId: "q-942", title: "Draft workflow", updatedAt: 100 }];
+    const proposalReview = {
+      questId: "q-942",
+      title: "Draft workflow",
+      status: "PROPOSED",
+      presentedAt: 123,
+      journey: {
+        mode: "proposed",
+        phaseIds: ["alignment", "implement"],
+      },
+    };
+    const json = JSON.stringify({ __takode_board__: true, board, proposalReview });
+
+    expect(parseBoardFromResult(json)).toEqual({
+      board,
+      operation: undefined,
+      proposalReview,
+    });
+  });
+
   it("extracts row session statuses when present", () => {
     const board = [{ questId: "q-42", title: "Test", updatedAt: 100 }];
     const rowSessionStatuses = {

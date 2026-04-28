@@ -35,13 +35,13 @@ This skill covers leader discipline and the step-by-step dispatch process. Invok
 
 ## Pre-Dispatch Approval Contract
 
-Before you dispatch a quest, or intentionally leave it `QUEUED` for a later dispatch, create or revise the proposed board row first, then present that combined proposal and get approval on the whole thing.
+Before you dispatch a quest, or intentionally leave it `QUEUED` for a later dispatch, create or revise the proposed board row first, then run `takode board present <quest-id>` so the user sees one stable proposal review artifact and can approve the whole thing.
 
 That pre-dispatch approval surface must include both:
 - the planned initial Quest Journey phases
 - the planned scheduling/orchestration approach
 
-The approval surface should be the proposed Journey row already visible on the board/UI, not an off-board phase list that you plan to write down later. If the user asks for changes, revise that same proposed row with `takode board propose ...` and present the updated row again.
+The approval surface should be the presented Journey proposal from the board/UI, not an off-board phase list that you plan to write down later. If the user asks for changes, revise that same proposed row with `takode board propose ...` or `takode board propose --spec-file ...`, then run `takode board present <quest-id>` again before asking for approval.
 
 The scheduling/orchestration plan must state at least:
 - which worker you expect to use, or that you will spawn fresh
@@ -179,9 +179,9 @@ The proposal should:
 - explain why that initial Journey fits the quest's risk boundary and evidence needs
 - make it explicit that the first worker dispatch will enter the `alignment` phase (`PLANNING` on the board) only after approval
 
-Put that proposed Journey on the board before approval with `takode board propose ...`, then present it from there. Treat the proposed row/UI as the source of truth for the draft Journey. Do not spawn a worker, send the standard dispatch message, or promote the row into active execution until the user approves that initial Journey. If the user changes scope, risk, evidence needs, or sequencing, revise that same proposed Journey on the board and wait again.
+Put that proposed Journey on the board before approval with `takode board propose ...` or `takode board propose --spec-file ...`, then present it from there with `takode board present <quest-id>`. Treat the presented board/UI proposal as the source of truth for the draft Journey. Do not spawn a worker, send the standard dispatch message, or promote the row into active execution until the user approves that initial Journey. If the user changes scope, risk, evidence needs, or sequencing, revise that same proposed Journey on the board, present it again, and wait again.
 
-Once approved, promote that same board row into active execution with `takode board promote ...`; do not restate or rebuild the Journey from scratch.
+Once approved, promote that same board row into active execution with `takode board promote ...`; do not restate or rebuild the Journey from scratch. Normal promotion rejects unpresented or stale-presented drafts, so if promotion fails, present the latest draft instead of bypassing the guard. The force-promote override is for rare recovery/admin cases only.
 
 ### 6. Check Herd Limit
 
@@ -258,11 +258,12 @@ Do not let a stale review acceptance, stale port confirmation, or any other old-
 ### 8. Board Commands for Proposal and Promotion
 
 ```bash
-takode board propose <quest-id> --phases alignment,implement,code-review,port --preset full-code --wait-for-input <notif-id>
+takode board propose <quest-id> --spec-file <proposal.json>
+takode board present <quest-id> --wait-for-input <notif-id>
 takode board promote <quest-id> --worker <N>
 ```
 
-Use `takode board propose` before approval to create or revise the board-owned draft row the user will inspect. Use `takode board promote` only after approval to turn that same Journey object into active execution.
+Use `takode board propose` before approval to create or revise the board-owned draft row. Use `takode board present` to publish the deliberate approval surface. Use `takode board promote` only after approval to turn that same Journey object into active execution.
 
 ## Task Delegation Style
 

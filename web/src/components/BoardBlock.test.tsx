@@ -106,4 +106,34 @@ describe("BoardBlock", () => {
     expect(screen.getByText(/q-42 can be dispatched now/i)).toBeInTheDocument();
     expect(screen.getByText(/Next: Dispatch it now\./i)).toBeInTheDocument();
   });
+
+  it("renders an explicit proposal review artifact above the board table", () => {
+    const board: BoardRowData[] = [{ questId: "q-942", title: "Draft workflow", updatedAt: 1 }];
+
+    render(
+      <BoardBlock
+        board={board}
+        operation="present q-942"
+        proposalReview={{
+          questId: "q-942",
+          title: "Draft workflow",
+          status: "PROPOSED",
+          presentedAt: 123,
+          summary: "Proposed Journey for approval",
+          journey: {
+            mode: "proposed",
+            phaseIds: ["alignment", "implement", "code-review"],
+            phaseNotes: {
+              "1": "Build the draft and present paths.",
+            },
+          },
+        }}
+      />,
+    );
+
+    expect(screen.getByTestId("quest-journey-proposal-review")).toBeInTheDocument();
+    expect(screen.getByText("Presented Journey Proposal")).toBeInTheDocument();
+    expect(screen.getByText("Proposed Journey for approval")).toBeInTheDocument();
+    expect(screen.getByText("Build the draft and present paths.")).toHaveAttribute("data-purpose-kind", "authored");
+  });
 });

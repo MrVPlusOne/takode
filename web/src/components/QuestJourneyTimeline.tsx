@@ -112,6 +112,13 @@ function phasePurpose(
   return { text: item.phase.contract, kind: "default" };
 }
 
+function phasePurposeClassName(item: PhaseItem, kind: "authored" | "default"): string {
+  if (item.state === "completed") return "text-cc-muted/65";
+  if (kind === "default") return "text-cc-muted/65";
+  if (item.state === "proposed") return "text-cc-fg/90";
+  return "text-cc-fg/85";
+}
+
 export function QuestJourneyCompactSummary({
   journey,
   status,
@@ -273,8 +280,8 @@ function VerticalJourney({
                   />
                 )}
               </div>
-              <div className={hasNext ? "pb-2" : "pb-0"}>
-                <div className="flex min-w-0 items-center gap-1.5">
+              <div className={hasNext ? "pb-1.5" : "pb-0"}>
+                <div className="flex min-w-0 flex-wrap items-baseline gap-x-1.5 gap-y-0.5">
                   <span className="shrink-0 text-[10px] text-cc-muted">{item.index + 1}</span>
                   <span
                     className={`min-w-0 truncate text-xs ${phaseLabelClassName(item)}`}
@@ -287,19 +294,15 @@ function VerticalJourney({
                       current
                     </span>
                   )}
+                  {purpose && (
+                    <span
+                      className={`min-w-[10rem] flex-1 text-[10px] leading-snug ${phasePurposeClassName(item, purpose.kind)}`}
+                      data-purpose-kind={purpose.kind}
+                    >
+                      {purpose.text}
+                    </span>
+                  )}
                 </div>
-                {purpose && (
-                  <div
-                    className={
-                      purpose.kind === "authored"
-                        ? "mt-0.5 rounded border border-amber-300/20 bg-amber-300/10 px-1.5 py-0.5 text-[10px] leading-snug text-amber-100/90"
-                        : "mt-0.5 text-[10px] leading-snug text-cc-muted/65"
-                    }
-                    data-purpose-kind={purpose.kind}
-                  >
-                    {purpose.text}
-                  </div>
-                )}
               </div>
             </li>
           );
@@ -383,6 +386,51 @@ export function QuestJourneyPreviewCard({
         </>
       )}
       <QuestJourneyTimeline journey={journey} status={status} variant="vertical" showPhasePurpose />
+    </div>
+  );
+}
+
+export function QuestJourneyProposalReview({
+  proposal,
+  onQuestClick,
+  className,
+}: {
+  proposal: {
+    questId: string;
+    title?: string;
+    status: string;
+    journey: QuestJourneyPlanState;
+    presentedAt?: number;
+    summary?: string;
+    scheduling?: Record<string, unknown>;
+  };
+  onQuestClick?: () => void;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`border-b border-cc-border bg-cc-bg/20 px-3 py-3 ${className ?? ""}`.trim()}
+      data-testid="quest-journey-proposal-review"
+    >
+      <div className="mb-2 flex min-w-0 items-center justify-between gap-3">
+        <div className="min-w-0">
+          <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
+            Presented Journey Proposal
+          </div>
+          {proposal.summary && <div className="mt-0.5 truncate text-xs text-cc-fg">{proposal.summary}</div>}
+        </div>
+        {proposal.presentedAt && (
+          <div className="shrink-0 text-[10px] text-cc-muted">
+            {new Date(proposal.presentedAt).toLocaleTimeString()}
+          </div>
+        )}
+      </div>
+      <QuestJourneyPreviewCard
+        journey={proposal.journey}
+        status={proposal.status}
+        quest={{ questId: proposal.questId, title: proposal.title }}
+        onQuestClick={onQuestClick}
+      />
     </div>
   );
 }

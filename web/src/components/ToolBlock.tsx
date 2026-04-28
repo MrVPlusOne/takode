@@ -8,7 +8,7 @@ import { CodeCopyButton } from "./CodeCopyButton.js";
 import { Lightbox } from "./Lightbox.js";
 import { CollapseFooter } from "./CollapseFooter.js";
 import { CopyFormatButton } from "./CopyFormatButton.js";
-import { BoardBlock, type BoardRowData } from "./BoardBlock.js";
+import { BoardBlock, type BoardProposalReviewPayload, type BoardRowData } from "./BoardBlock.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
@@ -331,6 +331,7 @@ const ToolBlockInner = memo(function ToolBlockInner({
         rowSessionStatuses={parsedBoard.rowSessionStatuses}
         operation={parsedBoard.operation}
         queueWarnings={parsedBoard.queueWarnings}
+        proposalReview={parsedBoard.proposalReview}
         toolUseId={toolUseId}
         sessionId={sessionId ?? undefined}
         originalToolName={name}
@@ -533,6 +534,7 @@ export interface ParsedBoardResult {
   rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
   operation?: string;
   queueWarnings?: BoardQueueWarning[];
+  proposalReview?: BoardProposalReviewPayload;
 }
 
 export function parseBoardFromResult(resultContent: string | undefined): ParsedBoardResult | null {
@@ -542,6 +544,10 @@ export function parseBoardFromResult(resultContent: string | undefined): ParsedB
   try {
     const parsed = JSON.parse(jsonStr);
     if (parsed?.__takode_board__ === true && Array.isArray(parsed.board)) {
+      const proposalReview =
+        parsed.proposalReview && typeof parsed.proposalReview === "object" && !Array.isArray(parsed.proposalReview)
+          ? (parsed.proposalReview as BoardProposalReviewPayload)
+          : undefined;
       return {
         board: parsed.board,
         rowSessionStatuses:
@@ -552,6 +558,7 @@ export function parseBoardFromResult(resultContent: string | undefined): ParsedB
             : undefined,
         operation: typeof parsed.operation === "string" ? parsed.operation : undefined,
         queueWarnings: Array.isArray(parsed.queueWarnings) ? parsed.queueWarnings : undefined,
+        ...(proposalReview ? { proposalReview } : {}),
       };
     }
   } catch {

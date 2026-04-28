@@ -4,7 +4,9 @@ import { useStore } from "../store.js";
 import { BoardTable } from "./BoardTable.js";
 import { ToolBlock } from "./ToolBlock.js";
 import { formatQuestJourneyText, type BoardQueueWarning } from "../../shared/quest-journey.js";
+import { QuestJourneyProposalReview } from "./QuestJourneyTimeline.js";
 import type { BoardRowSessionStatus } from "../types.js";
+import type { QuestJourneyPlanState } from "../../shared/quest-journey.js";
 
 // Re-export for backward compatibility (ToolBlock imports BoardRowData from here)
 export type { BoardRowData } from "./BoardTable.js";
@@ -15,12 +17,23 @@ interface BoardBlockProps {
   rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
   operation?: string;
   queueWarnings?: BoardQueueWarning[];
+  proposalReview?: BoardProposalReviewPayload;
   toolUseId?: string;
   sessionId?: string;
   originalCommand?: string;
   originalToolName?: string;
   originalInput?: Record<string, unknown>;
   defaultShowOriginalCommand?: boolean;
+}
+
+export interface BoardProposalReviewPayload {
+  questId: string;
+  title?: string;
+  status: string;
+  journey: QuestJourneyPlanState;
+  presentedAt: number;
+  summary?: string;
+  scheduling?: Record<string, unknown>;
 }
 
 /**
@@ -36,6 +49,7 @@ export const BoardBlock = memo(function BoardBlock({
   rowSessionStatuses,
   operation,
   queueWarnings,
+  proposalReview,
   toolUseId,
   sessionId,
   originalCommand,
@@ -168,6 +182,12 @@ export const BoardBlock = memo(function BoardBlock({
                 disableInlineSpecialCases
               />
             </div>
+          )}
+          {proposalReview && (
+            <QuestJourneyProposalReview
+              proposal={proposalReview}
+              onQuestClick={() => useStore.getState().openQuestOverlay(proposalReview.questId)}
+            />
           )}
           <BoardTable board={board} rowSessionStatuses={effectiveRowSessionStatuses} />
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />

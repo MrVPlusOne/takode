@@ -1101,6 +1101,45 @@ export function PlaygroundInteractiveSections() {
           <Card label="Board with raw debug control visible">
             <PlaygroundBoardWithOriginalCommand />
           </Card>
+          <Card label="Presented Journey proposal">
+            <BoardBlock
+              operation="present q-942"
+              proposalReview={{
+                questId: "q-942",
+                title: "Make proposed Journey drafting intentional",
+                status: "PROPOSED",
+                presentedAt: Date.now() - 30000,
+                summary: "Proposed Journey for approval",
+                journey: {
+                  mode: "proposed",
+                  presetId: "proposal-flow",
+                  phaseIds: ["alignment", "explore", "implement", "code-review"],
+                  phaseNotes: {
+                    "1": "Trace CLI, server, and UI paths before code.",
+                    "2": "Add the draft, present, and guarded promote flow.",
+                  },
+                  presentation: {
+                    state: "presented",
+                    presentedAt: Date.now() - 30000,
+                    signature: "playground",
+                  },
+                },
+              }}
+              board={[
+                {
+                  questId: "q-942",
+                  title: "Make proposed Journey drafting intentional",
+                  status: "PROPOSED",
+                  journey: {
+                    mode: "proposed",
+                    presetId: "proposal-flow",
+                    phaseIds: ["alignment", "explore", "implement", "code-review"],
+                  },
+                  updatedAt: Date.now() - 30000,
+                },
+              ]}
+            />
+          </Card>
           <Card label="Empty board">
             <BoardBlock board={[]} />
           </Card>

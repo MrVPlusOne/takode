@@ -11,9 +11,11 @@ import {
   getQuestJourneyPhaseForState,
   getQuestJourneyPhaseIndices,
   getInvalidQuestJourneyPhaseIds,
+  getQuestJourneyProposalSignature,
   isValidQuestId,
   isValidWaitForRef,
   normalizeQuestJourneyPhaseIds,
+  normalizeQuestJourneyPlan,
   rebaseQuestJourneyPhaseNotes,
   type QuestJourneyLifecycleMode,
   type QuestJourneyPhaseId,
@@ -62,6 +64,16 @@ interface PhaseNoteEdit {
   note?: string;
 }
 
+interface BoardProposalReviewPayload {
+  questId: string;
+  title?: string;
+  status: string;
+  journey: QuestJourneyPlanState;
+  presentedAt: number;
+  summary?: string;
+  scheduling?: Record<string, unknown>;
+}
+
 function normalizeJourneyMode(value: unknown): QuestJourneyLifecycleMode | undefined {
   if (typeof value !== "string") return undefined;
   return canonicalizeQuestJourneyLifecycleMode(value) ?? undefined;
@@ -103,6 +115,51 @@ function applyPhaseNoteEdits(
   return nextNotes.size > 0
     ? Object.fromEntries([...nextNotes.entries()].sort((a, b) => Number(a[0]) - Number(b[0])))
     : undefined;
+}
+
+function normalizeProposalMetadata(
+  value: unknown,
+): Pick<NonNullable<QuestJourneyPlanState["presentation"]>, "summary" | "scheduling"> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const raw = value as { summary?: unknown; scheduling?: unknown };
+  const summary = typeof raw.summary === "string" && raw.summary.trim() ? raw.summary.trim() : undefined;
+  const scheduling =
+    raw.scheduling && typeof raw.scheduling === "object" && !Array.isArray(raw.scheduling)
+      ? { ...(raw.scheduling as Record<string, unknown>) }
+      : undefined;
+  return {
+    ...(summary ? { summary } : {}),
+    ...(scheduling ? { scheduling } : {}),
+  };
+}
+
+function isPresentedQuestJourneyCurrent(journey: QuestJourneyPlanState | undefined): boolean {
+  return (
+    journey?.mode === "proposed" &&
+    journey.presentation?.state === "presented" &&
+    !!journey.presentation.signature &&
+    journey.presentation.signature === getQuestJourneyProposalSignature(journey)
+  );
+}
+
+function buildProposalReviewPayload(row: {
+  questId: string;
+  title?: string;
+  status?: string;
+  journey?: QuestJourneyPlanState;
+}): BoardProposalReviewPayload | undefined {
+  const journey = row.journey;
+  const presentation = journey?.presentation;
+  if (!journey || presentation?.state !== "presented" || !presentation.presentedAt) return undefined;
+  return {
+    questId: row.questId,
+    ...(row.title ? { title: row.title } : {}),
+    status: row.status ?? "PROPOSED",
+    journey,
+    presentedAt: presentation.presentedAt,
+    ...(presentation.summary ? { summary: presentation.summary } : {}),
+    ...(presentation.scheduling ? { scheduling: presentation.scheduling } : {}),
+  };
 }
 
 function findPreservedPhaseIndex(
@@ -1608,6 +1665,57 @@ export function createTakodeRoutes(ctx: RouteContext) {
         );
       }
     }
+
+    if (body.presentProposal === true) {
+      if (!bridgeSession) return c.json({ error: "Session not found in bridge" }, 404);
+      if (!existingRow || existingRow.status?.trim().toUpperCase() !== "PROPOSED") {
+        return c.json({ error: "Presenting a Journey requires an existing proposed Journey row." }, 400);
+      }
+      const existingPhaseIds = normalizeQuestJourneyPhaseIds(existingRow.journey?.phaseIds ?? []);
+      if (existingRow.journey?.mode !== "proposed" || existingPhaseIds.length === 0) {
+        return c.json({ error: "Presenting a Journey requires an existing proposed Journey row with phases." }, 400);
+      }
+      if (waitFor && waitFor.length > 0) {
+        return c.json({ error: "Presented proposed Journey rows do not use queue wait-for dependencies." }, 400);
+      }
+
+      const normalizedDraft = normalizeQuestJourneyPlan(existingRow.journey, "PROPOSED");
+      const metadata = {
+        ...normalizeProposalMetadata(existingRow.journey?.presentation),
+        ...normalizeProposalMetadata(body.presentation),
+      };
+      const presentation = {
+        state: "presented" as const,
+        signature: getQuestJourneyProposalSignature(normalizedDraft),
+        presentedAt: Date.now(),
+        ...metadata,
+      };
+      const board = upsertBoardRowController(
+        bridgeSession,
+        {
+          questId,
+          title,
+          journey: {
+            ...normalizedDraft,
+            mode: "proposed",
+            presentation,
+          },
+          status: "PROPOSED",
+          waitForInput,
+        },
+        workBoardStateDeps,
+      );
+      const presentedRow = board.find((row) => row.questId === questId);
+      return c.json({
+        board,
+        rowSessionStatuses: await buildBoardRowSessionStatuses(board),
+        queueWarnings: getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps),
+        workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
+        resolvedSessionDeps: resolveSessionDeps(board),
+        ...(presentedRow ? { proposalReview: buildProposalReviewPayload(presentedRow) } : {}),
+      });
+    }
+
     let journey: QuestJourneyPlanState | undefined;
     let firstPlannedPhaseState: string | undefined;
     const explicitStatus = typeof body.status === "string" ? body.status.trim() || undefined : undefined;
@@ -1710,6 +1818,19 @@ export function createTakodeRoutes(ctx: RouteContext) {
         400,
       );
     }
+    if (
+      requestedMode === "active" &&
+      body.forcePromoteUnpresented !== true &&
+      !isPresentedQuestJourneyCurrent(existingJourney)
+    ) {
+      return c.json(
+        {
+          error:
+            "Promoting a Journey requires the current proposed draft to be presented first. Run `takode board present <quest>` after the latest draft revision, or use forcePromoteUnpresented only for rare recovery/admin scenarios.",
+        },
+        400,
+      );
+    }
     if (phaseNoteEdits && resolvedPhaseIds.length === 0) {
       return c.json(
         { error: "Phase notes require an existing Journey row or explicit --phases for the target row." },
@@ -1803,7 +1924,34 @@ export function createTakodeRoutes(ctx: RouteContext) {
       }
     }
 
-    if (typedPhaseIds || phaseNoteEdits || revisionReason || requestedMode || explicitActivePhaseIndex !== null) {
+    const presentationMetadata = normalizeProposalMetadata(body.presentation);
+    const hasPresentationMetadata = Object.keys(presentationMetadata).length > 0;
+    const draftMutation =
+      targetMode === "proposed" && (typedPhaseIds || phaseNoteEdits || revisionReason || hasPresentationMetadata);
+    const presentation =
+      targetMode === "proposed"
+        ? {
+            ...(existingJourney?.presentation ?? {}),
+            ...presentationMetadata,
+            state: existingJourney?.presentation?.state ?? ("draft" as const),
+            ...(draftMutation
+              ? {
+                  state: "draft" as const,
+                  signature: undefined,
+                  presentedAt: undefined,
+                }
+              : {}),
+          }
+        : undefined;
+
+    if (
+      typedPhaseIds ||
+      phaseNoteEdits ||
+      revisionReason ||
+      requestedMode ||
+      explicitActivePhaseIndex !== null ||
+      hasPresentationMetadata
+    ) {
       journey = {
         phaseIds: resolvedPhaseIds.length > 0 ? resolvedPhaseIds : [],
         presetId:
@@ -1813,6 +1961,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         mode: targetMode,
         ...(targetMode === "active" && activePhaseIndex !== undefined ? { activePhaseIndex } : {}),
         ...(phaseNotes ? { phaseNotes } : {}),
+        ...(targetMode === "proposed" ? { presentation } : { presentation: undefined }),
         ...(revisionReason ? { revisionReason } : {}),
       };
     }

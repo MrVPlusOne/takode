@@ -47,18 +47,16 @@ This preserves a small normal path for common repo work while allowing leaders t
 Use the board as the draft carrier before dispatch:
 
 ```bash
-takode board propose q-12 --phases alignment,implement,code-review,port \
-  --preset full-code \
-  --wait-for-input 3
-
-takode board note q-12 3 --text "focus on stream migration behavior"
-
+takode board propose q-12 --spec-file /tmp/q-12-proposal.json
+takode board present q-12 --wait-for-input 3
 takode board promote q-12 --worker 5
 ```
 
 - `takode board propose` creates or revises the board-owned draft
-- `takode board note` attaches one free-form note to a specific phase occurrence
-- `takode board promote` reuses that same Journey object for execution after approval
+- prefer `takode board propose --spec-file` for complete proposal drafts with phases, concise user-facing notes, and scheduling metadata
+- `takode board note` remains available for targeted note edits, but each draft mutation makes any previous presentation stale
+- `takode board present` creates the deliberate user-facing approval artifact from the current draft
+- `takode board promote` reuses that same Journey object for execution after approval and normally rejects unpresented/stale drafts
 - approval-hold rows should use `PROPOSED` plus `--wait-for-input`, not a fake generic queue dependency
 
 Examples:

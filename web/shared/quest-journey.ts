@@ -75,6 +75,7 @@ export const QUEST_JOURNEY_STATES = [
 export type QuestJourneyState = (typeof QUEST_JOURNEY_STATES)[number];
 export const QUEST_JOURNEY_LIFECYCLE_MODES = ["active", "proposed"] as const;
 export type QuestJourneyLifecycleMode = (typeof QUEST_JOURNEY_LIFECYCLE_MODES)[number];
+export type QuestJourneyPresentationState = "draft" | "presented";
 
 /**
  * Reusable Quest Journey phases. Phases are the user-facing units leaders
@@ -205,6 +206,8 @@ export interface QuestJourneyPlanState {
   currentPhaseId?: QuestJourneyPhaseId;
   /** Lightweight reminder text keyed by zero-based phase position. */
   phaseNotes?: Record<string, string>;
+  /** Presentation metadata for proposed Journey approval reviews. */
+  presentation?: QuestJourneyProposalPresentation;
   /** Cached next leader action for board/reminder display. */
   nextLeaderAction?: string;
   /** Why the leader revised the remaining Journey, when applicable. */
@@ -213,6 +216,19 @@ export interface QuestJourneyPlanState {
   revisedAt?: number;
   /** Number of explicit Journey revisions recorded on this row. */
   revisionCount?: number;
+}
+
+export interface QuestJourneyProposalPresentation {
+  /** Drafts may exist on the board, but only presented plans are normal approval surfaces. */
+  state: QuestJourneyPresentationState;
+  /** Stable signature of the Journey state that was presented. */
+  signature?: string;
+  /** Epoch ms when this proposal was deliberately presented to the user. */
+  presentedAt?: number;
+  /** Short user-facing proposal summary supplied by the leader/spec. */
+  summary?: string;
+  /** Lightweight scheduling metadata; intentionally free-form for v1. */
+  scheduling?: Record<string, unknown>;
 }
 
 export interface QuestJourneyPhaseNoteRebaseWarning {
@@ -379,6 +395,45 @@ function normalizeQuestJourneyPhaseNotes(
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+function normalizeQuestJourneyProposalPresentation(
+  presentation: QuestJourneyPlanState["presentation"] | undefined,
+): QuestJourneyPlanState["presentation"] | undefined {
+  if (!presentation || typeof presentation !== "object") return undefined;
+  const state = presentation.state === "presented" ? "presented" : "draft";
+  const signature =
+    typeof presentation.signature === "string" && presentation.signature.trim()
+      ? presentation.signature.trim()
+      : undefined;
+  const summary =
+    typeof presentation.summary === "string" && presentation.summary.trim() ? presentation.summary.trim() : undefined;
+  const scheduling =
+    presentation.scheduling && typeof presentation.scheduling === "object" && !Array.isArray(presentation.scheduling)
+      ? { ...presentation.scheduling }
+      : undefined;
+  const presentedAt =
+    typeof presentation.presentedAt === "number" && Number.isFinite(presentation.presentedAt)
+      ? presentation.presentedAt
+      : undefined;
+
+  return {
+    state,
+    ...(signature ? { signature } : {}),
+    ...(presentedAt ? { presentedAt } : {}),
+    ...(summary ? { summary } : {}),
+    ...(scheduling ? { scheduling } : {}),
+  };
+}
+
+export function getQuestJourneyProposalSignature(plan: Partial<QuestJourneyPlanState> | undefined): string {
+  const phaseIds = normalizeQuestJourneyPhaseIds(plan?.phaseIds);
+  const phaseNotes = normalizeQuestJourneyPhaseNotes(plan?.phaseNotes, phaseIds.length);
+  return JSON.stringify({
+    presetId: typeof plan?.presetId === "string" && plan.presetId.trim() ? plan.presetId.trim() : undefined,
+    phaseIds,
+    phaseNotes: phaseNotes ?? {},
+  });
+}
+
 function normalizeQuestJourneyActivePhaseIndex(
   plan: Partial<QuestJourneyPlanState> | undefined,
   phaseIds: readonly QuestJourneyPhaseId[],
@@ -431,6 +486,7 @@ export function normalizeQuestJourneyPlan(
   const mode = canonicalizeQuestJourneyLifecycleMode(plan?.mode) ?? "active";
   const normalizedStatus = typeof status === "string" ? status.trim().toUpperCase() : "";
   const phaseNotes = normalizeQuestJourneyPhaseNotes(plan?.phaseNotes, nonEmptyPhaseIds.length);
+  const presentation = normalizeQuestJourneyProposalPresentation(plan?.presentation);
   const activePhaseIndex =
     mode === "proposed" ? undefined : normalizeQuestJourneyActivePhaseIndex(plan, nonEmptyPhaseIds, status);
   const currentPhaseId =
@@ -449,6 +505,7 @@ export function normalizeQuestJourneyPlan(
     ...(activePhaseIndex !== undefined ? { activePhaseIndex } : {}),
     ...(currentPhaseId ? { currentPhaseId } : {}),
     ...(phaseNotes ? { phaseNotes } : {}),
+    ...(presentation ? { presentation } : {}),
     ...(nextLeaderAction ? { nextLeaderAction } : {}),
     ...(plan?.revisionReason ? { revisionReason: plan.revisionReason } : {}),
     ...(plan?.revisedAt ? { revisedAt: plan.revisedAt } : {}),

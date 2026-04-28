@@ -887,15 +887,6 @@ export function QuestDetailPanel() {
               )}
               <span className="text-[10px] text-cc-muted/50">{timeAgo(getQuestRecencyTs(quest))}</span>
             </div>
-            {activeBoardRow?.journey && (
-              <div className="mt-2 max-w-full">
-                <QuestJourneyTimeline
-                  journey={activeBoardRow.journey}
-                  status={activeBoardRow.status}
-                  variant="vertical"
-                />
-              </div>
-            )}
             {quest.tags && quest.tags.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 {quest.tags.map((tag) => (
@@ -953,6 +944,15 @@ export function QuestDetailPanel() {
           className="overflow-y-auto px-4 pb-4 pt-3 space-y-3"
           onPaste={isEditing ? (e) => handleEditPaste(quest.questId, e) : undefined}
         >
+          {activeBoardRow?.journey && (
+            <div className="max-w-full" data-testid="quest-detail-journey-section">
+              <QuestJourneyTimeline
+                journey={activeBoardRow.journey}
+                status={activeBoardRow.status}
+                variant="vertical"
+              />
+            </div>
+          )}
           {isEditing ? (
             <>
               <div>

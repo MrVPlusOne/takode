@@ -730,7 +730,7 @@ Options:
   --suggest <answer>  Suggested answer for needs-input notifications (repeat up to 3 times)
 `;
 
-const BOARD_HELP = `Usage: takode board [show|set|propose|promote|note|advance|rm] ...
+const BOARD_HELP = `Usage: takode board [show|set|propose|present|promote|note|advance|rm] ...
 
 Quest Journey work board for the current leader session.
 
@@ -738,6 +738,7 @@ Subcommands:
   show                    Show the board (default)
   set <quest-id>          Add or update a board row
   propose <quest-id>      Draft or revise a proposed Journey row
+  present <quest-id>      Present a proposed Journey draft for approval
   promote <quest-id>      Promote a proposed Journey row into execution
   note <quest-id>         Add or clear a per-phase Journey note
   advance <quest-id>      Move a quest to the next Journey state
@@ -751,6 +752,7 @@ Examples:
   takode board set q-12 --phases implement,outcome-review,code-review,port --preset cli-rollout --revise-reason "Need outcome evidence before final code review"
   takode board set q-12 --status MENTAL_SIMULATING --active-phase-position 5
   takode board propose q-12 --phases alignment,implement,code-review,port --preset full-code --wait-for-input 3
+  takode board present q-12 --wait-for-input 3
   takode board promote q-12 --worker 5
   takode board note q-12 3 --text "Inspect only the follow-up diff"
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
@@ -777,14 +779,19 @@ Quest Journey phases:
 Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` instead of using a special no-code board flag.
 `;
 
-const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] --phases <ids> [--preset <id>] [--revise-reason <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
+const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--revise-reason <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
 
-Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows.
+Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates.
 `;
 
-const BOARD_PROMOTE_HELP = `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
+const BOARD_PRESENT_HELP = `Usage: takode board present <quest-id> [--summary <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
 
-Promote an existing proposed Journey into active execution without redefining its phases. By default this clears any proposal hold linked through --wait-for-input.
+Present the current proposed Journey draft as the deliberate user-facing approval artifact.
+`;
+
+const BOARD_PROMOTE_HELP = `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--force-promote-unpresented] [--json]
+
+Promote an existing presented proposed Journey into active execution without redefining its phases. By default this clears any proposal hold linked through --wait-for-input. Use --force-promote-unpresented only for rare recovery/admin scenarios.
 `;
 
 const BOARD_NOTE_HELP = `Usage: takode board note <quest-id> <phase-position> [--text <text> | --clear] [--json]
@@ -936,6 +943,8 @@ function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(BOARD_SET_HELP);
       } else if (sub === "propose") {
         console.log(BOARD_PROPOSE_HELP);
+      } else if (sub === "present") {
+        console.log(BOARD_PRESENT_HELP);
       } else if (sub === "promote") {
         console.log(BOARD_PROMOTE_HELP);
       } else if (sub === "note") {
@@ -3428,6 +3437,32 @@ interface BoardRowSessionStatus {
   reviewer?: BoardParticipantStatus | null;
 }
 
+interface BoardProposalReviewPayload {
+  questId: string;
+  title?: string;
+  status: string;
+  journey: QuestJourneyPlanState;
+  presentedAt: number;
+  summary?: string;
+  scheduling?: Record<string, unknown>;
+}
+
+interface BoardProposalSpecPhase {
+  id: string;
+  note?: string;
+}
+
+interface BoardProposalSpec {
+  title?: string;
+  presetId?: string;
+  phases: BoardProposalSpecPhase[];
+  revisionReason?: string;
+  presentation?: {
+    summary?: string;
+    scheduling?: Record<string, unknown>;
+  };
+}
+
 function normalizeBoardWaitForInputNotificationId(value: string): string | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
@@ -3448,6 +3483,80 @@ function formatBoardWaitForInputNotificationLabel(notificationId: string): strin
 
 function formatBoardWaitForInputNotificationList(notificationIds: string[]): string {
   return notificationIds.map((notificationId) => formatBoardWaitForInputNotificationLabel(notificationId)).join(", ");
+}
+
+function normalizeBoardProposalSpec(raw: unknown): BoardProposalSpec {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+    err("Proposal spec must be a JSON object.");
+  }
+  const spec = raw as Record<string, unknown>;
+  const rawPhases = spec.phases ?? spec.phaseIds;
+  if (!Array.isArray(rawPhases) || rawPhases.length === 0) {
+    err("Proposal spec requires a non-empty phases array.");
+  }
+
+  const phases = rawPhases.map((entry, index): BoardProposalSpecPhase => {
+    if (typeof entry === "string") return { id: entry };
+    if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+      err(`Proposal spec phase ${index + 1} must be a string phase id or an object with id/note.`);
+    }
+    const phase = entry as Record<string, unknown>;
+    if (typeof phase.id !== "string" || !phase.id.trim()) {
+      err(`Proposal spec phase ${index + 1} requires a non-empty id.`);
+    }
+    if (phase.note !== undefined && typeof phase.note !== "string") {
+      err(`Proposal spec phase ${index + 1} note must be a string when provided.`);
+    }
+    return {
+      id: phase.id.trim(),
+      ...(typeof phase.note === "string" && phase.note.trim() ? { note: phase.note.trim() } : {}),
+    };
+  });
+
+  const invalid = getInvalidQuestJourneyPhaseIds(phases.map((phase) => phase.id));
+  if (invalid.length > 0) {
+    err(`Invalid Quest Journey phase(s) in proposal spec: ${invalid.join(", ")}`);
+  }
+
+  const presentation =
+    spec.presentation && typeof spec.presentation === "object" && !Array.isArray(spec.presentation)
+      ? (spec.presentation as Record<string, unknown>)
+      : undefined;
+  const scheduling =
+    presentation?.scheduling && typeof presentation.scheduling === "object" && !Array.isArray(presentation.scheduling)
+      ? { ...(presentation.scheduling as Record<string, unknown>) }
+      : undefined;
+
+  return {
+    phases,
+    ...(typeof spec.title === "string" && spec.title.trim() ? { title: spec.title.trim() } : {}),
+    ...(typeof spec.presetId === "string" && spec.presetId.trim() ? { presetId: spec.presetId.trim() } : {}),
+    ...(typeof spec.revisionReason === "string" && spec.revisionReason.trim()
+      ? { revisionReason: spec.revisionReason.trim() }
+      : {}),
+    ...(presentation
+      ? {
+          presentation: {
+            ...(typeof presentation.summary === "string" && presentation.summary.trim()
+              ? { summary: presentation.summary.trim() }
+              : {}),
+            ...(scheduling ? { scheduling } : {}),
+          },
+        }
+      : {}),
+  };
+}
+
+async function readBoardProposalSpec(pathOrDash: string): Promise<BoardProposalSpec> {
+  const raw = await readOptionTextFile(pathOrDash, "--spec-file");
+  try {
+    return normalizeBoardProposalSpec(JSON.parse(raw));
+  } catch (error) {
+    if (error instanceof SyntaxError) {
+      err(`Cannot parse --spec-file JSON: ${error.message}`);
+    }
+    throw error;
+  }
 }
 
 function formatBoardParticipantStatus(
@@ -3519,6 +3628,7 @@ function formatBoardOutput(
     rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     queueWarnings?: BoardQueueWarning[];
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
+    proposalReview?: BoardProposalReviewPayload;
     workerSlotUsage?: { used: number; limit: number };
   },
 ): string {
@@ -3529,6 +3639,7 @@ function formatBoardOutput(
     rowSessionStatuses,
     queueWarnings,
     phaseNoteRebaseWarnings,
+    proposalReview,
     workerSlotUsage,
   } = opts ?? {};
   return JSON.stringify(
@@ -3538,6 +3649,7 @@ function formatBoardOutput(
       ...(rowSessionStatuses ? { rowSessionStatuses } : {}),
       ...(queueWarnings ? { queueWarnings } : {}),
       ...(phaseNoteRebaseWarnings ? { phaseNoteRebaseWarnings } : {}),
+      ...(proposalReview ? { proposalReview } : {}),
       ...(workerSlotUsage ? { workerSlotUsage } : {}),
       ...(operation ? { operation } : {}),
       ...(completedCount != null ? { completedCount } : {}),
@@ -3659,6 +3771,7 @@ function outputBoard(
     rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     queueWarnings?: BoardQueueWarning[];
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
+    proposalReview?: BoardProposalReviewPayload;
     workerSlotUsage?: { used: number; limit: number };
   },
 ): void {
@@ -3670,6 +3783,7 @@ function outputBoard(
     rowSessionStatuses,
     queueWarnings,
     phaseNoteRebaseWarnings,
+    proposalReview,
     workerSlotUsage,
   } = opts ?? {};
   if (jsonMode) {
@@ -3681,6 +3795,7 @@ function outputBoard(
         rowSessionStatuses,
         queueWarnings,
         phaseNoteRebaseWarnings,
+        proposalReview,
         workerSlotUsage,
       }),
     );
@@ -3745,9 +3860,9 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     const usageBySub =
       sub === "propose"
-        ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]`
+        ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids> | --spec-file <path|->] [--preset <id>] [--revise-reason <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]`
         : sub === "promote"
-          ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]`
+          ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--force-promote-unpresented] [--json]`
           : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--revise-reason <text>] [--json]`;
     if (!questId) err(usageBySub);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
@@ -3764,6 +3879,9 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const body: Record<string, unknown> = { questId };
     if (isProposalCommand) body.journeyMode = "proposed";
     if (isPromoteCommand) body.journeyMode = "active";
+    if (isPromoteCommand && flags["force-promote-unpresented"] === true) {
+      body.forcePromoteUnpresented = true;
+    }
     if (activePhasePosition !== undefined) {
       if (activePhasePosition <= 0) err("--active-phase-position must be a positive integer.");
       if (isProposalCommand) {
@@ -3773,7 +3891,21 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     }
     if (typeof flags.status === "string") body.status = flags.status;
     if (typeof flags.title === "string") body.title = flags.title;
-    if (typeof flags.phases === "string") {
+    if (flags["spec-file"] === true) err("--spec-file requires a path or '-' for stdin.");
+    if (typeof flags["spec-file"] === "string") {
+      if (!isProposalCommand) err("Use --spec-file only with `takode board propose`.");
+      if (typeof flags.phases === "string") err("Use either --spec-file or --phases, not both.");
+      const spec = await readBoardProposalSpec(flags["spec-file"]);
+      body.phases = normalizeQuestJourneyPhaseIds(spec.phases.map((phase) => phase.id));
+      const phaseNoteEdits = spec.phases.flatMap((phase, index) => (phase.note ? [{ index, note: phase.note }] : []));
+      if (phaseNoteEdits.length > 0) body.phaseNoteEdits = phaseNoteEdits;
+      if (spec.title && !("title" in body)) body.title = spec.title;
+      if (typeof flags.preset === "string" && flags.preset.trim()) body.presetId = flags.preset.trim();
+      else if (spec.presetId) body.presetId = spec.presetId;
+      else body.presetId = "custom";
+      if (spec.revisionReason) body.revisionReason = spec.revisionReason;
+      if (spec.presentation) body.presentation = spec.presentation;
+    } else if (typeof flags.phases === "string") {
       if (isPromoteCommand) {
         err(
           "`takode board promote` reuses the existing Journey. Revise it first with `takode board propose` or `takode board set`.",
@@ -3799,7 +3931,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     } else if (typeof flags.preset === "string") {
       err("Use --preset only with --phases so the planned Quest Journey is explicit.");
     } else if (isProposalCommand) {
-      err("Use --phases with `takode board propose` so the proposed Journey is explicit.");
+      err("Use --phases or --spec-file with `takode board propose` so the proposed Journey is explicit.");
     }
     if (typeof flags["revise-reason"] === "string") {
       if (!("phases" in body)) {
@@ -3912,6 +4044,65 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       rowSessionStatuses: result.rowSessionStatuses,
       queueWarnings: result.queueWarnings,
       phaseNoteRebaseWarnings: result.phaseNoteRebaseWarnings,
+      workerSlotUsage: result.workerSlotUsage,
+    });
+    return;
+  }
+
+  if (sub === "present") {
+    const questId = args[1];
+    const usage =
+      "Usage: takode board present <quest-id> [--summary <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]";
+    if (!questId) err(usage);
+    if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
+    const flags = parseFlags(args.slice(2));
+    if (flags["clear-wait-for-input"] === true && typeof flags["wait-for-input"] === "string") {
+      err("Use either --wait-for-input or --clear-wait-for-input, not both.");
+    }
+    const body: Record<string, unknown> = {
+      questId,
+      presentProposal: true,
+    };
+    if (typeof flags.summary === "string" && flags.summary.trim()) {
+      body.presentation = { summary: flags.summary.trim() };
+    }
+    if (typeof flags["wait-for-input"] === "string") {
+      const rawIds = flags["wait-for-input"]
+        .split(",")
+        .map((s: string) => s.trim())
+        .filter(Boolean);
+      if (rawIds.length === 0) {
+        err("Invalid wait-for-input value: provide one or more notification IDs like 3 or n-3.");
+      }
+      const normalizedIds = rawIds.map((notificationId) => ({
+        notificationId,
+        normalized: normalizeBoardWaitForInputNotificationId(notificationId),
+      }));
+      const invalid = normalizedIds.filter((entry) => entry.normalized === null).map((entry) => entry.notificationId);
+      if (invalid.length > 0) {
+        err(`Invalid wait-for-input value(s): ${invalid.join(", ")} -- use needs-input notification IDs like 3 or n-3`);
+      }
+      body.waitForInput = [...new Set(normalizedIds.map((entry) => entry.normalized!))];
+    }
+    if (flags["clear-wait-for-input"] === true) {
+      body.clearWaitForInput = true;
+    }
+
+    const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/board`, body)) as {
+      board: BoardRow[];
+      resolvedSessionDeps?: string[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+      queueWarnings?: BoardQueueWarning[];
+      proposalReview?: BoardProposalReviewPayload;
+      workerSlotUsage?: { used: number; limit: number };
+    };
+    const resolved = new Set(result.resolvedSessionDeps ?? []);
+    outputBoard(result.board, true, {
+      operation: `present ${questId}`,
+      resolvedSessionDeps: resolved,
+      rowSessionStatuses: result.rowSessionStatuses,
+      queueWarnings: result.queueWarnings,
+      proposalReview: result.proposalReview,
       workerSlotUsage: result.workerSlotUsage,
     });
     return;
@@ -4042,7 +4233,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|advance|rm] ...`);
+  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|propose|present|promote|note|advance|rm] ...`);
 }
 
 async function handleRefreshBranch(base: string, args: string[]): Promise<void> {

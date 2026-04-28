@@ -10,6 +10,7 @@ import {
   getQuestJourneyCurrentPhaseIndex,
   getQuestJourneyPhase,
   getQuestJourneyPhaseForState,
+  getQuestJourneyProposalSignature,
   getWaitForRefKind,
   isValidQuestId,
   isValidWaitForRef,
@@ -390,6 +391,42 @@ describe("Quest Journey phases", () => {
         mode: "proposed",
         phaseIds: ["alignment", "implement", "code-review", "port"],
         nextLeaderAction: QUEST_JOURNEY_HINTS.PROPOSED,
+      }),
+    );
+  });
+
+  it("preserves proposed Journey presentation metadata and computes stable proposal signatures", () => {
+    const normalized = normalizeQuestJourneyPlan(
+      {
+        mode: "proposed",
+        presetId: "proposal-flow",
+        phaseIds: ["alignment", "implement"],
+        phaseNotes: {
+          "1": "Build the draft and present paths.",
+        },
+        presentation: {
+          state: "presented",
+          signature: "old-signature",
+          presentedAt: 123,
+          summary: "Proposed Journey for approval",
+          scheduling: { intent: "dispatch-after-approval" },
+        },
+      },
+      "PROPOSED",
+    );
+
+    expect(normalized.presentation).toEqual({
+      state: "presented",
+      signature: "old-signature",
+      presentedAt: 123,
+      summary: "Proposed Journey for approval",
+      scheduling: { intent: "dispatch-after-approval" },
+    });
+    expect(getQuestJourneyProposalSignature(normalized)).toBe(
+      JSON.stringify({
+        presetId: "proposal-flow",
+        phaseIds: ["alignment", "implement"],
+        phaseNotes: { "1": "Build the draft and present paths." },
       }),
     );
   });
