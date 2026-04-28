@@ -1118,7 +1118,7 @@ export class CliLauncher {
       // Host-based spawn (original behavior)
       spawnCmd = [binary, ...args];
       spawnEnv = {
-        ...process.env,
+        ...stripInheritedTelemetryEnv(process.env),
         CLAUDECODE: undefined,
         ...options.env,
         PATH: getEnrichedPath({ serverId: this.serverId }),
