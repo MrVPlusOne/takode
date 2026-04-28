@@ -16,6 +16,7 @@ import {
   buildNeedsInputReminderHistoryEntry,
   shouldCommitNeedsInputReminderHistoryEntry,
 } from "./adapter-browser-routing-needs-input-reminder.js";
+import { isRecoverableCodexInitError } from "../codex-adapter-utils.js";
 import { LEADER_COMPACTION_RECOVERY_PROMPT } from "./compaction-recovery.js";
 import {
   armCodexFreshTurnRequirement as armCodexFreshTurnRequirementState,
@@ -25,6 +26,7 @@ import {
 } from "./codex-turn-queue.js";
 import { requestCodexAutoRecovery as requestCodexAutoRecoveryController } from "./session-registry-controller.js";
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
+const CODEX_INIT_RETRY_BASE_DELAY_MS = 1_000;
 type InterruptSource = "user" | "leader" | "system";
 type CodexRecoveryAdapterLike = any;
 export interface CodexRecoveryOrchestratorSessionLike {
@@ -646,6 +648,90 @@ export function trySteerPendingCodexInputs(
   return true;
 }
 
+function clearCodexInitRecoveryState(session: CodexRecoveryOrchestratorSessionLike): void {
+  const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
+  if (retryTimer) clearTimeout(retryTimer);
+  (session as any).codexInitRetryTimer = null;
+  (session as any).codexInitRecoveryFailures = 0;
+  (session as any).codexAutoRecoveryReason = null;
+}
+
+export function handleCodexAdapterInitError(
+  sessionId: string,
+  session: CodexRecoveryOrchestratorSessionLike,
+  adapter: CodexRecoveryAdapterLike,
+  error: string,
+  deps: CodexAdapterRecoveryLifecycleDeps,
+): "ignored" | "retrying" | "broken" {
+  if (session.codexAdapter !== adapter) return "ignored";
+  deps.clearCodexDisconnectGraceTimer(session, "init_error");
+  console.error(`[ws-bridge] Codex adapter init failed for session ${sessionTag(sessionId)}: ${error}`);
+  session.codexAdapter = null;
+  const pending = deps.getCodexTurnInRecovery(session);
+  const autoRecoveryReason = (session as any).codexAutoRecoveryReason as string | null | undefined;
+  const launcherInfo = deps.getLauncherSessionInfo(sessionId);
+  const canRetryTransientInit =
+    !!autoRecoveryReason &&
+    !!launcherInfo?.cliSessionId &&
+    isRecoverableCodexInitError(error) &&
+    deps.hasCliRelaunchCallback;
+
+  if (canRetryTransientInit) {
+    const now = Date.now();
+    if (
+      session.lastAdapterFailureAt !== null &&
+      now - session.lastAdapterFailureAt > deps.adapterFailureResetWindowMs
+    ) {
+      (session as any).codexInitRecoveryFailures = 0;
+    }
+    const failures = ((session as any).codexInitRecoveryFailures ?? 0) + 1;
+    (session as any).codexInitRecoveryFailures = failures;
+    session.lastAdapterFailureAt = now;
+    session.consecutiveAdapterFailures = failures;
+    if (failures <= deps.maxAdapterRelaunchFailures) {
+      if (pending) {
+        pending.status = "queued";
+        pending.turnId = null;
+        pending.acknowledgedAt = null;
+        pending.lastError = error;
+        pending.updatedAt = now;
+        deps.setPendingCodexInputsCancelable(session, pending.pendingInputIds ?? [pending.userMessageId], true);
+      }
+      deps.rebuildQueuedCodexPendingStartBatch(session);
+      deps.setBackendState(session, "recovering", null);
+      deps.broadcastToBrowsers(session, { type: "backend_disconnected" });
+      const delayMs = Math.min(CODEX_INIT_RETRY_BASE_DELAY_MS * failures, 10_000);
+      (session as any).codexInitRetryTimer = setTimeout(() => {
+        (session as any).codexInitRetryTimer = null;
+        if (session.codexAdapter) return;
+        deps.requestCodexAutoRecovery(session, `init_error:${autoRecoveryReason}`);
+      }, delayMs);
+      deps.persistSession(session);
+      return "retrying";
+    }
+  }
+
+  clearCodexInitRecoveryState(session);
+  if ((session as any).pendingCodexRollback) {
+    (session as any).pendingCodexRollbackError = error;
+    (session as any).pendingCodexRollbackWaiter?.reject(new Error(error));
+    (session as any).pendingCodexRollbackWaiter = null;
+  }
+  if (pending) {
+    pending.status = "blocked_broken_session";
+    pending.lastError = error;
+    pending.updatedAt = Date.now();
+    deps.setPendingCodexInputsCancelable(session, pending.pendingInputIds ?? [pending.userMessageId], true);
+  }
+  deps.setBackendState(session, "broken", error);
+  deps.setAttentionError(session);
+  deps.setGenerating(session, false, "codex_init_error");
+  deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "broken" });
+  deps.broadcastToBrowsers(session, { type: "status_change", status: null });
+  deps.persistSession(session);
+  return "broken";
+}
+
 export function registerCodexAdapterRecoveryLifecycle(
   sessionId: string,
   session: CodexRecoveryOrchestratorSessionLike,
@@ -665,6 +751,7 @@ export function registerCodexAdapterRecoveryLifecycle(
       reconcileCodexResumedTurn(session, meta.resumeSnapshot, deps);
     }
     deps.setBackendState(session, "connected", null);
+    clearCodexInitRecoveryState(session);
     retryNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", deps);
     clearStaleCodexCompactionState(session, "session_meta_stale_compaction", deps);
     if (meta.model) {
@@ -781,28 +868,7 @@ export function registerCodexAdapterRecoveryLifecycle(
   });
 
   adapter.onInitError((error: string) => {
-    if (session.codexAdapter !== adapter) return;
-    deps.clearCodexDisconnectGraceTimer(session, "init_error");
-    console.error(`[ws-bridge] Codex adapter init failed for session ${sessionTag(sessionId)}: ${error}`);
-    session.codexAdapter = null;
-    if ((session as any).pendingCodexRollback) {
-      (session as any).pendingCodexRollbackError = error;
-      (session as any).pendingCodexRollbackWaiter?.reject(new Error(error));
-      (session as any).pendingCodexRollbackWaiter = null;
-    }
-    const pending = deps.getCodexTurnInRecovery(session);
-    if (pending) {
-      pending.status = "blocked_broken_session";
-      pending.lastError = error;
-      pending.updatedAt = Date.now();
-      deps.setPendingCodexInputsCancelable(session, pending.pendingInputIds ?? [pending.userMessageId], true);
-    }
-    deps.setBackendState(session, "broken", error);
-    deps.setAttentionError(session);
-    deps.setGenerating(session, false, "codex_init_error");
-    deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "broken" });
-    deps.broadcastToBrowsers(session, { type: "status_change", status: null });
-    deps.persistSession(session);
+    handleCodexAdapterInitError(sessionId, session, adapter, error, deps);
   });
 
   adapter.onDisconnect(() => {

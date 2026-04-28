@@ -108,7 +108,7 @@ export class CodexAdapter
   private browserMessageCb: ((msg: BrowserIncomingMessage) => void) | null = null;
   private sessionMetaCb: ((meta: CodexSessionMeta) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
-  private initErrorCb: ((error: string) => void) | null = null;
+  private initErrorCbs = new Set<(error: string) => void>();
   private turnStartFailedCb: ((msg: BrowserOutgoingMessage) => void) | null = null;
   private turnStartedCb: ((turnId: string) => void) | null = null;
   private turnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | null = null;
@@ -397,7 +397,7 @@ export class CodexAdapter
   }
 
   onInitError(cb: (error: string) => void): void {
-    this.initErrorCb = cb;
+    this.initErrorCbs.add(cb);
   }
 
   onTurnStartFailed(cb: (msg: BrowserOutgoingMessage) => void): void {
@@ -614,7 +614,13 @@ export class CodexAdapter
       // Discard any messages queued during the failed init attempt
       this.pendingOutgoing.length = 0;
       this.emit({ type: "error", message: errorMsg });
-      this.initErrorCb?.(errorMsg);
+      for (const cb of this.initErrorCbs) {
+        try {
+          cb(errorMsg);
+        } catch (callbackErr) {
+          console.error("[codex-adapter] init-error listener failed:", callbackErr);
+        }
+      }
     }
   }
 

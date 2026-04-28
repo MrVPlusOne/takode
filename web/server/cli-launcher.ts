@@ -26,6 +26,7 @@ import {
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
 import { stripInheritedTelemetryEnv } from "./cli-launcher-env.js";
 import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
+import { isRecoverableCodexInitError } from "./codex-adapter-utils.js";
 import { sessionTag } from "./session-tag.js";
 import type { HerdChangeEvent, HerdSessionsResponse } from "../shared/herd-types.js";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
@@ -1357,16 +1358,18 @@ export class CliLauncher {
       failureContextProvider: () => formatStreamTailForError(stderrTail),
     });
 
-    // Handle init errors — mark session as exited so UI shows failure.
-    // Also clear cliSessionId so the next relaunch starts a fresh thread
-    // instead of trying to resume one whose rollout may be missing.
+    // Handle init errors — mark session as exited so recovery can relaunch.
+    // Preserve cliSessionId for transient startup failures so automatic retry
+    // has the same resume target that a later manual Relaunch would use.
     adapter.onInitError((error) => {
       console.error(`[cli-launcher] Codex session ${sessionTag(sessionId)} init failed: ${error}`);
       const session = this.sessions.get(sessionId);
       if (session) {
         session.state = "exited";
         session.exitCode = 1;
-        session.cliSessionId = undefined;
+        if (!isRecoverableCodexInitError(error)) {
+          session.cliSessionId = undefined;
+        }
       }
       if (this.processes.get(sessionId) === proc) {
         this.processes.delete(sessionId);

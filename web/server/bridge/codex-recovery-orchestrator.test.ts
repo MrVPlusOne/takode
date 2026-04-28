@@ -1,11 +1,12 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   commitPendingCodexInputs,
+  handleCodexAdapterInitError,
   hydrateCodexResumedHistory,
   type CodexRecoveryOrchestratorSessionLike,
   type CodexRecoveryOrchestratorDeps,
 } from "./codex-recovery-orchestrator.js";
-import type { PendingCodexInput, BrowserIncomingMessage } from "../session-types.js";
+import type { PendingCodexInput, BrowserIncomingMessage, CodexOutboundTurn } from "../session-types.js";
 import { injectReplyContext } from "../../shared/reply-context.js";
 import type { CodexResumeSnapshot } from "../codex-adapter.js";
 
@@ -63,6 +64,46 @@ function makeDeps(): CodexRecoveryOrchestratorDeps {
     broadcastStatusChange: vi.fn(),
     markRunningFromUserDispatch: vi.fn(() => "current" as const),
   } as unknown as CodexRecoveryOrchestratorDeps;
+}
+
+function makeRecoveryDeps(overrides: Record<string, unknown> = {}) {
+  return {
+    ...makeDeps(),
+    clearCodexDisconnectGraceTimer: vi.fn(),
+    setBackendState: vi.fn((session: any, state: string, error: string | null) => {
+      session.state.backend_state = state;
+      session.state.backend_error = error;
+    }),
+    getCodexTurnInRecovery: vi.fn((session: any) => session.pendingCodexTurns[0] ?? null),
+    getLauncherSessionInfo: vi.fn(() => ({ cliSessionId: "thread-existing" })),
+    rebuildQueuedCodexPendingStartBatch: vi.fn(),
+    setAttentionError: vi.fn(),
+    setGenerating: vi.fn(),
+    hasCliRelaunchCallback: true,
+    adapterFailureResetWindowMs: 120_000,
+    maxAdapterRelaunchFailures: 3,
+    ...overrides,
+  } as any;
+}
+
+function makePendingTurn(): CodexOutboundTurn {
+  return {
+    adapterMsg: { type: "user_message", content: "continue" } as any,
+    userMessageId: "user-1",
+    pendingInputIds: ["input-1"],
+    userContent: "continue",
+    historyIndex: -1,
+    status: "dispatched",
+    dispatchCount: 1,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    acknowledgedAt: null,
+    turnTarget: null,
+    lastError: null,
+    turnId: null,
+    disconnectedAt: null,
+    resumeConfirmedAt: null,
+  };
 }
 
 describe("commitPendingCodexInputs", () => {
@@ -141,5 +182,90 @@ describe("hydrateCodexResumedHistory", () => {
     expect(session.lastUserMessage).toBe("[reply] Continue the work");
     expect(session.lastUserMessage).not.toContain("<<<REPLY_TO");
     expect(session.lastUserMessage).not.toContain("codex-agent-random-id");
+  });
+});
+
+describe("handleCodexAdapterInitError", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps transient auto-recovery init errors recoverable and schedules a bounded retry", () => {
+    // A post-restart transport close can be transient. While auto-recovery is
+    // in flight, keep the pending turn retryable instead of terminally broken.
+    vi.useFakeTimers();
+    const adapter = { id: "adapter-1" };
+    const session = makeSession([]);
+    const pending = makePendingTurn();
+    session.codexAdapter = adapter as any;
+    session.state.backend_state = "resuming";
+    session.pendingCodexTurns = [pending];
+    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    const deps = makeRecoveryDeps();
+
+    const result = handleCodexAdapterInitError(
+      session.id,
+      session,
+      adapter,
+      "Codex initialization failed: Transport closed",
+      deps,
+    );
+
+    expect(result).toBe("retrying");
+    expect(session.state.backend_state).toBe("recovering");
+    expect(session.codexAdapter).toBeNull();
+    expect(pending.status).toBe("queued");
+    expect(deps.setAttentionError).not.toHaveBeenCalled();
+    expect(deps.setGenerating).not.toHaveBeenCalled();
+
+    vi.advanceTimersByTime(1_000);
+    expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(session, "init_error:browser_open_dead_backend");
+  });
+
+  it("marks broken only after transient init retry budget is exhausted", () => {
+    // Once the bounded retry budget is spent, the UI should become terminally
+    // broken so users see a real failure instead of an infinite respawn loop.
+    const adapter = { id: "adapter-1" };
+    const session = makeSession([]);
+    const pending = makePendingTurn();
+    session.codexAdapter = adapter as any;
+    session.pendingCodexTurns = [pending];
+    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    (session as any).codexInitRecoveryFailures = 3;
+    const deps = makeRecoveryDeps({ maxAdapterRelaunchFailures: 3 });
+
+    const result = handleCodexAdapterInitError(
+      session.id,
+      session,
+      adapter,
+      "Codex initialization failed: Transport closed",
+      deps,
+    );
+
+    expect(result).toBe("broken");
+    expect(session.state.backend_state).toBe("broken");
+    expect(pending.status).toBe("blocked_broken_session");
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    expect(deps.setAttentionError).toHaveBeenCalledWith(session);
+  });
+
+  it("marks non-transient init errors broken immediately", () => {
+    const adapter = { id: "adapter-1" };
+    const session = makeSession([]);
+    session.codexAdapter = adapter as any;
+    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    const deps = makeRecoveryDeps();
+
+    const result = handleCodexAdapterInitError(
+      session.id,
+      session,
+      adapter,
+      "Codex initialization failed: no rollout found",
+      deps,
+    );
+
+    expect(result).toBe("broken");
+    expect(session.state.backend_state).toBe("broken");
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
   });
 });

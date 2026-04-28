@@ -30,9 +30,17 @@ vi.mock("./codex-home.js", async (importOriginal) => {
   };
 });
 
+const mockCodexInitErrorCallbacks = vi.hoisted(() => [] as Array<(error: string) => void>);
+const mockCodexAdapterOptions = vi.hoisted(() => [] as Array<Record<string, unknown>>);
 vi.mock("./codex-adapter.js", () => ({
   CodexAdapter: class {
-    onInitError() {}
+    constructor(_proc: unknown, _sessionId: string, options: Record<string, unknown>) {
+      mockCodexAdapterOptions.push(options);
+    }
+
+    onInitError(cb: (error: string) => void) {
+      mockCodexInitErrorCallbacks.push(cb);
+    }
   },
 }));
 
@@ -86,6 +94,8 @@ let launcher: CliLauncher;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  mockCodexInitErrorCallbacks.length = 0;
+  mockCodexAdapterOptions.length = 0;
   tempDir = mkdtempSync(join(tmpdir(), "launcher-codex-env-test-"));
   store = new SessionStore(tempDir);
   launcher = new CliLauncher(3456, { serverId: "test-server-id" });
@@ -153,5 +163,38 @@ describe("Codex launch env", () => {
     expect(readFileSync(sessionAuth, "utf-8")).toBe('{"tokens":{"id_token":"legacy"}}\n');
     const [, options] = mockSpawn.mock.calls[0];
     expect(options.env.OPENAI_API_KEY).toBe("sk-test");
+  });
+
+  it("preserves cliSessionId after transient Codex init transport closes", async () => {
+    const session = await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+      env: { OPENAI_API_KEY: "sk-test" },
+    });
+    await waitForSpawnCalls(1);
+    session.cliSessionId = "thread-existing";
+
+    mockCodexInitErrorCallbacks[0]?.("Codex initialization failed: Transport closed");
+
+    expect(session.cliSessionId).toBe("thread-existing");
+    expect(session.state).toBe("exited");
+  });
+
+  it("relaunches with the preserved Codex thread after a transient init transport close", async () => {
+    const session = await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+      env: { OPENAI_API_KEY: "sk-test" },
+    });
+    await waitForSpawnCalls(1);
+    session.cliSessionId = "thread-existing";
+
+    mockCodexInitErrorCallbacks[0]?.("Codex initialization failed: Transport closed");
+    await launcher.relaunch(session.sessionId);
+    await waitForSpawnCalls(2);
+
+    expect(mockCodexAdapterOptions[1]?.threadId).toBe("thread-existing");
   });
 });

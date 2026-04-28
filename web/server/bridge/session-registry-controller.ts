@@ -716,6 +716,7 @@ export function requestCodexAutoRecovery(
   if (!deps.requestCliRelaunch) return false;
   if (launcherInfo?.archived || launcherInfo?.killedByIdleManager) return false;
   if (session.state.backend_state === "broken") return false;
+  (session as any).codexAutoRecoveryReason = reason;
   setBackendState(session, "recovering", null, deps);
   deps.persistSession(session);
   console.log(`[ws-bridge] Requesting Codex auto-recovery for session ${sessionTag(session.id)} (${reason})`);
@@ -727,6 +728,11 @@ export function requestCodexAutoRecovery(
       `[ws-bridge] Codex auto-recovery timeout for session ${sessionTag(session.id)} (${reason}) -- resetting to disconnected`,
     );
     setBackendState(session, "disconnected", null, deps);
+    const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
+    if (retryTimer) clearTimeout(retryTimer);
+    (session as any).codexInitRetryTimer = null;
+    (session as any).codexAutoRecoveryReason = null;
+    (session as any).codexInitRecoveryFailures = 0;
     deps.emitTakodeEvent?.(session.id, "session_disconnected", {
       wasGenerating: session.isGenerating,
       reason: "recovery_timeout",
@@ -748,6 +754,11 @@ export function markCodexAutoRecoveryFailed(
   if (session.state.backend_state !== "recovering") return;
   if (deps.attached?.(session)) return;
   setBackendState(session, "disconnected", null, deps);
+  const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
+  if (retryTimer) clearTimeout(retryTimer);
+  (session as any).codexInitRetryTimer = null;
+  (session as any).codexAutoRecoveryReason = null;
+  (session as any).codexInitRecoveryFailures = 0;
   deps.emitTakodeEvent?.(session.id, "session_disconnected", {
     wasGenerating: session.isGenerating,
     reason: "recovery_failed",

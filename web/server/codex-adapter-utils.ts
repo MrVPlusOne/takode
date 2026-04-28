@@ -1,5 +1,9 @@
 import type { CodexAppReference, CodexSkillReference } from "./session-types.js";
 
+export function isRecoverableCodexInitError(error: string): boolean {
+  return /\bTransport closed\b/i.test(error);
+}
+
 export interface CodexItem {
   type: string;
   id: string;
