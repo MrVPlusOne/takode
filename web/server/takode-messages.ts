@@ -467,6 +467,9 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
       return text;
     }
 
+    case "leader_user_message":
+      return msg.content || "";
+
     case "assistant": {
       const blocks = msg.message?.content || [];
       const parts: string[] = [];
@@ -518,6 +521,7 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
 function extractTimestamp(msg: BrowserIncomingMessage): number {
   switch (msg.type) {
     case "user_message":
+    case "leader_user_message":
       return msg.timestamp || 0;
     case "assistant":
       return (msg as { timestamp?: number }).timestamp || 0;
@@ -539,6 +543,7 @@ function extractTimestamp(msg: BrowserIncomingMessage): number {
 /** Message types that carry meaningful content for the peek/read API. */
 type PeekableType =
   | "user_message"
+  | "leader_user_message"
   | "assistant"
   | "result"
   | "compact_marker"
@@ -547,6 +552,7 @@ type PeekableType =
 
 const PEEKABLE_TYPES = new Set<string>([
   "user_message",
+  "leader_user_message",
   "assistant",
   "result",
   "compact_marker",
@@ -561,6 +567,7 @@ function isPeekable(msg: BrowserIncomingMessage): boolean {
 /** Map message type to the simplified peek type. */
 function toPeekType(type: string): "user" | "assistant" | "result" | "system" {
   if (type === "user_message") return "user";
+  if (type === "leader_user_message") return "assistant";
   if (type === "assistant") return "assistant";
   if (type === "result") return "result";
   return "system";

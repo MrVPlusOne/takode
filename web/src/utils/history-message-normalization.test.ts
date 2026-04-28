@@ -110,6 +110,28 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     ]);
   });
 
+  it("replays leader user-visible messages as assistant Markdown", () => {
+    const message: BrowserIncomingMessage = {
+      type: "leader_user_message",
+      id: "leader-user-1",
+      content: "**Visible** leader update",
+      timestamp: 2000,
+    };
+
+    const normalized = normalizeHistoryMessageToChatMessages(message, 11);
+
+    expect(normalized).toEqual([
+      {
+        id: "leader-user-1",
+        role: "assistant",
+        content: "**Visible** leader update",
+        timestamp: 2000,
+        historyIndex: 11,
+        metadata: { leaderUserMessage: true },
+      },
+    ]);
+  });
+
   it("matches replay semantics for visible task_notification messages", () => {
     const now = vi.spyOn(Date, "now").mockReturnValue(123456);
     const message: BrowserIncomingMessage = {

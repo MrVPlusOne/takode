@@ -45,7 +45,7 @@ function entryIds(entries: { kind: string; msg?: { id: string } }[]): string[] {
 }
 
 describe("leader mode raw deprecated tags", () => {
-  it("treats deprecated @to(user) text like any other assistant response", () => {
+  it("keeps deprecated @to(user) text as private activity", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "do the thing", timestamp: 1 }),
       makeMessage({ id: "a-internal", role: "assistant", content: "Let me think about this...", timestamp: 2 }),
@@ -56,9 +56,9 @@ describe("leader mode raw deprecated tags", () => {
     expect(model.turns).toHaveLength(1);
     const turn = model.turns[0];
 
-    expect(turn.responseEntry?.kind).toBe("message");
-    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a-touser");
+    expect(turn.responseEntry).toBeNull();
     expect(entryIds(turn.agentEntries)).toContain("a-internal");
+    expect(entryIds(turn.agentEntries)).toContain("a-touser");
     expect(entryIds(turn.allEntries)).toContain("a-touser");
   });
 
@@ -74,7 +74,8 @@ describe("leader mode raw deprecated tags", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a-touser-2");
+    expect(turn.responseEntry).toBeNull();
+    expect(entryIds(turn.agentEntries)).toContain("a-touser-2");
     expect(entryIds(turn.agentEntries)).toContain("a-touser-1");
     expect(entryIds(turn.agentEntries)).toContain("a-internal");
     expect(entryIds(turn.agentEntries)).toContain("a-internal2");
@@ -106,12 +107,12 @@ describe("leader mode raw deprecated tags", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    expect(turn.stats.messageCount).toBe(3);
+    expect(turn.stats.messageCount).toBe(4);
   });
 });
 
 describe("leader mode collapsed preview without deprecated metadata", () => {
-  it("shows last assistant message as responseEntry", () => {
+  it("keeps ordinary assistant messages private instead of promoting a responseEntry", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "work on task q-42", timestamp: 1 }),
       makeMessage({ id: "a1", role: "assistant", content: "Starting work on task q-42...", timestamp: 2 }),
@@ -122,12 +123,12 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
     expect(model.turns).toHaveLength(1);
     const turn = model.turns[0];
 
-    expect(turn.responseEntry?.kind).toBe("message");
-    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a2");
+    expect(turn.responseEntry).toBeNull();
     expect(entryIds(turn.agentEntries)).toContain("a1");
+    expect(entryIds(turn.agentEntries)).toContain("a2");
   });
 
-  it("keeps @to(self) text visible even without any @to(user) messages", () => {
+  it("keeps @to(self) text private like ordinary leader output", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "go", timestamp: 1 }),
       makeMessage({ id: "a-self", role: "assistant", content: "Internal coordination @to(self)", timestamp: 2 }),
@@ -137,13 +138,13 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    expect(turn.responseEntry?.kind).toBe("message");
-    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a-normal");
+    expect(turn.responseEntry).toBeNull();
     expect(entryIds(turn.agentEntries)).toContain("a-self");
+    expect(entryIds(turn.agentEntries)).toContain("a-normal");
     expect(entryIds(turn.allEntries)).toContain("a-self");
   });
 
-  it("prefers last assistant text over earlier deprecated-tagged messages for responseEntry", () => {
+  it("does not promote last assistant text over earlier deprecated-tagged messages", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "go", timestamp: 1 }),
       makeMessage({ id: "a-touser", role: "assistant", content: "Status update @to(user)", timestamp: 2 }),
@@ -153,8 +154,31 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a-final");
+    expect(turn.responseEntry).toBeNull();
     expect(entryIds(turn.agentEntries)).toContain("a-touser");
+    expect(entryIds(turn.agentEntries)).toContain("a-final");
+  });
+
+  it("shows explicit leader user-message entries in collapsed-visible entries", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "go", timestamp: 1 }),
+      makeMessage({ id: "a-private", role: "assistant", content: "private coordination", timestamp: 2 }),
+      makeMessage({
+        id: "a-visible",
+        role: "assistant",
+        content: "Visible leader update",
+        timestamp: 3,
+        metadata: { leaderUserMessage: true },
+      }),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(turn.responseEntry).toBeNull();
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-visible"]);
+    expect(entryIds(turn.agentEntries)).toContain("a-private");
+    expect(turn.stats.messageCount).toBe(1);
   });
 });
 
@@ -162,7 +186,7 @@ describe("sub-conclusions in collapsed turns", () => {
   // Sub-conclusions are assistant messages immediately preceding herd event injections.
   // They represent intermediate progress worth showing when a turn is collapsed.
 
-  it("extracts sub-conclusions before herd events in leader mode", () => {
+  it("does not extract sub-conclusions from private leader output", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "orchestrate workers", timestamp: 1 }),
       makeMessage({ id: "a1", role: "assistant", content: "Dispatched #5 to work on q-42.", timestamp: 2 }),
@@ -176,20 +200,11 @@ describe("sub-conclusions in collapsed turns", () => {
     expect(model.turns).toHaveLength(1);
     const turn = model.turns[0];
 
-    // Should have 2 sub-conclusions (a1 before h1, a2 before h2)
-    expect(turn.subConclusions).toHaveLength(2);
-    expect((turn.subConclusions[0].entry as { msg: ChatMessage }).msg.id).toBe("a1");
-    expect(turn.subConclusions[0].herdSummary).toContain("#5 turn_end");
-    expect((turn.subConclusions[1].entry as { msg: ChatMessage }).msg.id).toBe("a2");
-    expect(turn.subConclusions[1].herdSummary).toContain("#6 turn_end");
-
-    // Final assistant message is the responseEntry, not a sub-conclusion
-    expect(turn.responseEntry?.kind).toBe("message");
-    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a3");
-
-    // Sub-conclusions should not duplicate the responseEntry
-    const subIds = turn.subConclusions.map((sc) => (sc.entry as { msg: ChatMessage }).msg.id);
-    expect(subIds).not.toContain("a3");
+    expect(turn.subConclusions).toHaveLength(0);
+    expect(turn.responseEntry).toBeNull();
+    expect(entryIds(turn.agentEntries)).toContain("a1");
+    expect(entryIds(turn.agentEntries)).toContain("a2");
+    expect(entryIds(turn.agentEntries)).toContain("a3");
   });
 
   it("groups consecutive herd events into a single summary", () => {
@@ -205,8 +220,13 @@ describe("sub-conclusions in collapsed turns", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    expect(turn.subConclusions).toHaveLength(1);
-    expect(turn.subConclusions[0].herdSummary).toBe("Herd: #264 turn_end, #267 turn_end");
+    expect(
+      summarizeHerdEvents([
+        { kind: "message", msg: makeHerdEvent("summary-h1", "#264 | turn_end | ✓ 5s", 3) },
+        { kind: "message", msg: makeHerdEvent("summary-h2", "#267 | turn_end | ✓ 8s", 4) },
+      ]),
+    ).toBe("Herd: #264 turn_end, #267 turn_end");
+    expect(turn.subConclusions).toHaveLength(0);
   });
 
   it("returns empty subConclusions when no herd events exist", () => {
@@ -249,7 +269,7 @@ describe("sub-conclusions in collapsed turns", () => {
     expect(model.turns).toHaveLength(1);
     expect(model.turns[0].userEntry?.kind).toBe("message");
     expect((model.turns[0].userEntry as { msg: ChatMessage }).msg.id).toBe("u1");
-    expect((model.turns[0].responseEntry as { msg: ChatMessage }).msg.id).toBe("a3");
+    expect(model.turns[0].responseEntry).toBeNull();
     expect(model.turns[0].stats.herdEventCount).toBe(2);
     expect(entryIds(model.turns[0].allEntries)).toContain("h1");
     expect(entryIds(model.turns[0].allEntries)).toContain("h2");
@@ -288,11 +308,7 @@ describe("sub-conclusions in collapsed turns", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    // a1 becomes responseEntry (last assistant text)
-    expect(turn.responseEntry?.kind).toBe("message");
-    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a1");
-
-    // No sub-conclusions since the only candidate is the responseEntry
+    expect(turn.responseEntry).toBeNull();
     expect(turn.subConclusions).toHaveLength(0);
   });
 
@@ -320,7 +336,7 @@ describe("sub-conclusions in collapsed turns", () => {
 
     // a1 should NOT be a sub-conclusion because a tool result intervened
     expect(turn.subConclusions).toHaveLength(0);
-    expect((turn.responseEntry as { msg: ChatMessage }).msg.id).toBe("a2");
+    expect(turn.responseEntry).toBeNull();
   });
 
   it("picks only the last of consecutive assistant messages before a herd event", () => {
@@ -337,9 +353,7 @@ describe("sub-conclusions in collapsed turns", () => {
     const model = buildFeedModel(messages, true);
     const turn = model.turns[0];
 
-    expect(turn.subConclusions).toHaveLength(1);
-    // a2 is the immediately preceding assistant, not a1
-    expect((turn.subConclusions[0].entry as { msg: ChatMessage }).msg.id).toBe("a2");
+    expect(turn.subConclusions).toHaveLength(0);
   });
 
   it("does not duplicate a notification-bearing assistant message as a sub-conclusion", () => {

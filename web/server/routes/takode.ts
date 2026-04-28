@@ -55,7 +55,7 @@ import {
 } from "../bridge/session-git-state.js";
 import { buildBoardRowSessionStatuses as buildBoardRowSessionStatusesController } from "../board-row-session-status.js";
 import { getSettings } from "../settings-manager.js";
-import { QUEST_JOURNEY_STATES, type BrowserOutgoingMessage } from "../session-types.js";
+import { QUEST_JOURNEY_STATES, type BrowserIncomingMessage, type BrowserOutgoingMessage } from "../session-types.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
 
@@ -251,6 +251,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
   };
   const notificationRouteDeps = {
     isHerdedWorkerSession: (session: BridgeSession) => !!launcher.getSession(session.id)?.herdedBy,
+    getLauncherSessionInfo: (sessionId: string) => launcher.getSession(sessionId),
     broadcastToBrowsers: (session: BridgeSession, msg: unknown) => wsBridge.broadcastToSession(session.id, msg as any),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
@@ -920,6 +921,41 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const delivery = wsBridge.injectUserMessage(id, body.content, agentSource);
     if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
     return c.json({ ok: true, sessionId: id, delivery });
+  });
+
+  api.post("/sessions/:id/user-message", async (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    if (id !== auth.callerId) {
+      return c.json({ error: "Can only publish a user-visible message from your own session" }, 403);
+    }
+    const launcherSession = launcher.getSession(id);
+    if (!launcherSession) return c.json({ error: "Session not found" }, 404);
+    if (!launcherSession.isOrchestrator) {
+      return c.json({ error: "Session is not an orchestrator" }, 403);
+    }
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    if (typeof body.content !== "string" || !body.content.trim()) {
+      return c.json({ error: "content is required" }, 400);
+    }
+
+    const timestamp = Date.now();
+    const message: BrowserIncomingMessage = {
+      type: "leader_user_message",
+      id: `leader-user-${timestamp}-${session.messageHistory.length}`,
+      content: body.content,
+      timestamp,
+    };
+    session.messageHistory.push(message);
+    wsBridge.broadcastToSession(id, message);
+    wsBridge.persistSessionById(id);
+    return c.json({ ok: true, sessionId: id, messageId: message.id });
   });
 
   // ─── Cat herding (orchestrator→worker relationships) ──────────────

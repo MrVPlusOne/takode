@@ -8,16 +8,6 @@ export interface TurnCollapseState {
   isActivityExpanded: boolean;
 }
 
-function shouldForceLeaderLatestTurnExpanded(
-  turn: Turn,
-  isLastTurn: boolean,
-  leaderMode: boolean,
-  sessionStatus: "idle" | "running" | "compacting" | "reverting" | null,
-): boolean {
-  if (!leaderMode || sessionStatus !== "running" || !isLastTurn) return false;
-  return turn.allEntries.length > 0;
-}
-
 export function useCollapsePolicy({
   sessionId,
   turns,
@@ -32,18 +22,13 @@ export function useCollapsePolicy({
 } {
   const overrides = useStore((s) => s.turnActivityOverrides.get(sessionId));
   const toggleTurnActivity = useStore((s) => s.toggleTurnActivity);
-  const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId) ?? null);
 
   const turnStates = useMemo(() => {
     return turns.map((turn, index) => {
       const isLastTurn = index === turns.length - 1;
-      const defaultExpanded = isLastTurn;
+      const defaultExpanded = leaderMode ? false : isLastTurn;
       const override = overrides?.get(turn.id);
-      const isActivityExpanded = shouldForceLeaderLatestTurnExpanded(turn, isLastTurn, leaderMode, sessionStatus)
-        ? true
-        : override !== undefined
-          ? override
-          : defaultExpanded;
+      const isActivityExpanded = override !== undefined ? override : defaultExpanded;
 
       return {
         turnId: turn.id,
@@ -51,7 +36,7 @@ export function useCollapsePolicy({
         isActivityExpanded,
       };
     });
-  }, [leaderMode, overrides, sessionStatus, turns]);
+  }, [leaderMode, overrides, turns]);
 
   const turnStateById = useMemo(() => new Map(turnStates.map((state) => [state.turnId, state])), [turnStates]);
 

@@ -543,11 +543,17 @@ function isLeaderBoundaryEntry(entry: FeedEntry): boolean {
   return isUserBoundaryEntry(entry);
 }
 
-function entryHasAnchoredNotification(entry: FeedEntry, anchoredNotificationMessageIds?: ReadonlySet<string>): boolean {
+function entryIsCollapsedVisible(
+  entry: FeedEntry,
+  leaderMode: boolean,
+  anchoredNotificationMessageIds?: ReadonlySet<string>,
+): boolean {
   return (
     entry.kind === "message" &&
     entry.msg.role === "assistant" &&
-    (entry.msg.notification != null || anchoredNotificationMessageIds?.has(entry.msg.id) === true)
+    (entry.msg.notification != null ||
+      anchoredNotificationMessageIds?.has(entry.msg.id) === true ||
+      (leaderMode && entry.msg.metadata?.leaderUserMessage === true))
   );
 }
 
@@ -556,7 +562,7 @@ function makeTurn(
   userEntry: FeedEntry | null,
   entries: FeedEntry[],
   turnIndex: number,
-  _leaderMode = false,
+  leaderMode = false,
   anchoredNotificationMessageIds?: ReadonlySet<string>,
 ): Turn {
   // Separate system messages (always visible) from collapsible agent activity
@@ -579,21 +585,25 @@ function makeTurn(
   const notificationEntries: FeedEntry[] = [];
   for (let i = agentEntries.length - 1; i >= 0; i--) {
     const e = agentEntries[i];
-    if (entryHasAnchoredNotification(e, anchoredNotificationMessageIds)) {
+    if (entryIsCollapsedVisible(e, leaderMode, anchoredNotificationMessageIds)) {
       notificationEntries.unshift(agentEntries.splice(i, 1)[0]);
     }
   }
 
   // Extract the default-visible response entry (last assistant text message).
+  // Leader sessions publish user-visible text through `leader_user_message`;
+  // ordinary assistant text is private activity unless the turn is expanded.
   // Deprecated @to(user)/@to(self) suffixes are treated as literal text and do
   // not affect which message becomes the collapsed preview.
   let responseEntry: FeedEntry | null = null;
-  for (let i = agentEntries.length - 1; i >= 0; i--) {
-    const e = agentEntries[i];
-    if (e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trim()) {
-      responseEntry = e;
-      agentEntries.splice(i, 1);
-      break;
+  if (!leaderMode) {
+    for (let i = agentEntries.length - 1; i >= 0; i--) {
+      const e = agentEntries[i];
+      if (e.kind === "message" && e.msg.role === "assistant" && e.msg.content?.trim()) {
+        responseEntry = e;
+        agentEntries.splice(i, 1);
+        break;
+      }
     }
   }
 
@@ -605,9 +615,10 @@ function makeTurn(
     collapsedVisibleMessageIds.add(responseEntry.msg.id);
   }
 
-  // Extract sub-conclusions: assistant messages immediately before herd event injections.
-  // These represent intermediate conclusions worth showing in collapsed view.
-  const subConclusions = extractSubConclusions(entries, collapsedVisibleMessageIds);
+  // Extract sub-conclusions for normal sessions only. In leader sessions,
+  // ordinary assistant text is private activity and should not be promoted
+  // into the user-visible left panel unless it came through `user-message`.
+  const subConclusions = leaderMode ? [] : extractSubConclusions(entries, collapsedVisibleMessageIds);
 
   // Stable ID: prefer user message ID, fall back to first agent entry ID, then synthetic
   const id = userEntry

@@ -545,6 +545,13 @@ export type BrowserIncomingMessageBase =
       agentSource?: { sessionId: string; sessionLabel?: string };
       vscodeSelection?: VsCodeSelectionMetadata;
     }
+  | {
+      type: "leader_user_message";
+      content: string;
+      timestamp: number;
+      id: string;
+      notification?: TakodeNotificationPayload;
+    }
   | { type: "codex_pending_inputs"; inputs: PendingCodexInput[] }
   | { type: "codex_pending_input_cancelled"; input: PendingCodexInput }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }

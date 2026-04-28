@@ -161,6 +161,16 @@ function TurnSummaryStats({
   );
 }
 
+function hasTurnSummaryStats(stats: TurnStats, durationMs: number | null): boolean {
+  return (
+    stats.messageCount > 0 ||
+    stats.toolCount > 0 ||
+    stats.subagentCount > 0 ||
+    stats.herdEventCount > 0 ||
+    durationMs !== null
+  );
+}
+
 function isApprovalEntry(entry: FeedEntry): entry is { kind: "message"; msg: ChatMessage } {
   return entry.kind === "message" && entry.msg.role === "system" && entry.msg.variant === "approved";
 }
@@ -501,12 +511,15 @@ export const FeedEntries = memo(function FeedEntries({
 const CollapsedActivityBar = memo(function CollapsedActivityBar({
   stats,
   durationMs,
+  leaderMode,
   onClick,
 }: {
   stats: TurnStats;
   durationMs: number | null;
+  leaderMode: boolean;
   onClick: () => void;
 }) {
+  const hasStats = hasTurnSummaryStats(stats, durationMs);
   return (
     <button
       onClick={onClick}
@@ -515,6 +528,12 @@ const CollapsedActivityBar = memo(function CollapsedActivityBar({
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
         <path d="M6 4l4 4-4 4" />
       </svg>
+      {leaderMode && (
+        <>
+          <span>Leader activity</span>
+          {hasStats && <span className="text-cc-muted/40">·</span>}
+        </>
+      )}
       <TurnSummaryStats stats={stats} durationMs={durationMs} separatorClass="text-cc-muted/40" />
     </button>
   );
@@ -1180,6 +1199,7 @@ export const TurnEntries = memo(function TurnEntries({
                                 <CollapsedActivityBar
                                   stats={turn.stats}
                                   durationMs={turnSummaryDuration}
+                                  leaderMode={leaderMode}
                                   onClick={() => toggleTurn(turn.id)}
                                 />
                               )}

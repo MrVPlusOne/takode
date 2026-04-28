@@ -126,6 +126,28 @@ function fireMessage(data: Record<string, unknown>) {
 // Connection
 // ===========================================================================
 describe("handleMessage: assistant", () => {
+  it("renders explicit leader user-visible messages in the feed", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "leader_user_message",
+      id: "leader-user-1",
+      content: "Visible leader Markdown",
+      timestamp: 1234,
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({
+      id: "leader-user-1",
+      role: "assistant",
+      content: "Visible leader Markdown",
+      timestamp: 1234,
+      metadata: { leaderUserMessage: true },
+    });
+  });
+
   it("appends a chat message and clears streaming", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

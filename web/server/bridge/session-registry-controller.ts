@@ -904,38 +904,34 @@ export function notifyUser(
   summary: string,
   deps: Pick<
     SessionRegistryDeps,
-    "isHerdedWorkerSession" | "broadcastToBrowsers" | "persistSession" | "emitTakodeEvent" | "scheduleNotification"
+    | "isHerdedWorkerSession"
+    | "getLauncherSessionInfo"
+    | "broadcastToBrowsers"
+    | "persistSession"
+    | "emitTakodeEvent"
+    | "scheduleNotification"
   >,
   options: { suggestedAnswers?: string[] } = {},
 ): { ok: true; anchoredMessageId: string | null; notificationId: string } {
-  const lastAssistantIndex = findLastAssistantMessageIndex(session);
-  const lastAssistant =
-    lastAssistantIndex !== undefined
-      ? (session.messageHistory[lastAssistantIndex] as
-          | (BrowserIncomingMessage & { type: "assistant"; message: { id: string } })
-          | undefined)
-      : undefined;
-  const lastTopLevelAssistant =
-    lastAssistant?.type === "assistant" && lastAssistant.parent_tool_use_id == null ? lastAssistant : undefined;
-  const anchoredAssistant =
-    lastTopLevelAssistant ??
-    (session.messageHistory.findLast(
-      (message: any) => message.type === "assistant" && message.parent_tool_use_id == null,
-    ) as (BrowserIncomingMessage & { type: "assistant"; message: { id: string } }) | undefined);
-  const anchoredAssistantIndex =
-    lastTopLevelAssistant && lastAssistantIndex !== undefined
-      ? lastAssistantIndex
-      : (() => {
-          if (!anchoredAssistant) return undefined;
-          for (let i = session.messageHistory.length - 1; i >= 0; i--) {
-            const entry = session.messageHistory[i];
-            if (entry.type === "assistant" && entry.message?.id === anchoredAssistant.message.id) return i;
-          }
-          return undefined;
-        })();
-
-  const anchoredMessageId = anchoredAssistant?.message.id ?? null;
   const timestamp = Date.now();
+  let anchorIndex = findLastNotificationAnchorIndex(session);
+  let anchor = anchorIndex !== undefined ? getNotificationAnchor(session.messageHistory[anchorIndex]) : undefined;
+  let createdFallbackMessage: BrowserIncomingMessage | null = null;
+  const isLeaderSession = deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
+
+  if (!anchor && isLeaderSession && category === "needs-input" && !deps.isHerdedWorkerSession?.(session)) {
+    createdFallbackMessage = {
+      type: "leader_user_message",
+      id: `leader-needs-input-${timestamp}-${session.messageHistory.length}`,
+      content: `Needs input: ${summary}`,
+      timestamp,
+    };
+    session.messageHistory.push(createdFallbackMessage);
+    anchorIndex = session.messageHistory.length - 1;
+    anchor = getNotificationAnchor(createdFallbackMessage);
+  }
+
+  const anchoredMessageId = anchor?.id ?? null;
   const suggestedAnswers =
     category === "needs-input" && options.suggestedAnswers?.length ? options.suggestedAnswers : undefined;
   const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
@@ -967,16 +963,18 @@ export function notifyUser(
         notificationId: notif.id,
         messageId: anchoredMessageId,
         ...(suggestedAnswers ? { suggestedAnswers } : {}),
-        ...(anchoredAssistantIndex !== undefined ? { msg_index: anchoredAssistantIndex } : {}),
+        ...(anchorIndex !== undefined ? { msg_index: anchorIndex } : {}),
       });
     }
     deps.persistSession(session);
     return { ok: true, anchoredMessageId, notificationId: notif.id };
   }
 
-  if (anchoredAssistant) {
-    (anchoredAssistant as Record<string, unknown>).notification = anchoredNotification;
+  if (anchor) {
+    (anchor.message as Record<string, unknown>).notification = anchoredNotification;
   }
+
+  if (createdFallbackMessage) deps.broadcastToBrowsers?.(session, createdFallbackMessage);
 
   deps.broadcastToBrowsers?.(session, {
     type: "notification_update",
@@ -990,7 +988,7 @@ export function notifyUser(
     skipReadCheck: true,
   });
 
-  if (lastAssistant) {
+  if (anchor) {
     deps.broadcastToBrowsers?.(session, {
       type: "notification_anchored",
       messageId: anchoredMessageId,
@@ -1009,7 +1007,12 @@ export function notifyUserBySessionId(
   summary: string,
   deps: Pick<
     SessionRegistryDeps,
-    "isHerdedWorkerSession" | "broadcastToBrowsers" | "persistSession" | "emitTakodeEvent" | "scheduleNotification"
+    | "isHerdedWorkerSession"
+    | "getLauncherSessionInfo"
+    | "broadcastToBrowsers"
+    | "persistSession"
+    | "emitTakodeEvent"
+    | "scheduleNotification"
   >,
   options: { suggestedAnswers?: string[] } = {},
 ): { ok: true; anchoredMessageId: string | null; notificationId: string } | { ok: false; error: string } {
@@ -1781,9 +1784,25 @@ function isBareQuestIdTitle(title: string | null | undefined, questId?: string):
   return questId ? normalized === questId.toLowerCase() : true;
 }
 
-function findLastAssistantMessageIndex(session: SessionLike): number | undefined {
+function findLastNotificationAnchorIndex(session: SessionLike): number | undefined {
   for (let i = session.messageHistory.length - 1; i >= 0; i--) {
-    if (session.messageHistory[i]?.type === "assistant") return i;
+    if (getNotificationAnchor(session.messageHistory[i])) return i;
+  }
+  return undefined;
+}
+
+function getNotificationAnchor(entry: BrowserIncomingMessage | undefined):
+  | {
+      id: string;
+      message: Extract<BrowserIncomingMessage, { type: "assistant" | "leader_user_message" }>;
+    }
+  | undefined {
+  if (!entry) return undefined;
+  if (entry.type === "assistant" && entry.parent_tool_use_id == null && entry.message?.id) {
+    return { id: entry.message.id, message: entry };
+  }
+  if (entry.type === "leader_user_message" && entry.id) {
+    return { id: entry.id, message: entry };
   }
   return undefined;
 }

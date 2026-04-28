@@ -95,6 +95,20 @@ export function normalizeHistoryMessageToChatMessages(
     ];
   }
 
+  if (histMsg.type === "leader_user_message") {
+    return [
+      {
+        id: histMsg.id || `hist-leader-user-${historyIndex}`,
+        role: "assistant",
+        content: histMsg.content,
+        timestamp: histMsg.timestamp,
+        historyIndex,
+        metadata: { leaderUserMessage: true },
+        ...(histMsg.notification ? { notification: histMsg.notification } : {}),
+      },
+    ];
+  }
+
   if (histMsg.type === "assistant") {
     const msg = histMsg.message;
     const normalizedContent = dedupeAssistantContentBlocks(msg.content);

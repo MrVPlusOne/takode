@@ -1087,6 +1087,7 @@ export class WsBridge {
   private getSessionNotificationDeps() {
     return {
       isHerdedWorkerSession: (targetSession: unknown) => this.isHerdedWorkerSession(targetSession as Session),
+      getLauncherSessionInfo: (sessionId: string) => this.launcher?.getSession(sessionId),
       broadcastToBrowsers: (targetSession: unknown, msg: BrowserIncomingMessage) =>
         this.broadcastToBrowsers(targetSession as Session, msg),
       persistSession: (targetSession: unknown) => this.persistSession(targetSession as Session),

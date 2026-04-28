@@ -51,7 +51,7 @@ Please confirm or correct.
 
 After sending the confirmation, stop and wait for the user.
 
-If you are acting as a leader/orchestrator and the confirmation asks a blocking question, run `takode notify needs-input "<brief summary>"` after the text response so the user notices. For obvious short choices, add one to three `--suggest <answer>` flags, but never use suggestions instead of the written confirmation context.
+If you are acting as a leader/orchestrator and the confirmation asks a blocking question, publish the confirmation text with `takode user-message --text-file -`, then run `takode notify needs-input "<brief summary>"` so the user notices. For obvious short choices, add one to three `--suggest <answer>` flags, but never use suggestions instead of the written confirmation context. Normal worker and reviewer sessions should ignore `takode user-message` and use ordinary chat.
 
 If the user corrects the understanding and ambiguity remains, repeat the same structure with the updated understanding.
 

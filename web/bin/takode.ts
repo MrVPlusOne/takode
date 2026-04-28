@@ -672,6 +672,15 @@ Options:
   --json        Output JSON
 `;
 
+const USER_MESSAGE_HELP = `Usage: takode user-message --text-file <path|-> [--json]
+
+Publish Markdown from a leader session into its user-visible left-panel chat. This command is for leader/orchestrator sessions only; normal worker and reviewer sessions should not use it.
+
+Options:
+  --text-file <path|->  Read the complete Markdown message from a file, or '-' for stdin
+  --json                Output JSON
+`;
+
 const RENAME_HELP = `Usage: takode rename <session> <name> [--json]
 
 Rename a session.
@@ -904,6 +913,9 @@ function printCommandHelp(command: string, argv: string[]): boolean {
       return true;
     case "send":
       console.log(SEND_HELP);
+      return true;
+    case "user-message":
+      console.log(USER_MESSAGE_HELP);
       return true;
     case "rename":
       console.log(RENAME_HELP);
@@ -2415,6 +2427,43 @@ async function handleSend(base: string, args: string[]): Promise<void> {
   } else {
     console.log(`[${formatTime(Date.now())}] \u2713 Message sent to session ${formatInlineText(sessionRef)}`);
   }
+}
+
+async function handleUserMessage(base: string, args: string[]): Promise<void> {
+  const flags = parseFlags(args);
+  assertKnownFlags(flags, new Set(["json", "text-file"]), USER_MESSAGE_HELP.trim());
+  const positional: string[] = [];
+  for (let i = 0; i < args.length; i++) {
+    const arg = args[i];
+    if (arg === "--text-file") {
+      i++;
+      continue;
+    }
+    if (arg === "--json") continue;
+    if (arg.startsWith("--")) continue;
+    positional.push(arg);
+  }
+  if (positional.length > 0) {
+    err(`${USER_MESSAGE_HELP.trim()}\n\nDo not pass message text positionally. Use --text-file <path|->.`);
+  }
+
+  const textFile = flags["text-file"];
+  if (textFile === undefined) {
+    err(`${USER_MESSAGE_HELP.trim()}\n\n--text-file is required.`);
+  }
+  if (textFile === true) {
+    err(`${USER_MESSAGE_HELP.trim()}\n\n--text-file requires a path or '-' for stdin.`);
+  }
+  const content = await readOptionTextFile(textFile, "--text-file");
+  if (!content.trim()) err("User-visible message content is required.");
+
+  const selfId = getCallerSessionId();
+  const result = await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/user-message`, { content });
+  if (flags.json === true) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  console.log(`[${formatTime(Date.now())}] \u2713 User-visible message published`);
 }
 
 // ─── Spawn handler ───────────────────────────────────────────────────────────
@@ -4805,6 +4854,7 @@ Commands:
   logs     Query and tail structured server logs
   export   Export full session history to a text file
   send     Send a message to a herded session
+  user-message  Publish leader Markdown to the user-visible left panel
   rename   Rename a session (e.g. takode rename 5 My Session Name)
   herd     Herd sessions (e.g. takode herd 5,6,7 or takode herd --force 5)
   unherd   Release a session from your herd (e.g. takode unherd 5)
@@ -4894,6 +4944,7 @@ try {
     ["logs", {}],
     ["export", {}],
     ["send", { requireOrchestrator: true }],
+    ["user-message", { requireOrchestrator: true }],
     ["rename", { requireOrchestrator: true }],
     ["herd", { requireOrchestrator: true }],
     ["unherd", { requireOrchestrator: true }],
@@ -4991,6 +5042,9 @@ try {
       break;
     case "send":
       await handleSend(base, args);
+      break;
+    case "user-message":
+      await handleUserMessage(base, args);
       break;
     case "rename":
       await handleRename(base, args);

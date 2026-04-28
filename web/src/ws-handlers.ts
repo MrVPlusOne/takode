@@ -328,6 +328,8 @@ function normalizeHistoryMessages(
           pendingLocalImagesByClientMsgId,
         }),
       );
+    } else if (histMsg.type === "leader_user_message") {
+      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
     } else if (histMsg.type === "tool_result_preview") {
       for (const preview of histMsg.previews) {
         store.setToolResult(sessionId, preview.tool_use_id, preview);
@@ -560,6 +562,18 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       store.setComposerDraft(sessionId, {
         text: data.input.content,
         images: fallbackImages,
+      });
+      break;
+    }
+
+    case "leader_user_message": {
+      store.appendMessage(sessionId, {
+        id: data.id,
+        role: "assistant",
+        content: data.content,
+        timestamp: data.timestamp,
+        metadata: { leaderUserMessage: true },
+        ...(data.notification ? { notification: data.notification } : {}),
       });
       break;
     }

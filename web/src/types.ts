@@ -130,6 +130,8 @@ export interface ChatMessage {
     answers?: { question: string; answer: string }[];
     /** LLM rationale for auto-approved permissions (rendered separately from the summary). */
     autoApprovalReason?: string;
+    /** Explicit leader-to-user publication created by `takode user-message`. */
+    leaderUserMessage?: boolean;
     vscodeSelection?: VsCodeSelectionMetadata;
     quest?: {
       questId: string;

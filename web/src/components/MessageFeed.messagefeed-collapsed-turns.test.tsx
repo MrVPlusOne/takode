@@ -500,10 +500,9 @@ function makeDomRect(height: number, width = 0): DOMRect {
 }
 
 describe("MessageFeed - collapsed turns", () => {
-  it("passes defaultExpanded=true when collapsing the latest leader activity row", () => {
-    // Leader turns now always show the last assistant text as the collapsed
-    // response preview. This test needs additional agent activity (internal
-    // messages) so the CollapsedActivityBar still renders with a message count.
+  it("passes defaultExpanded=false when expanding a collapsed leader activity row", () => {
+    // Leader turns keep ordinary assistant text private by default; the activity
+    // row is a heartbeat, not a response preview.
     const sid = "test-leader-latest-toggle";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -514,12 +513,11 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    // a2 becomes responseEntry (shown as collapsed preview), a1 stays as 1 internal message
-    fireEvent.click(screen.getByText("1 message"));
-    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", true);
+    fireEvent.click(screen.getByText("Leader activity"));
+    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", false);
   });
 
-  it("leader mode leaves deprecated tag text in the collapsed card", () => {
+  it("leader mode hides deprecated tag text in the collapsed card", () => {
     const sid = "test-leader-promotion";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -544,14 +542,15 @@ describe("MessageFeed - collapsed turns", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByText("Kick off orchestration")).toBeTruthy();
-    expect(screen.getByText("Internal coordination @to(self)")).toBeTruthy();
+    expect(screen.getByText("Leader activity")).toBeTruthy();
+    expect(screen.queryByText("Internal coordination @to(self)")).toBeNull();
     expect(screen.queryByText("Assigned q-600 to #2")).toBeNull();
     expect(screen.queryByText("Nudged #2 about test coverage")).toBeNull();
     expect(screen.queryByText("Second update with progress. @to(user)")).toBeNull();
     expect(screen.queryByText("First update from the herd. @to(user)")).toBeNull();
   });
 
-  it("leader mode renders deprecated suffixes raw inside mixed assistant messages", () => {
+  it("leader mode keeps mixed assistant messages private while collapsed", () => {
     const sid = "test-leader-multi-text-boundary";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -573,13 +572,14 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("I investigated worker logs and reproduced the failure.")).toBeTruthy();
-    expect(screen.getByText("Root cause confirmed; patch queued. @to(user)")).toBeTruthy();
-    expect(screen.getByText("Assigned q-777 to #4")).toBeTruthy();
-    expect(screen.getByText("Queued follow-up validation for #4")).toBeTruthy();
+    expect(screen.getByText("Leader activity")).toBeTruthy();
+    expect(screen.queryByText("I investigated worker logs and reproduced the failure.")).toBeNull();
+    expect(screen.queryByText("Root cause confirmed; patch queued. @to(user)")).toBeNull();
+    expect(screen.queryByText("Assigned q-777 to #4")).toBeNull();
+    expect(screen.queryByText("Queued follow-up validation for #4")).toBeNull();
   });
 
-  it("passes defaultExpanded=true when collapsing the latest leader turn with tool activity", () => {
+  it("passes defaultExpanded=false when expanding the latest leader turn with tool activity", () => {
     // Turns no longer split at @to(user) — all entries stay in one turn.
     // Add a tool call so there's a collapsible activity bar to click.
     const sid = "test-leader-last-user-boundary";
@@ -604,10 +604,10 @@ describe("MessageFeed - collapsed turns", () => {
     // The turn has tool activity → click the activity bar
     const activityRows = screen.getAllByText("1 tool");
     fireEvent.click(activityRows[activityRows.length - 1]);
-    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", true);
+    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", false);
   });
 
-  it("leader mode shows deprecated tags raw in the response preview", () => {
+  it("leader mode hides deprecated tags from the response preview", () => {
     const sid = "test-leader-collapse";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -625,14 +625,36 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("I delegated auth + tests. Waiting for your review. @to(user)")).toBeTruthy();
+    expect(screen.getAllByText("Leader activity").length).toBeGreaterThan(0);
+    expect(screen.queryByText("I delegated auth + tests. Waiting for your review. @to(user)")).toBeNull();
     expect(screen.queryByText("Assigned q-127 to #3")).toBeNull();
     expect(screen.queryByText("internal check")).toBeNull();
-    expect(screen.getByText("peeked #3 and nudged #4")).toBeTruthy();
+    expect(screen.queryByText("peeked #3 and nudged #4")).toBeNull();
   });
 
-  it("leader mode keeps the latest turn tool activity expanded by default", () => {
-    // Tool activity a3 is visible since the latest turn is expanded by default.
+  it("leader mode shows explicit user-message output while keeping private output collapsed", () => {
+    const sid = "test-leader-user-message-visible";
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Coordinate workers" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Private orchestration detail" }),
+      makeMessage({
+        id: "a2",
+        role: "assistant",
+        content: "Visible leader update",
+        metadata: { leaderUserMessage: true },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Visible leader update")).toBeTruthy();
+    expect(screen.queryByText("Private orchestration detail")).toBeNull();
+    expect(screen.getByText("Leader activity")).toBeTruthy();
+  });
+
+  it("leader mode keeps the latest turn tool activity collapsed by default", () => {
+    // Tool activity a3 is hidden because leader turns behave like collapsed activity heartbeats.
     const sid = "test-leader-latest-tools-expanded";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
@@ -653,12 +675,12 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("Assigned q-333 to #6")).toBeTruthy();
-    // Tool activity visible since turn is expanded (last turn)
-    expect(screen.getByText("npm test")).toBeTruthy();
+    expect(screen.queryByText("Assigned q-333 to #6")).toBeNull();
+    expect(screen.queryByText("npm test")).toBeNull();
+    expect(screen.getByText("Leader activity")).toBeTruthy();
   });
 
-  it("leader mode keeps the active latest turn expanded while streaming even with a stale collapsed override", () => {
+  it("leader mode keeps the active latest turn collapsed while streaming with a collapsed override", () => {
     const sid = "test-leader-streaming-latest-forces-expanded";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreStatus(sid, "running");
@@ -681,7 +703,8 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("npm test")).toBeTruthy();
+    expect(screen.queryByText("npm test")).toBeNull();
+    expect(screen.getByText("Leader activity")).toBeTruthy();
   });
 
   it("leader mode still collapses the older turn when a fresh follow-up arrives", () => {
