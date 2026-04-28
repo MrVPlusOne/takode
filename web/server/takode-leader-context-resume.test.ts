@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { BoardRowSessionStatus, BrowserIncomingMessage } from "./session-types.js";
+import type { QuestmasterTask } from "./quest-types.js";
+import type { BoardRowSessionStatus, BrowserIncomingMessage, SessionNotification } from "./session-types.js";
 import {
   buildLeaderContextResume,
   renderLeaderContextResumeText,
@@ -75,6 +76,50 @@ function makeParticipant(
     messageHistory: [],
     ...overrides,
   };
+}
+
+function makeReviewNotification(
+  id: string,
+  questId: string,
+  title: string,
+  timestamp: number,
+  messageId: string | null = `review-${id}`,
+): SessionNotification {
+  return {
+    id,
+    category: "review",
+    summary: `${questId} ready for review: ${title}`,
+    timestamp,
+    messageId,
+    done: false,
+  };
+}
+
+function makeVerificationQuest(
+  questId: string,
+  title: string,
+  overrides: Partial<QuestmasterTask> = {},
+): QuestmasterTask {
+  return {
+    id: `${questId}-v1`,
+    questId,
+    version: 1,
+    title,
+    description: `${title} description.`,
+    status: "needs_verification",
+    sessionId: `session-${questId}`,
+    claimedAt: 1_000,
+    createdAt: 900,
+    verificationItems: [
+      { text: "Verify primary behavior.", checked: false },
+      { text: "Verify regression coverage.", checked: false },
+      { text: "Verify handoff notes.", checked: false },
+    ],
+    verificationInboxUnread: true,
+    commitShas: ["abc123", "def456"],
+    feedback: [{ author: "agent", text: `Summary: ${title} landed and is ready for verification.`, ts: 1_500 }],
+    ...overrides,
+  } as QuestmasterTask;
 }
 
 describe("takode leader-context-resume", () => {
@@ -752,6 +797,158 @@ describe("takode leader-context-resume", () => {
     expect(model.synthesized.suggestedCommands).toContain("takode notify list");
     expect(Array.isArray(model.observed.activeBoardQuests)).toBe(true);
     expect(Array.isArray(model.synthesized.activeBoardQuests)).toBe(true);
+  });
+
+  it("surfaces verification-ready quests from review notifications before active board state", async () => {
+    // This covers the human feedback on q-918: after restart/compaction, the
+    // leader must not see "Active quests: 0" before learning that review
+    // notifications map to quests waiting in the verification inbox.
+    const leaderHistory = [
+      makeAssistant("q-720 is ready for review.", 10_000),
+      makeAssistant("q-924 is ready for review.", 11_000),
+      makeAssistant("q-720 emitted an older duplicate review notification.", 9_000),
+    ];
+    const notifications = [
+      makeReviewNotification(
+        "n-18",
+        "q-720",
+        "Add lightweight Journey scheduling data and phase notes",
+        10_000,
+        "assistant-10000",
+      ),
+      makeReviewNotification(
+        "n-20",
+        "q-924",
+        "Render proposed and active Quest Journey UI from board data",
+        11_000,
+        "assistant-11000",
+      ),
+      makeReviewNotification(
+        "n-17",
+        "q-720",
+        "Add lightweight Journey scheduling data and phase notes",
+        9_000,
+        "assistant-9000",
+      ),
+    ];
+    const quests = new Map<string, QuestmasterTask>([
+      [
+        "q-720",
+        makeVerificationQuest("q-720", "Add lightweight Journey scheduling data and phase notes", {
+          commitShas: ["3db7132b", "31b14d90", "9ff233f9", "edcb72e0", "56ca7bdb"],
+        }),
+      ],
+      [
+        "q-924",
+        makeVerificationQuest("q-924", "Render proposed and active Quest Journey UI from board data", {
+          commitShas: ["22c891c3", "4fa5ec9b"],
+        }),
+      ],
+    ]);
+
+    const model = await buildLeaderContextResume({
+      leader: {
+        sessionId: "leader-session",
+        sessionNum: 1132,
+        name: "Leader",
+        isOrchestrator: true,
+        messageHistory: leaderHistory,
+        notifications,
+        board: [],
+      },
+      rowSessionStatuses: {},
+      participants: new Map(),
+      loadQuest: async (questId) => quests.get(questId) ?? null,
+    });
+
+    expect(model.observed.activeBoardQuests).toHaveLength(0);
+    expect(model.observed.reviewNotificationQuests.map((quest) => quest.questId)).toEqual(["q-924", "q-720"]);
+    expect(model.observed.reviewNotificationQuests[1]).toMatchObject({
+      questId: "q-720",
+      questStatus: "needs_verification",
+      verificationInboxUnread: true,
+      verificationCheckedCount: 0,
+      verificationTotalCount: 3,
+      commitCount: 5,
+      notificationCount: 2,
+    });
+    expect(model.observed.reviewNotificationQuests[1]?.latestNotification.source?.messageIndex).toBe(0);
+    expect(model.synthesized.reviewNotificationQuests[0]).toMatchObject({
+      questId: "q-924",
+      statusSummary: "verification; unread inbox; verification 0/3; commits 2",
+      nextLeaderAction: "human verification inbox review",
+      warnings: [],
+    });
+
+    const rendered = renderLeaderContextResumeText(model);
+    expect(rendered.indexOf("Review notifications / verification-ready quests")).toBeLessThan(
+      rendered.indexOf("Active quests: 0"),
+    );
+    expect(rendered).toContain("[q-924](quest:q-924) -- Render proposed and active Quest Journey UI from board data");
+    expect(rendered).toContain("- status: verification; unread inbox; verification 0/3; commits 2");
+    expect(rendered).toContain("from [#1132 msg 1](session:1132:1)");
+    expect(rendered).toContain(
+      "- latest summary: #0 Summary: Render proposed and active Quest Journey UI from board data landed",
+    );
+    expect(rendered).toContain("- next leader action: human verification inbox review");
+    expect(rendered).toContain("Active quests: 0");
+  });
+
+  it("bounds large review-notification output while keeping newest verification-ready quests visible", async () => {
+    // This prevents 50+ stale review notifications from burying the currently
+    // actionable verification inbox work in post-compaction recovery output.
+    const notifications: SessionNotification[] = [
+      makeReviewNotification(
+        "n-200",
+        "q-924",
+        "Render proposed and active Quest Journey UI from board data",
+        20_000,
+        null,
+      ),
+      makeReviewNotification("n-199", "q-720", "Add lightweight Journey scheduling data and phase notes", 19_000, null),
+    ];
+    const quests = new Map<string, QuestmasterTask>([
+      ["q-924", makeVerificationQuest("q-924", "Render proposed and active Quest Journey UI from board data")],
+      ["q-720", makeVerificationQuest("q-720", "Add lightweight Journey scheduling data and phase notes")],
+    ]);
+    for (let index = 0; index < 55; index += 1) {
+      const questId = `q-${800 + index}`;
+      notifications.push(
+        makeReviewNotification(`n-${index}`, questId, `Older reviewed quest ${index}`, 1_000 + index, null),
+      );
+      quests.set(
+        questId,
+        makeVerificationQuest(questId, `Older reviewed quest ${index}`, {
+          status: "done",
+          verificationInboxUnread: undefined,
+          completedAt: 2_000 + index,
+          notes: "Already completed.",
+        }),
+      );
+    }
+
+    const model = await buildLeaderContextResume({
+      leader: {
+        sessionId: "leader-session",
+        sessionNum: 1132,
+        name: "Leader",
+        isOrchestrator: true,
+        messageHistory: [],
+        notifications,
+        board: [],
+      },
+      rowSessionStatuses: {},
+      participants: new Map(),
+      loadQuest: async (questId) => quests.get(questId) ?? null,
+    });
+
+    const rendered = renderLeaderContextResumeText(model);
+    expect(model.observed.reviewNotificationQuests).toHaveLength(57);
+    expect(rendered).toContain("Review notifications / verification-ready quests: 57 quests from 57 notifications");
+    expect(rendered).toContain("[q-924](quest:q-924) -- Render proposed and active Quest Journey UI from board data");
+    expect(rendered).toContain("[q-720](quest:q-720) -- Add lightweight Journey scheduling data and phase notes");
+    expect(rendered).toContain("omitted 49 older/lower-priority review quests");
+    expect(rendered).not.toContain("[q-800](quest:q-800)");
   });
 
   it("rejects non-leader target sessions", async () => {
