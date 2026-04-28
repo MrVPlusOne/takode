@@ -96,3 +96,4 @@ Remove row(s) manually.
 - `--wait-for-input` is valid on active rows and proposed approval-hold rows. Do not use it on `QUEUED` rows.
 - Update the board immediately when herd events change quest state.
 - Do not restate current board rows in chat after updating the board; the UI already shows them live.
+- Treat the right-side quest/status panel as authoritative for the selected session or leader board attention row: quest id/title/status, owner/session pointer, verification progress, inbox unread state, human feedback counts, compact wait/attention state, and compact existing Journey state are visible there. Chat should carry the next decision, reasoning, and any facts not yet modeled structurally.

@@ -6,6 +6,7 @@ import { api, type GitHubPRInfo } from "../api.js";
 import type { TaskItem, SessionTaskEntry, SdkSessionInfo } from "../types.js";
 import { McpSection } from "./McpPanel.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
+import { QuestStatusPanel } from "./QuestStatusPanel.js";
 import {
   cycleElapsedPct,
   FIVE_HOURS_MS,
@@ -1015,6 +1016,9 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
       </div>
 
       <div data-testid="task-panel-content" className="min-h-0 flex-1 overflow-y-auto">
+        {/* Quest/status state that the leader can rely on instead of repeating in prose. */}
+        <QuestStatusPanel sessionId={sessionId} />
+
         {/* Usage limits — Claude Code uses REST-polled limits, Codex uses streamed rate limits */}
         <UsageCollapsible sessionId={sessionId} isCodex={isCodex} />
 
