@@ -113,6 +113,8 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
         pendingTimerCount: sdkInfo?.pendingTimerCount ?? 0,
         notificationUrgency: sdkInfo?.notificationUrgency ?? null,
         activeNotificationCount: sdkInfo?.activeNotificationCount ?? 0,
+        notificationStatusVersion: sdkInfo?.notificationStatusVersion,
+        notificationStatusUpdatedAt: sdkInfo?.notificationStatusUpdatedAt,
         cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
         cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
         isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,

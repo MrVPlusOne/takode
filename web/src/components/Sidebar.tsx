@@ -27,7 +27,10 @@ import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { deriveSessionStatus } from "./SessionStatusDot.js";
 import type { SessionTaskEntry, SdkSessionInfo } from "../types.js";
-import { setSdkSessionsWithNotificationFreshness } from "../notification-status.js";
+import {
+  setSdkSessionsWithNotificationFreshness,
+  shouldApplyAttentionReasonWithNotificationFreshness,
+} from "../notification-status.js";
 
 import { buildSidebarVisibleSessions } from "../utils/sidebar-visible-sessions.js";
 import { buildReviewerByParent } from "../utils/reviewer-by-parent.js";
@@ -264,6 +267,12 @@ export function Sidebar() {
         }
         // Batch server-authoritative attention state changes
         if (s.attentionReason !== undefined) {
+          const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(
+            s.sessionId,
+            s.attentionReason,
+            s,
+          );
+          if (!shouldApplyAttention) continue;
           const currentAttention = store.sessionAttention.get(s.sessionId);
           if (currentAttention !== s.attentionReason) {
             // Suppress attention for the session the user is currently viewing

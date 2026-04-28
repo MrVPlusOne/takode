@@ -10,6 +10,8 @@ export interface NotificationStatusSnapshot {
   notificationStatusUpdatedAt?: number;
 }
 
+export type AttentionReason = "action" | "error" | "review" | null;
+
 function summarizeNotifications(
   notifications: ReadonlyArray<SessionNotification>,
 ): Required<NotificationStatusSnapshot> {
@@ -27,6 +29,19 @@ function summarizeNotifications(
     activeNotificationCount,
     notificationStatusVersion: 0,
     notificationStatusUpdatedAt: 0,
+  };
+}
+
+export function summarizeNotificationStatus(
+  notifications: ReadonlyArray<SessionNotification>,
+  status: NotificationStatusSnapshot = {},
+): NotificationStatusSnapshot {
+  const summary = summarizeNotifications(notifications);
+  return {
+    notificationUrgency: summary.notificationUrgency,
+    activeNotificationCount: summary.activeNotificationCount,
+    notificationStatusVersion: status.notificationStatusVersion,
+    notificationStatusUpdatedAt: status.notificationStatusUpdatedAt,
   };
 }
 
@@ -67,6 +82,24 @@ function isIncomingNotificationStatusStale(
     return incomingUpdatedAt < currentUpdatedAt;
   }
   return false;
+}
+
+function hasPendingPermissionAction(status: NotificationStatusSnapshot & { pendingPermissionCount?: number }): boolean {
+  return typeof status.pendingPermissionCount === "number" && status.pendingPermissionCount > 0;
+}
+
+export function shouldApplyAttentionReasonWithNotificationFreshness(
+  sessionId: string,
+  attentionReason: AttentionReason | undefined,
+  status: NotificationStatusSnapshot & { pendingPermissionCount?: number },
+): boolean {
+  if (attentionReason !== "action") return true;
+  if (hasPendingPermissionAction(status)) return true;
+  if (status.notificationUrgency !== "needs-input") return true;
+  const current = notificationStatusFromSession(
+    useStore.getState().sdkSessions.find((session) => session.sessionId === sessionId),
+  );
+  return !isIncomingNotificationStatusStale(current, status);
 }
 
 function applyNotificationStatus(session: SdkSessionInfo, status: NotificationStatusSnapshot): SdkSessionInfo {
@@ -135,13 +168,7 @@ export function applySessionNotifications(
   notifications: SessionNotification[],
   status: NotificationStatusSnapshot,
 ): boolean {
-  const summary = summarizeNotifications(notifications);
-  const incoming: NotificationStatusSnapshot = {
-    notificationUrgency: summary.notificationUrgency,
-    activeNotificationCount: summary.activeNotificationCount,
-    notificationStatusVersion: status.notificationStatusVersion,
-    notificationStatusUpdatedAt: status.notificationStatusUpdatedAt,
-  };
+  const incoming = summarizeNotificationStatus(notifications, status);
   let applied = false;
   useStore.setState((state) => {
     const sdkSession = state.sdkSessions.find((session) => session.sessionId === sessionId);

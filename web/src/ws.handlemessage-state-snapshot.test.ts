@@ -210,6 +210,7 @@ describe("handleMessage: state_snapshot", () => {
         notificationStatusUpdatedAt: 5000,
       },
     ]);
+    useStore.setState({ sessionAttention: new Map([["s1", null]]) });
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
 
@@ -220,6 +221,7 @@ describe("handleMessage: state_snapshot", () => {
       backendConnected: true,
       uiMode: null,
       askPermission: true,
+      attentionReason: "action",
       notifications: [{ id: "n1", category: "needs-input", timestamp: 1000, messageId: null, done: false }],
       notificationStatusVersion: 4,
       notificationStatusUpdatedAt: 4000,
@@ -229,5 +231,6 @@ describe("handleMessage: state_snapshot", () => {
     expect(sdkSession.notificationUrgency).toBeNull();
     expect(sdkSession.activeNotificationCount).toBe(0);
     expect(useStore.getState().sessionNotifications.get("s1")).toBeUndefined();
+    expect(useStore.getState().sessionAttention.get("s1")).toBeNull();
   });
 });

@@ -506,6 +506,37 @@ describe("SessionItem notification marker", () => {
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
 
+  it("does not render stale action attention after notification status is known cleared", () => {
+    // A stale action attention value should not render the same amber dot after
+    // the versioned notification summary has already cleared the inbox.
+    const { container } = renderSessionItem({
+      attention: "action",
+      hasUnread: true,
+      session: makeSession({
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+      }),
+    });
+
+    expect(container.querySelector(".bg-amber-400")).toBeNull();
+  });
+
+  it("keeps rendering action attention when notification status is still active", () => {
+    // The render guard is only for stale cleared summaries; current needs-input
+    // action attention should still produce the visible amber badge.
+    const { container } = renderSessionItem({
+      attention: "action",
+      session: makeSession({
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 5,
+      }),
+    });
+
+    expect(container.querySelector(".bg-amber-400")).not.toBeNull();
+  });
+
   it("suppresses the inbox marker when a higher-priority attention badge is already active", () => {
     // The session-level attention badge should continue to win over the inbox
     // marker so the shared urgency helper does not bypass existing precedence.

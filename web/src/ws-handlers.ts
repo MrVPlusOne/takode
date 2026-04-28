@@ -11,6 +11,8 @@ import {
   applyNotificationStatusUpdate,
   applySessionNotifications,
   setSdkSessionsWithNotificationFreshness,
+  shouldApplyAttentionReasonWithNotificationFreshness,
+  summarizeNotificationStatus,
 } from "./notification-status.js";
 
 const taskCounters = new Map<string, number>();
@@ -519,8 +521,14 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       const targetSessionId = data.session_id;
       if (!targetSessionId) break;
       const update = data.session ?? {};
+      const shouldApplyAttention =
+        update.attentionReason === undefined
+          ? true
+          : shouldApplyAttentionReasonWithNotificationFreshness(targetSessionId, update.attentionReason, update);
       store.updateSdkSession(targetSessionId, {
-        ...(update.attentionReason !== undefined ? { attentionReason: update.attentionReason } : {}),
+        ...(shouldApplyAttention && update.attentionReason !== undefined
+          ? { attentionReason: update.attentionReason }
+          : {}),
         ...(update.lastReadAt !== undefined ? { lastReadAt: update.lastReadAt } : {}),
         ...(update.pendingPermissionCount !== undefined
           ? { pendingPermissionCount: update.pendingPermissionCount }
@@ -533,7 +541,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       if (update.status !== undefined) {
         store.setSessionStatus(targetSessionId, update.status === "compacting" ? "compacting" : update.status);
       }
-      if (update.attentionReason !== undefined) {
+      if (update.attentionReason !== undefined && shouldApplyAttention) {
         const isViewing = useStore.getState().currentSessionId === targetSessionId;
         if (isViewing && update.attentionReason) {
           api.markSessionRead?.(targetSessionId).catch(() => {});
@@ -1212,13 +1220,29 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       }
       // Sync server-authoritative attention state
       if (data.attentionReason !== undefined) {
-        const isViewing = useStore.getState().currentSessionId === sessionId;
-        if (isViewing && data.attentionReason) {
-          api.markSessionRead?.(sessionId).catch(() => {});
-        } else {
-          const sessionAttention = new Map(useStore.getState().sessionAttention);
-          sessionAttention.set(sessionId, data.attentionReason ?? null);
-          useStore.setState({ sessionAttention });
+        const snapshotNotificationStatus = data.notifications
+          ? summarizeNotificationStatus(data.notifications, {
+              notificationStatusVersion: data.notificationStatusVersion,
+              notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+            })
+          : {
+              notificationStatusVersion: data.notificationStatusVersion,
+              notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+            };
+        const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(
+          sessionId,
+          data.attentionReason,
+          snapshotNotificationStatus,
+        );
+        if (shouldApplyAttention) {
+          const isViewing = useStore.getState().currentSessionId === sessionId;
+          if (isViewing && data.attentionReason) {
+            api.markSessionRead?.(sessionId).catch(() => {});
+          } else {
+            const sessionAttention = new Map(useStore.getState().sessionAttention);
+            sessionAttention.set(sessionId, data.attentionReason ?? null);
+            useStore.setState({ sessionAttention });
+          }
         }
       }
       // Sync board state from server on connect/reconnect

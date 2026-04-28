@@ -278,6 +278,13 @@ export function SessionItem({
   const currentSessionId = useStore((st) => st.currentSessionId);
   const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
   const canSwipeToArchive = !archived && !reorderMode;
+  const suppressStaleActionAttention =
+    attention === "action" &&
+    permCount === 0 &&
+    s.notificationStatusVersion !== undefined &&
+    s.activeNotificationCount === 0;
+  const effectiveAttention = suppressStaleActionAttention ? null : attention;
+  const effectiveHasUnread = suppressStaleActionAttention ? false : hasUnread;
 
   // Long-press to open context menu on touch devices
   const handleTouchStart = useCallback(
@@ -430,7 +437,7 @@ export function SessionItem({
     isConnected: s.isConnected,
     sdkState: s.sdkState,
     status: s.status,
-    hasUnread,
+    hasUnread: effectiveHasUnread,
     idleKilled: s.idleKilled,
   });
   const timerCount = s.id === currentSessionId ? liveTimerCount : (s.pendingTimerCount ?? 0);
@@ -438,7 +445,7 @@ export function SessionItem({
     !archived &&
     visualStatus === "idle" &&
     permCount === 0 &&
-    !attention &&
+    !effectiveAttention &&
     timerCount > 0 &&
     inboxUrgency !== "needs-input";
   const statusColorClass = showScheduledTimerIcon ? "bg-emerald-500" : STATUS_DOT_CLASS[visualStatus];
@@ -624,7 +631,7 @@ export function SessionItem({
               />
             ) : (
               <span
-                className={`text-[13px] truncate leading-snug text-cc-fg ${attention || (s.isOrchestrator && !useStatusBar) ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
+                className={`text-[13px] truncate leading-snug text-cc-fg ${effectiveAttention || (s.isOrchestrator && !useStatusBar) ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
                 onAnimationEnd={() => onClearRecentlyRenamed(s.id)}
               >
                 {questLabel(label, isQuestNamed, questStatus, questReviewInboxUnread)}
@@ -939,18 +946,18 @@ export function SessionItem({
       )}
 
       {/* Action attention badge (needs-input via takode notify, no pending permissions) */}
-      {!archived && attention === "action" && permCount === 0 && (
+      {!archived && effectiveAttention === "action" && permCount === 0 && (
         <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[8px] h-[8px] rounded-full bg-amber-400 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
       )}
 
       {/* Review attention badge (shown when session needs review and no higher-priority badge) */}
-      {!archived && attention === "review" && permCount === 0 && (
+      {!archived && effectiveAttention === "review" && permCount === 0 && (
         <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
       )}
 
       {/* Notification inbox markers (shown when no server attention, permission, or timer-status icon is active).
           Uses the live inbox when loaded, otherwise the lightweight /api/sessions snapshot for restored sessions. */}
-      {!archived && !attention && permCount === 0 && !showScheduledTimerIcon && (
+      {!archived && !effectiveAttention && permCount === 0 && !showScheduledTimerIcon && (
         <NotificationMarker sessionId={s.id} fallbackUrgency={s.notificationUrgency ?? null} />
       )}
 
