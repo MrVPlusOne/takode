@@ -6,7 +6,13 @@ import * as timerStore from "./timer-store.js";
 
 const SWEEP_INTERVAL_MS = 5_000;
 const MAX_TIMERS_PER_SESSION = 50;
+const LATE_TIMER_THRESHOLD_MS = 5 * 60_000;
 const LOG_TAG = "[timer-manager]";
+
+interface TimerFireContext {
+  scheduledFireAt: number;
+  skippedCount?: number;
+}
 
 export class TimerManager {
   /** In-memory cache: sessionId -> SessionTimerFile */
@@ -153,17 +159,20 @@ export class TimerManager {
       for (const timer of file.timers) {
         if (timer.nextFireAt > now) continue;
 
-        // Timer is due -- fire it
-        this.fireTimer(sessionId, timer);
+        const fireContext =
+          timer.type === "recurring" && timer.intervalMs && timer.intervalMs > 0
+            ? this.resolveRecurringFireContext(sessionId, timer, now)
+            : { scheduledFireAt: timer.nextFireAt };
+        if (!fireContext) continue;
+
+        // Timer is due -- fire it.
+        this.fireTimer(sessionId, timer, fireContext);
         timer.lastFiredAt = now;
         timer.fireCount++;
         changed = true;
 
         if (timer.type === "recurring" && timer.intervalMs && timer.intervalMs > 0) {
-          // Advance past now (catchup: skip missed intervals, fire only once)
-          while (timer.nextFireAt <= now) {
-            timer.nextFireAt += timer.intervalMs;
-          }
+          timer.nextFireAt = fireContext.scheduledFireAt + timer.intervalMs;
         } else {
           // One-shot (delay or at), or recurring with corrupt intervalMs: remove after firing
           toRemove.add(timer.id);
@@ -182,16 +191,45 @@ export class TimerManager {
   }
 
   /** Fire a single timer: inject user message into the session. */
-  private fireTimer(sessionId: string, timer: SessionTimer): void {
+  private fireTimer(sessionId: string, timer: SessionTimer, context: TimerFireContext): void {
     const content =
       `[⏰ Timer ${timer.id} reminder] ${timer.title}` +
       `\n\nThis is a reminder from your earlier timer note, not a new user instruction.` +
+      this.formatSkippedOccurrences(context.skippedCount) +
+      this.formatLateDeliveryNote(context.scheduledFireAt, Date.now()) +
       (timer.description ? `\n\nEarlier note:\n${timer.description}` : "");
     const result = this.wsBridge.injectUserMessage(sessionId, content, {
       sessionId: `timer:${timer.id}`,
       sessionLabel: `Timer ${timer.id}`,
     });
     console.log(`${LOG_TAG} Fired timer ${timer.id} for session ${sessionId.slice(0, 8)}: ${result}`);
+  }
+
+  private resolveRecurringFireContext(sessionId: string, timer: SessionTimer, now: number): TimerFireContext | null {
+    if (!this.isBackendConnected(sessionId)) return null;
+    const intervalMs = timer.intervalMs;
+    if (!intervalMs || intervalMs <= 0) return { scheduledFireAt: timer.nextFireAt };
+    const skippedCount = Math.floor((now - timer.nextFireAt) / intervalMs);
+    return {
+      scheduledFireAt: timer.nextFireAt + skippedCount * intervalMs,
+      skippedCount,
+    };
+  }
+
+  private isBackendConnected(sessionId: string): boolean {
+    const bridge = this.wsBridge as WsBridge & { isBackendConnected?: (sessionId: string) => boolean };
+    return bridge.isBackendConnected?.(sessionId) ?? true;
+  }
+
+  private formatSkippedOccurrences(skippedCount: number | undefined): string {
+    if (!skippedCount || skippedCount <= 0) return "";
+    const noun = skippedCount === 1 ? "occurrence was" : "occurrences were";
+    return `\n\n${skippedCount} earlier due ${noun} skipped while the session was unavailable.`;
+  }
+
+  private formatLateDeliveryNote(scheduledFireAt: number, deliveredAt: number): string {
+    if (deliveredAt - scheduledFireAt <= LATE_TIMER_THRESHOLD_MS) return "";
+    return `\n\nThis timer was initially scheduled to fire at ${new Date(scheduledFireAt).toISOString()}.`;
   }
 
   // ── Browser sync ───────────────────────────────────────────────────────────

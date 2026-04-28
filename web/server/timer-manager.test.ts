@@ -23,10 +23,11 @@ vi.mock("./timer-store.js", () => ({
 // Import after mock so the mock is in effect.
 import { TimerManager } from "./timer-manager.js";
 
-function createMockBridge() {
+function createMockBridge(options?: { backendConnected?: () => boolean }) {
   return {
-    injectUserMessage: vi.fn(() => "sent" as const),
+    injectUserMessage: vi.fn(() => (options?.backendConnected?.() === false ? ("queued" as const) : ("sent" as const))),
     broadcastToSession: vi.fn(),
+    isBackendConnected: vi.fn(() => options?.backendConnected?.() ?? true),
   } as any;
 }
 
@@ -35,11 +36,13 @@ function createMockBridge() {
 describe("TimerManager", () => {
   let bridge: ReturnType<typeof createMockBridge>;
   let manager: TimerManager;
+  let backendConnected: boolean;
 
   beforeEach(() => {
     vi.useFakeTimers({ now: new Date("2026-04-08T12:00:00Z") });
     mockFiles.clear();
-    bridge = createMockBridge();
+    backendConnected = true;
+    bridge = createMockBridge({ backendConnected: () => backendConnected });
     manager = new TimerManager(bridge);
   });
 
@@ -253,6 +256,26 @@ describe("TimerManager", () => {
       expect(manager.listTimers("session-1")[0].fireCount).toBe(2);
     });
 
+    it("preserves the on-time connected-session timer message", async () => {
+      // On-time connected delivery should keep the existing concise reminder shape
+      // without late-delivery or skipped-occurrence annotations.
+      await manager.createTimer("session-1", {
+        title: "check status",
+        description: "Read the dashboard and report only current blockers.",
+        in: "5m",
+      });
+
+      vi.advanceTimersByTime(5 * 60_000 + 1);
+      await triggerSweep(manager);
+
+      const content = bridge.injectUserMessage.mock.calls[0]?.[1] as string;
+      expect(content).toBe(
+        "[⏰ Timer t1 reminder] check status\n\nThis is a reminder from your earlier timer note, not a new user instruction.\n\nEarlier note:\nRead the dashboard and report only current blockers.",
+      );
+      expect(content).not.toContain("initially scheduled");
+      expect(content).not.toContain("skipped");
+    });
+
     it("does not fire a timer before its time", async () => {
       await manager.createTimer("session-1", { title: "not yet", in: "30m" });
 
@@ -276,6 +299,66 @@ describe("TimerManager", () => {
       const timers = manager.listTimers("session-1");
       expect(timers[0].nextFireAt).toBeGreaterThan(Date.now());
       expect(timers[0].fireCount).toBe(1);
+    });
+
+    it("coalesces missed recurring occurrences while the backend is disconnected", async () => {
+      // Recurring timers should not enqueue one model message per missed interval
+      // while the CLI/backend is offline; reconnect delivers the newest due one.
+      await manager.createTimer("session-1", {
+        title: "priority check",
+        description: "Look at only the active incident lane.",
+        every: "10m",
+      });
+
+      backendConnected = false;
+      vi.advanceTimersByTime(10 * 60_000 + 1);
+      await triggerSweep(manager);
+      vi.advanceTimersByTime(10 * 60_000);
+      await triggerSweep(manager);
+      vi.advanceTimersByTime(10 * 60_000);
+      await triggerSweep(manager);
+
+      expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+      expect(manager.listTimers("session-1")[0]).toMatchObject({
+        fireCount: 0,
+        nextFireAt: new Date("2026-04-08T12:10:00Z").getTime(),
+      });
+
+      vi.advanceTimersByTime(5 * 60_000 + 1);
+      backendConnected = true;
+      await triggerSweep(manager);
+
+      expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+      const content = bridge.injectUserMessage.mock.calls[0]?.[1] as string;
+      expect(content).toContain("2 earlier due occurrences were skipped while the session was unavailable.");
+      expect(content).toContain("This timer was initially scheduled to fire at 2026-04-08T12:30:00.000Z.");
+      expect(content).toContain("Earlier note:\nLook at only the active incident lane.");
+
+      const [timer] = manager.listTimers("session-1");
+      expect(timer.fireCount).toBe(1);
+      expect(timer.lastFiredAt).toBe(Date.now());
+      expect(timer.nextFireAt).toBe(new Date("2026-04-08T12:40:00Z").getTime());
+    });
+
+    it("fires one-shot timers once even when late and backend-disconnected", async () => {
+      // One-shot timers intentionally keep using injectUserMessage while offline
+      // so the existing queued-message/relaunch path can deliver them exactly once.
+      await manager.createTimer("session-1", {
+        title: "single late reminder",
+        description: "Send the one-time handoff.",
+        in: "5m",
+      });
+
+      backendConnected = false;
+      vi.advanceTimersByTime(11 * 60_000);
+      await triggerSweep(manager);
+      await triggerSweep(manager);
+
+      expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+      const content = bridge.injectUserMessage.mock.calls[0]?.[1] as string;
+      expect(content).toContain("This timer was initially scheduled to fire at 2026-04-08T12:05:00.000Z.");
+      expect(content).toContain("Earlier note:\nSend the one-time handoff.");
+      expect(manager.listTimers("session-1")).toHaveLength(0);
     });
 
     it("cancelled timer never fires", async () => {
