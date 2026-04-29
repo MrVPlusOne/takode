@@ -77,7 +77,8 @@ Acquire immediately if the resource is free; otherwise join the FIFO waiter queu
 export const LEASE_STATUS_HELP = `Usage: takode lease status [resource] [--json]
        takode lease list [--json]
 
-Inspect active leases and waiter queues.
+Inspect active leases and waiter queues. Status is inspection only; acquire the
+lease before starting or using the shared resource.
 `;
 
 export const LEASE_RENEW_HELP = `Usage: takode lease renew <resource> [--ttl <duration>] [--json]
@@ -226,20 +227,27 @@ function printStatuses(statuses: LeaseStatusDetail[], deps: TakodeLeaseDeps): vo
     if (!status.lease) {
       console.log(`${status.resourceKey}: available`);
     } else {
-      console.log(
-        `${status.resourceKey}: held by ${status.lease.ownerSessionId} until ${deps.formatTimestampCompact(
-          status.lease.expiresAt,
-        )}`,
-      );
-      console.log(`  purpose: ${deps.formatInlineText(status.lease.purpose)}`);
+      console.log(`${status.resourceKey}: held`);
+      console.log(`  owner: ${deps.formatInlineText(status.lease.ownerSessionId)}`);
+      console.log(`  acquired: ${formatTimeWithAge(status.lease.acquiredAt, deps)}`);
+      console.log(`  heartbeat: ${formatTimeWithAge(status.lease.heartbeatAt, deps)}`);
+      console.log(`  ttl: ${formatDuration(status.lease.ttlMs)}`);
+      console.log(`  expires: ${formatTimeWithAge(status.lease.expiresAt, deps, "from now")}`);
       if (status.lease.questId) console.log(`  quest: ${status.lease.questId}`);
       const metadata = formatMetadata(status.lease.metadata);
       if (metadata) console.log(`  metadata: ${metadata}`);
+      console.log(`  purpose: ${deps.formatInlineText(status.lease.purpose)}`);
     }
     if (status.waiters.length > 0) {
       console.log(`  waiters: ${status.waiters.length}`);
       for (const waiter of status.waiters) {
-        console.log(`    ${waiter.id}: ${waiter.waiterSessionId} -- ${deps.formatInlineText(waiter.purpose)}`);
+        console.log(`    ${waiter.id}: ${deps.formatInlineText(waiter.waiterSessionId)}`);
+        console.log(`      queued: ${formatTimeWithAge(waiter.queuedAt, deps)}`);
+        console.log(`      requested ttl: ${formatDuration(waiter.ttlMs)}`);
+        if (waiter.questId) console.log(`      quest: ${waiter.questId}`);
+        const metadata = formatMetadata(waiter.metadata);
+        if (metadata) console.log(`      metadata: ${metadata}`);
+        console.log(`      purpose: ${deps.formatInlineText(waiter.purpose)}`);
       }
     }
   }
@@ -307,4 +315,27 @@ function formatMetadata(metadata: Record<string, string>): string {
   return Object.entries(metadata)
     .map(([key, value]) => `${key}=${value}`)
     .join(", ");
+}
+
+function formatTimeWithAge(epoch: number, deps: TakodeLeaseDeps, futureSuffix = "ago"): string {
+  const ageMs = Date.now() - epoch;
+  const absolute = deps.formatTimestampCompact(epoch);
+  if (!Number.isFinite(ageMs)) return absolute;
+  if (ageMs >= 0) return `${absolute} (${formatDuration(ageMs)} ${futureSuffix})`;
+  return `${absolute} (${formatDuration(Math.abs(ageMs))} ${futureSuffix})`;
+}
+
+function formatDuration(ms: number): string {
+  if (!Number.isFinite(ms) || ms < 0) return "unknown";
+  const totalSeconds = Math.max(0, Math.round(ms / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts: string[] = [];
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (seconds || parts.length === 0) parts.push(`${seconds}s`);
+  return parts.slice(0, 2).join(" ");
 }

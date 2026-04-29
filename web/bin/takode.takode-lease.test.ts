@@ -143,6 +143,7 @@ describe("takode lease", () => {
       }
 
       if (method === "GET" && url === "/api/resource-leases/agent-browser") {
+        const now = Date.now();
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -153,13 +154,25 @@ describe("takode lease", () => {
                 resourceKey: "agent-browser",
                 ownerSessionId: "owner",
                 purpose: "Inspect UI",
-                metadata: {},
-                acquiredAt: 1_700_000_000_000,
-                heartbeatAt: 1_700_000_000_000,
+                questId: "q-979",
+                metadata: { viewport: "430x932" },
+                acquiredAt: now - 5 * 60_000,
+                heartbeatAt: now - 60_000,
                 ttlMs: 1_800_000,
-                expiresAt: Date.now() + 1_800_000,
+                expiresAt: now + 1_800_000,
               },
-              waiters: [{ id: "w1", waiterSessionId: "waiter", purpose: "Need browser next" }],
+              waiters: [
+                {
+                  id: "w1",
+                  resourceKey: "agent-browser",
+                  waiterSessionId: "waiter",
+                  questId: "q-980",
+                  purpose: "Need browser next",
+                  metadata: { device: "desktop" },
+                  queuedAt: now - 2 * 60_000,
+                  ttlMs: 1_200_000,
+                },
+              ],
             },
           }),
         );
@@ -181,8 +194,22 @@ describe("takode lease", () => {
         COMPANION_AUTH_TOKEN: "auth-self",
       });
       expect(text.status).toBe(0);
-      expect(text.stdout).toContain("agent-browser: held by owner");
+      expect(text.stdout).toContain("agent-browser: held");
+      expect(text.stdout).toContain("owner: owner");
+      expect(text.stdout).toContain("acquired:");
+      expect(text.stdout).toContain("heartbeat:");
+      expect(text.stdout).toContain("ttl: 30m");
+      expect(text.stdout).toContain("expires:");
+      expect(text.stdout).toContain("quest: q-979");
+      expect(text.stdout).toContain("metadata: viewport=430x932");
+      expect(text.stdout).toContain("purpose: Inspect UI");
       expect(text.stdout).toContain("waiters: 1");
+      expect(text.stdout).toContain("w1: waiter");
+      expect(text.stdout).toContain("queued:");
+      expect(text.stdout).toContain("requested ttl: 20m");
+      expect(text.stdout).toContain("quest: q-980");
+      expect(text.stdout).toContain("metadata: device=desktop");
+      expect(text.stdout).toContain("purpose: Need browser next");
 
       const json = await runTakode(["lease", "status", "agent-browser", "--json", "--port", String(port)], {
         ...process.env,

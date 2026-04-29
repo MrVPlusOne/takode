@@ -118,7 +118,7 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
 
   parts.push(
     "## Global Resource Leases\n\n" +
-      "Use `takode lease` before using shared global resources that can conflict across sessions, especially dev servers, Agent Browser, and E2E/browser work.\n\n" +
+      "You must acquire the relevant `takode lease` before starting or using shared global resources that can conflict across sessions, especially dev servers, Agent Browser, and E2E/browser work. Use `takode lease status <resource>` only to inspect current ownership before acquiring; status is not a substitute for holding the lease.\n\n" +
       "    takode lease status dev-server:companion\n" +
       '    takode lease acquire dev-server:companion --purpose "Run E2E verification for q-42" --ttl 30m\n' +
       '    takode lease acquire agent-browser --purpose "Inspect q-42 UI" --ttl 20m --wait\n' +

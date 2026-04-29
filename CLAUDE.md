@@ -51,7 +51,7 @@ make dev
 
 # Shared resource coordination
 # Before starting or using shared dev servers, Agent Browser, or E2E/browser workflows,
-# inspect/acquire a Takode lease and release it when done:
+# inspect current lease state, then acquire the relevant Takode lease before use:
 takode lease status dev-server:companion
 takode lease acquire dev-server:companion --purpose "Run local UI verification" --ttl 30m
 takode lease renew dev-server:companion
@@ -333,7 +333,7 @@ Git worktrees are the preferred isolation model for this project. Container supp
 
 ## Browser Exploration
 
-Before browser/E2E work, inspect or acquire an appropriate resource lease, for example `takode lease acquire agent-browser --purpose "Inspect q-N UI" --ttl 20m --wait`. Prefer scoped keys like `dev-server:companion` for repo-local dev servers. Heartbeat while using the resource and release it promptly when done.
+Before browser/E2E work, you must acquire the appropriate resource lease, for example `takode lease acquire agent-browser --purpose "Inspect q-N UI" --ttl 20m --wait`. Use `takode lease status <resource>` only to inspect current ownership before acquiring; it is not a substitute for holding the lease. Prefer scoped keys like `dev-server:companion` for repo-local dev servers. Heartbeat while using the resource and release it promptly when done.
 
 Always use `agent-browser` CLI command to explore the browser. Never use playwright or other browser automation libraries.
 When running E2E tests, use the dark theme, as it is the primary theme of this app.

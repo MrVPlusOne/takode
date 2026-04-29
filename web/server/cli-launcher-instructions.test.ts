@@ -58,6 +58,8 @@ describe("buildCompanionInstructions", () => {
     // Shared browser and dev-server workflows can conflict across active agents,
     // so every backend gets the same CLI-first coordination instructions.
     expect(result).toContain("## Global Resource Leases");
+    expect(result).toContain("You must acquire the relevant `takode lease`");
+    expect(result).toContain("status is not a substitute for holding the lease");
     expect(result).toContain("takode lease status dev-server:companion");
     expect(result).toContain("takode lease acquire agent-browser");
     expect(result).toContain("Heartbeat while actively using the resource");
