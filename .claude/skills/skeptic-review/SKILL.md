@@ -91,9 +91,11 @@ the fix in your verdict. Examples:
 
 - If worker evidence clearly addressed human feedback but the feedback entry is
   still unaddressed, run `quest address <quest_id> <index>`.
-- If the quest is missing a concise user-oriented summary and the worker's
-  report gives you enough evidence, add or refresh it with
-  `quest feedback add <quest_id> --text "Summary: ..."`.
+- If the quest is missing a user-oriented summary and the worker's report gives
+  you enough evidence, add or refresh it with `quest feedback add <quest_id>
+  --text "Summary: ..."` for short single-topic content, or write the full body
+  first and use `quest feedback add <quest_id> --text-file /tmp/summary.md
+  --tldr-file /tmp/summary-tldr.md` for long multi-topic content.
 - If a verification checklist item is already self-verified by evidence you
   inspected, check it with `quest check <quest_id> <index>`.
 
@@ -115,7 +117,7 @@ critical worker misunderstanding.
    - Includes PR links if changes were ported; routine commit hashes should usually be attached as structured quest metadata
    - Avoids duplicating another recent worker comment; prefer one consolidated summary/addressing comment when the content would otherwise be near-duplicate
    - This should already be part of the worker's normal completion flow; the skeptic review is confirming it happened, not inventing a new requirement
-   - If missing but the worker report and diff give enough evidence, add or refresh it yourself with `quest feedback add <quest_id> --text "Summary: ..."` and mention that hygiene fix in the verdict
+   - If missing but the worker report and diff give enough evidence, add or refresh it yourself with `quest feedback add <quest_id> --text "Summary: ..."` for short single-topic content, or `quest feedback add <quest_id> --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md` for long multi-topic content, and mention that hygiene fix in the verdict
    - If missing and you cannot write it without guessing, CHALLENGE: "Add or refresh the required quest summary comment describing what changed, why it matters, and what verification passed"
    - If the quest has multiple near-duplicated worker comments, CHALLENGE: "Consolidate the duplicated quest comments so the quest remains readable while preserving how human feedback was addressed"
 

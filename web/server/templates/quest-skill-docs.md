@@ -100,6 +100,17 @@ The quest CLI uses **short flag names**. Common mistakes:
 
 Unknown flags are rejected with a "Did you mean?" suggestion.
 
+## TLDR Quality Guidance
+
+TLDR metadata is for human scanning, but it must not hide major parts of the full content.
+
+- Write the full description, feedback, or summary body first. Then derive the TLDR from that completed body so you can verify that every major topic is represented.
+- When a command accepts both full content and TLDR metadata, put the full body option first and the TLDR option second. Prefer `quest create --desc-file body.md --tldr-file tldr.md` and `quest feedback add q-N --text-file summary.md --tldr-file summary-tldr.md`.
+- Each major topic or point from the full content should have a condensed bullet or sentence in the TLDR.
+- One TLDR bullet or sentence is fine only when the source truly has one main point.
+- For multi-topic content, use multiple bullets or sentences, roughly compressing every one to two paragraphs or major sections into one concise TLDR item.
+- Keep the full content complete and agent-readable while making the TLDR human-scannable without being lossy.
+
 ## Complete Flag Reference
 
 ### quest create [<title> | --title "..." | --title-file <path>|-] [flags]
@@ -165,13 +176,17 @@ cat >/tmp/quest-description.md <<'EOF'
 Treat `$(echo nope)` and {"json":true} as literal text, not shell.
 EOF
 
-quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tags "questmaster,cli"
+cat >/tmp/quest-tldr.md <<'EOF'
+Preserve each major topic from the full quest description in concise scan text.
+EOF
+
+quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md --tags "questmaster,cli"
 
 printf '%s\n' 'Copied `$(snippet)` stays literal' | \
   quest create "Quest title" --desc-file -
 
-quest edit q-12 --desc-file /tmp/quest-description.md
-quest transition q-12 --status in_progress --desc-file /tmp/quest-description.md
+quest edit q-12 --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md
+quest transition q-12 --status in_progress --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md
 ```
 
 ### quest feedback add <id> [--text "..." | --text-file <path>|-] [flags]
@@ -216,7 +231,12 @@ cat >/tmp/quest-feedback.txt <<'EOF'
 Port summary: commit abc123 ...
 Treat `foo $(bar)` as literal text, not shell.
 EOF
-quest feedback q-12 --text-file /tmp/quest-feedback.txt
+
+cat >/tmp/quest-feedback-tldr.txt <<'EOF'
+Ported commits and preserved shell-sensitive text literally.
+EOF
+
+quest feedback q-12 --text-file /tmp/quest-feedback.txt --tldr-file /tmp/quest-feedback-tldr.txt
 
 printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal text, not shell.' | \
   quest feedback q-12 --text-file -
@@ -268,6 +288,8 @@ printf '%s\n' 'Superseded by q-13 with copied `$(note)` text' | \
 | `--status <s>` | Target status (REQUIRED) |
 | `--desc "..."` | Optional description update |
 | `--desc-file <path>` | Read the description update from a file, or use `-` to read from stdin |
+| `--tldr "..."` | Optional human-readable TLDR metadata for long descriptions |
+| `--tldr-file <path>` | Read TLDR metadata from a file, or use `-` to read from stdin |
 | `--session <id>` | Session ID |
 | `--json` | Output JSON |
 
@@ -281,7 +303,7 @@ These commands accept only `--json` for JSON output.
 quest create "Fix mobile sidebar" --desc "Sidebar overflows on screens <400px" --tags "ui,bugfix,mobile"
 
 # Create a quest from files when the text includes shell-sensitive content
-quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tags "questmaster,cli"
+quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md --tags "questmaster,cli"
 
 # List in-progress quests
 quest list --status in_progress
@@ -299,14 +321,14 @@ quest grep "sidebar|overflow"
 # Claim and start working on a quest
 quest claim q-12
 quest transition q-12 --status in_progress
-quest transition q-12 --status in_progress --desc-file /tmp/quest-description.md
+quest transition q-12 --status in_progress --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md
 
 # Edit a quest's title and tags
 quest edit q-12 --title "Fix sidebar overflow" --tags "ui,bugfix"
-quest edit q-12 --desc-file /tmp/quest-description.md
+quest edit q-12 --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md
 
-# Add feedback with an image attachment
-quest feedback q-12 --text "Fixed with flex-wrap, see screenshot" --image /tmp/screenshot.png
+# Add feedback with an image attachment; put full feedback first, then TLDR metadata
+quest feedback q-12 --text "Fixed with flex-wrap, see screenshot" --tldr "Mobile sidebar fix with screenshot" --image /tmp/screenshot.png
 
 # Mark done and submit for review
 cat >/tmp/verify-items.txt <<'EOF'
@@ -458,7 +480,9 @@ Use `quest complete` for the normal worker handoff from `in_progress` to `done` 
    - Do not claim feedback was addressed unless both happened
 
 2. **Add or refresh a user-oriented summary comment.** Before submitting, keep a final feedback entry summarizing the outcome for the human reader:
-   - `quest feedback q-N --text "Summary: <what changed, why it matters, and what verification passed>"`
+   - `quest feedback q-N --text "Summary: <what changed, why it matters, and what verification passed>"` for short single-topic summaries
+   - For long multi-topic summaries, write the full `Summary:` body first, then add `--tldr` or `--tldr-file` with one concise bullet or sentence for each major topic
+   - Prefer body first, TLDR second: `quest feedback q-N --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md`
    - Briefly describe what changed, why it matters to the user or project, and what verification passed
    - This should be the one substantive quest-level prose summary by default
    - Write the summary as an outcome note, not a review or rework timeline
@@ -502,7 +526,7 @@ When you verify a quest (either your own or another agent's), you **MUST** check
 When you are reviewing another agent's quest, directly fix straightforward quest hygiene issues you can verify and safely perform with Quest CLI commands instead of bouncing them back through leader -> worker -> reviewer. Examples:
 
 - Use `quest address q-N <index>` when worker evidence clearly addressed a human feedback entry but the addressed flag is stale.
-- Use `quest feedback latest/list/show` and `quest feedback add q-N --text "Summary: ..."` to add or refresh a concise user-oriented summary when the worker report and diff give enough evidence.
+- Use `quest feedback latest/list/show` to inspect whether a summary can be refreshed. When the worker report and diff give enough evidence, add or refresh a user-oriented summary with `quest feedback add q-N --text "Summary: ..."` for short single-topic content, or `quest feedback add q-N --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md` for long multi-topic content so the TLDR preserves the major topics from the full summary.
 - Use `quest check q-N <index>` when you personally verified a checklist item.
 - Report every hygiene fix you made in your ACCEPT/CHALLENGE output.
 

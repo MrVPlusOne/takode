@@ -119,6 +119,7 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Initial Journey approval comes before dispatch");
     expect(result).toContain("not a routine second user-approval gate");
     expect(result).toContain("Alignment approval is leader-owned by default");
+    expect(result).toContain("long multi-topic summaries should include `--tldr` metadata");
     expect(result).toContain("significant ambiguity, scope change, Journey revision, user-visible tradeoff");
     expect(result).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(result).toContain(

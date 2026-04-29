@@ -72,6 +72,26 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Add or refresh a user-oriented summary comment");
     expect(skill).toContain("what changed, why it matters, and what verification passed");
     expect(skill).toContain("Write the summary as an outcome note, not a review or rework timeline");
+    expect(skill).toContain("TLDR Quality Guidance");
+    expect(skill).toContain("Write the full description, feedback, or summary body first");
+    expect(skill).toContain("quest feedback add q-N --text-file summary.md --tldr-file summary-tldr.md");
+    expect(skill).toContain("One TLDR bullet or sentence is fine only when the source truly has one main point");
+    expect(skill).toContain("For long multi-topic summaries, write the full `Summary:` body first");
+    expect(skill).toContain("Reviewer-owned quest hygiene");
+    expect(skill).toContain('`quest feedback add q-N --text "Summary: ..."` for short single-topic content');
+    expect(skill).toContain("quest feedback add q-N --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md");
+    expect(skill).toContain(
+      [
+        "### quest transition <id> --status <s> [flags]",
+        "| Flag | Description |",
+        "|------|-------------|",
+        "| `--status <s>` | Target status (REQUIRED) |",
+        '| `--desc "..."` | Optional description update |',
+        "| `--desc-file <path>` | Read the description update from a file, or use `-` to read from stdin |",
+        '| `--tldr "..."` | Optional human-readable TLDR metadata for long descriptions |',
+        "| `--tldr-file <path>` | Read TLDR metadata from a file, or use `-` to read from stdin |",
+      ].join("\n"),
+    );
     expect(skill).toContain("Prefer one consolidated feedback entry");
     expect(skill).toContain("This summary may also be the explanation for addressed human feedback");
     expect(skill).toContain("Avoid review-process timelines, duplicate near-identical comments");
@@ -144,6 +164,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Do not leave commit info only in comments");
     expect(skill).toContain("one substantive quest-level prose summary");
     expect(skill).toContain("what changed, why it matters to the user or project, and what verification passed");
+    expect(skill).toContain("`--tldr` or `--tldr-file` with one concise bullet or sentence for each major topic");
     expect(skill).toContain("Re-running the same summary-style feedback (`Summary:` or `Refreshed summary:`)");
     expect(skill).toContain("Only add a second port-specific comment");
     expect(skill).toContain("pass `quest complete ... --no-code`");

@@ -79,6 +79,8 @@ describe("Quest Journey phase directory loading", () => {
 
     expect(implementPhase?.leaderBrief).toContain("cheap, local, reversible outcome evidence");
     expect(implementPhase?.assigneeBrief).toContain("those belong in `EXECUTING`");
+    expect(implementPhase?.assigneeBrief).toContain("For long multi-topic summaries");
+    expect(implementPhase?.assigneeBrief).toContain("add `--tldr` metadata that preserves the major topics");
     expect(executePhase?.leaderBrief).toContain("Use `EXECUTING` instead of `IMPLEMENTING`");
     expect(executePhase?.assigneeBrief).toContain(
       "Do not turn this phase into the main implementation or debugging loop",

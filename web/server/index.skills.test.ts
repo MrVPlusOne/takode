@@ -5,6 +5,7 @@ import { describe, expect, it } from "vitest";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = join(SERVER_DIR, "index.ts");
+const SKEPTIC_REVIEW_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "skeptic-review", "SKILL.md");
 
 describe("index startup skill registration", () => {
   it("registers canonical startup skills without stale hardcoded slugs", async () => {
@@ -38,5 +39,14 @@ describe("index startup skill registration", () => {
     expect(registered).toContain("reviewer-groom");
     expect(registered).toContain("skeptic-review");
     expect(registered).toContain("worktree-rules");
+  });
+
+  it("keeps skeptic-review summary creation guidance from teaching lossy long summaries", async () => {
+    const source = await readFile(SKEPTIC_REVIEW_SKILL_PATH, "utf-8");
+
+    expect(source).toContain('quest feedback add <quest_id> --text "Summary: ..."');
+    expect(source).toContain("--text-file /tmp/summary.md");
+    expect(source).toContain("--tldr-file /tmp/summary-tldr.md");
+    expect(source).toContain("for long multi-topic content");
   });
 });

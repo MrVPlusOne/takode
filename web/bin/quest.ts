@@ -1191,7 +1191,7 @@ function formatCompletionReminder(questId: string, options: { noCode: boolean })
     `Reminder: keep one substantive user-oriented quest summary comment up to date with ` +
     `\`quest feedback ${questId} --text "Summary: <what changed, why it matters, and what verification passed>"\`` +
     ` before reporting that the quest is ready. Use \`--text-file <path>\` or \`--text-file -\`` +
-    ` when that summary includes copied logs, backticks, or other shell-like text. Put implementation details and automated verification results in that summary, not in \`quest complete --items\`. Avoid review/rework timelines unless essential.`;
+    ` when that summary includes copied logs, backticks, or other shell-like text. For long multi-topic summaries, write the full \`--text\`/\`--text-file\` body first and add \`--tldr\`/\`--tldr-file\` second, with each major topic preserved in concise scan text. Put implementation details and automated verification results in that summary, not in \`quest complete --items\`. Avoid review/rework timelines unless essential.`;
   if (options.noCode) {
     return (
       summaryLine +
@@ -1895,7 +1895,7 @@ Safer rich-text input:
   quest create --title-file title.txt --desc-file body.md --tldr-file summary.txt
   printf '%s\\n' 'Copied \`$(snippet)\` stays literal' | quest create "Quest title" --desc-file -
   quest edit q-1 --desc-file body.md
-  quest feedback q-1 --text-file note.md --tldr "Short human-readable summary"
+  quest feedback q-1 --text-file note.md --tldr-file note-tldr.md
   quest feedback latest q-1 --author human --unaddressed --full
   quest feedback show q-1 0
   printf '%s\\n' 'Line 1' '\`$(nope)\`' | quest feedback q-1 --text-file -

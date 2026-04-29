@@ -94,6 +94,7 @@ describe("quest CLI help", () => {
     expect(result.stdout).toContain("quest create --title-file title.txt --desc-file body.md");
     expect(result.stdout).toContain("quest edit q-1 --desc-file body.md");
     expect(result.stdout).toContain("quest feedback q-1 --text-file note.md");
+    expect(result.stdout).toContain("quest feedback q-1 --text-file note.md --tldr-file note-tldr.md");
     expect(result.stdout).toContain('complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>]');
     expect(result.stdout).toContain("quest complete q-1 --items-file items.txt");
     expect(result.stdout).toContain("quest done q-1 --notes-file closeout.md");
@@ -1531,6 +1532,8 @@ describe("quest CLI completion reminder", () => {
       expect(result.stdout).toContain(
         "Put implementation details and automated verification results in that summary, not in `quest complete --items`",
       );
+      expect(result.stdout).toContain("For long multi-topic summaries");
+      expect(result.stdout).toContain("add `--tldr`/`--tldr-file` second");
       expect(result.stdout).toContain("Avoid review/rework timelines unless essential");
       expect(result.stdout).toContain("Use `--commit/--commits` structured metadata for routine port info");
       expect(result.stdout).toContain(
@@ -1790,6 +1793,8 @@ describe("quest CLI completion reminder", () => {
       expect(result.stdout).toContain(
         'quest feedback q-1 --text "Summary: <what changed, why it matters, and what verification passed>"',
       );
+      expect(result.stdout).toContain("For long multi-topic summaries");
+      expect(result.stdout).toContain("add `--tldr`/`--tldr-file` second");
       expect(result.stdout).toContain("Avoid review/rework timelines unless essential");
       expect(result.stdout).toContain("Use `--commit/--commits` structured metadata for routine port info");
     } finally {

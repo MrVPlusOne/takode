@@ -459,6 +459,7 @@ describe("getOrchestratorGuardrails", () => {
       "perform exactly the approved next phase, update the user-oriented quest summary comment when appropriate, and stop when done",
     );
     expect(guardrails).toContain("what changed, why it matters, and what verification passed");
+    expect(guardrails).toContain("long multi-topic summaries should include `--tldr` metadata");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain(
       "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense",
@@ -545,6 +546,7 @@ describe("getOrchestratorGuardrails", () => {
       "perform exactly the approved next phase, update the user-oriented quest summary comment when appropriate, and stop when done",
     );
     expect(guardrails).toContain("what changed, why it matters, and what verification passed");
+    expect(guardrails).toContain("long multi-topic summaries should include `--tldr` metadata");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
     expect(guardrails).toContain("small bounded reruns or repros");
