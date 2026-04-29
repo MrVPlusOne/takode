@@ -157,6 +157,29 @@ describe("Quest Journey phase directory loading", () => {
     }
   });
 
+  it("seeds Code Review briefs with comprehensive review and rework checkpoint guidance", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const codeReviewPhase = phases.find((phase) => phase.id === "code-review");
+
+    // Code Review is the normal landing-risk gate, so the seeded runtime brief
+    // must preserve both deeper review coverage and the clean rework diff rule.
+    expect(codeReviewPhase?.contract).toContain("comprehensive landing risk");
+    expect(codeReviewPhase?.contract).toContain("implementation completeness");
+    expect(codeReviewPhase?.leaderBrief).toContain("comprehensive landing-risk review");
+    expect(codeReviewPhase?.leaderBrief).toContain(
+      "send the changed worktree back to Code Review only after that checkpoint exists",
+    );
+    expect(codeReviewPhase?.leaderBrief).toContain("purely read-only follow-up review discussion");
+    expect(codeReviewPhase?.assigneeBrief).toContain("Start from the tracked diff");
+    expect(codeReviewPhase?.assigneeBrief).toContain("meaningful evidence review");
+    expect(codeReviewPhase?.assigneeBrief).toContain("implementation completeness");
+    expect(codeReviewPhase?.assigneeBrief).toContain("Do not become the implementer, porter, or redesign owner");
+    expect(codeReviewPhase?.assigneeBrief).toContain("small quest-hygiene issues");
+  });
+
   it("seeds Mental Simulation briefs with abstract end-to-end validation boundaries", async () => {
     const companionHome = await makeCompanionHome();
     await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });

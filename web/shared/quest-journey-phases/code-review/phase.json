@@ -4,7 +4,7 @@
   "color": { "name": "violet", "accent": "#a78bfa" },
   "boardState": "CODE_REVIEWING",
   "assigneeRole": "reviewer",
-  "contract": "Review tracked code or tracked artifacts for correctness, maintainability, tests, security, and regression risk.",
+  "contract": "Review tracked code or tracked artifacts for comprehensive landing risk: correctness, regressions, tests, maintainability, quest hygiene, implementation completeness, meaningful evidence, and security when relevant.",
   "nextLeaderAction": "read the code-review leader brief, then wait for the reviewer result and either send rework or advance",
   "aliases": ["skeptic-review", "reviewer-groom"]
 }

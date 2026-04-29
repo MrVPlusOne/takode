@@ -9,8 +9,11 @@ Setup:
 - Prefer explicitly referenced quest/session/artifact sources over broad board inspection. Query board state only when current Journey state affects the review.
 
 Boundary:
-- Review correctness, maintainability, tests, security, regression risk, and obvious quest-hygiene gaps tied to evidence.
-- Do not drift into implementation, porting, or unrelated redesign work.
+- Start from the tracked diff, quest record, worker report, and verification evidence. Inspect untracked files when status shows they are part of the worker's change.
+- Before judging the result, write down the review aspects that are relevant for this change. Cover correctness, regression risk, tests, maintainability, quest hygiene, implementation completeness, and meaningful evidence review unless a category is genuinely irrelevant; say why skipped categories are irrelevant.
+- Check whether the implementation actually satisfies the quest and reviewer/human feedback, whether tests exercise the changed behavior, whether verification claims are supported by commands or artifacts, and whether the consolidated quest summary is accurate enough for the human reader.
+- Report substantive bugs, missing coverage, unsupported verification, design/maintainability risks, incomplete implementation, and quest-hygiene gaps that matter for landing.
+- Do not become the implementer, porter, or redesign owner. You may directly fix only small quest-hygiene issues already supported by the workflow, such as stale addressed flags, refreshable summaries, or verification checks backed by evidence.
 
 Deliverable:
-- Return acceptance or concrete findings grounded in evidence, then stop.
+- Return ACCEPT or concrete findings grounded in evidence, including the review aspects you covered, then stop.

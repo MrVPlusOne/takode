@@ -96,8 +96,9 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("This summary may also be the explanation for addressed human feedback");
     expect(skill).toContain("Avoid review-process timelines, duplicate near-identical comments");
     expect(skill).toContain("required worker deliverable");
-    expect(skill).toContain("first commit the current worktree state");
-    expect(skill).toContain("separate commit so the reviewer can inspect only the new diff");
+    expect(skill).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
+    expect(skill).toContain("clean incremental diff of only the new work");
+    expect(skill).toContain("does not apply to purely read-only follow-up review discussion");
   });
 
   it("requires quest-design before quest creation or refinement only", async () => {
