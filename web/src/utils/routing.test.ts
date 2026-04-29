@@ -1,4 +1,5 @@
 // @vitest-environment jsdom
+import { waitFor } from "@testing-library/dom";
 import { describe, it, expect, beforeEach, vi } from "vitest";
 import {
   absoluteUrlForHash,
@@ -10,10 +11,13 @@ import {
   sessionMessageHash,
   scrollToMessageIndex,
   navigateToSession,
+  navigateToSessionThread,
   navigateHome,
   navigateToMostRecentSession,
   questIdFromHash,
+  threadRouteFromHash,
   withQuestIdInHash,
+  withThreadKeyInHash,
   withoutQuestIdInHash,
   playgroundSectionIdFromHash,
   withPlaygroundSectionInHash,
@@ -125,6 +129,21 @@ describe("quest hash helpers", () => {
   it("removes quest query while preserving other params", () => {
     expect(withoutQuestIdInHash("#/session/s1?foo=1&quest=q-12&bar=2")).toBe("#/session/s1?foo=1&bar=2");
     expect(withoutQuestIdInHash("#/session/s1?quest=q-12")).toBe("#/session/s1");
+  });
+});
+
+describe("leader thread hash helpers", () => {
+  it("extracts normalized leader thread state from session query params", () => {
+    expect(threadRouteFromHash("#/session/s1")).toEqual({ hasThreadParam: false, threadKey: null });
+    expect(threadRouteFromHash("#/session/s1?thread=Q-42")).toEqual({ hasThreadParam: true, threadKey: "q-42" });
+    expect(threadRouteFromHash("#/session/s1?thread=all")).toEqual({ hasThreadParam: true, threadKey: "all" });
+    expect(threadRouteFromHash("#/session/s1?thread=oops")).toEqual({ hasThreadParam: true, threadKey: null });
+  });
+
+  it("updates the leader thread query while preserving the route and other params", () => {
+    expect(withThreadKeyInHash("#/session/s1", "q-12")).toBe("#/session/s1?thread=q-12");
+    expect(withThreadKeyInHash("#/session/123?quest=q-7", "all")).toBe("#/session/123?quest=q-7&thread=all");
+    expect(withThreadKeyInHash("#/session/s1?thread=q-12&quest=q-7", "main")).toBe("#/session/s1?quest=q-7");
   });
 });
 
@@ -272,6 +291,43 @@ describe("navigateToSession", () => {
     expect(dispatchSpy).toHaveBeenCalledWith(expect.any(HashChangeEvent));
     spy.mockRestore();
     dispatchSpy.mockRestore();
+  });
+});
+
+describe("navigateToSessionThread", () => {
+  beforeEach(() => {
+    window.location.hash = "";
+  });
+
+  it("adds browser history entries for user-initiated leader thread changes", async () => {
+    window.location.hash = "#/session/s1";
+
+    navigateToSessionThread("s1", "q-941");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-941");
+
+    navigateToSessionThread("s1", "all");
+    expect(window.location.hash).toBe("#/session/s1?thread=all");
+
+    history.back();
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#/session/s1?thread=q-941");
+    });
+
+    history.forward();
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#/session/s1?thread=all");
+    });
+  });
+
+  it("uses replaceState for passive thread route normalization", () => {
+    window.location.hash = "#/session/s1?thread=oops";
+    const spy = vi.spyOn(history, "replaceState");
+
+    navigateToSessionThread("s1", "main", true);
+
+    expect(spy).toHaveBeenCalledWith(null, "", "#/session/s1");
+    expect(window.location.hash).toBe("#/session/s1");
+    spy.mockRestore();
   });
 });
 

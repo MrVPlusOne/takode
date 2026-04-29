@@ -1,5 +1,6 @@
 import { useStore } from "../store.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 
 export type Route =
   | { page: "home" }
@@ -15,6 +16,7 @@ export type Route =
 
 const SESSION_PREFIX = "#/session/";
 const QUEST_ID_PATTERN = /^q-\d+$/i;
+const THREAD_QUERY_PARAM = "thread";
 
 function splitHash(hash: string): { path: string; params: URLSearchParams } {
   const normalized = hash ? (hash.startsWith("#") ? hash : `#${hash}`) : "#/";
@@ -28,6 +30,15 @@ function normalizeQuestId(raw: string | null): string | null {
   if (!raw) return null;
   const trimmed = raw.trim().toLowerCase();
   return QUEST_ID_PATTERN.test(trimmed) ? trimmed : null;
+}
+
+function normalizeRouteThreadKey(raw: string | null): string | null {
+  if (!raw) return null;
+  const normalized = normalizeThreadKey(raw);
+  if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY || QUEST_ID_PATTERN.test(normalized)) {
+    return normalized;
+  }
+  return null;
 }
 
 function normalizePlaygroundSectionId(raw: string | null): string | null {
@@ -101,6 +112,37 @@ export function withoutQuestIdInHash(hash: string): string {
 }
 
 /**
+ * Read leader thread route state from the hash query.
+ *
+ * `hasThreadParam` distinguishes the default Main route from an invalid
+ * explicit thread param, allowing callers to clean invalid URLs with replaceState.
+ */
+export function threadRouteFromHash(hash: string): { hasThreadParam: boolean; threadKey: string | null } {
+  const { params } = splitHash(hash);
+  if (!params.has(THREAD_QUERY_PARAM)) return { hasThreadParam: false, threadKey: null };
+  return {
+    hasThreadParam: true,
+    threadKey: normalizeRouteThreadKey(params.get(THREAD_QUERY_PARAM)),
+  };
+}
+
+/**
+ * Return a hash string with the leader thread route query param updated.
+ * Main is the canonical default and is represented by removing the param.
+ */
+export function withThreadKeyInHash(hash: string, threadKey: string): string {
+  const { path, params } = splitHash(hash);
+  const normalized = normalizeRouteThreadKey(threadKey);
+  if (!normalized || normalized === MAIN_THREAD_KEY) {
+    params.delete(THREAD_QUERY_PARAM);
+  } else {
+    params.set(THREAD_QUERY_PARAM, normalized);
+  }
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+/**
  * Read playground section ID from the hash query (if present).
  */
 export function playgroundSectionIdFromHash(hash: string): string | null {
@@ -161,6 +203,25 @@ export function navigateToSession(sessionId: string, replace = false): void {
     window.dispatchEvent(new HashChangeEvent("hashchange"));
   } else {
     window.location.hash = `/session/${sessionId}`;
+  }
+}
+
+/**
+ * Navigate within a leader session to Main, All Threads, or a quest thread.
+ * Preserves the current session route shape and query params when already on a
+ * session URL, so numeric session routes and quest overlays remain stable.
+ */
+export function navigateToSessionThread(sessionId: string, threadKey: string, replace = false): void {
+  const currentRoute = parseHash(window.location.hash);
+  const currentHash = currentRoute.page === "session" ? window.location.hash : sessionHash(sessionId);
+  const newHash = withThreadKeyInHash(currentHash, threadKey);
+  if (newHash === window.location.hash) return;
+
+  if (replace) {
+    history.replaceState(null, "", newHash);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  } else {
+    window.location.hash = newHash.startsWith("#") ? newHash.slice(1) : newHash;
   }
 }
 

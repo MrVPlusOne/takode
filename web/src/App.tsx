@@ -10,6 +10,7 @@ import {
   navigateToSession,
   navigateToMostRecentSession,
   messageIndexFromHash,
+  threadRouteFromHash,
   resolveSessionIdFromRoute,
   scrollToMessageIndex,
 } from "./utils/routing.js";
@@ -144,6 +145,10 @@ export default function App() {
   );
   const hash = useHash();
   const route = useMemo(() => parseHash(hash), [hash]);
+  const threadRoute = useMemo(
+    () => (route.page === "session" ? threadRouteFromHash(hash) : { hasThreadParam: false, threadKey: null }),
+    [hash, route.page],
+  );
   const isSettingsPage = route.page === "settings";
   const isLogsPage = route.page === "logs";
   const isTerminalPage = route.page === "terminal";
@@ -572,6 +577,8 @@ export default function App() {
                     key={displayedSessionId}
                     sessionId={displayedSessionId}
                     preview={searchPreviewSessionId === displayedSessionId}
+                    routeThreadKey={threadRoute.threadKey}
+                    hasThreadRoute={threadRoute.hasThreadParam}
                   />
                 ) : (
                   <EmptyState />

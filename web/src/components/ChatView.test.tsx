@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, within } from "@testing-library/react";
+import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
 
@@ -31,6 +31,7 @@ interface MockStoreState {
   sessionCompletedBoards: Map<string, unknown[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   messages: Map<string, unknown[]>;
+  historyLoading: Map<string, boolean>;
   quests: Array<{ questId: string; title: string; status: string }>;
   zoomLevel: number;
   openQuestOverlay: (questId: string) => void;
@@ -55,6 +56,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionCompletedBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
     messages: new Map(),
+    historyLoading: new Map(),
     quests: [],
     zoomLevel: 1,
     openQuestOverlay: mockOpenQuestOverlay,
@@ -258,6 +260,7 @@ import { SAVE_THREAD_VIEWPORT_EVENT } from "../utils/thread-viewport.js";
 
 beforeEach(() => {
   resetStore();
+  window.location.hash = "#/session/s1";
   mockUnarchiveSession.mockClear();
   mockRelaunchSession.mockClear();
   mockOpenQuestOverlay.mockClear();
@@ -397,6 +400,7 @@ describe("ChatView backend banners", () => {
 
     fireEvent.click(scope.getByRole("button", { name: /q-941 quest thread mvp/i }));
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-941");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "q-941");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-quest-id", "q-941");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Viewing quest thread");
@@ -475,6 +479,7 @@ describe("ChatView backend banners", () => {
 
     fireEvent.click(scope.getByTestId("mock-workboard-all"));
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "all");
+    expect(window.location.hash).toBe("#/session/s1?thread=all");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "main");
     expect(scope.getByTestId("composer")).not.toHaveAttribute("data-quest-id");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "all");
@@ -483,7 +488,76 @@ describe("ChatView backend banners", () => {
 
     fireEvent.click(scope.getByTestId("mock-workboard-main"));
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+    expect(window.location.hash).toBe("#/session/s1");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "main");
+  });
+
+  it("restores a valid leader thread from the URL route", async () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m-q941",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      quests: [{ questId: "q-941", title: "Quest thread MVP", status: "in_progress" }],
+    });
+    window.location.hash = "#/session/s1?thread=q-941";
+
+    const view = render(<ChatView sessionId="s1" routeThreadKey="q-941" hasThreadRoute={true} />);
+    const scope = within(view.container);
+
+    await waitFor(() => {
+      expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
+    });
+    expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "q-941");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-941");
+  });
+
+  it("replaces an unavailable leader thread URL with Main after thread sources are loaded", async () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([["s1", []]]),
+      quests: [],
+    });
+    window.location.hash = "#/session/s1?thread=q-999";
+
+    const view = render(<ChatView sessionId="s1" routeThreadKey="q-999" hasThreadRoute={true} />);
+    const scope = within(view.container);
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#/session/s1");
+    });
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+  });
+
+  it("replaces an invalid leader thread URL with Main", async () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([["s1", []]]),
+      quests: [],
+    });
+    window.location.hash = "#/session/s1?thread=invalid";
+
+    const view = render(<ChatView sessionId="s1" routeThreadKey={null} hasThreadRoute={true} />);
+    const scope = within(view.container);
+
+    await waitFor(() => {
+      expect(window.location.hash).toBe("#/session/s1");
+    });
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
   });
 
   it("passes off-board quest threads from explicit text routing to the workboard", () => {

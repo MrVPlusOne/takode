@@ -16,6 +16,7 @@ import { WorkBoardBar, type WorkBoardThreadNavigationRow } from "./WorkBoardBar.
 import { YarnBallDot } from "./CatIcons.js";
 import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
+import { navigateToSessionThread, threadRouteFromHash } from "../utils/routing.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
@@ -259,6 +260,12 @@ function composeThreadKeyForSelection(threadKey: string): string {
   return normalized;
 }
 
+function isAvailableLeaderThread(threadKey: string, rows: LeaderThreadRow[]): boolean {
+  const normalized = normalizeThreadKey(threadKey);
+  if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY) return true;
+  return rows.some((row) => row.threadKey === normalized);
+}
+
 function QuestThreadBanner({
   row,
   threadKey,
@@ -317,7 +324,17 @@ function QuestThreadBanner({
   );
 }
 
-export function ChatView({ sessionId, preview = false }: { sessionId: string; preview?: boolean }) {
+export function ChatView({
+  sessionId,
+  preview = false,
+  routeThreadKey,
+  hasThreadRoute,
+}: {
+  sessionId: string;
+  preview?: boolean;
+  routeThreadKey?: string | null;
+  hasThreadRoute?: boolean;
+}) {
   const {
     sessionPerms,
     connStatus,
@@ -328,6 +345,8 @@ export function ChatView({ sessionId, preview = false }: { sessionId: string; pr
     cliDisconnectReason,
     isArchived,
     isLeaderSession,
+    historyLoading,
+    hasKnownThreadSources,
   } = useStore(
     useShallow((s) => ({
       sessionPerms: s.pendingPermissions.get(sessionId),
@@ -341,10 +360,14 @@ export function ChatView({ sessionId, preview = false }: { sessionId: string; pr
       isLeaderSession:
         s.sessions.get(sessionId)?.isOrchestrator === true ||
         s.sdkSessions.some((sdk) => sdk.sessionId === sessionId && sdk.isOrchestrator === true),
+      historyLoading: s.historyLoading.get(sessionId) ?? false,
+      hasKnownThreadSources:
+        s.messages.has(sessionId) || s.sessionBoards.has(sessionId) || s.sessionCompletedBoards.has(sessionId),
     })),
   );
   const [selectedThreadKey, setSelectedThreadKey] = useState("main");
   const { rows: threadRows } = useLeaderThreadModel(sessionId);
+  const routeSyncEnabled = hasThreadRoute !== undefined || routeThreadKey !== undefined;
   const selectedThreadLabel = useMemo(
     () => threadLabelForKey(selectedThreadKey, threadRows),
     [selectedThreadKey, threadRows],
@@ -367,13 +390,77 @@ export function ChatView({ sessionId, preview = false }: { sessionId: string; pr
       if (nextThreadKey === normalizeThreadKey(selectedThreadKey)) return;
       requestThreadViewportSnapshot(sessionId);
       setSelectedThreadKey(nextThreadKey);
+      navigateToSessionThread(sessionId, nextThreadKey);
     },
     [selectedThreadKey, sessionId],
   );
 
   useEffect(() => {
+    if (routeSyncEnabled) return;
     setSelectedThreadKey(MAIN_THREAD_KEY);
-  }, [sessionId]);
+  }, [routeSyncEnabled, sessionId]);
+
+  useEffect(() => {
+    if (!routeSyncEnabled || preview) return;
+    const liveThreadRoute = threadRouteFromHash(window.location.hash);
+    if (liveThreadRoute.hasThreadParam !== hasThreadRoute || liveThreadRoute.threadKey !== (routeThreadKey ?? null)) {
+      return;
+    }
+
+    if (!isLeaderSession) {
+      if (selectedThreadKey !== MAIN_THREAD_KEY) {
+        setSelectedThreadKey(MAIN_THREAD_KEY);
+      }
+      if (hasThreadRoute) {
+        navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true);
+      }
+      return;
+    }
+
+    if (!hasThreadRoute) {
+      if (selectedThreadKey !== MAIN_THREAD_KEY) {
+        setSelectedThreadKey(MAIN_THREAD_KEY);
+      }
+      return;
+    }
+
+    if (!routeThreadKey) {
+      if (selectedThreadKey !== MAIN_THREAD_KEY) {
+        setSelectedThreadKey(MAIN_THREAD_KEY);
+      }
+      navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true);
+      return;
+    }
+
+    const nextThreadKey = normalizeThreadKey(routeThreadKey);
+    if (isAvailableLeaderThread(nextThreadKey, threadRows)) {
+      if (selectedThreadKey !== nextThreadKey) {
+        setSelectedThreadKey(nextThreadKey);
+      }
+      if (nextThreadKey === MAIN_THREAD_KEY && hasThreadRoute) {
+        navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true);
+      }
+      return;
+    }
+
+    if (!historyLoading && hasKnownThreadSources) {
+      if (selectedThreadKey !== MAIN_THREAD_KEY) {
+        setSelectedThreadKey(MAIN_THREAD_KEY);
+      }
+      navigateToSessionThread(sessionId, MAIN_THREAD_KEY, true);
+    }
+  }, [
+    hasKnownThreadSources,
+    hasThreadRoute,
+    historyLoading,
+    isLeaderSession,
+    preview,
+    routeSyncEnabled,
+    routeThreadKey,
+    selectedThreadKey,
+    sessionId,
+    threadRows,
+  ]);
 
   // Within-session search
   const searchInputRef = useRef<HTMLInputElement>(null);
