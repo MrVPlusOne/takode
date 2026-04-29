@@ -38,6 +38,7 @@ import type {
   BoardRow,
   SessionNotification,
   TakodeHerdBatchSnapshot,
+  ThreadRef,
 } from "./session-types.js";
 import { TOOL_RESULT_PREVIEW_LIMIT, assertNever, formatVsCodeSelectionPrompt } from "./session-types.js";
 import type { QuestJourneyState } from "./session-types.js";
@@ -1822,6 +1823,7 @@ export class WsBridge {
     content: string,
     agentSource?: { sessionId: string; sessionLabel?: string },
     takodeHerdBatch?: TakodeHerdBatchSnapshot,
+    threadRoute?: { threadKey: string; questId?: string; threadRefs?: ThreadRef[] },
   ): "sent" | "queued" | "dropped" | "no_session" {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -1847,6 +1849,7 @@ export class WsBridge {
       agentSource,
       deliveryBatch,
       this.getBrowserTransportDeps(),
+      threadRoute,
     );
   }
 

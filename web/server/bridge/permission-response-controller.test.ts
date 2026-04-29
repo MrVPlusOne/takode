@@ -438,6 +438,129 @@ describe("permission response handling in browser routing", () => {
     ]);
   });
 
+  it("does not auto-answer AskUserQuestion from a different thread by default", async () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-thread-question", {
+      request_id: "req-thread-question",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Quest decision?" }] },
+      tool_use_id: "tool-thread-question",
+      timestamp: 1,
+      threadKey: "q-1",
+      questId: "q-1",
+    });
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "Use the staged path",
+        threadKey: "main",
+        agentSource: { sessionId: "leader-7", sessionLabel: "#7 Leader" },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.pendingPermissions.has("req-thread-question")).toBe(true);
+    const sendCalls = (deps.sendToCLI as any).mock.calls.map(([targetSession, payload]: [unknown, string]) => [
+      targetSession,
+      JSON.parse(payload),
+    ]);
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]).toEqual([
+      session,
+      expect.objectContaining({
+        type: "user",
+        message: expect.objectContaining({ content: expect.stringContaining("Use the staged path") }),
+      }),
+    ]);
+  });
+
+  it("auto-answers AskUserQuestion from the same quest thread", async () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-thread-question", {
+      request_id: "req-thread-question",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Quest decision?" }] },
+      tool_use_id: "tool-thread-question",
+      timestamp: 1,
+      threadKey: "q-1",
+      questId: "q-1",
+    });
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "Use the staged path",
+        threadKey: "q-1",
+        questId: "q-1",
+        agentSource: { sessionId: "leader-7", sessionLabel: "#7 Leader" },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(session.messageHistory[0]).toEqual(
+      expect.objectContaining({
+        type: "permission_approved",
+        request_id: "req-thread-question",
+        tool_name: "AskUserQuestion",
+        answers: [{ question: "Quest decision?", answer: "Use the staged path" }],
+      }),
+    );
+  });
+
+  it("allows exact structured cross-thread AskUserQuestion overrides", async () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-q1", {
+      request_id: "req-q1",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Q1 decision?" }] },
+      tool_use_id: "tool-q1",
+      timestamp: 1,
+      threadKey: "q-1",
+      questId: "q-1",
+    });
+    session.pendingPermissions.set("req-q2", {
+      request_id: "req-q2",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Q2 decision?" }] },
+      tool_use_id: "tool-q2",
+      timestamp: 2,
+      threadKey: "q-2",
+      questId: "q-2",
+    });
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "thread:q-2 Use the staged path",
+        threadKey: "main",
+        agentSource: { sessionId: "leader-7", sessionLabel: "#7 Leader" },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.pendingPermissions.has("req-q1")).toBe(true);
+    expect(session.pendingPermissions.has("req-q2")).toBe(false);
+    expect(session.messageHistory[0]).toEqual(
+      expect.objectContaining({
+        type: "permission_approved",
+        request_id: "req-q2",
+        tool_name: "AskUserQuestion",
+        answers: [{ question: "Q2 decision?", answer: "thread:q-2 Use the staged path" }],
+      }),
+    );
+  });
+
   it("clears Codex permission notifications and action attention before denial side effects", () => {
     const session = makeSession();
     session.backendType = "codex";

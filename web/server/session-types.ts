@@ -275,6 +275,23 @@ export interface ThreadRef {
   attachedBy?: string;
 }
 
+export interface ThreadAttachmentMarker {
+  type: "thread_attachment_marker";
+  id: string;
+  timestamp: number;
+  markerKey: string;
+  threadKey: string;
+  questId?: string;
+  attachedAt: number;
+  attachedBy: string;
+  messageIds: string[];
+  messageIndices: number[];
+  ranges: string[];
+  count: number;
+  firstMessageId?: string;
+  firstMessageIndex?: number;
+}
+
 export interface ThreadRoutingError {
   reason: "missing" | "invalid";
   expected: string;
@@ -526,6 +543,9 @@ export interface TakodeNotificationPayload {
   summary?: string;
   suggestedAnswers?: string[];
   timestamp: number;
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
 }
 
 /** Messages the bridge sends to the browser */
@@ -619,6 +639,7 @@ export type BrowserIncomingMessageBase =
     }
   | { type: "compact_summary"; summary: string }
   | { type: "tool_result_preview"; previews: ToolResultPreview[] }
+  | ThreadAttachmentMarker
   | {
       type: "permission_denied";
       id: string;
@@ -915,6 +936,10 @@ export interface SessionNotification {
   timestamp: number;
   /** Assistant message ID for jump-to-message links (null if no message was anchored) */
   messageId: string | null;
+  /** Thread route for same-thread prompt matching. Main is explicit for new notifications. */
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
   done: boolean;
 }
 
@@ -1011,6 +1036,10 @@ export interface PermissionRequest {
   /** Set when the LLM auto-approver deferred this permission to the human.
    *  Explains why: LLM rationale (for "defer"), "evaluation timed out", or "evaluation failed". */
   deferralReason?: string;
+  /** Thread route used by leader/user prompt matching. Main is explicit for new prompt records. */
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
 }
 
 // ─── Session Creation Progress (SSE streaming) ──────────────────────────────
@@ -1110,6 +1139,8 @@ export interface TakodePermissionRequestEventData {
   turn_source?: "user" | "leader" | "system" | "unknown";
   /** Index of the last assistant message in messageHistory when the permission was emitted. */
   msg_index?: number;
+  threadKey?: string;
+  questId?: string;
 }
 
 export interface TakodePermissionResolvedEventData {
@@ -1155,6 +1186,8 @@ export interface TakodeUserMessageEventData {
     sessionId: string;
     sessionLabel?: string;
   };
+  threadKey?: string;
+  questId?: string;
 }
 
 export interface TakodeNotificationNeedsInputEventData {
@@ -1163,6 +1196,8 @@ export interface TakodeNotificationNeedsInputEventData {
   notificationId?: string;
   messageId?: string | null;
   msg_index?: number;
+  threadKey?: string;
+  questId?: string;
 }
 
 export interface TakodeBoardStalledEventData {

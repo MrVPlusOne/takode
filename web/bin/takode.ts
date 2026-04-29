@@ -722,7 +722,7 @@ Show leader-answerable questions for a herded session, including
 \`takode notify needs-input\` prompts and plan approvals.
 `;
 
-const ANSWER_HELP = `Usage: takode answer <session> [--message <msg-id> | --target <id>] <response> [--json]
+const ANSWER_HELP = `Usage: takode answer <session> [--message <msg-id> | --target <id> | --thread <main|q-N> | --quest <q-N>] <response> [--json]
 
 Answer a pending question, \`needs-input\` prompt, or approve/reject a pending plan.
 `;
@@ -3106,6 +3106,8 @@ async function handlePending(base: string, args: string[]): Promise<void> {
       summary?: string;
       suggestedAnswers?: string[];
       msg_index?: number;
+      threadKey?: string;
+      questId?: string;
       questions?: Array<{
         header?: string;
         question: string;
@@ -3185,21 +3187,27 @@ async function handlePending(base: string, args: string[]): Promise<void> {
 async function handleAnswer(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   const flags = parseFlags(args.slice(1));
+  assertKnownFlags(flags, new Set(["json", "message", "target", "thread", "quest"]), ANSWER_HELP.trim());
   const jsonMode = flags.json === true;
   const targetId = typeof flags.target === "string" ? flags.target.trim() : "";
+  const threadKey = typeof flags.thread === "string" ? flags.thread.trim() : "";
+  const questId = typeof flags.quest === "string" ? flags.quest.trim() : "";
+  if (flags.thread === true) err("--thread requires main or q-N.");
+  if (flags.quest === true) err("--quest requires q-N.");
+  if (threadKey && questId) err("Use either --thread or --quest, not both.");
   const msgIndexRaw = typeof flags.message === "string" ? flags.message.trim() : "";
   const msgIndex = msgIndexRaw ? Number.parseInt(msgIndexRaw, 10) : undefined;
   if (msgIndexRaw && !Number.isInteger(msgIndex)) {
-    err("Usage: takode answer <session> [--message <msg-id> | --target <id>] <response> [--json]");
+    err(ANSWER_HELP.trim());
   }
   if (!sessionRef || sessionRef.startsWith("--")) {
-    err("Usage: takode answer <session> [--message <msg-id> | --target <id>] <response> [--json]");
+    err(ANSWER_HELP.trim());
   }
   const responseParts: string[] = [];
   for (let i = 1; i < args.length; i++) {
     const arg = args[i];
     if (arg === "--json") continue;
-    if (arg === "--message" || arg === "--target") {
+    if (arg === "--message" || arg === "--target" || arg === "--thread" || arg === "--quest") {
       i++;
       continue;
     }
@@ -3208,7 +3216,7 @@ async function handleAnswer(base: string, args: string[]): Promise<void> {
   }
   const response = responseParts.join(" ");
 
-  if (!response) err("Usage: takode answer <session> [--message <msg-id> | --target <id>] <response> [--json]");
+  if (!response) err(ANSWER_HELP.trim());
 
   const mySessionId = getCallerSessionId();
 
@@ -3217,6 +3225,8 @@ async function handleAnswer(base: string, args: string[]): Promise<void> {
     callerSessionId: mySessionId,
     ...(targetId ? { targetId } : {}),
     ...(msgIndex !== undefined ? { msgIndex } : {}),
+    ...(threadKey ? { threadKey } : {}),
+    ...(questId ? { questId } : {}),
   })) as {
     ok: boolean;
     kind?: "permission" | "notification";

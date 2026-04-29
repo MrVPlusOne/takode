@@ -30,6 +30,7 @@ import type {
   TakodeHerdBatchSnapshot,
 } from "./session-types.js";
 import { formatActivitySummaryDetailed } from "./herd-activity-formatter.js";
+import { routeKey, threadRouteForTarget, type ThreadRouteMetadata } from "./thread-routing-metadata.js";
 import { wakeIdleKilledSession as wakeIdleKilledSessionController } from "./idle-manager.js";
 import {
   onSessionActivityStateChanged as onSessionActivityStateChangedController,
@@ -117,6 +118,7 @@ export interface WsBridgeHandle {
     content: string,
     agentSource?: { sessionId: string; sessionLabel?: string },
     takodeHerdBatch?: TakodeHerdBatchSnapshot,
+    threadRoute?: ThreadRouteMetadata,
   ): "sent" | "queued" | "dropped" | "no_session";
   isSessionIdle?(sessionId: string): boolean;
   /** Test-only escape hatch while production callers move to the shared idle helper. */
@@ -124,6 +126,7 @@ export interface WsBridgeHandle {
   getSession(sessionId: string):
     | {
         messageHistory: BrowserIncomingMessage[];
+        state?: { claimedQuestId?: string };
         backendSocket?: unknown;
         codexAdapter?: unknown;
         claudeSdkAdapter?: unknown;
@@ -141,7 +144,9 @@ export interface WsBridgeHandle {
 
 export interface LauncherHandle {
   getHerdedSessions(orchId: string): Array<{ sessionId: string }>;
-  getSession?(sessionId: string): { state?: string; killedByIdleManager?: boolean } | undefined;
+  getSession?(
+    sessionId: string,
+  ): { state?: string; killedByIdleManager?: boolean; claimedQuestId?: string } | undefined;
 }
 
 export type RestartPrepMode = "standalone" | "restart";
@@ -259,6 +264,7 @@ interface InboxEntry {
   event: TakodeEvent;
   /** Monotonic sequence number within this inbox */
   seq: number;
+  threadRoute: ThreadRouteMetadata;
   heldByRestartPrepOperationId?: string;
 }
 
@@ -496,7 +502,7 @@ export class HerdEventDispatcher {
 
     // Append to inbox (pure in-memory, never fails)
     const seq = inbox.nextSeq++;
-    const entry: InboxEntry = { event, seq };
+    const entry: InboxEntry = { event, seq, threadRoute: this.resolveEventThreadRoute(event) };
     if (policy.kind === "hold") {
       entry.heldByRestartPrepOperationId = policy.operation.operationId;
       policy.operation.heldHerdEvents += 1;
@@ -652,47 +658,14 @@ export class HerdEventDispatcher {
     const pending = this.getDeliverablePendingEntries(orchId, inbox);
     if (pending.length === 0) return 0;
 
-    const events = pending.map((e) => e.event);
-    const renderedBatch = renderHerdEventBatch(events, {
-      getMessages: (sid, from, to) => getSessionMessageSlice(this.wsBridge, sid, from, to),
-      lastEmittedMsgTo: inbox.lastEmittedMsgTo,
-      leaderSessionId: orchId,
-    });
-    const delivery = this.wsBridge.injectUserMessage(
-      orchId,
-      renderedBatch.content,
-      HERD_AGENT_SOURCE,
-      snapshotHerdBatch(events, renderedBatch.renderedLines),
-    );
-    if (delivery !== "sent") {
-      if (delivery === "dropped") {
-        this.pruneStaleBoardStallEntries(orchId, inbox);
-        this.maybeRetireInbox(orchId, inbox);
-        return 0;
-      }
-      if (delivery === "queued") {
-        this.scheduleRetry(orchId);
-      }
+    const result = this.deliverPendingEntries(orchId, inbox, pending);
+    if (result.status === "dropped") {
+      this.pruneStaleBoardStallEntries(orchId, inbox);
+      this.maybeRetireInbox(orchId, inbox);
       return 0;
     }
-
-    // Update deduplication watermarks from the events we just delivered
-    updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);
-
-    const lastSeq = pending[pending.length - 1].seq;
-    inbox.inFlightUpTo = lastSeq;
-
-    const now = Date.now();
-    let histIdx = inbox.deliveryHistory.length - pending.length;
-    if (histIdx < 0) histIdx = 0;
-    for (let i = histIdx; i < inbox.deliveryHistory.length; i++) {
-      if (inbox.deliveryHistory[i].status === "pending" || inbox.deliveryHistory[i].status === "redelivered") {
-        inbox.deliveryHistory[i].deliveredAt = now;
-        inbox.deliveryHistory[i].status = "in_flight";
-      }
-    }
-
-    return events.length;
+    if (result.status === "retry") this.scheduleRetry(orchId);
+    return result.status === "sent" ? result.deliveredCount : 0;
   }
 
   /** Schedule a debounced flush. Multiple calls within DEBOUNCE_MS batch together. */
@@ -741,48 +714,13 @@ export class HerdEventDispatcher {
       return;
     }
 
-    // Format and inject
-    const events = pending.map((e) => e.event);
-    const renderedBatch = renderHerdEventBatch(events, {
-      getMessages: (sid, from, to) => getSessionMessageSlice(this.wsBridge, sid, from, to),
-      lastEmittedMsgTo: inbox.lastEmittedMsgTo,
-      leaderSessionId: orchId,
-    });
-    const delivery = this.wsBridge.injectUserMessage(
-      orchId,
-      renderedBatch.content,
-      HERD_AGENT_SOURCE,
-      snapshotHerdBatch(events, renderedBatch.renderedLines),
-    );
-    if (delivery !== "sent") {
-      if (delivery === "dropped") {
-        this.pruneStaleBoardStallEntries(orchId, inbox);
-        this.maybeRetireInbox(orchId, inbox);
-        return;
-      }
-      if (delivery === "queued") {
-        this.scheduleRetry(orchId);
-      }
+    const result = this.deliverPendingEntries(orchId, inbox, pending);
+    if (result.status === "dropped") {
+      this.pruneStaleBoardStallEntries(orchId, inbox);
+      this.maybeRetireInbox(orchId, inbox);
       return;
     }
-
-    // Update deduplication watermarks from the events we just delivered
-    updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);
-
-    // Mark as in-flight (NOT confirmed yet — that happens on turn end)
-    const lastSeq = pending[pending.length - 1].seq;
-    inbox.inFlightUpTo = lastSeq;
-
-    // Update delivery history
-    const now = Date.now();
-    let histIdx = inbox.deliveryHistory.length - pending.length;
-    if (histIdx < 0) histIdx = 0;
-    for (let i = histIdx; i < inbox.deliveryHistory.length; i++) {
-      if (inbox.deliveryHistory[i].status === "pending" || inbox.deliveryHistory[i].status === "redelivered") {
-        inbox.deliveryHistory[i].deliveredAt = now;
-        inbox.deliveryHistory[i].status = "in_flight";
-      }
-    }
+    if (result.status === "retry") this.scheduleRetry(orchId);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -823,6 +761,50 @@ export class HerdEventDispatcher {
     return deliverable;
   }
 
+  private deliverPendingEntries(
+    orchId: string,
+    inbox: HerdInbox,
+    pending: InboxEntry[],
+  ): { status: "sent" | "retry" | "dropped"; deliveredCount: number } {
+    const groups = groupPendingEntriesByThread(pending);
+    const deliveredEvents: TakodeEvent[] = [];
+    for (const group of groups) {
+      const events = group.entries.map((entry) => entry.event);
+      const renderedBatch = renderHerdEventBatch(events, {
+        getMessages: (sid, from, to) => getSessionMessageSlice(this.wsBridge, sid, from, to),
+        lastEmittedMsgTo: inbox.lastEmittedMsgTo,
+        leaderSessionId: orchId,
+      });
+      const delivery = this.wsBridge.injectUserMessage(
+        orchId,
+        renderedBatch.content,
+        HERD_AGENT_SOURCE,
+        snapshotHerdBatch(events, renderedBatch.renderedLines),
+        group.route,
+      );
+      if (delivery === "dropped") return { status: "dropped", deliveredCount: deliveredEvents.length };
+      if (delivery !== "sent") return { status: "retry", deliveredCount: deliveredEvents.length };
+      deliveredEvents.push(...events);
+    }
+
+    updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, deliveredEvents);
+    inbox.inFlightUpTo = pending[pending.length - 1].seq;
+    this.markPendingEntriesInFlight(inbox, pending.length);
+    return { status: "sent", deliveredCount: deliveredEvents.length };
+  }
+
+  private markPendingEntriesInFlight(inbox: HerdInbox, count: number): void {
+    const now = Date.now();
+    let histIdx = inbox.deliveryHistory.length - count;
+    if (histIdx < 0) histIdx = 0;
+    for (let i = histIdx; i < inbox.deliveryHistory.length; i++) {
+      if (inbox.deliveryHistory[i].status === "pending" || inbox.deliveryHistory[i].status === "redelivered") {
+        inbox.deliveryHistory[i].deliveredAt = now;
+        inbox.deliveryHistory[i].status = "in_flight";
+      }
+    }
+  }
+
   /** Count of events waiting to be delivered. */
   private pendingCount(inbox: HerdInbox): number {
     return this.getPendingEntries(inbox).length;
@@ -843,6 +825,16 @@ export class HerdEventDispatcher {
       }
     }
     return { kind: "deliver" };
+  }
+
+  private resolveEventThreadRoute(event: TakodeEvent): ThreadRouteMetadata {
+    const questId =
+      questIdFromEvent(event) ??
+      this.launcher.getSession?.(event.sessionId)?.claimedQuestId ??
+      this.wsBridge.getSession(event.sessionId)?.state?.claimedQuestId;
+    return questId && /^q-\d+$/i.test(questId)
+      ? threadRouteForTarget(questId.toLowerCase(), "inferred")
+      : { threadKey: "main" };
   }
 
   private recordRestartPrepSuppressed(operation: RestartPrepOperation, event: TakodeEvent): void {
@@ -1267,9 +1259,41 @@ function updateLastEmittedMsgTo(watermarks: Map<string, number>, events: TakodeE
   }
 }
 
+function questIdFromEvent(event: TakodeEvent): string | undefined {
+  switch (event.event) {
+    case "turn_end":
+      return event.data.questChange?.questId;
+    case "board_stalled":
+    case "board_dispatchable":
+      return event.data.questId;
+    case "permission_request":
+    case "notification_needs_input":
+    case "user_message":
+      return event.data.questId;
+    default:
+      return undefined;
+  }
+}
+
 function snapshotHerdBatch(events: TakodeEvent[], renderedLines: string[]): TakodeHerdBatchSnapshot | undefined {
   if (!events.some((event) => event.event === "board_stalled")) return undefined;
   return { events, renderedLines };
+}
+
+function groupPendingEntriesByThread(
+  entries: InboxEntry[],
+): Array<{ route: ThreadRouteMetadata; entries: InboxEntry[] }> {
+  const groups = new Map<string, { route: ThreadRouteMetadata; entries: InboxEntry[] }>();
+  for (const entry of entries) {
+    const key = routeKey(entry.threadRoute);
+    let group = groups.get(key);
+    if (!group) {
+      group = { route: entry.threadRoute, entries: [] };
+      groups.set(key, group);
+    }
+    group.entries.push(entry);
+  }
+  return [...groups.values()];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────

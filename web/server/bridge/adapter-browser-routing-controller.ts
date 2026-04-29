@@ -37,6 +37,12 @@ import { LONG_SLEEP_REMINDER_TEXT } from "./bash-sleep-policy.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import { formatThreadMarker, normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { emitStoredUserMessageTakodeEvent, type UserMessageTakodeTurnTarget } from "./user-message-takode-event.js";
+import {
+  browserMessageRoute,
+  enrichPermissionWithThreadRoute,
+  sameThreadRoute,
+  type ThreadRouteMetadata,
+} from "../thread-routing-metadata.js";
 export {
   hasPendingForceCompact,
   isCliSlashCommand,
@@ -266,11 +272,40 @@ function findPendingExitPlanPermission(session: AdapterBrowserRoutingSessionLike
 
 function findPendingAskUserQuestionPermission(
   session: AdapterBrowserRoutingSessionLike,
+  route: ThreadRouteMetadata | null,
+  content: string,
 ): PermissionRequest | undefined {
-  for (const perm of session.pendingPermissions.values()) {
-    if (perm.tool_name === "AskUserQuestion") return perm;
+  const pending = [...session.pendingPermissions.values()].filter((perm) => perm.tool_name === "AskUserQuestion");
+  if (pending.length === 0) return undefined;
+  const sameThread = route ? pending.filter((perm) => sameThreadRoute(perm, route)) : [];
+  if (sameThread.length === 1) return sameThread[0];
+  return findExplicitlyTargetedAskUserQuestion(pending, content);
+}
+
+function findExplicitlyTargetedAskUserQuestion(
+  pending: PermissionRequest[],
+  content: string,
+): PermissionRequest | undefined {
+  const matches = pending.filter((perm) => contentReferencesExactTarget(content, perm));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function contentReferencesExactTarget(content: string, perm: PermissionRequest): boolean {
+  const tokens = new Set<string>([perm.request_id, `target:${perm.request_id}`]);
+  if (perm.threadKey) {
+    tokens.add(`thread:${perm.threadKey}`);
+    tokens.add(`[thread:${perm.threadKey}]`);
   }
-  return undefined;
+  if (perm.questId) tokens.add(perm.questId);
+  for (const token of tokens) {
+    if (hasExactToken(content, token)) return true;
+  }
+  return false;
+}
+
+function hasExactToken(content: string, token: string): boolean {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_-])${escaped}([^A-Za-z0-9_-]|$)`, "i").test(content);
 }
 
 function buildAskUserQuestionAnswers(
@@ -358,11 +393,12 @@ function maybeAutoAnswerPendingQuestionForUserMessage(
   msg: BrowserUserMessage,
   deps: AdapterBrowserRoutingDeps,
 ): boolean {
-  const pending = findPendingAskUserQuestionPermission(session);
-  if (!pending) return false;
   if (msg.agentSource?.sessionId === "herd-events") return false;
   if (isSystemSourceTag(msg.agentSource)) return false;
   if (typeof msg.content !== "string") return false;
+  const route = browserMessageRoute(msg) ?? { threadKey: "main" };
+  const pending = findPendingAskUserQuestionPermission(session, route, msg.content);
+  if (!pending) return false;
 
   const answers = buildAskUserQuestionAnswers(pending.input, msg.content);
   if (!answers) return false;
@@ -476,6 +512,8 @@ function emitTakodePermissionRequest(
     ...buildPermissionPreview(request),
     turn_source: deps.getCurrentTurnTriggerSource(session),
     msg_index: findLastAssistantMessageIndex(session),
+    threadKey: request.threadKey ?? "main",
+    ...(request.questId ? { questId: request.questId } : {}),
   });
 }
 
@@ -779,15 +817,19 @@ export function handleControlRequest(
   };
   const resultOrPromise = handlePermissionRequestPipeline(
     session as never,
-    {
-      request_id: msg.request_id,
-      tool_name: toolName,
-      input: msg.request.input,
-      permission_suggestions: msg.request.permission_suggestions,
-      description: msg.request.description,
-      tool_use_id: msg.request.tool_use_id,
-      agent_id: msg.request.agent_id,
-    },
+    enrichPermissionWithThreadRoute(
+      {
+        request_id: msg.request_id,
+        tool_name: toolName,
+        input: msg.request.input,
+        permission_suggestions: msg.request.permission_suggestions,
+        description: msg.request.description,
+        tool_use_id: msg.request.tool_use_id,
+        agent_id: msg.request.agent_id,
+        timestamp: Date.now(),
+      },
+      session.messageHistory,
+    ),
     "claude-ws",
     {
       onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
@@ -842,7 +884,7 @@ export function handleSdkPermissionRequest(
   };
   const resultOrPromise = handlePermissionRequestPipeline(
     session as never,
-    perm,
+    enrichPermissionWithThreadRoute(perm, session.messageHistory),
     "claude-sdk",
     {
       onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
@@ -896,7 +938,7 @@ export function handleCodexPermissionRequest(
 
   const resultOrPromise = handlePermissionRequestPipeline(
     session as never,
-    perm,
+    enrichPermissionWithThreadRoute(perm, session.messageHistory),
     "codex",
     {
       onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
@@ -1470,7 +1512,6 @@ export function ingestUserMessage(
 ): IngestedUserMessage | Promise<IngestedUserMessage> {
   const ts = Date.now();
   const commit = options?.commit !== false;
-  const needsInputReminderText = buildNeedsInputReminderTextForDirectUserMessage(session, msg, deps);
   const parsedTarget =
     typeof msg.threadKey === "string"
       ? normalizeThreadTarget(msg.threadKey)
@@ -1479,6 +1520,10 @@ export function ingestUserMessage(
         : null;
   const isLeaderSession = deps.getLauncherSessionInfo(session.id)?.isOrchestrator === true;
   const explicitTarget = parsedTarget ?? (isLeaderSession ? { threadKey: "main" } : null);
+  const reminderThreadRoute =
+    browserMessageRoute(msg) ??
+    (explicitTarget ? { threadKey: explicitTarget.threadKey, questId: explicitTarget.questId } : undefined);
+  const needsInputReminderText = buildNeedsInputReminderTextForDirectUserMessage(session, msg, deps);
   const explicitThreadRef: ThreadRef | undefined =
     explicitTarget && explicitTarget.threadKey !== "main"
       ? {
@@ -1507,7 +1552,12 @@ export function ingestUserMessage(
     let userMsgHistoryIdx = -1;
     if (commit) {
       if (needsInputReminderText) {
-        const reminderHistoryEntry = buildNeedsInputReminderHistoryEntry(needsInputReminderText, ts);
+        const reminderHistoryEntry = buildNeedsInputReminderHistoryEntry(
+          needsInputReminderText,
+          ts,
+          ts,
+          reminderThreadRoute,
+        );
         session.messageHistory.push(reminderHistoryEntry);
         deps.broadcastToBrowsers(session, reminderHistoryEntry);
       }

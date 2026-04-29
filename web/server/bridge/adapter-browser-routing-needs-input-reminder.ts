@@ -3,6 +3,8 @@ import type {
   AdapterBrowserRoutingDeps,
   AdapterBrowserRoutingSessionLike,
 } from "./adapter-browser-routing-controller.js";
+import { browserMessageRoute, sameThreadRoute } from "../thread-routing-metadata.js";
+import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 
 type BrowserUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
 
@@ -19,7 +21,8 @@ function extractReminderNotificationInfo(reminderText: string): { referencedIds:
   let totalCount: number | null = null;
   const ids: string[] = [];
   for (const line of reminderText.split(/\r?\n/)) {
-    const totalMatch = /^Unresolved same-session needs-input notifications: (\d+)\./.exec(line.trim());
+    const totalMatch =
+      /^Unresolved same-session(?: same-thread)? needs-input notifications(?: \([^)]+\))?: (\d+)\./.exec(line.trim());
     if (totalMatch) {
       totalCount = Number.parseInt(totalMatch[1], 10);
       continue;
@@ -60,8 +63,10 @@ export function buildNeedsInputReminderTextForDirectUserMessage(
   if (msg.agentSource) return null;
   if (deps.getLauncherSessionInfo(session.id)?.isOrchestrator !== true) return null;
 
+  const messageRoute = browserMessageRoute(msg) ?? { threadKey: "main" };
   const pending = (session.notifications ?? [])
     .filter((notification) => notification.category === "needs-input" && !notification.done)
+    .filter((notification) => sameThreadRoute(notification, messageRoute))
     .map((notification) => ({
       ...notification,
       numericId: parseNotificationNumericId(notification.id),
@@ -76,8 +81,8 @@ export function buildNeedsInputReminderTextForDirectUserMessage(
   const visible = pending.slice(0, 3);
   const header =
     pending.length === 1
-      ? "Unresolved same-session needs-input notifications: 1."
-      : `Unresolved same-session needs-input notifications: ${pending.length}. Showing newest ${visible.length}.`;
+      ? `Unresolved same-session same-thread needs-input notifications (${messageRoute.threadKey}): 1.`
+      : `Unresolved same-session same-thread needs-input notifications (${messageRoute.threadKey}): ${pending.length}. Showing newest ${visible.length}.`;
   const lines = visible.map((notification) => {
     const id = notification.numericId === null ? notification.id : String(notification.numericId);
     return `  ${id}. ${formatReminderSummary(notification.summary)}`;
@@ -95,12 +100,16 @@ export function buildNeedsInputReminderHistoryEntry(
   reminderText: string,
   timestamp: number,
   idSuffix: string | number = timestamp,
+  threadRoute?: ThreadRouteMetadata,
 ): Extract<BrowserIncomingMessage, { type: "user_message" }> {
   return {
     type: "user_message",
     content: reminderText,
     timestamp,
     id: `needs-input-reminder-${idSuffix}`,
+    ...(threadRoute ? { threadKey: threadRoute.threadKey } : {}),
+    ...(threadRoute?.questId ? { questId: threadRoute.questId } : {}),
+    ...(threadRoute?.threadRefs?.length ? { threadRefs: threadRoute.threadRefs } : {}),
     agentSource: {
       sessionId: "system:needs-input-reminder",
       sessionLabel: "Needs Input Reminder",

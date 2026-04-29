@@ -6,6 +6,7 @@ import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplay } from "./replay-buffer-policy.js";
+import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import type {
   BoardRowSessionStatus,
   BrowserIncomingMessage,
@@ -412,9 +413,10 @@ export function injectUserMessage(
   agentSource: AgentSource | undefined,
   takodeHerdBatch: TakodeHerdBatchSnapshot | undefined,
   deps: BrowserTransportDeps,
+  threadRoute?: ThreadRouteMetadata,
 ): "sent" | "queued" {
   if (isHerdEventSource(agentSource) && session.backendType === "codex") {
-    const existing = findMatchingPendingCodexInput(session, content, agentSource);
+    const existing = findMatchingPendingCodexInput(session, content, agentSource, threadRoute);
     if (existing) {
       if (existing.cancelable) {
         deps.queueCodexPendingStartBatch(session, "inject_herd_event_retry");
@@ -432,6 +434,9 @@ export function injectUserMessage(
     content,
     ...(agentSource ? { agentSource } : {}),
     ...(takodeHerdBatch ? { takodeHerdBatch } : {}),
+    ...(threadRoute ? { threadKey: threadRoute.threadKey } : {}),
+    ...(threadRoute?.questId ? { questId: threadRoute.questId } : {}),
+    ...(threadRoute?.threadRefs?.length ? { threadRefs: threadRoute.threadRefs } : {}),
   };
 
   if (hadRouteInFlight) {
@@ -441,7 +446,12 @@ export function injectUserMessage(
     if (isHerdEventSource(agentSource) && session.backendType === "codex") {
       const pending = session.pendingCodexInputs
         .slice(pendingCodexCountBefore)
-        .find((input) => input.content === content && sameAgentSource(input.agentSource, agentSource));
+        .find(
+          (input) =>
+            input.content === content &&
+            sameAgentSource(input.agentSource, agentSource) &&
+            samePendingThreadRoute(input, threadRoute),
+        );
       if (pending) {
         return getPendingCodexInputDeliveryState(session, pending.id);
       }
@@ -495,15 +505,21 @@ export function findMatchingPendingCodexInput(
   session: BrowserTransportSessionLike,
   content: string,
   agentSource?: AgentSource,
+  threadRoute?: ThreadRouteMetadata,
 ): PendingCodexInput | null {
   const normalizedContent = normalizePendingCodexDedupContent(content, agentSource);
   for (let i = session.pendingCodexInputs.length - 1; i >= 0; i--) {
     const pending = session.pendingCodexInputs[i];
     if (normalizePendingCodexDedupContent(pending.content, pending.agentSource) !== normalizedContent) continue;
     if (!sameAgentSource(pending.agentSource, agentSource)) continue;
+    if (!samePendingThreadRoute(pending, threadRoute)) continue;
     return pending;
   }
   return null;
+}
+
+function samePendingThreadRoute(pending: PendingCodexInput, threadRoute?: ThreadRouteMetadata): boolean {
+  return (pending.threadKey ?? "main").toLowerCase() === (threadRoute?.threadKey ?? "main").toLowerCase();
 }
 
 export function getPendingCodexInputDeliveryState(

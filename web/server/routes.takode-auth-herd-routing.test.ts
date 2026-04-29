@@ -627,7 +627,7 @@ describe("Takode server-authoritative auth", () => {
     expect(res.status).toBe(200);
     const json = await res.json();
     expect(json).toMatchObject({ ok: true, questId: "q-941", attached: [1, 2], outOfRange: [] });
-    expect(bridge._sessions["orch-1"].messageHistory).toHaveLength(3);
+    expect(bridge._sessions["orch-1"].messageHistory).toHaveLength(4);
     expect(bridge._sessions["orch-1"].messageHistory[0].threadRefs).toBeUndefined();
     expect(bridge._sessions["orch-1"].messageHistory[1].threadRefs).toMatchObject([
       { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
@@ -635,11 +635,78 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge._sessions["orch-1"].messageHistory[2].threadRefs).toMatchObject([
       { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
     ]);
+    expect(bridge._sessions["orch-1"].messageHistory[3]).toMatchObject({
+      type: "thread_attachment_marker",
+      threadKey: "q-941",
+      questId: "q-941",
+      attachedBy: "orch-1",
+      messageIndices: [1, 2],
+      ranges: ["1-2"],
+      count: 2,
+    });
     expect(bridge.broadcastToSession).toHaveBeenCalledWith("orch-1", {
       type: "message_history",
       messages: bridge._sessions["orch-1"].messageHistory,
     });
     expect(bridge.persistSessionById).toHaveBeenCalledWith("orch-1");
+  });
+
+  it("does not duplicate thread attachment markers for repeated or overlapping attach requests", async () => {
+    // Re-attaching an identical selection should be idempotent. Overlapping
+    // selections should only hide newly attached messages and create a marker
+    // for that new hidden subset.
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory = [
+      { type: "assistant", message: { id: "a1", content: [] } },
+      { type: "assistant", message: { id: "a2", content: [] } },
+      { type: "assistant", message: { id: "a3", content: [] } },
+      { type: "assistant", message: { id: "a4", content: [] } },
+    ];
+
+    const first = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", range: "1-2" }),
+    });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({
+      ok: true,
+      attached: [1, 2],
+      alreadyAttached: [],
+      marker: { type: "thread_attachment_marker", messageIndices: [1, 2], ranges: ["1-2"] },
+    });
+    expect(bridge._sessions["orch-1"].messageHistory).toHaveLength(5);
+
+    const repeat = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", range: "1-2" }),
+    });
+    expect(repeat.status).toBe(200);
+    expect(await repeat.json()).toMatchObject({
+      ok: true,
+      attached: [],
+      alreadyAttached: [1, 2],
+    });
+    expect(bridge._sessions["orch-1"].messageHistory).toHaveLength(5);
+
+    const overlap = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", range: "2-3" }),
+    });
+    expect(overlap.status).toBe(200);
+    expect(await overlap.json()).toMatchObject({
+      ok: true,
+      attached: [3],
+      alreadyAttached: [2],
+      marker: { type: "thread_attachment_marker", messageIndices: [3], ranges: ["3"] },
+    });
+    expect(
+      bridge._sessions["orch-1"].messageHistory.filter(
+        (entry: { type?: string }) => entry.type === "thread_attachment_marker",
+      ),
+    ).toHaveLength(2);
   });
 
   it("attaches multiple explicit Main message indices to a quest thread", async () => {
@@ -701,6 +768,71 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge._sessions["orch-1"].messageHistory[5].threadRefs).toMatchObject([
       { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
     ]);
+  });
+
+  it("answers a pending prompt through an exact quest thread selector", async () => {
+    // Thread selectors are explicit override contracts: they may cross thread
+    // boundaries only when exactly one pending prompt exists in that target.
+    setupTakodeSessions();
+    const worker = bridge._sessions["worker-1"];
+    worker.pendingPermissions.set("req-q101", {
+      request_id: "req-q101",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Main or q101?" }] },
+      tool_use_id: "tool-q101",
+      timestamp: 1,
+      threadKey: "q-101",
+      questId: "q-101",
+    });
+    worker.pendingPermissions.set("req-q202", {
+      request_id: "req-q202",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Main or q202?" }] },
+      tool_use_id: "tool-q202",
+      timestamp: 2,
+      threadKey: "q-202",
+      questId: "q-202",
+    });
+
+    const res = await app.request("/api/sessions/worker-1/answer", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ response: "Use q202", questId: "q-202" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, kind: "permission", tool_name: "AskUserQuestion" });
+    expect(bridge.routeExternalPermissionResponse).toHaveBeenCalledWith(
+      worker,
+      expect.objectContaining({ request_id: "req-q202" }),
+      "orch-1",
+    );
+  });
+
+  it("rejects ambiguous quest thread selectors for pending prompts", async () => {
+    setupTakodeSessions();
+    const worker = bridge._sessions["worker-1"];
+    for (const requestId of ["req-a", "req-b"]) {
+      worker.pendingPermissions.set(requestId, {
+        request_id: requestId,
+        tool_name: "AskUserQuestion",
+        input: { questions: [{ question: "Ambiguous?" }] },
+        tool_use_id: `tool-${requestId}`,
+        timestamp: requestId === "req-a" ? 1 : 2,
+        threadKey: "q-303",
+        questId: "q-303",
+      });
+    }
+
+    const res = await app.request("/api/sessions/worker-1/answer", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ response: "Use one", threadKey: "q-303" }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "Target selector matched multiple pending prompts" });
+    expect(bridge.routeExternalPermissionResponse).not.toHaveBeenCalled();
   });
 
   it("returns cached takode worktree rows in heavy repo mode without scheduling git refreshes", async () => {

@@ -9,6 +9,7 @@ Use this skill before creating a quest or refining an `idea` quest into a worker
 
 The goal is to give the user one concise chance to correct the agent's understanding before quest text is written.
 When the user clearly wants a quest created and dispatched, combine this with `/leader-dispatch`: describe the proposed quest draft and the proposed Quest Journey/scheduling plan together in natural prose so one confirmation can approve quest text, Journey, and dispatch plan. After approval, the leader must write the approved Journey to the board before or with dispatch.
+After successful quest creation or refinement, include a lightweight non-blocking thread reminder when prior discussion may belong to the new quest thread: Thread reminder: attach any prior messages that clearly belong to this quest to [q-N](quest:q-N) with `takode thread attach`.
 
 ## Scope
 
@@ -68,3 +69,4 @@ If you are acting as a leader/orchestrator and the confirmation asks a blocking 
 If the user corrects the understanding and ambiguity remains, repeat the same structure with the updated understanding. If the user clarifies enough to remove the ambiguity, draft the quest and Journey/scheduling plan together instead of sending a separate restated-understanding-only round.
 
 Only after the user confirms should you create or refine the quest.
+When you create or refine the quest, keep subsequent quest-specific activity in `[thread:q-N]` and attach clearly quest-specific prior discussion with `takode thread attach`.

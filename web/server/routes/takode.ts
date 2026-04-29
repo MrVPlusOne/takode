@@ -62,6 +62,13 @@ import {
   type BrowserOutgoingMessage,
   type ThreadRef,
 } from "../session-types.js";
+import {
+  buildThreadAttachmentSelection,
+  hasThreadAttachmentMarker,
+  routeKey,
+  sameThreadRoute,
+  threadRouteForTarget,
+} from "../thread-routing-metadata.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
@@ -186,6 +193,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
         tool_name: string;
         timestamp: number;
         msg_index?: number;
+        threadKey?: string;
+        questId?: string;
         input: Record<string, unknown>;
         questions?: unknown;
         plan?: unknown;
@@ -197,6 +206,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
         tool_name: "takode.notify";
         timestamp: number;
         msg_index?: number;
+        threadKey?: string;
+        questId?: string;
         summary?: string;
         suggestedAnswers?: string[];
         messageId: string | null;
@@ -204,7 +215,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
   type LeaderAnswerTargetSelection =
     | { kind: "oldest" }
     | { kind: "msg_index"; msg_index: number }
-    | { kind: "target_id"; target_id: string };
+    | { kind: "target_id"; target_id: string }
+    | { kind: "thread"; threadKey: string };
   type LeaderPermissionResponse = Extract<BrowserOutgoingMessage, { type: "permission_response" }>;
 
   const resolveReportedPermissionMode = (
@@ -1026,6 +1038,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       attachedBy: auth.callerId,
     };
     const attached: number[] = [];
+    const alreadyAttached: number[] = [];
     const outOfRange: number[] = [];
     for (const index of [...indices].sort((a, b) => a - b)) {
       const entry = session.messageHistory[index];
@@ -1036,16 +1049,42 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const existing = entry.threadRefs ?? [];
       if (!existing.some((item) => item.threadKey.toLowerCase() === questId)) {
         entry.threadRefs = [...existing, ref];
+        attached.push(index);
+      } else {
+        alreadyAttached.push(index);
       }
-      attached.push(index);
     }
-    if (attached.length === 0) {
+    if (attached.length === 0 && alreadyAttached.length === 0) {
       return c.json({ error: "No message indices were in range", outOfRange }, 400);
+    }
+    let marker: BrowserIncomingMessage | undefined;
+    if (attached.length > 0) {
+      const selection = buildThreadAttachmentSelection(session.messageHistory, questId, attached);
+      if (!hasThreadAttachmentMarker(session.messageHistory, selection.markerKey)) {
+        const timestamp = Date.now();
+        marker = {
+          type: "thread_attachment_marker",
+          id: `thread-attachment-${timestamp}-${session.messageHistory.length}`,
+          timestamp,
+          markerKey: selection.markerKey,
+          threadKey: questId,
+          questId,
+          attachedAt: timestamp,
+          attachedBy: auth.callerId,
+          messageIds: selection.messageIds,
+          messageIndices: selection.indices,
+          ranges: selection.ranges,
+          count: selection.indices.length,
+          firstMessageId: selection.firstMessageId,
+          firstMessageIndex: selection.firstMessageIndex,
+        };
+        session.messageHistory.push(marker);
+      }
     }
 
     wsBridge.broadcastToSession(id, { type: "message_history", messages: session.messageHistory });
     wsBridge.persistSessionById(id);
-    return c.json({ ok: true, sessionId: id, questId, attached, outOfRange });
+    return c.json({ ok: true, sessionId: id, questId, attached, alreadyAttached, outOfRange, marker });
   });
 
   // ─── Cat herding (orchestrator→worker relationships) ──────────────
@@ -1163,6 +1202,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
         timestamp: perm.timestamp,
         input: perm.input,
         ...(msg_index !== undefined ? { msg_index } : {}),
+        threadKey: perm.threadKey ?? "main",
+        ...(perm.questId ? { questId: perm.questId } : {}),
         ...(perm.tool_name === "AskUserQuestion" ? { questions: perm.input.questions } : {}),
         ...(perm.tool_name === "ExitPlanMode"
           ? { plan: perm.input.plan, allowedPrompts: perm.input.allowedPrompts }
@@ -1179,6 +1220,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
         tool_name: "takode.notify",
         timestamp: notif.timestamp,
         ...(msg_index !== undefined ? { msg_index } : {}),
+        threadKey: notif.threadKey ?? "main",
+        ...(notif.questId ? { questId: notif.questId } : {}),
         ...(notif.summary ? { summary: notif.summary } : {}),
         ...(notif.suggestedAnswers?.length ? { suggestedAnswers: notif.suggestedAnswers } : {}),
         messageId: notif.messageId,
@@ -1193,6 +1236,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     selection: Exclude<LeaderAnswerTargetSelection, { kind: "oldest" }>,
   ): boolean => {
     if (selection.kind === "msg_index") return target.msg_index === selection.msg_index;
+    if (selection.kind === "thread") return sameThreadRoute(target, selection);
     return target.kind === "permission"
       ? target.request_id === selection.target_id
       : target.notification_id === selection.target_id;
@@ -1268,6 +1312,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
         : typeof body.msg_index === "number"
           ? body.msg_index
           : undefined;
+    const rawThreadKey =
+      typeof body.threadKey === "string"
+        ? body.threadKey.trim()
+        : typeof body.thread_key === "string"
+          ? body.thread_key.trim()
+          : typeof body.questId === "string"
+            ? body.questId.trim()
+            : "";
     if (rawMsgIndex !== undefined && !Number.isInteger(rawMsgIndex)) {
       return c.json({ error: "msgIndex must be an integer" }, 400);
     }
@@ -1288,12 +1340,18 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
 
     const targets = buildLeaderAnswerTargets(session);
+    const threadTarget = rawThreadKey ? threadRouteForTarget(rawThreadKey) : null;
+    if (rawThreadKey && routeKey(threadTarget) === "main" && rawThreadKey.trim().toLowerCase() !== "main") {
+      return c.json({ error: "threadKey must be main or q-N" }, 400);
+    }
     const selection: LeaderAnswerTargetSelection =
       rawMsgIndex !== undefined
         ? { kind: "msg_index", msg_index: rawMsgIndex }
         : rawTargetId
           ? { kind: "target_id", target_id: rawTargetId }
-          : { kind: "oldest" };
+          : threadTarget
+            ? { kind: "thread", threadKey: threadTarget.threadKey }
+            : { kind: "oldest" };
     const selected = selectLeaderAnswerTarget(targets, selection);
     if (!selected.ok) return c.json({ error: selected.error }, selected.status);
     const target = selected.target;
@@ -1301,10 +1359,16 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (target.kind === "notification") {
       const callerInfo = launcher.getSession(auth.callerId);
       const sessionLabel = callerInfo?.sessionNum !== undefined ? `#${callerInfo.sessionNum}` : undefined;
-      const delivery = wsBridge.injectUserMessage(id, response, {
-        sessionId: auth.callerId,
-        ...(sessionLabel ? { sessionLabel } : {}),
-      });
+      const delivery = wsBridge.injectUserMessage(
+        id,
+        response,
+        {
+          sessionId: auth.callerId,
+          ...(sessionLabel ? { sessionLabel } : {}),
+        },
+        undefined,
+        threadRouteForTarget(target.threadKey ?? "main"),
+      );
       if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
       markNotificationDoneController(session, target.notification_id, true, notificationPersistDeps);
       return c.json({

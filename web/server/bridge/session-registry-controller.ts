@@ -2,6 +2,7 @@ import { sessionTag } from "../session-tag.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { PersistedSession } from "../session-store.js";
 import type { BoardRow, ContentBlock, SessionTaskEntry, SessionNotification } from "../session-types.js";
+import { inferThreadRouteForNotificationAnchor, withThreadRoute } from "../thread-routing-metadata.js";
 import { detectQuestEvent } from "./quest-detector.js";
 import type {
   BrowserIncomingMessage,
@@ -1039,23 +1040,30 @@ export function notifyUser(
   const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
   session.notificationCounter = nextNotificationCounter;
   const notificationId = `n-${nextNotificationCounter}`;
-  const anchoredNotification = {
-    id: notificationId,
-    category,
-    timestamp,
-    summary,
-    ...(suggestedAnswers ? { suggestedAnswers } : {}),
-  } as const;
+  const threadRoute = inferThreadRouteForNotificationAnchor(session.messageHistory, anchorIndex);
+  const anchoredNotification = withThreadRoute(
+    {
+      id: notificationId,
+      category,
+      timestamp,
+      summary,
+      ...(suggestedAnswers ? { suggestedAnswers } : {}),
+    },
+    threadRoute,
+  );
 
-  const notif: SessionNotification = {
-    id: notificationId,
-    category,
-    summary,
-    ...(suggestedAnswers ? { suggestedAnswers } : {}),
-    timestamp,
-    messageId: anchoredMessageId,
-    done: false,
-  };
+  const notif: SessionNotification = withThreadRoute(
+    {
+      id: notificationId,
+      category,
+      summary,
+      ...(suggestedAnswers ? { suggestedAnswers } : {}),
+      timestamp,
+      messageId: anchoredMessageId,
+      done: false,
+    },
+    threadRoute,
+  );
   session.notifications.push(notif);
   touchNotificationStatus(session);
 
@@ -1067,6 +1075,8 @@ export function notifyUser(
         messageId: anchoredMessageId,
         ...(suggestedAnswers ? { suggestedAnswers } : {}),
         ...(anchorIndex !== undefined ? { msg_index: anchorIndex } : {}),
+        threadKey: threadRoute.threadKey,
+        ...(threadRoute.questId ? { questId: threadRoute.questId } : {}),
       });
     }
     deps.persistSession(session);

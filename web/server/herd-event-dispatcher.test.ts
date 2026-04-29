@@ -85,6 +85,7 @@ function createMocks() {
   } satisfies WsBridgeHandle;
   const launcher: LauncherHandle = {
     getHerdedSessions: vi.fn(() => [{ sessionId: "worker-1" }, { sessionId: "worker-2" }]),
+    getSession: vi.fn(() => undefined),
   };
   return { bridge, launcher };
 }
@@ -188,6 +189,65 @@ describe("HerdEventDispatcher", () => {
     // All 3 events in one message
     const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
     expect(content).toContain("3 events");
+
+    dispatcher.destroy();
+  });
+
+  it("groups injected herd batches by quest route metadata", () => {
+    // A single debounce flush can contain work from several quests. The leader
+    // should receive one injected herd message per quest thread so Main stays
+    // reserved for unassociated/global events.
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(launcher.getSession!).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? { claimedQuestId: "q-101" }
+        : sessionId === "worker-2"
+          ? { claimedQuestId: "q-202" }
+          : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(makeEvent({ id: 1, sessionId: "worker-1", sessionNum: 1, sessionName: "worker-one" }));
+    triggerEvent(makeEvent({ id: 2, sessionId: "worker-2", sessionNum: 2, sessionName: "worker-two" }));
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls.map((call) => call[4]?.threadKey)).toEqual([
+      "q-101",
+      "q-202",
+    ]);
+
+    dispatcher.destroy();
+  });
+
+  it("prefers event-time quest metadata over the source session claim for herd routing", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(launcher.getSession!).mockReturnValue({ claimedQuestId: "q-101" });
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "board_stalled",
+        data: {
+          questId: "q-303",
+          stage: "IMPLEMENTING",
+          stalledForMs: 120_000,
+          reason: "No activity",
+          signature: "sig-1",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-303",
+      questId: "q-303",
+    });
 
     dispatcher.destroy();
   });

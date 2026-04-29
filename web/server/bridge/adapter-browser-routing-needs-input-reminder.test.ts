@@ -238,7 +238,9 @@ describe("direct user needs-input reminders", () => {
     });
     expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
     expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining("Unresolved same-session needs-input notifications: 4. Showing newest 3."),
+      content: expect.stringContaining(
+        "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
+      ),
     });
     expect(session.messageHistory[0]).toMatchObject({ content: expect.stringContaining("6. Newest pending question") });
     expect(session.messageHistory[0]).toMatchObject({
@@ -257,7 +259,9 @@ describe("direct user needs-input reminders", () => {
 
     const cliContent = sentCliContent(deps);
     expect(cliContent.indexOf("[Needs-input reminder]")).toBeLessThan(cliContent.indexOf("Fresh user message"));
-    expect(cliContent).toContain("Unresolved same-session needs-input notifications: 4. Showing newest 3.");
+    expect(cliContent).toContain(
+      "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
+    );
   });
 
   it("does not inject a reminder when the current leader session has no pending needs-input notifications", async () => {
@@ -327,7 +331,7 @@ describe("direct user needs-input reminders", () => {
     await handleUserMessage(session, userMessage(), deps);
 
     expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining("Unresolved same-session needs-input notifications: 1."),
+      content: expect.stringContaining("Unresolved same-session same-thread needs-input notifications (main): 1."),
     });
     expect(session.messageHistory[0]).toMatchObject({ content: expect.stringContaining("2. Still pending") });
     expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Already resolved") });
@@ -537,7 +541,7 @@ describe("direct user needs-input reminders", () => {
 
     routeAdapterBrowserMessage(session, userMessage(), null, deps);
     expect(session.pendingCodexInputs[0]?.needsInputReminderText).toContain(
-      "Unresolved same-session needs-input notifications: 4. Showing newest 3.",
+      "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
     );
     for (const notification of session.notifications ?? []) {
       if (notification.id === "n-1") continue;
@@ -554,7 +558,9 @@ describe("direct user needs-input reminders", () => {
 
     expect(session.messageHistory).toHaveLength(2);
     expect(session.messageHistory[0]).toMatchObject({
-      content: expect.stringContaining("Unresolved same-session needs-input notifications: 4. Showing newest 3."),
+      content: expect.stringContaining(
+        "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
+      ),
       agentSource: {
         sessionId: "system:needs-input-reminder",
         sessionLabel: "Needs Input Reminder",
