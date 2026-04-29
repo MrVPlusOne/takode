@@ -56,6 +56,9 @@ export function usePlaygroundSeed() {
     const prevFeedScrollPositions = new Map(demoSessionIds.map((id) => [id, snapshot.feedScrollPosition.get(id)]));
     const prevHistoryLoading = new Map(demoSessionIds.map((id) => [id, snapshot.historyLoading.get(id)]));
     const prevSessionBoards = new Map(demoSessionIds.map((id) => [id, snapshot.sessionBoards.get(id)]));
+    const prevSessionCompletedBoards = new Map(
+      demoSessionIds.map((id) => [id, snapshot.sessionCompletedBoards.get(id)]),
+    );
     const prevPendingCodexInputs = new Map(demoSessionIds.map((id) => [id, snapshot.pendingCodexInputs.get(id)]));
     const prevToolProgress = new Map(demoSessionIds.map((id) => [id, snapshot.toolProgress.get(id)]));
     const prevToolResults = new Map(demoSessionIds.map((id) => [id, snapshot.toolResults.get(id)]));
@@ -177,6 +180,13 @@ export function usePlaygroundSeed() {
         timestamp: Date.now() - 60_000,
         metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
       }),
+      makePlaygroundMessage({
+        id: "playground-thread-q964",
+        role: "assistant",
+        content: "Completed Journey is ready for review without active phase cues.",
+        timestamp: Date.now() - 30_000,
+        metadata: { threadRefs: [{ threadKey: "q-964", questId: "q-964", source: "explicit" }] },
+      }),
     ]);
     store.setSessionBoard(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
       {
@@ -204,6 +214,21 @@ export function usePlaygroundSeed() {
         updatedAt: Date.now() - 60_000,
         createdAt: Date.now() - 180_000,
         journey: { mode: "active", phaseIds: ["alignment", "implement", "code-review"] },
+      },
+    ]);
+    store.setSessionCompletedBoard(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
+      {
+        questId: "q-964",
+        title: "Finish completed Journey display",
+        status: "PORTING",
+        updatedAt: Date.now() - 30_000,
+        completedAt: Date.now() - 20_000,
+        createdAt: Date.now() - 150_000,
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "implement", "code-review", "port"],
+          currentPhaseId: "port",
+        },
       },
     ]);
 
@@ -525,6 +550,7 @@ export function usePlaygroundSeed() {
         const feedScrollPosition = new Map(s.feedScrollPosition);
         const historyLoading = new Map(s.historyLoading);
         const sessionBoards = new Map(s.sessionBoards);
+        const sessionCompletedBoards = new Map(s.sessionCompletedBoards);
         const pendingCodexInputs = new Map(s.pendingCodexInputs);
         const sessionTimers = new Map(s.sessionTimers);
         const toolProgress = new Map(s.toolProgress);
@@ -547,6 +573,7 @@ export function usePlaygroundSeed() {
           const prevFeedScrollPosition = prevFeedScrollPositions.get(demoId);
           const prevLoading = prevHistoryLoading.get(demoId);
           const prevPendingCodex = prevPendingCodexInputs.get(demoId);
+          const prevCompletedBoard = prevSessionCompletedBoards.get(demoId);
           const prevSessionToolProgress = prevToolProgress.get(demoId);
           const prevSessionToolResults = prevToolResults.get(demoId);
           const prevSessionToolStarts = prevToolStartTimestamps.get(demoId);
@@ -580,6 +607,8 @@ export function usePlaygroundSeed() {
           const prevBoard = prevSessionBoards.get(demoId);
           if (prevBoard) sessionBoards.set(demoId, prevBoard);
           else sessionBoards.delete(demoId);
+          if (prevCompletedBoard) sessionCompletedBoards.set(demoId, prevCompletedBoard);
+          else sessionCompletedBoards.delete(demoId);
           if (prevPendingCodex) pendingCodexInputs.set(demoId, prevPendingCodex);
           else pendingCodexInputs.delete(demoId);
           if (prevSessionToolProgress) toolProgress.set(demoId, prevSessionToolProgress);
@@ -614,6 +643,7 @@ export function usePlaygroundSeed() {
           feedScrollPosition,
           historyLoading,
           sessionBoards,
+          sessionCompletedBoards,
           pendingCodexInputs,
           sessionTimers,
           toolProgress,

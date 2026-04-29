@@ -33,7 +33,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { PickerSessionChip } from "./QuestPickerSessionChip.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { DiffViewer } from "./DiffViewer.js";
-import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
+import { isCompletedJourneyPresentationStatus, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
 import { buildQuestReworkDraft } from "./quest-rework.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
@@ -54,6 +54,7 @@ export function QuestDetailPanel() {
   const searchHighlight = useStore((s) => s.questOverlaySearchHighlight);
   const quests = useStore((s) => s.quests);
   const sessionBoards = useStore((s) => s.sessionBoards);
+  const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessions = useStore((s) => s.sessions);
   const sessionNames = useStore((s) => s.sessionNames);
@@ -68,14 +69,15 @@ export function QuestDetailPanel() {
     () => (questOverlayId ? (quests.find((q) => q.questId === questOverlayId) ?? null) : null),
     [quests, questOverlayId],
   );
-  const activeBoardRow = useMemo(() => {
+  const journeyBoardRow = useMemo(() => {
     if (!quest) return null;
-    for (const board of sessionBoards.values()) {
+    for (const board of [...sessionBoards.values(), ...sessionCompletedBoards.values()]) {
       const match = board.find((row) => row.questId === quest.questId && row.journey?.phaseIds?.length);
       if (match) return match;
     }
     return null;
-  }, [quest, sessionBoards]);
+  }, [quest, sessionBoards, sessionCompletedBoards]);
+  const journeyStatus = isCompletedJourneyPresentationStatus(quest?.status) ? "done" : journeyBoardRow?.status;
 
   // Local state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -960,13 +962,9 @@ export function QuestDetailPanel() {
           className="overflow-y-auto px-4 pb-4 pt-3 space-y-3"
           onPaste={isEditing ? (e) => handleEditPaste(quest.questId, e) : undefined}
         >
-          {activeBoardRow?.journey && (
+          {journeyBoardRow?.journey && (
             <div className="max-w-full" data-testid="quest-detail-journey-section">
-              <QuestJourneyTimeline
-                journey={activeBoardRow.journey}
-                status={activeBoardRow.status}
-                variant="vertical"
-              />
+              <QuestJourneyTimeline journey={journeyBoardRow.journey} status={journeyStatus} variant="vertical" />
             </div>
           )}
           {isEditing ? (

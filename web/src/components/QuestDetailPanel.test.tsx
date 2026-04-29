@@ -246,6 +246,44 @@ describe("QuestDetailPanel", () => {
     }
   });
 
+  it("shows done quest Journeys as completed even when board metadata still points at the last active phase", () => {
+    const quest = makeVerificationQuest({ questId: "q-953", status: "done" });
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: "q-953",
+      sessionBoards: new Map([
+        [
+          "leader-1",
+          [
+            {
+              questId: "q-953",
+              status: "PORTING",
+              updatedAt: 1,
+              journey: {
+                presetId: "full-code",
+                phaseIds: ["alignment", "implement", "code-review", "port"],
+                currentPhaseId: "port",
+              },
+            },
+          ],
+        ],
+      ]),
+    });
+
+    render(<QuestDetailPanel />);
+
+    // Quest lifecycle status wins for presentation, so stale current-phase metadata is not shown as active.
+    const timeline = screen.getByTestId("quest-journey-timeline");
+    expect(timeline).toHaveAttribute("data-journey-mode", "completed");
+    expect(within(timeline).getByText("Completed Journey")).toBeInTheDocument();
+    expect(within(timeline).queryByText("Active Journey")).not.toBeInTheDocument();
+    expect(within(timeline).queryByText("current")).not.toBeInTheDocument();
+    for (const phaseRow of timeline.querySelectorAll("li")) {
+      expect(phaseRow).toHaveAttribute("data-phase-current", "false");
+      expect(phaseRow).toHaveAttribute("data-phase-state", "finished");
+    }
+  });
+
   it("does not show the Journey timeline when the quest is not active on the board", () => {
     const quest = makeVerificationQuest({ questId: "q-42", status: "in_progress" });
     useStore.setState({

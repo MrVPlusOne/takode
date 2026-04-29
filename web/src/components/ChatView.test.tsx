@@ -199,6 +199,10 @@ vi.mock("./SessionStatusDot.js", () => ({
 }));
 
 vi.mock("./QuestJourneyTimeline.js", () => ({
+  isCompletedJourneyPresentationStatus: (status?: string | null) => {
+    const normalized = (status ?? "").trim().toLowerCase();
+    return normalized === "done" || normalized === "completed" || normalized === "needs_verification";
+  },
   QuestJourneyPreviewCard: ({ quest }: { quest?: { questId: string; title?: string } }) => (
     <div data-testid="quest-journey-preview-card">{quest?.questId}</div>
   ),
@@ -847,7 +851,7 @@ describe("ChatView backend banners", () => {
     expect(scope.queryByText(/q-100/i)).not.toBeInTheDocument();
     expect(rows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-200", "q-300"]);
     expect(rows.map((row) => row.getAttribute("data-thread-section"))).toEqual(["active", "done"]);
-    expect(scope.getByText("Done")).toBeInTheDocument();
+    expect(scope.getAllByText("Done").length).toBeGreaterThanOrEqual(1);
     expect(scope.queryByText("needs_verification")).not.toBeInTheDocument();
     expect(scope.queryByText("Open quest")).not.toBeInTheDocument();
   });

@@ -7,7 +7,8 @@ import {
 } from "../../shared/quest-journey.js";
 
 type JourneyVariant = "horizontal" | "compact" | "vertical";
-type PhaseState = "proposed" | "completed" | "current" | "upcoming";
+type JourneyPresentationMode = "active" | "completed" | "proposed";
+type PhaseState = "proposed" | "completed" | "current" | "upcoming" | "finished";
 
 interface PhaseItem {
   phase: QuestJourneyPhase;
@@ -47,29 +48,39 @@ function phaseCurrentDotStyle(phase: QuestJourneyPhase): CSSProperties {
   };
 }
 
-function isProposedJourney(journey: QuestJourneyPlanState, status?: string | null): boolean {
-  return journey.mode === "proposed" || (status ?? "").trim().toUpperCase() === "PROPOSED";
+export function isCompletedJourneyPresentationStatus(status?: string | null): boolean {
+  const normalized = (status ?? "").trim().toLowerCase();
+  return normalized === "done" || normalized === "completed" || normalized === "needs_verification";
+}
+
+function getJourneyPresentationMode(journey: QuestJourneyPlanState, status?: string | null): JourneyPresentationMode {
+  if (isCompletedJourneyPresentationStatus(status)) return "completed";
+  if (journey.mode === "proposed" || (status ?? "").trim().toUpperCase() === "PROPOSED") return "proposed";
+  return "active";
 }
 
 function getPhaseItems(journey: QuestJourneyPlanState, status?: string | null): PhaseItem[] {
   const phaseIds = journey.phaseIds ?? [];
-  const proposed = isProposedJourney(journey, status);
-  const currentIndex = proposed ? -1 : (getQuestJourneyCurrentPhaseIndex(journey, status) ?? -1);
+  const mode = getJourneyPresentationMode(journey, status);
+  const currentIndex = mode === "active" ? (getQuestJourneyCurrentPhaseIndex(journey, status) ?? -1) : -1;
 
   return phaseIds.flatMap((phaseId, index) => {
     const phase = getQuestJourneyPhase(phaseId);
     if (!phase) return [];
 
     const note = journey.phaseNotes?.[String(index)]?.trim() || undefined;
-    const state: PhaseState = proposed
-      ? "proposed"
-      : currentIndex < 0
-        ? "upcoming"
-        : index < currentIndex
-          ? "completed"
-          : index === currentIndex
-            ? "current"
-            : "upcoming";
+    const state: PhaseState =
+      mode === "proposed"
+        ? "proposed"
+        : mode === "completed"
+          ? "finished"
+          : currentIndex < 0
+            ? "upcoming"
+            : index < currentIndex
+              ? "completed"
+              : index === currentIndex
+                ? "current"
+                : "upcoming";
     return [{ phase, index, state, note }];
   });
 }
@@ -114,6 +125,12 @@ function phasePurposeClassName(item: PhaseItem, kind: "authored"): string {
   return "text-cc-fg/85";
 }
 
+function journeyTimelineLabel(mode: JourneyPresentationMode): string {
+  if (mode === "proposed") return "Proposed Journey";
+  if (mode === "completed") return "Completed Journey";
+  return "Active Journey";
+}
+
 export function QuestJourneyCompactSummary({
   journey,
   status,
@@ -126,18 +143,20 @@ export function QuestJourneyCompactSummary({
   const items = getPhaseItems(journey, status);
   if (items.length === 0) return null;
 
-  const proposed = isProposedJourney(journey, status);
+  const mode = getJourneyPresentationMode(journey, status);
   const currentItem = items.find((item) => item.state === "current");
-  const label = proposed ? "Proposed" : (currentItem?.phase.label ?? "Journey");
-  const sequence = proposed ? items.map((item) => item.phase.label).join(" -> ") : "";
-  const position = proposed ? `${items.length} phases` : currentItem ? `${currentItem.index + 1}/${items.length}` : "";
+  const label =
+    mode === "proposed" ? "Proposed" : mode === "completed" ? "Completed" : (currentItem?.phase.label ?? "Journey");
+  const sequence = mode === "proposed" ? items.map((item) => item.phase.label).join(" -> ") : "";
+  const position =
+    mode === "active" ? (currentItem ? `${currentItem.index + 1}/${items.length}` : "") : `${items.length} phases`;
   const notes = noteCount(journey);
 
   return (
     <div
       className={`flex min-w-0 max-w-full items-center gap-2 ${className ?? ""}`.trim()}
       data-testid="quest-journey-compact-summary"
-      data-journey-mode={proposed ? "proposed" : "active"}
+      data-journey-mode={mode}
     >
       <span
         className={`h-2.5 w-2.5 shrink-0 rounded-full border ${currentItem ? "" : "border-cc-muted/45 bg-transparent"}`.trim()}
@@ -175,7 +194,7 @@ function HorizontalJourney({
     <div
       className={`flex max-w-full flex-wrap items-center gap-y-1 ${compact ? "gap-x-0.5" : "gap-x-1"} ${className ?? ""}`.trim()}
       data-testid="quest-journey-timeline"
-      data-journey-mode={isProposedJourney(journey, status) ? "proposed" : "active"}
+      data-journey-mode={getJourneyPresentationMode(journey, status)}
     >
       {items.map((item, itemIndex) => {
         const connectorPhase = items[itemIndex - 1]?.phase;
@@ -225,17 +244,17 @@ function VerticalJourney({
   status?: string | null;
   className?: string;
 }) {
-  const proposed = isProposedJourney(journey, status);
+  const mode = getJourneyPresentationMode(journey, status);
   return (
     <div
       className={`rounded-md border border-cc-border bg-cc-hover/20 p-2 ${className ?? ""}`.trim()}
       data-testid="quest-journey-timeline"
-      data-journey-mode={proposed ? "proposed" : "active"}
+      data-journey-mode={mode}
     >
       <div className="mb-1.5 flex items-center justify-between gap-3">
         <div className="min-w-0">
           <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
-            {proposed ? "Proposed Journey" : "Active Journey"}
+            {journeyTimelineLabel(mode)}
           </div>
         </div>
         <div className="shrink-0 text-[10px] text-cc-muted">{`${items.length} phase${items.length === 1 ? "" : "s"}`}</div>
@@ -262,7 +281,11 @@ function VerticalJourney({
                 {hasNext && (
                   <span
                     className={`mt-0.5 w-px flex-1 ${item.state === "completed" ? "bg-cc-muted/30" : ""}`}
-                    style={item.state === "completed" ? undefined : phaseLineStyle(item.phase, proposed ? 0.2 : 0.35)}
+                    style={
+                      item.state === "completed"
+                        ? undefined
+                        : phaseLineStyle(item.phase, mode === "proposed" ? 0.2 : 0.35)
+                    }
                     aria-hidden="true"
                   />
                 )}

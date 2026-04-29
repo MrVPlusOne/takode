@@ -20,7 +20,11 @@ import { QuestHoverCard } from "./QuestHoverCard.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
-import { QuestJourneyPreviewCard, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
+import {
+  isCompletedJourneyPresentationStatus,
+  QuestJourneyPreviewCard,
+  QuestJourneyTimeline,
+} from "./QuestJourneyTimeline.js";
 import type { BoardParticipantStatus, BoardRowSessionStatus } from "../types.js";
 import type { QuestmasterTask } from "../types.js";
 
@@ -279,12 +283,14 @@ function WaitForInputRef({ notificationId }: { notificationId: string }) {
 
 function JourneyHoverCard({
   row,
+  journeyStatus,
   quest,
   anchorRect,
   onMouseEnter,
   onMouseLeave,
 }: {
   row: BoardRowData;
+  journeyStatus?: string;
   quest?: QuestmasterTask;
   anchorRect: DOMRect;
   onMouseEnter: () => void;
@@ -326,7 +332,7 @@ function JourneyHoverCard({
       <div className="rounded-lg border border-cc-border bg-cc-card p-2.5 shadow-xl">
         <QuestJourneyPreviewCard
           journey={row.journey}
-          status={row.status}
+          status={journeyStatus}
           quest={{ questId: row.questId, title: quest?.title ?? row.title }}
           onQuestClick={() => useStore.getState().openQuestOverlay(row.questId)}
         />
@@ -336,7 +342,7 @@ function JourneyHoverCard({
   );
 }
 
-function StatusCell({ row }: { row: BoardRowData }) {
+function StatusCell({ row, mode }: { row: BoardRowData; mode: BoardTableMode }) {
   const status = row.status;
   const quests = useStore((s) => s.quests);
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
@@ -353,6 +359,12 @@ function StatusCell({ row }: { row: BoardRowData }) {
     () => quests.find((candidate) => candidate.questId.toLowerCase() === row.questId.toLowerCase()),
     [quests, row.questId],
   );
+  const journeyStatus =
+    mode === "completed" ||
+    isCompletedJourneyPresentationStatus(quest?.status) ||
+    isCompletedJourneyPresentationStatus(row.status)
+      ? "done"
+      : row.status;
 
   function handleJourneyMouseEnter(e: MouseEvent<HTMLDivElement>) {
     if (!row.journey?.phaseIds?.length) return;
@@ -376,11 +388,12 @@ function StatusCell({ row }: { row: BoardRowData }) {
           onMouseLeave={handleJourneyMouseLeave}
           data-testid="board-journey-hover-target"
         >
-          <QuestJourneyTimeline journey={row.journey} status={row.status} compact />
+          <QuestJourneyTimeline journey={row.journey} status={journeyStatus} compact />
         </div>
         {hoverRect && (
           <JourneyHoverCard
             row={row}
+            journeyStatus={journeyStatus}
             quest={quest}
             anchorRect={hoverRect}
             onMouseEnter={() => {
@@ -447,7 +460,7 @@ export const BoardTable = memo(function BoardTable({
                 <SessionCell row={row} rowStatus={rowSessionStatuses?.[row.questId]} />
               </td>
               <td className="px-3 py-1.5 max-w-[360px]">
-                <StatusCell row={row} />
+                <StatusCell row={row} mode={mode} />
               </td>
               <td className="px-3 py-1.5 text-cc-fg max-w-[200px] truncate">{row.title || "\u2014"}</td>
               <td className="px-3 py-1.5 whitespace-nowrap">

@@ -295,6 +295,54 @@ describe("BoardTable", () => {
     expect(openQuestOverlay).toHaveBeenCalledWith("q-924");
   });
 
+  it("renders completed board Journey rows without active current-phase cues", async () => {
+    mockState.quests = [
+      {
+        id: "q-953-v1",
+        questId: "q-953",
+        version: 1,
+        title: "Use noninteractive Git editors",
+        status: "done",
+        createdAt: 1,
+      },
+    ];
+    const board: BoardRowData[] = [
+      {
+        questId: "q-953",
+        title: "Use noninteractive Git editors",
+        status: "PORTING",
+        journey: {
+          mode: "active",
+          presetId: "full-code",
+          phaseIds: ["alignment", "implement", "code-review", "port"],
+          currentPhaseId: "port",
+        },
+        updatedAt: 2,
+        completedAt: 3,
+      },
+    ];
+
+    render(<BoardTable board={board} mode="completed" />);
+
+    // Completed board rows should not make the compact cell or hover card look like an active phase.
+    const summary = screen.getByTestId("quest-journey-compact-summary");
+    expect(summary).toHaveAttribute("data-journey-mode", "completed");
+    expect(within(summary).getByText("Completed")).toBeInTheDocument();
+    expect(within(summary).queryByText("Port")).not.toBeInTheDocument();
+
+    fireEvent.mouseEnter(screen.getByTestId("board-journey-hover-target"));
+    const card = await screen.findByTestId("board-journey-hover-card");
+    const timeline = within(card).getByTestId("quest-journey-timeline");
+    expect(timeline).toHaveAttribute("data-journey-mode", "completed");
+    expect(within(card).getByText("Completed Journey")).toBeInTheDocument();
+    expect(within(card).queryByText("Active Journey")).not.toBeInTheDocument();
+    expect(within(card).queryByText("current")).not.toBeInTheDocument();
+    for (const phaseRow of timeline.querySelectorAll("li")) {
+      expect(phaseRow).toHaveAttribute("data-phase-current", "false");
+      expect(phaseRow).toHaveAttribute("data-phase-state", "finished");
+    }
+  });
+
   it("renders worker and reviewer session links in a wrapping same-line row with their own status dots", () => {
     const board: BoardRowData[] = [{ questId: "q-1", worker: "worker-1", workerNum: 11, updatedAt: 1 }];
 

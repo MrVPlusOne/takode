@@ -18,7 +18,7 @@ import { YarnBallDot } from "./CatIcons.js";
 import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
 import type { BoardRowData } from "./BoardTable.js";
-import { QuestJourneyPreviewCard } from "./QuestJourneyTimeline.js";
+import { isCompletedJourneyPresentationStatus, QuestJourneyPreviewCard } from "./QuestJourneyTimeline.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
@@ -184,6 +184,7 @@ function buildLeaderThreadRows({
 
 function phaseLabelForThread(row: LeaderThreadRow): { label: string; color?: string } | null {
   if (row.journey?.phaseIds?.length) {
+    if (isDoneThreadRow(row)) return { label: "Done" };
     const phase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.boardStatus));
     if (phase) return { label: phase.label, color: phase.color.accent };
   }
@@ -194,6 +195,18 @@ function phaseLabelForThread(row: LeaderThreadRow): { label: string; color?: str
   if (row.status === "needs_verification") return { label: "Verification" };
   if (row.status === "done") return { label: "Done" };
   return null;
+}
+
+function isDoneThreadRow(row: LeaderThreadRow): boolean {
+  return (
+    row.section === "done" ||
+    isCompletedJourneyPresentationStatus(row.status) ||
+    isCompletedJourneyPresentationStatus(row.boardStatus)
+  );
+}
+
+function journeyStatusForThread(row: LeaderThreadRow): string | undefined {
+  return isDoneThreadRow(row) ? "done" : row.boardStatus;
 }
 
 function isQueuedThreadRowStatus(status?: string): boolean {
@@ -349,7 +362,7 @@ function ThreadJourneyHover({ row, label }: { row: LeaderThreadRow; label: { lab
             <div className="rounded-lg border border-cc-border bg-cc-card p-2.5 shadow-xl">
               <QuestJourneyPreviewCard
                 journey={row.journey}
-                status={row.boardStatus}
+                status={journeyStatusForThread(row)}
                 quest={{ questId: row.questId ?? row.threadKey, title: row.title }}
                 onQuestClick={() => row.questId && useStore.getState().openQuestOverlay(row.questId)}
               />
