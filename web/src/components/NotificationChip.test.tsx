@@ -25,6 +25,8 @@ const mockStoreState: Record<string, any> = {
   replyContexts: mockReplyContexts,
   messages: new Map(),
   quests: [],
+  sessionBoards: new Map(),
+  sessionCompletedBoards: new Map(),
   sessionNames: new Map(),
   sdkSessions: [],
   zoomLevel: 1,
