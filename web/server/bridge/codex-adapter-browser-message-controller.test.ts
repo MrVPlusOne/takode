@@ -79,9 +79,10 @@ function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMess
 async function routeAssistantMessage(
   session: TestCodexSession,
   content: ContentBlock[],
+  depsOverride: Partial<CodexAdapterBrowserMessageDeps> = {},
 ): Promise<BrowserIncomingMessage> {
   const broadcasts: BrowserIncomingMessage[] = [];
-  await handleCodexAdapterBrowserMessage(session, makeAssistant(content), makeDeps(broadcasts));
+  await handleCodexAdapterBrowserMessage(session, makeAssistant(content), { ...makeDeps(broadcasts), ...depsOverride });
   expect(broadcasts).toHaveLength(1);
   return broadcasts[0];
 }
@@ -121,6 +122,28 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     });
     expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
       { type: "text", text: "Same-line Codex routed update" },
+    ]);
+  });
+
+  it("routes leader text when launcher info says orchestrator and session state has not caught up", async () => {
+    const session = makeSession();
+    delete session.state.isOrchestrator;
+
+    const msg = await routeAssistantMessage(
+      session,
+      [{ type: "text", text: "[thread:q-966] Launcher-derived Codex route" }],
+      { getLauncherSessionInfo: () => ({ isOrchestrator: true }) },
+    );
+
+    expect(session.state.isOrchestrator).toBe(true);
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-966",
+      questId: "q-966",
+      threadRefs: [{ threadKey: "q-966", questId: "q-966", source: "explicit" }],
+    });
+    expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
+      { type: "text", text: "Launcher-derived Codex route" },
     ]);
   });
 

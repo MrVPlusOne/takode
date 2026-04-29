@@ -44,7 +44,7 @@ function routingReminderContent(error: ThreadRoutingError): ContentBlock[] {
 }
 
 function normalizeLeaderAssistantRouting(
-  session: CodexBrowserMessageSessionLike,
+  isLeaderSession: boolean,
   content: ContentBlock[],
   parentToolUseId: string | null | undefined,
 ): {
@@ -54,7 +54,7 @@ function normalizeLeaderAssistantRouting(
   threadRefs?: ThreadRef[];
   threadRoutingError?: ThreadRoutingError;
 } {
-  if (session.state?.isOrchestrator !== true || parentToolUseId) return { content };
+  if (!isLeaderSession || parentToolUseId) return { content };
 
   const nextContent = content.map((block) =>
     block.type === "tool_use" && block.name === "Bash" && typeof block.input?.command === "string"
@@ -116,6 +116,16 @@ function normalizeLeaderAssistantRouting(
   }
 
   return { content: nextContent };
+}
+
+function isLeaderSessionForAssistantRouting(
+  session: CodexBrowserMessageSessionLike,
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
+): boolean {
+  if (session.state?.isOrchestrator === true) return true;
+  if (launcherInfo?.isOrchestrator !== true) return false;
+  session.state = { ...session.state, isOrchestrator: true };
+  return true;
 }
 
 type CodexLeaderRecycleLauncherInfo = {
@@ -296,7 +306,9 @@ export async function handleCodexAdapterBrowserMessage(
     }
     deps.persistSession(session);
   } else if (msg.type === "assistant") {
-    const routed = normalizeLeaderAssistantRouting(session, msg.message.content || [], msg.parent_tool_use_id);
+    const launcherInfo = deps.getLauncherSessionInfo(session.id);
+    const isLeaderSession = isLeaderSessionForAssistantRouting(session, launcherInfo);
+    const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content || [], msg.parent_tool_use_id);
     const routedMsg = {
       ...msg,
       message: { ...msg.message, content: routed.content },

@@ -49,12 +49,18 @@ function makeAssistant(
   };
 }
 
-function routeAssistantMessage(session: AssistantMessageSessionLike, content: ContentBlock[]): BrowserIncomingMessage {
+function routeAssistantMessage(
+  session: AssistantMessageSessionLike,
+  content: ContentBlock[],
+  overrides: Partial<Parameters<typeof handleAssistantMessage>[2]> = {},
+): BrowserIncomingMessage {
   const broadcasts: BrowserIncomingMessage[] = [];
   handleAssistantMessage(session, makeAssistant(content), {
     hasAssistantReplay: () => false,
+    getLauncherSessionInfo: () => null,
     broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
     persistSession: () => {},
+    ...overrides,
   });
   expect(broadcasts).toHaveLength(1);
   return broadcasts[0];
@@ -241,6 +247,28 @@ describe("assistant-message-controller", () => {
     });
     expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
       { type: "text", text: "Same-line routed update" },
+    ]);
+  });
+
+  it("routes leader text when launcher info says orchestrator and session state has not caught up", () => {
+    const session = makeSession();
+    delete session.state.isOrchestrator;
+
+    const msg = routeAssistantMessage(
+      session,
+      [{ type: "text", text: "[thread:q-966] Launcher-derived Claude route" }],
+      { getLauncherSessionInfo: () => ({ isOrchestrator: true }) },
+    );
+
+    expect(session.state.isOrchestrator).toBe(true);
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-966",
+      questId: "q-966",
+      threadRefs: [{ threadKey: "q-966", questId: "q-966", source: "explicit" }],
+    });
+    expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
+      { type: "text", text: "Launcher-derived Claude route" },
     ]);
   });
 

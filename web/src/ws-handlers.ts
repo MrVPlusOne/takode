@@ -4,7 +4,12 @@ import { createComposerDraftImage } from "./components/composer-image-utils.js";
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage, TaskItem } from "./types.js";
 import { generateUniqueSessionName } from "./utils/names.js";
 import { playNotificationSound, playReviewSound, playNeedsInputSound } from "./utils/notification-sound.js";
-import { extractTextFromBlocks, normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
+import {
+  extractTextFromBlocks,
+  normalizeHistoryMessageToChatMessages,
+  normalizeLiveAssistantThreadMetadata,
+  normalizeLiveLeaderUserThreadMetadata,
+} from "./utils/history-message-normalization.js";
 import { questOwnsSessionName } from "./utils/quest-helpers.js";
 import { formatReplyContentForPreview } from "./utils/reply-context.js";
 import {
@@ -582,18 +587,13 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     }
 
     case "leader_user_message": {
+      const normalized = normalizeLiveLeaderUserThreadMetadata(data);
       store.appendMessage(sessionId, {
         id: data.id,
         role: "assistant",
-        content: data.content,
+        content: normalized.content,
         timestamp: data.timestamp,
-        metadata: {
-          leaderUserMessage: true,
-          ...(data.threadRefs ? { threadRefs: data.threadRefs } : {}),
-          ...(data.threadKey ? { threadKey: data.threadKey } : {}),
-          ...(data.questId ? { questId: data.questId } : {}),
-          ...(data.threadRoutingError ? { threadRoutingError: data.threadRoutingError } : {}),
-        },
+        metadata: normalized.metadata,
         ...(data.notification ? { notification: data.notification } : {}),
       });
       break;
@@ -606,12 +606,14 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "assistant": {
       const msg = data.message;
-      const textContent = extractTextFromBlocks(msg.content);
+      const normalized = normalizeLiveAssistantThreadMetadata(data);
+      const contentBlocks = normalized.content;
+      const textContent = extractTextFromBlocks(contentBlocks);
       const chatMsg: ChatMessage = {
         id: msg.id,
         role: "assistant",
         content: textContent,
-        contentBlocks: msg.content,
+        contentBlocks,
         timestamp: data.timestamp || Date.now(),
         parentToolUseId: data.parent_tool_use_id,
         model: msg.model,
@@ -619,16 +621,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         turnDurationMs: data.turn_duration_ms,
         cliUuid: (data as Record<string, unknown>).uuid as string | undefined,
         ...(data.notification ? { notification: data.notification } : {}),
-        ...(data.threadRefs || data.threadKey || data.questId || data.threadRoutingError
-          ? {
-              metadata: {
-                ...(data.threadRefs ? { threadRefs: data.threadRefs } : {}),
-                ...(data.threadKey ? { threadKey: data.threadKey } : {}),
-                ...(data.questId ? { questId: data.questId } : {}),
-                ...(data.threadRoutingError ? { threadRoutingError: data.threadRoutingError } : {}),
-              },
-            }
-          : {}),
+        ...(normalized.metadata ? { metadata: normalized.metadata } : {}),
       };
       // Server accumulates content blocks for same-ID messages (parallel tool calls).
       // If this ID already exists, merge content blocks rather than replace — this
@@ -637,21 +630,18 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       const existingMsgs = store.messages.get(sessionId) || [];
       const existing = msg.id ? existingMsgs.find((m) => m.id === msg.id) : undefined;
       if (existing) {
-        const mergedBlocks = mergeContentBlocks(existing.contentBlocks || [], msg.content || []);
+        const mergedBlocks = mergeContentBlocks(existing.contentBlocks || [], contentBlocks || []);
         store.updateMessage(sessionId, msg.id!, {
           content: extractTextFromBlocks(mergedBlocks),
           contentBlocks: mergedBlocks,
           timestamp: data.timestamp || existing.timestamp,
           stopReason: msg.stop_reason || existing.stopReason,
           ...(data.notification ? { notification: data.notification } : {}),
-          ...(data.threadRefs || data.threadKey || data.questId || data.threadRoutingError
+          ...(normalized.metadata
             ? {
                 metadata: {
                   ...existing.metadata,
-                  ...(data.threadRefs ? { threadRefs: data.threadRefs } : {}),
-                  ...(data.threadKey ? { threadKey: data.threadKey } : {}),
-                  ...(data.questId ? { questId: data.questId } : {}),
-                  ...(data.threadRoutingError ? { threadRoutingError: data.threadRoutingError } : {}),
+                  ...normalized.metadata,
                 },
               }
             : {}),

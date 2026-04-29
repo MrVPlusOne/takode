@@ -116,6 +116,48 @@ function repairThreadPrefixInContentBlocks(blocks: ContentBlock[]): {
   return { blocks: next, metadata: threadRefForRepairedTarget(target) };
 }
 
+function existingThreadMetadataFromMessage(
+  msg: Pick<BrowserIncomingMessage, "threadRefs" | "threadKey" | "questId" | "threadRoutingError">,
+): ChatMessage["metadata"] | undefined {
+  if (!msg.threadRefs && !msg.threadKey && !msg.questId && !msg.threadRoutingError) return undefined;
+  return {
+    ...(msg.threadRefs ? { threadRefs: msg.threadRefs } : {}),
+    ...(msg.threadKey ? { threadKey: msg.threadKey } : {}),
+    ...(msg.questId ? { questId: msg.questId } : {}),
+    ...(msg.threadRoutingError ? { threadRoutingError: msg.threadRoutingError } : {}),
+  };
+}
+
+export function normalizeLiveAssistantThreadMetadata(msg: Extract<BrowserIncomingMessage, { type: "assistant" }>): {
+  content: ContentBlock[];
+  metadata?: ChatMessage["metadata"];
+} {
+  const repairedContent = repairThreadPrefixInContentBlocks(msg.message.content);
+  return {
+    content: repairedContent.blocks,
+    metadata: mergeThreadMetadata(existingThreadMetadataFromMessage(msg), repairedContent.metadata),
+  };
+}
+
+export function normalizeLiveLeaderUserThreadMetadata(
+  msg: Extract<BrowserIncomingMessage, { type: "leader_user_message" }>,
+): {
+  content: string;
+  metadata: NonNullable<ChatMessage["metadata"]>;
+} {
+  const repaired = repairThreadPrefixInText(msg.content);
+  return {
+    content: repaired.text,
+    metadata: mergeThreadMetadata(
+      {
+        leaderUserMessage: true,
+        ...(existingThreadMetadataFromMessage(msg) ?? {}),
+      },
+      repaired.metadata,
+    )!,
+  };
+}
+
 function getReplaySensitiveBlockSignature(block: ContentBlock): string | null {
   if (block.type === "text") return `text:${block.text}`;
   if (block.type === "thinking") return `thinking:${block.thinking}`;
@@ -211,15 +253,7 @@ export function normalizeHistoryMessageToChatMessages(
     const dedupedContent = dedupeAssistantContentBlocks(msg.content);
     const repairedContent = repairThreadPrefixInContentBlocks(dedupedContent);
     const normalizedContent = repairedContent.blocks;
-    const existingMetadata: ChatMessage["metadata"] | undefined =
-      histMsg.threadRefs || histMsg.threadKey || histMsg.questId || histMsg.threadRoutingError
-        ? {
-            ...(histMsg.threadRefs ? { threadRefs: histMsg.threadRefs } : {}),
-            ...(histMsg.threadKey ? { threadKey: histMsg.threadKey } : {}),
-            ...(histMsg.questId ? { questId: histMsg.questId } : {}),
-            ...(histMsg.threadRoutingError ? { threadRoutingError: histMsg.threadRoutingError } : {}),
-          }
-        : undefined;
+    const existingMetadata = existingThreadMetadataFromMessage(histMsg);
     const metadata = mergeThreadMetadata(existingMetadata, repairedContent.metadata);
     return [
       {

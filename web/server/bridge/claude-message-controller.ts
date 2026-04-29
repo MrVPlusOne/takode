@@ -125,6 +125,7 @@ export interface AssistantMessageSessionLike {
 
 interface HandleAssistantMessageDeps {
   hasAssistantReplay: (session: AssistantMessageSessionLike, messageId: string) => boolean;
+  getLauncherSessionInfo?: (sessionId: string) => { isOrchestrator?: boolean } | null | undefined;
   broadcastToBrowsers: (
     session: AssistantMessageSessionLike,
     msg: BrowserIncomingMessage,
@@ -166,7 +167,7 @@ function routingReminderContent(error: ThreadRoutingError): ContentBlock[] {
 }
 
 function normalizeLeaderAssistantRouting(
-  session: AssistantMessageSessionLike,
+  isLeaderSession: boolean,
   content: ContentBlock[],
   parentToolUseId: string | null,
 ): {
@@ -176,7 +177,7 @@ function normalizeLeaderAssistantRouting(
   threadRefs?: ThreadRef[];
   threadRoutingError?: ThreadRoutingError;
 } {
-  if (!session.state.isOrchestrator || parentToolUseId) return { content };
+  if (!isLeaderSession || parentToolUseId) return { content };
 
   const nextContent = content.map((block) =>
     block.type === "tool_use" && block.name === "Bash" && typeof block.input?.command === "string"
@@ -238,6 +239,16 @@ function normalizeLeaderAssistantRouting(
   }
 
   return { content: nextContent };
+}
+
+function isLeaderSessionForAssistantRouting(
+  session: AssistantMessageSessionLike,
+  deps: Pick<HandleAssistantMessageDeps, "getLauncherSessionInfo">,
+): boolean {
+  if (session.state.isOrchestrator === true) return true;
+  if (deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator !== true) return false;
+  session.state.isOrchestrator = true;
+  return true;
 }
 
 export interface ResultMessageSessionLike {
@@ -430,6 +441,7 @@ export function handleAssistantMessage(
   deps: HandleAssistantMessageDeps,
 ): void {
   const msgId = msg.message?.id;
+  const isLeaderSession = isLeaderSessionForAssistantRouting(session, deps);
 
   if (!msgId) {
     if (shouldDropReplayHistoryAfterRevert(session)) {
@@ -438,7 +450,7 @@ export function handleAssistantMessage(
       );
       return;
     }
-    const routed = normalizeLeaderAssistantRouting(session, msg.message.content, msg.parent_tool_use_id);
+    const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content, msg.parent_tool_use_id);
     const browserMsg: BrowserIncomingMessage = {
       type: "assistant",
       message: { ...msg.message, content: routed.content },
@@ -474,7 +486,7 @@ export function handleAssistantMessage(
       return;
     }
 
-    const routed = normalizeLeaderAssistantRouting(session, msg.message.content, msg.parent_tool_use_id);
+    const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content, msg.parent_tool_use_id);
     const routedMessage = { ...msg.message, content: routed.content };
     const contentBlockIds = new Set<string>();
     const now = Date.now();
@@ -942,6 +954,7 @@ export function createClaudeMessageHandlers(
   };
   const assistantMessageDeps: HandleAssistantRuntimeDeps = {
     hasAssistantReplay: deps.hasAssistantReplay,
+    getLauncherSessionInfo: deps.getLauncherSessionInfo,
     broadcastToBrowsers: deps.broadcastToBrowsers,
     persistSession: deps.persistSession,
     setGenerating: deps.setGenerating,
