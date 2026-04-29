@@ -521,7 +521,7 @@ describe("MessageFeed - collapsed turns", () => {
 
   it("keeps explicitly routed quest messages out of Main", () => {
     // Clean Main excludes messages with explicit non-main route metadata while
-    // leaving unrouted staging activity visible.
+    // replacing hidden routed activity with a sparse awareness marker.
     const sid = "test-main-clean-explicit-route";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
@@ -536,6 +536,8 @@ describe("MessageFeed - collapsed turns", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByText("Main-only setup")).toBeTruthy();
+    expect(screen.getByTestId("cross-thread-activity-marker").getAttribute("data-thread-key")).toBe("q-941");
+    expect(screen.getByText("1 hidden update in q-941")).toBeTruthy();
     expect(screen.queryByText("q-941 routed update")).toBeNull();
   });
 
@@ -571,7 +573,7 @@ describe("MessageFeed - collapsed turns", () => {
       makeMessage({
         id: marker.id,
         role: "system",
-        content: "1 message to q-941 - 1",
+        content: "1 message moved to q-941",
         timestamp: marker.timestamp,
         historyIndex: 2,
         variant: "info",
@@ -583,7 +585,7 @@ describe("MessageFeed - collapsed turns", () => {
 
     expect(screen.getByText("Main setup")).toBeTruthy();
     expect(screen.getByTestId("thread-attachment-marker").getAttribute("data-thread-key")).toBe("q-941");
-    expect(screen.getByText("1 message to q-941 - 1")).toBeTruthy();
+    expect(screen.getByText("1 message moved to q-941")).toBeTruthy();
     expect(screen.queryByText("Attached historical context")).toBeNull();
   });
 
@@ -622,6 +624,37 @@ describe("MessageFeed - collapsed turns", () => {
 
     expect(screen.getByText("Main-only setup")).toBeTruthy();
     expect(screen.getByText("q-941 routed update")).toBeTruthy();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+  });
+
+  it("groups hidden Main activity markers and includes the triggering routed user message", () => {
+    const sid = "test-main-hidden-activity-group";
+    const onSelectThread = vi.fn();
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-main", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "u-q975",
+        role: "user",
+        content: "Hidden q-975 user trigger",
+        metadata: { threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-q975",
+        role: "assistant",
+        content: "Hidden q-975 assistant response",
+        metadata: { threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
+    expect(screen.getByText("2 hidden updates in q-975")).toBeTruthy();
+    expect(screen.queryByText("Hidden q-975 user trigger")).toBeNull();
+    expect(screen.queryByText("Hidden q-975 assistant response")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-975");
   });
 
   it("uses attachment marker clicks to select the destination thread", () => {
@@ -645,7 +678,7 @@ describe("MessageFeed - collapsed turns", () => {
       makeMessage({
         id: marker.id,
         role: "system",
-        content: "1 message to q-941 - 1",
+        content: "1 message moved to q-941",
         timestamp: marker.timestamp,
         variant: "info",
         metadata: { threadAttachmentMarker: marker },
@@ -653,9 +686,66 @@ describe("MessageFeed - collapsed turns", () => {
     ]);
 
     render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
-    fireEvent.click(screen.getByRole("button", { name: "1 message to q-941 - 1" }));
+    fireEvent.click(screen.getByRole("button", { name: "Jump" }));
 
     expect(onSelectThread).toHaveBeenCalledWith("q-941");
+  });
+
+  it("groups adjacent moved-message markers and expands exact details", () => {
+    const sid = "test-grouped-moved-markers";
+    const markerA = {
+      type: "thread_attachment_marker" as const,
+      id: "marker-a",
+      timestamp: 1,
+      markerKey: "thread-attachment:q-972:a",
+      threadKey: "q-972",
+      questId: "q-972",
+      attachedAt: 1,
+      attachedBy: "session-1",
+      messageIds: ["m1", "m2"],
+      messageIndices: [1, 2],
+      ranges: ["1-2"],
+      count: 2,
+    };
+    const markerB = {
+      type: "thread_attachment_marker" as const,
+      id: "marker-b",
+      timestamp: 2,
+      markerKey: "thread-attachment:q-972:b",
+      threadKey: "q-972",
+      questId: "q-972",
+      attachedAt: 2,
+      attachedBy: "session-1",
+      messageIds: ["m3"],
+      messageIndices: [3],
+      ranges: ["3"],
+      count: 1,
+    };
+    setStoreMessages(sid, [
+      makeMessage({
+        id: markerA.id,
+        role: "system",
+        content: "2 messages moved to q-972",
+        timestamp: markerA.timestamp,
+        metadata: { threadAttachmentMarker: markerA },
+      }),
+      makeMessage({
+        id: markerB.id,
+        role: "system",
+        content: "1 message moved to q-972",
+        timestamp: markerB.timestamp,
+        metadata: { threadAttachmentMarker: markerB },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+
+    expect(screen.getAllByTestId("thread-attachment-marker")).toHaveLength(1);
+    expect(screen.getByText("3 messages moved to q-972")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    expect(screen.getByText(/Ranges: 1-2, 3/)).toBeTruthy();
+    expect(screen.getByText(/Message ids: m1, m2, m3/)).toBeTruthy();
   });
 
   it("filters quest-thread views to associated messages while Main stays implicit", () => {

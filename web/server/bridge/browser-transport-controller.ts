@@ -6,8 +6,10 @@ import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplay } from "./replay-buffer-policy.js";
+import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import type {
+  ActiveTurnRoute,
   BoardRowSessionStatus,
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -49,6 +51,9 @@ export interface BrowserTransportSessionLike {
   lastReadAt: number;
   attentionReason: "action" | "error" | "review" | null;
   generationStartedAt: number | null;
+  isGenerating?: boolean;
+  userMessageIdsThisTurn?: number[];
+  activeTurnRoute?: ActiveTurnRoute | null;
   notifications: unknown[];
   notificationStatusVersion?: number;
   notificationStatusUpdatedAt?: number;
@@ -548,6 +553,24 @@ export function deriveSessionStatus(
   return "idle";
 }
 
+export function deriveActiveTurnRoute(session: BrowserTransportSessionLike): ActiveTurnRoute | null {
+  if (!session.isGenerating) return null;
+  const userMessageIdsThisTurn = session.userMessageIdsThisTurn ?? [];
+  for (let i = userMessageIdsThisTurn.length - 1; i >= 0; i--) {
+    const historyIndex = userMessageIdsThisTurn[i];
+    const route = routeFromHistoryEntry(session.messageHistory[historyIndex]);
+    if (!route || route.threadKey === "main") return { threadKey: "main" };
+    return {
+      threadKey: route.threadKey,
+      ...(route.questId ? { questId: route.questId } : {}),
+    };
+  }
+  if (session.activeTurnRoute) {
+    return session.activeTurnRoute;
+  }
+  return { threadKey: "main" };
+}
+
 export function sendStateSnapshot(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike,
@@ -567,6 +590,7 @@ export function sendStateSnapshot(
     lastReadAt: session.lastReadAt,
     attentionReason: session.attentionReason,
     generationStartedAt: session.generationStartedAt ?? null,
+    activeTurnRoute: deriveActiveTurnRoute(session),
     board,
     completedBoard,
     rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),

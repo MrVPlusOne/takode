@@ -292,6 +292,11 @@ export interface ThreadAttachmentMarker {
   firstMessageIndex?: number;
 }
 
+export interface ActiveTurnRoute {
+  threadKey: string;
+  questId?: string;
+}
+
 export interface ThreadRoutingError {
   reason: "missing" | "invalid";
   expected: string;
@@ -575,7 +580,11 @@ export type BrowserIncomingMessageBase =
       output_delta?: string;
     }
   | { type: "tool_use_summary"; summary: string; tool_use_ids: string[] }
-  | { type: "status_change"; status: "compacting" | "reverting" | "idle" | "running" | null }
+  | {
+      type: "status_change";
+      status: "compacting" | "reverting" | "idle" | "running" | null;
+      activeTurnRoute?: ActiveTurnRoute | null;
+    }
   | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
   | { type: "error"; message: string }
@@ -698,6 +707,7 @@ export type BrowserIncomingMessageBase =
       lastReadAt?: number;
       attentionReason?: "action" | "error" | "review" | null;
       generationStartedAt?: number | null;
+      activeTurnRoute?: ActiveTurnRoute | null;
       board?: BoardRow[];
       completedBoard?: BoardRow[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;

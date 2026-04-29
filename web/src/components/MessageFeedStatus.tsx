@@ -9,18 +9,21 @@ import { NotificationChip } from "./NotificationChip.js";
 import { TimerChip } from "./TimerWidget.js";
 import { formatElapsed, formatTokens, getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
 import { formatReplyContentForPreview } from "../utils/reply-context.js";
+import { normalizeThreadKey } from "../utils/thread-projection.js";
 
 export function ElapsedTimer({
   sessionId,
   latestIndicatorVisible = false,
   onJumpToLatest,
   variant = "bar",
+  currentThreadKey = "main",
   onVisibleHeightChange,
 }: {
   sessionId: string;
   latestIndicatorVisible?: boolean;
   onJumpToLatest?: () => void;
   variant?: "bar" | "floating";
+  currentThreadKey?: string;
   onVisibleHeightChange?: (height: number) => void;
 }) {
   const streamingStartedAt = useStore((s) => s.streamingStartedAt.get(sessionId));
@@ -28,6 +31,7 @@ export function ElapsedTimer({
   const streamingPausedDuration = useStore((s) => s.streamingPausedDuration.get(sessionId) ?? 0);
   const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
+  const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId));
   const isStuck = useStore((s) => s.sessionStuck.get(sessionId) ?? false);
   const [elapsed, setElapsed] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -74,7 +78,11 @@ export function ElapsedTimer({
     api.relaunchSession(sessionId).catch(() => {});
   };
 
-  const label = isStuck ? "Session may be stuck" : streamingPauseStartedAt ? "Napping..." : "Purring...";
+  const label = isStuck
+    ? "Session may be stuck"
+    : streamingPauseStartedAt
+      ? "Napping..."
+      : formatActiveTurnLabel(activeTurnRoute, currentThreadKey);
   const dotColor = isStuck
     ? "text-amber-400"
     : streamingPauseStartedAt
@@ -147,11 +155,13 @@ export function ElapsedTimer({
 
 export function FeedStatusPill({
   sessionId,
+  currentThreadKey = "main",
   onVisibleHeightChange,
   currentThreadKey,
   onSelectThread,
 }: {
   sessionId: string;
+  currentThreadKey?: string;
   onVisibleHeightChange?: (height: number) => void;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
@@ -185,7 +195,7 @@ export function FeedStatusPill({
         data-testid="feed-status-pill-left"
         className="pointer-events-none absolute bottom-2 left-2 z-10 sm:bottom-3 sm:left-3"
       >
-        <ElapsedTimer sessionId={sessionId} variant="floating" />
+        <ElapsedTimer sessionId={sessionId} variant="floating" currentThreadKey={currentThreadKey} />
       </div>
       <div
         ref={rightStackRef}
@@ -197,6 +207,15 @@ export function FeedStatusPill({
       </div>
     </>
   );
+}
+
+function formatActiveTurnLabel(
+  activeTurnRoute: { threadKey: string; questId?: string } | null | undefined,
+  currentThreadKey: string,
+): string {
+  if (!activeTurnRoute) return "Purring...";
+  if (normalizeThreadKey(activeTurnRoute.threadKey) === normalizeThreadKey(currentThreadKey)) return "Active here";
+  return `Active in ${activeTurnRoute.questId ?? activeTurnRoute.threadKey}`;
 }
 
 export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string; inputs: PendingCodexInput[] }) {

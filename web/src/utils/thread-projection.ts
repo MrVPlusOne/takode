@@ -19,11 +19,25 @@ export function isThreadAttachmentMarkerMessage(message: ChatMessage): boolean {
   return !!message.metadata?.threadAttachmentMarker;
 }
 
+export function isCrossThreadActivityMarkerMessage(message: ChatMessage): boolean {
+  return !!message.metadata?.crossThreadActivityMarker;
+}
+
 export function formatThreadAttachmentMarkerSummary(marker: ThreadAttachmentMarker): string {
   const destination = marker.questId ?? marker.threadKey;
   const countLabel = `${marker.count} message${marker.count === 1 ? "" : "s"}`;
-  const rangeLabel = marker.ranges.length > 0 ? ` - ${marker.ranges.join(", ")}` : "";
-  return `${countLabel} to ${destination}${rangeLabel}`;
+  return `${countLabel} moved to ${destination}`;
+}
+
+export function formatThreadAttachmentMarkerDetails(marker: ThreadAttachmentMarker): string {
+  const parts: string[] = [];
+  if (marker.ranges.length > 0) {
+    parts.push(`Ranges: ${marker.ranges.join(", ")}`);
+  }
+  if (marker.messageIds.length > 0) {
+    parts.push(`Message ids: ${marker.messageIds.join(", ")}`);
+  }
+  return parts.join(" · ");
 }
 
 function normalizedRouteKeys(message: ChatMessage): Set<string> {
@@ -105,13 +119,99 @@ function hasExplicitNonMainRoute(message: ChatMessage): boolean {
   return (metadata.threadRefs ?? []).some((ref) => ref.source !== "backfill" && !isMainThreadKey(ref.threadKey));
 }
 
+function explicitNonMainRoute(message: ChatMessage): { threadKey: string; questId?: string } | null {
+  const metadata = message.metadata;
+  if (!metadata) return null;
+  if (metadata.threadKey && !isMainThreadKey(metadata.threadKey)) {
+    return {
+      threadKey: normalizeThreadKey(metadata.threadKey),
+      ...(metadata.questId ? { questId: metadata.questId } : {}),
+    };
+  }
+  if (metadata.questId && !isMainThreadKey(metadata.questId)) {
+    return { threadKey: normalizeThreadKey(metadata.questId), questId: metadata.questId };
+  }
+  const ref = (metadata.threadRefs ?? []).find((candidate) => {
+    return candidate.source !== "backfill" && !isMainThreadKey(candidate.threadKey);
+  });
+  if (!ref) return null;
+  return {
+    threadKey: normalizeThreadKey(ref.threadKey),
+    ...(ref.questId ? { questId: ref.questId } : {}),
+  };
+}
+
+function buildCrossThreadActivityMarker(
+  hiddenMessages: ChatMessage[],
+  route: { threadKey: string; questId?: string },
+): ChatMessage {
+  const first = hiddenMessages[0];
+  const last = hiddenMessages[hiddenMessages.length - 1] ?? first;
+  const destination = route.questId ?? route.threadKey;
+  const count = hiddenMessages.length;
+  const countLabel = `${count} hidden update${count === 1 ? "" : "s"}`;
+  return {
+    id: `cross-thread-activity:${route.threadKey}:${first.id}`,
+    role: "system",
+    content: `${countLabel} in ${destination}`,
+    timestamp: last.timestamp,
+    ephemeral: true,
+    metadata: {
+      threadKey: route.threadKey,
+      ...(route.questId ? { questId: route.questId } : {}),
+      crossThreadActivityMarker: {
+        threadKey: route.threadKey,
+        ...(route.questId ? { questId: route.questId } : {}),
+        count,
+        firstMessageId: first.id,
+        lastMessageId: last.id,
+        ...(typeof first.historyIndex === "number" ? { firstHistoryIndex: first.historyIndex } : {}),
+        ...(typeof last.historyIndex === "number" ? { lastHistoryIndex: last.historyIndex } : {}),
+        startedAt: first.timestamp,
+        updatedAt: last.timestamp,
+      },
+    },
+  };
+}
+
 function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
   const markerTargets = collectMarkerBackfillTargets(messages);
-  return messages.filter((message) => {
-    if (isThreadAttachmentMarkerMessage(message)) return true;
-    if (isCoveredBackfillMessage(message, markerTargets)) return false;
-    return !hasExplicitNonMainRoute(message);
-  });
+  const projected: ChatMessage[] = [];
+  let hiddenRun: ChatMessage[] = [];
+  let hiddenRunRoute: { threadKey: string; questId?: string } | null = null;
+
+  const flushHiddenRun = () => {
+    if (!hiddenRunRoute || hiddenRun.length === 0) return;
+    projected.push(buildCrossThreadActivityMarker(hiddenRun, hiddenRunRoute));
+    hiddenRun = [];
+    hiddenRunRoute = null;
+  };
+
+  for (const message of messages) {
+    if (isThreadAttachmentMarkerMessage(message)) {
+      flushHiddenRun();
+      projected.push(message);
+      continue;
+    }
+    if (isCoveredBackfillMessage(message, markerTargets)) {
+      continue;
+    }
+    if (!hasExplicitNonMainRoute(message)) {
+      flushHiddenRun();
+      projected.push(message);
+      continue;
+    }
+
+    const route = explicitNonMainRoute(message);
+    if (!route) continue;
+    if (hiddenRunRoute && hiddenRunRoute.threadKey !== route.threadKey) {
+      flushHiddenRun();
+    }
+    hiddenRunRoute = route;
+    hiddenRun.push(message);
+  }
+  flushHiddenRun();
+  return projected;
 }
 
 function filterQuestThreadMessages(messages: ChatMessage[], threadKey: string): ChatMessage[] {

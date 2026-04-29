@@ -611,6 +611,24 @@ describe("status_change: running on user_message", () => {
     const statusChange = calls.find((m: any) => m.type === "status_change");
     expect(statusChange).toBeDefined();
     expect(statusChange.status).toBe("running");
+    expect(statusChange.activeTurnRoute).toEqual({ threadKey: "main" });
+  });
+
+  it("broadcasts active turn route from routed user messages", () => {
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "Work in quest thread",
+        threadKey: "q-975",
+      }),
+    );
+
+    const calls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const statusChange = calls.find((m: any) => m.type === "status_change");
+    expect(statusChange).toBeDefined();
+    expect(statusChange.status).toBe("running");
+    expect(statusChange.activeTurnRoute).toEqual({ threadKey: "q-975", questId: "q-975" });
   });
 
   it("does not rebroadcast status_change: running when already generating", () => {
@@ -762,6 +780,7 @@ describe("status_change: running on user_message", () => {
     const snapshot = calls.find((m: any) => m.type === "state_snapshot");
     expect(snapshot).toBeDefined();
     expect(snapshot.sessionStatus).toBe("running");
+    expect(snapshot.activeTurnRoute).toEqual({ threadKey: "main" });
   });
 
   it("board row participant statuses mirror live generation state", () => {

@@ -82,6 +82,7 @@ import {
 } from "./bridge/browser-transport-controller.js";
 import {
   broadcastToBrowsers as broadcastToBrowsersController,
+  deriveActiveTurnRoute as deriveActiveTurnRouteBrowserTransportController,
   deriveSessionStatus as deriveSessionStatusController,
   findMatchingPendingCodexInput as findMatchingPendingCodexInputBrowserTransportController,
   getPendingCodexInputDeliveryState as getPendingCodexInputDeliveryStateBrowserTransportController,
@@ -2221,8 +2222,14 @@ export class WsBridge {
       requestCliRelaunch: this.onCLIRelaunchNeeded
         ? (sessionId: string) => this.onCLIRelaunchNeeded?.(sessionId)
         : undefined,
-      markRunningFromUserDispatch: (targetSession: unknown, reason: string) =>
-        markRunningFromUserDispatchLifecycle(this.getGenerationLifecycleDeps(), targetSession as Session, reason),
+      markRunningFromUserDispatch: (targetSession: unknown, reason: string, userMessageHistoryIndex?: number) =>
+        markRunningFromUserDispatchLifecycle(
+          this.getGenerationLifecycleDeps(),
+          targetSession as Session,
+          reason,
+          null,
+          userMessageHistoryIndex,
+        ),
       isCliUserMessagePayload: (ndjson: string) => this.isCliUserMessagePayload(ndjson),
     };
   }
@@ -2384,7 +2391,7 @@ export class WsBridge {
       sendToCLI: (
         targetSession: unknown,
         ndjson: string,
-        opts?: { deferUntilCliReady?: boolean; skipUserDispatchLifecycle?: boolean },
+        opts?: { deferUntilCliReady?: boolean; skipUserDispatchLifecycle?: boolean; userMessageHistoryIndex?: number },
       ) => sendToCLITransportController(targetSession as Session, ndjson, opts, this.getClaudeCliTransportDeps()),
       broadcastToBrowsers: (targetSession: unknown, browserMsg: BrowserIncomingMessage) =>
         this.broadcastToBrowsers(targetSession as Session, browserMsg),
@@ -2445,14 +2452,32 @@ export class WsBridge {
         ? (sessionId: string, history: Session["messageHistory"], cwd: string, wasGenerating: boolean) =>
             this.onUserMessage?.(sessionId, history, cwd, wasGenerating)
         : undefined,
-      markRunningFromUserDispatch: (targetSession: unknown, reason: string, interruptSource?: InterruptSource | null) =>
-        markRunningFromUserDispatchLifecycle(generationDeps, targetSession as Session, reason, interruptSource),
+      markRunningFromUserDispatch: (
+        targetSession: unknown,
+        reason: string,
+        queuedInterruptSource?: InterruptSource | null,
+        userMessageHistoryIndex?: number,
+        activeTurnRoute?: import("./session-types.js").ActiveTurnRoute | null,
+      ) =>
+        markRunningFromUserDispatchLifecycle(
+          generationDeps,
+          targetSession as Session,
+          reason,
+          queuedInterruptSource,
+          userMessageHistoryIndex,
+          activeTurnRoute,
+        ),
       trackUserMessageForTurn: (targetSession: unknown, historyIndex: number, turnTarget: UserDispatchTurnTarget) =>
         trackUserMessageForTurnLifecycle(targetSession as Session, historyIndex, turnTarget),
       setGenerating: (targetSession: unknown, generating: boolean, reason: string) =>
         setGeneratingLifecycle(generationDeps, targetSession as Session, generating, reason),
       broadcastStatusChange: (targetSession: unknown, status: "idle" | "running" | "compacting" | "reverting" | null) =>
-        this.broadcastToBrowsers(targetSession as Session, { type: "status_change", status }),
+        this.broadcastToBrowsers(targetSession as Session, {
+          type: "status_change",
+          status,
+          activeTurnRoute:
+            status === "running" ? deriveActiveTurnRouteBrowserTransportController(targetSession as Session) : null,
+        }),
       setCodexImageSendStage: (
         targetSession: unknown,
         stage: SessionState["codex_image_send_stage"],
@@ -2810,7 +2835,11 @@ export class WsBridge {
       sessions: this.sessions,
       userMessageRunningTimeoutMs: WsBridge.USER_MESSAGE_RUNNING_TIMEOUT_MS,
       broadcastStatus: (session: Session, status: "running" | "idle") => {
-        this.broadcastToBrowsers(session, { type: "status_change", status });
+        this.broadcastToBrowsers(session, {
+          type: "status_change",
+          status,
+          activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
+        });
       },
       persistSession: (session: Session) => this.persistSession(session),
       onSessionActivityStateChanged: (sessionId: string, reason: string) =>

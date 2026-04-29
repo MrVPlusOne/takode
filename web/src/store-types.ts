@@ -15,6 +15,7 @@ import type {
   SdkSessionInfo,
   SessionTaskEntry,
   SessionState,
+  ActiveTurnRoute,
   TaskItem,
   ToolResultPreview,
   VsCodeSelectionState,
@@ -59,6 +60,7 @@ export interface AppState {
   cliEverConnected: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
+  activeTurnRoutes: Map<string, ActiveTurnRoute | null>;
   sessionStuck: Map<string, boolean>;
   previousPermissionMode: Map<string, string>;
   askPermission: Map<string, boolean>;
@@ -302,6 +304,7 @@ export interface AppState {
   setCliEverConnected: (sessionId: string) => void;
   setCliDisconnectReason: (sessionId: string, reason: "idle_limit" | "broken" | null) => void;
   setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | "reverting" | null) => void;
+  setActiveTurnRoute: (sessionId: string, route: ActiveTurnRoute | null | undefined) => void;
   setSessionStuck: (sessionId: string, stuck: boolean) => void;
   feedScrollPosition: Map<
     string,

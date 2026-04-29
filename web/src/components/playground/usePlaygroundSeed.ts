@@ -50,6 +50,7 @@ export function usePlaygroundSeed() {
     const prevCliEver = new Map(demoSessionIds.map((id) => [id, snapshot.cliEverConnected.get(id)]));
     const prevCliDisconnectReason = new Map(demoSessionIds.map((id) => [id, snapshot.cliDisconnectReason.get(id)]));
     const prevStatus = new Map(demoSessionIds.map((id) => [id, snapshot.sessionStatus.get(id)]));
+    const prevActiveTurnRoutes = new Map(demoSessionIds.map((id) => [id, snapshot.activeTurnRoutes.get(id)]));
     const prevStreaming = new Map(demoSessionIds.map((id) => [id, snapshot.streaming.get(id)]));
     const prevStreamingStartedAt = new Map(demoSessionIds.map((id) => [id, snapshot.streamingStartedAt.get(id)]));
     const prevStreamingOutputTokens = new Map(demoSessionIds.map((id) => [id, snapshot.streamingOutputTokens.get(id)]));
@@ -151,7 +152,9 @@ export function usePlaygroundSeed() {
     store.addSession(threadPanelSession);
     store.setConnectionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "connected");
     store.setCliConnected(PLAYGROUND_THREAD_PANEL_SESSION_ID, true);
-    store.setSessionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "idle");
+    store.setSessionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "running");
+    store.setActiveTurnRoute(PLAYGROUND_THREAD_PANEL_SESSION_ID, { threadKey: "q-961", questId: "q-961" });
+    store.setStreamingStats(PLAYGROUND_THREAD_PANEL_SESSION_ID, { startedAt: Date.now() - 42_000, outputTokens: 1280 });
     store.setMessages(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
       makePlaygroundMessage({
         id: "playground-thread-main",
@@ -171,7 +174,7 @@ export function usePlaygroundSeed() {
       makePlaygroundMessage({
         id: "playground-thread-attachment-marker",
         role: "system",
-        content: "1 message to q-961 - 1",
+        content: "1 message moved to q-961",
         timestamp: Date.now() - 149_000,
         historyIndex: 2,
         variant: "info",
@@ -203,11 +206,19 @@ export function usePlaygroundSeed() {
         metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
       }),
       makePlaygroundMessage({
+        id: "playground-thread-q961-assistant",
+        role: "assistant",
+        content: "Tool calls and implementation notes are continuing in q-961.",
+        timestamp: Date.now() - 110_000,
+        historyIndex: 4,
+        metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
+      }),
+      makePlaygroundMessage({
         id: "playground-thread-q962",
         role: "assistant",
         content: "Queued until the dependency finishes.",
         timestamp: Date.now() - 90_000,
-        historyIndex: 4,
+        historyIndex: 5,
         metadata: { threadRefs: [{ threadKey: "q-962", questId: "q-962", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -215,7 +226,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Waiting for a free worker before dispatch.",
         timestamp: Date.now() - 60_000,
-        historyIndex: 5,
+        historyIndex: 6,
         metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -223,7 +234,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Completed Journey is ready for review without active phase cues.",
         timestamp: Date.now() - 30_000,
-        historyIndex: 6,
+        historyIndex: 7,
         metadata: { threadRefs: [{ threadKey: "q-964", questId: "q-964", source: "explicit" }] },
       }),
     ]);
@@ -582,6 +593,7 @@ export function usePlaygroundSeed() {
         const cliConnected = new Map(s.cliConnected);
         const cliEverConnected = new Map(s.cliEverConnected);
         const sessionStatus = new Map(s.sessionStatus);
+        const activeTurnRoutes = new Map(s.activeTurnRoutes);
         const streaming = new Map(s.streaming);
         const streamingStartedAt = new Map(s.streamingStartedAt);
         const streamingOutputTokens = new Map(s.streamingOutputTokens);
@@ -606,6 +618,7 @@ export function usePlaygroundSeed() {
           const prevCliSeen = prevCliEver.get(demoId);
           const prevDisconnectReason = prevCliDisconnectReason.get(demoId);
           const prevSessionState = prevStatus.get(demoId);
+          const prevActiveTurnRoute = prevActiveTurnRoutes.get(demoId);
           const prevStream = prevStreaming.get(demoId);
           const prevStreamStarted = prevStreamingStartedAt.get(demoId);
           const prevStreamTokens = prevStreamingOutputTokens.get(demoId);
@@ -633,6 +646,8 @@ export function usePlaygroundSeed() {
           else cliDisconnectReason.delete(demoId);
           if (prevSessionState) sessionStatus.set(demoId, prevSessionState);
           else sessionStatus.delete(demoId);
+          if (prevActiveTurnRoute !== undefined) activeTurnRoutes.set(demoId, prevActiveTurnRoute);
+          else activeTurnRoutes.delete(demoId);
           if (typeof prevStream === "string") streaming.set(demoId, prevStream);
           else streaming.delete(demoId);
           if (typeof prevStreamStarted === "number") streamingStartedAt.set(demoId, prevStreamStarted);
@@ -676,6 +691,7 @@ export function usePlaygroundSeed() {
           cliEverConnected,
           cliDisconnectReason,
           sessionStatus,
+          activeTurnRoutes,
           streaming,
           streamingStartedAt,
           streamingOutputTokens,

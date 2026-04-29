@@ -809,6 +809,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       store.clearStreamingState(sessionId);
       store.clearToolProgress(sessionId);
       store.setSessionStatus(sessionId, "idle");
+      store.setActiveTurnRoute(sessionId, null);
       store.setSessionStuck(sessionId, false);
       store.setTasks(sessionId, []);
       store.setSessionTaskPreview(sessionId, null);
@@ -1098,6 +1099,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       } else {
         store.setSessionStatus(sessionId, data.status);
       }
+      if ("activeTurnRoute" in data || data.status !== "running") {
+        store.setActiveTurnRoute(sessionId, data.status === "running" ? data.activeTurnRoute : null);
+      }
       // Any status change clears stuck flag
       store.setSessionStuck(sessionId, false);
       break;
@@ -1219,6 +1223,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     case "state_snapshot": {
       // Authoritative state from server — overrides any stale transient state
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
+      store.setActiveTurnRoute(sessionId, data.sessionStatus === "running" ? data.activeTurnRoute : null);
       store.setCliConnected(sessionId, data.backendConnected);
       // state_snapshot is sent after subscribe replay completes. If no
       // message_history/history_sync arrived, this was an empty-history

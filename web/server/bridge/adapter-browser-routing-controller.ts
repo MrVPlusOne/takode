@@ -19,6 +19,7 @@ import {
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
+  ActiveTurnRoute,
   CLIControlRequestMessage,
   CodexOutboundTurn,
   McpServerConfig,
@@ -145,6 +146,7 @@ export interface AdapterBrowserRoutingDeps {
     opts?: {
       deferUntilCliReady?: boolean;
       skipUserDispatchLifecycle?: boolean;
+      userMessageHistoryIndex?: number;
     },
   ) => UserDispatchTurnTarget | null;
   broadcastToBrowsers: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
@@ -169,6 +171,8 @@ export interface AdapterBrowserRoutingDeps {
     session: AdapterBrowserRoutingSessionLike,
     reason: string,
     interruptSource?: InterruptSource | null,
+    userMessageHistoryIndex?: number,
+    activeTurnRoute?: ActiveTurnRoute | null,
   ) => UserDispatchTurnTarget | null;
   trackUserMessageForTurn: (
     session: AdapterBrowserRoutingSessionLike,
@@ -1688,8 +1692,11 @@ export async function handleUserMessage(
   });
   const turnTarget = deps.sendToCLI(session, ndjson, {
     deferUntilCliReady: deps.isHerdEventSource(msg.agentSource),
+    userMessageHistoryIndex: ingested.historyIndex,
   });
-  deps.trackUserMessageForTurn(session, ingested.historyIndex, turnTarget ?? "current");
+  if (turnTarget === null && ingested.historyIndex >= 0) {
+    deps.trackUserMessageForTurn(session, ingested.historyIndex, turnTarget ?? "current");
+  }
   session.lastOutboundUserNdjson = ndjson;
   deps.onUserMessage?.(session.id, [...session.messageHistory], session.state.cwd, ingested.wasGenerating);
 }
@@ -1895,6 +1902,15 @@ function maybeRequestAdapterRelaunchForUserMessage(
     deps.requestCliRelaunch?.(session.id);
   }
 }
+
+function activeTurnRouteFromIngestedUserMessage(ingested: IngestedUserMessage): ActiveTurnRoute {
+  const threadKey = ingested.historyEntry.threadKey ?? "main";
+  return {
+    threadKey,
+    ...(ingested.historyEntry.questId ? { questId: ingested.historyEntry.questId } : {}),
+  };
+}
+
 export function routeAdapterBrowserMessage(
   session: AdapterBrowserRoutingSessionLike,
   msg: BrowserOutgoingMessage,
@@ -1993,10 +2009,13 @@ export function routeAdapterBrowserMessage(
             : "leader"
           : "user"
         : undefined;
-      pendingTurnTarget = deps.markRunningFromUserDispatch(session, "user_message", interruptSource ?? null);
-      if (ingested.historyIndex >= 0) {
-        deps.trackUserMessageForTurn(session, ingested.historyIndex, pendingTurnTarget ?? "current");
-      }
+      pendingTurnTarget = deps.markRunningFromUserDispatch(
+        session,
+        "user_message",
+        interruptSource ?? null,
+        ingested.historyIndex >= 0 ? ingested.historyIndex : undefined,
+        activeTurnRouteFromIngestedUserMessage(ingested),
+      );
     }
     if (session.backendType === "codex" && msg.type === "user_message" && ingested) {
       if (ingested.historyEntry.id) {

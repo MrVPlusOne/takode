@@ -1,4 +1,5 @@
 import { sessionTag } from "../session-tag.js";
+import type { ActiveTurnRoute } from "../session-types.js";
 
 /** Reasons that indicate the turn ended due to recovery/error, not a normal result.
  *  Queued turns should be drained (not promoted) for these reasons because the CLI
@@ -25,6 +26,7 @@ export interface GenerationLifecycleSession {
   restartPrepInterruptOrigin?: "restart_prep" | null;
   compactedDuringTurn: boolean;
   userMessageIdsThisTurn: number[];
+  activeTurnRoute?: ActiveTurnRoute | null;
   queuedTurnStarts: number;
   queuedTurnReasons: string[];
   queuedTurnUserMessageIds: number[][];
@@ -154,6 +156,8 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
   session: S,
   reason: string,
   queuedInterruptSource: InterruptSource | null = null,
+  userMessageHistoryIndex?: number,
+  activeTurnRoute?: ActiveTurnRoute | null,
 ): UserDispatchTurnTarget {
   const wasGenerating = session.isGenerating;
   // Skip the optimistic 30s timeout for herded workers — their turns are
@@ -164,12 +168,16 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
   if (wasGenerating) {
     session.queuedTurnStarts += 1;
     session.queuedTurnReasons.push(reason);
-    session.queuedTurnUserMessageIds.push([]);
+    session.queuedTurnUserMessageIds.push(userMessageHistoryIndex === undefined ? [] : [userMessageHistoryIndex]);
     session.queuedTurnInterruptSources.push(queuedInterruptSource);
     deps.persistSession(session);
     return "queued";
   }
   setGenerating(deps, session, true, reason);
+  if (userMessageHistoryIndex !== undefined) {
+    session.userMessageIdsThisTurn = [userMessageHistoryIndex];
+  }
+  session.activeTurnRoute = activeTurnRoute ?? null;
   if (!wasGenerating) {
     deps.broadcastStatus(session, "running");
   }
@@ -236,6 +244,7 @@ function startQueuedTurn<S extends GenerationLifecycleSession>(
   session.restartPrepInterruptOrigin = null;
   session.compactedDuringTurn = false;
   session.userMessageIdsThisTurn = [...entry.userMessageIds];
+  session.activeTurnRoute = null;
   console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${turnReason})`);
   deps.recordGenerationStarted?.(session, turnReason);
   deps.emitTakodeEvent(session.id, "turn_start", {
@@ -317,6 +326,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.restartPrepInterruptOrigin = null;
     session.compactedDuringTurn = false;
     session.userMessageIdsThisTurn = [];
+    session.activeTurnRoute = null;
     console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
     deps.recordGenerationStarted?.(session, reason);
 
@@ -346,6 +356,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.restartPrepInterruptOperationId = null;
     session.restartPrepInterruptOrigin = null;
     session.compactedDuringTurn = false;
+    session.activeTurnRoute = null;
     deps.emitTakodeEvent(session.id, "turn_end", {
       reason,
       duration_ms: elapsed,

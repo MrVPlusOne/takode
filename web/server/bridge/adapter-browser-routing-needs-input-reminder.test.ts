@@ -5,6 +5,7 @@ import {
   type AdapterBrowserRoutingDeps,
   type AdapterBrowserRoutingSessionLike,
 } from "./adapter-browser-routing-controller.js";
+import { deriveActiveTurnRoute } from "./browser-transport-controller.js";
 import { commitPendingCodexInputs } from "./codex-recovery-orchestrator.js";
 import type {
   BrowserIncomingMessage,
@@ -148,6 +149,22 @@ function sentCliContent(deps: AdapterBrowserRoutingDeps): string {
   return JSON.parse(raw as string).message.content;
 }
 
+function installActiveRouteStatusBroadcast(deps: AdapterBrowserRoutingDeps): void {
+  deps.markRunningFromUserDispatch = vi.fn((targetSession, _reason, _interruptSource, historyIndex, activeRoute) => {
+    targetSession.isGenerating = true;
+    (targetSession as AdapterBrowserRoutingSessionLike & { userMessageIdsThisTurn?: number[] }).userMessageIdsThisTurn =
+      typeof historyIndex === "number" ? [historyIndex] : [];
+    (targetSession as AdapterBrowserRoutingSessionLike & { activeTurnRoute?: typeof activeRoute }).activeTurnRoute =
+      activeRoute ?? null;
+    deps.broadcastToBrowsers(targetSession, {
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: deriveActiveTurnRoute(targetSession as any),
+    });
+    return "current" as const;
+  });
+}
+
 describe("direct user needs-input reminders", () => {
   it("delivers concise reply context while storing reply metadata separately for Claude CLI", async () => {
     const session = makeSession();
@@ -211,6 +228,39 @@ describe("direct user needs-input reminders", () => {
     );
     expect(sdkAdapter.sendBrowserMessage).not.toHaveBeenCalledWith(
       expect.objectContaining({ content: expect.stringContaining("<<<REPLY_TO") }),
+    );
+  });
+
+  it("broadcasts the routed active turn for Claude SDK quest-thread messages while Main is selected", () => {
+    const session = makeSession();
+    session.backendType = "claude-sdk";
+    session.claudeSdkAdapter = { sendBrowserMessage: vi.fn(() => true), isConnected: vi.fn(() => true) } as any;
+    const deps = makeDeps({ isOrchestrator: true });
+    installActiveRouteStatusBroadcast(deps);
+
+    const routed = routeAdapterBrowserMessage(
+      session,
+      userMessage({
+        content: "Proceed in q-968",
+        threadKey: "q-968",
+        questId: "q-968",
+      }),
+      null,
+      deps,
+    );
+
+    expect(routed).toBe(true);
+    expect(deps.markRunningFromUserDispatch).toHaveBeenCalledWith(session, "user_message", null, 0, {
+      threadKey: "q-968",
+      questId: "q-968",
+    });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "status_change",
+        status: "running",
+        activeTurnRoute: { threadKey: "q-968", questId: "q-968" },
+      }),
     );
   });
 
@@ -406,6 +456,41 @@ describe("direct user needs-input reminders", () => {
       },
     });
     expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
+  });
+
+  it("broadcasts the routed active turn for Codex quest-thread messages while Main is selected", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    const deps = makeDeps({ isOrchestrator: true });
+    installActiveRouteStatusBroadcast(deps);
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    const routed = routeAdapterBrowserMessage(
+      session,
+      userMessage({
+        content: "Proceed in q-968",
+        threadKey: "q-968",
+        questId: "q-968",
+      }),
+      null,
+      deps,
+    );
+
+    expect(routed).toBe(true);
+    expect(deps.markRunningFromUserDispatch).toHaveBeenCalledWith(session, "user_message", null, undefined, {
+      threadKey: "q-968",
+      questId: "q-968",
+    });
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "status_change",
+        status: "running",
+        activeTurnRoute: { threadKey: "q-968", questId: "q-968" },
+      }),
+    );
   });
 
   it("queues concise reply delivery content for Codex while preserving clean committed history", () => {

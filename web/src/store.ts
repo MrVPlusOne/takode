@@ -152,6 +152,7 @@ export const useStore = create<AppState>((set, get) => ({
   cliEverConnected: new Map(),
   cliDisconnectReason: new Map(),
   sessionStatus: new Map(),
+  activeTurnRoutes: new Map(),
   sessionStuck: new Map(),
   previousPermissionMode: new Map(),
   askPermission: new Map(),
@@ -567,6 +568,8 @@ export const useStore = create<AppState>((set, get) => ({
       cliDisconnectReason.delete(sessionId);
       const sessionStatus = new Map(s.sessionStatus);
       sessionStatus.delete(sessionId);
+      const activeTurnRoutes = new Map(s.activeTurnRoutes);
+      activeTurnRoutes.delete(sessionId);
       const sessionStuck = new Map(s.sessionStuck);
       sessionStuck.delete(sessionId);
       const previousPermissionMode = new Map(s.previousPermissionMode);
@@ -653,6 +656,7 @@ export const useStore = create<AppState>((set, get) => ({
         cliEverConnected,
         cliDisconnectReason,
         sessionStatus,
+        activeTurnRoutes,
         sessionStuck,
         previousPermissionMode,
         askPermission,
@@ -1756,6 +1760,16 @@ export const useStore = create<AppState>((set, get) => ({
       return { sessionStatus };
     }),
 
+  setActiveTurnRoute: (sessionId, route) =>
+    set((s) => {
+      const activeTurnRoutes = new Map(s.activeTurnRoutes);
+      if (route === undefined) {
+        return s;
+      }
+      activeTurnRoutes.set(sessionId, route);
+      return { activeTurnRoutes };
+    }),
+
   setSessionStuck: (sessionId, stuck) =>
     set((s) => {
       const sessionStuck = new Map(s.sessionStuck);
@@ -1978,6 +1992,7 @@ export const useStore = create<AppState>((set, get) => ({
       cliEverConnected: new Map(),
       cliDisconnectReason: new Map(),
       sessionStatus: new Map(),
+      activeTurnRoutes: new Map(),
       previousPermissionMode: new Map(),
       askPermission: new Map(),
       sessionTasks: new Map(),

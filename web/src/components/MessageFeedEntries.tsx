@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import type { ChatMessage, ContentBlock } from "../types.js";
+import type { ChatMessage, ContentBlock, ThreadAttachmentMarker } from "../types.js";
 import { isSubagentToolName } from "../types.js";
 import {
   isUserBoundaryEntry,
@@ -33,7 +33,12 @@ import {
 import type { FeedSection } from "./message-feed-sections.js";
 import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
-import { formatThreadAttachmentMarkerSummary, isThreadAttachmentMarkerMessage } from "../utils/thread-projection.js";
+import {
+  formatThreadAttachmentMarkerDetails,
+  formatThreadAttachmentMarkerSummary,
+  isCrossThreadActivityMarkerMessage,
+  isThreadAttachmentMarkerMessage,
+} from "../utils/thread-projection.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -292,40 +297,112 @@ function HerdEventBatchGroup({ messages, sessionId }: { messages: ChatMessage[];
 }
 
 function ThreadAttachmentMarkerRow({
+  messages,
+  onSelectThread,
+}: {
+  messages: ChatMessage[];
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const marker = mergeThreadAttachmentMarkers(messages);
+  if (!marker) return null;
+  const destination = marker.questId ?? marker.threadKey;
+  const label = formatThreadAttachmentMarkerSummary(marker);
+  const details = formatThreadAttachmentMarkerDetails(marker);
+  const firstMessage = messages[0];
+
+  return (
+    <div
+      className="animate-[fadeSlideIn_0.2s_ease-out] pl-9"
+      data-testid="thread-attachment-marker"
+      data-thread-key={marker.threadKey}
+      data-message-id={firstMessage?.id}
+      data-feed-block-id={getMessageFeedBlockId(firstMessage?.id ?? marker.markerKey)}
+    >
+      <div className="max-w-full text-[11px] text-cc-muted font-mono-code">
+        <span>{label}</span>
+        <span className="mx-1.5 text-cc-muted/35">·</span>
+        <button
+          type="button"
+          onClick={() => onSelectThread?.(marker.threadKey)}
+          className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:text-cc-muted/60"
+          disabled={!onSelectThread}
+          title={`Open ${destination} thread`}
+        >
+          Jump
+        </button>
+        {details && (
+          <>
+            <span className="mx-1.5 text-cc-muted/35">·</span>
+            <button
+              type="button"
+              onClick={() => setDetailsOpen((v) => !v)}
+              className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline"
+              aria-expanded={detailsOpen}
+            >
+              Details
+            </button>
+          </>
+        )}
+        {detailsOpen && details && <div className="mt-1 max-w-3xl whitespace-pre-wrap text-cc-muted/70">{details}</div>}
+      </div>
+    </div>
+  );
+}
+
+function CrossThreadActivityMarkerRow({
   message,
   onSelectThread,
 }: {
   message: ChatMessage;
   onSelectThread?: (threadKey: string) => void;
 }) {
-  const marker = message.metadata?.threadAttachmentMarker;
+  const marker = message.metadata?.crossThreadActivityMarker;
   if (!marker) return null;
   const destination = marker.questId ?? marker.threadKey;
-  const label = formatThreadAttachmentMarkerSummary(marker);
-
+  const countLabel = `${marker.count} hidden update${marker.count === 1 ? "" : "s"}`;
   return (
     <div
-      className="flex justify-center animate-[fadeSlideIn_0.2s_ease-out]"
-      data-testid="thread-attachment-marker"
+      className="animate-[fadeSlideIn_0.2s_ease-out] pl-9"
+      data-testid="cross-thread-activity-marker"
       data-thread-key={marker.threadKey}
       data-message-id={message.id}
       data-feed-block-id={getMessageFeedBlockId(message.id)}
     >
-      <button
-        type="button"
-        onClick={() => onSelectThread?.(marker.threadKey)}
-        className="inline-flex max-w-full items-center gap-2 rounded-full border border-blue-400/20 bg-blue-400/10 px-3 py-1.5 text-[11px] text-blue-200 transition-colors hover:bg-blue-400/15 disabled:cursor-default disabled:hover:bg-blue-400/10"
-        disabled={!onSelectThread}
-        title={`Open ${destination} thread`}
-      >
-        <svg className="h-3 w-3 shrink-0 text-blue-300/80" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-          <path d="M4 5.5h8M4 8h5.5M4 10.5h7" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
-          <rect x="2" y="2.5" width="12" height="11" rx="2" stroke="currentColor" strokeWidth="1.2" />
-        </svg>
-        <span className="min-w-0 truncate font-mono-code">{label}</span>
-      </button>
+      <div className="max-w-full text-[11px] text-cc-muted font-mono-code">
+        <span>
+          {countLabel} in {destination}
+        </span>
+        <span className="mx-1.5 text-cc-muted/35">·</span>
+        <button
+          type="button"
+          onClick={() => onSelectThread?.(marker.threadKey)}
+          className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:text-cc-muted/60"
+          disabled={!onSelectThread}
+          title={`Open ${destination} thread`}
+        >
+          Jump
+        </button>
+      </div>
     </div>
   );
+}
+
+function mergeThreadAttachmentMarkers(messages: ChatMessage[]): ThreadAttachmentMarker | null {
+  const markers = messages
+    .map((message) => message.metadata?.threadAttachmentMarker)
+    .filter((marker): marker is ThreadAttachmentMarker => Boolean(marker));
+  const first = markers[0];
+  if (!first) return null;
+  return {
+    ...first,
+    count: markers.reduce((sum, marker) => sum + marker.count, 0),
+    messageIds: [...new Set(markers.flatMap((marker) => marker.messageIds))],
+    messageIndices: [...new Set(markers.flatMap((marker) => marker.messageIndices))].sort((a, b) => a - b),
+    ranges: markers.flatMap((marker) => marker.ranges),
+    firstMessageId: first.firstMessageId,
+    firstMessageIndex: first.firstMessageIndex,
+  };
 }
 
 function ToolMessageGroup({
@@ -483,8 +560,24 @@ export const FeedEntries = memo(function FeedEntries({
         }
       }
       if (entry.kind === "message" && isThreadAttachmentMarkerMessage(entry.msg)) {
+        const batch: ChatMessage[] = [entry.msg];
+        let j = i + 1;
+        const marker = entry.msg.metadata?.threadAttachmentMarker;
+        while (j < entries.length) {
+          const next = entries[j];
+          if (next.kind !== "message" || !isThreadAttachmentMarkerMessage(next.msg)) break;
+          const nextMarker = next.msg.metadata?.threadAttachmentMarker;
+          if (!marker || !nextMarker || nextMarker.threadKey !== marker.threadKey) break;
+          batch.push(next.msg);
+          j++;
+        }
+        result.push(<ThreadAttachmentMarkerRow key={entry.msg.id} messages={batch} onSelectThread={onSelectThread} />);
+        i = j;
+        continue;
+      }
+      if (entry.kind === "message" && isCrossThreadActivityMarkerMessage(entry.msg)) {
         result.push(
-          <ThreadAttachmentMarkerRow key={entry.msg.id} message={entry.msg} onSelectThread={onSelectThread} />,
+          <CrossThreadActivityMarkerRow key={entry.msg.id} message={entry.msg} onSelectThread={onSelectThread} />,
         );
         i++;
         continue;

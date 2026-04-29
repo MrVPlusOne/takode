@@ -21,6 +21,7 @@ import type {
   VsCodeSelectionState,
   SessionNotification,
   SessionLifecycleEvent,
+  ActiveTurnRoute,
   ThreadRef,
   ThreadAttachmentMarker,
   ThreadRoutingError,
@@ -66,6 +67,7 @@ export type {
   SessionTimer,
   SessionNotification,
   SessionLifecycleEvent,
+  ActiveTurnRoute,
   ThreadRef,
   ThreadAttachmentMarker,
   ThreadRoutingError,
@@ -146,6 +148,17 @@ export interface ChatMessage {
     threadKey?: string;
     questId?: string;
     threadAttachmentMarker?: ThreadAttachmentMarker;
+    crossThreadActivityMarker?: {
+      threadKey: string;
+      questId?: string;
+      count: number;
+      firstMessageId: string;
+      lastMessageId: string;
+      firstHistoryIndex?: number;
+      lastHistoryIndex?: number;
+      startedAt: number;
+      updatedAt: number;
+    };
     threadRoutingError?: ThreadRoutingError;
     replyContext?: ReplyContext;
     vscodeSelection?: VsCodeSelectionMetadata;
