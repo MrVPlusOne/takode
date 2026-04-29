@@ -1547,11 +1547,11 @@ export function PlaygroundInteractiveSections() {
 
       <Section
         title="Hover Cross-links"
-        description="Quest and session markdown hovers now cross-link to each other through compact chips inside the existing hover cards."
+        description="Quest and session markdown hovers cross-link through compact chips and preserve orchestration context inside the existing hover cards."
       >
         <div className="max-w-3xl space-y-4">
-          <Card label="Quest hover shows owner session">
-            <PlaygroundHoverCrossLinkDemo text="Hover [q-418](quest:q-418) to see its owner session chip in the quest hover preview." />
+          <Card label="Quest hover shows orchestration">
+            <PlaygroundHoverCrossLinkDemo text="Hover [q-418](quest:q-418) to see status, Journey, owner, and leader metadata in the quest hover preview." />
           </Card>
           <Card label="Session hover shows active quest">
             <PlaygroundHoverCrossLinkDemo text="Hover [#566](session:566) to see the worker's active quest chip in the session hover preview." />

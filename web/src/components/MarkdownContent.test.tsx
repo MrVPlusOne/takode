@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { useStore } from "../store.js";
 
 const mockGetSettings = vi.fn();
@@ -237,7 +237,11 @@ describe("MarkdownContent quest links", () => {
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-42" }));
 
     expect(await screen.findByText("Fix auth race condition")).toBeTruthy();
+    expect(screen.getByTestId("quest-hover-card").style.width).toBe("450px");
     expect(screen.getByText("In Progress")).toBeTruthy();
+    // The status row is separate so the pill cannot steal horizontal space from the title.
+    expect(within(screen.getByTestId("quest-hover-status-row")).getByText("In Progress")).toBeTruthy();
+    expect(screen.getByTestId("quest-hover-status-row").contains(screen.getByTestId("quest-hover-title"))).toBe(false);
     expect(screen.getByText("ui")).toBeTruthy();
     expect(screen.getByText("bugfix")).toBeTruthy();
   });
@@ -277,6 +281,75 @@ describe("MarkdownContent quest links", () => {
     expect(await screen.findByTestId("quest-hover-owner-session")).toBeTruthy();
     expect(screen.getByRole("link", { name: "#123" })).toBeTruthy();
     expect(screen.getByText("Auth Worker")).toBeTruthy();
+  });
+
+  it("shows leader attribution and compact Journey data when hovering an orchestrated quest link", async () => {
+    useStore.setState((state) => ({
+      ...state,
+      quests: [
+        {
+          id: "q-42-v1",
+          questId: "q-42",
+          version: 1,
+          title: "Fix auth race condition",
+          createdAt: 1,
+          status: "in_progress",
+          description: "Ensure claim state updates atomically.",
+          sessionId: "session-abc",
+          claimedAt: 1,
+          tags: ["ui", "bugfix"],
+        },
+      ],
+      sdkSessions: [
+        {
+          sessionId: "session-abc",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 123,
+          herdedBy: "leader-abc",
+        },
+        {
+          sessionId: "leader-abc",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 7,
+          isOrchestrator: true,
+        },
+      ],
+      sessionNames: new Map([
+        ["session-abc", "Auth Worker"],
+        ["leader-abc", "Quest Leader"],
+      ]),
+      sessionBoards: new Map([
+        [
+          "leader-abc",
+          [
+            {
+              questId: "q-42",
+              status: "IMPLEMENTING",
+              updatedAt: 2,
+              journey: {
+                mode: "active",
+                phaseIds: ["alignment", "implement", "code-review"],
+                currentPhaseId: "implement",
+              },
+            },
+          ],
+        ],
+      ]),
+    }));
+
+    render(<MarkdownContent text="[q-42](quest:q-42)" />);
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "q-42" }));
+
+    // Leader can come from live herding metadata even when the quest record itself lacks leaderSessionId.
+    expect(await screen.findByTestId("quest-hover-leader-session")).toBeTruthy();
+    expect(within(screen.getByTestId("quest-hover-leader-session")).getByRole("link", { name: "#7" })).toBeTruthy();
+    expect(screen.getByText("Quest Leader")).toBeTruthy();
+    expect(screen.getByTestId("quest-journey-compact-summary").getAttribute("data-journey-mode")).toBe("active");
+    expect(screen.getByText("Implement")).toBeTruthy();
   });
 
   it("keeps external links as normal web links", () => {

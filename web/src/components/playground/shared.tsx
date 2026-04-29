@@ -954,6 +954,20 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
   useEffect(() => {
     useStore.setState((state) => {
       const nextSdkSessions = [...state.sdkSessions];
+      if (!nextSdkSessions.some((session) => session.sessionId === "playground-hover-leader")) {
+        nextSdkSessions.push({
+          sessionId: "playground-hover-leader",
+          state: "running",
+          cwd: "/Users/stan/Dev/takode",
+          createdAt: Date.now() - 180000,
+          sessionNum: 565,
+          cliConnected: true,
+          backendType: "codex",
+          model: "gpt-5.4",
+          repoRoot: "/Users/stan/Dev/takode",
+          isOrchestrator: true,
+        });
+      }
       if (!nextSdkSessions.some((session) => session.sessionId === "playground-hover-worker")) {
         nextSdkSessions.push({
           sessionId: "playground-hover-worker",
@@ -965,42 +979,68 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
           backendType: "codex",
           model: "gpt-5.4-mini",
           repoRoot: "/Users/stan/Dev/takode",
+          herdedBy: "playground-hover-leader",
         });
       }
 
       const nextSessionNames = new Map(state.sessionNames);
+      nextSessionNames.set("playground-hover-leader", "Leader Hover Demo");
       nextSessionNames.set("playground-hover-worker", "Worker Hover Demo");
 
       const nextQuests = [...state.quests];
-      if (!nextQuests.some((quest) => quest.questId === "q-418")) {
-        nextQuests.push({
-          id: "q-418-v2",
-          questId: "q-418",
-          version: 2,
-          title: "Prefer plain-text Takode inspection",
-          status: "in_progress",
-          description: "Keep Takode inspection flows plain-text first.",
-          createdAt: Date.now() - 240000,
-          sessionId: "playground-hover-worker",
-          claimedAt: Date.now() - 180000,
-          tags: ["leader", "workflow", "documentation", "takode-cli", "improvement"],
-        });
+      const hoverQuest = {
+        id: "q-418-v2",
+        questId: "q-418",
+        version: 2,
+        title: "Improve quest link preview layout and orchestration details",
+        status: "in_progress" as const,
+        description: "Keep quest hover previews spacious while surfacing orchestration context.",
+        createdAt: Date.now() - 240000,
+        sessionId: "playground-hover-worker",
+        claimedAt: Date.now() - 180000,
+        leaderSessionId: "playground-hover-leader",
+        tags: ["ui", "quests", "links", "journey"],
+      };
+      const existingQuestIndex = nextQuests.findIndex((quest) => quest.questId === "q-418");
+      if (existingQuestIndex >= 0) {
+        nextQuests[existingQuestIndex] = { ...nextQuests[existingQuestIndex], ...hoverQuest };
+      } else {
+        nextQuests.push(hoverQuest);
       }
+
+      const nextSessionBoards = new Map(state.sessionBoards);
+      const leaderBoard = (nextSessionBoards.get("playground-hover-leader") ?? []).filter(
+        (row) => row.questId !== "q-418",
+      );
+      nextSessionBoards.set("playground-hover-leader", [
+        {
+          questId: "q-418",
+          title: hoverQuest.title,
+          worker: "playground-hover-worker",
+          workerNum: 566,
+          status: "IMPLEMENTING",
+          updatedAt: Date.now() - 60000,
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review"],
+            currentPhaseId: "implement",
+          },
+        },
+        ...leaderBoard,
+      ]);
 
       return {
         ...state,
         sdkSessions: nextSdkSessions,
         sessionNames: nextSessionNames,
         quests: nextQuests,
+        sessionBoards: nextSessionBoards,
       };
     });
   }, []);
 
   return (
     <div className="space-y-2 p-3">
-      <div className="text-xs text-cc-muted">
-        Uses the [q-419](quest:q-419) corrected screenshot behavior: compact cross-link chips inside the hover preview.
-      </div>
       <div className="rounded-xl border border-cc-border bg-cc-card/40 px-3 py-2.5">
         <MarkdownContent text={text} />
       </div>
