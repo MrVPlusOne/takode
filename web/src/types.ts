@@ -20,6 +20,7 @@ import type {
   VsCodeSelectionMetadata,
   VsCodeSelectionState,
   SessionNotification,
+  SessionLifecycleEvent,
   ThreadRef,
   ThreadAttachmentMarker,
   ThreadRoutingError,
@@ -64,6 +65,7 @@ export type {
   VsCodeSelectionState,
   SessionTimer,
   SessionNotification,
+  SessionLifecycleEvent,
   ThreadRef,
   ThreadAttachmentMarker,
   ThreadRoutingError,
@@ -308,6 +310,8 @@ export interface SdkSessionInfo {
   codexTokenDetails?: SessionState["codex_token_details"];
   /** Last server-reported Claude token details for this session. */
   claudeTokenDetails?: SessionState["claude_token_details"];
+  /** Debug lifecycle events restored from server session state. */
+  sessionLifecycleEvents?: SessionLifecycleEvent[];
   /** Codex leader recycle lineage persisted across fresh-thread swaps. */
   codexLeaderRecycleLineage?: {
     cliSessionIds: string[];

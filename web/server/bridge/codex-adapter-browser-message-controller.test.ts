@@ -7,7 +7,7 @@ import type { BrowserIncomingMessage, ContentBlock } from "../session-types.js";
 
 type TestCodexSession = {
   id: string;
-  state: Record<string, unknown>;
+  state: any;
   messageHistory: BrowserIncomingMessage[];
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
@@ -88,6 +88,60 @@ async function routeAssistantMessage(
 }
 
 describe("codex-adapter-browser-message-controller thread routing", () => {
+  it("records and broadcasts Codex compaction lifecycle events from status changes", async () => {
+    // Codex surfaces compaction through item lifecycle status changes; the
+    // bridge should persist lifecycle telemetry without relying on chat history.
+    const session = makeSession();
+    session.state = {
+      backend_type: "codex",
+      context_used_percent: 90,
+      codex_token_details: {
+        contextTokensUsed: 270_000,
+        inputTokens: 300_000,
+        outputTokens: 10_000,
+        cachedInputTokens: 30_000,
+        reasoningOutputTokens: 5_000,
+        modelContextWindow: 300_000,
+      },
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: "compacting" }, deps);
+
+    expect(session.state.lifecycle_events).toEqual([
+      expect.objectContaining({
+        type: "compaction",
+        before: expect.objectContaining({
+          contextTokensUsed: 270_000,
+          contextUsedPercent: 90,
+          source: "codex_token_details",
+        }),
+      }),
+    ]);
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({
+        type: "session_update",
+        session: { lifecycle_events: session.state.lifecycle_events },
+      }),
+    );
+
+    session.state.codex_token_details = {
+      ...session.state.codex_token_details,
+      contextTokensUsed: 42_000,
+    };
+    session.state.context_used_percent = 14;
+    await handleCodexAdapterBrowserMessage(session, { type: "status_change", status: null }, deps);
+
+    expect(session.state.lifecycle_events?.[0]).toMatchObject({
+      after: {
+        contextTokensUsed: 42_000,
+        contextUsedPercent: 14,
+        source: "codex_token_details",
+      },
+    });
+  });
+
   it("strips leader thread text prefixes and persists quest thread metadata", async () => {
     // Codex uses a separate adapter path, so it needs direct coverage for the
     // persisted/broadcast message shape consumed by quest-thread UI filtering.

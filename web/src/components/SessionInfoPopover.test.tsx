@@ -20,6 +20,16 @@ interface MockStoreState {
       codex_retained_payload_bytes?: number;
       codex_token_details?: { modelContextWindow?: number };
       claude_token_details?: { modelContextWindow?: number };
+      lifecycle_events?: Array<{
+        type: "compaction";
+        id: string;
+        timestamp: number;
+        backendType?: "claude" | "codex" | "claude-sdk";
+        trigger?: "auto" | "manual";
+        before?: { contextTokensUsed?: number; contextUsedPercent?: number; source: string; capturedAt: number };
+        after?: { contextTokensUsed?: number; contextUsedPercent?: number; source: string; capturedAt: number };
+        finishedAt?: number;
+      }>;
       git_branch?: string | null;
       is_worktree?: boolean;
       git_ahead?: number;
@@ -36,6 +46,14 @@ interface MockStoreState {
     contextUsedPercent?: number;
     codexTokenDetails?: { modelContextWindow?: number };
     claudeTokenDetails?: { modelContextWindow?: number };
+    sessionLifecycleEvents?: Array<{
+      type: "compaction";
+      id: string;
+      timestamp: number;
+      backendType?: "claude" | "codex" | "claude-sdk";
+      before?: { contextTokensUsed?: number; source: string; capturedAt: number };
+      after?: { contextTokensUsed?: number; source: string; capturedAt: number };
+    }>;
     codexLeaderRecycleLineage?: {
       cliSessionIds: string[];
       recycleEvents: Array<{
@@ -95,13 +113,25 @@ vi.mock("../store.js", () => ({
   useStore: (selector: (s: MockStoreState) => unknown) => selector(storeState),
 }));
 
-vi.mock("./TaskPanel.js", () => ({
-  GitHubPRSection: () => null,
-  McpCollapsible: () => null,
-  ClaudeMdCollapsible: () => null,
-  HerdDiagnosticsSection: () => null,
-  SystemPromptCollapsible: () => null,
-}));
+vi.mock("./TaskPanel.js", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    GitHubPRSection: () => null,
+    McpCollapsible: () => null,
+    ClaudeMdCollapsible: () => null,
+    HerdDiagnosticsSection: () => null,
+    SystemPromptCollapsible: () => null,
+    SectionHeader: ({ title, collapsed, onToggle }: { title: string; collapsed: boolean; onToggle: () => void }) => (
+      <button type="button" aria-expanded={!collapsed} onClick={onToggle}>
+        {title}
+      </button>
+    ),
+    usePersistedCollapse: (_key: string, defaultCollapsed = false) => {
+      const [collapsed, setCollapsed] = React.useState(defaultCollapsed);
+      return [collapsed, () => setCollapsed((value) => !value)] as const;
+    },
+  };
+});
 
 vi.mock("../ws.js", () => ({
   sendToSession: vi.fn(),
@@ -500,7 +530,15 @@ describe("SessionInfoPopover", () => {
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    const section = screen.getByTestId("codex-leader-recycle-lineage");
+    const section = screen.getByTestId("session-lifecycle-debug");
+    expect(within(section).getByRole("button", { name: "Session Lifecycle" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(within(section).queryByText("Pending manual /compact recycle")).not.toBeInTheDocument();
+
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
     expect(within(section).getByText("Pending manual /compact recycle")).toBeInTheDocument();
     expect(within(section).getByText("thread-a")).toBeInTheDocument();
     expect(within(section).getByText("thread-b")).toBeInTheDocument();
@@ -535,11 +573,62 @@ describe("SessionInfoPopover", () => {
 
     render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
 
-    const section = await screen.findByTestId("codex-leader-recycle-lineage");
+    const section = await screen.findByTestId("session-lifecycle-debug");
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
     expect(within(section).getByText("thread-a")).toBeInTheDocument();
     expect(within(section).getByText("thread-b")).toBeInTheDocument();
     expect(within(section).getByText("Manual /compact recycle")).toBeInTheDocument();
     expect(within(section).getByText(/180K context/)).toBeInTheDocument();
+  });
+
+  it("renders compaction lifecycle events with known and unknown context lengths", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.lifecycle_events = [
+      {
+        type: "compaction",
+        id: "compact-boundary-1",
+        timestamp: 1_746_000_000_000,
+        backendType: "claude",
+        trigger: "auto",
+        before: {
+          contextTokensUsed: 180_000,
+          contextUsedPercent: 90,
+          source: "compact_boundary",
+          capturedAt: 1_746_000_000_000,
+        },
+      },
+      {
+        type: "compaction",
+        id: "compact-boundary-2",
+        timestamp: 1_746_000_100_000,
+        backendType: "codex",
+        before: {
+          contextTokensUsed: 270_000,
+          source: "codex_token_details",
+          capturedAt: 1_746_000_100_000,
+        },
+        after: {
+          contextTokensUsed: 95_000,
+          source: "codex_token_details",
+          capturedAt: 1_746_000_110_000,
+        },
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const section = screen.getByTestId("session-lifecycle-debug");
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
+    expect(within(section).getByText("Claude compaction • auto")).toBeInTheDocument();
+    expect(within(section).getByText("Before 180K context (90%)")).toBeInTheDocument();
+    expect(within(section).getByText("After unknown")).toBeInTheDocument();
+    expect(within(section).getByText("Codex compaction")).toBeInTheDocument();
+    expect(within(section).getByText("Before 270K context")).toBeInTheDocument();
+    expect(within(section).getByText("After 95K context")).toBeInTheDocument();
   });
 
   it("shows turns, context, and context window for Claude SDK sessions (no cost)", () => {

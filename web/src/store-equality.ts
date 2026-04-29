@@ -91,6 +91,47 @@ function claudeTokenDetailsEqual(
   );
 }
 
+function sessionLifecycleEventsEqual(
+  a: SdkSessionInfo["sessionLifecycleEvents"] | undefined,
+  b: SdkSessionInfo["sessionLifecycleEvents"] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (
+      left.type !== right.type ||
+      left.id !== right.id ||
+      left.timestamp !== right.timestamp ||
+      left.backendType !== right.backendType ||
+      left.trigger !== right.trigger ||
+      left.finishedAt !== right.finishedAt ||
+      !contextSnapshotEqual(left.before, right.before) ||
+      !contextSnapshotEqual(left.after, right.after)
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
+function contextSnapshotEqual(
+  a: NonNullable<SdkSessionInfo["sessionLifecycleEvents"]>[number]["before"],
+  b: NonNullable<SdkSessionInfo["sessionLifecycleEvents"]>[number]["before"],
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  return (
+    a.contextTokensUsed === b.contextTokensUsed &&
+    a.contextUsedPercent === b.contextUsedPercent &&
+    a.modelContextWindow === b.modelContextWindow &&
+    a.source === b.source &&
+    a.capturedAt === b.capturedAt
+  );
+}
+
 function questSnapshotKey(quest: QuestmasterTask): string {
   return `${quest.id}:${quest.version}:${(quest as { updatedAt?: number }).updatedAt ?? ""}`;
 }
@@ -177,7 +218,8 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.reviewerOf === b.reviewerOf &&
     codexLeaderRecycleLineageEqual(a.codexLeaderRecycleLineage, b.codexLeaderRecycleLineage) &&
     codexTokenDetailsEqual(a.codexTokenDetails, b.codexTokenDetails) &&
-    claudeTokenDetailsEqual(a.claudeTokenDetails, b.claudeTokenDetails)
+    claudeTokenDetailsEqual(a.claudeTokenDetails, b.claudeTokenDetails) &&
+    sessionLifecycleEventsEqual(a.sessionLifecycleEvents, b.sessionLifecycleEvents)
   );
 }
 

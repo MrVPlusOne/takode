@@ -890,6 +890,8 @@ export interface SessionState {
     cachedInputTokens: number;
     modelContextWindow: number;
   };
+  /** Debug lifecycle events for the session info panel. */
+  lifecycle_events?: SessionLifecycleEvent[];
   // Codex-specific rate limits (forwarded from account/rateLimits/updated)
   codex_rate_limits?: {
     primary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
@@ -944,6 +946,28 @@ export interface SessionNotification {
 }
 
 export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact";
+
+export interface SessionContextLengthSnapshot {
+  /** Known context length in tokens. Omitted when only percentage/window data is known. */
+  contextTokensUsed?: number;
+  contextUsedPercent?: number;
+  modelContextWindow?: number;
+  source: "compact_boundary" | "codex_token_details";
+  capturedAt: number;
+}
+
+export interface SessionCompactionLifecycleEvent {
+  type: "compaction";
+  id: string;
+  timestamp: number;
+  backendType?: BackendType;
+  trigger?: "auto" | "manual";
+  before?: SessionContextLengthSnapshot;
+  after?: SessionContextLengthSnapshot;
+  finishedAt?: number;
+}
+
+export type SessionLifecycleEvent = SessionCompactionLifecycleEvent;
 
 export interface CodexLeaderRecycleTokenSnapshot {
   contextTokensUsed?: number;

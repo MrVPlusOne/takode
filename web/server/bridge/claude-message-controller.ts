@@ -29,6 +29,11 @@ import {
   resolveResultContextWindow,
   type TokenUsage,
 } from "./context-usage.js";
+import {
+  recordCompactionBoundary,
+  recordCompactionFinished,
+  recordCompactionStarted,
+} from "./session-lifecycle-events.js";
 import { sessionTag } from "../session-tag.js";
 import type { ImageRef } from "../image-store.js";
 import {
@@ -1014,12 +1019,17 @@ function handleSdkStatusChange(
       timestamp: ts,
       id: markerId,
     });
+    recordCompactionStarted(session, { id: markerId, timestamp: ts });
     deps.freezeHistoryThroughCurrentTail(session);
     session.awaitingCompactSummary = true;
     deps.broadcastToBrowsers(session, {
       type: "compact_boundary",
       id: markerId,
       timestamp: ts,
+    });
+    deps.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { lifecycle_events: session.state.lifecycle_events },
     });
   }
   handleSystemStatus(
@@ -1051,9 +1061,19 @@ function handleSdkCompactBoundary(
     existingMarker.cliUuid = cliUuid;
     existingMarker.trigger = meta?.trigger;
     existingMarker.preTokens = meta?.pre_tokens;
+    recordCompactionBoundary(session, {
+      id: existingMarker.id ?? `compact-boundary-${existingMarker.timestamp}`,
+      timestamp: existingMarker.timestamp,
+      trigger: meta?.trigger,
+      preTokens: meta?.pre_tokens,
+    });
     if (session.backendType === "claude") {
       session.claudeCompactBoundarySeen = true;
     }
+    deps.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { lifecycle_events: session.state.lifecycle_events },
+    });
     deps.persistSession(session);
     return;
   }
@@ -1264,6 +1284,11 @@ function handleSystemStatus(
     });
   }
   if (wasCompacting && msg.status !== "compacting" && !session.cliResuming) {
+    recordCompactionFinished(session);
+    deps.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { lifecycle_events: session.state.lifecycle_events },
+    });
     deps.emitTakodeEvent(session.id, "compaction_finished", {
       ...(typeof session.state.context_used_percent === "number"
         ? { context_used_percent: session.state.context_used_percent }
@@ -1323,6 +1348,12 @@ function handleCompactBoundary(
     trigger: meta?.trigger,
     preTokens: meta?.pre_tokens,
   });
+  recordCompactionBoundary(session, {
+    id: markerId,
+    timestamp: ts,
+    trigger: meta?.trigger,
+    preTokens: meta?.pre_tokens,
+  });
   deps.freezeHistoryThroughCurrentTail(session);
   session.awaitingCompactSummary = true;
   deps.broadcastToBrowsers(session, {
@@ -1331,6 +1362,10 @@ function handleCompactBoundary(
     timestamp: ts,
     trigger: meta?.trigger,
     preTokens: meta?.pre_tokens,
+  });
+  deps.broadcastToBrowsers(session, {
+    type: "session_update",
+    session: { lifecycle_events: session.state.lifecycle_events },
   });
   deps.persistSession(session);
 }

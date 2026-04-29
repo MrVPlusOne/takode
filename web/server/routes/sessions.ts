@@ -1153,6 +1153,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const { injectedSystemPrompt: _prompt, ...rest } = session;
     return c.json({
       ...rest,
+      sessionLifecycleEvents: bridgeSession?.state.lifecycle_events ?? [],
       isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
     });
   });

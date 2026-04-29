@@ -95,6 +95,7 @@ export async function buildEnrichedSessionsSnapshot(
           contextUsedPercent: bridge?.context_used_percent || 0,
           messageHistoryBytes: bridge?.message_history_bytes || 0,
           codexRetainedPayloadBytes: bridge?.codex_retained_payload_bytes || 0,
+          sessionLifecycleEvents: bridge?.lifecycle_events ?? [],
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
           ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
           lastMessagePreview: currentBridgeSession?.lastUserMessage || "",

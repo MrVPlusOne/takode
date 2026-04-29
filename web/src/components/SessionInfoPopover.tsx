@@ -5,7 +5,9 @@ import {
   McpCollapsible,
   ClaudeMdCollapsible,
   HerdDiagnosticsSection,
+  SectionHeader,
   SystemPromptCollapsible,
+  usePersistedCollapse,
 } from "./TaskPanel.js";
 import { formatModel, getModelsForBackend, CODEX_REASONING_EFFORTS } from "../utils/backends.js";
 import { coalesceSessionViewModel } from "../utils/session-view-model.js";
@@ -15,7 +17,7 @@ import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type EditorKind } from "../api.js";
-import type { SdkSessionInfo } from "../types.js";
+import type { SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
 import { openPathWithEditorPreference } from "../utils/vscode-bridge.js";
 
 export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
@@ -160,6 +162,18 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
   const effectiveSdkSession = sdkSession ?? effectiveSdkSessions.find((x) => x.sessionId === sessionId);
   const codexLeaderRecycleLineage = effectiveSdkSession?.codexLeaderRecycleLineage;
   const codexLeaderRecyclePending = effectiveSdkSession?.codexLeaderRecyclePending;
+  const lifecycleEvents = session?.lifecycle_events ?? effectiveSdkSession?.sessionLifecycleEvents ?? [];
+  const hasLifecycleDebug =
+    lifecycleEvents.length > 0 ||
+    !!codexLeaderRecyclePending ||
+    !!(
+      codexLeaderRecycleLineage &&
+      (codexLeaderRecycleLineage.cliSessionIds.length > 0 || codexLeaderRecycleLineage.recycleEvents.length > 0)
+    );
+  const [lifecycleCollapsed, toggleLifecycleCollapsed] = usePersistedCollapse(
+    "cc-collapse-session-lifecycle-debug",
+    true,
+  );
   const taskEntries = (taskHistory ?? []).map((task) => ({
     ...task,
     title: task.title.trim(),
@@ -471,54 +485,67 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
           </div>
         )}
 
-        {codexLeaderRecycleLineage &&
-          (codexLeaderRecycleLineage.cliSessionIds.length > 0 ||
-            codexLeaderRecycleLineage.recycleEvents.length > 0) && (
-            <div
-              className="px-4 py-2 border-t border-cc-border/50 space-y-2"
-              data-testid="codex-leader-recycle-lineage"
-            >
-              <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Codex Recycle</span>
-              {codexLeaderRecyclePending && (
-                <div className="text-[11px] text-amber-400">
-                  Pending {codexLeaderRecyclePending.trigger === "manual_compact" ? "manual /compact" : "threshold"}{" "}
-                  recycle
-                </div>
-              )}
-              {codexLeaderRecycleLineage.cliSessionIds.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-[10px] text-cc-muted/70">CLI sessions</div>
+        {hasLifecycleDebug && (
+          <div className="border-t border-cc-border/50" data-testid="session-lifecycle-debug">
+            <SectionHeader
+              title="Session Lifecycle"
+              collapsed={lifecycleCollapsed}
+              onToggle={toggleLifecycleCollapsed}
+            />
+            {!lifecycleCollapsed && (
+              <div className="px-4 py-2 space-y-2">
+                {codexLeaderRecyclePending && (
+                  <div className="text-[11px] text-amber-400">
+                    Pending {codexLeaderRecyclePending.trigger === "manual_compact" ? "manual /compact" : "threshold"}{" "}
+                    recycle
+                  </div>
+                )}
+                {codexLeaderRecycleLineage?.cliSessionIds.length ? (
                   <div className="space-y-1">
-                    {codexLeaderRecycleLineage.cliSessionIds.map((cliSessionId, index) => (
-                      <div key={`${cliSessionId}-${index}`} className="text-[11px] text-cc-fg/90 font-mono break-all">
-                        {cliSessionId}
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {codexLeaderRecycleLineage.recycleEvents.length > 0 && (
-                <div className="space-y-1">
-                  <div className="text-[10px] text-cc-muted/70">Recycle events</div>
-                  <div className="space-y-1.5">
-                    {codexLeaderRecycleLineage.recycleEvents.map((event, index) => (
-                      <div key={`${event.requestedAt}-${index}`} className="rounded-lg bg-cc-hover/40 px-2 py-1.5">
-                        <div className="text-[11px] text-cc-fg">
-                          {event.trigger === "manual_compact" ? "Manual /compact" : "Threshold"} recycle
+                    <div className="text-[10px] text-cc-muted/70">CLI sessions</div>
+                    <div className="space-y-1">
+                      {codexLeaderRecycleLineage.cliSessionIds.map((cliSessionId, index) => (
+                        <div key={`${cliSessionId}-${index}`} className="text-[11px] text-cc-fg/90 font-mono break-all">
+                          {cliSessionId}
                         </div>
-                        <div className="mt-0.5 text-[10px] text-cc-muted">
-                          {formatRecycleTimestamp(event.requestedAt)}
-                          {typeof event.tokenUsage?.contextTokensUsed === "number"
-                            ? ` • ${formatRecycleTokenCount(event.tokenUsage.contextTokensUsed)} context`
-                            : ""}
-                        </div>
-                      </div>
-                    ))}
+                      ))}
+                    </div>
                   </div>
-                </div>
-              )}
-            </div>
-          )}
+                ) : null}
+                {codexLeaderRecycleLineage?.recycleEvents.length ? (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-cc-muted/70">Recycle events</div>
+                    <div className="space-y-1.5">
+                      {codexLeaderRecycleLineage.recycleEvents.map((event, index) => (
+                        <div key={`${event.requestedAt}-${index}`} className="rounded-lg bg-cc-hover/40 px-2 py-1.5">
+                          <div className="text-[11px] text-cc-fg">
+                            {event.trigger === "manual_compact" ? "Manual /compact" : "Threshold"} recycle
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-cc-muted">
+                            {formatRecycleTimestamp(event.requestedAt)}
+                            {typeof event.tokenUsage?.contextTokensUsed === "number"
+                              ? ` • ${formatLifecycleTokenCount(event.tokenUsage.contextTokensUsed)} context`
+                              : " • context unknown"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {lifecycleEvents.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-cc-muted/70">Compaction events</div>
+                    <div className="space-y-1.5">
+                      {lifecycleEvents.map((event) => (
+                        <LifecycleEventRow key={event.id} event={event} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
 
         {/* Herd diagnostics — only for leader sessions */}
         {sdkSession?.isOrchestrator && (
@@ -537,6 +564,25 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
   );
 }
 
+function LifecycleEventRow({ event }: { event: SessionLifecycleEvent }) {
+  if (event.type !== "compaction") return null;
+  const title = `${formatLifecycleBackend(event.backendType)} compaction`;
+  const trigger = event.trigger ? ` • ${event.trigger}` : "";
+  return (
+    <div className="rounded-lg bg-cc-hover/40 px-2 py-1.5">
+      <div className="text-[11px] text-cc-fg">
+        {title}
+        {trigger}
+      </div>
+      <div className="mt-0.5 text-[10px] text-cc-muted">{formatRecycleTimestamp(event.timestamp)}</div>
+      <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-cc-muted">
+        <span>Before {formatContextSnapshot(event.before)}</span>
+        <span>After {formatContextSnapshot(event.after)}</span>
+      </div>
+    </div>
+  );
+}
+
 function formatRecycleTimestamp(timestamp: number): string {
   return new Date(timestamp).toLocaleString([], {
     month: "short",
@@ -546,10 +592,23 @@ function formatRecycleTimestamp(timestamp: number): string {
   });
 }
 
-function formatRecycleTokenCount(count: number): string {
+function formatContextSnapshot(snapshot: Extract<SessionLifecycleEvent, { type: "compaction" }>["before"]): string {
+  if (!snapshot || typeof snapshot.contextTokensUsed !== "number") return "unknown";
+  const tokenText = `${formatLifecycleTokenCount(snapshot.contextTokensUsed)} context`;
+  if (typeof snapshot.contextUsedPercent !== "number") return tokenText;
+  return `${tokenText} (${Math.round(snapshot.contextUsedPercent)}%)`;
+}
+
+function formatLifecycleTokenCount(count: number): string {
   if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
   if (count >= 1_000) return `${Math.round(count / 1_000)}K`;
   return String(count);
+}
+
+function formatLifecycleBackend(backendType: SessionLifecycleEvent["backendType"]): string {
+  if (backendType === "codex") return "Codex";
+  if (backendType === "claude-sdk") return "Claude SDK";
+  return "Claude";
 }
 
 /** Quest chip in task history; hover popups are intentionally disabled here to keep scrolling smooth. */

@@ -7,6 +7,7 @@ import type {
 } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
+import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 
@@ -186,14 +187,24 @@ export async function handleCodexAdapterBrowserMessage(
         timestamp: ts,
         id: markerId,
       });
+      recordCompactionStarted(session, { id: markerId, timestamp: ts });
       deps.freezeHistoryThroughCurrentTail(session);
       deps.broadcastToBrowsers(session, {
         type: "compact_boundary",
         id: markerId,
         timestamp: ts,
       } as BrowserIncomingMessage);
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { lifecycle_events: session.state.lifecycle_events },
+      } as BrowserIncomingMessage);
     }
     if (wasCompacting && msg.status !== "compacting") {
+      recordCompactionFinished(session);
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { lifecycle_events: session.state.lifecycle_events },
+      } as BrowserIncomingMessage);
       deps.emitTakodeEvent(session.id, "compaction_finished", {
         ...(typeof session.state.context_used_percent === "number"
           ? { context_used_percent: session.state.context_used_percent }
