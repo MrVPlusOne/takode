@@ -151,10 +151,14 @@ export const MessageBubble = memo(function MessageBubble({
   message,
   sessionId,
   showTimestamp = true,
+  currentThreadKey,
+  onSelectThread,
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp?: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
   const searchHighlight = useMessageSearchHighlight(sessionId, message.id, message.role);
@@ -307,6 +311,8 @@ export const MessageBubble = memo(function MessageBubble({
         sessionId={sessionId}
         showTimestamp={showTimestamp}
         searchHighlight={searchHighlight}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
       />
     </div>
   );
@@ -1318,11 +1324,15 @@ function AssistantMessage({
   sessionId,
   showTimestamp,
   searchHighlight,
+  currentThreadKey,
+  onSelectThread,
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
@@ -1368,6 +1378,8 @@ function AssistantMessage({
               notificationId={resolvedNotification.id}
               sessionId={sessionId}
               messageId={message.id}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
             />
           )}
           {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
@@ -1399,6 +1411,8 @@ function AssistantMessage({
                 sessionId={sessionId}
                 searchHighlight={searchHighlight}
                 suppressNotificationMarker={suppressToolNotificationMarker}
+                currentThreadKey={currentThreadKey}
+                onSelectThread={onSelectThread}
               />
             );
           }
@@ -1414,6 +1428,8 @@ function AssistantMessage({
                 sessionId={sessionId}
                 parentMessageId={message.id}
                 suppressNotificationMarker={suppressToolNotificationMarker}
+                currentThreadKey={currentThreadKey}
+                onSelectThread={onSelectThread}
               />
             );
           }
@@ -1426,6 +1442,8 @@ function AssistantMessage({
               sessionId={sessionId}
               parentMessageId={message.id}
               suppressNotificationMarker={suppressToolNotificationMarker}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
             />
           );
         })}
@@ -1436,6 +1454,8 @@ function AssistantMessage({
             notificationId={resolvedNotification.id}
             sessionId={sessionId}
             messageId={message.id}
+            currentThreadKey={currentThreadKey}
+            onSelectThread={onSelectThread}
           />
         )}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
@@ -1684,11 +1704,15 @@ function ContentBlockRenderer({
   sessionId,
   searchHighlight,
   suppressNotificationMarker = false,
+  currentThreadKey,
+  onSelectThread,
 }: {
   block: ContentBlock;
   sessionId?: string;
   searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
   suppressNotificationMarker?: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const isCodex = useStore((s) => (sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false));
 
@@ -1714,6 +1738,8 @@ function ContentBlockRenderer({
         input={block.input}
         toolUseId={block.id}
         suppressNotificationMarker={suppressNotificationMarker}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
       />
     );
   }
@@ -1741,12 +1767,16 @@ function ToolGroupBlock({
   sessionId,
   parentMessageId,
   suppressNotificationMarker = false,
+  currentThreadKey,
+  onSelectThread,
 }: {
   name: string;
   items: ToolGroupItem[];
   sessionId?: string;
   parentMessageId?: string;
   suppressNotificationMarker?: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   const headerRef = useRef<HTMLButtonElement>(null);
@@ -1767,6 +1797,8 @@ function ToolGroupBlock({
             sessionId={sessionId}
             parentMessageId={parentMessageId}
             suppressNotificationMarker={suppressNotificationMarker}
+            currentThreadKey={currentThreadKey}
+            onSelectThread={onSelectThread}
           />
         ))}
       </div>
@@ -1806,6 +1838,8 @@ function ToolGroupBlock({
               parentMessageId={parentMessageId}
               hideLabel={name === "Bash"}
               suppressNotificationMarker={suppressNotificationMarker}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
             />
           ))}
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />

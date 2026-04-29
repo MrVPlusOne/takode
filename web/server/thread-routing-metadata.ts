@@ -71,6 +71,33 @@ export function inferThreadRouteForNotificationAnchor(
   return inferCurrentThreadRoute(history);
 }
 
+export function resolveConsistentNotificationThreadRoute(
+  history: BrowserIncomingMessage[],
+  anchorIndex: number | undefined,
+  notificationId: string,
+): ThreadRouteMetadata {
+  const inferredRoute = inferThreadRouteForNotificationAnchor(history, anchorIndex);
+  const anchor = anchorIndex === undefined ? undefined : history[anchorIndex];
+  const anchorRoute = routeFromHistoryEntry(anchor);
+
+  if (anchorRoute && !sameThreadRoute(anchorRoute, inferredRoute)) {
+    console.warn(
+      `[notifications] Normalizing ${notificationId} to anchored message thread ${anchorRoute.threadKey}; inferred ${inferredRoute.threadKey}`,
+    );
+    return anchorRoute;
+  }
+
+  const threadKey = typeof anchor?.threadKey === "string" ? anchor.threadKey.trim().toLowerCase() : "";
+  const questId = typeof anchor?.questId === "string" ? anchor.questId.trim().toLowerCase() : "";
+  if (/^q-\d+$/.test(threadKey) && /^q-\d+$/.test(questId) && threadKey !== questId) {
+    console.warn(
+      `[notifications] Anchor route metadata diverged for ${notificationId}; using threadKey ${threadKey} over questId ${questId}`,
+    );
+  }
+
+  return inferredRoute;
+}
+
 export function withThreadRoute<T extends object>(value: T, route: ThreadRouteMetadata): T & ThreadRouteMetadata {
   return {
     ...value,

@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import type { MouseEvent } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
+import { runAfterNotificationOwnerThreadSelected } from "../utils/notification-thread.js";
 
 /** Compact marker rendered inline for notification tool calls.
  *  When sessionId and messageId are provided, shows the checkbox affordance immediately
@@ -15,6 +16,8 @@ export function NotificationMarker({
   doneOverride,
   onToggleDone,
   showReplyAction = true,
+  currentThreadKey,
+  onSelectThread,
 }: {
   category: "needs-input" | "review";
   summary?: string;
@@ -24,6 +27,8 @@ export function NotificationMarker({
   doneOverride?: boolean;
   onToggleDone?: () => void;
   showReplyAction?: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const isAction = category === "needs-input";
   const label = summary || (isAction ? "Needs input" : "Ready for review");
@@ -90,14 +95,21 @@ export function NotificationMarker({
               .sessionNotifications.get(sessionId)
               ?.find((n) => n.messageId === messageId && n.category === category) ?? null)
           : null);
-      useStore.getState().setReplyContext(sessionId, {
-        ...(messageId ? { messageId } : {}),
-        ...(liveNotif ? { notificationId: liveNotif.id } : {}),
-        previewText,
+      runAfterNotificationOwnerThreadSelected({
+        notification: liveNotif,
+        currentThreadKey,
+        onSelectThread,
+        action: () => {
+          useStore.getState().setReplyContext(sessionId, {
+            ...(messageId ? { messageId } : {}),
+            ...(liveNotif ? { notificationId: liveNotif.id } : {}),
+            previewText,
+          });
+          useStore.getState().focusComposer();
+        },
       });
-      useStore.getState().focusComposer();
     },
-    [sessionId, messageId, label, notif, category],
+    [sessionId, messageId, label, notif, category, currentThreadKey, onSelectThread],
   );
 
   const handleSuggestedAnswer = useCallback(
@@ -114,15 +126,22 @@ export function NotificationMarker({
               .sessionNotifications.get(sessionId)
               ?.find((n) => n.messageId === messageId && n.category === category) ?? null)
           : null);
-      useStore.getState().setReplyContext(sessionId, {
-        ...(messageId ? { messageId } : {}),
-        ...(liveNotif ? { notificationId: liveNotif.id } : {}),
-        previewText,
+      runAfterNotificationOwnerThreadSelected({
+        notification: liveNotif,
+        currentThreadKey,
+        onSelectThread,
+        action: () => {
+          useStore.getState().setReplyContext(sessionId, {
+            ...(messageId ? { messageId } : {}),
+            ...(liveNotif ? { notificationId: liveNotif.id } : {}),
+            previewText,
+          });
+          useStore.getState().setComposerDraft(sessionId, { text: answer, images: current?.images ?? [] });
+          useStore.getState().focusComposer();
+        },
       });
-      useStore.getState().setComposerDraft(sessionId, { text: answer, images: current?.images ?? [] });
-      useStore.getState().focusComposer();
     },
-    [sessionId, messageId, label, notif, category],
+    [sessionId, messageId, label, notif, category, currentThreadKey, onSelectThread],
   );
 
   const replyButton = showReplyButton ? (

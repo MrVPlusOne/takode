@@ -2,7 +2,7 @@ import { sessionTag } from "../session-tag.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { PersistedSession } from "../session-store.js";
 import type { BoardRow, ContentBlock, SessionTaskEntry, SessionNotification } from "../session-types.js";
-import { inferThreadRouteForNotificationAnchor, withThreadRoute } from "../thread-routing-metadata.js";
+import { resolveConsistentNotificationThreadRoute, withThreadRoute } from "../thread-routing-metadata.js";
 import { detectQuestEvent } from "./quest-detector.js";
 import type {
   BrowserIncomingMessage,
@@ -1040,7 +1040,7 @@ export function notifyUser(
   const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
   session.notificationCounter = nextNotificationCounter;
   const notificationId = `n-${nextNotificationCounter}`;
-  const threadRoute = inferThreadRouteForNotificationAnchor(session.messageHistory, anchorIndex);
+  const threadRoute = resolveConsistentNotificationThreadRoute(session.messageHistory, anchorIndex, notificationId);
   if (createdFallbackMessage) {
     createdFallbackMessage.threadKey = threadRoute.threadKey;
     if (threadRoute.questId) createdFallbackMessage.questId = threadRoute.questId;

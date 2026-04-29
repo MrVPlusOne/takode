@@ -148,9 +148,13 @@ export function ElapsedTimer({
 export function FeedStatusPill({
   sessionId,
   onVisibleHeightChange,
+  currentThreadKey,
+  onSelectThread,
 }: {
   sessionId: string;
   onVisibleHeightChange?: (height: number) => void;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const leftStackRef = useRef<HTMLDivElement>(null);
   const rightStackRef = useRef<HTMLDivElement>(null);
@@ -189,7 +193,7 @@ export function FeedStatusPill({
         className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3"
       >
         <TimerChip sessionId={sessionId} />
-        <NotificationChip sessionId={sessionId} />
+        <NotificationChip sessionId={sessionId} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
       </div>
     </>
   );

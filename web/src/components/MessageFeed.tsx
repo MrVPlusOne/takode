@@ -1535,6 +1535,7 @@ export function MessageFeed({
                 <TurnEntries
                   sections={visibleSections}
                   sessionId={sessionId}
+                  currentThreadKey={threadKey}
                   leaderMode={false}
                   isCodexSession={isCodexSession}
                   activeCodexTerminalIds={activeCodexTerminalIds}
@@ -1573,7 +1574,12 @@ export function MessageFeed({
           </PawScrollProvider>
         </div>
 
-        <FeedStatusPill sessionId={sessionId} onVisibleHeightChange={setFloatingStatusHeight} />
+        <FeedStatusPill
+          sessionId={sessionId}
+          onVisibleHeightChange={setFloatingStatusHeight}
+          currentThreadKey={threadKey}
+          onSelectThread={onSelectThread}
+        />
 
         {(visibleCodexTerminalRailEntries.length > 0 || visibleLiveSubagentEntries.length > 0) && (
           <LiveActivityRail

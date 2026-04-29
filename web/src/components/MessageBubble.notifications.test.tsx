@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -118,6 +118,69 @@ describe("MessageBubble notification markers", () => {
       });
       expect(useStore.getState().focusComposerTrigger).toBe(prevFocusTrigger + 1);
     } finally {
+      useStore.setState({
+        sessionNotifications: prevNotifications,
+        composerDrafts: prevDrafts,
+        replyContexts: prevReplyContexts,
+        focusComposerTrigger: prevFocusTrigger,
+      });
+    }
+  });
+
+  it("switches to the notification owner thread before applying an inline suggested answer", () => {
+    const onSelectThread = vi.fn();
+    vi.useFakeTimers();
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const prevDrafts = useStore.getState().composerDrafts;
+    const prevReplyContexts = useStore.getState().replyContexts;
+    const prevFocusTrigger = useStore.getState().focusComposerTrigger;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-20",
+        category: "needs-input",
+        summary: "Deploy now?",
+        suggestedAnswers: ["yes", "no"],
+        timestamp: Date.now(),
+        messageId: "asst-notify",
+        threadKey: "q-977",
+        questId: "q-977",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      render(
+        <NotificationMarker
+          category="needs-input"
+          summary="Deploy now?"
+          sessionId="notify-session"
+          messageId="asst-notify"
+          notificationId="n-20"
+          currentThreadKey="all"
+          onSelectThread={onSelectThread}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
+
+      expect(onSelectThread).toHaveBeenCalledWith("q-977");
+      expect(useStore.getState().replyContexts.get("notify-session")).toBeUndefined();
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+
+      expect(useStore.getState().replyContexts.get("notify-session")).toEqual({
+        messageId: "asst-notify",
+        notificationId: "n-20",
+        previewText: "Deploy now?",
+      });
+      expect(useStore.getState().composerDrafts.get("notify-session")).toMatchObject({ text: "yes" });
+      expect(useStore.getState().focusComposerTrigger).toBe(prevFocusTrigger + 1);
+    } finally {
+      vi.useRealTimers();
       useStore.setState({
         sessionNotifications: prevNotifications,
         composerDrafts: prevDrafts,

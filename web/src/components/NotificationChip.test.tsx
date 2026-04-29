@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 const mockMarkNotificationDone = vi.fn(async (_sessionId: string, _notifId: string, _done = true) => ({ ok: true }));
@@ -262,6 +262,83 @@ describe("NotificationChip", () => {
     });
     expect(mockFocusComposer).toHaveBeenCalledTimes(1);
     expect(mockMarkNotificationDone).not.toHaveBeenCalled();
+  });
+
+  it("switches to the notification owner thread before jumping to the message", () => {
+    const onSelectThread = vi.fn();
+    vi.useFakeTimers();
+    setNotifications("s1", [
+      {
+        id: "review-1",
+        category: "review",
+        summary: "q-977 ready for review",
+        timestamp: Date.now(),
+        messageId: "msg-977",
+        threadKey: "q-977",
+        questId: "q-977",
+        done: false,
+      },
+    ]);
+
+    try {
+      render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
+      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+      fireEvent.click(screen.getByRole("button", { name: /^q-977$/i }));
+
+      expect(onSelectThread).toHaveBeenCalledWith("q-977");
+      expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+
+      expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-977");
+      expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-977");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("switches out of All Threads before starting a suggested-answer reply", () => {
+    const onSelectThread = vi.fn();
+    vi.useFakeTimers();
+    mockComposerDrafts.set("s1", { text: "old draft", images: [] });
+    setNotifications("s1", [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Deploy q-977?",
+        suggestedAnswers: ["yes", "no"],
+        timestamp: Date.now(),
+        messageId: "msg-977",
+        threadKey: "q-977",
+        questId: "q-977",
+        done: false,
+      },
+    ]);
+
+    try {
+      render(<NotificationChip sessionId="s1" currentThreadKey="all" onSelectThread={onSelectThread} />);
+      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      fireEvent.click(screen.getByRole("button", { name: "yes" }));
+
+      expect(onSelectThread).toHaveBeenCalledWith("q-977");
+      expect(mockSetReplyContext).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+
+      expect(mockSetReplyContext).toHaveBeenCalledWith("s1", {
+        messageId: "msg-977",
+        notificationId: "n-1",
+        previewText: "Deploy q-977?",
+      });
+      expect(mockSetComposerDraft).toHaveBeenCalledWith("s1", { text: "yes", images: [] });
+      expect(mockFocusComposer).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("starts a custom needs-input reply without replacing draft text", () => {

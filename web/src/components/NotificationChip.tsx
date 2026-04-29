@@ -5,6 +5,7 @@ import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { SessionNotification } from "../types.js";
 import { isClearedNotificationStatus, type NotificationStatusSnapshot } from "../notification-status.js";
+import { runAfterNotificationOwnerThreadSelected } from "../utils/notification-thread.js";
 
 const EMPTY: SessionNotification[] = [];
 type NotificationCategory = SessionNotification["category"];
@@ -169,35 +170,59 @@ function getCompactReviewSummary(
 
 // ─── Notification Item ───────────────────────────────────────────────────────
 
-function NotificationItem({ notif, sessionId }: { notif: SessionNotification; sessionId: string }) {
+function NotificationItem({
+  notif,
+  sessionId,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  notif: SessionNotification;
+  sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
   const toggleDone = useCallback(() => {
     api.markNotificationDone(sessionId, notif.id, !notif.done).catch(() => {});
   }, [sessionId, notif.id, notif.done]);
 
   const jumpToMessage = useCallback(() => {
     if (!notif.messageId) return;
-    const store = useStore.getState();
-    store.requestScrollToMessage(sessionId, notif.messageId);
-    store.setExpandAllInTurn(sessionId, notif.messageId);
+    runAfterNotificationOwnerThreadSelected({
+      notification: notif,
+      currentThreadKey,
+      onSelectThread,
+      action: () => {
+        const store = useStore.getState();
+        store.requestScrollToMessage(sessionId, notif.messageId!);
+        store.setExpandAllInTurn(sessionId, notif.messageId!);
+      },
+    });
     // Don't close panel -- user may want to click multiple notifications
-  }, [sessionId, notif.messageId]);
+  }, [sessionId, notif, currentThreadKey, onSelectThread]);
 
   const startReply = useCallback(
     (answer?: string) => (e: React.MouseEvent) => {
       e.stopPropagation();
-      const store = useStore.getState();
-      const current = store.composerDrafts.get(sessionId);
-      store.setReplyContext(sessionId, {
-        ...(notif.messageId ? { messageId: notif.messageId } : {}),
-        notificationId: notif.id,
-        previewText: notif.summary || "Needs your input",
+      runAfterNotificationOwnerThreadSelected({
+        notification: notif,
+        currentThreadKey,
+        onSelectThread,
+        action: () => {
+          const store = useStore.getState();
+          const current = store.composerDrafts.get(sessionId);
+          store.setReplyContext(sessionId, {
+            ...(notif.messageId ? { messageId: notif.messageId } : {}),
+            notificationId: notif.id,
+            previewText: notif.summary || "Needs your input",
+          });
+          if (answer !== undefined) {
+            store.setComposerDraft(sessionId, { text: answer, images: current?.images ?? [] });
+          }
+          store.focusComposer();
+        },
       });
-      if (answer !== undefined) {
-        store.setComposerDraft(sessionId, { text: answer, images: current?.images ?? [] });
-      }
-      store.focusComposer();
     },
-    [sessionId, notif.id, notif.messageId, notif.summary],
+    [sessionId, notif, currentThreadKey, onSelectThread],
   );
 
   const isNeedsInput = notif.category === "needs-input";
@@ -306,7 +331,17 @@ function NotificationItem({ notif, sessionId }: { notif: SessionNotification; se
 
 // ─── Notification Popover ────────────────────────────────────────────────────
 
-function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+function NotificationPopover({
+  sessionId,
+  onClose,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  sessionId: string;
+  onClose: () => void;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
   const { active, done } = useNotifications(sessionId);
   const questOverlayId = useStore((s) => s.questOverlayId);
   const [showDone, setShowDone] = useState(false);
@@ -394,7 +429,13 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
             {active.length > 0 && (
               <div className="divide-y divide-cc-border/20">
                 {[...active].reverse().map((n) => (
-                  <NotificationItem key={n.id} notif={n} sessionId={sessionId} />
+                  <NotificationItem
+                    key={n.id}
+                    notif={n}
+                    sessionId={sessionId}
+                    currentThreadKey={currentThreadKey}
+                    onSelectThread={onSelectThread}
+                  />
                 ))}
               </div>
             )}
@@ -417,7 +458,13 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
                 {showDone && (
                   <div className="divide-y divide-cc-border/10 opacity-60">
                     {[...done].reverse().map((n) => (
-                      <NotificationItem key={n.id} notif={n} sessionId={sessionId} />
+                      <NotificationItem
+                        key={n.id}
+                        notif={n}
+                        sessionId={sessionId}
+                        currentThreadKey={currentThreadKey}
+                        onSelectThread={onSelectThread}
+                      />
                     ))}
                   </div>
                 )}
@@ -434,7 +481,15 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
 // ─── Notification Chip (floating pill) ───────────────────────────────────────
 
 /** Glassmorphic floating pill for notification inbox. Renders nothing when no active notifications exist. */
-export function NotificationChip({ sessionId }: { sessionId: string }) {
+export function NotificationChip({
+  sessionId,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
   const { active } = useNotifications(sessionId);
   const summary = useNotificationSummary(sessionId);
   const [open, setOpen] = useState(false);
@@ -473,7 +528,14 @@ export function NotificationChip({ sessionId }: { sessionId: string }) {
         </span>
       </button>
 
-      {open && <NotificationPopover sessionId={sessionId} onClose={close} />}
+      {open && (
+        <NotificationPopover
+          sessionId={sessionId}
+          onClose={close}
+          currentThreadKey={currentThreadKey}
+          onSelectThread={onSelectThread}
+        />
+      )}
     </>
   );
 }

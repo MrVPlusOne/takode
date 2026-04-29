@@ -435,6 +435,7 @@ function ToolMessageGroup({
 export const FeedEntries = memo(function FeedEntries({
   entries,
   sessionId,
+  currentThreadKey,
   minuteBoundaryLabels,
   isCodexSession,
   activeCodexTerminalIds,
@@ -443,6 +444,7 @@ export const FeedEntries = memo(function FeedEntries({
 }: {
   entries: FeedEntry[];
   sessionId: string;
+  currentThreadKey?: string;
   minuteBoundaryLabels?: Map<string, string>;
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
@@ -532,7 +534,13 @@ export const FeedEntries = memo(function FeedEntries({
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
-            <MessageBubble message={entry.msg} sessionId={sessionId} showTimestamp={showTimestamp} />
+            <MessageBubble
+              message={entry.msg}
+              sessionId={sessionId}
+              showTimestamp={showTimestamp}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+            />
           </div>,
         );
       } else {
@@ -543,7 +551,12 @@ export const FeedEntries = memo(function FeedEntries({
             data-message-role={entry.msg.role}
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
-            <MessageBubble message={entry.msg} sessionId={sessionId} />
+            <MessageBubble
+              message={entry.msg}
+              sessionId={sessionId}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+            />
           </div>,
         );
       }
@@ -554,6 +567,7 @@ export const FeedEntries = memo(function FeedEntries({
     activeCodexTerminalIds,
     entries,
     isCodexSession,
+    currentThreadKey,
     minuteBoundaryLabels,
     onOpenCodexTerminal,
     onSelectThread,
@@ -623,6 +637,7 @@ function TurnCollapseBar({
 export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   turn,
   sessionId,
+  currentThreadKey,
   durationMs,
   onCollapse,
   minuteBoundaryLabels,
@@ -633,6 +648,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
 }: {
   turn: Turn;
   sessionId: string;
+  currentThreadKey: string;
   durationMs: number | null;
   onCollapse: () => void;
   minuteBoundaryLabels: Map<string, string>;
@@ -651,6 +667,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
       <FeedEntries
         entries={turn.allEntries}
         sessionId={sessionId}
+        currentThreadKey={currentThreadKey}
         minuteBoundaryLabels={minuteBoundaryLabels}
         isCodexSession={isCodexSession}
         activeCodexTerminalIds={activeCodexTerminalIds}
@@ -1163,6 +1180,7 @@ export const FeedFooter = memo(function FeedFooter({
 export const TurnEntries = memo(function TurnEntries({
   sections,
   sessionId,
+  currentThreadKey,
   leaderMode,
   isCodexSession,
   activeCodexTerminalIds,
@@ -1173,6 +1191,7 @@ export const TurnEntries = memo(function TurnEntries({
 }: {
   sections: FeedSection[];
   sessionId: string;
+  currentThreadKey: string;
   leaderMode: boolean;
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
@@ -1226,6 +1245,7 @@ export const TurnEntries = memo(function TurnEntries({
                       <FeedEntries
                         entries={[turn.userEntry]}
                         sessionId={sessionId}
+                        currentThreadKey={currentThreadKey}
                         minuteBoundaryLabels={minuteBoundaryLabels}
                         isCodexSession={isCodexSession}
                         activeCodexTerminalIds={activeCodexTerminalIds}
@@ -1239,6 +1259,7 @@ export const TurnEntries = memo(function TurnEntries({
                         <TurnEntriesExpanded
                           turn={turn}
                           sessionId={sessionId}
+                          currentThreadKey={currentThreadKey}
                           durationMs={turnSummaryDuration}
                           minuteBoundaryLabels={minuteBoundaryLabels}
                           isCodexSession={isCodexSession}
@@ -1254,6 +1275,7 @@ export const TurnEntries = memo(function TurnEntries({
                           <FeedEntries
                             entries={turn.systemEntries}
                             sessionId={sessionId}
+                            currentThreadKey={currentThreadKey}
                             minuteBoundaryLabels={minuteBoundaryLabels}
                             isCodexSession={isCodexSession}
                             activeCodexTerminalIds={activeCodexTerminalIds}
@@ -1283,6 +1305,7 @@ export const TurnEntries = memo(function TurnEntries({
                                         key={scIdx}
                                         entries={[sc.entry]}
                                         sessionId={sessionId}
+                                        currentThreadKey={currentThreadKey}
                                         isCodexSession={isCodexSession}
                                         activeCodexTerminalIds={activeCodexTerminalIds}
                                         onOpenCodexTerminal={onOpenCodexTerminal}
@@ -1298,6 +1321,7 @@ export const TurnEntries = memo(function TurnEntries({
                                     <FeedEntries
                                       entries={turn.notificationEntries}
                                       sessionId={sessionId}
+                                      currentThreadKey={currentThreadKey}
                                       minuteBoundaryLabels={minuteBoundaryLabels}
                                       isCodexSession={isCodexSession}
                                       activeCodexTerminalIds={activeCodexTerminalIds}
@@ -1313,6 +1337,7 @@ export const TurnEntries = memo(function TurnEntries({
                                     <FeedEntries
                                       entries={[turn.responseEntry]}
                                       sessionId={sessionId}
+                                      currentThreadKey={currentThreadKey}
                                       isCodexSession={isCodexSession}
                                       activeCodexTerminalIds={activeCodexTerminalIds}
                                       onOpenCodexTerminal={onOpenCodexTerminal}

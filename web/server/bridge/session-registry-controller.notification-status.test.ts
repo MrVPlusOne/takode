@@ -114,6 +114,42 @@ describe("session notification status metadata", () => {
     );
   });
 
+  it("logs and normalizes notifications when anchored thread metadata diverges", () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const session = makeSession({
+      messageHistory: [
+        {
+          type: "assistant",
+          message: { id: "asst-q977", content: [{ type: "text", text: "Need q-977 decision" }] },
+          timestamp: 1,
+          threadKey: "q-977",
+          questId: "q-978",
+          threadRefs: [{ threadKey: "q-977", questId: "q-977", source: "explicit" }],
+        },
+      ],
+    });
+    const deps = makeDeps();
+
+    try {
+      notifyUser(session, "needs-input", "Need q-977 input", deps);
+
+      expect(session.notifications[0]).toMatchObject({
+        id: "n-1",
+        threadKey: "q-977",
+        questId: "q-977",
+        messageId: "asst-q977",
+      });
+      expect(session.messageHistory[0].notification).toMatchObject({
+        id: "n-1",
+        threadKey: "q-977",
+        questId: "q-977",
+      });
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining("Anchor route metadata diverged"));
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("persists and restores notification status metadata", async () => {
     const persisted = buildPersistedSessionPayload(
       makeSession({

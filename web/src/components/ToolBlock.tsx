@@ -246,6 +246,8 @@ interface ToolBlockProps {
   defaultOpen?: boolean;
   disableInlineSpecialCases?: boolean;
   suppressNotificationMarker?: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }
 
 /** Public ToolBlock: wraps the inner implementation in an error boundary so that
@@ -269,6 +271,8 @@ const ToolBlockInner = memo(function ToolBlockInner({
   defaultOpen,
   disableInlineSpecialCases = false,
   suppressNotificationMarker = false,
+  currentThreadKey,
+  onSelectThread,
 }: ToolBlockProps) {
   const [open, setOpen] = useState(() => {
     if (defaultOpen !== undefined) return defaultOpen;
@@ -348,6 +352,8 @@ const ToolBlockInner = memo(function ToolBlockInner({
         summary={anchoredNotificationSummary}
         sessionId={sessionId}
         messageId={parentMessageId}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
       />
     );
   }
