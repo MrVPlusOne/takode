@@ -1858,9 +1858,9 @@ describe("Takode server-authoritative auth", () => {
           journey: {
             presetId: "full-code",
             mode: "proposed",
-            phaseIds: ["alignment", "implement", "code-review", "port"],
+            phaseIds: ["alignment", "explore", "implement", "code-review", "port"],
             phaseNotes: {
-              "1": "Build the draft/present route",
+              "1": "Classify the noisy log source before implementation.",
             },
           },
         },
@@ -1909,7 +1909,7 @@ describe("Takode server-authoritative auth", () => {
     expect(rowJourney.presentation.signature).toBe(getQuestJourneyProposalSignature(rowJourney));
   });
 
-  it("rejects normal promotion until the proposed Journey is presented", async () => {
+  it("promotes an unpresented proposed Journey after prose approval without a separate board-present step", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
       [
@@ -1938,13 +1938,102 @@ describe("Takode server-authoritative auth", () => {
       }),
     });
 
-    expect(res.status).toBe(400);
+    expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({
-      error: expect.stringContaining("takode board present"),
+      board: [
+        {
+          questId: "q-9",
+          status: "PLANNING",
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            activePhaseIndex: 0,
+            currentPhaseId: "alignment",
+          },
+        },
+      ],
     });
     expect(bridge._sessions["orch-1"].board.get("q-9")).toMatchObject({
-      status: "PROPOSED",
-      journey: { mode: "proposed" },
+      status: "PLANNING",
+      journey: { mode: "active", currentPhaseId: "alignment" },
+    });
+  });
+
+  it("promotes the latest proposed Journey even when an older presentation is stale", async () => {
+    setupTakodeSessions();
+    const proposedJourney = {
+      presetId: "full-code",
+      mode: "proposed" as const,
+      phaseIds: ["alignment", "implement", "code-review", "port"] as QuestJourneyPhaseId[],
+    };
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "PROPOSED",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            ...proposedJourney,
+            phaseIds: [...proposedJourney.phaseIds],
+            presentation: {
+              state: "presented",
+              signature: getQuestJourneyProposalSignature(proposedJourney),
+              presentedAt: 1000,
+            },
+          },
+        },
+      ],
+    ]);
+
+    const noteRes = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phaseNoteEdits: [{ index: 1, note: "Implement the approved prose proposal" }],
+      }),
+    });
+
+    expect(noteRes.status).toBe(200);
+    expect(await noteRes.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          journey: {
+            presentation: {
+              state: "draft",
+            },
+          },
+        },
+      ],
+    });
+
+    const promoteRes = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        journeyMode: "active",
+      }),
+    });
+
+    expect(promoteRes.status).toBe(200);
+    expect(await promoteRes.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          status: "PLANNING",
+          journey: {
+            mode: "active",
+            phaseNotes: {
+              "1": "Implement the approved prose proposal",
+            },
+          },
+        },
+      ],
     });
   });
 
@@ -1999,19 +2088,9 @@ describe("Takode server-authoritative auth", () => {
         },
       ],
     });
-
-    const promoteRes = await app.request("/api/sessions/orch-1/board", {
-      method: "POST",
-      headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({
-        questId: "q-9",
-        journeyMode: "active",
-      }),
-    });
-
-    expect(promoteRes.status).toBe(400);
-    expect(await promoteRes.json()).toMatchObject({
-      error: expect.stringContaining("takode board present"),
+    expect(bridge._sessions["orch-1"].board.get("q-9")).toMatchObject({
+      status: "PROPOSED",
+      journey: { mode: "proposed" },
     });
   });
 

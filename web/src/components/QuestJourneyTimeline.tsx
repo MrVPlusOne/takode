@@ -103,18 +103,13 @@ function noteCount(journey: QuestJourneyPlanState): number {
   return Object.values(journey.phaseNotes ?? {}).filter((note) => note.trim()).length;
 }
 
-function phasePurpose(
-  item: PhaseItem,
-  showPhasePurpose: boolean,
-): { text: string; kind: "authored" | "default" } | null {
+function phasePurpose(item: PhaseItem): { text: string; kind: "authored" } | null {
   if (item.note) return { text: item.note, kind: "authored" };
-  if (!showPhasePurpose) return null;
-  return { text: item.phase.contract, kind: "default" };
+  return null;
 }
 
-function phasePurposeClassName(item: PhaseItem, kind: "authored" | "default"): string {
+function phasePurposeClassName(item: PhaseItem, kind: "authored"): string {
   if (item.state === "completed") return "text-cc-muted/65";
-  if (kind === "default") return "text-cc-muted/65";
   if (item.state === "proposed") return "text-cc-fg/90";
   return "text-cc-fg/85";
 }
@@ -224,13 +219,11 @@ function VerticalJourney({
   journey,
   status,
   className,
-  showPhasePurpose,
 }: {
   items: PhaseItem[];
   journey: QuestJourneyPlanState;
   status?: string | null;
   className?: string;
-  showPhasePurpose: boolean;
 }) {
   const proposed = isProposedJourney(journey, status);
   return (
@@ -250,7 +243,7 @@ function VerticalJourney({
       <ol className="space-y-0" data-testid="quest-journey-detail-list">
         {items.map((item, index) => {
           const hasNext = index < items.length - 1;
-          const purpose = phasePurpose(item, showPhasePurpose);
+          const purpose = phasePurpose(item);
           return (
             <li
               key={`${item.phase.id}-${item.index}`}
@@ -313,14 +306,12 @@ export function QuestJourneyTimeline({
   className,
   compact = false,
   variant,
-  showPhasePurpose,
 }: {
   journey: QuestJourneyPlanState;
   status?: string | null;
   className?: string;
   compact?: boolean;
   variant?: JourneyVariant;
-  showPhasePurpose?: boolean;
 }) {
   const items = getPhaseItems(journey, status);
   if (items.length === 0) return null;
@@ -330,15 +321,7 @@ export function QuestJourneyTimeline({
     return <QuestJourneyCompactSummary journey={journey} status={status} className={className} />;
   }
   if (resolvedVariant === "vertical") {
-    return (
-      <VerticalJourney
-        items={items}
-        journey={journey}
-        status={status}
-        className={className}
-        showPhasePurpose={showPhasePurpose ?? true}
-      />
-    );
+    return <VerticalJourney items={items} journey={journey} status={status} className={className} />;
   }
   return <HorizontalJourney items={items} journey={journey} status={status} compact={compact} className={className} />;
 }
@@ -380,7 +363,7 @@ export function QuestJourneyPreviewCard({
           )}
         </>
       )}
-      <QuestJourneyTimeline journey={journey} status={status} variant="vertical" showPhasePurpose />
+      <QuestJourneyTimeline journey={journey} status={status} variant="vertical" />
     </div>
   );
 }

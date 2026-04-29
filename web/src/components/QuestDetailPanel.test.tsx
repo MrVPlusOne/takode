@@ -168,6 +168,7 @@ describe("QuestDetailPanel", () => {
                 currentPhaseId: "implement",
                 phaseNotes: {
                   "0": "Finished alignment note dims with the title",
+                  "1": "",
                   "2": "Inspect only the follow-up diff",
                 },
               },
@@ -193,7 +194,8 @@ describe("QuestDetailPanel", () => {
     expect(completedNote.className).toContain("text-cc-muted");
     expect(completedNote.className).not.toContain("bg-amber");
     expect(within(timeline).getByText("Alignment").closest("li")).toHaveAttribute("data-phase-state", "completed");
-    expect(within(timeline).getByText(/Make approved code, docs/)).toHaveAttribute("data-purpose-kind", "default");
+    expect(within(timeline).queryByText(/Make approved code, docs/)).not.toBeInTheDocument();
+    expect(within(timeline).queryAllByTestId("quest-journey-phase-purpose")).toHaveLength(2);
     expect(within(timeline).getByText("current")).toBeInTheDocument();
     expect(within(timeline).getByText("Code Review").closest("li")).toHaveAttribute("data-phase-color", "violet");
     expect(screen.getByTestId("quest-detail-journey-section").parentElement).toHaveClass("overflow-y-auto");
@@ -234,10 +236,8 @@ describe("QuestDetailPanel", () => {
     expect(timeline).toHaveAttribute("data-journey-mode", "proposed");
     expect(within(timeline).getByText("Proposed Journey")).toBeInTheDocument();
     expect(within(timeline).getByText("Ask user to approve this Journey before dispatch")).toHaveClass("ml-[1.375rem]");
-    expect(within(timeline).getByText(/Make approved code, docs, prompts/)).toHaveAttribute(
-      "data-purpose-kind",
-      "default",
-    );
+    expect(within(timeline).queryByText(/Make approved code, docs, prompts/)).not.toBeInTheDocument();
+    expect(within(timeline).getAllByTestId("quest-journey-phase-purpose")).toHaveLength(1);
     expect(within(timeline).queryByText("preview")).not.toBeInTheDocument();
     expect(within(timeline).queryByText("current")).not.toBeInTheDocument();
     for (const phaseRow of timeline.querySelectorAll("li")) {

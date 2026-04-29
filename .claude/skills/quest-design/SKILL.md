@@ -8,7 +8,7 @@ description: "Confirm quest intent before creating a new quest or refining an id
 Use this skill before creating a quest or refining an `idea` quest into a worker-ready quest.
 
 The goal is to give the user one concise chance to correct the agent's understanding before quest text is written.
-When the user clearly wants a quest created and dispatched, combine this with `/leader-dispatch`: present the proposed quest draft and the proposed Quest Journey/scheduling plan together so one confirmation can approve quest text, Journey, and dispatch plan.
+When the user clearly wants a quest created and dispatched, combine this with `/leader-dispatch`: describe the proposed quest draft and the proposed Quest Journey/scheduling plan together in natural prose so one confirmation can approve quest text, Journey, and dispatch plan. After approval, the leader must write the approved Journey to the board before or with dispatch.
 
 ## Scope
 
@@ -33,9 +33,11 @@ Do not write the quest yet. First respond with the narrowest confirmation surfac
 
 Best case: if the user clearly wants quest creation plus immediate dispatch and the request is already understood, include both:
 - the proposed quest draft: title, description/scope, tags when useful, assumptions, and non-goals
-- the proposed Quest Journey/scheduling draft from `/leader-dispatch`: phase sequence, concise per-phase purpose notes when useful, worker choice or fresh-spawn intent, and dispatch/queueing plan
+- the proposed Quest Journey/scheduling draft from `/leader-dispatch`: phase sequence, concise non-standard phase reasons when useful, worker choice or fresh-spawn intent, and dispatch/queueing plan
 
-One user confirmation can approve both the quest draft and the Journey/scheduling plan. Do not add a separate confirmation round just to restate understanding.
+One user confirmation can approve both the quest draft and the Journey/scheduling plan. Do not add a separate confirmation round just to restate understanding, and do not require a separate board-presentation approval ceremony.
+
+For Journey notes, omit standard tracked-code phase notes by default: `alignment`, `implement`, `code-review`, and `port` only need notes for unusual phase-specific work. Explain non-standard phases concisely: why the phase is needed and what evidence, scenario, outcome, or durable state it covers.
 
 Clarification-needed case: ask the material questions using the quest framing below. After the user clarifies and no major ambiguity remains, the next response should include both the proposed quest draft and proposed Journey/scheduling draft together. More than two confirmation rounds should happen only when new, genuine ambiguity remains.
 

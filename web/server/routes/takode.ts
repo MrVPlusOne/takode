@@ -140,15 +140,6 @@ function normalizeProposalMetadata(
   };
 }
 
-function isPresentedQuestJourneyCurrent(journey: QuestJourneyPlanState | undefined): boolean {
-  return (
-    journey?.mode === "proposed" &&
-    journey.presentation?.state === "presented" &&
-    !!journey.presentation.signature &&
-    journey.presentation.signature === getQuestJourneyProposalSignature(journey)
-  );
-}
-
 function buildProposalReviewPayload(row: {
   questId: string;
   title?: string;
@@ -1946,19 +1937,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
         {
           error:
             "Promoting a Journey requires an existing proposed Journey row. Create or revise it first with `takode board propose`.",
-        },
-        400,
-      );
-    }
-    if (
-      requestedMode === "active" &&
-      body.forcePromoteUnpresented !== true &&
-      !isPresentedQuestJourneyCurrent(existingJourney)
-    ) {
-      return c.json(
-        {
-          error:
-            "Promoting a Journey requires the current proposed draft to be presented first. Run `takode board present <quest>` after the latest draft revision, or use forcePromoteUnpresented only for rare recovery/admin scenarios.",
         },
         400,
       );

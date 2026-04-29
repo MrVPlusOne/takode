@@ -11,7 +11,7 @@ Board-side Journey modes:
 
 `PROPOSED` and `QUEUED` are board states, not phases. Once active, leaders choose the phase sequence that matches the risk boundary and evidence needed next. Repeated phases are allowed, so progress is tracked by active phase occurrence rather than assuming each phase name appears only once.
 
-Before the first dispatch, leaders should use `/leader-dispatch` to propose the planned initial Journey on the board and get approval. When the user clearly wants quest creation plus dispatch and the scope is understood, combine this with `/quest-design`: present the proposed quest draft and proposed Journey/scheduling draft together so one confirmation can approve both. If clarification is needed, ask it with quest framing; after the user clarifies and no major ambiguity remains, the next response should include both drafts together. Avoid a separate restated-understanding-only round. The worker alignment phase then returns a lightweight read-in inside that approved Journey and may surface facts that justify a leader-owned Journey revision; it is not the first time phases are proposed. After the worker returns that read-in, the leader normally approves the next phase and advances without a routine second user-approval round. Escalate back to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocking issue.
+Before the first dispatch, leaders should use `/leader-dispatch` to propose the planned initial Journey and scheduling approach, then get approval. When the user clearly wants quest creation plus dispatch and the scope is understood, combine this with `/quest-design`: describe the proposed quest draft and proposed Journey/scheduling plan naturally in prose so one confirmation can approve both. After approval, write the approved Journey to the board before or with dispatch using `takode board set --worker ... --phases ...` or by promoting an existing proposed row. If clarification is needed, ask it with quest framing; after the user clarifies and no major ambiguity remains, the next response should include both drafts together. Avoid a separate restated-understanding-only round. The worker alignment phase then returns a lightweight read-in inside that approved Journey and may surface facts that justify a leader-owned Journey revision; it is not the first time phases are proposed. After the worker returns that read-in, the leader normally approves the next phase and advances without a routine second user-approval round. Escalate back to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocking issue.
 
 ## Built-In Phase Library
 
@@ -34,29 +34,30 @@ Use `takode phases` to list available phase metadata and exact brief paths. Lead
 | Bookkeeping | `BOOKKEEPING` | `~/.companion/quest-journey-phases/bookkeeping/leader.md` | `~/.companion/quest-journey-phases/bookkeeping/assignee.md` | Record durable shared external state such as quest updates, stream updates, artifact locations, handoff facts, and superseded facts | read the bookkeeping leader brief, record the durable shared state update, then advance when the facts and handoff state are current |
 | Port | `PORTING` | `~/.companion/quest-journey-phases/port/leader.md` | `~/.companion/quest-journey-phases/port/assignee.md` | Sync accepted tracked changes back to the main repo | read the port leader brief, then wait for sync confirmation and post-port verification before removing the row |
 
-## Default Preset
+## Recommended Default
 
-The default built-in tracked-code Journey is:
+The recommended built-in tracked-code Journey is:
 
 `alignment -> implement -> code-review -> port`
 
-This preserves a small normal path for common repo work while allowing leaders to choose richer review or operations paths when the quest needs them.
+This preserves a small normal path for common repo work while allowing leaders to choose richer review or operations paths when the quest needs them. It is a default, not a mandate: user overrides win. If the user asks to skip `code-review`, `port`, or another standard phase, follow that instruction or briefly confirm the tradeoff instead of refusing because the phase is standard.
 
-## Proposed Workflow
+Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, and `port` are self-explanatory unless the user or quest adds unusual phase-specific work. Add concise notes for non-standard phases such as `explore`, `execute`, `outcome-review`, `mental-simulation`, or `bookkeeping`; state why the phase is needed and what evidence, scenario, outcome, or durable state it covers.
 
-Use the board as the draft carrier before dispatch:
+## Approval and Board Workflow
+
+Use natural prose as the normal approval surface. Once the user approves, make the Journey durable on the board before or with dispatch:
 
 ```bash
-takode board propose q-12 --spec-file /tmp/q-12-proposal.json
-takode board present q-12 --wait-for-input 3
-takode board promote q-12 --worker 5
+takode board set q-12 --worker 5 --phases alignment,implement,code-review,port --preset full-code
 ```
 
-- `takode board propose` creates or revises the board-owned draft
-- prefer `takode board propose --spec-file` for complete proposal drafts with phases, concise user-facing notes, and scheduling metadata
+- `takode board set --worker ... --phases ...` creates the active board row in one step after prose approval
+- `takode board propose` remains available to create or revise a board-owned draft when the quest already exists and a draft row helps coordination
+- prefer `takode board propose --spec-file` for complete proposal drafts with phases, concise non-standard notes, and scheduling metadata
 - `takode board note` remains available for targeted note edits, but each draft mutation makes any previous presentation stale
-- `takode board present` creates the deliberate user-facing approval artifact from the current draft
-- `takode board promote` reuses that same Journey object for execution after approval and normally rejects unpresented/stale drafts
+- `takode board present` creates an optional user-facing approval artifact from the current draft
+- `takode board promote` reuses a proposed Journey object for execution after approval; a separate presentation step is no longer required
 - approval-hold rows should use `PROPOSED` plus `--wait-for-input`, not a fake generic queue dependency
 
 Examples:
@@ -93,10 +94,10 @@ Rules:
 ## Phase-Explicit Worker Steering
 
 - **Authorize one phase at a time.**
-- **Initial Journey approval happens before dispatch.** Use `/leader-dispatch` to put the proposed Journey on the board, present it there, and wait for approval.
+- **Initial Journey approval happens before dispatch.** Use `/leader-dispatch` to get approval for the proposed Journey and scheduling plan, then put the approved Journey on the board before or with dispatch.
 - **Read the exact leader brief; point assignees to the exact assignee brief.** Use `takode phases` when you need the paths. Do not treat globally installed phase skills as the primary phase mechanism.
 - **Initial dispatch = alignment only.**
-- **Promote the same board-drafted Journey after approval.** Do not restate the Journey from scratch when moving from proposal to active execution.
+- **Promote the same board-drafted Journey after approval when a proposed row exists.** Otherwise, create the active row directly with the approved phase list. Do not let recovery depend only on transcript prose.
 - **Quest ownership stays with the worker.**
 - **Worker alignment returns a lightweight read-in inside a leader-approved Journey.** It may surface blockers, surprises, and evidence that justify leader-owned Journey revision, but the board-owned Journey remains authoritative until the leader changes it.
 - **Point alignment at exact sources when you already know them.** When the relevant prior messages, quests, or discussions are known, point the worker to those specific sources so alignment can use targeted Takode or quest inspection instead of broad exploration.

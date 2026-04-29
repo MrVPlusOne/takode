@@ -414,9 +414,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("/leader-dispatch");
     expect(guardrails).toContain("quest-journey.md");
     expect(guardrails).toContain("board-usage.md");
-    // Leader discipline: wait for user answer, no skipping phases
+    // Leader discipline: wait for user answer, follow the board-approved Journey
     expect(guardrails).toContain("WAIT for their answer");
-    expect(guardrails).toContain("Never skip Quest Journey phases");
+    expect(guardrails).toContain("Follow the board-approved Quest Journey");
+    expect(guardrails).toContain("recommended, not mandatory");
+    expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
     expect(guardrails).toContain("Do not use sleep-based waits");
     expect(guardrails).toContain("repeated `takode peek` / `takode scan` checks");
     expect(guardrails).toContain("wait for the next herd event");
@@ -431,6 +433,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Make every worker instruction phase-explicit");
     expect(guardrails).toContain("Initial dispatch authorizes **alignment only**");
     expect(guardrails).toContain("Initial Journey approval comes before dispatch");
+    expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
     expect(guardrails).toContain(
       "The worker alignment phase then returns a lightweight read-in inside that approved Journey",
     );
@@ -530,6 +533,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Make every worker instruction phase-explicit");
     expect(guardrails).toContain("Initial dispatch authorizes **alignment only**");
     expect(guardrails).toContain("Initial Journey approval comes before dispatch");
+    expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
+    expect(guardrails).toContain("Follow the board-approved Quest Journey");
     expect(guardrails).toContain("not a routine second user-approval gate");
     expect(guardrails).toContain("Alignment approval is leader-owned by default");
     expect(guardrails).toContain("Escalate alignment back to the user only");

@@ -269,6 +269,7 @@ describe("BoardTable", () => {
           presetId: "full-code",
           phaseIds: ["alignment", "implement", "code-review"],
           phaseNotes: {
+            "0": "",
             "1": "Build the compact preview UI",
           },
         },
@@ -287,7 +288,8 @@ describe("BoardTable", () => {
     expect(within(card).getByText("Code Review")).toBeInTheDocument();
     expect(within(card).getByText("Build the compact preview UI")).toHaveAttribute("data-purpose-kind", "authored");
     expect(within(card).getByText("Build the compact preview UI")).toHaveClass("ml-[1.375rem]");
-    expect(within(card).getByText(/Do a lightweight read-in/)).toHaveAttribute("data-purpose-kind", "default");
+    expect(within(card).queryByText(/Do a lightweight read-in/)).not.toBeInTheDocument();
+    expect(within(card).getAllByTestId("quest-journey-phase-purpose")).toHaveLength(1);
 
     fireEvent.click(within(card).getByRole("button", { name: /q-924 Make Journey UI useful/ }));
     expect(openQuestOverlay).toHaveBeenCalledWith("q-924");

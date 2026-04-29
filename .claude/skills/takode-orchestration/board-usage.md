@@ -8,7 +8,7 @@ While a quest is on the board, the current planned Journey shown there is board-
 
 ### `takode board show`
 
-Display the board with phase boundaries, the full Journey path, indexed phase notes, and next-action hints.
+Display the board with phase boundaries, the full Journey path, authored phase notes, and next-action hints.
 
 ### `takode board propose <quest-id> (--phases phase-a,phase-b | --spec-file proposal.json) [--preset preset-id] [--wait-for-input 3,4 | --clear-wait-for-input]`
 
@@ -18,16 +18,17 @@ Draft or revise a proposed pre-dispatch Journey row. Proposed rows:
 - can explicitly wait on same-session approval/input
 - do not pretend to be generic `QUEUED` worker-capacity rows
 - do not assign a worker yet
-- are draft state until you explicitly run `takode board present <quest-id>`
+- are draft state until you promote them into execution
 
-Use `--spec-file` when composing the full proposal with phase notes and presentation/scheduling metadata. The JSON shape should use ordered phases so repeated phases and notes stay attached to the intended occurrence:
+Use `--spec-file` when composing a full proposal with phase notes and presentation/scheduling metadata. The JSON shape should use ordered phases so repeated phases and notes stay attached to the intended occurrence. Omit standard-phase notes by default; add notes only for non-standard phases or unusual phase-specific handling:
 
 ```json
 {
   "presetId": "proposal-flow",
   "phases": [
-    { "id": "alignment", "note": "Confirm scope and approval criteria." },
-    { "id": "implement", "note": "Build the approved draft/present path." }
+    { "id": "alignment" },
+    { "id": "explore", "note": "Classify the noisy log source before changing severity handling." },
+    { "id": "implement" }
   ],
   "presentation": {
     "summary": "Proposed Journey for approval",
@@ -38,13 +39,13 @@ Use `--spec-file` when composing the full proposal with phase notes and presenta
 
 ### `takode board present <quest-id> [--summary "proposal summary"] [--wait-for-input 3,4 | --clear-wait-for-input]`
 
-Present the current proposed Journey draft as the deliberate user-facing approval artifact. Run this after the draft is complete. If you revise phases, notes, or presentation metadata after presenting, present again before normal promotion.
+Present the current proposed Journey draft as an optional user-facing approval artifact. Use this only when the rendered board proposal is helpful; natural prose approval plus a durable board update is the normal lightweight path. If you revise phases, notes, or presentation metadata after presenting, the presentation becomes stale, but promotion can still use the latest approved board-owned Journey.
 
-### `takode board promote <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--force-promote-unpresented]`
+### `takode board promote <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input]`
 
 Promote an existing proposed Journey into active execution without redefining its phase sequence. Use this after approval.
 
-Normal promotion requires the current draft to have been presented. `--force-promote-unpresented` is only for rare recovery/admin scenarios where the leader intentionally bypasses the approval-surface guard.
+Promotion does not require a separate `takode board present` step; the leader may approve the Journey in prose, then promote the board-owned row before dispatch.
 
 ### `takode board note <quest-id> <phase-position> [--text "note" | --clear]`
 
@@ -81,8 +82,6 @@ Examples:
   `takode board set q-12 --worker 5 --phases alignment,implement,code-review,port --preset full-code`
 - Draft the initial board-owned proposal before dispatch:
   `takode board propose q-12 --spec-file /tmp/q-12-proposal.json`
-- Present the completed draft for approval:
-  `takode board present q-12 --wait-for-input 3`
 - Promote that same proposal after approval:
   `takode board promote q-12 --worker 5`
 - Expensive or approval-gated run:
@@ -113,9 +112,11 @@ Remove row(s) manually.
 
 - Every command outputs the full board after the operation.
 - The CLI board output shows the full Journey path with numbered positions and brackets around the active occurrence when known.
-- Use `takode board propose` for the initial pre-dispatch draft row.
-- Use `takode board present` after the draft is complete; unpresented and stale-presented drafts are not the normal user-facing approval surface.
-- Use `takode board promote` to reuse that same Journey object after approval.
+- Use natural prose as the normal initial approval surface, then write the approved Journey to the board before or with dispatch.
+- Use `takode board set --worker ... --phases ...` after approval when you want to create the active durable row in one step.
+- Use `takode board propose` when an existing quest benefits from a pre-dispatch draft row.
+- Use `takode board present` only when a rendered approval artifact is helpful.
+- Use `takode board promote` to reuse a proposed Journey object after approval.
 - Set `--worker N` when dispatching active work, but proposed rows intentionally have no worker.
 - Use `takode board advance` for normal phase transitions.
 - Do not use `takode board advance` on `PROPOSED` rows; promote first.

@@ -794,7 +794,6 @@ Examples:
   takode board set q-12 --phases planning,implement,outcome-review,code-review,port --preset cli-rollout
   takode board set q-12 --status MENTAL_SIMULATING --active-phase-position 5
   takode board propose q-12 --phases alignment,implement,code-review,port --preset full-code --wait-for-input 3
-  takode board present q-12 --wait-for-input 3
   takode board promote q-12 --worker 5
   takode board note q-12 3 --text "Inspect only the follow-up diff"
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
@@ -822,17 +821,17 @@ Zero-tracked-change work uses the same board model: choose explicit phases that 
 
 const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
 
-Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates.
+Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates; omit standard-phase notes unless unusual phase-specific handling is needed.
 `;
 
 const BOARD_PRESENT_HELP = `Usage: takode board present <quest-id> [--summary <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
 
-Present the current proposed Journey draft as the deliberate user-facing approval artifact.
+Present the current proposed Journey draft as an optional user-facing approval artifact.
 `;
 
-const BOARD_PROMOTE_HELP = `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--force-promote-unpresented] [--json]
+const BOARD_PROMOTE_HELP = `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
 
-Promote an existing presented proposed Journey into active execution without redefining its phases. By default this clears any proposal hold linked through --wait-for-input. Use --force-promote-unpresented only for rare recovery/admin scenarios.
+Promote an existing proposed Journey into active execution without redefining its phases. By default this clears any proposal hold linked through --wait-for-input.
 `;
 
 const BOARD_NOTE_HELP = `Usage: takode board note <quest-id> <phase-position> [--text <text> | --clear] [--json]
@@ -4056,7 +4055,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       sub === "propose"
         ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids> | --spec-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]`
         : sub === "promote"
-          ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--force-promote-unpresented] [--json]`
+          ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]`
           : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--json]`;
     if (!questId) err(usageBySub);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);

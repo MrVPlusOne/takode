@@ -1103,7 +1103,7 @@ export function PlaygroundInteractiveSections() {
           <Card label="Board with raw debug control visible">
             <PlaygroundBoardWithOriginalCommand />
           </Card>
-          <Card label="Presented Journey proposal">
+          <Card label="Optional Journey proposal">
             <BoardBlock
               operation="present q-942"
               proposalReview={{
@@ -1111,14 +1111,13 @@ export function PlaygroundInteractiveSections() {
                 title: "Make proposed Journey drafting intentional",
                 status: "PROPOSED",
                 presentedAt: Date.now() - 30000,
-                summary: "Proposed Journey for approval",
+                summary: "Proposed Journey with non-standard exploration",
                 journey: {
                   mode: "proposed",
                   presetId: "proposal-flow",
                   phaseIds: ["alignment", "explore", "implement", "code-review"],
                   phaseNotes: {
                     "1": "Trace CLI, server, and UI paths before code.",
-                    "2": "Add the draft, present, and guarded promote flow.",
                   },
                   presentation: {
                     state: "presented",
