@@ -259,9 +259,11 @@ describe("CodexAdapter", () => {
     expect(errors[0]).toContain("cache write denied");
   });
 
-  it("rejects messages and discards queue after init failure", async () => {
+  it("rejects messages and discards queue after init failure without emitting a terminal browser error", async () => {
     // Verify that after initialization fails, sendBrowserMessage returns false
-    // and any previously queued messages are discarded (no memory leak).
+    // and any previously queued messages are discarded (no memory leak). The
+    // bridge owns terminal browser-visible init errors because it knows whether
+    // restart recovery can retry the failed Codex process.
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -286,8 +288,7 @@ describe("CodexAdapter", () => {
     const rejected = adapter.sendBrowserMessage({ type: "user_message", content: "world" } as any);
     expect(rejected).toBe(false);
 
-    // The error message should have been emitted to the browser
     const errorMsg = messages.find((m) => m.type === "error");
-    expect(errorMsg).toBeDefined();
+    expect(errorMsg).toBeUndefined();
   });
 });

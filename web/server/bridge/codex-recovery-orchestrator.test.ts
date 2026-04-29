@@ -217,6 +217,8 @@ describe("handleCodexAdapterInitError", () => {
     expect(pending.status).toBe("queued");
     expect(deps.setAttentionError).not.toHaveBeenCalled();
     expect(deps.setGenerating).not.toHaveBeenCalled();
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, { type: "backend_disconnected" });
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
 
     vi.advanceTimersByTime(1_000);
     expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(session, "init_error:browser_open_dead_backend");
@@ -247,6 +249,10 @@ describe("handleCodexAdapterInitError", () => {
     expect(pending.status).toBe("blocked_broken_session");
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
     expect(deps.setAttentionError).toHaveBeenCalledWith(session);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "error",
+      message: "Codex initialization failed: Transport closed",
+    });
   });
 
   it("marks non-transient init errors broken immediately", () => {
@@ -267,5 +273,33 @@ describe("handleCodexAdapterInitError", () => {
     expect(result).toBe("broken");
     expect(session.state.backend_state).toBe("broken");
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "error",
+      message: "Codex initialization failed: no rollout found",
+    });
+  });
+
+  it("treats actionable config failures inside transport-close init errors as terminal", () => {
+    // Some startup failures are reported as Transport closed but include a real
+    // local configuration problem in stderr. Those should stay visible instead
+    // of being hidden behind transient restart recovery.
+    const adapter = { id: "adapter-1" };
+    const session = makeSession([]);
+    session.codexAdapter = adapter as any;
+    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    const deps = makeRecoveryDeps();
+    const error =
+      "Codex initialization failed: Transport closed. Stderr: " +
+      "Error: error loading default config after config error: No such file or directory (os error 2)";
+
+    const result = handleCodexAdapterInitError(session.id, session, adapter, error, deps);
+
+    expect(result).toBe("broken");
+    expect(session.state.backend_state).toBe("broken");
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "error",
+      message: error,
+    });
   });
 });

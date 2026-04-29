@@ -727,6 +727,7 @@ export function handleCodexAdapterInitError(
   deps.setAttentionError(session);
   deps.setGenerating(session, false, "codex_init_error");
   deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "broken" });
+  deps.broadcastToBrowsers(session, { type: "error", message: error });
   deps.broadcastToBrowsers(session, { type: "status_change", status: null });
   deps.persistSession(session);
   return "broken";

@@ -613,7 +613,6 @@ export class CodexAdapter
       this.connected = false;
       // Discard any messages queued during the failed init attempt
       this.pendingOutgoing.length = 0;
-      this.emit({ type: "error", message: errorMsg });
       for (const cb of this.initErrorCbs) {
         try {
           cb(errorMsg);

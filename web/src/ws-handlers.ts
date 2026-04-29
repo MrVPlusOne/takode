@@ -53,6 +53,30 @@ function applyCliDisconnected(sessionId: string, reason: "idle_limit" | "broken"
   store.clearToolProgress(sessionId);
 }
 
+function clearRecoverableCodexInitErrors(sessionId: string): void {
+  const store = useStore.getState();
+  const messages = store.messages.get(sessionId);
+  if (!messages?.some(isRecoverableCodexInitErrorMessage)) return;
+  store.setMessages(
+    sessionId,
+    messages.filter((message) => !isRecoverableCodexInitErrorMessage(message)),
+    { frozenCount: store.messageFrozenCounts.get(sessionId) ?? 0 },
+  );
+}
+
+function isRecoverableCodexInitErrorMessage(message: ChatMessage): boolean {
+  if (!message.ephemeral || message.role !== "system" || message.variant !== "error") return false;
+  if (!/\bCodex initialization failed: Transport closed\b/i.test(message.content)) return false;
+  return ![
+    /error loading default config/i,
+    /no such file or directory/i,
+    /permission denied/i,
+    /\bEACCES\b/i,
+    /authentication token is expired/i,
+    /\btoken_expired\b/i,
+  ].some((pattern) => pattern.test(message.content));
+}
+
 function normalizePath(path: string): string {
   const isAbs = path.startsWith("/");
   const parts = path.split("/");
@@ -499,6 +523,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "session_update": {
       store.updateSession(sessionId, data.session);
+      if (data.session.backend_state === "connected") {
+        clearRecoverableCodexInitErrors(sessionId);
+      }
       // Sync askPermission if updated
       if (typeof data.session.askPermission === "boolean") {
         store.setAskPermission(sessionId, data.session.askPermission);
@@ -1294,6 +1321,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "backend_connected": {
       clearPendingCliDisconnect(sessionId);
+      clearRecoverableCodexInitErrors(sessionId);
       store.setCliConnected(sessionId, true);
       break;
     }

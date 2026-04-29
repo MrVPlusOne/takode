@@ -1,7 +1,19 @@
 import type { CodexAppReference, CodexSkillReference } from "./session-types.js";
 
 export function isRecoverableCodexInitError(error: string): boolean {
-  return /\bTransport closed\b/i.test(error);
+  if (!/\bTransport closed\b/i.test(error)) return false;
+  return !hasActionableCodexInitFailure(error);
+}
+
+function hasActionableCodexInitFailure(error: string): boolean {
+  return [
+    /error loading default config/i,
+    /no such file or directory/i,
+    /permission denied/i,
+    /\bEACCES\b/i,
+    /authentication token is expired/i,
+    /\btoken_expired\b/i,
+  ].some((pattern) => pattern.test(error));
 }
 
 export interface CodexItem {
