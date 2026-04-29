@@ -740,7 +740,7 @@ describe("Codex injected user_message metadata", () => {
       .map((call) => call[0])
       .find((msg: any) => msg.type === "codex_steer_pending");
     expect(steerCall?.type).toBe("codex_steer_pending");
-    expect(steerCall?.inputs?.[0]?.content).toBe("actual leader message");
+    expect(steerCall?.inputs?.[0]?.content).toMatch(/^\[User .*?\] \[thread:main\] actual leader message$/);
 
     adapter.emitTurnSteered("turn-herd-events-follow-up", [pendingId]);
     expect(session.pendingCodexInputs).toHaveLength(0);
