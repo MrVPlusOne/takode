@@ -269,15 +269,15 @@ function questRouteFromMessage(message: ChatMessage): { threadKey: string; quest
 }
 
 function isReworkFeedbackText(content: string): boolean {
-  const lower = content.toLowerCase();
+  const lower = content.toLowerCase().replace(/\s+/g, " ").trim();
   return (
-    lower.includes("fix this") ||
-    lower.includes("looks horrible") ||
-    lower.includes("rework") ||
-    lower.includes("reopen") ||
-    lower.includes("needs rework") ||
     lower.includes("please ask the agent to fix") ||
-    lower.includes("change this")
+    lower.includes("ask the agent to fix") ||
+    lower.includes("needs rework") ||
+    lower.includes("need rework") ||
+    lower.includes("requires rework") ||
+    lower.includes("rework requested") ||
+    (lower.includes("looks horrible") && lower.includes("agent") && lower.includes("fix"))
   );
 }
 

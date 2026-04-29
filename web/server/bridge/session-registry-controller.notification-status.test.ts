@@ -3,9 +3,9 @@ import {
   buildPersistedSessionPayload,
   markNotificationDone,
   notifyUser,
-  replaceAttentionRecords,
   restorePersistedSessions,
 } from "./session-registry-controller.js";
+import { replaceAttentionRecords } from "./attention-record-controller.js";
 import type { SessionAttentionRecord } from "../session-types.js";
 
 function makeSession(overrides: Record<string, unknown> = {}) {

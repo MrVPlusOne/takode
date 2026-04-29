@@ -156,6 +156,59 @@ describe("attention records", () => {
     expect(selectAttentionChipRecords(records)).toHaveLength(0);
   });
 
+  it("does not create rework attention from routine quest-thread implementation steering", () => {
+    const messages: ChatMessage[] = [
+      {
+        id: "steering-fix-this",
+        role: "user",
+        content: "Please fix this edge case while you are in the implementation.",
+        timestamp: 9300,
+        metadata: {
+          threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }],
+        },
+      },
+      {
+        id: "steering-change-this",
+        role: "user",
+        content: "Change this to keep moved-message markers separate from grouped activity.",
+        timestamp: 9301,
+        metadata: {
+          threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }],
+        },
+      },
+      {
+        id: "steering-reopen",
+        role: "user",
+        content: "Reopen the details section when the user asks for it.",
+        timestamp: 9302,
+        metadata: {
+          threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }],
+        },
+      },
+    ];
+
+    expect(buildAttentionRecords({ leaderSessionId: "leader-1", messages })).toHaveLength(0);
+  });
+
+  it("does not create rework attention from implementation status text in quest threads", () => {
+    // Mirrors #1132 msg 9344 style implementation steering/status. These rows
+    // are useful quest-thread context, not Main attention milestones.
+    const messages: ChatMessage[] = [
+      {
+        id: "msg-9344-style",
+        role: "assistant",
+        content:
+          "For q-975, I’m answering the worker’s boundary question directly: moved-message markers should break hidden-activity groups.",
+        timestamp: 9344,
+        metadata: {
+          threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }],
+        },
+      },
+    ];
+
+    expect(buildAttentionRecords({ leaderSessionId: "leader-1", messages })).toHaveLength(0);
+  });
+
   it("creates blocker attention only for explicit board wait-for-input state", () => {
     const records = buildAttentionRecords({
       leaderSessionId: "leader-1",

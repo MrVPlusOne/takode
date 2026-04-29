@@ -1004,13 +1004,6 @@ function buildNotificationUpdateMessage(session: SessionLike): BrowserIncomingMe
   } as BrowserIncomingMessage;
 }
 
-function buildAttentionRecordsUpdateMessage(session: SessionLike): BrowserIncomingMessage {
-  return {
-    type: "attention_records_update",
-    attentionRecords: session.attentionRecords ?? [],
-  } as BrowserIncomingMessage;
-}
-
 function broadcastNotificationStatus(
   session: SessionLike,
   deps: Pick<SessionRegistryDeps, "broadcastToBrowsers">,
@@ -1218,16 +1211,6 @@ export function markNotificationDone(
   broadcastNotificationStatus(session, deps);
   deps.persistSession(session);
   return true;
-}
-
-export function replaceAttentionRecords(
-  session: SessionLike,
-  attentionRecords: SessionAttentionRecord[],
-  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession">,
-): void {
-  session.attentionRecords = attentionRecords;
-  deps.broadcastToBrowsers?.(session, buildAttentionRecordsUpdateMessage(session));
-  deps.persistSession(session);
 }
 
 export function markNotificationDoneBySessionId(
