@@ -3,6 +3,7 @@ import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionStore, type PersistedSession } from "./session-store.js";
+import { searchSessionDocuments } from "./session-search.js";
 
 let tempDir: string;
 let store: SessionStore;
@@ -487,6 +488,75 @@ describe("loadAll", () => {
     const active = all.find((session) => session.id === "exited-but-active-codex")!;
     expect(active._searchDataOnly).toBeUndefined();
     expect(active.pendingCodexInputs).toHaveLength(1);
+  });
+
+  it("extracts search excerpts for launcher-archived sessions that never persisted archive excerpts", async () => {
+    // Launcher archive state can predate hot JSON archived metadata. When that
+    // happens, search-only restore must still preserve message-content search.
+    const session = makeSession("launcher-archived-without-excerpts", {
+      state: {
+        ...makeSession("launcher-archived-without-excerpts").state,
+        backend_type: "codex",
+      },
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "user-needle",
+          content: "legacy archived needle message",
+          timestamp: 1700000000123,
+        },
+      ],
+      pendingCodexInputs: [
+        {
+          id: "pending-archived",
+          content: "stale archived input",
+          timestamp: 1,
+          cancelable: true,
+        },
+      ],
+    });
+
+    store.saveSync(session);
+    store.saveLauncher([
+      {
+        sessionId: session.id,
+        state: "exited",
+        archived: true,
+        archivedAt: 1700000000000,
+      },
+    ]);
+    await store.flushAll();
+
+    const all = await store.loadAll();
+    const archived = all.find((candidate) => candidate.id === session.id)!;
+
+    expect(archived._searchDataOnly).toBe(true);
+    expect(archived.messageHistory).toEqual([]);
+    expect(archived.pendingCodexInputs).toBeUndefined();
+    expect(archived._searchExcerpts).toEqual([
+      {
+        type: "user_message",
+        id: "user-needle",
+        content: "legacy archived needle message",
+        timestamp: 1700000000123,
+      },
+    ]);
+
+    const search = searchSessionDocuments(
+      [
+        {
+          sessionId: archived.id,
+          archived: true,
+          createdAt: 0,
+          lastActivityAt: 1700000000123,
+          messageHistory: archived.messageHistory,
+          searchExcerpts: archived._searchExcerpts,
+        },
+      ],
+      { query: "archived needle" },
+    );
+    expect(search.results[0]?.sessionId).toBe(session.id);
+    expect(search.results[0]?.matchedField).toBe("user_message");
   });
 });
 

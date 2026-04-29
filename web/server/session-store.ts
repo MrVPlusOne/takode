@@ -352,7 +352,10 @@ export class SessionStore {
       completedBoard: hot.completedBoard,
       notifications: hot.notifications,
       attentionRecords: hot.attentionRecords,
-      _searchExcerpts: hot._searchExcerpts,
+      _searchExcerpts:
+        Array.isArray(hot._searchExcerpts) && hot._searchExcerpts.length > 0
+          ? hot._searchExcerpts
+          : SessionStore.extractSearchExcerpts(hot.messageHistory),
       _searchDataOnly: true,
       _frozenCount: 0,
       _frozenToolResultCount: 0,
