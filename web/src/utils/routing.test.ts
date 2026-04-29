@@ -329,6 +329,27 @@ describe("navigateToSessionThread", () => {
     expect(window.location.hash).toBe("#/session/s1");
     spy.mockRestore();
   });
+
+  it("does not reuse a different session route when changing thread state", () => {
+    window.location.hash = "#/session/s1";
+
+    navigateToSessionThread("s2", "q-941");
+
+    expect(window.location.hash).toBe("#/session/s2?thread=q-941");
+  });
+
+  it("preserves numeric routes when they resolve to the target session", () => {
+    useStore.setState({
+      sdkSessions: [
+        { sessionId: "resolved-session", createdAt: 1, state: "connected", cwd: "/repo", sessionNum: 123 } as any,
+      ],
+    });
+    window.location.hash = "#/session/123?quest=q-7";
+
+    navigateToSessionThread("resolved-session", "q-941");
+
+    expect(window.location.hash).toBe("#/session/123?quest=q-7&thread=q-941");
+  });
 });
 
 describe("navigateHome", () => {

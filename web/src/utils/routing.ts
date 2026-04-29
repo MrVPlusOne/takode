@@ -206,6 +206,11 @@ export function navigateToSession(sessionId: string, replace = false): void {
   }
 }
 
+function routeTargetsSession(sessionRef: string, sessionId: string): boolean {
+  if (sessionRef === sessionId) return true;
+  return resolveSessionIdFromRoute(sessionRef, useStore.getState().sdkSessions as SdkSessionInfo[]) === sessionId;
+}
+
 /**
  * Navigate within a leader session to Main, All Threads, or a quest thread.
  * Preserves the current session route shape and query params when already on a
@@ -213,7 +218,10 @@ export function navigateToSession(sessionId: string, replace = false): void {
  */
 export function navigateToSessionThread(sessionId: string, threadKey: string, replace = false): void {
   const currentRoute = parseHash(window.location.hash);
-  const currentHash = currentRoute.page === "session" ? window.location.hash : sessionHash(sessionId);
+  const currentHash =
+    currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId)
+      ? window.location.hash
+      : sessionHash(sessionId);
   const newHash = withThreadKeyInHash(currentHash, threadKey);
   if (newHash === window.location.hash) return;
 

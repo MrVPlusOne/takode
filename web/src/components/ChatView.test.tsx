@@ -105,13 +105,20 @@ vi.mock("./MessageFeed.js", () => ({
     sessionId,
     threadKey,
     latestIndicatorMode,
+    onSelectThread,
   }: {
     sessionId: string;
     threadKey?: string;
     latestIndicatorMode?: string;
+    onSelectThread?: (threadKey: string) => void;
   }) => (
     <div data-testid="message-feed" data-thread-key={threadKey} data-latest-indicator-mode={latestIndicatorMode}>
       {sessionId}
+      {onSelectThread && (
+        <button type="button" data-testid="mock-feed-thread-jump" onClick={() => onSelectThread("q-941")}>
+          Jump to q-941
+        </button>
+      )}
     </div>
   ),
 }));
@@ -443,7 +450,7 @@ describe("ChatView backend banners", () => {
     window.addEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
 
     try {
-      fireEvent.click(scope.getByRole("button", { name: /q-941/i }));
+      fireEvent.click(scope.getByRole("button", { name: /q-941 quest thread mvp/i }));
     } finally {
       window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
     }
@@ -558,6 +565,37 @@ describe("ChatView backend banners", () => {
       expect(window.location.hash).toBe("#/session/s1");
     });
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+  });
+
+  it("keeps preview thread jumps local without mutating the current session URL", () => {
+    resetStore({
+      sessions: new Map([["s2", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s2", archived: false, isOrchestrator: true }],
+      messages: new Map([
+        [
+          "s2",
+          [
+            {
+              id: "m-q941",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      quests: [{ questId: "q-941", title: "Quest thread MVP", status: "in_progress" }],
+    });
+    window.location.hash = "#/session/s1";
+
+    const view = render(<ChatView sessionId="s2" preview />);
+    const scope = within(view.container);
+
+    fireEvent.click(scope.getByTestId("mock-feed-thread-jump"));
+
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
+    expect(window.location.hash).toBe("#/session/s1");
   });
 
   it("passes off-board quest threads from explicit text routing to the workboard", () => {

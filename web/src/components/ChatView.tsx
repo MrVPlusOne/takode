@@ -390,9 +390,11 @@ export function ChatView({
       if (nextThreadKey === normalizeThreadKey(selectedThreadKey)) return;
       requestThreadViewportSnapshot(sessionId);
       setSelectedThreadKey(nextThreadKey);
-      navigateToSessionThread(sessionId, nextThreadKey);
+      if (!preview) {
+        navigateToSessionThread(sessionId, nextThreadKey);
+      }
     },
-    [selectedThreadKey, sessionId],
+    [preview, selectedThreadKey, sessionId],
   );
 
   useEffect(() => {
