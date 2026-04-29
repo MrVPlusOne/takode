@@ -447,6 +447,9 @@ export function injectUserMessage(
 
   if (hadRouteInFlight) {
     void enqueueSessionRoute(session.id, () => deps.routeBrowserMessage(session, browserMessage), deps);
+    if (isHerdEventSource(agentSource) && session.backendType === "codex") {
+      return "queued";
+    }
   } else {
     void deps.routeBrowserMessage(session, browserMessage);
     if (isHerdEventSource(agentSource) && session.backendType === "codex") {

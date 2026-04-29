@@ -245,4 +245,42 @@ describe("Codex herd event injection", () => {
     expect(session.pendingCodexInputs).toHaveLength(1);
     expect(queueCodexPendingStartBatch).toHaveBeenCalledWith(session, "inject_herd_event_retry");
   });
+
+  it("reports Codex herd injections as queued while a browser route is already in flight", async () => {
+    const agentSource = { sessionId: "herd-events", sessionLabel: "Herd Events" };
+    const session = makeSession({
+      backendType: "codex",
+      state: { permissionMode: "default", backend_state: "connected", cwd: "/repo" } as any,
+    });
+    const routeBrowserMessage = vi.fn();
+    let releaseInFlight!: () => void;
+    const inFlightRoute = new Promise<void>((resolve) => {
+      releaseInFlight = resolve;
+    });
+    let queuedRoute: Promise<void> | undefined;
+    const deps = makeInjectDeps({
+      routeBrowserMessage,
+      getRouteChain: vi.fn(() => inFlightRoute),
+      setRouteChain: vi.fn((_sessionId: string, route: Promise<void>) => {
+        queuedRoute = route;
+      }),
+    });
+
+    const delivery = injectUserMessage(
+      session,
+      "1 event from 1 session\n\n#1270 | turn_end | worker finished | 1m ago",
+      agentSource,
+      undefined,
+      deps,
+      { threadKey: "main" } as any,
+    );
+
+    expect(delivery).toBe("queued");
+    expect(routeBrowserMessage).not.toHaveBeenCalled();
+
+    releaseInFlight();
+    await queuedRoute;
+
+    expect(routeBrowserMessage).toHaveBeenCalledTimes(1);
+  });
 });
