@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -135,6 +135,17 @@ export async function ensureBuiltInQuestJourneyPhaseData(options?: QuestJourneyP
   }
 }
 
+export async function ensureQuestJourneyPhaseDataForCwd(
+  cwd: string,
+  options?: Pick<QuestJourneyPhasePathOptions, "companionHome">,
+): Promise<boolean> {
+  const packageRoot = await findQuestJourneyPackageRootForCwd(cwd);
+  if (!packageRoot) return false;
+
+  await ensureBuiltInQuestJourneyPhaseData({ ...options, packageRoot });
+  return true;
+}
+
 export async function loadQuestJourneyPhase(
   phaseId: QuestJourneyPhaseId,
   options?: QuestJourneyPhasePathOptions,
@@ -200,4 +211,30 @@ export async function loadQuestJourneyPhaseCatalog(
     leaderBriefDisplayPath: getQuestJourneyPhaseLeaderBriefDisplayPath(phase.id),
     assigneeBriefDisplayPath: getQuestJourneyPhaseAssigneeBriefDisplayPath(phase.id),
   }));
+}
+
+async function findQuestJourneyPackageRootForCwd(cwd: string): Promise<string | null> {
+  let current = resolve(cwd);
+
+  while (true) {
+    const directPackageRoot = await maybeQuestJourneyPackageRoot(current);
+    if (directPackageRoot) return directPackageRoot;
+
+    const webPackageRoot = await maybeQuestJourneyPackageRoot(join(current, "web"));
+    if (webPackageRoot) return webPackageRoot;
+
+    const parent = dirname(current);
+    if (parent === current) return null;
+    current = parent;
+  }
+}
+
+async function maybeQuestJourneyPackageRoot(candidate: string): Promise<string | null> {
+  const phaseRoot = join(candidate, "shared", QUEST_JOURNEY_PHASE_DIRNAME);
+  try {
+    await Promise.all([access(join(candidate, "package.json")), access(phaseRoot)]);
+    return candidate;
+  } catch {
+    return null;
+  }
 }

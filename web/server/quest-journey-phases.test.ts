@@ -1,4 +1,4 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { QUEST_JOURNEY_PHASES } from "../shared/quest-journey.js";
 import {
   ensureBuiltInQuestJourneyPhaseData,
+  ensureQuestJourneyPhaseDataForCwd,
   getQuestJourneyPhaseAssigneeBriefPath,
   getQuestJourneyPhaseDataRoot,
   getQuestJourneyPhaseDisplayRoot,
@@ -66,6 +67,34 @@ describe("Quest Journey phase directory loading", () => {
     );
 
     expect(refreshed).toBe(canonical);
+  });
+
+  it("refreshes runtime phase files from the package root nearest the session cwd", async () => {
+    const companionHome = await makeCompanionHome();
+    const repoRoot = await mkdtemp(join(tmpdir(), "quest-journey-worktree-repo-"));
+    tmpHomes.push(repoRoot);
+
+    const packageRoot = join(repoRoot, "web");
+    const canonicalSource = join(PACKAGE_ROOT, "shared", "quest-journey-phases");
+    const canonicalTarget = join(packageRoot, "shared", "quest-journey-phases");
+    await mkdir(join(packageRoot, "shared"), { recursive: true });
+    await writeFile(join(packageRoot, "package.json"), '{"name":"the-companion"}\n', "utf-8");
+    await cp(canonicalSource, canonicalTarget, { recursive: true });
+
+    const mentalSimulationAssignee = join(canonicalTarget, "mental-simulation", "assignee.md");
+    await writeFile(
+      mentalSimulationAssignee,
+      "# Mental Simulation -- Assignee Brief\n\nFresh from worktree cwd.\n",
+      "utf-8",
+    );
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const refreshed = await ensureQuestJourneyPhaseDataForCwd(join(repoRoot, "nested", "session"), { companionHome });
+
+    expect(refreshed).toBe(true);
+    await expect(
+      readFile(getQuestJourneyPhaseAssigneeBriefPath("mental-simulation", { companionHome }), "utf-8"),
+    ).resolves.toContain("Fresh from worktree cwd");
   });
 
   it("seeds phase briefs with the execute and outcome-review responsibility boundaries", async () => {

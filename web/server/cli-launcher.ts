@@ -26,6 +26,7 @@ import {
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
 import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
+import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
 import { isRecoverableCodexInitError } from "./codex-adapter-utils.js";
 import {
   classifyCliStreamLogLevel,
@@ -689,6 +690,18 @@ export class CliLauncher {
       info.repoRoot = options.worktreeInfo.repoRoot;
       info.branch = options.worktreeInfo.branch;
       info.actualBranch = options.worktreeInfo.actualBranch;
+    }
+
+    // Phase briefs are global runtime files, but reviewers often share an unported
+    // worker worktree. Refresh from the session CWD before launch so the assignee
+    // path leaders provide matches the worktree version being reviewed.
+    try {
+      const refreshedPhaseBriefs = await ensureQuestJourneyPhaseDataForCwd(info.cwd);
+      if (refreshedPhaseBriefs) {
+        console.log(`[cli-launcher] Refreshed Quest Journey phase briefs from session cwd (${info.cwd})`);
+      }
+    } catch (error) {
+      console.warn(`[cli-launcher] Failed to refresh Quest Journey phase briefs from session cwd:`, error);
     }
 
     // Inject backend-specific worktree guardrails.
