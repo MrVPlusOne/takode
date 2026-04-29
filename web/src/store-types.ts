@@ -69,6 +69,8 @@ export interface AppState {
   setSessionTimers: (sessionId: string, timers: import("./types.js").SessionTimer[]) => void;
   sessionNotifications: Map<string, import("./types.js").SessionNotification[]>;
   setSessionNotifications: (sessionId: string, notifications: import("./types.js").SessionNotification[]) => void;
+  sessionAttentionRecords: Map<string, import("./types.js").SessionAttentionRecord[]>;
+  setSessionAttentionRecords: (sessionId: string, records: import("./types.js").SessionAttentionRecord[]) => void;
   changedFiles: Map<string, Set<string>>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   sessionNames: Map<string, string>;

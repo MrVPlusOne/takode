@@ -13,6 +13,7 @@ import type {
   PendingCodexInput,
   BoardRow,
   SessionNotification,
+  SessionAttentionRecord,
 } from "./session-types.js";
 
 export interface SearchExcerpt {
@@ -108,6 +109,8 @@ export interface PersistedSession {
   completedBoard?: BoardRow[];
   /** Per-session notification inbox entries */
   notifications?: SessionNotification[];
+  /** Server-authoritative attention records for Main ledger rows and top chips */
+  attentionRecords?: SessionAttentionRecord[];
   /** Monotonic status version for ordering notification summary updates. */
   notificationStatusVersion?: number;
   /** Epoch ms for the latest notification status mutation. */
@@ -867,6 +870,7 @@ export class SessionStore {
       board: hot.board,
       completedBoard: hot.completedBoard,
       notifications: hot.notifications,
+      attentionRecords: hot.attentionRecords,
       _searchExcerpts: hot._searchExcerpts,
       _searchDataOnly: true,
       _frozenCount: 0,
@@ -916,6 +920,7 @@ export class SessionStore {
               board: hot.board,
               completedBoard: hot.completedBoard,
               notifications: hot.notifications,
+              attentionRecords: hot.attentionRecords,
               _searchExcerpts: hot._searchExcerpts,
               _searchDataOnly: true,
               _frozenCount: 0,

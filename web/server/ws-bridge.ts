@@ -37,6 +37,7 @@ import type {
   TakodeTurnEndEventData,
   BoardRow,
   SessionNotification,
+  SessionAttentionRecord,
   TakodeHerdBatchSnapshot,
   ThreadRef,
   ActiveTurnRoute,
@@ -474,6 +475,8 @@ interface Session {
   boardDispatchStates: Map<string, { signature: string; warnedAt: number | null; notificationId?: string | null }>;
   /** Per-session notification inbox entries from `takode notify`. */
   notifications: SessionNotification[];
+  /** Server-authoritative attention records for Main ledger rows and top chips. */
+  attentionRecords: SessionAttentionRecord[];
   /** Monotonic counter for notification IDs (survives deletion without collisions). */
   notificationCounter: number;
   /** Whether agent activity has occurred since the last diff computation */

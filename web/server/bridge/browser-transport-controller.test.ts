@@ -35,6 +35,7 @@ function makeSession(overrides?: Partial<BrowserTransportSessionLike>): BrowserT
     attentionReason: null,
     generationStartedAt: null,
     notifications: [],
+    attentionRecords: [],
     processedClientMessageIds: [],
     processedClientMessageIdSet: new Set(),
     ...overrides,

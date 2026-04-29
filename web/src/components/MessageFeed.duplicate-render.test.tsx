@@ -82,6 +82,7 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: vi.fn(),
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
       toggleTurnActivity: vi.fn(),
     };
@@ -214,7 +215,7 @@ describe("MessageFeed duplicate rendering regression", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getAllByText("q-568 single rich chip")).toHaveLength(1);
+    expect(screen.getAllByTestId("attention-ledger-row")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /Mark as reviewed|Mark as not reviewed/ })).toHaveLength(1);
     expect(screen.queryByText("Ready for review")).toBeNull();
   });
@@ -254,7 +255,7 @@ describe("MessageFeed duplicate rendering regression", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getAllByText("q-568 single rich chip")).toHaveLength(1);
+    expect(screen.getAllByTestId("attention-ledger-row")).toHaveLength(1);
     expect(screen.getAllByRole("button", { name: /Mark as reviewed|Mark as not reviewed/ })).toHaveLength(1);
     expect(screen.queryByText("Ready for review")).toBeNull();
   });

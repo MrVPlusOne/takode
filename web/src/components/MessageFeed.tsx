@@ -215,19 +215,21 @@ export function MessageFeed({
 }) {
   const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const baseMessages = useMemo(() => filterMessagesForThread(allMessages, threadKey), [allMessages, threadKey]);
-  const sessionNotifications = useStore((s) => s.sessionNotifications.get(sessionId));
-  const sessionBoard = useStore((s) => s.sessionBoards.get(sessionId));
-  const sessionCompletedBoard = useStore((s) => s.sessionCompletedBoards.get(sessionId));
+  const sessionNotifications = useStore((s) => s.sessionNotifications?.get(sessionId));
+  const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords?.get(sessionId));
+  const sessionBoard = useStore((s) => s.sessionBoards?.get(sessionId));
+  const sessionCompletedBoard = useStore((s) => s.sessionCompletedBoards?.get(sessionId));
   const attentionRecords = useMemo(
     () =>
       buildAttentionRecords({
         leaderSessionId: sessionId,
+        records: sessionAttentionRecords,
         notifications: sessionNotifications,
         boardRows: sessionBoard,
         completedBoardRows: sessionCompletedBoard,
         messages: allMessages,
       }),
-    [allMessages, sessionBoard, sessionCompletedBoard, sessionId, sessionNotifications],
+    [allMessages, sessionAttentionRecords, sessionBoard, sessionCompletedBoard, sessionId, sessionNotifications],
   );
   const attentionLedgerMessages = useMemo(
     () => (isMainThreadKey(threadKey) ? buildAttentionLedgerMessages(attentionRecords) : EMPTY_MESSAGES),

@@ -51,10 +51,14 @@ export function buildAttentionRecords(input: BuildAttentionRecordsInput): Attent
     if (record) upsertAttentionRecord(records, record);
   }
 
+  for (const message of input.messages ?? []) {
+    const record = attentionRecordFromReworkMessage(input.leaderSessionId, message);
+    if (record) upsertAttentionRecord(records, record);
+  }
+
   // Completed board rows are intentionally conservative for now. Without a
   // separate review-unread source they should not create active attention.
   void input.completedBoardRows;
-  void input.messages;
 
   return [...records.values()].sort(compareAttentionRecordsChronologically);
 }
@@ -168,6 +172,46 @@ function attentionRecordFromBoardRow(
   };
 }
 
+function attentionRecordFromReworkMessage(leaderSessionId: string, message: ChatMessage): AttentionRecord | null {
+  if (message.role !== "user") return null;
+  if (!message.content.trim()) return null;
+
+  const route = questRouteFromMessage(message);
+  if (!route?.questId) return null;
+  if (!isReworkFeedbackText(message.content)) return null;
+
+  const createdAt = message.timestamp;
+  return {
+    id: `message-rework:${message.id}`,
+    leaderSessionId,
+    type: "quest_reopened_or_rework",
+    source: {
+      kind: "message",
+      id: message.id,
+      questId: route.questId,
+      messageId: message.id,
+    },
+    questId: route.questId,
+    threadKey: route.threadKey,
+    title: `${route.questId}: rework requested`,
+    summary: summarizeReworkMessage(message.content),
+    actionLabel: "Open",
+    priority: "milestone",
+    state: "reopened",
+    createdAt,
+    updatedAt: createdAt,
+    reopenedAt: createdAt,
+    route: {
+      threadKey: route.threadKey,
+      questId: route.questId,
+      messageId: message.id,
+    },
+    chipEligible: false,
+    ledgerEligible: true,
+    dedupeKey: `message-rework:${message.id}`,
+  };
+}
+
 function normalizeAttentionRecord(record: AttentionRecord, leaderSessionId: string): AttentionRecord {
   const route = normalizeRoute(record.route, record.threadKey, record.questId);
   return {
@@ -206,6 +250,44 @@ function normalizeRouteTarget(raw: string): { threadKey: string; questId?: strin
   const target = normalizeThreadTarget(raw);
   if (target) return target;
   return { threadKey: normalizeThreadKey(raw) || MAIN_THREAD_KEY };
+}
+
+function questRouteFromMessage(message: ChatMessage): { threadKey: string; questId: string } | null {
+  const candidates = [
+    message.metadata?.threadKey,
+    message.metadata?.questId,
+    ...(message.metadata?.threadRefs ?? []).flatMap((ref) => [ref.threadKey, ref.questId]),
+  ];
+  for (const candidate of candidates) {
+    if (!candidate) continue;
+    const target = normalizeThreadTarget(candidate);
+    if (target?.questId && target.threadKey !== MAIN_THREAD_KEY) {
+      return { threadKey: target.threadKey, questId: target.questId };
+    }
+  }
+  return null;
+}
+
+function isReworkFeedbackText(content: string): boolean {
+  const lower = content.toLowerCase();
+  return (
+    lower.includes("fix this") ||
+    lower.includes("looks horrible") ||
+    lower.includes("rework") ||
+    lower.includes("reopen") ||
+    lower.includes("needs rework") ||
+    lower.includes("please ask the agent to fix") ||
+    lower.includes("change this")
+  );
+}
+
+function summarizeReworkMessage(content: string): string {
+  const firstLine = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .find(Boolean);
+  if (!firstLine) return "User requested rework in this quest thread.";
+  return firstLine.length > 140 ? `${firstLine.slice(0, 137)}...` : firstLine;
 }
 
 function attentionRecordToMessage(record: AttentionRecord): ChatMessage {

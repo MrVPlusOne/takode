@@ -101,6 +101,7 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
     };
     return selector(state);

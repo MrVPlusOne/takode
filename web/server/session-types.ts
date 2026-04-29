@@ -712,6 +712,7 @@ export type BrowserIncomingMessageBase =
       completedBoard?: BoardRow[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       notifications?: SessionNotification[];
+      attentionRecords?: SessionAttentionRecord[];
       notificationStatusVersion?: number;
       notificationStatusUpdatedAt?: number;
     }
@@ -754,6 +755,10 @@ export type BrowserIncomingMessageBase =
       notifications: SessionNotification[];
       notificationStatusVersion?: number;
       notificationStatusUpdatedAt?: number;
+    }
+  | {
+      type: "attention_records_update";
+      attentionRecords: SessionAttentionRecord[];
     }
   | { type: "timer_update"; timers: import("./timer-types.js").SessionTimer[] }
   | {
@@ -935,6 +940,8 @@ export interface SessionState {
   codex_image_send_stage?: "uploading" | "processing" | "responding" | null;
   /** Per-session notification inbox entries (server-only, never from CLI) */
   notifications?: SessionNotification[];
+  /** Server-authoritative attention records for Main ledger rows and top chips. */
+  attentionRecords?: SessionAttentionRecord[];
 }
 
 export type NotificationUrgency = "needs-input" | "review" | null;

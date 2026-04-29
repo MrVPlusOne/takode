@@ -102,7 +102,10 @@ describe("attention records", () => {
     });
   });
 
-  it("distinguishes dismissed, resolved, reopened, and superseded chip eligibility", () => {
+  it("keeps server-authoritative lifecycle states in the ledger while selecting only active chip states", () => {
+    // Persisted attention records are the source for lifecycle states that do
+    // not come from notifications or board rows, including user-visible seen,
+    // dismissed, reopened, and superseded state.
     const records = buildAttentionRecords({
       leaderSessionId: "leader-1",
       records: [
@@ -116,6 +119,41 @@ describe("attention records", () => {
 
     expect(selectMainLedgerRecords(records)).toHaveLength(5);
     expect(selectAttentionChipRecords(records).map((record) => record.state)).toEqual(["reopened", "seen"]);
+  });
+
+  it("creates a low-priority rework milestone from routed quest-thread user feedback", () => {
+    // Mirrors the Mental Simulation scenario from #1132 msg 9248: routed user
+    // feedback saying the result needs fixing should surface in Main as a
+    // ledger milestone without becoming an active chip.
+    const messages: ChatMessage[] = [
+      {
+        id: "msg-9248",
+        role: "user",
+        content:
+          "This looks horrible. Please ask the agent to fix this. All consecutive hidden activities should be merged.",
+        timestamp: 9248,
+        metadata: {
+          threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }],
+        },
+      },
+    ];
+
+    const records = buildAttentionRecords({ leaderSessionId: "leader-1", messages });
+
+    expect(records).toHaveLength(1);
+    expect(records[0]).toMatchObject({
+      id: "message-rework:msg-9248",
+      type: "quest_reopened_or_rework",
+      priority: "milestone",
+      state: "reopened",
+      questId: "q-975",
+      threadKey: "q-975",
+      route: { threadKey: "q-975", questId: "q-975", messageId: "msg-9248" },
+      chipEligible: false,
+      ledgerEligible: true,
+    });
+    expect(selectMainLedgerRecords(records)).toHaveLength(1);
+    expect(selectAttentionChipRecords(records)).toHaveLength(0);
   });
 
   it("creates blocker attention only for explicit board wait-for-input state", () => {

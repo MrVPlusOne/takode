@@ -173,6 +173,14 @@ export const useStore = create<AppState>((set, get) => ({
       else next.set(sessionId, notifications);
       return { sessionNotifications: next };
     }),
+  sessionAttentionRecords: new Map(),
+  setSessionAttentionRecords: (sessionId, records) =>
+    set((s) => {
+      const next = new Map(s.sessionAttentionRecords);
+      if (records.length === 0) next.delete(sessionId);
+      else next.set(sessionId, records);
+      return { sessionAttentionRecords: next };
+    }),
   changedFiles: new Map(),
   diffFileStats: new Map(),
   sessionNames: getInitialSessionNames(),
@@ -584,6 +592,8 @@ export const useStore = create<AppState>((set, get) => ({
       sessionTimers.delete(sessionId);
       const sessionNotifications = new Map(s.sessionNotifications);
       sessionNotifications.delete(sessionId);
+      const sessionAttentionRecords = new Map(s.sessionAttentionRecords);
+      sessionAttentionRecords.delete(sessionId);
       const changedFiles = new Map(s.changedFiles);
       changedFiles.delete(sessionId);
       const diffFileStats = new Map(s.diffFileStats);
@@ -664,6 +674,7 @@ export const useStore = create<AppState>((set, get) => ({
         sessionTasks,
         sessionTimers,
         sessionNotifications,
+        sessionAttentionRecords,
         changedFiles,
         diffFileStats,
         sessionNames,
@@ -1996,6 +2007,8 @@ export const useStore = create<AppState>((set, get) => ({
       previousPermissionMode: new Map(),
       askPermission: new Map(),
       sessionTasks: new Map(),
+      sessionNotifications: new Map(),
+      sessionAttentionRecords: new Map(),
       changedFiles: new Map(),
       diffFileStats: new Map(),
       sessionNames: new Map(),

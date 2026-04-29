@@ -55,6 +55,7 @@ export interface BrowserTransportSessionLike {
   userMessageIdsThisTurn?: number[];
   activeTurnRoute?: ActiveTurnRoute | null;
   notifications: unknown[];
+  attentionRecords: unknown[];
   notificationStatusVersion?: number;
   notificationStatusUpdatedAt?: number;
   processedClientMessageIds: string[];
@@ -595,6 +596,7 @@ export function sendStateSnapshot(
     completedBoard,
     rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
     notifications: session.notifications,
+    attentionRecords: session.attentionRecords,
     notificationStatusVersion: session.notificationStatusVersion,
     notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
   } as BrowserIncomingMessage);

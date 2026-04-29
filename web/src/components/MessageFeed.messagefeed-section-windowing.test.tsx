@@ -101,6 +101,7 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
     };
     return selector(state);
@@ -277,6 +278,7 @@ function setStoreFeedScrollPosition(
 ) {
   const map = new Map();
   map.set(sessionId, pos);
+  map.set(`${sessionId}:thread:main`, pos);
   mockStoreValues.feedScrollPosition = map;
 }
 

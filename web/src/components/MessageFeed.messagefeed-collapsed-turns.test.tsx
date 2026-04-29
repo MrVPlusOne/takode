@@ -103,6 +103,7 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionBoards: mockStoreValues.sessionBoards ?? new Map(),
       sessionCompletedBoards: mockStoreValues.sessionCompletedBoards ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
@@ -124,6 +125,7 @@ vi.mock("../store.js", () => {
     requestScrollToMessage: mockRequestScrollToMessage,
     setExpandAllInTurn: mockSetExpandAllInTurn,
     sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+    sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
     removePendingUserUpload: vi.fn(),
     updatePendingUserUpload: vi.fn(),
     focusComposer: vi.fn(),
@@ -263,6 +265,12 @@ function setStoreNotifications(sessionId: string, notifications: Array<Record<st
   const map = new Map();
   map.set(sessionId, notifications);
   mockStoreValues.sessionNotifications = map;
+}
+
+function setStoreAttentionRecords(sessionId: string, records: Array<Record<string, unknown>>) {
+  const map = new Map();
+  map.set(sessionId, records);
+  mockStoreValues.sessionAttentionRecords = map;
 }
 
 function setStoreBoard(sessionId: string, board: Array<Record<string, unknown>>) {
@@ -427,6 +435,7 @@ function resetStore() {
   mockStoreValues.sessionStatus = new Map();
   mockStoreValues.sessions = new Map();
   mockStoreValues.sessionNotifications = new Map();
+  mockStoreValues.sessionAttentionRecords = new Map();
   mockStoreValues.sessionBoards = new Map();
   mockStoreValues.sessionCompletedBoards = new Map();
   mockStoreValues.toolProgress = new Map();
@@ -743,6 +752,104 @@ describe("MessageFeed - collapsed turns", () => {
     expect(row.getAttribute("data-attention-state")).toBe("resolved");
     expect(screen.getByText("Resolved")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Review" })).toBeTruthy();
+  });
+
+  it("renders server-authoritative attention lifecycle records from the live store", () => {
+    // `seen`, `dismissed`, and `superseded` are not notification states. Main
+    // must render them from the shared server-authoritative record collection.
+    const sid = "test-main-attention-ledger-live-records";
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreAttentionRecords(sid, [
+      {
+        id: "manual-seen",
+        leaderSessionId: sid,
+        type: "needs_input",
+        source: { kind: "manual", id: "manual-seen" },
+        questId: "q-983",
+        threadKey: "q-983",
+        title: "Implementation direction seen",
+        summary: "Still unresolved after being seen",
+        actionLabel: "Answer",
+        priority: "needs_input",
+        state: "seen",
+        createdAt: 120,
+        updatedAt: 140,
+        route: { threadKey: "q-983", questId: "q-983" },
+        chipEligible: true,
+        ledgerEligible: true,
+        dedupeKey: "manual-seen",
+      },
+      {
+        id: "manual-dismissed",
+        leaderSessionId: sid,
+        type: "blocked_user_resolvable",
+        source: { kind: "manual", id: "manual-dismissed" },
+        questId: "q-984",
+        threadKey: "q-984",
+        title: "External unblock dismissed",
+        summary: "Dismissed without resolving",
+        actionLabel: "Open",
+        priority: "blocked",
+        state: "dismissed",
+        createdAt: 130,
+        updatedAt: 150,
+        dismissedAt: 150,
+        route: { threadKey: "q-984", questId: "q-984" },
+        chipEligible: true,
+        ledgerEligible: true,
+        dedupeKey: "manual-dismissed",
+      },
+      {
+        id: "manual-superseded",
+        leaderSessionId: sid,
+        type: "quest_reopened_or_rework",
+        source: { kind: "manual", id: "manual-superseded" },
+        questId: "q-975",
+        threadKey: "q-975",
+        title: "Older rework request",
+        summary: "Superseded by a newer request",
+        actionLabel: "Open",
+        priority: "milestone",
+        state: "superseded",
+        createdAt: 140,
+        updatedAt: 160,
+        route: { threadKey: "q-975", questId: "q-975" },
+        chipEligible: false,
+        ledgerEligible: true,
+        dedupeKey: "manual-superseded",
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const rows = screen.getAllByTestId("attention-ledger-row");
+    expect(rows.map((row) => row.getAttribute("data-attention-state"))).toEqual(["seen", "dismissed", "superseded"]);
+    expect(screen.getByText("Seen")).toBeTruthy();
+    expect(screen.getByText("Dismissed")).toBeTruthy();
+    expect(screen.getByText("Superseded")).toBeTruthy();
+  });
+
+  it("surfaces routed user rework feedback as a low-priority Main ledger milestone", () => {
+    const sid = "test-main-attention-ledger-rework-message";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-main", role: "user", content: "Main coordination", timestamp: 100 }),
+      makeMessage({
+        id: "msg-9248",
+        role: "user",
+        content:
+          "This looks horrible. Please ask the agent to fix this. All consecutive hidden activities should be merged.",
+        timestamp: 120,
+        metadata: { threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.getAttribute("data-attention-type")).toBe("quest_reopened_or_rework");
+    expect(row.getAttribute("data-attention-state")).toBe("reopened");
+    expect(screen.getByText("Reopened")).toBeTruthy();
+    expect(screen.getByText("q-975: rework requested")).toBeTruthy();
   });
 
   it("renders board wait-for-input as attention without promoting ordinary wait-for dependencies", () => {

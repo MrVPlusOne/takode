@@ -1215,6 +1215,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
+    case "attention_records_update": {
+      store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
+      break;
+    }
+
     case "permissions_cleared": {
       store.clearPermissions(sessionId);
       break;
@@ -1295,6 +1300,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
         });
       }
+      store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
       break;
     }
 

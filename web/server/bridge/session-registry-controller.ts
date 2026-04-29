@@ -1,7 +1,13 @@
 import { sessionTag } from "../session-tag.js";
 import { formatReplyContentForPreview } from "../../shared/reply-context.js";
 import type { PersistedSession } from "../session-store.js";
-import type { BoardRow, ContentBlock, SessionTaskEntry, SessionNotification } from "../session-types.js";
+import type {
+  BoardRow,
+  ContentBlock,
+  SessionTaskEntry,
+  SessionNotification,
+  SessionAttentionRecord,
+} from "../session-types.js";
 import { resolveConsistentNotificationThreadRoute, withThreadRoute } from "../thread-routing-metadata.js";
 import { detectQuestEvent } from "./quest-detector.js";
 import type {
@@ -84,6 +90,7 @@ type SessionRuntimeOptions = {
   board?: Map<any, any>;
   completedBoard?: Map<any, any>;
   notifications?: SessionNotification[];
+  attentionRecords?: SessionAttentionRecord[];
   notificationCounter?: number;
   notificationStatusVersion?: number;
   notificationStatusUpdatedAt?: number;
@@ -175,6 +182,7 @@ function createSessionRuntime(
     boardStallStates: new Map(),
     boardDispatchStates: new Map(),
     notifications,
+    attentionRecords: options.attentionRecords ?? [],
     notificationCounter: options.notificationCounter ?? 0,
     notificationStatusVersion,
     notificationStatusUpdatedAt,
@@ -475,6 +483,7 @@ export async function restorePersistedSessions(
           Array.isArray(p.completedBoard) ? p.completedBoard.map((row: any) => [row.questId, row]) : [],
         ),
         notifications: Array.isArray(p.notifications) ? p.notifications : [],
+        attentionRecords: Array.isArray(p.attentionRecords) ? p.attentionRecords : [],
         notificationStatusVersion:
           typeof p.notificationStatusVersion === "number" ? p.notificationStatusVersion : undefined,
         notificationStatusUpdatedAt:
@@ -542,6 +551,7 @@ export async function restorePersistedSessions(
         Array.isArray(p.completedBoard) ? p.completedBoard.map((row: any) => [row.questId, row]) : [],
       ),
       notifications: Array.isArray(p.notifications) ? p.notifications : [],
+      attentionRecords: Array.isArray(p.attentionRecords) ? p.attentionRecords : [],
       notificationStatusVersion:
         typeof p.notificationStatusVersion === "number" ? p.notificationStatusVersion : undefined,
       notificationStatusUpdatedAt:
@@ -669,6 +679,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     board: Array.from(session.board.values()),
     completedBoard: Array.from(session.completedBoard.values()),
     notifications: session.notifications,
+    attentionRecords: session.attentionRecords,
     notificationStatusVersion: session.notificationStatusVersion,
     notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
   };
@@ -993,6 +1004,13 @@ function buildNotificationUpdateMessage(session: SessionLike): BrowserIncomingMe
   } as BrowserIncomingMessage;
 }
 
+function buildAttentionRecordsUpdateMessage(session: SessionLike): BrowserIncomingMessage {
+  return {
+    type: "attention_records_update",
+    attentionRecords: session.attentionRecords ?? [],
+  } as BrowserIncomingMessage;
+}
+
 function broadcastNotificationStatus(
   session: SessionLike,
   deps: Pick<SessionRegistryDeps, "broadcastToBrowsers">,
@@ -1200,6 +1218,16 @@ export function markNotificationDone(
   broadcastNotificationStatus(session, deps);
   deps.persistSession(session);
   return true;
+}
+
+export function replaceAttentionRecords(
+  session: SessionLike,
+  attentionRecords: SessionAttentionRecord[],
+  deps: Pick<SessionRegistryDeps, "broadcastToBrowsers" | "persistSession">,
+): void {
+  session.attentionRecords = attentionRecords;
+  deps.broadcastToBrowsers?.(session, buildAttentionRecordsUpdateMessage(session));
+  deps.persistSession(session);
 }
 
 export function markNotificationDoneBySessionId(

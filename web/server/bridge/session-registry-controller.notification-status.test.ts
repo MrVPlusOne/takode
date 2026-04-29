@@ -3,8 +3,10 @@ import {
   buildPersistedSessionPayload,
   markNotificationDone,
   notifyUser,
+  replaceAttentionRecords,
   restorePersistedSessions,
 } from "./session-registry-controller.js";
+import type { SessionAttentionRecord } from "../session-types.js";
 
 function makeSession(overrides: Record<string, unknown> = {}) {
   return {
@@ -21,6 +23,7 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     board: new Map(),
     completedBoard: new Map(),
     notifications: [],
+    attentionRecords: [],
     notificationCounter: 0,
     taskHistory: [],
     keywords: [],
@@ -28,6 +31,29 @@ function makeSession(overrides: Record<string, unknown> = {}) {
     attentionReason: null,
     ...overrides,
   } as any;
+}
+
+function attentionRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
+  return {
+    id: "attention-1",
+    leaderSessionId: "s1",
+    type: "needs_input",
+    source: { kind: "manual", id: "attention-1" },
+    questId: "q-983",
+    threadKey: "q-983",
+    title: "Need decision",
+    summary: "Need decision summary",
+    actionLabel: "Answer",
+    priority: "needs_input",
+    state: "seen",
+    createdAt: 100,
+    updatedAt: 200,
+    route: { threadKey: "q-983", questId: "q-983" },
+    chipEligible: true,
+    ledgerEligible: true,
+    dedupeKey: "attention-1",
+    ...overrides,
+  };
 }
 
 function makeDeps() {
@@ -175,5 +201,56 @@ describe("session notification status metadata", () => {
       notificationStatusVersion: 9,
       notificationStatusUpdatedAt: 9000,
     });
+  });
+
+  it("broadcasts, persists, and restores server-authoritative attention records", async () => {
+    const session = makeSession();
+    const deps = makeDeps();
+    const records = [
+      attentionRecord({ id: "seen-record", state: "seen", dedupeKey: "seen-record" }),
+      attentionRecord({ id: "dismissed-record", state: "dismissed", dedupeKey: "dismissed-record" }),
+      attentionRecord({ id: "reopened-record", state: "reopened", dedupeKey: "reopened-record" }),
+      attentionRecord({ id: "superseded-record", state: "superseded", dedupeKey: "superseded-record" }),
+    ];
+
+    replaceAttentionRecords(session, records, deps);
+
+    expect(session.attentionRecords.map((record: SessionAttentionRecord) => record.state)).toEqual([
+      "seen",
+      "dismissed",
+      "reopened",
+      "superseded",
+    ]);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "attention_records_update",
+        attentionRecords: records,
+      }),
+    );
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+
+    const persisted = buildPersistedSessionPayload(session);
+    expect(persisted.attentionRecords?.map((record) => record.state)).toEqual([
+      "seen",
+      "dismissed",
+      "reopened",
+      "superseded",
+    ]);
+
+    const sessions = new Map<string, any>();
+    await restorePersistedSessions(sessions, [persisted], {
+      recoverToolStartTimesFromHistory: vi.fn(),
+      finalizeRecoveredDisconnectedTerminalTools: vi.fn(),
+      scheduleCodexToolResultWatchdogs: vi.fn(),
+      reconcileRestoredBoardState: vi.fn(async () => {}),
+    });
+
+    expect(sessions.get("s1")?.attentionRecords.map((record: SessionAttentionRecord) => record.state)).toEqual([
+      "seen",
+      "dismissed",
+      "reopened",
+      "superseded",
+    ]);
   });
 });
