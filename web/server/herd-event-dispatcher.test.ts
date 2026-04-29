@@ -1211,6 +1211,129 @@ describe("HerdEventDispatcher", () => {
 
     dispatcher.destroy();
   });
+
+  it("suppresses duplicate turn_end events with the same message range", () => {
+    // A replayed worker completion with the same message range is stale even if
+    // its event id or relative-age rendering changes.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        id: 1,
+        event: "turn_end",
+        ts: 1000,
+        data: { duration_ms: 5000, msgRange: { from: 1957, to: 1967 } },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "turn_end",
+        ts: 2000,
+        data: { duration_ms: 5000, msgRange: { from: 1957, to: 1967 } },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    triggerEvent(
+      makeEvent({
+        id: 3,
+        event: "turn_end",
+        ts: 3000,
+        data: { duration_ms: 5000, msgRange: { from: 1970, to: 1971 } },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+
+    dispatcher.destroy();
+  });
+
+  it("suppresses duplicate board_stalled events when only age fields change", () => {
+    // A still-stalled row should not keep notifying just because stalledForMs
+    // or the rendered relative age changed. A changed reason remains deliverable.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getBoardRow!).mockReturnValue({ status: "EXPLORING" });
+
+    triggerEvent(
+      makeEvent({
+        id: 1,
+        event: "board_stalled",
+        ts: 1000,
+        data: {
+          questId: "q-975",
+          title: "Add lightweight cross-thread activity markers",
+          stage: "EXPLORING",
+          signature: "sig-1",
+          workerStatus: "disconnected",
+          reviewerStatus: "missing",
+          stalledForMs: 571 * 60_000,
+          reason: "worker disconnected",
+          action: "inspect worker; review findings or revise the Journey",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "board_stalled",
+        ts: 2000,
+        data: {
+          questId: "q-975",
+          title: "Add lightweight cross-thread activity markers",
+          stage: "EXPLORING",
+          signature: "sig-1",
+          workerStatus: "disconnected",
+          reviewerStatus: "missing",
+          stalledForMs: 572 * 60_000,
+          reason: "worker disconnected",
+          action: "inspect worker; review findings or revise the Journey",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    triggerEvent(
+      makeEvent({
+        id: 3,
+        event: "board_stalled",
+        ts: 3000,
+        data: {
+          questId: "q-975",
+          title: "Add lightweight cross-thread activity markers",
+          stage: "EXPLORING",
+          signature: "sig-1",
+          workerStatus: "disconnected",
+          reviewerStatus: "missing",
+          stalledForMs: 573 * 60_000,
+          reason: "worker missing",
+          action: "inspect worker; review findings or revise the Journey",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+
+    dispatcher.destroy();
+  });
 });
 
 // ─── formatHerdEventBatch ───────────────────────────────────────────────────────

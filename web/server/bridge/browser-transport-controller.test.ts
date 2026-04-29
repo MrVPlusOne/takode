@@ -8,7 +8,11 @@
  */
 
 import { describe, it, expect, vi } from "vitest";
-import { broadcastToBrowsers, type BrowserTransportSessionLike } from "./browser-transport-controller.js";
+import {
+  broadcastToBrowsers,
+  injectUserMessage,
+  type BrowserTransportSessionLike,
+} from "./browser-transport-controller.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
 
 function makeSession(overrides?: Partial<BrowserTransportSessionLike>): BrowserTransportSessionLike {
@@ -43,6 +47,52 @@ function makeDeps() {
     persistSession: vi.fn(),
     recordOutgoingRaw: vi.fn(),
   };
+}
+
+function makeInjectDeps(overrides: Record<string, unknown> = {}) {
+  return {
+    ...makeDeps(),
+    refreshGitInfoThenRecomputeDiff: vi.fn(),
+    prefillSlashCommands: vi.fn(),
+    getTreeGroupState: vi.fn(async () => ({ groups: [], assignments: {}, nodeOrder: {} })),
+    getVsCodeSelectionState: vi.fn(() => null),
+    getLauncherSessionInfo: vi.fn(() => ({ isOrchestrator: true, state: "connected", backendType: "codex" })),
+    backendAttached: vi.fn(() => true),
+    backendConnected: vi.fn(() => true),
+    requestCodexAutoRecovery: vi.fn(() => false),
+    getRouteChain: vi.fn(() => undefined),
+    setRouteChain: vi.fn(),
+    clearRouteChain: vi.fn(),
+    routeBrowserMessage: vi.fn(),
+    abortAutoApproval: vi.fn(),
+    broadcastToBrowsers: vi.fn(),
+    setAttentionAction: vi.fn(),
+    touchActivity: vi.fn(),
+    notifyImageSendFailure: vi.fn(),
+    broadcastError: vi.fn(),
+    queueCodexPendingStartBatch: vi.fn(),
+    deriveBackendState: vi.fn(() => "connected"),
+    getBoard: vi.fn(() => []),
+    getCompletedBoard: vi.fn(() => []),
+    getBoardRowSessionStatuses: vi.fn(() => ({})),
+    recoverToolStartTimesFromHistory: vi.fn(),
+    finalizeRecoveredDisconnectedTerminalTools: vi.fn(),
+    scheduleCodexToolResultWatchdogs: vi.fn(),
+    recomputeAndBroadcastHistoryBytes: vi.fn(),
+    listTimers: vi.fn(() => []),
+    browserTransportState: {
+      vscodeSelectionState: null,
+      vscodeWindows: new Map(),
+      vscodeOpenFileQueues: new Map(),
+      pendingVsCodeOpenResults: new Map(),
+    },
+    idempotentMessageTypes: new Set<string>(),
+    processedClientMsgIdLimit: 100,
+    getSessions: vi.fn(() => []),
+    windowStaleMs: 1000,
+    openFileTimeoutMs: 1000,
+    ...overrides,
+  } as any;
 }
 
 describe("tree_groups_update replay-buffer exclusion", () => {
@@ -133,5 +183,51 @@ describe("tree_groups_update replay-buffer exclusion", () => {
       expect(session.eventBuffer).toHaveLength(0);
     }
     expect(deps.persistSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("Codex herd event injection", () => {
+  it("treats a live Codex pending herd input as accepted and dedupes retry content by age suffix", () => {
+    const agentSource = { sessionId: "herd-events", sessionLabel: "Herd Events" };
+    const session = makeSession({
+      backendType: "codex",
+      state: { permissionMode: "default", backend_state: "connected", cwd: "/repo" } as any,
+    });
+    const routeBrowserMessage = vi.fn((target: BrowserTransportSessionLike, msg: any) => {
+      target.pendingCodexInputs.push({
+        id: `pending-${target.pendingCodexInputs.length + 1}`,
+        content: msg.content,
+        timestamp: Date.now(),
+        cancelable: true,
+        agentSource: msg.agentSource,
+        threadKey: msg.threadKey,
+      });
+    });
+    const deps = makeInjectDeps({ routeBrowserMessage });
+    const threadRoute = { threadKey: "q-975", questId: "q-975" } as any;
+
+    const first = injectUserMessage(
+      session,
+      "1 event from 1 session\n\n#1270 | board_stalled | q-975 | EXPLORING | worker disconnected | stalled 571m | 16m ago",
+      agentSource,
+      undefined,
+      deps,
+      threadRoute,
+    );
+    expect(first).toBe("sent");
+    expect(session.pendingCodexInputs).toHaveLength(1);
+
+    const retry = injectUserMessage(
+      session,
+      "1 event from 1 session\n\n#1270 | board_stalled | q-975 | EXPLORING | worker disconnected | stalled 571m | 17m ago",
+      agentSource,
+      undefined,
+      deps,
+      threadRoute,
+    );
+    expect(retry).toBe("sent");
+    expect(routeBrowserMessage).toHaveBeenCalledTimes(1);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledWith(session, "inject_herd_event_retry");
   });
 });

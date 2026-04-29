@@ -240,6 +240,7 @@ const DEBOUNCE_MS = 500;
 const RETRY_MS = 2000;
 const INBOX_CAP = 200;
 const HISTORY_CAP = 50;
+const RECENT_EVENT_DEDUPE_CAP = 500;
 
 /** agentSource used to tag herd event messages */
 const HERD_AGENT_SOURCE = { sessionId: "herd-events", sessionLabel: "Herd Events" } as const;
@@ -290,6 +291,8 @@ interface HerdInbox {
   workerIds: Set<string>;
   /** Persistent delivery history for diagnostics (last N entries) */
   deliveryHistory: DeliveryRecord[];
+  /** Stable identities for recently accepted events, used to suppress stale replay duplicates. */
+  recentEventKeys: Map<string, number>;
   /** Per-worker: highest msgRange.to from the last delivered batch.
    *  Prevents re-injecting the same activity in consecutive turn_end events. */
   lastEmittedMsgTo: Map<string, number>;
@@ -453,6 +456,7 @@ export class HerdEventDispatcher {
         debounceTimer: null,
         workerIds,
         deliveryHistory: [],
+        recentEventKeys: new Map(),
         lastEmittedMsgTo: new Map(),
       };
       inbox.unsubscribe = this.wsBridge.subscribeTakodeEvents(workerIds, (evt) => this.onWorkerEvent(orchId, evt));
@@ -497,6 +501,11 @@ export class HerdEventDispatcher {
     const policy = this.getRestartPrepDeliveryPolicy(orchId, event);
     if (policy.kind === "suppress") {
       this.recordRestartPrepSuppressed(policy.operation, event);
+      return;
+    }
+
+    const eventKey = getStableHerdEventKey(event);
+    if (eventKey && (inbox.recentEventKeys.has(eventKey) || inboxHasEventKey(inbox, eventKey))) {
       return;
     }
 
@@ -788,6 +797,7 @@ export class HerdEventDispatcher {
     }
 
     updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, deliveredEvents);
+    this.rememberDeliveredEventKeys(inbox, deliveredEvents);
     inbox.inFlightUpTo = pending[pending.length - 1].seq;
     this.markPendingEntriesInFlight(inbox, pending.length);
     return { status: "sent", deliveredCount: deliveredEvents.length };
@@ -850,6 +860,15 @@ export class HerdEventDispatcher {
         item.event === entry.event.event && item.sessionName === entry.event.sessionName && item.ts === entry.event.ts,
     );
     if (record) record.status = status;
+  }
+
+  private rememberDeliveredEventKeys(inbox: HerdInbox, events: TakodeEvent[]): void {
+    for (const event of events) {
+      const key = getStableHerdEventKey(event);
+      if (!key) continue;
+      inbox.recentEventKeys.set(key, Date.now());
+      trimRecentEventKeys(inbox);
+    }
   }
 
   private releaseHeldRestartPrepEvents(operationId: string): void {
@@ -1273,6 +1292,56 @@ function questIdFromEvent(event: TakodeEvent): string | undefined {
     default:
       return undefined;
   }
+}
+
+function getStableHerdEventKey(event: TakodeEvent): string | null {
+  if (event.event === "turn_end") {
+    const range = event.data.msgRange;
+    if (!range) return null;
+    return ["turn_end", event.sessionId, range.from, range.to].map(stableKeyPart).join("|");
+  }
+  if (event.event === "board_stalled") {
+    return [
+      "board_stalled",
+      event.sessionId,
+      event.data.questId,
+      event.data.stage,
+      event.data.signature,
+      event.data.workerStatus,
+      event.data.reviewerStatus,
+      event.data.reason,
+      event.data.action,
+    ]
+      .map(stableKeyPart)
+      .join("|");
+  }
+  if (event.event === "board_dispatchable") {
+    return ["board_dispatchable", event.sessionId, event.data.questId, event.data.signature, event.data.summary]
+      .map(stableKeyPart)
+      .join("|");
+  }
+  return null;
+}
+
+function inboxHasEventKey(inbox: HerdInbox, key: string): boolean {
+  return inbox.entries.some((entry) => getStableHerdEventKey(entry.event) === key);
+}
+
+function trimRecentEventKeys(inbox: HerdInbox): void {
+  if (inbox.recentEventKeys.size <= RECENT_EVENT_DEDUPE_CAP) return;
+  const excess = inbox.recentEventKeys.size - RECENT_EVENT_DEDUPE_CAP;
+  let removed = 0;
+  for (const oldKey of inbox.recentEventKeys.keys()) {
+    inbox.recentEventKeys.delete(oldKey);
+    removed += 1;
+    if (removed >= excess) break;
+  }
+}
+
+function stableKeyPart(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
 }
 
 function snapshotHerdBatch(events: TakodeEvent[], renderedLines: string[]): TakodeHerdBatchSnapshot | undefined {

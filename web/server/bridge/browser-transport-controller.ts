@@ -415,17 +415,18 @@ export function injectUserMessage(
   deps: BrowserTransportDeps,
   threadRoute?: ThreadRouteMetadata,
 ): "sent" | "queued" {
+  const backendLive = deps.backendConnected(session);
   if (isHerdEventSource(agentSource) && session.backendType === "codex") {
     const existing = findMatchingPendingCodexInput(session, content, agentSource, threadRoute);
     if (existing) {
       if (existing.cancelable) {
         deps.queueCodexPendingStartBatch(session, "inject_herd_event_retry");
       }
+      if (backendLive) return "sent";
       return getPendingCodexInputDeliveryState(session, existing.id);
     }
   }
 
-  const backendLive = deps.backendConnected(session);
   const sdkAdapterMissingBeforeRoute = session.backendType === "claude-sdk" && !session.claudeSdkAdapter;
   const pendingCodexCountBefore = session.pendingCodexInputs.length;
   const hadRouteInFlight = hasSessionRouteInFlight(session.id, deps);
@@ -453,6 +454,7 @@ export function injectUserMessage(
             samePendingThreadRoute(input, threadRoute),
         );
       if (pending) {
+        if (backendLive) return "sent";
         return getPendingCodexInputDeliveryState(session, pending.id);
       }
     }
