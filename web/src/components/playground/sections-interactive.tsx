@@ -1377,6 +1377,45 @@ export function PlaygroundInteractiveSections() {
               >
                 Seed notification data
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const now = Date.now();
+                  useStore.setState({
+                    sessionNotifications: new Map([
+                      [
+                        "playground-notifs",
+                        [
+                          {
+                            id: "stale-review",
+                            category: "review" as const,
+                            summary: "Older review cached locally",
+                            timestamp: now - 300_000,
+                            messageId: "mock-msg-stale",
+                            done: false,
+                          },
+                        ],
+                      ],
+                    ]),
+                  });
+                  useStore.getState().setSdkSessions([
+                    {
+                      sessionId: "playground-notifs",
+                      state: "connected",
+                      cwd: "/playground",
+                      createdAt: now,
+                      archived: false,
+                      notificationUrgency: "needs-input",
+                      activeNotificationCount: 1,
+                      notificationStatusVersion: 2,
+                      notificationStatusUpdatedAt: now,
+                    },
+                  ]);
+                }}
+                className="ml-2 text-xs font-medium px-3 py-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
+              >
+                Seed summary-only needs-input
+              </button>
               <div className="relative h-24 rounded-lg border border-cc-border bg-cc-bg overflow-hidden">
                 <div className="absolute bottom-2 right-2">
                   <NotificationChip sessionId="playground-notifs" />

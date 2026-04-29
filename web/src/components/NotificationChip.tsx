@@ -4,6 +4,7 @@ import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { SessionNotification } from "../types.js";
+import { isClearedNotificationStatus, type NotificationStatusSnapshot } from "../notification-status.js";
 
 const EMPTY: SessionNotification[] = [];
 type NotificationCategory = SessionNotification["category"];
@@ -13,6 +14,30 @@ function useNotifications(sessionId: string) {
   const active = useMemo(() => all.filter((n) => !n.done), [all]);
   const done = useMemo(() => all.filter((n) => n.done), [all]);
   return { all, active, done };
+}
+
+function useNotificationSummary(sessionId: string): NotificationStatusSnapshot {
+  const notificationUrgency = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.notificationUrgency,
+  );
+  const activeNotificationCount = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.activeNotificationCount,
+  );
+  const notificationStatusVersion = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.notificationStatusVersion,
+  );
+  const notificationStatusUpdatedAt = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.notificationStatusUpdatedAt,
+  );
+  return useMemo(
+    () => ({
+      notificationUrgency,
+      activeNotificationCount,
+      notificationStatusVersion,
+      notificationStatusUpdatedAt,
+    }),
+    [notificationUrgency, activeNotificationCount, notificationStatusVersion, notificationStatusUpdatedAt],
+  );
 }
 
 function formatRelativeTime(ts: number): string {
@@ -31,6 +56,35 @@ function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotif
     else if (notification.category === "review") review += 1;
   }
   return { needsInput, review };
+}
+
+function getSummaryBreakdown(summary: NotificationStatusSnapshot) {
+  const count = summary.activeNotificationCount ?? 0;
+  if (count <= 0) return { needsInput: 0, review: 0 };
+  if (summary.notificationUrgency === "needs-input") return { needsInput: count, review: 0 };
+  if (summary.notificationUrgency === "review") return { needsInput: 0, review: count };
+  return { needsInput: 0, review: 0 };
+}
+
+function getEffectiveNotificationBreakdown(
+  notifications: ReadonlyArray<Pick<SessionNotification, "category">>,
+  summary: NotificationStatusSnapshot,
+) {
+  if (isClearedNotificationStatus(summary)) return { needsInput: 0, review: 0 };
+  const live = getNotificationBreakdown(notifications);
+  const liveTotal = live.needsInput + live.review;
+  const summaryCount = summary.activeNotificationCount ?? 0;
+  const hasFreshSummary =
+    summary.notificationStatusVersion !== undefined || summary.notificationStatusUpdatedAt !== undefined;
+  const summaryUrgency = summary.notificationUrgency;
+  if (hasFreshSummary && summaryCount > 0 && summaryUrgency) {
+    const liveDisagreesWithSummary =
+      liveTotal !== summaryCount ||
+      (summaryUrgency === "needs-input" && live.needsInput === 0) ||
+      (summaryUrgency === "review" && (live.needsInput > 0 || live.review === 0));
+    if (liveDisagreesWithSummary) return getSummaryBreakdown(summary);
+  }
+  return live;
 }
 
 function formatChipAriaLabel({ needsInput, review }: { needsInput: number; review: number }): string {
@@ -382,8 +436,9 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
 /** Glassmorphic floating pill for notification inbox. Renders nothing when no active notifications exist. */
 export function NotificationChip({ sessionId }: { sessionId: string }) {
   const { active } = useNotifications(sessionId);
+  const summary = useNotificationSummary(sessionId);
   const [open, setOpen] = useState(false);
-  const { needsInput, review } = useMemo(() => getNotificationBreakdown(active), [active]);
+  const { needsInput, review } = useMemo(() => getEffectiveNotificationBreakdown(active, summary), [active, summary]);
   const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review }), [needsInput, review]);
   const visibleSegments = useMemo(
     () =>
@@ -397,7 +452,7 @@ export function NotificationChip({ sessionId }: { sessionId: string }) {
   const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
 
-  if (active.length === 0) return null;
+  if (needsInput + review === 0) return null;
 
   return (
     <>

@@ -2,11 +2,12 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  applyNotificationStatusUpdate,
   setSdkSessionsWithNotificationFreshness,
   shouldApplyAttentionReasonWithNotificationFreshness,
 } from "./notification-status.js";
 import { useStore } from "./store.js";
-import type { SdkSessionInfo } from "./types.js";
+import type { SdkSessionInfo, SessionNotification } from "./types.js";
 
 function session(overrides: Partial<SdkSessionInfo>): SdkSessionInfo {
   return {
@@ -15,6 +16,18 @@ function session(overrides: Partial<SdkSessionInfo>): SdkSessionInfo {
     cwd: "/repo",
     createdAt: 1,
     archived: false,
+    ...overrides,
+  };
+}
+
+function needsInputNotification(overrides: Partial<SessionNotification> = {}): SessionNotification {
+  return {
+    id: "n1",
+    category: "needs-input",
+    summary: "Needs input",
+    timestamp: 1000,
+    messageId: null,
+    done: false,
     ...overrides,
   };
 }
@@ -75,5 +88,77 @@ describe("notification status attention freshness", () => {
         notificationStatusUpdatedAt: 4000,
       }),
     ).toBe(true);
+  });
+
+  it("prunes stale cached full notifications when REST hydration accepts a newer clear summary", () => {
+    // /api/sessions carries only a lightweight summary. When that accepted
+    // summary is newer and clear, a previously loaded full inbox must not keep
+    // driving a sidebar amber dot.
+    useStore.getState().setSdkSessions([
+      session({
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 4,
+        notificationStatusUpdatedAt: 4000,
+      }),
+    ]);
+    useStore.setState({
+      sessionNotifications: new Map([["s1", [needsInputNotification()]]]),
+    });
+
+    setSdkSessionsWithNotificationFreshness([
+      session({
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      }),
+    ]);
+
+    expect(useStore.getState().sessionNotifications.get("s1")).toBeUndefined();
+    expect(useStore.getState().sdkSessions[0]?.activeNotificationCount).toBe(0);
+  });
+
+  it("keeps cached full notifications when a summary-only update is still active", () => {
+    // Active summaries do not include full notification payloads, so they must
+    // not erase the cached full inbox used by the open session UI.
+    useStore.getState().setSdkSessions([session({})]);
+    const cached = [needsInputNotification()];
+    useStore.setState({ sessionNotifications: new Map([["s1", cached]]) });
+
+    applyNotificationStatusUpdate("s1", {
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      notificationStatusVersion: 5,
+      notificationStatusUpdatedAt: 5000,
+    });
+
+    expect(useStore.getState().sessionNotifications.get("s1")).toBe(cached);
+  });
+
+  it("does not let an older clear summary erase a newer active notification state", () => {
+    // Crossed global updates should not delete a full inbox if the store already
+    // knows about a newer active notification status.
+    useStore.getState().setSdkSessions([
+      session({
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      }),
+    ]);
+    const cached = [needsInputNotification()];
+    useStore.setState({ sessionNotifications: new Map([["s1", cached]]) });
+
+    const applied = applyNotificationStatusUpdate("s1", {
+      notificationUrgency: null,
+      activeNotificationCount: 0,
+      notificationStatusVersion: 4,
+      notificationStatusUpdatedAt: 4000,
+    });
+
+    expect(applied).toBe(false);
+    expect(useStore.getState().sessionNotifications.get("s1")).toBe(cached);
+    expect(useStore.getState().sdkSessions[0]?.activeNotificationCount).toBe(1);
   });
 });

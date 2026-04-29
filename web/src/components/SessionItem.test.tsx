@@ -506,6 +506,51 @@ describe("SessionItem notification marker", () => {
     expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
   });
 
+  it("ignores stale active full-inbox data when a newer clear summary is known", () => {
+    // A browser can have an old full notification inbox from a previous visit
+    // while global fanout has already delivered a newer lightweight clear.
+    // The sidebar marker must follow the newer clear summary.
+    setSessionNotifications("s1", [
+      { id: "n-input", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      },
+    ];
+
+    const { container } = renderSessionItem();
+
+    expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
+  });
+
+  it("uses a newer active summary over stale review-only full-inbox data", () => {
+    // The notification chip and session row can hold an older full inbox while
+    // global fanout has already delivered the latest lightweight needs-input
+    // status. The row must keep showing amber, not fall back to blue review.
+    setSessionNotifications("s1", [
+      { id: "n-review", category: "review", summary: "Review", timestamp: Date.now(), done: false },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 6,
+        notificationStatusUpdatedAt: 6000,
+      },
+    ];
+
+    renderSessionItem();
+
+    const marker = screen.getByTestId("session-notification-marker");
+    expect(marker).toHaveAttribute("data-urgency", "needs-input");
+  });
+
   it("does not render stale action attention after notification status is known cleared", () => {
     // A stale action attention value should not render the same amber dot after
     // the versioned notification summary has already cleared the inbox.

@@ -60,6 +60,27 @@ function setNotifications(sessionId: string, notifications: Array<any>) {
   mockNotifications.set(sessionId, notifications);
 }
 
+function setNotificationSummary(
+  sessionId: string,
+  summary: {
+    notificationUrgency: "needs-input" | "review" | null;
+    activeNotificationCount: number;
+    notificationStatusVersion: number;
+    notificationStatusUpdatedAt?: number;
+  },
+) {
+  mockStoreState.sdkSessions = [
+    {
+      sessionId,
+      state: "connected",
+      cwd: "/repo",
+      createdAt: 1,
+      archived: false,
+      ...summary,
+    },
+  ];
+}
+
 function setQuests(quests: Array<any>) {
   mockStoreState.quests = quests;
 }
@@ -134,6 +155,62 @@ describe("NotificationChip", () => {
     expect(reviewBadge).toHaveTextContent("1");
     expect(within(chip).getByText(",")).toBeInTheDocument();
     expect(within(chip).getByText("unreads")).toBeInTheDocument();
+  });
+
+  it("uses a newer active summary when the cached full inbox is still review-only", () => {
+    // Global session_activity_update can arrive before the full notification
+    // inbox refreshes. The chip should follow the newer server summary instead
+    // of briefly turning back to blue from stale cached details.
+    setNotifications("s1", [
+      { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
+    ]);
+    setNotificationSummary("s1", {
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      notificationStatusVersion: 6,
+      notificationStatusUpdatedAt: 6000,
+    });
+
+    render(<NotificationChip sessionId="s1" />);
+
+    const chip = screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" });
+    expect(within(chip).queryByTestId("notification-chip-review")).toBeNull();
+    const needsInputBadge = within(chip).getByTestId("notification-chip-needs-input");
+    const needsInputBell = needsInputBadge.querySelector("svg");
+    expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-amber-400");
+  });
+
+  it("shows an active summary even before the full notification payload arrives", () => {
+    // A stale empty/done-only full inbox should not hide a new needs-input
+    // summary while the current-session snapshot/notification_update catches up.
+    setNotifications("s1", [
+      { id: "old-review", category: "review", summary: "Old review", timestamp: Date.now(), done: true },
+    ]);
+    setNotificationSummary("s1", {
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      notificationStatusVersion: 7,
+      notificationStatusUpdatedAt: 7000,
+    });
+
+    render(<NotificationChip sessionId="s1" />);
+
+    expect(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" })).toBeInTheDocument();
+  });
+
+  it("keeps a newer needs-input summary when stale clear state is still cached", () => {
+    // Protects the observed transition: stale clear/blue local notification
+    // state must not override a newer authoritative needs-input summary.
+    setNotificationSummary("s1", {
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      notificationStatusVersion: 8,
+      notificationStatusUpdatedAt: 8000,
+    });
+
+    render(<NotificationChip sessionId="s1" />);
+
+    expect(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" })).toBeInTheDocument();
   });
 
   it("preserves popover behavior while using urgency color", () => {

@@ -134,9 +134,11 @@ function preserveCurrentNotificationStatus(
 export function setSdkSessionsWithNotificationFreshness(sessions: SdkSessionInfo[]): void {
   const state = useStore.getState();
   const currentById = new Map(state.sdkSessions.map((session) => [session.sessionId, session]));
-  state.setSdkSessions(
-    sessions.map((session) => preserveCurrentNotificationStatus(session, currentById.get(session.sessionId))),
+  const nextSessions = sessions.map((session) =>
+    preserveCurrentNotificationStatus(session, currentById.get(session.sessionId)),
   );
+  state.setSdkSessions(nextSessions);
+  clearCachedActiveNotificationsForClearedStatuses(nextSessions);
 }
 
 export function applyNotificationStatusUpdate(sessionId: string, status: NotificationStatusSnapshot): boolean {
@@ -145,22 +147,67 @@ export function applyNotificationStatusUpdate(sessionId: string, status: Notific
   useStore.setState((state) => {
     const index = state.sdkSessions.findIndex((session) => session.sessionId === sessionId);
     if (index === -1) {
+      if (isClearedNotificationStatus(status)) {
+        const sessionNotifications = clearCachedActiveNotifications(state.sessionNotifications, sessionId);
+        if (sessionNotifications !== state.sessionNotifications) return { sessionNotifications };
+      }
       applied = true;
       return state;
     }
     const current = state.sdkSessions[index]!;
     if (isIncomingNotificationStatusStale(notificationStatusFromSession(current), status)) return state;
     const nextSession = applyNotificationStatus(current, status);
-    if (nextSession === current) {
+    const sessionNotifications = isClearedNotificationStatus(nextSession)
+      ? clearCachedActiveNotifications(state.sessionNotifications, sessionId)
+      : state.sessionNotifications;
+    if (nextSession === current && sessionNotifications === state.sessionNotifications) {
       applied = true;
       return state;
     }
     const sdkSessions = state.sdkSessions.slice();
     sdkSessions[index] = nextSession;
     applied = true;
-    return { sdkSessions };
+    return sessionNotifications === state.sessionNotifications
+      ? { sdkSessions }
+      : { sdkSessions, sessionNotifications };
   });
   return applied;
+}
+
+export function isClearedNotificationStatus(status: NotificationStatusSnapshot): boolean {
+  return (
+    status.activeNotificationCount === 0 &&
+    (status.notificationStatusVersion !== undefined || status.notificationStatusUpdatedAt !== undefined)
+  );
+}
+
+function hasActiveCachedNotifications(notifications: SessionNotification[] | undefined): boolean {
+  return notifications?.some((notification) => !notification.done) ?? false;
+}
+
+function clearCachedActiveNotifications(
+  sessionNotifications: Map<string, SessionNotification[]>,
+  sessionId: string,
+): Map<string, SessionNotification[]> {
+  if (!hasActiveCachedNotifications(sessionNotifications.get(sessionId))) return sessionNotifications;
+  const next = new Map(sessionNotifications);
+  next.delete(sessionId);
+  return next;
+}
+
+function clearCachedActiveNotificationsForClearedStatuses(sessions: SdkSessionInfo[]): void {
+  const clearedSessionIds = sessions
+    .filter((session) => isClearedNotificationStatus(notificationStatusFromSession(session)))
+    .map((session) => session.sessionId);
+  if (clearedSessionIds.length === 0) return;
+  useStore.setState((state) => {
+    let sessionNotifications = state.sessionNotifications;
+    for (const sessionId of clearedSessionIds) {
+      sessionNotifications = clearCachedActiveNotifications(sessionNotifications, sessionId);
+    }
+    if (sessionNotifications === state.sessionNotifications) return state;
+    return { sessionNotifications };
+  });
 }
 
 export function applySessionNotifications(

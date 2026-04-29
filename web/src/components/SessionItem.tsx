@@ -7,6 +7,7 @@ import { getHighlightParts } from "../utils/highlight.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 import { getHighestNotificationUrgency, type NotificationUrgency } from "../utils/notification-urgency.js";
+import { isClearedNotificationStatus } from "../notification-status.js";
 
 type SearchMatchedField = "session_number" | "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message";
 
@@ -104,11 +105,25 @@ function useNotificationUrgency(sessionId: string, fallbackUrgency: Notification
   return useStore((s) => {
     const notifications = s.sessionNotifications?.get(sessionId);
     if (!notifications) return fallbackUrgency;
+    const snapshot = s.sdkSessions?.find((session) => session.sessionId === sessionId);
+    if (isClearedNotificationStatus(snapshot ?? {})) return null;
     const activeNotifications = notifications?.filter((n) => !n.done);
     const liveUrgency = getHighestNotificationUrgency(activeNotifications);
+    const snapshotUrgency = snapshot?.notificationUrgency ?? null;
+    const snapshotActiveCount = snapshot?.activeNotificationCount;
+    const hasFreshSnapshot =
+      snapshot?.notificationStatusVersion !== undefined || snapshot?.notificationStatusUpdatedAt !== undefined;
+    if (
+      hasFreshSnapshot &&
+      snapshotUrgency &&
+      snapshotActiveCount !== undefined &&
+      snapshotActiveCount > 0 &&
+      (liveUrgency !== snapshotUrgency || activeNotifications.length !== snapshotActiveCount)
+    ) {
+      return snapshotUrgency;
+    }
     if (liveUrgency) return liveUrgency;
-    const snapshot = s.sdkSessions?.find((session) => session.sessionId === sessionId);
-    if (snapshot?.activeNotificationCount === 0 || snapshot?.notificationStatusVersion !== undefined) return null;
+    if (snapshotActiveCount === 0 || (hasFreshSnapshot && snapshotUrgency === null)) return null;
     return s.currentSessionId === sessionId ? null : fallbackUrgency;
   });
 }
