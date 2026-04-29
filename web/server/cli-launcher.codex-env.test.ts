@@ -78,6 +78,15 @@ async function waitForSpawnCalls(count: number) {
   }
 }
 
+function dockerExecEnvValue(args: string[], key: string): string | undefined {
+  for (let i = 0; i < args.length - 1; i++) {
+    if (args[i] !== "-e") continue;
+    const [name, ...valueParts] = args[i + 1].split("=");
+    if (name === key) return valueParts.join("=");
+  }
+  return undefined;
+}
+
 const mockSpawn = vi.fn();
 const bunGlobal = globalThis as typeof globalThis & { Bun?: any };
 const hadBunGlobal = typeof bunGlobal.Bun !== "undefined";
@@ -120,6 +129,92 @@ afterAll(() => {
 });
 
 describe("Codex launch env", () => {
+  it("enables Codex native multi-agent support in per-session config", async () => {
+    const customHome = mkdtempSync(join(tempDir, "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+      codexHome: customHome,
+    });
+    await waitForSpawnCalls(1);
+
+    const updatedConfig = readFileSync(configPath, "utf-8");
+    expect(updatedConfig).toContain("[features]");
+    expect(updatedConfig).toContain("multi_agent = true");
+    expect(updatedConfig).toContain("[shell_environment_policy]");
+    expect(updatedConfig).toContain('"PATH"');
+  });
+
+  it("enforces noninteractive Git editors for host Codex and shell commands", async () => {
+    // Codex filters child shell environment through config.toml, so process env
+    // and shell_environment_policy both need the Git-specific editor keys.
+    const customHome = mkdtempSync(join(tempDir, "codex-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const configPath = join(sessionHome, "config.toml");
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+      codexHome: customHome,
+      env: {
+        GIT_EDITOR: "code --wait",
+        GIT_SEQUENCE_EDITOR: "vim",
+        EDITOR: "code --wait",
+        VISUAL: "code --wait",
+      },
+    });
+    await waitForSpawnCalls(1);
+
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(options.env.GIT_EDITOR).toBe("true");
+    expect(options.env.GIT_SEQUENCE_EDITOR).toBe("true");
+    expect(options.env.EDITOR).toBe("code --wait");
+    expect(options.env.VISUAL).toBe("code --wait");
+
+    const updatedConfig = readFileSync(configPath, "utf-8");
+    expect(updatedConfig).toContain('"GIT_EDITOR"');
+    expect(updatedConfig).toContain('"GIT_SEQUENCE_EDITOR"');
+  });
+
+  it("passes noninteractive Git editors into containerized Codex sessions and generated config", async () => {
+    // Container Codex can generate config.toml inside the docker exec script;
+    // that generated config must preserve the shell-command Git editor policy.
+    const customHome = mkdtempSync(join(tempDir, "codex-container-home-test-"));
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+      codexHome: customHome,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      containerId: "abc123def456",
+      containerName: "companion-session-1",
+      containerImage: "ubuntu:22.04",
+      env: {
+        GIT_EDITOR: "code --wait",
+        GIT_SEQUENCE_EDITOR: "vim",
+        EDITOR: "code --wait",
+      },
+    });
+    await waitForSpawnCalls(1);
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    expect(dockerExecEnvValue(cmdAndArgs, "GIT_EDITOR")).toBe("true");
+    expect(dockerExecEnvValue(cmdAndArgs, "GIT_SEQUENCE_EDITOR")).toBe("true");
+    expect(dockerExecEnvValue(cmdAndArgs, "EDITOR")).toBe("code --wait");
+
+    const bashIndex = cmdAndArgs.indexOf("-lc");
+    expect(bashIndex).toBeGreaterThan(-1);
+    const innerScript = cmdAndArgs[bashIndex + 1];
+    expect(innerScript).toContain('"GIT_EDITOR"');
+    expect(innerScript).toContain('"GIT_SEQUENCE_EDITOR"');
+  });
+
   it("passes explicit OPENAI_API_KEY through host Codex env when no session auth.json is available", async () => {
     const customHome = mkdtempSync(join(tempDir, "codex-home-"));
     const sessionHome = join(customHome, "test-session-id");
