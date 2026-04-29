@@ -474,14 +474,14 @@ export function TreeViewGroup({
             e.stopPropagation();
             onCreateSession(group.id);
           }}
-          className="shrink-0 h-8 min-w-8 px-2 inline-flex items-center justify-center gap-1 rounded-md border border-cc-primary/25 bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20 hover:text-cc-fg transition-colors cursor-pointer"
+          className="shrink-0 h-6 px-2 inline-flex items-center justify-center gap-1 rounded-md bg-cc-primary hover:bg-cc-primary-hover text-white text-[10px] font-semibold leading-none whitespace-nowrap transition-colors cursor-pointer"
           title={`Create session in ${group.name} Session Space`}
           aria-label={`Create session in ${group.name} Session Space`}
         >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
-            <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
-          </svg>
-          <span className="hidden sm:inline text-[10px] font-semibold leading-none">New</span>
+          <span aria-hidden="true" className="text-xs leading-none">
+            +
+          </span>
+          <span>New</span>
         </button>
         {groupDragHandleProps && (
           <button

@@ -152,7 +152,13 @@ describe("TreeViewGroup leader herd summary", () => {
       onToggleGroupCollapse,
     });
 
-    screen.getByLabelText("Create session in Takode Session Space").click();
+    const createButton = screen.getByLabelText("Create session in Takode Session Space");
+    expect(createButton).toHaveTextContent("+New");
+    expect(createButton).toHaveClass("h-6", "bg-cc-primary", "hover:bg-cc-primary-hover", "text-white");
+    expect(createButton.className).not.toContain("border");
+    expect(createButton.className).not.toContain("bg-cc-primary/10");
+
+    createButton.click();
 
     expect(onCreateSession).toHaveBeenCalledWith("team-alpha");
     expect(onToggleGroupCollapse).not.toHaveBeenCalled();
