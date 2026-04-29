@@ -18,7 +18,8 @@ import {
 import { BoardTable, orderBoardRows } from "./BoardTable.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
-import { isMainThreadKey } from "../utils/thread-projection.js";
+import { ALL_THREADS_KEY, isMainThreadKey } from "../utils/thread-projection.js";
+import { selectAttentionChipRecords, type AttentionRecord } from "../utils/attention-records.js";
 
 export interface WorkBoardThreadNavigationRow {
   threadKey: string;
@@ -75,6 +76,20 @@ function normalizeThreadKey(threadKey: string): string {
 
 function isSelectedThread(currentThreadKey: string, targetThreadKey: string): boolean {
   return normalizeThreadKey(currentThreadKey) === normalizeThreadKey(targetThreadKey);
+}
+
+function rowMatchesQuery(row: BoardRowData, query: string): boolean {
+  if (!query) return true;
+  return [row.questId, row.title, row.status, row.worker, row.workerNum?.toString(), ...(row.waitFor ?? [])]
+    .filter(Boolean)
+    .some((value) => value!.toLowerCase().includes(query));
+}
+
+function threadRowMatchesQuery(row: WorkBoardThreadNavigationRow, query: string): boolean {
+  if (!query) return true;
+  return [row.threadKey, row.questId, row.title, row.section, row.messageCount?.toString()]
+    .filter(Boolean)
+    .some((value) => value!.toLowerCase().includes(query));
 }
 
 function ThreadNavButton({
@@ -148,6 +163,82 @@ function OtherThreadList({
   );
 }
 
+function attentionChipTone(record: AttentionRecord): string {
+  if (record.priority === "review") return "border-emerald-500/25 bg-emerald-500/10 text-emerald-100";
+  if (record.priority === "blocked") return "border-red-400/25 bg-red-400/10 text-red-100";
+  if (record.state === "seen") return "border-amber-400/20 bg-amber-400/5 text-amber-100/90";
+  return "border-amber-400/30 bg-amber-400/10 text-amber-100";
+}
+
+function AttentionChipStrip({
+  records,
+  sessionId,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  records: AttentionRecord[];
+  sessionId: string;
+  currentThreadKey: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const openRecord = (record: AttentionRecord) => {
+    const targetThread = normalizeThreadKey(record.route.threadKey || record.threadKey || "main");
+    const selectedThread = normalizeThreadKey(currentThreadKey || "main");
+    const scrollToRouteTarget = () => {
+      if (!record.route.messageId) return;
+      const store = useStore.getState();
+      store.requestScrollToMessage(sessionId, record.route.messageId);
+      store.setExpandAllInTurn(sessionId, record.route.messageId);
+    };
+
+    if (onSelectThread && (selectedThread === ALL_THREADS_KEY || selectedThread !== targetThread)) {
+      onSelectThread(targetThread);
+      setTimeout(scrollToRouteTarget, 0);
+      return;
+    }
+
+    scrollToRouteTarget();
+  };
+
+  return (
+    <div
+      className="border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
+      data-testid="attention-chip-strip"
+      data-attention-count={records.length}
+    >
+      {records.length === 0 ? (
+        <div className="flex min-h-[1.5rem] items-center text-[11px] text-cc-muted" data-testid="attention-empty-state">
+          No current attention
+        </div>
+      ) : (
+        <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-cc-muted/70">
+            Attention
+          </span>
+          {records.map((record) => (
+            <button
+              key={record.id}
+              type="button"
+              onClick={() => openRecord(record)}
+              title={record.summary}
+              className={`inline-flex max-w-[18rem] shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors hover:bg-cc-hover ${attentionChipTone(
+                record,
+              )}`}
+              data-testid="attention-chip"
+              data-attention-state={record.state}
+              data-attention-type={record.type}
+            >
+              <span className="shrink-0 font-semibold">{record.actionLabel}</span>
+              <span className="min-w-0 truncate">{record.title}</span>
+              {record.questId && <span className="shrink-0 font-mono-code text-cc-muted/80">{record.questId}</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function WorkBoardBar({
   sessionId,
   currentThreadKey = "main",
@@ -155,6 +246,7 @@ export function WorkBoardBar({
   onReturnToMain,
   onSelectThread,
   threadRows = [],
+  attentionRecords = [],
 }: {
   sessionId: string;
   currentThreadKey?: string;
@@ -162,6 +254,7 @@ export function WorkBoardBar({
   onReturnToMain?: () => void;
   onSelectThread?: (threadKey: string) => void;
   threadRows?: WorkBoardThreadNavigationRow[];
+  attentionRecords?: ReadonlyArray<AttentionRecord>;
 }) {
   const board = useStore((s) => s.sessionBoards.get(sessionId));
   const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses.get(sessionId));
@@ -172,10 +265,12 @@ export function WorkBoardBar({
 
   const [expanded, setExpanded] = useState(() => readExpandedState(sessionId));
   const [completedExpanded, setCompletedExpanded] = useState(false);
+  const [threadQuery, setThreadQuery] = useState("");
 
   useEffect(() => {
     setExpanded(readExpandedState(sessionId));
     setCompletedExpanded(false);
+    setThreadQuery("");
   }, [sessionId]);
 
   useEffect(() => {
@@ -194,13 +289,16 @@ export function WorkBoardBar({
 
   const activeCount = board?.length ?? 0;
   const completedCount = completedBoard?.length ?? 0;
+  const activeBoardRows = board ?? [];
+  const completedBoardRows = completedBoard ?? [];
   const showReturnToMain = !isMainThreadKey(currentThreadKey) && !!onReturnToMain;
+  const attentionChipRecords = useMemo(() => selectAttentionChipRecords(attentionRecords), [attentionRecords]);
   const boardThreadKeys = useMemo(() => {
     const keys = new Set<string>();
-    for (const row of board ?? []) keys.add(normalizeThreadKey(row.questId));
-    for (const row of completedBoard ?? []) keys.add(normalizeThreadKey(row.questId));
+    for (const row of activeBoardRows) keys.add(normalizeThreadKey(row.questId));
+    for (const row of completedBoardRows) keys.add(normalizeThreadKey(row.questId));
     return keys;
-  }, [board, completedBoard]);
+  }, [activeBoardRows, completedBoardRows]);
   const offBoardThreads = useMemo(
     () =>
       threadRows
@@ -208,14 +306,27 @@ export function WorkBoardBar({
         .sort((a, b) => a.threadKey.localeCompare(b.threadKey)),
     [boardThreadKeys, threadRows],
   );
+  const normalizedThreadQuery = threadQuery.trim().toLowerCase();
+  const filteredBoard = useMemo(
+    () => activeBoardRows.filter((row) => rowMatchesQuery(row, normalizedThreadQuery)),
+    [activeBoardRows, normalizedThreadQuery],
+  );
+  const filteredCompletedBoard = useMemo(
+    () => completedBoardRows.filter((row) => rowMatchesQuery(row, normalizedThreadQuery)),
+    [completedBoardRows, normalizedThreadQuery],
+  );
+  const filteredOffBoardThreads = useMemo(
+    () => offBoardThreads.filter((row) => threadRowMatchesQuery(row, normalizedThreadQuery)),
+    [normalizedThreadQuery, offBoardThreads],
+  );
   const summarySegments = useMemo(() => {
     const segments =
       activeCount === 0 && completedCount === 0 && offBoardThreads.length > 0
         ? []
-        : boardSummary(board ?? [], completedCount);
+        : boardSummary(activeBoardRows, completedCount);
     if (offBoardThreads.length === 0) return segments;
     return [...segments, { text: `${offBoardThreads.length} other`, className: "text-cc-muted" }];
-  }, [activeCount, board, completedCount, offBoardThreads.length]);
+  }, [activeBoardRows, activeCount, completedCount, offBoardThreads.length]);
 
   // This is the primary thread navigator for leader sessions, so keep it visible
   // even before the first quest row exists.
@@ -292,9 +403,26 @@ export function WorkBoardBar({
         )}
       </div>
 
+      <AttentionChipStrip
+        records={attentionChipRecords}
+        sessionId={sessionId}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
+      />
+
       {/* Expanded board table -- inline, pushes the feed down */}
       {expanded && (
         <div className="border-b border-cc-border bg-cc-card max-h-[55dvh] overflow-y-auto">
+          <div className="border-b border-cc-border px-3 py-2" data-testid="workboard-thread-search">
+            <input
+              type="search"
+              value={threadQuery}
+              onChange={(event) => setThreadQuery(event.target.value)}
+              placeholder="Search threads, board, history"
+              className="w-full rounded-md border border-cc-border bg-cc-input-bg px-2.5 py-1.5 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted/65 focus:border-cc-primary/60"
+              aria-label="Search threads, board, and history"
+            />
+          </div>
           {onSelectThread && (
             <div className="border-b border-cc-border px-3 py-2" data-testid="workboard-thread-nav">
               <div className="grid gap-1.5 sm:grid-cols-2">
@@ -315,15 +443,19 @@ export function WorkBoardBar({
               </div>
             </div>
           )}
-          {activeCount > 0 && (
+          {filteredBoard.length > 0 && (
             <BoardTable
-              board={board!}
+              board={filteredBoard}
               rowSessionStatuses={rowSessionStatuses}
               selectedThreadKey={currentThreadKey}
               onSelectQuestThread={onSelectThread}
             />
           )}
-          {activeCount === 0 && <div className="px-3 py-3 text-xs text-cc-muted italic">No active items</div>}
+          {filteredBoard.length === 0 && (
+            <div className="px-3 py-3 text-xs text-cc-muted italic">
+              {activeCount === 0 ? "No active items" : "No active items match"}
+            </div>
+          )}
 
           {/* Collapsible completed section */}
           {completedCount > 0 && (
@@ -348,20 +480,24 @@ export function WorkBoardBar({
               </button>
               {completedExpanded && (
                 <div className="opacity-60">
-                  <BoardTable
-                    board={completedBoard!}
-                    mode="completed"
-                    rowSessionStatuses={rowSessionStatuses}
-                    selectedThreadKey={currentThreadKey}
-                    onSelectQuestThread={onSelectThread}
-                  />
+                  {filteredCompletedBoard.length > 0 ? (
+                    <BoardTable
+                      board={filteredCompletedBoard}
+                      mode="completed"
+                      rowSessionStatuses={rowSessionStatuses}
+                      selectedThreadKey={currentThreadKey}
+                      onSelectQuestThread={onSelectThread}
+                    />
+                  ) : (
+                    <div className="px-3 py-3 text-xs text-cc-muted italic">No completed items match</div>
+                  )}
                 </div>
               )}
             </div>
           )}
           {onSelectThread && (
             <OtherThreadList
-              rows={offBoardThreads}
+              rows={filteredOffBoardThreads}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
             />

@@ -61,6 +61,9 @@ export function usePlaygroundSeed() {
       demoSessionIds.map((id) => [id, snapshot.sessionCompletedBoards.get(id)]),
     );
     const prevSessionNotifications = new Map(demoSessionIds.map((id) => [id, snapshot.sessionNotifications.get(id)]));
+    const prevSessionAttentionRecords = new Map(
+      demoSessionIds.map((id) => [id, snapshot.sessionAttentionRecords.get(id)]),
+    );
     const prevPendingCodexInputs = new Map(demoSessionIds.map((id) => [id, snapshot.pendingCodexInputs.get(id)]));
     const prevToolProgress = new Map(demoSessionIds.map((id) => [id, snapshot.toolProgress.get(id)]));
     const prevToolResults = new Map(demoSessionIds.map((id) => [id, snapshot.toolResults.get(id)]));
@@ -302,6 +305,46 @@ export function usePlaygroundSeed() {
           phaseIds: ["alignment", "implement", "code-review", "port"],
           currentPhaseId: "port",
         },
+      },
+    ]);
+    store.setSessionAttentionRecords(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
+      {
+        id: "playground-chip-needs-input",
+        leaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
+        type: "needs_input",
+        source: { kind: "notification", id: "playground-chip-needs-input", questId: "q-961" },
+        questId: "q-961",
+        threadKey: "q-961",
+        title: "Answer q-961 worker",
+        summary: "Implementation is waiting for a concrete user answer in the quest thread.",
+        actionLabel: "Answer",
+        priority: "needs_input",
+        state: "unresolved",
+        createdAt: Date.now() - 100_000,
+        updatedAt: Date.now() - 80_000,
+        route: { threadKey: "q-961", questId: "q-961", messageId: "playground-thread-q961-assistant" },
+        chipEligible: true,
+        ledgerEligible: true,
+        dedupeKey: "playground-chip-needs-input",
+      },
+      {
+        id: "playground-chip-seen",
+        leaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
+        type: "blocked_user_resolvable",
+        source: { kind: "manual", id: "playground-chip-seen", questId: "q-963" },
+        questId: "q-963",
+        threadKey: "q-963",
+        title: "Unblock dispatch",
+        summary: "This item has been seen but still needs a user-resolvable action.",
+        actionLabel: "Unblock",
+        priority: "blocked",
+        state: "seen",
+        createdAt: Date.now() - 70_000,
+        updatedAt: Date.now() - 50_000,
+        route: { threadKey: "q-963", questId: "q-963" },
+        chipEligible: true,
+        ledgerEligible: true,
+        dedupeKey: "playground-chip-seen",
       },
     ]);
 
@@ -626,6 +669,7 @@ export function usePlaygroundSeed() {
         const sessionBoards = new Map(s.sessionBoards);
         const sessionCompletedBoards = new Map(s.sessionCompletedBoards);
         const sessionNotifications = new Map(s.sessionNotifications);
+        const sessionAttentionRecords = new Map(s.sessionAttentionRecords);
         const pendingCodexInputs = new Map(s.pendingCodexInputs);
         const sessionTimers = new Map(s.sessionTimers);
         const toolProgress = new Map(s.toolProgress);
@@ -653,6 +697,7 @@ export function usePlaygroundSeed() {
           const prevSessionToolProgress = prevToolProgress.get(demoId);
           const prevSessionToolResults = prevToolResults.get(demoId);
           const prevSessionToolStarts = prevToolStartTimestamps.get(demoId);
+          const prevAttentionRecords = prevSessionAttentionRecords.get(demoId);
 
           if (prevSession) sessions.set(demoId, prevSession);
           else sessions.delete(demoId);
@@ -688,6 +733,8 @@ export function usePlaygroundSeed() {
           else sessionBoards.delete(demoId);
           if (prevNotifications) sessionNotifications.set(demoId, prevNotifications);
           else sessionNotifications.delete(demoId);
+          if (prevAttentionRecords) sessionAttentionRecords.set(demoId, prevAttentionRecords);
+          else sessionAttentionRecords.delete(demoId);
           if (prevCompletedBoard) sessionCompletedBoards.set(demoId, prevCompletedBoard);
           else sessionCompletedBoards.delete(demoId);
           if (prevPendingCodex) pendingCodexInputs.set(demoId, prevPendingCodex);
@@ -727,6 +774,7 @@ export function usePlaygroundSeed() {
           sessionBoards,
           sessionCompletedBoards,
           sessionNotifications,
+          sessionAttentionRecords,
           pendingCodexInputs,
           sessionTimers,
           toolProgress,

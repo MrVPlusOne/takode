@@ -29,7 +29,8 @@ import {
 import { parseCommandThreadComment, parseThreadTextPrefix } from "../../shared/thread-routing.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
-import type { BoardRowSessionStatus, ChatMessage, QuestmasterTask } from "../types.js";
+import { buildAttentionRecords } from "../utils/attention-records.js";
+import type { BoardRowSessionStatus, ChatMessage, QuestmasterTask, SessionAttentionRecord } from "../types.js";
 
 type LeaderThreadRow = {
   threadKey: string;
@@ -47,6 +48,7 @@ type LeaderThreadRow = {
 
 const EMPTY_BOARD_ROWS: BoardRowData[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
+const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 
 function messageThreadKeys(message: ChatMessage): string[] {
   const keys = new Set<string>();
@@ -229,7 +231,7 @@ function useLeaderThreadModel(sessionId: string) {
   );
   const activeRows = useMemo(() => rows.filter((row) => row.section === "active"), [rows]);
   const doneRows = useMemo(() => rows.filter((row) => row.section === "done"), [rows]);
-  return { messages, rows, activeRows, doneRows };
+  return { activeBoard, completedBoard, messages, rows, activeRows, doneRows };
 }
 
 function threadLabelForKey(threadKey: string, rows: LeaderThreadRow[]): string {
@@ -248,6 +250,35 @@ function toWorkBoardThreadRows(rows: LeaderThreadRow[]): WorkBoardThreadNavigati
     messageCount: row.messageCount,
     section: row.section,
   }));
+}
+
+function attentionRouteTitle(record: SessionAttentionRecord): string {
+  const questId = record.route.questId ?? record.questId;
+  if (!questId) return record.title;
+  const prefix = `${questId}:`;
+  return record.title.startsWith(prefix) ? record.title.slice(prefix.length).trim() || questId : record.title;
+}
+
+function mergeAttentionThreadRows(
+  rows: LeaderThreadRow[],
+  attentionRecords: ReadonlyArray<SessionAttentionRecord>,
+): LeaderThreadRow[] {
+  if (attentionRecords.length === 0) return rows;
+  const byKey = new Map(rows.map((row) => [row.threadKey, row]));
+  for (const record of attentionRecords) {
+    const threadKey = normalizeThreadKey(record.route.threadKey || record.threadKey);
+    if (!threadKey || threadKey === MAIN_THREAD_KEY || threadKey === ALL_THREADS_KEY || byKey.has(threadKey)) continue;
+    const questId = record.route.questId ?? record.questId;
+    byKey.set(threadKey, {
+      threadKey,
+      ...(questId ? { questId } : {}),
+      title: attentionRouteTitle(record),
+      messageCount: 0,
+      createdAt: record.createdAt,
+      section: "active",
+    });
+  }
+  return [...byKey.values()].sort((a, b) => a.createdAt - b.createdAt || a.threadKey.localeCompare(b.threadKey));
 }
 
 function isQuestThreadKey(threadKey: string): boolean {
@@ -366,17 +397,10 @@ export function ChatView({
     })),
   );
   const [selectedThreadKey, setSelectedThreadKey] = useState("main");
-  const { rows: threadRows } = useLeaderThreadModel(sessionId);
+  const { activeBoard, completedBoard, messages: allMessages, rows: threadRows } = useLeaderThreadModel(sessionId);
+  const sessionNotifications = useStore((s) => s.sessionNotifications.get(sessionId));
+  const persistedAttentionRecords = useStore((s) => s.sessionAttentionRecords.get(sessionId));
   const routeSyncEnabled = hasThreadRoute !== undefined || routeThreadKey !== undefined;
-  const selectedThreadLabel = useMemo(
-    () => threadLabelForKey(selectedThreadKey, threadRows),
-    [selectedThreadKey, threadRows],
-  );
-  const selectedThreadRow = useMemo(
-    () => threadRows.find((row) => row.threadKey === selectedThreadKey.toLowerCase()),
-    [selectedThreadKey, threadRows],
-  );
-  const workBoardThreadRows = useMemo(() => toWorkBoardThreadRows(threadRows), [threadRows]);
   const showQuestThreadBanner =
     isLeaderSession &&
     selectedThreadKey.toLowerCase() !== MAIN_THREAD_KEY &&
@@ -384,6 +408,41 @@ export function ChatView({
     isQuestThreadKey(selectedThreadKey);
   const composerThreadKey = isLeaderSession ? composeThreadKeyForSelection(selectedThreadKey) : MAIN_THREAD_KEY;
   const composerQuestId = isLeaderSession && isQuestThreadKey(composerThreadKey) ? composerThreadKey : undefined;
+  const attentionRecords = useMemo(
+    () =>
+      isLeaderSession
+        ? buildAttentionRecords({
+            leaderSessionId: sessionId,
+            records: persistedAttentionRecords,
+            notifications: sessionNotifications,
+            boardRows: activeBoard,
+            completedBoardRows: completedBoard,
+            messages: allMessages,
+          })
+        : EMPTY_ATTENTION_RECORDS,
+    [
+      activeBoard,
+      allMessages,
+      completedBoard,
+      isLeaderSession,
+      persistedAttentionRecords,
+      sessionId,
+      sessionNotifications,
+    ],
+  );
+  const navigationThreadRows = useMemo(
+    () => mergeAttentionThreadRows(threadRows, attentionRecords),
+    [attentionRecords, threadRows],
+  );
+  const selectedThreadLabel = useMemo(
+    () => threadLabelForKey(selectedThreadKey, navigationThreadRows),
+    [navigationThreadRows, selectedThreadKey],
+  );
+  const selectedThreadRow = useMemo(
+    () => navigationThreadRows.find((row) => row.threadKey === selectedThreadKey.toLowerCase()),
+    [navigationThreadRows, selectedThreadKey],
+  );
+  const workBoardThreadRows = useMemo(() => toWorkBoardThreadRows(navigationThreadRows), [navigationThreadRows]);
   const handleSelectThread = useCallback(
     (threadKey: string) => {
       const nextThreadKey = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
@@ -435,7 +494,7 @@ export function ChatView({
     }
 
     const nextThreadKey = normalizeThreadKey(routeThreadKey);
-    if (isAvailableLeaderThread(nextThreadKey, threadRows)) {
+    if (isAvailableLeaderThread(nextThreadKey, navigationThreadRows)) {
       if (selectedThreadKey !== nextThreadKey) {
         setSelectedThreadKey(nextThreadKey);
       }
@@ -461,7 +520,7 @@ export function ChatView({
     routeThreadKey,
     selectedThreadKey,
     sessionId,
-    threadRows,
+    navigationThreadRows,
   ]);
 
   // Within-session search
@@ -621,6 +680,7 @@ export function ChatView({
           onReturnToMain={isLeaderSession ? () => handleSelectThread(MAIN_THREAD_KEY) : undefined}
           onSelectThread={isLeaderSession ? handleSelectThread : undefined}
           threadRows={isLeaderSession ? workBoardThreadRows : undefined}
+          attentionRecords={isLeaderSession ? attentionRecords : undefined}
         />
       )}
 

@@ -1189,6 +1189,27 @@ export function PlaygroundInteractiveSections() {
                     },
                   ];
                   state.setSessionBoard(boardSessionId, boardData);
+                  state.setSessionAttentionRecords(boardSessionId, [
+                    {
+                      id: "playground-board-bar-chip",
+                      leaderSessionId: boardSessionId,
+                      type: "needs_input",
+                      source: { kind: "notification", id: "playground-board-bar-chip", questId: "q-42" },
+                      questId: "q-42",
+                      threadKey: "q-42",
+                      title: "q-42 needs input",
+                      summary: "The current worker has a question before continuing.",
+                      actionLabel: "Answer",
+                      priority: "needs_input",
+                      state: "unresolved",
+                      createdAt: Date.now() - 50_000,
+                      updatedAt: Date.now() - 10_000,
+                      route: { threadKey: "q-42", questId: "q-42" },
+                      chipEligible: true,
+                      ledgerEligible: true,
+                      dedupeKey: "playground-board-bar-chip",
+                    },
+                  ]);
                   // Ensure sdkSessions includes an orchestrator entry
                   const existing = state.sdkSessions.filter((s) => s.sessionId !== boardSessionId);
                   useStore.setState({
@@ -1220,6 +1241,27 @@ export function PlaygroundInteractiveSections() {
                     { threadKey: "q-55", questId: "q-55", title: "Add dark mode toggle", messageCount: 3 },
                     { threadKey: "q-61", questId: "q-61", title: "Optimize DB queries", messageCount: 2 },
                     { threadKey: "q-77", questId: "q-77", title: "Off-board routed discussion", messageCount: 1 },
+                  ]}
+                  attentionRecords={[
+                    {
+                      id: "playground-board-bar-chip",
+                      leaderSessionId: "playground-board-bar",
+                      type: "needs_input",
+                      source: { kind: "notification", id: "playground-board-bar-chip", questId: "q-42" },
+                      questId: "q-42",
+                      threadKey: "q-42",
+                      title: "q-42 needs input",
+                      summary: "The current worker has a question before continuing.",
+                      actionLabel: "Answer",
+                      priority: "needs_input",
+                      state: "unresolved",
+                      createdAt: Date.now() - 50_000,
+                      updatedAt: Date.now() - 10_000,
+                      route: { threadKey: "q-42", questId: "q-42" },
+                      chipEligible: true,
+                      ledgerEligible: true,
+                      dedupeKey: "playground-board-bar-chip",
+                    },
                   ]}
                 />
               </div>

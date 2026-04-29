@@ -27,6 +27,8 @@ interface MockStoreState {
     cliConnected?: boolean;
   }>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
+  sessionNotifications: Map<string, import("../types.js").SessionNotification[]>;
+  sessionAttentionRecords: Map<string, import("../types.js").SessionAttentionRecord[]>;
   sessionBoards: Map<string, unknown[]>;
   sessionCompletedBoards: Map<string, unknown[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
@@ -52,6 +54,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionStatus: new Map([["s1", "idle"]]),
     sdkSessions: [{ sessionId: "s1", archived: false }],
     sessionAttention: new Map(),
+    sessionNotifications: new Map(),
+    sessionAttentionRecords: new Map(),
     sessionBoards: new Map(),
     sessionCompletedBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
@@ -151,17 +155,20 @@ vi.mock("./WorkBoardBar.js", () => ({
     onReturnToMain,
     onSelectThread,
     threadRows = [],
+    attentionRecords = [],
   }: {
     currentThreadKey?: string;
     currentThreadLabel?: string;
     onReturnToMain?: () => void;
     onSelectThread?: (threadKey: string) => void;
     threadRows?: Array<{ threadKey: string; questId?: string; title: string; messageCount?: number }>;
+    attentionRecords?: Array<unknown>;
   }) => (
     <div
       data-testid="work-board-bar"
       data-current-thread-key={currentThreadKey}
       data-current-thread-label={currentThreadLabel}
+      data-attention-count={attentionRecords.length}
     >
       {onSelectThread && (
         <>
@@ -412,6 +419,46 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("composer")).toHaveAttribute("data-quest-id", "q-941");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Viewing quest thread");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-941");
+  });
+
+  it("passes shared attention records into the top workboard navigator", () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      sessionAttentionRecords: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "attention-q941",
+              leaderSessionId: "s1",
+              type: "needs_input",
+              source: { kind: "notification", id: "n-1", questId: "q-941" },
+              questId: "q-941",
+              threadKey: "q-941",
+              title: "q-941 needs input",
+              summary: "Answer the worker question.",
+              actionLabel: "Answer",
+              priority: "needs_input",
+              state: "unresolved",
+              createdAt: 1,
+              updatedAt: 1,
+              route: { threadKey: "q-941", questId: "q-941" },
+              chipEligible: true,
+              ledgerEligible: true,
+              dedupeKey: "attention-q941",
+            },
+          ],
+        ],
+      ]),
+      quests: [{ questId: "q-941", title: "Quest thread MVP", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-attention-count", "1");
+    expect(scope.getByTestId("mock-workboard-thread")).toHaveAttribute("data-thread-key", "q-941");
   });
 
   it("snapshots the current feed before switching leader threads", () => {
