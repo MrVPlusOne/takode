@@ -157,13 +157,11 @@ export function FeedStatusPill({
   sessionId,
   currentThreadKey = "main",
   onVisibleHeightChange,
-  currentThreadKey,
   onSelectThread,
 }: {
   sessionId: string;
   currentThreadKey?: string;
   onVisibleHeightChange?: (height: number) => void;
-  currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
 }) {
   const leftStackRef = useRef<HTMLDivElement>(null);
