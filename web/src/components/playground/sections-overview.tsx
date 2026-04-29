@@ -270,7 +270,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Thread Projections"
-        description="Main shows staging activity and attachment markers, All Threads preserves the global view, and quest projections keep attached context with routed activity."
+        description="Main shows staging activity, grouped hidden activity markers, and attachment markers; All Threads preserves the global view; quest projections keep attached context with routed activity."
       >
         <div className="grid gap-4 xl:grid-cols-3">
           <Card label="Main">

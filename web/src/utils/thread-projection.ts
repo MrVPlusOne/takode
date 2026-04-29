@@ -149,11 +149,11 @@ function buildCrossThreadActivityMarker(
   const last = hiddenMessages[hiddenMessages.length - 1] ?? first;
   const destination = route.questId ?? route.threadKey;
   const count = hiddenMessages.length;
-  const countLabel = `${count} hidden update${count === 1 ? "" : "s"}`;
+  const countLabel = `${count} ${count === 1 ? "activity" : "activities"}`;
   return {
     id: `cross-thread-activity:${route.threadKey}:${first.id}`,
     role: "system",
-    content: `${countLabel} in ${destination}`,
+    content: `${countLabel} in thread:${destination}`,
     timestamp: last.timestamp,
     ephemeral: true,
     metadata: {

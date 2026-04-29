@@ -351,41 +351,66 @@ function ThreadAttachmentMarkerRow({
 }
 
 function CrossThreadActivityMarkerRow({
-  message,
+  messages,
   onSelectThread,
 }: {
-  message: ChatMessage;
+  messages: ChatMessage[];
   onSelectThread?: (threadKey: string) => void;
 }) {
-  const marker = message.metadata?.crossThreadActivityMarker;
-  if (!marker) return null;
-  const destination = marker.questId ?? marker.threadKey;
-  const countLabel = `${marker.count} hidden update${marker.count === 1 ? "" : "s"}`;
+  const summary = summarizeCrossThreadActivityMarkers(messages);
+  if (!summary) return null;
+  const countLabel = `${summary.count} ${summary.count === 1 ? "activity" : "activities"}`;
+  const firstMessage = messages[0];
+  const firstDestination = summary.destinations[0];
   return (
     <div
       className="animate-[fadeSlideIn_0.2s_ease-out] pl-9"
       data-testid="cross-thread-activity-marker"
-      data-thread-key={marker.threadKey}
-      data-message-id={message.id}
-      data-feed-block-id={getMessageFeedBlockId(message.id)}
+      data-thread-key={firstDestination?.threadKey}
+      data-message-id={firstMessage?.id}
+      data-feed-block-id={getMessageFeedBlockId(firstMessage?.id ?? "cross-thread-activity-marker")}
     >
       <div className="max-w-full text-[11px] text-cc-muted font-mono-code">
-        <span>
-          {countLabel} in {destination}
-        </span>
-        <span className="mx-1.5 text-cc-muted/35">·</span>
-        <button
-          type="button"
-          onClick={() => onSelectThread?.(marker.threadKey)}
-          className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:text-cc-muted/60"
-          disabled={!onSelectThread}
-          title={`Open ${destination} thread`}
-        >
-          Jump
-        </button>
+        <span>{countLabel} in </span>
+        {summary.destinations.map((destination, index) => (
+          <span key={destination.threadKey}>
+            {index > 0 && <span className="text-cc-muted">, </span>}
+            <button
+              type="button"
+              onClick={() => onSelectThread?.(destination.threadKey)}
+              className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:text-cc-muted/60"
+              disabled={!onSelectThread}
+              title={`Open ${destination.label}`}
+            >
+              {destination.label}
+            </button>
+          </span>
+        ))}
       </div>
     </div>
   );
+}
+
+function summarizeCrossThreadActivityMarkers(messages: ChatMessage[]): {
+  count: number;
+  destinations: { threadKey: string; label: string }[];
+} | null {
+  const destinations = new Map<string, { threadKey: string; label: string }>();
+  let count = 0;
+  for (const message of messages) {
+    const marker = message.metadata?.crossThreadActivityMarker;
+    if (!marker) continue;
+    count += marker.count;
+    if (!destinations.has(marker.threadKey)) {
+      const destination = marker.questId ?? marker.threadKey;
+      destinations.set(marker.threadKey, {
+        threadKey: marker.threadKey,
+        label: `thread:${destination}`,
+      });
+    }
+  }
+  if (count === 0 || destinations.size === 0) return null;
+  return { count, destinations: [...destinations.values()] };
 }
 
 function mergeThreadAttachmentMarkers(messages: ChatMessage[]): ThreadAttachmentMarker | null {
@@ -576,10 +601,18 @@ export const FeedEntries = memo(function FeedEntries({
         continue;
       }
       if (entry.kind === "message" && isCrossThreadActivityMarkerMessage(entry.msg)) {
+        const batch: ChatMessage[] = [entry.msg];
+        let j = i + 1;
+        while (j < entries.length) {
+          const next = entries[j];
+          if (next.kind !== "message" || !isCrossThreadActivityMarkerMessage(next.msg)) break;
+          batch.push(next.msg);
+          j++;
+        }
         result.push(
-          <CrossThreadActivityMarkerRow key={entry.msg.id} message={entry.msg} onSelectThread={onSelectThread} />,
+          <CrossThreadActivityMarkerRow key={entry.msg.id} messages={batch} onSelectThread={onSelectThread} />,
         );
-        i++;
+        i = j;
         continue;
       }
       if (entry.kind === "tool_msg_group") {

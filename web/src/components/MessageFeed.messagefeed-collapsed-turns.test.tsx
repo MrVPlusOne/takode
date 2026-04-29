@@ -537,7 +537,8 @@ describe("MessageFeed - collapsed turns", () => {
 
     expect(screen.getByText("Main-only setup")).toBeTruthy();
     expect(screen.getByTestId("cross-thread-activity-marker").getAttribute("data-thread-key")).toBe("q-941");
-    expect(screen.getByText("1 hidden update in q-941")).toBeTruthy();
+    expect(screen.getByText("1 activity in")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-941" })).toBeTruthy();
     expect(screen.queryByText("q-941 routed update")).toBeNull();
   });
 
@@ -649,12 +650,119 @@ describe("MessageFeed - collapsed turns", () => {
     render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
 
     expect(screen.getByText("Main-only setup")).toBeTruthy();
-    expect(screen.getByText("2 hidden updates in q-975")).toBeTruthy();
+    expect(screen.getByText("2 activities in")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-975" })).toBeTruthy();
     expect(screen.queryByText("Hidden q-975 user trigger")).toBeNull();
     expect(screen.queryByText("Hidden q-975 assistant response")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "Jump" }));
+    fireEvent.click(screen.getByRole("button", { name: "thread:q-975" }));
     expect(onSelectThread).toHaveBeenCalledWith("q-975");
+  });
+
+  it("merges consecutive hidden Main activity markers across destination threads", () => {
+    // Consecutive hidden activity should stay compact even when a leader is
+    // working across several quest threads while Main is selected.
+    const sid = "test-main-hidden-activity-multi-thread-group";
+    const onSelectThread = vi.fn();
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-main", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "a-q968-1",
+        role: "assistant",
+        content: "Hidden q-968 first update",
+        metadata: { threadRefs: [{ threadKey: "q-968", questId: "q-968", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-q968-2",
+        role: "assistant",
+        content: "Hidden q-968 second update",
+        metadata: { threadRefs: [{ threadKey: "q-968", questId: "q-968", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-q976",
+        role: "assistant",
+        content: "Hidden q-976 update",
+        metadata: { threadRefs: [{ threadKey: "q-976", questId: "q-976", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-q980",
+        role: "assistant",
+        content: "Hidden q-980 update",
+        metadata: { threadRefs: [{ threadKey: "q-980", questId: "q-980", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+
+    expect(screen.getAllByTestId("cross-thread-activity-marker")).toHaveLength(1);
+    expect(screen.getByText("4 activities in")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-968" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-976" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-980" })).toBeTruthy();
+    expect(screen.queryByText("Hidden q-968 first update")).toBeNull();
+    expect(screen.queryByText("Hidden q-976 update")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "thread:q-976" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-976");
+  });
+
+  it("keeps moved-message and normal message rows as hidden-activity grouping boundaries", () => {
+    // Moved-message markers have their own Jump/Details behavior and ordinary
+    // Main messages are visible content, so both should split hidden activity.
+    const sid = "test-main-hidden-activity-boundaries";
+    const marker = {
+      type: "thread_attachment_marker" as const,
+      id: "marker-q-972",
+      timestamp: 2,
+      markerKey: "thread-attachment:q-972:m1",
+      threadKey: "q-972",
+      questId: "q-972",
+      attachedAt: 2,
+      attachedBy: "session-1",
+      messageIds: ["m1"],
+      messageIndices: [1],
+      ranges: ["1"],
+      count: 1,
+    };
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-q968",
+        role: "assistant",
+        content: "Hidden q-968 update",
+        metadata: { threadRefs: [{ threadKey: "q-968", questId: "q-968", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "1 message moved to q-972",
+        timestamp: marker.timestamp,
+        metadata: { threadAttachmentMarker: marker },
+      }),
+      makeMessage({
+        id: "a-q976",
+        role: "assistant",
+        content: "Hidden q-976 update",
+        metadata: { threadRefs: [{ threadKey: "q-976", questId: "q-976", source: "explicit" }] },
+      }),
+      makeMessage({ id: "u-main-visible", role: "user", content: "Visible Main boundary" }),
+      makeMessage({
+        id: "a-q980",
+        role: "assistant",
+        content: "Hidden q-980 update",
+        metadata: { threadRefs: [{ threadKey: "q-980", questId: "q-980", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+
+    expect(screen.getAllByTestId("cross-thread-activity-marker")).toHaveLength(3);
+    expect(screen.getByTestId("thread-attachment-marker")).toBeTruthy();
+    expect(screen.getByText("1 message moved to q-972")).toBeTruthy();
+    expect(screen.getByText("Visible Main boundary")).toBeTruthy();
+    expect(screen.getAllByText("1 activity in")).toHaveLength(3);
+    expect(screen.getByRole("button", { name: "thread:q-968" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-976" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-980" })).toBeTruthy();
   });
 
   it("uses attachment marker clicks to select the destination thread", () => {
