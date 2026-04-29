@@ -801,7 +801,7 @@ async function prepareCodexHome(
   codexHome: string,
   resumeCliSessionId?: string,
   seedSourceHome?: string,
-  options?: { filterImagegenSkill?: boolean },
+  options?: { filterImagegenSkill?: boolean; allowLegacyAuthFallback?: boolean },
 ): Promise<void> {
   await mkdir(codexHome, { recursive: true });
 
@@ -815,7 +815,12 @@ async function prepareCodexHome(
     try {
       const candidateSources = [join(sourceHome, name)];
       const legacyCodexHome = resolve(getLegacyCodexHome());
-      if ((name === "auth.json" || name === "models_cache.json") && legacyCodexHome !== sourceHome) {
+      const mayFallbackToLegacyAuth = name !== "auth.json" || options?.allowLegacyAuthFallback !== false;
+      if (
+        (name === "auth.json" || name === "models_cache.json") &&
+        legacyCodexHome !== sourceHome &&
+        mayFallbackToLegacyAuth
+      ) {
         candidateSources.push(join(legacyCodexHome, name));
       }
 
@@ -828,7 +833,12 @@ async function prepareCodexHome(
       }
 
       const dest = join(codexHome, name);
-      if (!src) continue;
+      if (!src) {
+        if (name === "auth.json" && options?.allowLegacyAuthFallback === false) {
+          await unlink(dest).catch(() => {});
+        }
+        continue;
+      }
       if (name === "auth.json") {
         await linkCodexAuthFile(src, dest);
         continue;
@@ -1038,7 +1048,10 @@ export async function prepareCodexSpawn(
       codexHome,
       options.resumeCliSessionId || info.cliSessionId,
       maiWrapperHostSpec?.hostCodexHome,
-      { filterImagegenSkill: !!maiWrapperHostSpec },
+      {
+        allowLegacyAuthFallback: !maiWrapperHostSpec,
+        filterImagegenSkill: !!maiWrapperHostSpec,
+      },
     );
     await ensureCodexSessionConfig(codexHome, shellEnvVars, {
       leaderContextWindowOverrideTokens,

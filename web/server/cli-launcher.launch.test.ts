@@ -6,6 +6,7 @@ import {
   mkdirSync,
   mkdtempSync,
   realpathSync,
+  readlinkSync,
   rmSync,
   symlinkSync,
   writeFileSync,
@@ -1338,7 +1339,7 @@ describe("launch", () => {
     }
   });
 
-  it("falls back to the legacy Codex auth file when the wrapper host home has no auth.json", async () => {
+  it("does not inject legacy Codex auth for MAI-wrapper sessions when the wrapper host home has no auth.json", async () => {
     const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
     const hostCodexHome = mkdtempSync(join(tmpdir(), "codex-host-home-test-"));
     const sessionHome = join(customHome, "test-session-id");
@@ -1348,6 +1349,8 @@ describe("launch", () => {
 
     try {
       writeFileSync(join(hostCodexHome, "config.toml"), ['model = "gpt-5.5"', ""].join("\n"));
+      mkdirSync(sessionHome, { recursive: true });
+      symlinkSync(legacyAuthPath, sessionAuthPath);
 
       mockExistsSync.mockImplementation((path: string) => {
         if (path === legacyAuthPath) return true;
@@ -1373,7 +1376,48 @@ describe("launch", () => {
       });
       await waitForSpawnCalls(1);
 
-      expect(mockSymlink).toHaveBeenCalledWith(legacyAuthPath, sessionAuthPath);
+      expect(mockSymlink).not.toHaveBeenCalledWith(legacyAuthPath, sessionAuthPath);
+      expect(existsSync(sessionAuthPath)).toBe(false);
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+      rmSync(customHome, { recursive: true, force: true });
+      rmSync(hostCodexHome, { recursive: true, force: true });
+    }
+  });
+
+  it("links MAI-wrapper session auth to the wrapper host auth when present", async () => {
+    const customHome = mkdtempSync(join(tmpdir(), "codex-home-test-"));
+    const hostCodexHome = mkdtempSync(join(tmpdir(), "codex-host-home-test-"));
+    const sessionHome = join(customHome, "test-session-id");
+    const hostAuthPath = join(hostCodexHome, "auth.json");
+    const sessionAuthPath = join(sessionHome, "auth.json");
+    const { root, wrapperPath } = createMaiWrapperFixture({ hostCodexHome });
+
+    try {
+      writeFileSync(hostAuthPath, '{"tokens":{"id_token":"wrapper-host"}}\n', "utf-8");
+      writeFileSync(join(hostCodexHome, "config.toml"), ['model = "gpt-5.5"', ""].join("\n"));
+
+      mockResolveBinary.mockImplementation((name: string): string | null => {
+        if (name === wrapperPath) return wrapperPath;
+        return "/usr/bin/claude";
+      });
+      mockCaptureUserShellEnv.mockReturnValue({});
+      mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+      await launcher.launch({
+        backendType: "codex",
+        cwd: "/tmp/project",
+        codexSandbox: "workspace-write",
+        codexBinary: wrapperPath,
+        codexHome: customHome,
+        env: {
+          TAKODE_ROLE: "orchestrator",
+        },
+      });
+      await waitForSpawnCalls(1);
+
+      expect(lstatSync(sessionAuthPath).isSymbolicLink()).toBe(true);
+      expect(readlinkSync(sessionAuthPath)).toBe(hostAuthPath);
     } finally {
       rmSync(root, { recursive: true, force: true });
       rmSync(customHome, { recursive: true, force: true });
