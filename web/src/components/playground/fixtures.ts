@@ -843,6 +843,7 @@ export const MSG_QUEST_CLAIMED: ChatMessage = {
         "Add a toggle switch in the settings page that lets users switch between light and dark mode. The preference should persist in localStorage and apply immediately without a page reload.",
       status: "in_progress",
       tags: ["ui", "settings", "theme"],
+      leaderSessionId: "leader-alpha",
       verificationItems: [
         { text: "Toggle is visible in Settings page", checked: false },
         { text: "Mode persists across page reloads", checked: false },

@@ -1421,15 +1421,18 @@ export function setSessionClaimedQuest(
   const prevTitle = session.state.claimedQuestTitle ?? null;
   const prevStatus = session.state.claimedQuestStatus ?? null;
   const prevReviewInboxUnread = session.state.claimedQuestVerificationInboxUnread;
+  const prevLeaderSessionId = session.state.claimedQuestLeaderSessionId ?? null;
   const nextId = quest?.id ?? null;
   const nextTitle = quest?.title ?? null;
   const nextStatus = quest?.status ?? null;
   const nextReviewInboxUnread = quest?.verificationInboxUnread;
+  const nextLeaderSessionId = quest?.leaderSessionId ?? null;
   if (
     prevId === nextId &&
     prevTitle === nextTitle &&
     prevStatus === nextStatus &&
-    prevReviewInboxUnread === nextReviewInboxUnread
+    prevReviewInboxUnread === nextReviewInboxUnread &&
+    prevLeaderSessionId === nextLeaderSessionId
   ) {
     return;
   }
@@ -1437,6 +1440,7 @@ export function setSessionClaimedQuest(
   session.state.claimedQuestTitle = quest?.title;
   session.state.claimedQuestStatus = quest?.status;
   session.state.claimedQuestVerificationInboxUnread = quest?.verificationInboxUnread;
+  session.state.claimedQuestLeaderSessionId = quest?.leaderSessionId;
   const isQuestActive =
     !!quest?.title &&
     (quest?.status === "in_progress" ||

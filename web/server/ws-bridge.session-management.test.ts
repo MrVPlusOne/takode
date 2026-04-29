@@ -185,7 +185,7 @@ function getNotificationTestDeps(bridge: WsBridge) {
 function applyClaimedQuest(
   bridge: WsBridge,
   sessionId: string,
-  quest: { id: string; title: string; status?: string } | null,
+  quest: { id: string; title: string; status?: string; leaderSessionId?: string } | null,
 ) {
   const session = bridge.getSession(sessionId);
   if (!session) return;
@@ -678,6 +678,32 @@ describe("Session management", () => {
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const questEvents = calls.filter((c: any) => c.type === "session_quest_claimed");
     expect(questEvents).toHaveLength(1);
+  });
+
+  it("setSessionClaimedQuest: rebroadcasts and persists when only the leader changes", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+    browser.send.mockClear();
+
+    applyClaimedQuest(bridge, "s1", {
+      id: "q-1",
+      title: "Quest One",
+      status: "in_progress",
+      leaderSessionId: "leader-1",
+    });
+    applyClaimedQuest(bridge, "s1", {
+      id: "q-1",
+      title: "Quest One",
+      status: "in_progress",
+      leaderSessionId: "leader-2",
+    });
+
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    const questEvents = calls.filter((c: any) => c.type === "session_quest_claimed");
+    expect(questEvents).toHaveLength(2);
+    expect(questEvents[0].quest.leaderSessionId).toBe("leader-1");
+    expect(questEvents[1].quest.leaderSessionId).toBe("leader-2");
+    expect(bridge.getSession("s1")?.state.claimedQuestLeaderSessionId).toBe("leader-2");
   });
 
   it("addTaskEntry: skips consecutive duplicate new entries", () => {

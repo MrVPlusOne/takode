@@ -896,6 +896,8 @@ export interface SessionState {
   claimedQuestStatus?: string;
   /** Questmaster: present while a completed claimed quest is still in review workflow */
   claimedQuestVerificationInboxUnread?: boolean;
+  /** Questmaster: orchestrating leader session for the claimed quest, when known */
+  claimedQuestLeaderSessionId?: string;
   /** Codex-only visual stage for image-attached user sends. */
   codex_image_send_stage?: "uploading" | "processing" | "responding" | null;
   /** Per-session notification inbox entries (server-only, never from CLI) */

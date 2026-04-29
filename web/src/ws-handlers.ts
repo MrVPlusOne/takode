@@ -1437,6 +1437,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         claimedQuestTitle: data.quest?.title ?? undefined,
         claimedQuestStatus: data.quest?.status ?? undefined,
         claimedQuestVerificationInboxUnread: data.quest?.verificationInboxUnread,
+        claimedQuestLeaderSessionId: data.quest?.leaderSessionId,
       });
       const isOrchestrator =
         store.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.isOrchestrator === true ||
