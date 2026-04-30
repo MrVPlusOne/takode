@@ -282,6 +282,10 @@ describe("WorkBoardBar", () => {
     expect(getByTestId("workboard-main-banner")).toBeInTheDocument();
     expect(queryByTestId("workboard-current-thread")).not.toBeInTheDocument();
     expect(getByTestId("workboard-summary-button")).toHaveTextContent("Open Workboard");
+    expect(
+      getByTestId("workboard-summary-button").compareDocumentPosition(getByTestId("workboard-phase-summary")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     // Each status segment renders separately with its color class
     expect(getByText("1 Implement")).toBeInTheDocument();
     expect(getByText("1 Queued")).toBeInTheDocument();
@@ -569,6 +573,14 @@ describe("WorkBoardBar", () => {
     );
 
     expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-overflow", "horizontal-scroll-after-min");
+    expect(within(getByTestId("thread-tab-rail")).queryByText("Tabs")).not.toBeInTheDocument();
+    const tabStrip = getByTestId("thread-tab-strip");
+    expect(tabStrip).toHaveAttribute("aria-label", "Thread tabs");
+    expect(tabStrip).toHaveAttribute("data-scrollbar", "thin-transient");
+    expect(tabStrip).toHaveAttribute("data-scrollbar-active", "false");
+    expect(tabStrip).toHaveClass("overflow-x-auto", "overflow-y-hidden", "thread-tab-scroll");
+    fireEvent.scroll(tabStrip);
+    expect(tabStrip).toHaveAttribute("data-scrollbar-active", "true");
     expect(getByTestId("thread-main-tab")).toHaveAttribute("data-min-label", "Main Thread");
     expect(getByTestId("thread-main-tab")).toHaveClass("min-w-[7.75rem]", "max-w-[14rem]", "flex-[0_1_9.5rem]");
     expect(getByTestId("thread-main-tab")).toHaveClass("focus-visible:ring-cc-primary/70", "focus-visible:ring-inset");

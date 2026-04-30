@@ -447,6 +447,7 @@ export const BoardTable = memo(function BoardTable({
       <table className="w-full text-xs" data-testid="board-table">
         <thead>
           <tr className="text-cc-muted border-b border-cc-border">
+            {showThreadAction && <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Thread</th>}
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Quest</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap min-w-[8rem]">Sessions</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Journey</th>
@@ -454,7 +455,6 @@ export const BoardTable = memo(function BoardTable({
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">
               {isCompleted ? "Completed Time" : "Wait For"}
             </th>
-            {showThreadAction && <th className="text-right font-medium px-3 py-1.5 whitespace-nowrap">Thread</th>}
           </tr>
         </thead>
         <tbody>
@@ -470,6 +470,31 @@ export const BoardTable = memo(function BoardTable({
                 data-testid={showThreadAction ? "board-thread-row" : undefined}
                 data-thread-key={showThreadAction ? threadKey : undefined}
               >
+                {showThreadAction && (
+                  <td className="px-3 py-1.5 text-left whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => onSelectQuestThread?.(threadKey)}
+                      className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
+                        selected
+                          ? "border-cc-primary/45 bg-cc-primary/15 text-cc-primary"
+                          : "border-cc-border/70 bg-cc-hover/40 text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+                      }`}
+                      data-testid="board-thread-action"
+                      aria-pressed={selected}
+                    >
+                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M3 4.5h10M3 8h7M3 11.5h5"
+                          stroke="currentColor"
+                          strokeWidth="1.4"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <span>{selected ? "Current" : "Jump"}</span>
+                    </button>
+                  </td>
+                )}
                 <td className="px-3 py-1.5 whitespace-nowrap">
                   <QuestLink questId={row.questId} />
                 </td>
@@ -505,31 +530,6 @@ export const BoardTable = memo(function BoardTable({
                     </>
                   )}
                 </td>
-                {showThreadAction && (
-                  <td className="px-3 py-1.5 text-right whitespace-nowrap">
-                    <button
-                      type="button"
-                      onClick={() => onSelectQuestThread?.(threadKey)}
-                      className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
-                        selected
-                          ? "border-cc-primary/45 bg-cc-primary/15 text-cc-primary"
-                          : "border-cc-border/70 bg-cc-hover/40 text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
-                      }`}
-                      data-testid="board-thread-action"
-                      aria-pressed={selected}
-                    >
-                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-                        <path
-                          d="M3 4.5h10M3 8h7M3 11.5h5"
-                          stroke="currentColor"
-                          strokeWidth="1.4"
-                          strokeLinecap="round"
-                        />
-                      </svg>
-                      <span>{selected ? "Current" : "Jump"}</span>
-                    </button>
-                  </td>
-                )}
               </tr>
             );
           })}

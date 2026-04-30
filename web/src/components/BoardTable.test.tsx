@@ -89,8 +89,21 @@ describe("BoardTable", () => {
 
     render(<BoardTable board={board} selectedThreadKey="q-335" onSelectQuestThread={onSelectQuestThread} />);
 
+    expect(screen.getAllByRole("columnheader").map((node) => node.textContent)).toEqual([
+      "Thread",
+      "Quest",
+      "Sessions",
+      "Journey",
+      "Title",
+      "Wait For",
+    ]);
     expect(screen.getByRole("columnheader", { name: "Thread" })).toBeInTheDocument();
     const action = screen.getByTestId("board-thread-action");
+    const actionCell = action.closest("td");
+    const questCell = screen.getByRole("button", { name: "q-335" }).closest("td");
+    expect(actionCell).toBeTruthy();
+    expect(questCell).toBeTruthy();
+    expect(actionCell!.compareDocumentPosition(questCell!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(action).toHaveTextContent("Current");
     fireEvent.click(action);
     expect(onSelectQuestThread).toHaveBeenCalledWith("q-335");

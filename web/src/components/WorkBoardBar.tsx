@@ -513,15 +513,24 @@ function ThreadTabRail({
   const questById = useMemo(() => new Map(quests.map((quest) => [normalizeThreadKey(quest.questId), quest])), [quests]);
   const [hoveredQuest, setHoveredQuest] = useState<{ quest: QuestmasterTask; anchorRect: DOMRect } | null>(null);
   const hideQuestHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hideScrollbarTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [scrollbarActive, setScrollbarActive] = useState(false);
   const runningActiveTurnRoute = sessionStatus === "running" ? activeTurnRoute : null;
   const mainActiveOutput = isActiveOutputThread(runningActiveTurnRoute, MAIN_THREAD_KEY);
   const mainTone = tabTone({ selected: mainSelected, needsInput: mainNeedsInput });
   useEffect(
     () => () => {
       if (hideQuestHoverTimerRef.current) clearTimeout(hideQuestHoverTimerRef.current);
+      if (hideScrollbarTimerRef.current) clearTimeout(hideScrollbarTimerRef.current);
     },
     [],
   );
+
+  function handleTabStripScroll() {
+    if (hideScrollbarTimerRef.current) clearTimeout(hideScrollbarTimerRef.current);
+    setScrollbarActive(true);
+    hideScrollbarTimerRef.current = setTimeout(() => setScrollbarActive(false), 800);
+  }
 
   function showQuestHover(quest: QuestmasterTask | undefined, anchorRect: DOMRect) {
     if (!quest) return;
@@ -543,10 +552,14 @@ function ThreadTabRail({
       data-unified-tab-track="true"
       data-overflow="horizontal-scroll-after-min"
     >
-      <div className="flex min-w-0 items-end gap-1.5 overflow-x-auto">
-        <span className="mb-1 shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-cc-muted/70">
-          Tabs
-        </span>
+      <div
+        className="thread-tab-scroll flex min-w-0 items-end gap-1.5 overflow-x-auto overflow-y-hidden overscroll-x-contain"
+        data-testid="thread-tab-strip"
+        data-scrollbar="thin-transient"
+        data-scrollbar-active={scrollbarActive ? "true" : "false"}
+        aria-label="Thread tabs"
+        onScroll={handleTabStripScroll}
+      >
         <button
           type="button"
           onClick={() => openThread(MAIN_THREAD_KEY)}
@@ -841,26 +854,6 @@ export function WorkBoardBar({
           className="flex min-w-0 items-center gap-2 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
           data-testid="workboard-main-banner"
         >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-blue-400 shrink-0">
-            <path d="M1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11z" />
-            <path d="M4 4h2v5H4zM7 4h2v7H7zM10 4h2v3h-2z" />
-          </svg>
-
-          <span className="min-w-0 flex-1 truncate text-[11px]" data-testid="workboard-phase-summary">
-            {summarySegments.map((seg, i, arr) => (
-              <span key={i}>
-                <span className={seg.className} style={seg.style}>
-                  {seg.text}
-                </span>
-                {i < arr.length - 1 && <span className="text-cc-fg/40">, </span>}
-              </span>
-            ))}
-          </span>
-
-          <span className="text-[10px] text-cc-muted shrink-0 tabular-nums">
-            {activeCount} {activeCount === 1 ? "item" : "items"}
-          </span>
-
           <button
             type="button"
             onClick={() => setExpanded(!expanded)}
@@ -882,6 +875,26 @@ export function WorkBoardBar({
               <path d="M3 5l3-3 3 3" />
             </svg>
           </button>
+
+          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-blue-400 shrink-0">
+            <path d="M1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11z" />
+            <path d="M4 4h2v5H4zM7 4h2v7H7zM10 4h2v3h-2z" />
+          </svg>
+
+          <span className="min-w-0 flex-1 truncate text-[11px]" data-testid="workboard-phase-summary">
+            {summarySegments.map((seg, i, arr) => (
+              <span key={i}>
+                <span className={seg.className} style={seg.style}>
+                  {seg.text}
+                </span>
+                {i < arr.length - 1 && <span className="text-cc-fg/40">, </span>}
+              </span>
+            ))}
+          </span>
+
+          <span className="text-[10px] text-cc-muted shrink-0 tabular-nums">
+            {activeCount} {activeCount === 1 ? "item" : "items"}
+          </span>
         </div>
       )}
 

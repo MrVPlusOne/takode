@@ -91,11 +91,21 @@ describe("Playground", () => {
 
     const rail = screen.getByTestId("thread-tab-rail");
     expect(rail).toHaveAttribute("data-overflow", "horizontal-scroll-after-min");
+    expect(within(rail).queryByText("Tabs")).not.toBeInTheDocument();
+    const tabStrip = screen.getByTestId("thread-tab-strip");
+    expect(tabStrip).toHaveAttribute("data-scrollbar", "thin-transient");
+    expect(tabStrip).toHaveAttribute("data-scrollbar-active", "false");
+    expect(tabStrip).toHaveClass("overflow-y-hidden");
     expect(screen.getByTestId("workboard-main-banner")).toBeTruthy();
     expect(
       rail.compareDocumentPosition(screen.getByTestId("workboard-main-banner")) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.getByTestId("workboard-summary-button")).toHaveTextContent("Open Workboard");
+    expect(
+      screen
+        .getByTestId("workboard-summary-button")
+        .compareDocumentPosition(screen.getByTestId("workboard-phase-summary")) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     expect(screen.queryByTestId("workboard-current-thread")).toBeNull();
     expect(screen.getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
     expect(screen.getByTestId("thread-main-tab")).toHaveAttribute("aria-pressed", "true");
