@@ -148,10 +148,12 @@ export function QuestJourneyCompactSummary({
   journey,
   status,
   className,
+  showNotes = true,
 }: {
   journey: QuestJourneyPlanState;
   status?: string | null;
   className?: string;
+  showNotes?: boolean;
 }) {
   const items = getPhaseItems(journey, status);
   if (items.length === 0) return null;
@@ -183,7 +185,7 @@ export function QuestJourneyCompactSummary({
         </span>
       )}
       {position && <span className="shrink-0 text-[10px] text-cc-muted">{position}</span>}
-      {notes > 0 && (
+      {showNotes && notes > 0 && (
         <span className="shrink-0 text-[10px] text-amber-200/90">{`${notes} note${notes === 1 ? "" : "s"}`}</span>
       )}
     </div>
@@ -353,12 +355,14 @@ export function QuestJourneyTimeline({
   className,
   compact = false,
   variant,
+  showNotes = true,
 }: {
   journey: QuestJourneyPlanState;
   status?: string | null;
   className?: string;
   compact?: boolean;
   variant?: JourneyVariant;
+  showNotes?: boolean;
 }) {
   const now = Date.now();
   const items = getPhaseItems(journey, status, now);
@@ -366,7 +370,7 @@ export function QuestJourneyTimeline({
 
   const resolvedVariant: JourneyVariant = variant ?? (compact ? "compact" : "horizontal");
   if (resolvedVariant === "compact") {
-    return <QuestJourneyCompactSummary journey={journey} status={status} className={className} />;
+    return <QuestJourneyCompactSummary journey={journey} status={status} className={className} showNotes={showNotes} />;
   }
   if (resolvedVariant === "vertical") {
     return <VerticalJourney items={items} journey={journey} status={status} className={className} now={now} />;

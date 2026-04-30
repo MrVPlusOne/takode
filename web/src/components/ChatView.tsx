@@ -5,6 +5,7 @@ import {
   useRef,
   useCallback,
   useLayoutEffect,
+  type KeyboardEvent,
   type MouseEvent,
   type ReactNode,
 } from "react";
@@ -251,10 +252,20 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
     }
   }, [hoverRect]);
 
-  function showPreview(event: MouseEvent<HTMLDivElement>) {
+  function showPreviewForTarget(target: HTMLElement) {
     if (!row.journey?.phaseIds?.length) return;
     if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    setHoverRect(event.currentTarget.getBoundingClientRect());
+    setHoverRect(target.getBoundingClientRect());
+  }
+
+  function showPreview(event: MouseEvent<HTMLDivElement>) {
+    showPreviewForTarget(event.currentTarget);
+  }
+
+  function handlePreviewKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "Enter" && event.key !== " ") return;
+    event.preventDefault();
+    showPreviewForTarget(event.currentTarget);
   }
 
   function scheduleHidePreview() {
@@ -268,7 +279,15 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
         className="inline-flex max-w-full min-w-0"
         onMouseEnter={showPreview}
         onMouseLeave={scheduleHidePreview}
+        onClick={(event) => showPreviewForTarget(event.currentTarget)}
+        onKeyDown={handlePreviewKeyDown}
+        role={row.journey?.phaseIds?.length ? "button" : undefined}
+        tabIndex={row.journey?.phaseIds?.length ? 0 : undefined}
+        aria-label={row.journey?.phaseIds?.length ? "Show Quest Journey preview" : undefined}
+        aria-haspopup={row.journey?.phaseIds?.length ? "dialog" : undefined}
+        aria-expanded={hoverRect ? "true" : "false"}
         data-testid="quest-thread-journey-hover-target"
+        data-touch-preview={row.journey?.phaseIds?.length ? "true" : "false"}
       >
         {children}
       </div>
@@ -277,7 +296,7 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
         createPortal(
           <div
             ref={cardRef}
-            className="fixed z-50 pointer-events-auto hidden-on-touch"
+            className="fixed z-50 pointer-events-auto"
             style={{
               left: hoverRect.left,
               top: hoverRect.bottom + gap,
@@ -325,7 +344,7 @@ function QuestThreadParticipant({
 
   return (
     <span
-      className="inline-flex h-6 max-w-[9.5rem] min-w-0 items-center gap-1 rounded-full border border-cc-border/60 bg-cc-hover/25 px-1.5 text-[10px] leading-none text-cc-muted sm:max-w-[12rem]"
+      className="inline-flex h-5 max-w-[9.5rem] min-w-0 items-center gap-1 rounded-full border border-cc-border/60 bg-cc-hover/25 px-1.5 text-[10px] leading-none text-cc-muted sm:max-w-[12rem]"
       data-testid="quest-thread-participant"
       title={label}
       aria-label={label}
@@ -521,14 +540,15 @@ export function QuestThreadBanner({ row, threadKey }: { row?: QuestThreadBannerR
   const questId = row?.questId ?? threadKey.toLowerCase();
   const title = row?.title;
   const hasParticipantContext = !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
+  const hasMeta = !!row?.journey || hasParticipantContext;
   return (
     <div
-      className="shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1.5 sm:px-3"
+      className="shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3"
       data-testid="quest-thread-banner"
       data-layout="compact-inline"
     >
-      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-        <div className="inline-flex min-w-0 max-w-full flex-[1_1_18rem] items-baseline gap-1.5">
+      <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
+        <div className="inline-flex min-w-0 max-w-full flex-[1_1_16rem] items-baseline gap-1.5">
           <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">Thread</span>
           <QuestInlineLink
             questId={questId}
@@ -538,28 +558,33 @@ export function QuestThreadBanner({ row, threadKey }: { row?: QuestThreadBannerR
           </QuestInlineLink>
           {title && <span className="min-w-0 truncate text-xs font-medium text-cc-fg sm:text-[13px]">{title}</span>}
         </div>
-        {row?.journey && (
-          <QuestJourneyHoverTarget row={row}>
-            <QuestJourneyTimeline
-              journey={row.journey}
-              status={journeyStatusForThread(row)}
-              compact
-              className="rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
-            />
-          </QuestJourneyHoverTarget>
-        )}
-        {hasParticipantContext && (
+        {hasMeta && (
           <div
-            className="inline-flex min-w-0 flex-[1_1_100%] items-center gap-1.5 sm:flex-[0_1_auto] sm:justify-end"
-            data-testid="quest-thread-participant-strip"
+            className="inline-flex min-w-0 flex-[1_1_auto] flex-wrap items-center gap-1.5 sm:flex-[0_1_auto] sm:justify-end"
+            data-testid="quest-thread-meta-strip"
           >
-            <QuestThreadParticipant
-              role="Worker"
-              participant={row?.rowStatus?.worker}
-              fallbackSessionId={row?.boardRow?.worker}
-              fallbackSessionNum={row?.boardRow?.workerNum}
-            />
-            <QuestThreadParticipant role="Reviewer" participant={row?.rowStatus?.reviewer} />
+            {row?.journey && (
+              <QuestJourneyHoverTarget row={row}>
+                <QuestJourneyTimeline
+                  journey={row.journey}
+                  status={journeyStatusForThread(row)}
+                  compact
+                  showNotes={false}
+                  className="rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
+                />
+              </QuestJourneyHoverTarget>
+            )}
+            {hasParticipantContext && (
+              <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
+                <QuestThreadParticipant
+                  role="Worker"
+                  participant={row?.rowStatus?.worker}
+                  fallbackSessionId={row?.boardRow?.worker}
+                  fallbackSessionNum={row?.boardRow?.workerNum}
+                />
+                <QuestThreadParticipant role="Reviewer" participant={row?.rowStatus?.reviewer} />
+              </div>
+            )}
           </div>
         )}
       </div>

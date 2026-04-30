@@ -286,22 +286,28 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
     journey,
   }: {
     quest?: { questId: string; title?: string };
-    journey?: { currentPhaseId?: string };
-  }) => (
-    <div data-testid="quest-journey-preview-card">
-      {quest?.questId} {quest?.title} {journey?.currentPhaseId ?? "journey"}
-    </div>
-  ),
+    journey?: { currentPhaseId?: string; phaseNotes?: Record<string, string> };
+  }) => {
+    const notes = Object.values(journey?.phaseNotes ?? {}).filter((note) => note.trim()).length;
+    return (
+      <div data-testid="quest-journey-preview-card">
+        {quest?.questId} {quest?.title} {journey?.currentPhaseId ?? "journey"}{" "}
+        {notes > 0 ? `${notes} note${notes === 1 ? "" : "s"}` : ""}
+      </div>
+    );
+  },
   QuestJourneyTimeline: ({
     journey,
     status,
     compact,
     className,
+    showNotes = true,
   }: {
     journey?: { currentPhaseId?: string; phaseIds?: string[]; phaseNotes?: Record<string, string> };
     status?: string | null;
     compact?: boolean;
     className?: string;
+    showNotes?: boolean;
   }) => {
     const normalized = (status ?? "").trim().toLowerCase();
     const completed = normalized === "done" || normalized === "completed" || normalized === "needs_verification";
@@ -314,7 +320,7 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
         className={className}
       >
         {completed
-          ? `Completed ${phaseCount} phases${notes > 0 ? ` ${notes} note${notes === 1 ? "" : "s"}` : ""}`
+          ? `Completed ${phaseCount} phases${showNotes && notes > 0 ? ` ${notes} note${notes === 1 ? "" : "s"}` : ""}`
           : (journey?.currentPhaseId ?? "journey")}
       </div>
     );
@@ -1391,12 +1397,13 @@ describe("ChatView backend banners", () => {
 
     fireEvent.click(scope.getByRole("button", { name: /q-968 thread navigation rework/i }));
     expect(scope.getByTestId("quest-thread-banner")).toHaveAttribute("data-layout", "compact-inline");
-    expect(scope.getByTestId("quest-thread-banner")).toHaveClass("py-1.5");
+    expect(scope.getByTestId("quest-thread-banner")).toHaveClass("py-1");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-968");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Thread navigation rework");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("implement");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveAttribute("data-journey-mode", "active");
-    expect(scope.getByTestId("quest-thread-participant-strip")).toHaveClass("flex-[1_1_100%]");
+    expect(scope.getByTestId("quest-thread-meta-strip")).toHaveClass("flex-[1_1_auto]");
+    expect(scope.getByTestId("quest-thread-participant-strip")).toHaveClass("inline-flex");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Worker");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("#1321");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Clear Mesa");
@@ -1464,8 +1471,12 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveAttribute("data-journey-mode", "completed");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("Completed");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("5 phases");
-    expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("1 note");
+    expect(scope.getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("1 note");
     expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toBeInTheDocument();
     expect(scope.getByLabelText("Reviewer #1323")).toBeInTheDocument();
+
+    fireEvent.click(scope.getByTestId("quest-thread-journey-hover-target"));
+    expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).toBeInTheDocument();
+    expect(document.body.querySelector('[data-testid="quest-journey-preview-card"]')).toHaveTextContent("1 note");
   });
 });

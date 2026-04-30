@@ -86,6 +86,7 @@ describe("Playground", () => {
     expect(rail).toHaveAttribute("data-overflow", "horizontal-scroll-after-min");
     expect(screen.getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
     expect(screen.getByTestId("thread-main-tab")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("thread-main-tab")).toHaveClass("border-amber-400/60", "bg-cc-bg");
     expect(screen.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Implement");
     const mainTitle = within(screen.getByTestId("thread-main-tab")).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "true");
@@ -131,5 +132,21 @@ describe("Playground", () => {
     const movedTabs = screen.getAllByTestId("thread-tab");
     expect(movedTabs[0]).toHaveAttribute("data-thread-key", "q-99");
     expect(movedTabs[0]).toHaveAttribute("data-new-tab", "true");
+  });
+
+  it("documents compact quest-thread banners without chip note counts and with tap previews", () => {
+    render(<Playground />);
+
+    const banner = screen.getAllByTestId("quest-thread-banner")[0];
+    expect(banner).toHaveClass("py-1");
+    expect(within(banner).getByTestId("quest-thread-meta-strip")).toHaveClass("flex-[1_1_auto]");
+    expect(within(banner).getByTestId("quest-thread-participant-strip")).toHaveClass("inline-flex");
+    expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Implement");
+    expect(within(banner).getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("note");
+
+    fireEvent.click(within(banner).getByTestId("quest-thread-journey-hover-target"));
+    const hoverCard = screen.getByTestId("quest-thread-journey-hover-card");
+    expect(hoverCard).toBeTruthy();
+    expect(within(hoverCard).getByTestId("quest-journey-preview-card")).toHaveTextContent("Visual outcome review");
   });
 });

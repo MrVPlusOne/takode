@@ -566,6 +566,7 @@ describe("WorkBoardBar", () => {
       // The fixed minimum protects the quest id; flex shrink keeps tabs browser-like until that minimum is reached.
       expect(tab).toHaveClass("min-w-[6.25rem]", "max-w-[18rem]", "flex-[1_1_11rem]");
     }
+    expect(tabs[0]).toHaveClass("border-cc-primary/70", "bg-cc-bg");
     expect(within(tabs[0]).getByTestId("thread-tab-select")).toHaveClass(
       "focus-visible:ring-cc-primary/70",
       "focus-visible:ring-inset",
@@ -610,7 +611,7 @@ describe("WorkBoardBar", () => {
     const mainTab = getByTestId("thread-main-tab");
     expect(mainTab).toHaveAttribute("aria-pressed", "true");
     // The selected tab keeps the outer selected surface; the active title no longer creates a second rounded border.
-    expect(mainTab).toHaveClass("border-amber-400/45", "bg-cc-bg", "focus-visible:ring-cc-primary/70");
+    expect(mainTab).toHaveClass("border-amber-400/60", "bg-cc-bg", "focus-visible:ring-cc-primary/70");
     const mainTitle = within(mainTab).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "true");
     expect(mainTitle).toHaveStyle({ animation: "thread-title-glow 2s ease-in-out infinite" });
