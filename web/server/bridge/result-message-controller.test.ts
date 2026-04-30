@@ -2,6 +2,10 @@ import { describe, expect, it, vi } from "vitest";
 import { handleResultMessage, type ResultMessageSessionLike } from "./claude-message-controller.js";
 import type { BrowserIncomingMessage, CLIResultMessage, PermissionRequest, SessionState } from "../session-types.js";
 import { THREAD_ROUTING_REMINDER_SOURCE_ID } from "../../shared/thread-routing-reminder.js";
+import {
+  QUEST_THREAD_REMINDER_SOURCE_ID,
+  QUEST_THREAD_REMINDER_SOURCE_LABEL,
+} from "../../shared/quest-thread-reminder.js";
 
 function makeState(): ResultMessageSessionLike["state"] {
   return {
@@ -215,6 +219,41 @@ describe("result-message-controller", () => {
       undefined,
       expect.anything(),
     );
+  });
+
+  it("injects queued quest thread reminders as synthetic user messages after the turn result", () => {
+    const session = makeSession();
+    session.questThreadRemindersThisTurn = [
+      {
+        content:
+          "Thread reminder: attach any prior messages that clearly belong to q-1025 with `takode thread attach`.",
+        route: {
+          threadKey: "q-1025",
+          questId: "q-1025",
+          threadRefs: [{ threadKey: "q-1025", questId: "q-1025", source: "explicit" }],
+        },
+        agentSource: {
+          sessionId: QUEST_THREAD_REMINDER_SOURCE_ID,
+          sessionLabel: QUEST_THREAD_REMINDER_SOURCE_LABEL,
+        },
+      },
+    ];
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult(), deps);
+
+    expect(deps.injectUserMessage).toHaveBeenCalledWith(
+      "s1",
+      "Thread reminder: attach any prior messages that clearly belong to q-1025 with `takode thread attach`.",
+      { sessionId: QUEST_THREAD_REMINDER_SOURCE_ID, sessionLabel: QUEST_THREAD_REMINDER_SOURCE_LABEL },
+      undefined,
+      {
+        threadKey: "q-1025",
+        questId: "q-1025",
+        threadRefs: [{ threadKey: "q-1025", questId: "q-1025", source: "explicit" }],
+      },
+    );
+    expect(session.questThreadRemindersThisTurn).toEqual([]);
   });
 
   it("does not recursively inject thread-routing reminders for reminder-triggered turns", () => {

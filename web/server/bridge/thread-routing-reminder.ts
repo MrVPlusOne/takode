@@ -10,6 +10,7 @@ import {
   stripCommandThreadComment,
 } from "../../shared/thread-routing.js";
 import { routeFromHistoryEntry, threadRouteForTarget, type ThreadRouteMetadata } from "../thread-routing-metadata.js";
+import { extractQuestThreadRemindersFromContent } from "./quest-thread-reminder.js";
 
 const THREAD_ROUTING_EXPECTED =
   "Start with [thread:main] or [thread:q-N]. Bash commands must start with # thread:main or # thread:q-N.";
@@ -20,6 +21,7 @@ export interface LeaderAssistantRouteResult {
   questId?: string;
   threadRefs?: ThreadRef[];
   threadRoutingError?: ThreadRoutingError;
+  questThreadReminders?: string[];
 }
 
 export interface ThreadRoutingReminderInjection {
@@ -73,7 +75,9 @@ export function normalizeLeaderAssistantRouting(
 ): LeaderAssistantRouteResult {
   if (!isLeaderSession || parentToolUseId) return { content };
 
-  const nextContent = content.map((block) =>
+  const extracted = extractQuestThreadRemindersFromContent(content);
+  const questThreadReminders = extracted.reminders.length > 0 ? { questThreadReminders: extracted.reminders } : {};
+  const nextContent = extracted.content.map((block) =>
     block.type === "tool_use" && block.name === "Bash" && typeof block.input?.command === "string"
       ? {
           ...block,
@@ -93,6 +97,7 @@ export function normalizeLeaderAssistantRouting(
       return {
         content: nextContent,
         threadRoutingError: threadRoutingErrorForText(parsed, content),
+        ...questThreadReminders,
       };
     }
     const routed = nextContent.slice();
@@ -103,10 +108,11 @@ export function normalizeLeaderAssistantRouting(
       threadKey: parsed.target.threadKey,
       ...(parsed.target.questId ? { questId: parsed.target.questId } : {}),
       ...(ref ? { threadRefs: [ref] } : {}),
+      ...questThreadReminders,
     };
   }
 
-  const bashBlocks = content.filter(
+  const bashBlocks = extracted.content.filter(
     (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
       block.type === "tool_use" && block.name === "Bash" && typeof block.input?.command === "string",
   );
@@ -116,6 +122,7 @@ export function normalizeLeaderAssistantRouting(
       return {
         content: nextContent,
         threadRoutingError: threadRoutingErrorForCommand(String(bashBlocks[0].input.command)),
+        ...questThreadReminders,
       };
     }
     const ref = threadRefForTarget(target);
@@ -124,10 +131,11 @@ export function normalizeLeaderAssistantRouting(
       threadKey: target.threadKey,
       ...(target.questId ? { questId: target.questId } : {}),
       ...(ref ? { threadRefs: [ref] } : {}),
+      ...questThreadReminders,
     };
   }
 
-  return { content: nextContent };
+  return { content: nextContent, ...questThreadReminders };
 }
 
 function findTriggeringTurnRoute(session: ThreadRoutingReminderSessionLike): ThreadRouteMetadata {

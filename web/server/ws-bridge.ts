@@ -403,6 +403,8 @@ interface Session {
   compactedDuringTurn: boolean;
   /** Message history indices of user messages received during the current turn (for turn_end herd events) */
   userMessageIdsThisTurn: number[];
+  /** Synthetic quest-thread attachment reminders queued from leader assistant output for delivery after result. */
+  questThreadRemindersThisTurn?: import("./bridge/quest-thread-reminder.js").QuestThreadReminderInjection[];
   /** Thread/quest route associated with the currently active turn, when known. */
   activeTurnRoute?: ActiveTurnRoute | null;
   /** Number of follow-up turns queued while a current turn is still running. */

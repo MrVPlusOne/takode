@@ -21,6 +21,7 @@ import type {
   ContentBlock,
   ToolResultPreview,
   ActiveTurnRoute,
+  ThreadRef,
 } from "../session-types.js";
 import {
   computeContextUsedPercent,
@@ -41,6 +42,12 @@ import {
   buildThreadRoutingReminderForCompletedTurn,
   normalizeLeaderAssistantRouting,
 } from "./thread-routing-reminder.js";
+import {
+  consumeQuestThreadRemindersForCompletedTurn,
+  extractQuestThreadRemindersFromContent,
+  queueQuestThreadRemindersForCompletedTurn,
+} from "./quest-thread-reminder.js";
+import { routeFromHistoryEntry, type ThreadRouteMetadata } from "../thread-routing-metadata.js";
 
 type BroadcastOptions = {
   skipBuffer?: boolean;
@@ -114,6 +121,7 @@ export interface AssistantMessageSessionLike {
   dropReplayHistoryAfterRevert?: boolean;
   isGenerating: boolean;
   messageHistory: BrowserIncomingMessage[];
+  questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
   assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
@@ -156,12 +164,35 @@ function isLeaderSessionForAssistantRouting(
   return true;
 }
 
+function routeFromLeaderAssistantResult(routed: {
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
+}): ThreadRouteMetadata | undefined {
+  if (!routed.threadKey) return undefined;
+  return {
+    threadKey: routed.threadKey,
+    ...(routed.questId ? { questId: routed.questId } : {}),
+    ...(routed.threadRefs?.length ? { threadRefs: routed.threadRefs } : {}),
+  };
+}
+
+function queueQuestThreadRemindersFromLeaderAssistant(
+  session: AssistantMessageSessionLike,
+  reminders: string[] | undefined,
+  route: ThreadRouteMetadata | undefined,
+): void {
+  if (!reminders?.length) return;
+  queueQuestThreadRemindersForCompletedTurn(session, reminders, route);
+}
+
 export interface ResultMessageSessionLike {
   id: string;
   backendType: "claude" | "codex" | "claude-sdk";
   cliResuming: boolean;
   dropReplayHistoryAfterRevert?: boolean;
   messageHistory: BrowserIncomingMessage[];
+  questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
   state: Pick<SessionState, "model" | "total_cost_usd" | "num_turns" | "context_used_percent" | "claude_token_details">;
   diffStatsDirty: boolean;
   generationStartedAt?: number | null;
@@ -290,7 +321,7 @@ interface ResultMessageDeps {
     content: string,
     agentSource: { sessionId: string; sessionLabel?: string },
     takodeHerdBatch: undefined,
-    threadRoute: import("../thread-routing-metadata.js").ThreadRouteMetadata,
+    threadRoute: ThreadRouteMetadata,
   ) => void;
 }
 
@@ -366,6 +397,11 @@ export function handleAssistantMessage(
       return;
     }
     const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content, msg.parent_tool_use_id);
+    queueQuestThreadRemindersFromLeaderAssistant(
+      session,
+      routed.questThreadReminders,
+      routeFromLeaderAssistantResult(routed),
+    );
     const browserMsg: BrowserIncomingMessage = {
       type: "assistant",
       message: { ...msg.message, content: routed.content },
@@ -402,6 +438,11 @@ export function handleAssistantMessage(
     }
 
     const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content, msg.parent_tool_use_id);
+    queueQuestThreadRemindersFromLeaderAssistant(
+      session,
+      routed.questThreadReminders,
+      routeFromLeaderAssistantResult(routed),
+    );
     const routedMessage = { ...msg.message, content: routed.content };
     const contentBlockIds = new Set<string>();
     const now = Date.now();
@@ -445,10 +486,17 @@ export function handleAssistantMessage(
       | undefined;
     if (!historyEntry) return;
 
-    const newBlocks = getAssistantContentAppendBlocks(
+    const appendedBlocks = getAssistantContentAppendBlocks(
       historyEntry.message.content,
       msg.message.content,
       acc.contentBlockIds,
+    );
+    const extracted = extractQuestThreadRemindersFromContent(appendedBlocks);
+    const newBlocks = extracted.content;
+    queueQuestThreadRemindersFromLeaderAssistant(
+      session,
+      extracted.reminders,
+      routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined,
     );
     if (newBlocks.length > 0) {
       for (const block of newBlocks) {
@@ -593,6 +641,8 @@ export function handleResultMessage(
   }
   const turnWasInterrupted = session.interruptedDuringTurn || resultInterrupted || resultIsUserControlDiagnostic;
   const threadRoutingReminder = turnWasInterrupted ? null : buildThreadRoutingReminderForCompletedTurn(session);
+  const questThreadReminders = consumeQuestThreadRemindersForCompletedTurn(session);
+  const deliverQuestThreadReminders = turnWasInterrupted ? [] : questThreadReminders;
   deps.drainInlineQueuedClaudeTurns(session, "result");
 
   const turnTriggerSource = deps.getCurrentTurnTriggerSource(session);
@@ -638,6 +688,9 @@ export function handleResultMessage(
     deps.onResultAttentionAndNotifications(session, msg, turnTriggerSource);
   }
   deps.onTurnCompleted(session);
+  for (const reminder of deliverQuestThreadReminders) {
+    deps.injectUserMessage(session.id, reminder.content, reminder.agentSource, undefined, reminder.route);
+  }
   if (threadRoutingReminder) {
     deps.injectUserMessage(
       session.id,

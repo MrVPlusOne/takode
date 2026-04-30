@@ -4,11 +4,14 @@ import type {
   CLIResultMessage,
   ContentBlock,
   PermissionRequest,
+  ThreadRef,
 } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
+import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
 import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
 import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
+import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 
@@ -25,6 +28,19 @@ function isLeaderSessionForAssistantRouting(
   if (launcherInfo?.isOrchestrator !== true) return false;
   session.state = { ...session.state, isOrchestrator: true };
   return true;
+}
+
+function routeFromLeaderAssistantResult(routed: {
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
+}): ThreadRouteMetadata | undefined {
+  if (!routed.threadKey) return undefined;
+  return {
+    threadKey: routed.threadKey,
+    ...(routed.questId ? { questId: routed.questId } : {}),
+    ...(routed.threadRefs?.length ? { threadRefs: routed.threadRefs } : {}),
+  };
 }
 
 type CodexLeaderRecycleLauncherInfo = {
@@ -218,6 +234,13 @@ export async function handleCodexAdapterBrowserMessage(
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
     const isLeaderSession = isLeaderSessionForAssistantRouting(session, launcherInfo);
     const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content || [], msg.parent_tool_use_id);
+    if (routed.questThreadReminders?.length) {
+      queueQuestThreadRemindersForCompletedTurn(
+        session,
+        routed.questThreadReminders,
+        routeFromLeaderAssistantResult(routed),
+      );
+    }
     const routedMsg = {
       ...msg,
       message: { ...msg.message, content: routed.content },

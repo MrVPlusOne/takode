@@ -6,6 +6,10 @@ import {
   THREAD_ROUTING_REMINDER_SOURCE_ID,
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-routing-reminder.js";
+import {
+  QUEST_THREAD_REMINDER_SOURCE_ID,
+  QUEST_THREAD_REMINDER_SOURCE_LABEL,
+} from "../../shared/quest-thread-reminder.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
 const markNotificationDoneMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -57,6 +61,20 @@ function makeThreadRoutingReminderMessage(): ChatMessage {
   };
 }
 
+function makeQuestThreadReminderMessage(): ChatMessage {
+  return {
+    id: "quest-thread-reminder-1",
+    role: "user",
+    content: "Thread reminder: attach any prior messages that clearly belong to q-1025 with `takode thread attach`.",
+    timestamp: Date.now(),
+    agentSource: {
+      sessionId: QUEST_THREAD_REMINDER_SOURCE_ID,
+      sessionLabel: QUEST_THREAD_REMINDER_SOURCE_LABEL,
+    },
+    metadata: { threadKey: "q-1025", questId: "q-1025" },
+  };
+}
+
 describe("MessageBubble thread-routing reminder messages", () => {
   it("renders synthetic thread-routing reminders as distinct reminder notices", () => {
     render(<MessageBubble message={makeThreadRoutingReminderMessage()} sessionId="thread-routing-reminder-session" />);
@@ -68,5 +86,13 @@ describe("MessageBubble thread-routing reminder messages", () => {
     expect(screen.getByText(/Resend user-visible leader text/)).toBeTruthy();
     expect(screen.getByText(/For leader shell commands/)).toBeTruthy();
     expect(screen.queryByText("[Thread routing reminder]")).toBeNull();
+  });
+
+  it("renders synthetic quest thread reminders as distinct reminder notices", () => {
+    render(<MessageBubble message={makeQuestThreadReminderMessage()} sessionId="quest-thread-reminder-session" />);
+
+    expect(screen.getByText("Quest thread reminder")).toBeTruthy();
+    expect(screen.getByText(/attach any prior messages that clearly belong to q-1025/)).toBeTruthy();
+    expect(screen.queryByTestId("markdown")).toBeNull();
   });
 });

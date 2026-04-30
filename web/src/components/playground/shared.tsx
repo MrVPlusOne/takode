@@ -21,6 +21,10 @@ import {
   THREAD_ROUTING_REMINDER_SOURCE_ID,
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
 } from "../../../shared/thread-routing-reminder.js";
+import {
+  QUEST_THREAD_REMINDER_SOURCE_ID,
+  QUEST_THREAD_REMINDER_SOURCE_LABEL,
+} from "../../../shared/quest-thread-reminder.js";
 
 const PlaygroundSectionGroupContext = createContext<PlaygroundSectionGroupId | null>(null);
 const NEEDS_INPUT_REMINDER_SOURCE = {
@@ -875,6 +879,23 @@ export function PlaygroundThreadRoutingReminderMessage() {
   };
 
   return <MessageBubble message={message} sessionId="playground-thread-routing-reminder" showTimestamp={false} />;
+}
+
+export function PlaygroundQuestThreadReminderMessage() {
+  const message: ChatMessage = {
+    id: "playground-quest-thread-reminder-msg",
+    role: "user",
+    content:
+      "Thread reminder: attach any prior messages that clearly belong to [q-1025](quest:q-1025) with `takode thread attach`.",
+    timestamp: Date.now() - 18_000,
+    agentSource: {
+      sessionId: QUEST_THREAD_REMINDER_SOURCE_ID,
+      sessionLabel: QUEST_THREAD_REMINDER_SOURCE_LABEL,
+    },
+    metadata: { threadKey: "q-1025", questId: "q-1025" },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-quest-thread-reminder" showTimestamp={false} />;
 }
 
 // ─── Inline MCP Server Row (static preview, no WebSocket) ──────────────────

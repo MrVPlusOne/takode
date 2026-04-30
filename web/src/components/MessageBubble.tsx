@@ -23,6 +23,10 @@ import {
   buildThreadRoutingReminderViewModel,
   type ThreadRoutingReminderViewModel,
 } from "../utils/thread-routing-reminder.js";
+import {
+  buildQuestThreadReminderViewModel,
+  type QuestThreadReminderViewModel,
+} from "../utils/quest-thread-reminder.js";
 import { FILE_TOOL_NAMES, isToolHiddenFromChat } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
@@ -977,6 +981,7 @@ function UserMessage({
     [message, sessionNotifications],
   );
   const threadRoutingReminder = useMemo(() => buildThreadRoutingReminderViewModel(message), [message]);
+  const questThreadReminder = useMemo(() => buildQuestThreadReminderViewModel(message), [message]);
   const localImageEntries = message.localImages ?? [];
   const remoteImageEntries = message.images ?? [];
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
@@ -1053,6 +1058,8 @@ function UserMessage({
         {pendingLabel && <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">{pendingLabel}</div>}
         {threadRoutingReminder ? (
           <ThreadRoutingReminderView reminder={threadRoutingReminder} />
+        ) : questThreadReminder ? (
+          <QuestThreadReminderView reminder={questThreadReminder} />
         ) : needsInputReminder ? (
           <NeedsInputReminderView reminder={needsInputReminder} />
         ) : (
@@ -1095,6 +1102,23 @@ function ThreadRoutingReminderView({ reminder }: { reminder: ThreadRoutingRemind
           ))}
         </div>
       )}
+    </div>
+  );
+}
+
+function QuestThreadReminderView({ reminder }: { reminder: QuestThreadReminderViewModel }) {
+  return (
+    <div className="space-y-1 rounded-md border border-amber-300/25 bg-amber-300/8 p-2.5 text-left">
+      <div className="flex items-start gap-2">
+        <svg viewBox="0 0 16 16" fill="none" className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-200">
+          <path d="M3 4.5h7.5M3 8h10M3 11.5h5.5" stroke="currentColor" strokeWidth="1.35" strokeLinecap="round" />
+          <path d="M11 3.5l2 2-2 2M9 10.5l2 2 2-2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+        </svg>
+        <div className="min-w-0 flex-1">
+          <div className="text-sm font-medium text-amber-100">{reminder.title}</div>
+          <div className="mt-0.5 text-xs leading-relaxed text-cc-muted">{reminder.description}</div>
+        </div>
+      </div>
     </div>
   );
 }

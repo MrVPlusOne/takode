@@ -26,6 +26,7 @@ export interface GenerationLifecycleSession {
   restartPrepInterruptOrigin?: "restart_prep" | null;
   compactedDuringTurn: boolean;
   userMessageIdsThisTurn: number[];
+  questThreadRemindersThisTurn?: unknown[];
   activeTurnRoute?: ActiveTurnRoute | null;
   queuedTurnStarts: number;
   queuedTurnReasons: string[];
@@ -316,6 +317,7 @@ export function reconcileTerminalResultState<S extends GenerationLifecycleSessio
   session.interruptSourceDuringTurn = null;
   session.compactedDuringTurn = false;
   session.userMessageIdsThisTurn = [];
+  session.questThreadRemindersThisTurn = [];
   deps.onSessionActivityStateChanged(session.id, `generating:${reason}:reconciled`);
   return { endedTurn: false, clearedResidualState: true };
 }
@@ -339,6 +341,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.restartPrepInterruptOrigin = null;
     session.compactedDuringTurn = false;
     session.userMessageIdsThisTurn = [];
+    session.questThreadRemindersThisTurn = [];
     session.activeTurnRoute = null;
     console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
     deps.recordGenerationStarted?.(session, reason);

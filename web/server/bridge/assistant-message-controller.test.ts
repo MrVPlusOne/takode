@@ -272,6 +272,38 @@ describe("assistant-message-controller", () => {
     ]);
   });
 
+  it("strips quest thread reminders from leader assistant text and queues a synthetic reminder", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [
+      {
+        type: "text",
+        text: [
+          "[thread:main]",
+          "Created q-1025 with the approved scope.",
+          "",
+          "Thread reminder: attach any prior messages that clearly belong to q-1025 with `takode thread attach`.",
+        ].join("\n"),
+      },
+    ]);
+
+    const content = msg.type === "assistant" ? msg.message.content : [];
+    expect(content).toHaveLength(1);
+    expect(content[0]).toMatchObject({ type: "text", text: "Created q-1025 with the approved scope." });
+    expect(session.questThreadRemindersThisTurn).toMatchObject([
+      {
+        content:
+          "Thread reminder: attach any prior messages that clearly belong to q-1025 with `takode thread attach`.",
+        route: { threadKey: "main" },
+        agentSource: {
+          sessionId: "system:quest-thread-reminder",
+          sessionLabel: "Quest Thread Reminder",
+        },
+      },
+    ]);
+  });
+
   it("preserves unrouted leader text and records missing prefix metadata", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
