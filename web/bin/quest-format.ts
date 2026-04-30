@@ -124,6 +124,16 @@ export function formatQuestDetail(
   if ("description" in q && q.description) {
     lines.push(`Description: ${q.description}`);
   }
+  const isCancelled = "cancelled" in q && (q as { cancelled?: boolean }).cancelled;
+  const debrief = q.status === "done" && !isCancelled ? (q as { debrief?: string }).debrief?.trim() : undefined;
+  const debriefTldr =
+    q.status === "done" && !isCancelled ? normalizeTldr((q as { debriefTldr?: unknown }).debriefTldr) : undefined;
+  if (debriefTldr) {
+    lines.push(`Debrief TLDR: ${debriefTldr}`);
+  }
+  if (debrief) {
+    lines.push(`Debrief:     ${debrief}`);
+  }
   if (q.tags?.length) {
     lines.push(`Tags:        ${q.tags.join(", ")}`);
   }
@@ -228,7 +238,7 @@ export function formatQuestDetail(
       lines.push(`  ${img.filename} → ${img.path}`);
     }
   }
-  if ("cancelled" in q && (q as { cancelled?: boolean }).cancelled) {
+  if (isCancelled) {
     lines.push(`Cancelled:   yes`);
   }
   if ("notes" in q && (q as { notes?: string }).notes) {

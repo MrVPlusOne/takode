@@ -1,4 +1,4 @@
-import type { QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
+import type { QuestDone, QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
 import { normalizeTldr } from "./quest-tldr.js";
 
 export interface QuestGrepMatch {
@@ -122,6 +122,23 @@ export function grepQuests(
         },
         text: description,
         tldr: quest.tldr,
+      });
+    }
+
+    const doneQuest = quest.status === "done" && quest.cancelled !== true ? (quest as QuestDone) : null;
+    const debrief = doneQuest?.debrief || "";
+    if (debrief) {
+      pushContentMatch({
+        re,
+        pushMatch,
+        match: {
+          questId: quest.questId,
+          title: quest.title,
+          status: quest.status,
+          matchedField: "debrief",
+        },
+        text: debrief,
+        tldr: doneQuest?.debriefTldr,
       });
     }
 

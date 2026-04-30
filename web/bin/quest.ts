@@ -368,7 +368,7 @@ function warnAll(messages: string[]): void {
   for (const message of messages) warn(message);
 }
 
-function tldrWarningsForWrite(kind: "description" | "feedback", text: unknown, tldr: unknown): string[] {
+function tldrWarningsForWrite(kind: "description" | "feedback" | "debrief", text: unknown, tldr: unknown): string[] {
   const warning = tldrWarningForContent(kind, text, tldr);
   return warning ? [warning] : [];
 }
@@ -701,6 +701,24 @@ async function readRichTextOption(args: {
   }
 
   return value;
+}
+
+async function readOptionalDebriefOptions(): Promise<{ debrief?: string; debriefTldr?: string }> {
+  const debrief = await readOptionalRichTextOption({
+    inlineFlag: "debrief",
+    fileFlag: "debrief-file",
+    label: "Final debrief",
+  });
+  const debriefTldr = await readOptionalRichTextOption({
+    inlineFlag: "debrief-tldr",
+    fileFlag: "debrief-tldr-file",
+    label: "Final debrief TLDR",
+  });
+  const normalizedDebriefTldr = normalizeTldr(debriefTldr);
+  return {
+    ...(debrief !== undefined ? { debrief } : {}),
+    ...(debriefTldr !== undefined ? { debriefTldr: normalizedDebriefTldr ?? "" } : {}),
+  };
 }
 
 function parseVerificationItems(raw: string, sourceLabel: string): { text: string; checked: boolean }[] {
@@ -1115,12 +1133,25 @@ async function cmdClaim(): Promise<void> {
 }
 
 async function cmdComplete(): Promise<void> {
-  validateFlags(["items", "items-file", "commit", "commits", "no-code", "session", "json"]);
+  validateFlags([
+    "items",
+    "items-file",
+    "commit",
+    "commits",
+    "no-code",
+    "session",
+    "debrief",
+    "debrief-file",
+    "debrief-tldr",
+    "debrief-tldr-file",
+    "json",
+  ]);
   const id = positional(0);
   if (!id) {
     die(
       'Usage: quest complete <questId> [--items "check1,check2" | --items-file <path>|-] ' +
-        '[--no-code] [--session <sid>] [--commit <sha>] [--commits "sha1,sha2"]',
+        '[--no-code] [--session <sid>] [--commit <sha>] [--commits "sha1,sha2"] ' +
+        '[--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-]',
     );
   }
 
@@ -1144,6 +1175,7 @@ async function cmdComplete(): Promise<void> {
   if (flag("session") && !targetSessionId) {
     die("--session requires a session id");
   }
+  const debriefOptions = await readOptionalDebriefOptions();
 
   let items: { text: string; checked: boolean }[] = [];
   if (itemsFile !== undefined) {
@@ -1178,6 +1210,7 @@ async function cmdComplete(): Promise<void> {
           verificationItems: items,
           ...(targetSessionId ? { sessionId: targetSessionId } : {}),
           ...(commitShas.length > 0 ? { commitShas } : {}),
+          ...debriefOptions,
         }),
         signal: AbortSignal.timeout(5000),
       });
@@ -1192,6 +1225,7 @@ async function cmdComplete(): Promise<void> {
         console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} verification items`);
         console.log(formatCompletionReminder(quest.questId, { noCode }));
       }
+      warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
       return;
     } catch (e) {
       if ((e as Error).name === "AbortError" || (e as Error).message?.includes("timeout")) {
@@ -1207,8 +1241,8 @@ async function cmdComplete(): Promise<void> {
     const quest = await completeQuest(
       id,
       items,
-      commitShas.length > 0 || targetSessionId
-        ? { commitShas, ...(targetSessionId ? { sessionId: targetSessionId } : {}) }
+      commitShas.length > 0 || targetSessionId || Object.keys(debriefOptions).length > 0
+        ? { commitShas, ...(targetSessionId ? { sessionId: targetSessionId } : {}), ...debriefOptions }
         : undefined,
     );
     if (!quest) die(`Quest ${id} not found`);
@@ -1219,6 +1253,7 @@ async function cmdComplete(): Promise<void> {
       console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} verification items`);
       console.log(formatCompletionReminder(quest.questId, { noCode }));
     }
+    warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
   } catch (e) {
     die((e as Error).message);
   }
@@ -1243,19 +1278,36 @@ function formatCompletionReminder(questId: string, options: { noCode: boolean })
 }
 
 async function cmdDone(): Promise<void> {
-  validateFlags(["notes", "notes-file", "cancelled", "json"]);
+  validateFlags([
+    "notes",
+    "notes-file",
+    "debrief",
+    "debrief-file",
+    "debrief-tldr",
+    "debrief-tldr-file",
+    "cancelled",
+    "json",
+  ]);
   const id = positional(0);
-  if (!id) die('Usage: quest done <questId> [--notes "..." | --notes-file <path>|-] [--cancelled]');
+  if (!id)
+    die(
+      'Usage: quest done <questId> [--notes "..." | --notes-file <path>|-] ' +
+        '[--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled]',
+    );
 
   const notes = await readOptionalRichTextOption({
     inlineFlag: "notes",
     fileFlag: "notes-file",
     label: "Closure notes",
   });
+  const debriefOptions = await readOptionalDebriefOptions();
   const cancelled = flag("cancelled");
+  if (cancelled && Object.keys(debriefOptions).length > 0) {
+    die("Final debrief metadata is only supported for completed quests, not cancelled quests");
+  }
 
   try {
-    const quest = await markDone(id, { notes, cancelled });
+    const quest = await markDone(id, { notes, cancelled, ...debriefOptions });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -1264,6 +1316,7 @@ async function cmdDone(): Promise<void> {
       const verb = cancelled ? "Cancelled" : "Marked done";
       console.log(`${verb} ${quest.questId} "${quest.title}"`);
     }
+    warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
   } catch (e) {
     die((e as Error).message);
   }
@@ -1295,12 +1348,27 @@ async function cmdCancel(): Promise<void> {
 }
 
 async function cmdTransition(): Promise<void> {
-  validateFlags(["status", "desc", "desc-file", "tldr", "tldr-file", "session", "commit", "commits", "json"]);
+  validateFlags([
+    "status",
+    "desc",
+    "desc-file",
+    "tldr",
+    "tldr-file",
+    "session",
+    "commit",
+    "commits",
+    "debrief",
+    "debrief-file",
+    "debrief-tldr",
+    "debrief-tldr-file",
+    "json",
+  ]);
   const id = positional(0);
   if (!id)
     die(
       'Usage: quest transition <questId> --status <s> [--desc "..." | --desc-file <path>|-] ' +
-        '[--tldr "..." | --tldr-file <path>|-]',
+        '[--tldr "..." | --tldr-file <path>|-] ' +
+        '[--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-]',
     );
 
   const status = option("status");
@@ -1322,10 +1390,14 @@ async function cmdTransition(): Promise<void> {
     label: "Quest TLDR",
   });
   const normalizedTldr = normalizeTldr(tldr);
+  const debriefOptions = await readOptionalDebriefOptions();
   const sessionId = option("session") || currentSessionId;
   const commitShas = parseCommitShasFromFlags();
   if (commitShas.length > 0 && status !== "done") {
     die("--commit/--commits can only be used when completing a quest");
+  }
+  if (Object.keys(debriefOptions).length > 0 && status !== "done") {
+    die("--debrief/--debrief-file and --debrief-tldr/--debrief-tldr-file can only be used with --status done");
   }
 
   try {
@@ -1335,6 +1407,7 @@ async function cmdTransition(): Promise<void> {
       ...(tldr !== undefined ? { tldr: normalizedTldr ?? "" } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(commitShas.length > 0 ? { commitShas } : {}),
+      ...debriefOptions,
     });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
@@ -1344,6 +1417,7 @@ async function cmdTransition(): Promise<void> {
       console.log(`Transitioned ${quest.questId} to ${quest.status}`);
     }
     warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
+    warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
   } catch (e) {
     die((e as Error).message);
   }

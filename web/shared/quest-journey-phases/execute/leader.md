@@ -9,6 +9,7 @@ Leader actions:
 - Make the monitor conditions, stop conditions, and escalation triggers explicit.
 - Ensure required approvals are in place before execution starts.
 - Require the assignee to add or refresh phase documentation before the phase handoff. It should use phase-scoped quest feedback with full agent-oriented detail plus TLDR metadata when working on a quest, falling back to explicit `--phase execute` if current-phase inference is unavailable.
+- Provide only deltas the assignee is unlikely to infer from the phase brief, quest record, current artifacts, or their own context: exact accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, or facts unavailable to that actor. Avoid restating generic closure checklists covered by the brief.
 - Wait for the execution report before advancing.
 - If the run results are sufficient, route to `OUTCOME_REVIEWING` when a reviewer-owned acceptance judgment is still needed.
 - If more approved runs are needed, stay in or return to `EXECUTING`; if the success criteria, scope, or experiment design changed, route back to `ALIGNMENT`.

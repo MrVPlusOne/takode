@@ -190,6 +190,10 @@ export type QuestDone = Omit<QuestInProgress, "status" | "sessionId" | "claimedA
   verificationInboxUnread?: boolean;
   /** Free-form closure notes (commit hashes, reasoning, references, etc.) */
   notes?: string;
+  /** Final user-facing outcome debrief for completed quests. */
+  debrief?: string;
+  /** Human-readable scan summary for long final debriefs. */
+  debriefTldr?: string;
   /** If true, this quest was cancelled/aborted rather than completed */
   cancelled?: boolean;
 };
@@ -284,6 +288,10 @@ export interface QuestTransitionInput {
   verificationInboxUnread?: boolean;
   /** Closure notes for done status (commit hashes, reasoning, etc.) */
   notes?: string;
+  /** Final user-facing outcome debrief for completed quests. */
+  debrief?: string;
+  /** Human-readable scan summary for long final debriefs. */
+  debriefTldr?: string;
   /** If true, marks this as cancelled/aborted rather than completed */
   cancelled?: boolean;
 }

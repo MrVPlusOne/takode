@@ -16,6 +16,8 @@ import {
   getQuestDescription,
   getQuestTldr,
   getQuestNotes,
+  getQuestDebrief,
+  getQuestDebriefTldr,
   getQuestFeedback,
   getQuestRecencyTs,
 } from "../utils/quest-editor-helpers.js";
@@ -813,6 +815,8 @@ export function QuestDetailPanel() {
   const description = getQuestDescription(quest);
   const questTldr = getQuestTldr(quest);
   const questNotes = getQuestNotes(quest);
+  const questDebrief = getQuestDebrief(quest);
+  const questDebriefTldr = getQuestDebriefTldr(quest);
   const questSessionId = getQuestOwnerSessionId(quest);
   const questMarkdownSessionId = questSessionId ?? undefined;
   const leaderSessionId = getQuestLeaderSessionId(quest);
@@ -969,7 +973,7 @@ export function QuestDetailPanel() {
           className="overflow-y-auto px-4 pb-4 pt-3 space-y-3"
           onPaste={isEditing ? (e) => handleEditPaste(quest.questId, e) : undefined}
         >
-          {journeyBoardRow?.journey && !phaseDocumentationSummary.hasPhaseDocumentation && (
+          {quest.status !== "done" && journeyBoardRow?.journey && !phaseDocumentationSummary.hasPhaseDocumentation && (
             <div className="max-w-full" data-testid="quest-detail-journey-section">
               <QuestJourneyTimeline journey={journeyBoardRow.journey} status={journeyStatus} variant="vertical" />
             </div>
@@ -1136,41 +1140,104 @@ export function QuestDetailPanel() {
             </>
           ) : (
             <>
-              {/* Description */}
-              {(questTldr || description || phaseDocumentationSummary.hasPhaseDocumentation) && (
+              {/* Description, final debrief, then Journey history */}
+              {(questTldr ||
+                description ||
+                questDebrief ||
+                questDebriefTldr ||
+                phaseDocumentationSummary.hasPhaseDocumentation ||
+                (quest.status === "done" && journeyBoardRow?.journey)) && (
                 <div className="space-y-2">
-                  {questTldr && (
-                    <div className="rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2">
-                      <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">
-                        TLDR
+                  {(questTldr || description) && (
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">
+                        Description
                       </div>
-                      <MarkdownContent
-                        text={questTldr}
-                        size="sm"
-                        sessionId={questMarkdownSessionId}
-                        searchHighlight={
-                          searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
-                        }
-                      />
+                      {questTldr && (
+                        <div className="rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2">
+                          <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">
+                            TLDR
+                          </div>
+                          <MarkdownContent
+                            text={questTldr}
+                            size="sm"
+                            sessionId={questMarkdownSessionId}
+                            searchHighlight={
+                              searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
+                            }
+                          />
+                        </div>
+                      )}
+                      {description && (
+                        <MarkdownContent
+                          text={description}
+                          size="sm"
+                          sessionId={questMarkdownSessionId}
+                          searchHighlight={
+                            searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
+                          }
+                        />
+                      )}
+                    </div>
+                  )}
+                  {(questDebrief || questDebriefTldr) && (
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">
+                        Final Debrief
+                      </div>
+                      {questDebriefTldr && (
+                        <div className="rounded-lg border border-cc-border bg-cc-input-bg px-3 py-2">
+                          <div className="mb-1 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">
+                            Debrief TLDR
+                          </div>
+                          <MarkdownContent
+                            text={questDebriefTldr}
+                            size="sm"
+                            sessionId={questMarkdownSessionId}
+                            searchHighlight={
+                              searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
+                            }
+                          />
+                        </div>
+                      )}
+                      {questDebrief && (
+                        <MarkdownContent
+                          text={questDebrief}
+                          size="sm"
+                          sessionId={questMarkdownSessionId}
+                          searchHighlight={
+                            searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
+                          }
+                        />
+                      )}
                     </div>
                   )}
                   {phaseDocumentationSummary.hasPhaseDocumentation && (
-                    <QuestPhaseDocumentationTimeline
-                      summary={phaseDocumentationSummary}
-                      searchHighlight={searchHighlight}
-                      sessionId={questMarkdownSessionId}
-                    />
+                    <div className="space-y-2">
+                      <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">
+                        Journey Details
+                      </div>
+                      <QuestPhaseDocumentationTimeline
+                        summary={phaseDocumentationSummary}
+                        searchHighlight={searchHighlight}
+                        sessionId={questMarkdownSessionId}
+                      />
+                    </div>
                   )}
-                  {description && (
-                    <MarkdownContent
-                      text={description}
-                      size="sm"
-                      sessionId={questMarkdownSessionId}
-                      searchHighlight={
-                        searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
-                      }
-                    />
-                  )}
+                  {quest.status === "done" &&
+                    !phaseDocumentationSummary.hasPhaseDocumentation &&
+                    journeyBoardRow?.journey && (
+                      <div className="space-y-2" data-testid="quest-detail-journey-section">
+                        <div className="text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/60">
+                          Journey Details
+                        </div>
+                        <QuestJourneyTimeline
+                          journey={journeyBoardRow.journey}
+                          status={journeyStatus}
+                          variant="vertical"
+                        />
+                      </div>
+                    )}
                 </div>
               )}
 

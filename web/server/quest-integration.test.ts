@@ -175,13 +175,24 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Worktree sessions:");
     expect(skill).toContain("do **not** run `quest complete`");
     expect(skill).toContain("synced to the main repo checkout and pushed");
-    expect(skill).toContain('quest complete q-N --items "..." --commits "sha1,sha2"');
+    expect(skill).toContain(
+      'quest complete q-N --items "..." --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md',
+    );
     expect(skill).toContain("Synced SHAs: sha1,sha2");
+    expect(skill).toContain("Final debrief draft:");
+    expect(skill).toContain("Debrief TLDR draft:");
+    expect(skill).toContain("focused Bookkeeping phase");
     expect(skill).toContain("Do not rely on log parsing or memory");
     expect(skill).toContain("Do not leave commit info only in comments");
     expect(skill).toContain("one substantive quest-level prose summary");
     expect(skill).toContain("what changed, why it matters to the user or project, and what verification passed");
     expect(skill).toContain("`--tldr` or `--tldr-file` with one concise bullet or sentence for each major topic");
+    expect(skill).toContain("Apply a value filter");
+    expect(skill).toContain("If your context was compacted during the phase");
+    expect(skill).toContain("structured final debrief metadata");
+    expect(skill).toContain("--debrief-file");
+    expect(skill).toContain("--debrief-tldr-file");
+    expect(skill).toContain("If you complete a ported or multi-topic quest");
     expect(skill).toContain("Re-running the same summary-style feedback (`Summary:` or `Refreshed summary:`)");
     expect(skill).toContain("Only add a second port-specific comment");
     expect(skill).toContain("pass `quest complete ... --no-code`");
@@ -340,7 +351,7 @@ describe("ensureQuestmasterIntegration", () => {
 
     const skill = String(codexSkillWrite?.[1] ?? "");
     expect(skill).toContain("quest grep   <pattern> [--count N] [--json]");
-    expect(skill).toContain("Search quest title, description, and feedback/comments");
+    expect(skill).toContain("Search quest title, description, final debrief, and feedback/comments");
     expect(skill).toContain("Use `quest grep` when you need to search **inside** quest titles");
     expect(skill).toContain("Use `quest list --text` when you are broadly filtering the quest list");
     expect(skill).toContain("prefer `quest grep <pattern>` over manually scanning `quest show` output");

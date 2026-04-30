@@ -8,6 +8,7 @@ description: "Quest Journey phase: alignment. Legacy skill slug for the lightwei
 This legacy skill slug now documents the `alignment` phase. Use it for a lightweight read-in after the initial Journey has been approved.
 
 Leader actions:
+- Provide only deltas the assignee is unlikely to infer from the phase brief, quest record, current artifacts, or their own context: exact accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, or facts unavailable to that actor. Avoid restating generic closure checklists covered by the brief.
 - Send the standard dispatch message for the quest.
 - Include the exact assignee brief path: `~/.companion/quest-journey-phases/alignment/assignee.md`.
 - Approve the initial Journey before this phase begins and keep that Journey on the board.
@@ -25,6 +26,8 @@ Worker-visible boundary:
 - If the worker believes the Journey should change, they should surface the evidence in the read-in rather than assuming approval for a different phase sequence.
 - The worker must not explore, implement, review, execute, port, or change quest status.
 - Before reporting back, the worker should document the Alignment phase on the quest with full agent-oriented detail plus TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary`; use explicit `--phase alignment` or occurrence flags if current-phase inference is unavailable.
+- Apply a value filter: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases.
+- If context was compacted during this phase, or if memory confidence is low, reconstruct the relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 
 Exit evidence:
 - A lightweight alignment read-in is available in plain text, including concrete understanding, ambiguities, clarification questions, blockers, surprises, and any evidence that may justify leader-owned Journey revision.

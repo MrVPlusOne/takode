@@ -19,6 +19,16 @@ export function getQuestNotes(quest: QuestmasterTask): string | undefined {
   return "notes" in quest ? (quest as { notes?: string }).notes : undefined;
 }
 
+export function getQuestDebrief(quest: QuestmasterTask): string | undefined {
+  if (quest.status !== "done" || isQuestCancelled(quest)) return undefined;
+  return (quest as { debrief?: string }).debrief?.trim() || undefined;
+}
+
+export function getQuestDebriefTldr(quest: QuestmasterTask): string | undefined {
+  if (quest.status !== "done" || isQuestCancelled(quest)) return undefined;
+  return (quest as { debriefTldr?: string }).debriefTldr?.trim() || undefined;
+}
+
 export function getQuestFeedback(quest: QuestmasterTask): QuestFeedbackEntry[] {
   return "feedback" in quest ? ((quest as { feedback?: QuestFeedbackEntry[] }).feedback ?? []) : [];
 }

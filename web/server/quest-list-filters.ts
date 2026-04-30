@@ -78,8 +78,10 @@ export function applyQuestListFilters(quests: QuestmasterTask[], filters: QuestL
     if (textQuery) {
       const feedbackText =
         "feedback" in quest ? (quest.feedback ?? []).flatMap((entry) => [entry.tldr ?? "", entry.text]) : [];
+      const doneText =
+        quest.status === "done" && quest.cancelled !== true ? `${quest.debriefTldr ?? ""}\n${quest.debrief ?? ""}` : "";
       const haystack = normalizeForSearch(
-        `${quest.questId}\n${quest.title}\n${quest.tldr ?? ""}\n${"description" in quest ? quest.description || "" : ""}\n${feedbackText.join("\n")}`,
+        `${quest.questId}\n${quest.title}\n${quest.tldr ?? ""}\n${"description" in quest ? quest.description || "" : ""}\n${doneText}\n${feedbackText.join("\n")}`,
       );
       if (!haystack.includes(textQuery)) return false;
     }

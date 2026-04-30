@@ -48,6 +48,8 @@ quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md 
 
 Use `--kind phase-finding` for exploration findings, `--kind review` for review phases, or `--kind artifact` for execution artifacts when that better describes the entry. If inference is unavailable or ambiguous, use explicit flags such as `--phase`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run`. Use `--no-phase` only when a flat unscoped quest comment is intentional, such as non-Journey bookkeeping or legacy quest compatibility.
 
+Apply a value filter to phase documentation: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases. If the actor's context was compacted during the phase, or if memory confidence is low, they should reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, they should use working memory and current artifacts instead of unnecessary session archaeology.
+
 Phase documentation should stay specific to the phase:
 - Alignment: concrete understanding, ambiguities, clarification questions, blockers, surprises, and Journey-revision evidence.
 - Explore: findings, evidence sources, ambiguities or blockers, implementation considerations, and Journey-revision evidence.
@@ -56,8 +58,8 @@ Phase documentation should stay specific to the phase:
 - Mental Simulation: scenarios replayed, concrete examples, risks, recommendations, and confidence limits.
 - Execute: approved action, monitors, stop conditions, outcome, deviations, artifacts or logs, and follow-up needs.
 - Outcome Review: evidence judged, acceptance or insufficiency rationale, bounded reruns, and follow-up routing.
-- Bookkeeping: records updated, superseded facts, external locations, and durable handoff facts.
-- Port: ordered synced SHAs, post-port verification, port anomalies, and remaining sync risks.
+- Bookkeeping: cross-phase or external durable state beyond normal phase notes, such as records updated, consolidated summaries, final debrief metadata after port when the port worker could not reliably create it, verification checklist reconciliation, superseded facts, external locations, notification/thread cleanup, and durable handoff facts.
+- Port: ordered synced SHAs, post-port verification, port anomalies, remaining sync risks, and final debrief metadata status or draft.
 
 Review phases must judge documentation quality, not just presence. Check phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the phase-scoped primitive is available.
 
@@ -132,7 +134,7 @@ Rules:
 - **Escalate alignment back to the user only for real blockers.** Significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another blocking issue can require fresh user approval.
 - **Alignment approval authorizes exactly one next phase.** For example: explore now, then stop and report back.
 - **Workers and reviewers document, report, then stop at phase boundaries.** They do not self-review, self-port, self-transition, or self-complete unless explicitly instructed.
-- **Porting requires an explicit instruction.**
+- **Porting requires an explicit instruction.** Port must also settle final debrief ownership: completion by the port worker for a nontrivial quest should use `--debrief-file` and `--debrief-tldr-file`; leader-controlled completion needs a `Final debrief draft:` plus `Debrief TLDR draft:` or a focused Bookkeeping phase if Port cannot reliably produce them.
 
 ## Review Phases
 

@@ -148,4 +148,31 @@ describe("grepQuests", () => {
       phaseOccurrence: 1,
     });
   });
+
+  it("searches final debrief text and prefers debrief TLDR snippets", () => {
+    const quests: QuestmasterTask[] = [
+      {
+        id: "q-8-v2",
+        questId: "q-8",
+        version: 2,
+        title: "Completed quest",
+        createdAt: 1,
+        status: "done",
+        description: "Initial request.",
+        completedAt: 2,
+        verificationItems: [{ text: "Verify", checked: true }],
+        debrief: "Final debrief contains deployment details in full.",
+        debriefTldr: "Deployment details summary.",
+      },
+    ];
+
+    const result = grepQuests(quests, "deployment");
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0]).toMatchObject({
+      questId: "q-8",
+      matchedField: "debrief.tldr",
+      snippet: "Deployment details summary.",
+    });
+  });
 });

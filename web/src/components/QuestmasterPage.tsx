@@ -26,6 +26,7 @@ import {
   findHashtagTokenAtCursor,
   isVerificationInboxUnread,
   isQuestUnderReview,
+  getQuestDebriefTldr,
   autoResizeTextarea,
 } from "../utils/quest-editor-helpers.js";
 import { Lightbox } from "./Lightbox.js";
@@ -811,6 +812,10 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
         if (multiWordMatch(q.title, searchText)) return true;
         if (q.tldr && multiWordMatch(q.tldr, searchText)) return true;
         if (q.description && multiWordMatch(q.description, searchText)) return true;
+        const debriefTldr = getQuestDebriefTldr(q);
+        const debrief = q.status === "done" && q.cancelled !== true ? (q as { debrief?: string }).debrief : undefined;
+        if (debriefTldr && multiWordMatch(debriefTldr, searchText)) return true;
+        if (debrief && multiWordMatch(debrief, searchText)) return true;
         const feedbackEntries = "feedback" in q ? ((q as { feedback?: QuestFeedbackEntry[] }).feedback ?? []) : [];
         if (feedbackEntries.some((entry) => multiWordMatch(entry.tldr || "", searchText))) return true;
         if (feedbackEntries.some((entry) => multiWordMatch(entry.text, searchText))) return true;
@@ -1589,6 +1594,7 @@ const QuestCard = memo(function QuestCard({
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const questSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = getQuestLeaderSessionId(quest);
+  const debriefTldr = getQuestDebriefTldr(quest);
   const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
   const unaddressedFeedbackCount =
     feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
@@ -1635,6 +1641,12 @@ const QuestCard = memo(function QuestCard({
             {quest.tldr && (
               <div className="mt-0.5 truncate text-xs text-cc-muted">
                 {renderSearchHighlightText(quest.tldr, searchText)}
+              </div>
+            )}
+            {debriefTldr && (
+              <div className="mt-0.5 truncate text-xs text-cc-muted">
+                <span className="text-cc-muted/70">Debrief: </span>
+                {renderSearchHighlightText(debriefTldr, searchText)}
               </div>
             )}
             <QuestPhaseScanLines quest={quest} searchText={searchText} className="mt-0.5" />
@@ -1847,6 +1859,7 @@ const CompactQuestRow = memo(function CompactQuestRow({
   const cfg = STATUS_CONFIG[quest.status];
   const questSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = getQuestLeaderSessionId(quest);
+  const debriefTldr = getQuestDebriefTldr(quest);
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
@@ -1900,6 +1913,12 @@ const CompactQuestRow = memo(function CompactQuestRow({
         {quest.tldr && (
           <div className="mt-0.5 max-w-[360px] truncate text-[11px] text-cc-muted">
             {renderSearchHighlightText(quest.tldr, searchText)}
+          </div>
+        )}
+        {debriefTldr && (
+          <div className="mt-0.5 max-w-[360px] truncate text-[11px] text-cc-muted">
+            <span className="text-cc-muted/70">Debrief: </span>
+            {renderSearchHighlightText(debriefTldr, searchText)}
           </div>
         )}
         <QuestPhaseScanLines quest={quest} searchText={searchText} max={1} className="mt-0.5 max-w-[360px]" />

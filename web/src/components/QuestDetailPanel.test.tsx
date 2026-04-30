@@ -640,6 +640,61 @@ describe("QuestDetailPanel", () => {
     expect(await screen.findByText("Full second implementation detail.")).toBeVisible();
   });
 
+  it("orders completed quest detail as description, final debrief, then Journey details", () => {
+    const quest = makeVerificationQuest({
+      tldr: "Initial TLDR.",
+      description: "Initial quest description.",
+      debrief: "Final debrief outcome.",
+      debriefTldr: "Final debrief TLDR.",
+      journeyRuns: [
+        {
+          runId: "run-1",
+          source: "board",
+          phaseIds: ["implement"],
+          status: "completed",
+          createdAt: Date.now() - 5000,
+          updatedAt: Date.now() - 1000,
+          phaseOccurrences: [
+            {
+              occurrenceId: "run-1:p1",
+              phaseId: "implement",
+              phaseIndex: 0,
+              phasePosition: 1,
+              phaseOccurrence: 1,
+              status: "completed",
+            },
+          ],
+        },
+      ],
+      feedback: [
+        {
+          author: "agent",
+          kind: "phase_summary",
+          text: "Implementation phase detail.",
+          tldr: "Implementation phase TLDR.",
+          ts: Date.now(),
+          authorSessionId: "session-abc",
+          journeyRunId: "run-1",
+          phaseOccurrenceId: "run-1:p1",
+          phaseId: "implement",
+          phasePosition: 1,
+          phaseOccurrence: 1,
+        },
+      ],
+    });
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByText("Description")).toBeTruthy();
+    expect(screen.getByText("Final Debrief")).toBeTruthy();
+    expect(screen.getByText("Journey Details")).toBeTruthy();
+    const text = document.body.textContent ?? "";
+    expect(text.indexOf("Initial quest description.")).toBeLessThan(text.indexOf("Final debrief outcome."));
+    expect(text.indexOf("Final debrief outcome.")).toBeLessThan(text.indexOf("Journey Details"));
+    expect(text.indexOf("Journey Details")).toBeLessThan(text.indexOf("Implementation phase TLDR."));
+  });
+
   it("renders verification items with correct checked state", () => {
     const quest = makeVerificationQuest();
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });

@@ -1,6 +1,6 @@
 import { describe, it, expect } from "vitest";
 import { applyQuestListFilters } from "./quest-list-filters.js";
-import type { QuestmasterTask } from "./quest-types.js";
+import type { QuestDone, QuestmasterTask } from "./quest-types.js";
 
 function makeQuest(
   input: Partial<QuestmasterTask> & { questId: string; title: string; status: QuestmasterTask["status"] },
@@ -93,6 +93,20 @@ describe("applyQuestListFilters", () => {
 
     expect(applyQuestListFilters([quest], { text: "scanline" }).map((q) => q.questId)).toEqual(["q-6"]);
     expect(applyQuestListFilters([quest], { text: "implementation" }).map((q) => q.questId)).toEqual(["q-6"]);
+  });
+
+  it("filters completed quests by final debrief text and debrief TLDR", () => {
+    const quest = makeQuest({
+      questId: "q-7",
+      title: "Completed outcome quest",
+      status: "done",
+      verificationInboxUnread: false,
+    }) as QuestDone;
+    quest.debrief = "Final outcome confirms deployment health.";
+    quest.debriefTldr = "Deployment healthy.";
+
+    expect(applyQuestListFilters([quest], { text: "deployment healthy" }).map((q) => q.questId)).toEqual(["q-7"]);
+    expect(applyQuestListFilters([quest], { text: "outcome confirms" }).map((q) => q.questId)).toEqual(["q-7"]);
   });
 
   it("matches quest ids from free-text search", () => {

@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { extractHashtags, findHashtagTokenAtCursor } from "./quest-editor-helpers.js";
+import {
+  extractHashtags,
+  findHashtagTokenAtCursor,
+  getQuestDebrief,
+  getQuestDebriefTldr,
+} from "./quest-editor-helpers.js";
+import type { QuestmasterTask } from "../types.js";
 
 describe("quest-editor-helpers hashtag parsing", () => {
   it("extracts valid tags while skipping numeric-leading session references", () => {
@@ -22,5 +28,27 @@ describe("quest-editor-helpers hashtag parsing", () => {
       end: 12,
       query: "",
     });
+  });
+
+  it("returns final debrief metadata only for non-cancelled done quests", () => {
+    const doneQuest = {
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Done",
+      status: "done",
+      description: "Initial",
+      debrief: "Final outcome.",
+      debriefTldr: "Final TLDR.",
+      createdAt: 1,
+      completedAt: 2,
+      verificationItems: [],
+    } as QuestmasterTask;
+    const cancelledQuest = { ...doneQuest, cancelled: true } as QuestmasterTask;
+
+    expect(getQuestDebrief(doneQuest)).toBe("Final outcome.");
+    expect(getQuestDebriefTldr(doneQuest)).toBe("Final TLDR.");
+    expect(getQuestDebrief(cancelledQuest)).toBeUndefined();
+    expect(getQuestDebriefTldr(cancelledQuest)).toBeUndefined();
   });
 });

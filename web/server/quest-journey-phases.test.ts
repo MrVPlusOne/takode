@@ -224,6 +224,8 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase.assigneeBrief).toContain("--tldr-file");
       expect(phase.assigneeBrief).toContain("current-phase inference");
       expect(phase.assigneeBrief).toContain("--no-phase");
+      expect(phase.assigneeBrief).toContain("Apply a value filter");
+      expect(phase.assigneeBrief).toContain("If context was compacted during this phase");
       expect(phase.assigneeBrief).toContain(
         "[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)",
       );
@@ -231,7 +233,39 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase.assigneeBrief).toContain(phaseSpecificExpectations.get(phase.id));
       expect(phase.leaderBrief).toContain("phase documentation");
       expect(phase.leaderBrief).toContain("full agent-oriented detail plus TLDR metadata");
+      expect(phase.leaderBrief).toContain("Provide only deltas the assignee is unlikely to infer");
     }
+  });
+
+  it("seeds Bookkeeping briefs as cross-phase durable-state guidance", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const bookkeepingPhase = phases.find((phase) => phase.id === "bookkeeping");
+
+    expect(bookkeepingPhase?.leaderBrief).toContain("cross-phase or external durable state beyond normal phase notes");
+    expect(bookkeepingPhase?.leaderBrief).toContain(
+      "final debrief metadata after port when the port worker could not reliably create it",
+    );
+    expect(bookkeepingPhase?.assigneeBrief).toContain("Do not duplicate normal phase documentation");
+  });
+
+  it("seeds Port briefs with final debrief ownership guidance", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const portPhase = phases.find((phase) => phase.id === "port");
+
+    // Port is the normal worktree completion path, so it must either create final
+    // debrief metadata or hand back a draft without forcing generic Bookkeeping.
+    expect(portPhase?.leaderBrief).toContain("Require final debrief ownership");
+    expect(portPhase?.leaderBrief).toContain("`--debrief-file` and `--debrief-tldr-file`");
+    expect(portPhase?.leaderBrief).toContain("focused Bookkeeping phase");
+    expect(portPhase?.assigneeBrief).toContain("quest complete ... --debrief-file ... --debrief-tldr-file ...");
+    expect(portPhase?.assigneeBrief).toContain("final debrief draft and debrief TLDR draft");
+    expect(portPhase?.assigneeBrief).toContain("whether final debrief metadata was submitted or drafted");
   });
 
   it("seeds review phases with documentation quality checks", async () => {

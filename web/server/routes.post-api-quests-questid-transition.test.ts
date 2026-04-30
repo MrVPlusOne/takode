@@ -565,10 +565,14 @@ describe("POST /api/quests/:questId/transition", () => {
     const res = await app.request("/api/quests/q-1/transition", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "done" }),
+      body: JSON.stringify({ status: "done", debrief: "Final outcome.", debriefTldr: "Final TLDR." }),
     });
 
     expect(res.status).toBe(200);
+    expect(questStore.transitionQuest).toHaveBeenCalledWith(
+      "q-1",
+      expect.objectContaining({ status: "done", debrief: "Final outcome.", debriefTldr: "Final TLDR." }),
+    );
     expect(bridge._sessions["session-1"].state).toMatchObject({
       claimedQuestId: undefined,
       claimedQuestTitle: undefined,

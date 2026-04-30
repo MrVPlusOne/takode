@@ -1403,16 +1403,26 @@ export const api = {
   deleteQuest: (id: string) => del(`/quests/${encodeURIComponent(id)}`),
   claimQuest: (id: string, sessionId: string) =>
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/claim`, { sessionId }),
-  completeQuest: (id: string, verificationItems: import("./types.js").QuestVerificationItem[], commitShas?: string[]) =>
+  completeQuest: (
+    id: string,
+    verificationItems: import("./types.js").QuestVerificationItem[],
+    commitShas?: string[],
+    debrief?: string,
+    debriefTldr?: string,
+  ) =>
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/complete`, {
       verificationItems,
       ...(commitShas?.length ? { commitShas } : {}),
+      ...(debrief !== undefined ? { debrief } : {}),
+      ...(debriefTldr !== undefined ? { debriefTldr } : {}),
     }),
   markQuestDone: (
     id: string,
     input?: {
       verificationItems?: import("./types.js").QuestVerificationItem[];
       notes?: string;
+      debrief?: string;
+      debriefTldr?: string;
       cancelled?: boolean;
     },
   ) =>

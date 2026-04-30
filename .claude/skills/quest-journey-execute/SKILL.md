@@ -8,6 +8,7 @@ description: "Quest Journey phase: execute. Use when a leader is authorizing an 
 This phase runs the approved expensive, risky, long-running, externally consequential, or approval-gated action.
 
 Leader actions:
+- Provide only deltas the assignee is unlikely to infer from the phase brief, quest record, current artifacts, or their own context: exact accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, or facts unavailable to that actor. Avoid restating generic closure checklists covered by the brief.
 - State the owner, artifacts, monitor plan, stop conditions, and alert triggers.
 - Include the exact assignee brief path: `~/.companion/quest-journey-phases/execute/assignee.md`.
 - Keep the board row in `EXECUTING`.
@@ -19,6 +20,8 @@ Worker-visible boundary:
 - The worker must escalate when stop conditions or new risks appear.
 - This is the phase for the approved run itself, not the main implementation or debugging loop.
 - Before reporting back, the worker should document the Execute phase on the quest with approved action, monitors, stop conditions, outcome, deviations, artifacts or logs, follow-up needs, and TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind artifact`; use explicit `--phase execute` or occurrence flags if current-phase inference is unavailable.
+- Apply a value filter: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases.
+- If context was compacted during this phase, or if memory confidence is low, reconstruct the relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 
 Exit evidence:
 - Execution report, artifact/run identifiers, monitor results, and any triggered alerts or stop conditions.

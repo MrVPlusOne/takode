@@ -90,4 +90,56 @@ describe("quest formatting", () => {
     expect(detail).toContain("#1 [human");
     expect(detail).not.toContain("Full implementation detail that should stay behind");
   });
+
+  it("shows final debrief after description and before phase documentation", () => {
+    const detail = formatQuestDetail({
+      ...quest,
+      status: "done",
+      completedAt: Date.now(),
+      verificationItems: [{ text: "Verify", checked: true }],
+      debrief: "Final outcome body.",
+      debriefTldr: "Final outcome TLDR.",
+      journeyRuns: [
+        {
+          runId: "run-1",
+          source: "board",
+          phaseIds: ["implement"],
+          status: "completed",
+          createdAt: 1,
+          updatedAt: 2,
+          phaseOccurrences: [
+            {
+              occurrenceId: "run-1:p1",
+              phaseId: "implement",
+              phaseIndex: 0,
+              phasePosition: 1,
+              phaseOccurrence: 1,
+              status: "completed",
+            },
+          ],
+        },
+      ],
+      feedback: [
+        {
+          author: "agent",
+          kind: "phase_summary",
+          text: "Implementation detail.",
+          tldr: "Implementation TLDR.",
+          ts: Date.now(),
+          phaseId: "implement",
+          phasePosition: 1,
+          phaseOccurrenceId: "run-1:p1",
+          journeyRunId: "run-1",
+        },
+      ],
+    });
+
+    const descriptionIndex = detail.indexOf("Description: Ready");
+    const debriefIndex = detail.indexOf("Debrief:     Final outcome body.");
+    const phaseIndex = detail.indexOf("Phase Documentation:");
+    expect(descriptionIndex).toBeGreaterThanOrEqual(0);
+    expect(debriefIndex).toBeGreaterThan(descriptionIndex);
+    expect(phaseIndex).toBeGreaterThan(debriefIndex);
+    expect(detail).toContain("Debrief TLDR: Final outcome TLDR.");
+  });
 });

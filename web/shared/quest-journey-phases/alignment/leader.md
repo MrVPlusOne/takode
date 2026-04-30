@@ -9,6 +9,7 @@ Leader actions:
 - When the relevant context is already known, point the worker to the exact prior messages, quests, or discussions that matter instead of asking for broad rediscovery.
 - Ask for a lightweight alignment read-in: concrete understanding, ambiguities, clarification questions, blockers, surprises, and evidence that may justify leader-owned Journey revision.
 - Require the worker to add or refresh phase documentation before the phase handoff. It should use phase-scoped quest feedback with full agent-oriented detail plus TLDR metadata when working on a quest, falling back to explicit `--phase alignment` if current-phase inference is unavailable.
+- Provide only deltas the assignee is unlikely to infer from the phase brief, quest record, current artifacts, or their own context: exact accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, or facts unavailable to that actor. Avoid restating generic closure checklists covered by the brief.
 - Do not demand a supposedly comprehensive implementation plan here; if real unknowns emerge, route to `EXPLORE` instead of pretending implementation is already fully planned.
 - Review the returned alignment read-in yourself first. If it stays within the approved Journey and introduces no significant ambiguity, scope change, Journey revision, user-visible tradeoff, or other blocking issue, approve the next phase yourself.
 - Escalate back to the user only when the read-in surfaces one of those issues or otherwise genuinely needs user approval.

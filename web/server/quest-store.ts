@@ -1290,6 +1290,8 @@ function buildTransitionedQuest(
     !input.verificationItems &&
     !input.commitShas &&
     !input.notes &&
+    input.debrief === undefined &&
+    input.debriefTldr === undefined &&
     !input.cancelled &&
     !(targetStatus === "done" && hasQuestReviewMetadata(current)) &&
     input.tldr === undefined
@@ -1393,6 +1395,20 @@ function buildTransitionedQuest(
       if (!description?.trim()) {
         throw new Error("Description is required for done status");
       }
+      if (input.cancelled && (input.debrief !== undefined || input.debriefTldr !== undefined)) {
+        throw new Error("Final debrief metadata is only supported for completed quests, not cancelled quests");
+      }
+      const currentDebrief = current.status === "done" && !input.cancelled ? (current as QuestDone).debrief : undefined;
+      const debrief = input.debrief !== undefined && !input.cancelled ? input.debrief.trim() : currentDebrief;
+      const notes =
+        input.notes ?? (current.status === "done" && !input.cancelled ? (current as QuestDone).notes : undefined);
+      const debriefTldr = input.cancelled
+        ? undefined
+        : input.debriefTldr !== undefined
+          ? normalizeTldr(input.debriefTldr)
+          : current.status === "done"
+            ? normalizeTldr((current as QuestDone).debriefTldr)
+            : undefined;
       const completedOwnerSessionId = currentActiveSessionId ?? input.sessionId;
       if (completedOwnerSessionId && !previousOwners.includes(completedOwnerSessionId)) {
         previousOwners.push(completedOwnerSessionId);
@@ -1417,7 +1433,9 @@ function buildTransitionedQuest(
         ...(input.verificationInboxUnread !== undefined
           ? { verificationInboxUnread: input.verificationInboxUnread }
           : {}),
-        ...(input.notes ? { notes: input.notes } : {}),
+        ...(notes ? { notes } : {}),
+        ...(debrief ? { debrief } : {}),
+        ...(debriefTldr ? { debriefTldr } : {}),
         ...(input.cancelled ? { cancelled: true } : {}),
       } as QuestDone;
       break;
@@ -1752,7 +1770,7 @@ export async function claimQuest(
 export async function completeQuest(
   questId: string,
   items: QuestVerificationItem[],
-  opts?: { commitShas?: string[]; sessionId?: string },
+  opts?: { commitShas?: string[]; sessionId?: string; debrief?: string; debriefTldr?: string },
 ): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
     status: "done",
@@ -1760,17 +1778,21 @@ export async function completeQuest(
     verificationInboxUnread: true,
     ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
     ...(opts?.commitShas?.length ? { commitShas: opts.commitShas } : {}),
+    ...(opts?.debrief !== undefined ? { debrief: opts.debrief } : {}),
+    ...(opts?.debriefTldr !== undefined ? { debriefTldr: opts.debriefTldr } : {}),
   });
 }
 
 /** Convenience: mark a quest as done (or cancelled). */
 export async function markDone(
   questId: string,
-  opts?: { notes?: string; cancelled?: boolean },
+  opts?: { notes?: string; cancelled?: boolean; debrief?: string; debriefTldr?: string },
 ): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
     status: "done",
     ...(opts?.notes ? { notes: opts.notes } : {}),
+    ...(opts?.debrief !== undefined ? { debrief: opts.debrief } : {}),
+    ...(opts?.debriefTldr !== undefined ? { debriefTldr: opts.debriefTldr } : {}),
     ...(opts?.cancelled ? { cancelled: true } : {}),
   });
 }

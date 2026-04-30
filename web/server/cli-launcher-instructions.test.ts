@@ -95,6 +95,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("durable board recording");
     expect(result).toContain("Standard phases are recommended defaults, not mandates");
     expect(result).toContain("Omit notes for standard phases by default");
+    expect(result).toContain("Phase documentation should be useful, not ritual");
+    expect(result).toContain("Provide only deltas the actor is unlikely to infer");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");
     expect(result).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
@@ -149,6 +151,14 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("not a routine second user-approval gate");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Every active phase needs durable quest documentation");
+    expect(result).toContain("Phase documentation should be useful, not ritual");
+    expect(result).toContain("If the actor's context was compacted during the phase");
+    expect(result).toContain("Provide only deltas the actor is unlikely to infer");
+    expect(result).toContain("Bookkeeping is for extra durable state");
+    expect(result).toContain("final debrief metadata after port when the port worker could not reliably create it");
+    expect(result).toContain("Port handoff must also settle final debrief ownership");
+    expect(result).toContain("`Final debrief draft:`");
+    expect(result).toContain("`Debrief TLDR draft:`");
     expect(result).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
     expect(result).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
     expect(result).toContain("Reviewers should judge phase documentation quality, not just presence");

@@ -85,11 +85,11 @@ describe("quest CLI help", () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(
-      "grep   <pattern> [--count N] [--json]                  Search inside quest title, description, and feedback/comments with snippets",
+      "grep   <pattern> [--count N] [--json]                  Search inside quest title, description, debrief, and feedback/comments with snippets",
     );
     expect(result.stdout).toContain('quest list --text "foo"   Filter quests broadly by text');
     expect(result.stdout).toContain(
-      'quest grep "foo|bar"      Search inside quest text/comments with contextual snippets',
+      'quest grep "foo|bar"      Search inside quest text/debrief/comments with contextual snippets',
     );
     expect(result.stdout).toContain("quest create --title-file title.txt --desc-file body.md");
     expect(result.stdout).toContain("quest edit q-1 --desc-file body.md");
@@ -99,7 +99,12 @@ describe("quest CLI help", () => {
     expect(result.stdout).toContain("--phase-occurrence-id <id>");
     expect(result.stdout).toContain("--infer-phase");
     expect(result.stdout).toContain('complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>]');
+    expect(result.stdout).toContain('[--debrief "..." | --debrief-file <path>|-]');
+    expect(result.stdout).toContain('[--debrief-tldr "..." | --debrief-tldr-file <path>|-]');
     expect(result.stdout).toContain("quest complete q-1 --items-file items.txt");
+    expect(result.stdout).toContain(
+      "quest done q-1 --debrief-file final-debrief.md --debrief-tldr-file final-debrief-tldr.md",
+    );
     expect(result.stdout).toContain("quest done q-1 --notes-file closeout.md");
 
     const lines = result.stdout.split("\n");
@@ -630,6 +635,69 @@ describe("quest CLI safer rich-text inputs", () => {
         questId: quest.questId,
         status: "done",
         notes,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("reads final debrief and debrief TLDR from files", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-done-debrief-file-"));
+    const debriefPath = join(tmp, "debrief.md");
+    const debriefTldrPath = join(tmp, "debrief-tldr.md");
+    const debrief = [
+      "Shipped the requested workflow update.",
+      "Verified CLI output and preserved copied `$(shell)` text literally.",
+    ].join("\n");
+    const debriefTldr = "Workflow update shipped with CLI verification.";
+    writeFileSync(debriefPath, debrief, "utf-8");
+    writeFileSync(debriefTldrPath, debriefTldr, "utf-8");
+
+    try {
+      const created = await runQuest(
+        ["create", "Quest to debrief", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      const quest = JSON.parse(created.stdout) as { questId: string };
+
+      const refined = await runQuest(
+        ["transition", quest.questId, "--status", "refined", "--desc", "Ready for closeout", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      expect(refined.status).toBe(0);
+
+      const result = await runQuest(
+        ["done", quest.questId, "--debrief-file", debriefPath, "--debrief-tldr-file", debriefTldrPath, "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        questId: quest.questId,
+        status: "done",
+        debrief,
+        debriefTldr,
       });
     } finally {
       rmSync(tmp, { recursive: true, force: true });

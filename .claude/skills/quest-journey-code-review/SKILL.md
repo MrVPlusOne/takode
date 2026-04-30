@@ -8,6 +8,7 @@ description: "Quest Journey phase: code-review. Use when tracked code or tracked
 This phase reviews tracked code or tracked artifacts for landing risk.
 
 Leader actions:
+- Provide only deltas the assignee is unlikely to infer from the phase brief, quest record, current artifacts, or their own context: exact accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, or facts unavailable to that actor. Avoid restating generic closure checklists covered by the brief.
 - Assign a reviewer and define the concrete review scope.
 - Include the exact assignee brief path: `~/.companion/quest-journey-phases/code-review/assignee.md`.
 - Tell fresh reviewers to load the essential skills/context for the target first: `quest` when reviewing quest state or feedback, and `takode-orchestration` when inspecting prior sessions or cross-session history.
@@ -23,6 +24,8 @@ Reviewer-visible boundary:
 - Report substantive bugs, missing coverage, unsupported verification, design/maintainability risks, incomplete implementation, and quest-hygiene gaps that matter for landing.
 - Do not become the implementer, porter, or redesign owner. You may directly fix only small quest-hygiene issues already supported by the workflow, such as stale addressed flags, refreshable summaries, or verification checks backed by evidence.
 - Before reporting back, the reviewer should document the Code Review phase on the quest with full agent-oriented detail plus TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind review`; use explicit `--phase code-review` or occurrence flags if current-phase inference is unavailable.
+- Apply a value filter: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases.
+- If context was compacted during this phase, or if memory confidence is low, reconstruct the relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 
 Exit evidence:
 - Reviewer acceptance or concrete findings that the worker must address.

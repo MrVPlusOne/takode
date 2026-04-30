@@ -78,6 +78,16 @@ function setDescriptionTldrWarningHeaderForAgentWrite(
   setTldrWarningHeader(c, tldrWarningForContent("description", description, tldr));
 }
 
+function setDebriefTldrWarningHeaderForAgentWrite(
+  c: { header: (name: string, value: string) => void },
+  auth: OptionalAuthResult,
+  debrief: unknown,
+  debriefTldr: unknown,
+): void {
+  if (!isAuthenticatedCompanionCaller(auth)) return;
+  setTldrWarningHeader(c, tldrWarningForContent("debrief", debrief, debriefTldr));
+}
+
 function feedbackEntryWithoutTldr(entry: QuestFeedbackEntry): QuestFeedbackEntry {
   const { tldr: _tldr, ...rest } = entry;
   return rest;
@@ -393,6 +403,19 @@ export function createQuestRoutes(ctx: RouteContext) {
           body.description !== undefined ? body.description : "description" in quest ? quest.description : undefined;
         setDescriptionTldrWarningHeaderForAgentWrite(c, auth, warningDescription, warningTldr);
       }
+      if (body.debrief !== undefined || body.debriefTldr !== undefined) {
+        const warningDebrief =
+          body.debrief !== undefined ? body.debrief : quest.status === "done" ? quest.debrief : undefined;
+        const warningDebriefTldr =
+          body.debriefTldr !== undefined
+            ? body.debriefTldr
+            : body.debrief !== undefined
+              ? undefined
+              : quest.status === "done"
+                ? quest.debriefTldr
+                : undefined;
+        setDebriefTldrWarningHeaderForAgentWrite(c, auth, warningDebrief, warningDebriefTldr);
+      }
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -544,6 +567,8 @@ export function createQuestRoutes(ctx: RouteContext) {
       const quest = await questStore.completeQuest(c.req.param("questId"), items, {
         commitShas,
         ...(targetSessionId ? { sessionId: targetSessionId } : {}),
+        ...(typeof body.debrief === "string" ? { debrief: body.debrief } : {}),
+        ...(typeof body.debriefTldr === "string" ? { debriefTldr: body.debriefTldr } : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
@@ -556,6 +581,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (reviewOwnerSessionId && hasQuestReviewMetadata(quest)) {
         setClaimedQuest(reviewOwnerSessionId, claimedQuestEvent(quest));
       }
+      setDebriefTldrWarningHeaderForAgentWrite(c, auth, body.debrief, body.debriefTldr);
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -564,14 +590,22 @@ export function createQuestRoutes(ctx: RouteContext) {
 
   api.post("/quests/:questId/done", async (c) => {
     try {
-      const body = (await c.req.json().catch(() => ({}))) as { notes?: string; cancelled?: boolean };
+      const body = (await c.req.json().catch(() => ({}))) as {
+        notes?: string;
+        cancelled?: boolean;
+        debrief?: string;
+        debriefTldr?: string;
+      };
       const quest = await transitionQuestAndSync(c.req.param("questId"), {
         status: "done",
         ...(body.notes ? { notes: body.notes } : {}),
+        ...(body.debrief !== undefined ? { debrief: body.debrief } : {}),
+        ...(body.debriefTldr !== undefined ? { debriefTldr: body.debriefTldr } : {}),
         ...(body.cancelled ? { cancelled: true } : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       c.header("X-Companion-Deprecated", 'Use /api/quests/:questId/transition with {status:"done"}');
+      setDebriefTldrWarningHeaderForAgentWrite(c, null, body.debrief, body.debriefTldr);
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);

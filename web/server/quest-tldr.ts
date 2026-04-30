@@ -3,7 +3,7 @@ import type { QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
 export const TLDR_WARNING_THRESHOLD_CHARS = 1200;
 export const QUEST_TLDR_WARNING_HEADER = "X-Quest-TLDR-Warning";
 
-export type QuestTldrContentKind = "description" | "feedback";
+export type QuestTldrContentKind = "description" | "feedback" | "debrief";
 
 export function normalizeTldr(value: unknown): string | undefined {
   if (typeof value !== "string") return undefined;
@@ -18,7 +18,7 @@ export function hasLongContentWithoutTldr(text: unknown, tldr: unknown): boolean
 }
 
 export function tldrWarningMessage(kind: QuestTldrContentKind): string {
-  const label = kind === "description" ? "quest description" : "quest feedback";
+  const label = kind === "description" ? "quest description" : kind === "feedback" ? "quest feedback" : "quest debrief";
   return `${label} is ${TLDR_WARNING_THRESHOLD_CHARS}+ characters; add separate tldr metadata for human scanning.`;
 }
 

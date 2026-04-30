@@ -67,17 +67,17 @@ When in doubt about whether a change is quest creation/refinement or routine boo
 
 ```
 quest list   [--status <s1,s2>] [--tag <t>] [--tags "t1,t2"] [--session <sid>] [--text <q>] [--verification <scope>] [--json]  List quests
-quest grep   <pattern> [--count N] [--json]                  Search quest title, description, and feedback/comments
+quest grep   <pattern> [--count N] [--json]                  Search quest title, description, final debrief, and feedback/comments
 quest show   <id> [--json]                                    Show quest detail
 quest status <id> [--json]                                    Show compact action-oriented status and next action
 quest history <id> [--json]                                   Show quest history (legacy backup after cutover)
 quest tags   [--json]                                         List all existing tags with counts
 quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
 quest claim  <id> [--session <sid>] [--json]                  Claim for your session
-quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--session <sid>] [--commit <sha>] [--commits "c1,c2"] [--json]  Mark done and submit for review
-quest done   <id> [--notes "..." | --notes-file <path>|-] [--cancelled] [--json]      Mark as done/cancelled
+quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--session <sid>] [--commit <sha>] [--commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]  Mark done and submit for review
+quest done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--json]      Mark as done/cancelled
 quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--json]                Cancel from any status
-quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--json]    Change status
+quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]    Change status
 quest later  <id> [--json]                                    Move review-pending quest out of inbox
 quest inbox  <id> [--json]                                    Move review-pending quest back to inbox
 quest edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--json]     Edit in place (NEVER use to create)
@@ -122,6 +122,8 @@ When quest feedback, comments, summaries, notes, or phase documentation refer to
 
 When a quest is running through a Quest Journey, every active phase should leave durable quest feedback before handoff or phase end. The entry should be scoped to the current phase when possible, contain full agent-oriented detail for future sessions, and include TLDR metadata for human scanning when the body has more than one small point.
 
+Apply a value filter: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases. If your context was compacted during the phase, or if memory confidence is low, reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
+
 Prefer current-phase inference:
 
 ```bash
@@ -138,8 +140,8 @@ Write phase documentation for the phase that just ran:
 - Mental Simulation: scenarios replayed, concrete examples, risks, recommendations, and confidence limits.
 - Execute: approved action, monitor and stop conditions, outcome, deviations, artifact or log locations, and follow-up needs.
 - Outcome Review: evidence judged, acceptance or insufficiency rationale, bounded reruns, and follow-up routing.
-- Bookkeeping: records updated, superseded facts, external locations, and durable handoff facts.
-- Port: ordered synced SHAs, post-port verification, port anomalies, and remaining sync risks.
+- Bookkeeping: cross-phase or external durable state beyond normal phase notes, such as records updated, consolidated summaries, final debrief metadata after port when the port worker could not reliably create it, verification checklist reconciliation, superseded facts, external locations, notification/thread cleanup, and durable handoff facts.
+- Port: ordered synced SHAs, post-port verification, port anomalies, remaining sync risks, and final debrief metadata status or draft.
 
 Reviewers should check documentation quality, not just whether a comment exists. Good phase documentation is relevant to the phase, includes useful full detail, has TLDR metadata that preserves major points when appropriate, and is correctly phase-associated when the phase-scoped primitive is available.
 
@@ -189,7 +191,7 @@ Reviewers should check documentation quality, not just whether a comment exists.
 | `--count N` | Maximum matches to show (default 50) |
 | `--json` | Output JSON |
 
-Use `quest grep` when you need to search **inside** quest titles, descriptions, or feedback/comments and want contextual snippets showing where the match came from. Use `quest list --text` when you are broadly filtering the quest list rather than inspecting matched text in context.
+Use `quest grep` when you need to search **inside** quest titles, descriptions, final debriefs, or feedback/comments and want contextual snippets showing where the match came from. Use `quest list --text` when you are broadly filtering the quest list rather than inspecting matched text in context.
 
 ### quest claim <id> [flags]
 | Flag | Description |
@@ -291,6 +293,10 @@ printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal t
 | `--session <sid>` | Complete on behalf of a specific worker session. Leader sessions should use this when submitting a worker-owned quest for verification. |
 | `--commit <sha>` | Attach one synced commit SHA (repeatable) |
 | `--commits "s1,s2"` | Attach multiple synced commit SHAs in order |
+| `--debrief "..."` | Final user-facing outcome debrief |
+| `--debrief-file <path>` | Read final debrief text from a file, or use `-` to read from stdin |
+| `--debrief-tldr "..."` | Human-readable TLDR metadata for long final debriefs |
+| `--debrief-tldr-file <path>` | Read final debrief TLDR metadata from a file, or use `-` to read from stdin |
 | `--json` | Output JSON |
 
 ### quest done <id> [flags]
@@ -298,6 +304,10 @@ printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal t
 |------|-------------|
 | `--notes "..."` | Closure notes |
 | `--notes-file <path>` | Read closure notes from a file, or use `-` to read from stdin |
+| `--debrief "..."` | Final user-facing outcome debrief for completed quests |
+| `--debrief-file <path>` | Read final debrief text from a file, or use `-` to read from stdin |
+| `--debrief-tldr "..."` | Human-readable TLDR metadata for long final debriefs |
+| `--debrief-tldr-file <path>` | Read final debrief TLDR metadata from a file, or use `-` to read from stdin |
 | `--cancelled` | Mark as cancelled instead of done |
 | `--json` | Output JSON |
 
@@ -331,6 +341,10 @@ printf '%s\n' 'Superseded by q-13 with copied `$(note)` text' | \
 | `--tldr "..."` | Optional human-readable TLDR metadata for long descriptions |
 | `--tldr-file <path>` | Read TLDR metadata from a file, or use `-` to read from stdin |
 | `--session <id>` | Session ID |
+| `--debrief "..."` | Final user-facing outcome debrief; valid only with `--status done` |
+| `--debrief-file <path>` | Read final debrief text from a file, or use `-` to read from stdin |
+| `--debrief-tldr "..."` | Human-readable TLDR metadata for long final debriefs; valid only with `--status done` |
+| `--debrief-tldr-file <path>` | Read final debrief TLDR metadata from a file, or use `-` to read from stdin |
 | `--json` | Output JSON |
 
 ### quest show <id>, quest history <id>, quest check <id> <n>, quest address <id> <n>, quest later <id>, quest inbox <id>, quest delete <id>, quest mine, quest tags
@@ -505,8 +519,8 @@ Use `quest complete` for the normal worker handoff from `in_progress` to `done` 
 - **Worktree sessions:** If you made the change in a git worktree, finish the full sync-to-main workflow first (rebase/cherry-pick/push/reset/post-reset verification) before running `quest complete` or describing the work as ready for review.
 - **If the quest produced zero git-tracked changes** (investigation, reporting, design artifact, or similar), complete it with artifact-focused human-checkable verification items and no placeholder port notes, synced SHA lines, or automated-check results in the checklist. If you are using the CLI locally and want the completion reminder to omit port noise, pass `quest complete ... --no-code`; that flag is only a local reminder switch and does not persist quest metadata.
 - **Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work.** If they produce git-tracked commits, they must be synced and attached as structured commit metadata like any code change. Do not use `--no-code` for these quests.
-- **If the work was ported/synced:** attach the ordered synced SHAs during the verification handoff with `quest complete q-N --items "..." --commits "sha1,sha2"`. Use the merged/cherry-picked SHAs from the main repo, not the pre-port worktree-only SHAs.
-- **If a leader controls the handoff:** report the ordered synced SHAs explicitly on a dedicated `Synced SHAs: sha1,sha2` line so the later `quest complete` call can attach them. Do not rely on log parsing or memory.
+- **If the work was ported/synced:** attach the ordered synced SHAs and final debrief metadata during the verification handoff with `quest complete q-N --items "..." --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md`. Use the merged/cherry-picked SHAs from the main repo, not the pre-port worktree-only SHAs.
+- **If a leader controls the handoff:** report the ordered synced SHAs explicitly on a dedicated `Synced SHAs: sha1,sha2` line so the later `quest complete` call can attach them. Also include `Final debrief draft:` and `Debrief TLDR draft:` for nontrivial quests, or ask for a focused Bookkeeping phase if you cannot reliably draft final debrief metadata from available evidence. Do not rely on log parsing or memory.
 - **Do not leave commit info only in comments:** summary comments and quest feedback can describe the port, but the verification handoff must still attach those SHAs as structured commit metadata with `--commit`/`--commits`.
 
 **Pre-submission checklist (all three required -- the skeptic reviewer will verify each one. Reviewers may directly fix clear quest hygiene they know how to fix, but will CHALLENGE ambiguous or substantive misses):**
@@ -535,6 +549,8 @@ Use `quest complete` for the normal worker handoff from `in_progress` to `done` 
    - Avoid review-process timelines, duplicate near-identical comments, and excessive commit-by-commit narration unless that detail is essential to understand the result
    - The goal: someone reading only the quest (not the session conversation) should understand what happened
    - Treat this as a required worker deliverable before you report back that the quest is ready
+
+   For completed nontrivial quests, prefer structured final debrief metadata over using legacy notes as the outcome summary. If you complete a ported or multi-topic quest, use `--debrief-file` plus `--debrief-tldr-file`; if the leader controls completion, provide a `Final debrief draft:` and `Debrief TLDR draft:` in the handoff instead. The final debrief should summarize the user-facing result, important verification, synced commits when relevant, and residual risks; existing `notes` remain for legacy closure details and cancellation reasons.
 
 3. **Verification items must be human-checkable acceptance items only.** When writing `quest complete --items "..."` or `quest complete --items-file ...`:
    - Do NOT include implementation details, port logs, or automated verification results: "synced commit was pushed", "post-port typecheck passed", "tests pass", "typecheck clean", "code compiles", "no regressions in test suite"

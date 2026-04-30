@@ -138,4 +138,43 @@ describe("quest-store TLDR metadata", () => {
       tldr: "Mobile layout issue",
     });
   });
+
+  it("stores and clears final debrief TLDR metadata on done quests without migrating notes", async () => {
+    await questStore.createQuest({
+      title: "Debrief lifecycle",
+      description: "Original goal and scope.",
+      status: "refined",
+    });
+
+    const done = await questStore.transitionQuest("q-1", {
+      status: "done",
+      notes: "Legacy closure note.",
+      debrief: "Shipped the feature, verified the CLI, and left no known user-facing risks.",
+      debriefTldr: "Feature shipped with CLI verification and no known user-facing risks.",
+    });
+
+    expect(done).toMatchObject({
+      status: "done",
+      notes: "Legacy closure note.",
+      debrief: "Shipped the feature, verified the CLI, and left no known user-facing risks.",
+      debriefTldr: "Feature shipped with CLI verification and no known user-facing risks.",
+    });
+
+    const updated = await questStore.transitionQuest("q-1", {
+      status: "done",
+      debrief: "Updated final outcome.",
+      debriefTldr: "",
+    });
+    expect(updated).toMatchObject({
+      status: "done",
+      debrief: "Updated final outcome.",
+      notes: "Legacy closure note.",
+    });
+    expect("debriefTldr" in updated!).toBe(false);
+
+    const reopened = await questStore.transitionQuest("q-1", { status: "refined" });
+    expect(reopened?.status).toBe("refined");
+    expect("debrief" in reopened!).toBe(false);
+    expect("debriefTldr" in reopened!).toBe(false);
+  });
 });

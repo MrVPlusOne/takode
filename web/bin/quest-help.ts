@@ -7,7 +7,7 @@ Commands:
   list   [--status <s1,s2>] [--tag <t>] [--tags "t1,t2"] [--session <sid>] [--text <q>] [--verification <scope>] [--json]
                                                          List quests with optional filters
   mine   [--json]                                        List quests owned by current session
-  grep   <pattern> [--count N] [--json]                  Search inside quest title, description, and feedback/comments with snippets
+  grep   <pattern> [--count N] [--json]                  Search inside quest title, description, debrief, and feedback/comments with snippets
   show   <id> [--json]                                   Show quest detail
   status <id> [--json]                                   Show compact action-oriented quest status
   history <id> [--json]                                  Show quest history
@@ -15,13 +15,13 @@ Commands:
   create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json]
                                                          Create a quest
   claim  <id> [--session <sid>] [--json]                 Claim for session
-  complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>] [--commit <sha>] [--commits "s1,s2"] [--json]
+  complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>] [--commit <sha>] [--commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]
                                                          Mark done and submit for review
-  done   <id> [--notes "..." | --notes-file <path>|-] [--cancelled] [--json]
+  done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--json]
                                                          Mark as done/cancelled
   cancel <id> [--notes "reason" | --notes-file <path>|-] [--json]
                                                          Cancel from any status
-  transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "s1,s2"] [--json]
+  transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]
                                                          Change status
   later  <id> [--json]                                   Move review-pending quest out of inbox
   inbox  <id> [--json]                                   Move review-pending quest back to inbox
@@ -56,7 +56,7 @@ Verification scopes:
 
 Search tips:
   quest list --text "foo"   Filter quests broadly by text
-  quest grep "foo|bar"      Search inside quest text/comments with contextual snippets
+  quest grep "foo|bar"      Search inside quest text/debrief/comments with contextual snippets
 
 Safer rich-text input:
   quest create --title-file title.txt --desc-file body.md
@@ -69,6 +69,7 @@ Safer rich-text input:
   printf '%s\\n' 'Line 1' '\`$(nope)\`' | quest feedback q-1 --text-file -
   quest complete q-1 --items-file items.txt
   printf '%s\\n' 'Review comma-heavy item, "quotes", {braces}' | quest complete q-1 --items-file -
+  quest done q-1 --debrief-file final-debrief.md --debrief-tldr-file final-debrief-tldr.md
   quest done q-1 --notes-file closeout.md
   printf '%s\\n' 'Superseded by q-2 with copied \`$(note)\` text' | quest cancel q-1 --notes-file -`);
 }

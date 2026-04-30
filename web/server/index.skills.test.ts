@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = join(SERVER_DIR, "index.ts");
 const SKEPTIC_REVIEW_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "skeptic-review", "SKILL.md");
+const WORKTREE_RULES_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "worktree-rules", "SKILL.md");
 
 describe("index startup skill registration", () => {
   it("registers canonical startup skills without stale hardcoded slugs", async () => {
@@ -48,5 +49,17 @@ describe("index startup skill registration", () => {
     expect(source).toContain("--text-file /tmp/summary.md");
     expect(source).toContain("--tldr-file /tmp/summary-tldr.md");
     expect(source).toContain("for long multi-topic content");
+  });
+
+  it("keeps worktree port guidance responsible for final debrief metadata", async () => {
+    const source = await readFile(WORKTREE_RULES_SKILL_PATH, "utf-8");
+
+    // /port-changes is the worktree completion path. It should not depend on a
+    // leader remembering generic bookkeeping to create the final debrief.
+    expect(source).toContain("--debrief-file /tmp/final-debrief.md");
+    expect(source).toContain("--debrief-tldr-file /tmp/final-debrief-tldr.md");
+    expect(source).toContain("Final debrief draft:");
+    expect(source).toContain("Debrief TLDR draft:");
+    expect(source).toContain("focused Bookkeeping phase for final debrief metadata");
   });
 });
