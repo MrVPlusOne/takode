@@ -229,9 +229,10 @@ describe("saveSync / load", () => {
     expect(hotRaw.eventBuffer).toEqual([{ seq: 1, message: { type: "backend_connected" } }]);
   });
 
-  it("keeps replayable legacy eventBuffer entries when sanitizing persisted buffers", async () => {
-    // The sanitizer is intentionally narrow: normal replayable events remain
-    // persisted so browser reconnect semantics do not change in this pass.
+  it("drops quest invalidations but keeps replayable legacy eventBuffer entries when sanitizing persisted buffers", async () => {
+    // Quest list invalidations are global cache-bust signals, not per-session
+    // replay state. Normal replayable events remain persisted so browser
+    // reconnect semantics do not change in this pass.
     const session = makeSession("replayable-buffer", {
       eventBuffer: [
         { seq: 1, message: { type: "quest_list_updated" } },
@@ -243,7 +244,10 @@ describe("saveSync / load", () => {
 
     const loaded = await store.load("replayable-buffer");
 
-    expect(loaded!.eventBuffer).toEqual(session.eventBuffer);
+    expect(loaded!.eventBuffer).toEqual([
+      { seq: 2, message: { type: "pr_status_update", pr: null, available: false } },
+      { seq: 3, message: { type: "session_created", session_id: "created-session" } },
+    ]);
   });
 
   it("saveSync/load preserves codexFreshTurnRequiredUntilTurnId", async () => {

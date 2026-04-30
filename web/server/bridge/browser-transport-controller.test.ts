@@ -187,6 +187,23 @@ describe("tree_groups_update replay-buffer exclusion", () => {
   });
 });
 
+describe("quest_list_updated replay-buffer exclusion", () => {
+  it("does not buffer quest_list_updated invalidations while preserving live fanout", () => {
+    const sendFn = vi.fn();
+    const session = makeSession({ browserSockets: new Set([{ send: sendFn }]) });
+    const deps = makeDeps();
+
+    broadcastToBrowsers(session, { type: "quest_list_updated" } as BrowserIncomingMessage, deps);
+
+    expect(sendFn).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(sendFn.mock.calls[0][0]);
+    expect(sent.type).toBe("quest_list_updated");
+    expect(sent.seq).toBeDefined();
+    expect(session.eventBuffer).toHaveLength(0);
+    expect(deps.persistSession).not.toHaveBeenCalled();
+  });
+});
+
 describe("Codex herd event injection", () => {
   it("reports a live Codex pending herd input as queued until retry accepts it", () => {
     const agentSource = { sessionId: "herd-events", sessionLabel: "Herd Events" };
