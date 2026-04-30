@@ -11,7 +11,6 @@ import {
 } from "../utils/questmaster-view-state.js";
 import type { QuestmasterCollapsedGroup } from "../utils/questmaster-view-state.js";
 import { getHighlightParts } from "../utils/highlight.js";
-import { multiWordMatch } from "../../shared/search-utils.js";
 import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
 import {
   timeAgo,
@@ -29,6 +28,7 @@ import {
   getQuestDebriefTldr,
   autoResizeTextarea,
 } from "../utils/quest-editor-helpers.js";
+import { rankQuestsBySearchRelevance } from "../utils/quest-search-ranking.js";
 import { Lightbox } from "./Lightbox.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { QuestPhaseScanLines } from "./QuestPhaseScanLines.js";
@@ -806,22 +806,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   // Negated tags like `-#mobile` are parsed separately so free-text matching
   // and highlighting stay focused on the positive portion of the query.
   const searchNormalized = searchText.trim();
-  const afterSearch = searchNormalized
-    ? quests.filter((q) => {
-        if (multiWordMatch(q.questId, searchText)) return true;
-        if (multiWordMatch(q.title, searchText)) return true;
-        if (q.tldr && multiWordMatch(q.tldr, searchText)) return true;
-        if (q.description && multiWordMatch(q.description, searchText)) return true;
-        const debriefTldr = getQuestDebriefTldr(q);
-        const debrief = q.status === "done" && q.cancelled !== true ? (q as { debrief?: string }).debrief : undefined;
-        if (debriefTldr && multiWordMatch(debriefTldr, searchText)) return true;
-        if (debrief && multiWordMatch(debrief, searchText)) return true;
-        const feedbackEntries = "feedback" in q ? ((q as { feedback?: QuestFeedbackEntry[] }).feedback ?? []) : [];
-        if (feedbackEntries.some((entry) => multiWordMatch(entry.tldr || "", searchText))) return true;
-        if (feedbackEntries.some((entry) => multiWordMatch(entry.text, searchText))) return true;
-        return false;
-      })
-    : quests;
+  const afterSearch = searchNormalized ? rankQuestsBySearchRelevance(quests, searchText) : quests;
 
   // Layer 2: tag filter (OR — quest matches if it has ANY selected tag)
   const afterTags =
@@ -880,12 +865,20 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     [sdkSessions, sessionNames],
   );
   const compactQuests = useMemo(
-    () => sortCompactQuests(filtered, compactSort, compactSortContext),
-    [filtered, compactSort, compactSortContext],
+    () => (searchNormalized ? filtered : sortCompactQuests(filtered, compactSort, compactSortContext)),
+    [filtered, compactSort, compactSortContext, searchNormalized],
   );
 
   const questSections: QuestSection[] = [];
-  if (showReviewSplit && reviewInboxQuests.length > 0) {
+  if (searchNormalized) {
+    questSections.push({
+      key: "search_results",
+      label: "Search Results",
+      dotClass: "bg-cc-primary",
+      textClass: "text-cc-fg",
+      quests: filtered,
+    });
+  } else if (showReviewSplit && reviewInboxQuests.length > 0) {
     questSections.push({
       key: VERIFICATION_INBOX_COLLAPSE_KEY,
       label: "Review Inbox",
@@ -896,7 +889,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     });
   }
 
-  if (showReviewSplit && underReviewQuests.length > 0) {
+  if (!searchNormalized && showReviewSplit && underReviewQuests.length > 0) {
     questSections.push({
       key: "under_review",
       label: "Under Review",
@@ -906,7 +899,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     });
   }
 
-  for (const status of allSelected ? DISPLAY_ORDER : ALL_STATUSES) {
+  for (const status of searchNormalized ? [] : allSelected ? DISPLAY_ORDER : ALL_STATUSES) {
     const sectionQuests =
       status === "done" && showReviewSplit
         ? filtered.filter((q) => q.status === "done" && !isQuestUnderReview(q))

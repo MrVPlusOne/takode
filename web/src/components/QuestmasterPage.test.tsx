@@ -431,6 +431,45 @@ describe("QuestmasterPage review inbox", () => {
     expect(compactRowQuestIds()).toEqual(["q-41", "q-40"]);
   });
 
+  it("keeps compact column sorting when search is empty, then ranks non-empty searches by relevance", async () => {
+    // Empty search should honor the selected compact sort, but typing a query
+    // should lift the direct title match above weaker description matches.
+    mockGetSettings.mockResolvedValueOnce({
+      questmasterViewMode: "compact",
+      questmasterCompactSort: { column: "title", direction: "asc" },
+    });
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({
+          id: "q-70-v1",
+          questId: "q-70",
+          title: "Position newly created quest tabs after Main",
+        }),
+        status: "done",
+        description: "Direct title match should win once search is active.",
+        updatedAt: 1_000,
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({
+          id: "q-71-v1",
+          questId: "q-71",
+          title: "Alpha background note",
+        }),
+        status: "in_progress",
+        description: "Mentions new tab only in the description.",
+        updatedAt: 9_000,
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster({ isActive: true });
+    await screen.findByRole("button", { name: /q-71 Alpha background note/ });
+    expect(compactRowQuestIds()).toEqual(["q-71", "q-70"]);
+
+    fireEvent.change(screen.getByPlaceholderText("Search or #tag..."), { target: { value: "new tab" } });
+
+    expect(compactRowQuestIds()).toEqual(["q-70", "q-71"]);
+  });
+
   it("toggles compact table headers, persists the choice, and updates row order", async () => {
     // Header buttons should advertise the next direction and save the selected sort server-side.
     mockGetSettings.mockResolvedValueOnce({
@@ -527,6 +566,46 @@ describe("QuestmasterPage review inbox", () => {
       Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]")).map((el) => el.dataset.questId),
     ).toEqual(["q-60", "q-61"]);
     expect(screen.queryAllByRole("columnheader", { name: "Title" })).toHaveLength(0);
+  });
+
+  it("globally ranks card search results instead of preserving status section order", async () => {
+    // Search should put the best match first across all statuses, so an older
+    // done title match beats a newer in-progress description-only match.
+    mockGetSettings.mockResolvedValueOnce({
+      questmasterViewMode: "cards",
+      questmasterCompactSort: { column: "updated", direction: "desc" },
+    });
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({
+          id: "q-80-v1",
+          questId: "q-80",
+          title: "Position newly created quest tabs after Main",
+        }),
+        status: "done",
+        description: "Older card with direct title relevance.",
+        updatedAt: 1_000,
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({
+          id: "q-81-v1",
+          questId: "q-81",
+          title: "Active implementation note",
+        }),
+        status: "in_progress",
+        description: "Weaker new tab mention in body text.",
+        updatedAt: 9_000,
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster({ isActive: true });
+    await screen.findByText("Active implementation note");
+
+    fireEvent.change(screen.getByPlaceholderText("Search or #tag..."), { target: { value: "new tab" } });
+
+    expect(
+      Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]")).map((el) => el.dataset.questId),
+    ).toEqual(["q-80", "q-81"]);
   });
 
   it("applies the existing status dropdown filter to the flat compact table", async () => {
