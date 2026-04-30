@@ -946,9 +946,9 @@ export function broadcastToBrowsers(
   deps: Pick<BrowserTransportDeps, "eventBufferLimit" | "persistSession" | "recordOutgoingRaw">,
   options?: { skipBuffer?: boolean },
 ): void {
-  if (session.browserSockets.size === 0 && (msg.type === "assistant" || msg.type === "result")) {
+  if (session.browserSockets.size === 0 && msg.type === "result") {
     console.log(
-      `[ws-bridge] ⚠ Broadcasting ${msg.type} to 0 browsers for session ${sessionTag(session.id)} (stored in history: ${msg.type === "assistant" || msg.type === "result"})`,
+      `[ws-bridge] ⚠ Broadcasting result to 0 browsers for session ${sessionTag(session.id)} (stored in history: true)`,
     );
   }
   const serStart = performance.now();

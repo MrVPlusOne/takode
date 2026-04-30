@@ -617,6 +617,40 @@ describe("CLI message routing", () => {
     expect(assistantBroadcast.parent_tool_use_id).toBeNull();
   });
 
+  it("assistant: stores in history without zero-browser INFO log when no browser is connected", () => {
+    const logSpy = vi.spyOn(console, "log").mockImplementation(() => {});
+    bridge.handleBrowserClose(browser);
+
+    try {
+      const msg = JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-no-browser",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "text", text: "Stored for later" }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 100, output_tokens: 50, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        uuid: "uuid-no-browser-assistant",
+        session_id: "s1",
+      });
+
+      bridge.handleCLIMessage(cli, msg);
+
+      const session = bridge.getSession("s1")!;
+      expect(session.messageHistory).toHaveLength(1);
+      expect(session.messageHistory[0].type).toBe("assistant");
+      expect(
+        logSpy.mock.calls.find(([line]) => String(line).includes("Broadcasting assistant to 0 browsers")),
+      ).toBeUndefined();
+    } finally {
+      logSpy.mockRestore();
+    }
+  });
+
   it("assistant: updates context_used_percent mid-turn from assistant usage", () => {
     const session = bridge.getSession("s1")!;
     session.state.model = "claude-opus-4-6";
