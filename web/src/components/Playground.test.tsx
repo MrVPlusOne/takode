@@ -91,6 +91,11 @@ describe("Playground", () => {
     );
     expect(tabs[0]).toHaveClass("min-w-[6.25rem]", "max-w-[18rem]", "flex-[1_1_11rem]");
     expect(within(tabs[0]).getByTestId("thread-tab-close")).toHaveAttribute("data-compact-close", "true");
+    const completedTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-88");
+    expect(within(completedTab!).getByTestId("thread-tab-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-muted)",
+    );
 
     fireEvent.click(screen.getByText("Simulate moved-message tab"));
     const movedTabs = screen.getAllByTestId("thread-tab");

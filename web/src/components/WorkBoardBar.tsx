@@ -19,6 +19,7 @@ import {
 import type { ActiveTurnRoute } from "../types.js";
 import { BoardTable, orderBoardRows } from "./BoardTable.js";
 import type { BoardRowData } from "./BoardTable.js";
+import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { isAttentionRecordActive, type AttentionRecord } from "../utils/attention-records.js";
@@ -36,6 +37,8 @@ export interface BoardSummarySegment {
   className: string;
   style?: CSSProperties;
 }
+
+const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
 
 /**
  * Build a compact status summary for the collapsed board bar.
@@ -206,6 +209,21 @@ function boardRowTitleColor(row: BoardRowData): string | undefined {
   return phase?.color.accent;
 }
 
+function doneThreadTitleColor({
+  boardRow,
+  row,
+  completed,
+}: {
+  boardRow?: BoardRowData;
+  row?: WorkBoardThreadNavigationRow;
+  completed?: boolean;
+}): string | undefined {
+  if (completed || row?.section === "done" || isCompletedJourneyPresentationStatus(boardRow?.status)) {
+    return DONE_THREAD_TITLE_COLOR;
+  }
+  return undefined;
+}
+
 function threadRowDetail(row: WorkBoardThreadNavigationRow): string {
   const count = row.messageCount ?? 0;
   return `${count} message${count === 1 ? "" : "s"}`;
@@ -323,9 +341,8 @@ function buildOpenThreadTabs({
 }): PrimaryThreadChip[] {
   const activeByKey = new Map(activeThreadChips.map((chip) => [chip.threadKey, chip]));
   const rowByKey = new Map(threadRows.map((row) => [normalizeThreadKey(row.threadKey), row]));
-  const boardByKey = new Map(
-    [...activeBoardRows, ...completedBoardRows].map((row) => [normalizeThreadKey(row.questId), row]),
-  );
+  const activeBoardByKey = new Map(activeBoardRows.map((row) => [normalizeThreadKey(row.questId), row]));
+  const completedBoardByKey = new Map(completedBoardRows.map((row) => [normalizeThreadKey(row.questId), row]));
   const seen = new Set<string>();
   const tabs: PrimaryThreadChip[] = [];
 
@@ -336,8 +353,11 @@ function buildOpenThreadTabs({
 
     const active = activeByKey.get(threadKey);
     const row = rowByKey.get(threadKey);
-    const boardRow = boardByKey.get(threadKey);
+    const activeBoardRow = activeBoardByKey.get(threadKey);
+    const completedBoardRow = completedBoardByKey.get(threadKey);
+    const boardRow = activeBoardRow ?? completedBoardRow;
     if (!active && !row && !boardRow) continue;
+    const completedTitleColor = doneThreadTitleColor({ boardRow, row, completed: !!completedBoardRow });
 
     tabs.push({
       threadKey,
@@ -346,7 +366,7 @@ function buildOpenThreadTabs({
       detail: active?.detail ?? (boardRow ? boardRowDetail(boardRow) : doneThreadDetail(row)),
       messageCount: active?.messageCount ?? row?.messageCount,
       needsInput: active?.needsInput ?? (boardRow?.waitForInput?.length ?? 0) > 0,
-      titleColor: active?.titleColor ?? (boardRow ? boardRowTitleColor(boardRow) : undefined),
+      titleColor: completedTitleColor ?? active?.titleColor ?? (boardRow ? boardRowTitleColor(boardRow) : undefined),
       route: active?.route,
       updatedAt: active?.updatedAt ?? boardRow?.updatedAt ?? 0,
     });

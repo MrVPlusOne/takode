@@ -461,6 +461,61 @@ describe("WorkBoardBar", () => {
     expect(within(queuedTab).queryByText("Queued")).not.toBeInTheDocument();
   });
 
+  it("uses done gray for completed board-backed tabs instead of their final phase color", () => {
+    const completed: BoardRowData[] = [
+      {
+        questId: "q-3",
+        status: "PORTING",
+        title: "Finished work",
+        journey: {
+          presetId: "full-code",
+          phaseIds: ["alignment", "implement", "code-review", "port"],
+          currentPhaseId: "port",
+        },
+        updatedAt: 3,
+        completedAt: 3,
+      },
+    ];
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionCompletedBoards: new Map([["s1", completed]]),
+    });
+
+    const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-3" openThreadKeys={["q-3"]} />);
+
+    const completedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
+    expect(within(completedTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
+    const completedTitle = within(completedTab).getByTestId("thread-tab-title");
+    expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+    expect(completedTitle).not.toHaveStyle({
+      color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
+    });
+  });
+
+  it("uses done gray for off-board done thread tabs when only thread metadata is available", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+
+    const { getAllByTestId } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        openThreadKeys={["q-99"]}
+        threadRows={[
+          { threadKey: "q-99", questId: "q-99", title: "Archived thread", messageCount: 1, section: "done" },
+        ]}
+      />,
+    );
+
+    const doneTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-99")!;
+    expect(within(doneTab).getByTestId("thread-tab-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-muted)",
+    );
+  });
+
   it("keeps the all-quests board summary as the active phase color legend", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
