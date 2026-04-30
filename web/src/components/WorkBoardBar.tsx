@@ -344,6 +344,7 @@ function buildOpenThreadTabs({
 }
 
 function ThreadTabRail({
+  mainState,
   tabs,
   closedChips,
   sessionId,
@@ -351,6 +352,7 @@ function ThreadTabRail({
   onSelectThread,
   onCloseThreadTab,
 }: {
+  mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
   closedChips: PrimaryThreadChip[];
   sessionId: string;
@@ -377,6 +379,15 @@ function ThreadTabRail({
     scrollToRouteTarget();
   };
 
+  const mainSelected = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
+  const mainNeedsInput = mainState?.needsInput ?? false;
+  const mainTone = mainNeedsInput
+    ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
+    : mainSelected
+      ? "border-cc-primary/45 bg-cc-primary/12 text-cc-fg"
+      : "border-cc-border/70 bg-cc-hover/35 text-cc-muted hover:bg-cc-hover/65 hover:text-cc-fg";
+  const mainDot = mainNeedsInput ? "bg-amber-400" : mainSelected ? "bg-cc-primary" : "bg-cc-muted/50";
+
   return (
     <div
       className="border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
@@ -389,22 +400,16 @@ function ThreadTabRail({
         <button
           type="button"
           onClick={() => openThread(MAIN_THREAD_KEY)}
-          className={`inline-flex max-w-[12rem] shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
-            isSelectedThread(currentThreadKey, MAIN_THREAD_KEY)
-              ? "border-cc-primary/45 bg-cc-primary/12 text-cc-fg"
-              : "border-cc-border/70 bg-cc-hover/35 text-cc-muted hover:bg-cc-hover/65 hover:text-cc-fg"
-          }`}
+          title={mainState?.title ?? "Main"}
+          className={`inline-flex max-w-[14rem] shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${mainTone}`}
           data-testid="thread-main-tab"
           data-thread-key={MAIN_THREAD_KEY}
-          aria-pressed={isSelectedThread(currentThreadKey, MAIN_THREAD_KEY)}
+          data-needs-input={mainNeedsInput ? "true" : "false"}
+          aria-pressed={mainSelected}
         >
-          <span
-            className={`h-2 w-2 shrink-0 rounded-full ${
-              isSelectedThread(currentThreadKey, MAIN_THREAD_KEY) ? "bg-cc-primary" : "bg-cc-muted/50"
-            }`}
-            aria-hidden="true"
-          />
+          <span className={`h-2 w-2 shrink-0 rounded-full ${mainDot}`} aria-hidden="true" />
           <span>Main</span>
+          {mainState?.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{mainState.detail}</span>}
         </button>
         {tabs.map((tab) => {
           const selected = isSelectedThread(currentThreadKey, tab.threadKey);
@@ -415,35 +420,33 @@ function ThreadTabRail({
               : "border-cc-border/70 bg-cc-hover/35 text-cc-muted hover:bg-cc-hover/65 hover:text-cc-fg";
           const dot = tab.needsInput ? "bg-amber-400" : selected ? "bg-cc-primary" : "bg-cc-muted/50";
           return (
-            <button
+            <div
               key={tab.threadKey}
-              type="button"
-              onClick={() => openThread(tab.threadKey, tab.route)}
               title={tab.questId ? `${tab.questId}: ${tab.title}` : tab.title}
-              className={`inline-flex max-w-[18rem] shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${tone}`}
+              className={`inline-flex max-w-[18rem] shrink-0 items-stretch rounded-md border text-[11px] font-medium transition-colors ${tone}`}
               data-testid="thread-tab"
               data-thread-key={tab.threadKey}
               data-needs-input={tab.needsInput ? "true" : "false"}
-              aria-pressed={selected}
             >
-              <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
-              {tab.questId && <span className="shrink-0 font-mono-code">{tab.questId}</span>}
-              <span className="min-w-0 truncate">{tab.title}</span>
-              {tab.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{tab.detail}</span>}
+              <button
+                type="button"
+                onClick={() => openThread(tab.threadKey, tab.route)}
+                className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left"
+                data-testid="thread-tab-select"
+                aria-pressed={selected}
+              >
+                <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
+                {tab.questId && <span className="shrink-0 font-mono-code">{tab.questId}</span>}
+                <span className="min-w-0 truncate">{tab.title}</span>
+                {tab.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{tab.detail}</span>}
+              </button>
               {onCloseThreadTab && (
-                <span
-                  role="button"
-                  tabIndex={0}
+                <button
+                  type="button"
                   aria-label={`Close ${tab.questId ?? tab.title}`}
-                  className="ml-0.5 inline-flex h-4 w-4 shrink-0 items-center justify-center rounded text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
+                  className="inline-flex w-6 shrink-0 items-center justify-center border-l border-current/10 text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
                   data-testid="thread-tab-close"
                   onClick={(event) => {
-                    event.stopPropagation();
-                    onCloseThreadTab(tab.threadKey);
-                  }}
-                  onKeyDown={(event) => {
-                    if (event.key !== "Enter" && event.key !== " ") return;
-                    event.preventDefault();
                     event.stopPropagation();
                     onCloseThreadTab(tab.threadKey);
                   }}
@@ -451,9 +454,9 @@ function ThreadTabRail({
                   <svg className="h-3 w-3" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                     <path d="M3 3l6 6M9 3L3 9" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round" />
                   </svg>
-                </span>
+                </button>
               )}
-            </button>
+            </div>
           );
         })}
         {closedChips.length > 0 && (
@@ -567,9 +570,19 @@ export function WorkBoardBar({
       }),
     [activeBoardRows, activeThreadChips, completedBoardRows, openThreadKeys, threadRows],
   );
+  const mainThreadState = useMemo(
+    () => activeThreadChips.find((chip) => chip.threadKey === MAIN_THREAD_KEY),
+    [activeThreadChips],
+  );
   const openThreadTabKeys = useMemo(() => new Set(openThreadTabs.map((tab) => tab.threadKey)), [openThreadTabs]);
   const closedActiveThreadChips = useMemo(
-    () => activeThreadChips.filter((chip) => !openThreadTabKeys.has(chip.threadKey)),
+    () =>
+      activeThreadChips.filter(
+        (chip) =>
+          chip.threadKey !== MAIN_THREAD_KEY &&
+          chip.threadKey !== ALL_THREADS_KEY &&
+          !openThreadTabKeys.has(chip.threadKey),
+      ),
     [activeThreadChips, openThreadTabKeys],
   );
   const boardThreadKeys = useMemo(() => {
@@ -683,6 +696,7 @@ export function WorkBoardBar({
       </div>
 
       <ThreadTabRail
+        mainState={mainThreadState}
         tabs={openThreadTabs}
         closedChips={closedActiveThreadChips}
         sessionId={sessionId}

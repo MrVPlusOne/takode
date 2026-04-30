@@ -1200,6 +1200,24 @@ export function PlaygroundInteractiveSections() {
                   ]);
                   state.setSessionAttentionRecords(boardSessionId, [
                     {
+                      id: "playground-board-bar-main-input",
+                      leaderSessionId: boardSessionId,
+                      type: "needs_input",
+                      source: { kind: "notification", id: "playground-board-bar-main-input" },
+                      threadKey: "main",
+                      title: "Main needs input",
+                      summary: "The leader has a Main-thread decision to make.",
+                      actionLabel: "Answer",
+                      priority: "needs_input",
+                      state: "unresolved",
+                      createdAt: Date.now() - 55_000,
+                      updatedAt: Date.now() - 11_000,
+                      route: { threadKey: "main" },
+                      chipEligible: true,
+                      ledgerEligible: true,
+                      dedupeKey: "playground-board-bar-main-input",
+                    },
+                    {
                       id: "playground-board-bar-chip",
                       leaderSessionId: boardSessionId,
                       type: "needs_input",
@@ -1342,6 +1360,24 @@ export function PlaygroundInteractiveSections() {
                     },
                   ]}
                   attentionRecords={[
+                    {
+                      id: "playground-board-bar-main-input",
+                      leaderSessionId: "playground-board-bar",
+                      type: "needs_input",
+                      source: { kind: "notification", id: "playground-board-bar-main-input" },
+                      threadKey: "main",
+                      title: "Main needs input",
+                      summary: "The leader has a Main-thread decision to make.",
+                      actionLabel: "Answer",
+                      priority: "needs_input",
+                      state: "unresolved",
+                      createdAt: Date.now() - 55_000,
+                      updatedAt: Date.now() - 11_000,
+                      route: { threadKey: "main" },
+                      chipEligible: true,
+                      ledgerEligible: true,
+                      dedupeKey: "playground-board-bar-main-input",
+                    },
                     {
                       id: "playground-board-bar-chip",
                       leaderSessionId: "playground-board-bar",

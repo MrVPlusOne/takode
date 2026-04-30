@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { render, fireEvent } from "@testing-library/react";
+import { render, fireEvent, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { boardSummary } from "./WorkBoardBar.js";
 import type { BoardRowData } from "./BoardTable.js";
@@ -359,6 +359,34 @@ describe("WorkBoardBar", () => {
     expect(getAllByTestId("thread-chip").map((chip) => chip.getAttribute("data-thread-key"))).toEqual(["q-2"]);
   });
 
+  it("embeds Main-owned needs-input state into the pinned Main tab without a duplicate chip", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", []]]),
+    });
+
+    const { getByTestId, queryByTestId } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        attentionRecords={[
+          attentionRecord({
+            id: "main-needs-input",
+            threadKey: "main",
+            questId: undefined,
+            route: { threadKey: "main" },
+            title: "Main needs input",
+            dedupeKey: "main-needs-input",
+          }),
+        ]}
+      />,
+    );
+
+    expect(getByTestId("thread-main-tab")).toHaveAttribute("data-needs-input", "true");
+    expect(getByTestId("thread-main-tab")).toHaveTextContent("Answer");
+    expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
+    expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-closed-chip-count", "0");
+  });
+
   it("keeps closed inactive history hidden unless the user has opened it as a tab", () => {
     const completed = [{ questId: "q-3", status: "DONE", title: "Finished work", updatedAt: 3, completedAt: 3 }];
     resetStore({
@@ -403,6 +431,34 @@ describe("WorkBoardBar", () => {
 
     expect(getByTestId("thread-main-tab")).toHaveTextContent("Main");
     expect(queryByLabelText("Close Main")).not.toBeInTheDocument();
+    fireEvent.click(getByLabelText("Close q-1"));
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-1");
+  });
+
+  it("uses sibling select and close buttons for open tabs", () => {
+    const onSelectThread = vi.fn();
+    const onCloseThreadTab = vi.fn();
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+
+    const { getByTestId, getByLabelText } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        openThreadKeys={["q-1"]}
+        onSelectThread={onSelectThread}
+        onCloseThreadTab={onCloseThreadTab}
+      />,
+    );
+
+    const tab = getByTestId("thread-tab");
+    expect(tab.tagName).toBe("DIV");
+    expect(tab.querySelector("button button")).toBeNull();
+
+    fireEvent.click(within(tab).getByTestId("thread-tab-select"));
+    expect(onSelectThread).toHaveBeenCalledWith("q-1");
+
     fireEvent.click(getByLabelText("Close q-1"));
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-1");
   });
