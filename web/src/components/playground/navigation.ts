@@ -87,6 +87,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Work Board",
     "Work Board Bar",
     "Quest Status Panel",
+    "Questmaster Compact Table",
     "Timer Chip + Modal",
     "Notification Inbox",
     "Quest Detail Modal",

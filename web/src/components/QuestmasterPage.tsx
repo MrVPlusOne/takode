@@ -1,17 +1,27 @@
-import { memo, useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react";
+import {
+  memo,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  useSyncExternalStore,
+  type CSSProperties,
+  type ReactNode,
+  type MouseEvent as ReactMouseEvent,
+} from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { questIdFromHash, withoutQuestIdInHash } from "../utils/routing.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import {
-  VERIFICATION_INBOX_COLLAPSE_KEY,
   loadQuestmasterViewState,
   saveQuestmasterViewState,
   toggleStatusFilter,
 } from "../utils/questmaster-view-state.js";
 import type { QuestmasterCollapsedGroup } from "../utils/questmaster-view-state.js";
 import { getHighlightParts } from "../utils/highlight.js";
-import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
+import { QUEST_STATUS_THEME, type QuestStatusTheme } from "../utils/quest-status-theme.js";
 import {
   timeAgo,
   verificationProgress,
@@ -23,8 +33,6 @@ import {
   extractPastedImages,
   extractHashtags,
   findHashtagTokenAtCursor,
-  isVerificationInboxUnread,
-  isQuestUnderReview,
   getQuestDebriefTldr,
   autoResizeTextarea,
 } from "../utils/quest-editor-helpers.js";
@@ -32,6 +40,8 @@ import { rankQuestsBySearchRelevance } from "../utils/quest-search-ranking.js";
 import { Lightbox } from "./Lightbox.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { QuestPhaseScanLines } from "./QuestPhaseScanLines.js";
+import { MarkdownContent } from "./MarkdownContent.js";
+import { QuestHoverCard } from "./QuestHoverCard.js";
 import type {
   QuestmasterCompactSort,
   QuestmasterCompactSortColumn,
@@ -39,10 +49,19 @@ import type {
   QuestmasterViewMode,
 } from "../api.js";
 import type { QuestmasterTask, QuestStatus, QuestFeedbackEntry, QuestImage } from "../types.js";
+import {
+  getQuestJourneyPhaseForState,
+  getQuestJourneyPresentation,
+  type QuestJourneyPlanState,
+} from "../../shared/quest-journey.js";
 
 // ─── Status config ──────────────────────────────────────────────────────────
 
-const STATUS_CONFIG = QUEST_STATUS_THEME;
+const STATUS_CONFIG: Record<QuestStatus, QuestStatusTheme> = {
+  ...QUEST_STATUS_THEME,
+  refined: { ...QUEST_STATUS_THEME.refined, label: "Actionable" },
+  done: { ...QUEST_STATUS_THEME.done, label: "Completed" },
+};
 
 const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "done"];
 
@@ -52,9 +71,9 @@ const DISPLAY_ORDER: QuestStatus[] = ["in_progress", "refined", "idea", "done"];
 const FILTER_TABS: Array<{ value: QuestStatus | "all"; label: string }> = [
   { value: "all", label: "All" },
   { value: "idea", label: "Idea" },
-  { value: "refined", label: "Refined" },
+  { value: "refined", label: "Actionable" },
   { value: "in_progress", label: "In Progress" },
-  { value: "done", label: "Done" },
+  { value: "done", label: "Completed" },
 ];
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
@@ -92,6 +111,26 @@ const STATUS_SORT_RANK: Record<QuestStatus, number> = {
 type CompactSortContext = {
   sessionNumById: Map<string, number>;
   sessionNameById: Map<string, string>;
+  journeyContextByQuestId: Map<string, QuestmasterJourneyContext>;
+};
+
+type QuestmasterJourneyBoardRow = {
+  questId: string;
+  journey?: QuestJourneyPlanState;
+  status?: string;
+};
+
+type QuestmasterJourneyContext = {
+  row: QuestmasterJourneyBoardRow;
+  completed: boolean;
+};
+
+type QuestmasterDisplayStatus = {
+  label: string;
+  dotClass?: string;
+  dotStyle?: CSSProperties;
+  textClass: string;
+  sortRank: number;
 };
 
 function normalizeCompactSort(sort: unknown): QuestmasterCompactSort {
@@ -158,6 +197,64 @@ function feedbackSortTuple(quest: QuestmasterTask): [number, number] {
   return [openCount, humanEntries.length];
 }
 
+function buildQuestmasterJourneyContextByQuestId(
+  sessionBoards: ReadonlyMap<string, readonly QuestmasterJourneyBoardRow[]>,
+  completedBoards: ReadonlyMap<string, readonly QuestmasterJourneyBoardRow[]>,
+): Map<string, QuestmasterJourneyContext> {
+  const contexts = new Map<string, QuestmasterJourneyContext>();
+  for (const board of sessionBoards.values()) {
+    for (const row of board) {
+      contexts.set(row.questId.toLowerCase(), { row, completed: false });
+    }
+  }
+  for (const board of completedBoards.values()) {
+    for (const row of board) {
+      const questKey = row.questId.toLowerCase();
+      if (!contexts.has(questKey)) contexts.set(questKey, { row, completed: true });
+    }
+  }
+  return contexts;
+}
+
+function getQuestmasterDisplayStatus(
+  quest: QuestmasterTask,
+  journeyContext?: QuestmasterJourneyContext,
+): QuestmasterDisplayStatus {
+  const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
+  if (isCancelled) {
+    return {
+      label: "Cancelled",
+      dotClass: "bg-red-400",
+      textClass: "text-red-300",
+      sortRank: 5,
+    };
+  }
+
+  if (journeyContext && !journeyContext.completed) {
+    const presentation = getQuestJourneyPresentation(journeyContext.row.status);
+    const phase = getQuestJourneyPhaseForState(journeyContext.row.status);
+    if (presentation || phase) {
+      const accent = phase?.color.accent;
+      return {
+        label: presentation?.label ?? phase?.label ?? "In Progress",
+        dotStyle: accent ? { backgroundColor: accent } : undefined,
+        dotClass: accent ? undefined : STATUS_CONFIG.in_progress.dot,
+        textClass: "text-cc-muted",
+        sortRank: 2,
+      };
+    }
+  }
+
+  const cfg = STATUS_CONFIG[quest.status];
+  const sortRank = STATUS_SORT_RANK[quest.status] ?? 4;
+  return {
+    label: cfg.label,
+    dotClass: cfg.dot,
+    textClass: cfg.text,
+    sortRank,
+  };
+}
+
 function compareNumberTuple(left: readonly number[], right: readonly number[]): number {
   for (let index = 0; index < Math.max(left.length, right.length); index++) {
     const diff = (left[index] ?? 0) - (right[index] ?? 0);
@@ -176,13 +273,15 @@ function compareCompactSortColumn(
   if (column === "title") return compareText(left.title, right.title);
   if (column === "owner") return compareText(ownerSortLabel(left, context), ownerSortLabel(right, context));
   if (column === "status") {
-    const leftCancelled = "cancelled" in left && !!(left as { cancelled?: boolean }).cancelled;
-    const rightCancelled = "cancelled" in right && !!(right as { cancelled?: boolean }).cancelled;
-    const leftRank = leftCancelled ? 4 : STATUS_SORT_RANK[left.status] + (isVerificationInboxUnread(left) ? 0.25 : 0);
-    const rightRank = rightCancelled
-      ? 4
-      : STATUS_SORT_RANK[right.status] + (isVerificationInboxUnread(right) ? 0.25 : 0);
-    return leftRank - rightRank;
+    const leftStatus = getQuestmasterDisplayStatus(
+      left,
+      context.journeyContextByQuestId.get(left.questId.toLowerCase()),
+    );
+    const rightStatus = getQuestmasterDisplayStatus(
+      right,
+      context.journeyContextByQuestId.get(right.questId.toLowerCase()),
+    );
+    return leftStatus.sortRank - rightStatus.sortRank || compareText(leftStatus.label, rightStatus.label);
   }
   if (column === "verify") return compareNumberTuple(verificationSortTuple(left), verificationSortTuple(right));
   if (column === "feedback") return compareNumberTuple(feedbackSortTuple(left), feedbackSortTuple(right));
@@ -279,6 +378,84 @@ function renderSearchHighlightText(text: string, searchText: string): React.Reac
   );
 }
 
+function QuestTldrMarkdown({
+  text,
+  searchText,
+  className = "",
+}: {
+  text: string;
+  searchText: string;
+  className?: string;
+}) {
+  return (
+    <div
+      className={`truncate text-cc-muted [&_.markdown-body]:truncate [&_.markdown-body]:text-inherit [&_.markdown-body]:leading-snug [&_.markdown-body_p]:mb-0 [&_.markdown-body_p]:truncate ${className}`}
+      onClick={(event) => {
+        const target = event.target instanceof HTMLElement ? event.target : null;
+        if (target?.closest("a,button")) event.stopPropagation();
+      }}
+    >
+      <MarkdownContent
+        text={text}
+        size="sm"
+        variant="conservative"
+        searchHighlight={searchText ? { query: searchText, mode: "strict", isCurrent: false } : null}
+      />
+    </div>
+  );
+}
+
+function QuestStatusHoverTarget({ quest, children }: { quest: QuestmasterTask; children: ReactNode }) {
+  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+    },
+    [],
+  );
+
+  function handleMouseEnter(event: ReactMouseEvent<HTMLSpanElement>) {
+    if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+    setHoverRect(event.currentTarget.getBoundingClientRect());
+  }
+
+  function handleMouseLeave() {
+    if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+    hideHoverTimerRef.current = setTimeout(() => setHoverRect(null), 100);
+  }
+
+  function handleHoverCardEnter() {
+    if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+  }
+
+  function handleHoverCardLeave() {
+    setHoverRect(null);
+  }
+
+  return (
+    <>
+      <span
+        className="inline-flex cursor-help"
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+        title="Show quest journey"
+      >
+        {children}
+      </span>
+      {hoverRect && (
+        <QuestHoverCard
+          quest={quest}
+          anchorRect={hoverRect}
+          onMouseEnter={handleHoverCardEnter}
+          onMouseLeave={handleHoverCardLeave}
+        />
+      )}
+    </>
+  );
+}
+
 // ─── Component ──────────────────────────────────────────────────────────────
 
 export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
@@ -304,6 +481,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const questOverlayId = useStore((s) => s.questOverlayId);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessionNames = useStore((s) => s.sessionNames);
+  const sessionBoards = useStore((s) => s.sessionBoards);
+  const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
 
   const [filter, setFilter] = useState<Set<QuestStatus>>(() => {
     const persisted = initialViewState?.statusFilter;
@@ -525,7 +704,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     setFilter(new Set(ALL_STATUSES));
     // Ensure deep-linked quests are visible in the list as well as the modal.
     setCollapsedGroups((prev) => {
-      const targetGroup = isVerificationInboxUnread(targetQuest) ? VERIFICATION_INBOX_COLLAPSE_KEY : targetQuest.status;
+      const targetGroup = targetQuest.status;
       if (!prev.has(targetGroup)) return prev;
       const next = new Set(prev);
       next.delete(targetGroup);
@@ -846,13 +1025,12 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     collapseGroup?: QuestmasterCollapsedGroup;
   };
 
-  const showReviewSplit = allSelected || filter.has("done");
-  const reviewInboxQuests = showReviewSplit ? filtered.filter((q) => isVerificationInboxUnread(q)) : [];
-  const underReviewQuests = showReviewSplit
-    ? filtered.filter((q) => isQuestUnderReview(q) && !isVerificationInboxUnread(q))
-    : [];
   const sortByRecencyDesc = (items: QuestmasterTask[]): QuestmasterTask[] =>
     [...items].sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
+  const journeyContextByQuestId = useMemo(
+    () => buildQuestmasterJourneyContextByQuestId(sessionBoards, sessionCompletedBoards),
+    [sessionBoards, sessionCompletedBoards],
+  );
   const compactSortContext = useMemo<CompactSortContext>(
     () => ({
       sessionNumById: new Map(
@@ -861,8 +1039,9 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
         ),
       ),
       sessionNameById: sessionNames,
+      journeyContextByQuestId,
     }),
-    [sdkSessions, sessionNames],
+    [sdkSessions, sessionNames, journeyContextByQuestId],
   );
   const compactQuests = useMemo(
     () => (searchNormalized ? filtered : sortCompactQuests(filtered, compactSort, compactSortContext)),
@@ -878,32 +1057,10 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       textClass: "text-cc-fg",
       quests: filtered,
     });
-  } else if (showReviewSplit && reviewInboxQuests.length > 0) {
-    questSections.push({
-      key: VERIFICATION_INBOX_COLLAPSE_KEY,
-      label: "Review Inbox",
-      dotClass: "bg-amber-400",
-      textClass: "text-amber-300",
-      quests: sortByRecencyDesc(reviewInboxQuests),
-      ...(filter.size > 1 ? { collapseGroup: VERIFICATION_INBOX_COLLAPSE_KEY } : {}),
-    });
-  }
-
-  if (!searchNormalized && showReviewSplit && underReviewQuests.length > 0) {
-    questSections.push({
-      key: "under_review",
-      label: "Under Review",
-      dotClass: "bg-blue-400",
-      textClass: "text-blue-300",
-      quests: sortByRecencyDesc(underReviewQuests),
-    });
   }
 
   for (const status of searchNormalized ? [] : allSelected ? DISPLAY_ORDER : ALL_STATUSES) {
-    const sectionQuests =
-      status === "done" && showReviewSplit
-        ? filtered.filter((q) => q.status === "done" && !isQuestUnderReview(q))
-        : filtered.filter((q) => q.status === status);
+    const sectionQuests = filtered.filter((q) => q.status === status);
     if (sectionQuests.length === 0) continue;
     const cfg = STATUS_CONFIG[status];
     questSections.push({
@@ -1492,6 +1649,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                   quests={compactQuests}
                   onOpenQuest={handleExpand}
                   searchText={searchText}
+                  journeyContextByQuestId={journeyContextByQuestId}
                   sort={compactSort}
                   sortSaving={compactSortSaving}
                   onSortChange={handleCompactSortChange}
@@ -1505,10 +1663,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                 {questSections.map((section) => {
                   const isCollapsible = !!section.collapseGroup;
                   const isCollapsed = !!section.collapseGroup && collapsedGroups.has(section.collapseGroup);
-                  const showSectionHeader =
-                    filter.size > 1 ||
-                    (filter.has("done") &&
-                      (section.key === VERIFICATION_INBOX_COLLAPSE_KEY || section.key === "under_review"));
+                  const showSectionHeader = filter.size > 1;
                   return (
                     <div key={section.key}>
                       {showSectionHeader &&
@@ -1552,6 +1707,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                               isExpanded={questOverlayId === quest.questId}
                               onOpenQuest={handleExpand}
                               searchText={searchText}
+                              journeyContext={journeyContextByQuestId.get(quest.questId.toLowerCase())}
                             />
                           ))}
                         </div>
@@ -1574,15 +1730,16 @@ const QuestCard = memo(function QuestCard({
   isExpanded,
   onOpenQuest,
   searchText,
+  journeyContext,
 }: {
   quest: QuestmasterTask;
   isExpanded: boolean;
   onOpenQuest: (quest: QuestmasterTask) => void;
   searchText: string;
+  journeyContext?: QuestmasterJourneyContext;
 }) {
   const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
-  const cfg = STATUS_CONFIG[quest.status];
-  const isInboxVerification = isVerificationInboxUnread(quest);
+  const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const questSessionId = getQuestOwnerSessionId(quest);
@@ -1616,7 +1773,10 @@ const QuestCard = memo(function QuestCard({
           }}
           className="w-full flex items-center gap-3 px-4 py-3 text-left cursor-pointer group"
         >
-          <span className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`} />
+          <span
+            className={`w-2 h-2 rounded-full shrink-0 ${displayStatus.dotClass ?? ""}`}
+            style={displayStatus.dotStyle}
+          />
 
           <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2">
@@ -1631,11 +1791,7 @@ const QuestCard = memo(function QuestCard({
                 </span>
               )}
             </div>
-            {quest.tldr && (
-              <div className="mt-0.5 truncate text-xs text-cc-muted">
-                {renderSearchHighlightText(quest.tldr, searchText)}
-              </div>
-            )}
+            {quest.tldr && <QuestTldrMarkdown text={quest.tldr} searchText={searchText} className="mt-0.5 text-xs" />}
             {debriefTldr && (
               <div className="mt-0.5 truncate text-xs text-cc-muted">
                 <span className="text-cc-muted/70">Debrief: </span>
@@ -1647,12 +1803,15 @@ const QuestCard = memo(function QuestCard({
               <CopyableQuestId questId={quest.questId} className="text-[10px] text-cc-muted/50 shrink-0">
                 {renderSearchHighlightText(quest.questId, searchText)}
               </CopyableQuestId>
-              {isInboxVerification && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                  Inbox
+              <QuestStatusHoverTarget quest={quest}>
+                <span className={`inline-flex items-center gap-1 ${displayStatus.textClass}`}>
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${displayStatus.dotClass ?? ""}`}
+                    style={displayStatus.dotStyle}
+                  />
+                  <span>{displayStatus.label}</span>
                 </span>
-              )}
+              </QuestStatusHoverTarget>
               {questSessionId && <SessionNumChip sessionId={questSessionId} />}
               {leaderSessionId && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
@@ -1726,6 +1885,7 @@ function CompactQuestTable({
   quests,
   onOpenQuest,
   searchText,
+  journeyContextByQuestId,
   sort,
   sortSaving,
   onSortChange,
@@ -1733,6 +1893,7 @@ function CompactQuestTable({
   quests: QuestmasterTask[];
   onOpenQuest: (quest: QuestmasterTask) => void;
   searchText: string;
+  journeyContextByQuestId: Map<string, QuestmasterJourneyContext>;
   sort: QuestmasterCompactSort;
   sortSaving: boolean;
   onSortChange: (column: QuestmasterCompactSortColumn) => void;
@@ -1795,7 +1956,13 @@ function CompactQuestTable({
         </thead>
         <tbody>
           {quests.map((quest) => (
-            <CompactQuestRow key={quest.id} quest={quest} onOpenQuest={onOpenQuest} searchText={searchText} />
+            <CompactQuestRow
+              key={quest.id}
+              quest={quest}
+              onOpenQuest={onOpenQuest}
+              searchText={searchText}
+              journeyContext={journeyContextByQuestId.get(quest.questId.toLowerCase())}
+            />
           ))}
         </tbody>
       </table>
@@ -1843,23 +2010,23 @@ const CompactQuestRow = memo(function CompactQuestRow({
   quest,
   onOpenQuest,
   searchText,
+  journeyContext,
 }: {
   quest: QuestmasterTask;
   onOpenQuest: (quest: QuestmasterTask) => void;
   searchText: string;
+  journeyContext?: QuestmasterJourneyContext;
 }) {
   const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
-  const cfg = STATUS_CONFIG[quest.status];
+  const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
   const questSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = getQuestLeaderSessionId(quest);
-  const debriefTldr = getQuestDebriefTldr(quest);
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const feedbackEntries = "feedback" in quest ? (quest as { feedback?: QuestFeedbackEntry[] }).feedback : undefined;
   const unaddressedFeedbackCount =
     feedbackEntries?.filter((entry) => entry.author === "human" && !entry.addressed).length ?? 0;
   const totalFeedbackCount = feedbackEntries?.filter((entry) => entry.author === "human").length ?? 0;
-  const isInboxVerification = isVerificationInboxUnread(quest);
 
   return (
     <tr
@@ -1904,17 +2071,8 @@ const CompactQuestRow = memo(function CompactQuestRow({
           </div>
         )}
         {quest.tldr && (
-          <div className="mt-0.5 max-w-[360px] truncate text-[11px] text-cc-muted">
-            {renderSearchHighlightText(quest.tldr, searchText)}
-          </div>
+          <QuestTldrMarkdown text={quest.tldr} searchText={searchText} className="mt-0.5 max-w-[360px] text-[11px]" />
         )}
-        {debriefTldr && (
-          <div className="mt-0.5 max-w-[360px] truncate text-[11px] text-cc-muted">
-            <span className="text-cc-muted/70">Debrief: </span>
-            {renderSearchHighlightText(debriefTldr, searchText)}
-          </div>
-        )}
-        <QuestPhaseScanLines quest={quest} searchText={searchText} max={1} className="mt-0.5 max-w-[360px]" />
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
         {questSessionId ? (
@@ -1940,11 +2098,15 @@ const CompactQuestRow = memo(function CompactQuestRow({
         )}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
-        <span className="inline-flex items-center gap-1.5 text-cc-muted">
-          <span className={`h-1.5 w-1.5 rounded-full ${isCancelled ? "bg-red-400" : cfg.dot}`} />
-          <span>{isCancelled ? "Cancelled" : cfg.label}</span>
-          {isInboxVerification && <span className="text-amber-300">Inbox</span>}
-        </span>
+        <QuestStatusHoverTarget quest={quest}>
+          <span className={`inline-flex items-center gap-1.5 ${displayStatus.textClass}`}>
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${displayStatus.dotClass ?? ""}`}
+              style={displayStatus.dotStyle}
+            />
+            <span>{displayStatus.label}</span>
+          </span>
+        </QuestStatusHoverTarget>
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle text-cc-muted tabular-nums">
         {vProgress ? `${vProgress.checked}/${vProgress.total}` : "\u2014"}
