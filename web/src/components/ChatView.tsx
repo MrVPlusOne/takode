@@ -655,6 +655,7 @@ export function ChatView({
   }, []);
   const lastManualThreadSelectionAtRef = useRef(0);
   const initializedAttachmentMarkerKeysRef = useRef(false);
+  const baselineAttachmentMarkersAfterHistoryLoadRef = useRef(false);
   const observedAttachmentMarkerKeysRef = useRef<Set<string>>(new Set());
   const handleSelectThread = useCallback(
     (threadKey: string) => {
@@ -683,6 +684,7 @@ export function ChatView({
 
   useEffect(() => {
     initializedAttachmentMarkerKeysRef.current = false;
+    baselineAttachmentMarkersAfterHistoryLoadRef.current = false;
     observedAttachmentMarkerKeysRef.current = new Set();
     lastManualThreadSelectionAtRef.current = 0;
   }, [sessionId]);
@@ -766,6 +768,10 @@ export function ChatView({
 
   useEffect(() => {
     if (!isLeaderSession || preview) return;
+    if (historyLoading) {
+      baselineAttachmentMarkersAfterHistoryLoadRef.current = true;
+      return;
+    }
 
     const currentMarkerKeys = new Set<string>();
     const unseenMarkers: ChatMessage[] = [];
@@ -779,8 +785,9 @@ export function ChatView({
       }
     }
 
-    if (!initializedAttachmentMarkerKeysRef.current) {
+    if (!initializedAttachmentMarkerKeysRef.current || baselineAttachmentMarkersAfterHistoryLoadRef.current) {
       initializedAttachmentMarkerKeysRef.current = true;
+      baselineAttachmentMarkersAfterHistoryLoadRef.current = false;
       observedAttachmentMarkerKeysRef.current = currentMarkerKeys;
       return;
     }
@@ -834,6 +841,7 @@ export function ChatView({
   }, [
     allMessages,
     hasThreadRoute,
+    historyLoading,
     isLeaderSession,
     openThreadTabKeys,
     preview,

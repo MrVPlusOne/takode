@@ -656,6 +656,76 @@ describe("ChatView backend banners", () => {
     expect(window.location.hash).toBe("#/session/s1?thread=q-1005");
   });
 
+  it("does not open or auto-select persisted attachment markers from initial history replay", async () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([["s1", []]]),
+      historyLoading: new Map(),
+      quests: [{ questId: "q-1005", title: "Position newly created quest tabs", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "");
+
+    mockState.historyLoading = new Map([["s1", true]]);
+    view.rerender(<ChatView sessionId="s1" />);
+
+    const attachedAt = Date.now() - 10_000;
+    mockState.historyLoading = new Map();
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          {
+            id: "u-history",
+            role: "user",
+            content: "This was moved before the browser reconnected.",
+            timestamp: attachedAt - 2,
+            historyIndex: 1,
+            metadata: { threadRefs: [{ threadKey: "q-1005", questId: "q-1005", source: "backfill" }] },
+          },
+          {
+            id: "marker-history-q-1005",
+            role: "system",
+            content: "1 message moved to q-1005",
+            timestamp: attachedAt,
+            historyIndex: 2,
+            metadata: {
+              threadAttachmentMarker: {
+                type: "thread_attachment_marker",
+                id: "marker-history-q-1005",
+                timestamp: attachedAt,
+                markerKey: "thread-attachment:q-1005:u-history",
+                threadKey: "q-1005",
+                questId: "q-1005",
+                attachedAt,
+                attachedBy: "leader",
+                messageIds: ["u-history"],
+                messageIndices: [1],
+                ranges: ["1"],
+                count: 1,
+                firstMessageId: "u-history",
+                firstMessageIndex: 1,
+              },
+            },
+          },
+        ],
+      ],
+    ]);
+
+    view.rerender(<ChatView sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+    });
+    expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "main");
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "");
+    expect(window.location.hash).toBe("#/session/s1");
+  });
+
   it("does not auto-select a moved-message quest tab after the user manually navigates away from Main", async () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
