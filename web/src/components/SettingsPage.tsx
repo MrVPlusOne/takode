@@ -35,6 +35,13 @@ const DEFAULT_PUSHOVER_EVENT_FILTERS: PushoverEventFilters = {
   review: true,
   error: true,
 };
+const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
+const CUSTOM_STT_MODEL_VALUE = "__custom__";
+const BUILT_IN_STT_MODELS = [
+  "gpt-4o-mini-transcribe",
+  "gpt-4o-transcribe",
+  "gpt-4o-mini-transcribe-2025-12-15",
+] as const;
 
 interface SettingsPageProps {
   embedded?: boolean;
@@ -282,7 +289,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [transcriptionApiKey, setTranscriptionApiKey] = useState("");
   const [transcriptionBaseUrl, setTranscriptionBaseUrl] = useState("");
   const [transcriptionModel, setTranscriptionModel] = useState("");
-  const [sttModel, setSttModel] = useState("gpt-4o-mini-transcribe");
+  const [sttModel, setSttModel] = useState(DEFAULT_STT_MODEL);
+  const [customSttModel, setCustomSttModel] = useState("");
   const [transcriptionEnhancement, setTranscriptionEnhancement] = useState(false);
   const [enhancementMode, setEnhancementMode] = useState<"default" | "bullet">("default");
   const [transcriptionVocabulary, setTranscriptionVocabulary] = useState("");
@@ -362,7 +370,14 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           setTranscriptionApiKey(s.transcriptionConfig.apiKey === "***" ? "***" : s.transcriptionConfig.apiKey || "");
           setTranscriptionBaseUrl(s.transcriptionConfig.baseUrl || "");
           setTranscriptionModel(s.transcriptionConfig.enhancementModel || "");
-          setSttModel(s.transcriptionConfig.sttModel || "gpt-4o-mini-transcribe");
+          const configuredSttModel = s.transcriptionConfig.sttModel || DEFAULT_STT_MODEL;
+          if (BUILT_IN_STT_MODELS.includes(configuredSttModel as (typeof BUILT_IN_STT_MODELS)[number])) {
+            setSttModel(configuredSttModel);
+            setCustomSttModel("");
+          } else {
+            setSttModel(CUSTOM_STT_MODEL_VALUE);
+            setCustomSttModel(configuredSttModel);
+          }
           setTranscriptionEnhancement(s.transcriptionConfig.enhancementEnabled ?? false);
           setEnhancementMode(s.transcriptionConfig.enhancementMode ?? "default");
           setTranscriptionVocabulary(s.transcriptionConfig.customVocabulary || "");
@@ -2207,11 +2222,29 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                     onChange={(e) => setSttModel(e.target.value)}
                     className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
                   >
-                    <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
-                    <option value="gpt-4o-transcribe">gpt-4o-transcribe</option>
-                    <option value="gpt-4o-mini-transcribe-2025-12-15">gpt-4o-mini-transcribe-2025-12-15</option>
+                    {BUILT_IN_STT_MODELS.map((model) => (
+                      <option key={model} value={model}>
+                        {model}
+                      </option>
+                    ))}
+                    <option value={CUSTOM_STT_MODEL_VALUE}>Custom Model</option>
                   </select>
                 </div>
+                {sttModel === CUSTOM_STT_MODEL_VALUE && (
+                  <div>
+                    <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="custom-stt-model">
+                      Custom STT Model
+                    </label>
+                    <input
+                      id="custom-stt-model"
+                      type="text"
+                      value={customSttModel}
+                      onChange={(e) => setCustomSttModel(e.target.value)}
+                      placeholder="whisper-large-v3"
+                      className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
+                    />
+                  </div>
+                )}
                 <div>
                   <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-model">
                     Enhancement Model
@@ -2284,9 +2317,15 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   type="button"
                   disabled={transcriptionSaving || loading}
                   onClick={async () => {
-                    setTranscriptionSaving(true);
                     setTranscriptionError("");
                     setTranscriptionSaved(false);
+                    const resolvedSttModel =
+                      sttModel === CUSTOM_STT_MODEL_VALUE ? customSttModel.trim() : sttModel.trim();
+                    if (!resolvedSttModel) {
+                      setTranscriptionError("Custom STT model is required.");
+                      return;
+                    }
+                    setTranscriptionSaving(true);
                     try {
                       const config: TranscriptionConfig = {
                         apiKey: transcriptionApiKey === "***" ? "***" : transcriptionApiKey,
@@ -2295,9 +2334,10 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                         enhancementModel: transcriptionModel,
                         customVocabulary: transcriptionVocabulary,
                         enhancementMode,
-                        sttModel: sttModel as TranscriptionConfig["sttModel"],
+                        sttModel: resolvedSttModel,
                       };
                       await api.updateSettings({ transcriptionConfig: config });
+                      if (sttModel === CUSTOM_STT_MODEL_VALUE) setCustomSttModel(resolvedSttModel);
                       setTranscriptionSaved(true);
                       setTimeout(() => setTranscriptionSaved(false), 3000);
                     } catch (err: unknown) {

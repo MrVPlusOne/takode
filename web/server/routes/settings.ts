@@ -17,7 +17,6 @@ import {
   getServerId,
   getClaudeUserDefaultModel,
   getCodexUserDefaultModel,
-  STT_MODELS,
   QUESTMASTER_COMPACT_SORT_COLUMNS,
   DEFAULT_QUESTMASTER_COMPACT_SORT,
   type NamerConfig,
@@ -530,9 +529,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       customVocabulary:
         typeof tc.customVocabulary === "string" ? tc.customVocabulary.trim() : current.customVocabulary || "",
       sttModel:
-        typeof tc.sttModel === "string" && (STT_MODELS as readonly string[]).includes(tc.sttModel)
-          ? (tc.sttModel as SttModel)
-          : current.sttModel,
+        typeof tc.sttModel === "string" && tc.sttModel.trim() ? (tc.sttModel.trim() as SttModel) : current.sttModel,
       enhancementMode:
         typeof tc.enhancementMode === "string" && (tc.enhancementMode === "default" || tc.enhancementMode === "bullet")
           ? (tc.enhancementMode as EnhancementMode)

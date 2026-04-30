@@ -384,6 +384,72 @@ describe("SettingsPage", () => {
     });
   });
 
+  it("loads and saves a custom voice transcription model", async () => {
+    // A saved non-built-in STT model should reopen the selector in Custom Model mode.
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      editorConfig: { editor: "none" },
+      transcriptionConfig: {
+        apiKey: "***",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+        sttModel: "whisper-large-v3",
+      },
+    });
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const voiceSection = settingsSection("Voice Transcription");
+    await waitFor(() => {
+      expect(within(voiceSection).getByLabelText("STT Model")).toHaveValue("__custom__");
+      expect(within(voiceSection).getByLabelText("Custom STT Model")).toHaveValue("whisper-large-v3");
+    });
+
+    fireEvent.change(within(voiceSection).getByLabelText("Custom STT Model"), {
+      target: { value: " custom-whisper-v2 " },
+    });
+    fireEvent.click(within(voiceSection).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transcriptionConfig: expect.objectContaining({
+            sttModel: "custom-whisper-v2",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("requires a model name before saving Custom Model transcription settings", async () => {
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const voiceSection = settingsSection("Voice Transcription");
+    await waitFor(() => {
+      expect(within(voiceSection).getByLabelText("STT Model")).toBeInTheDocument();
+    });
+
+    fireEvent.change(within(voiceSection).getByLabelText("STT Model"), { target: { value: "__custom__" } });
+    fireEvent.click(within(voiceSection).getByRole("button", { name: "Save" }));
+
+    expect(await within(voiceSection).findByText("Custom STT model is required.")).toBeInTheDocument();
+    expect(mockApi.updateSettings).not.toHaveBeenCalled();
+  });
+
   it("loads and saves pushover event filters", async () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",

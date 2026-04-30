@@ -90,7 +90,9 @@ export type EnhancementMode = "default" | "bullet";
 
 /** Available OpenAI STT models. */
 export const STT_MODELS = ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "gpt-4o-mini-transcribe-2025-12-15"] as const;
-export type SttModel = (typeof STT_MODELS)[number];
+const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
+export type BuiltInSttModel = (typeof STT_MODELS)[number];
+export type SttModel = string;
 
 /** Configuration for voice transcription (STT + optional LLM enhancement). */
 export interface TranscriptionConfig {
@@ -166,7 +168,7 @@ let settings: CompanionSettings = {
     enhancementModel: "gpt-5-mini",
     customVocabulary: "",
     enhancementMode: "default",
-    sttModel: "gpt-4o-mini-transcribe",
+    sttModel: DEFAULT_STT_MODEL,
   },
   editorConfig: { editor: "none" },
   sleepInhibitorEnabled: false,
@@ -259,10 +261,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
   const cfg = raw?.transcriptionConfig;
   if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
     const c = cfg as Record<string, unknown>;
-    const rawSttModel = typeof c.sttModel === "string" ? c.sttModel : "";
-    const sttModel = (STT_MODELS as readonly string[]).includes(rawSttModel)
-      ? (rawSttModel as SttModel)
-      : "gpt-4o-mini-transcribe";
+    const sttModel = typeof c.sttModel === "string" && c.sttModel.trim() ? c.sttModel.trim() : DEFAULT_STT_MODEL;
     const rawEnhancementMode = typeof c.enhancementMode === "string" ? c.enhancementMode : "";
     const enhancementMode: EnhancementMode =
       rawEnhancementMode === "default" || rawEnhancementMode === "bullet" ? rawEnhancementMode : "default";
@@ -286,7 +285,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
     enhancementEnabled: true,
     enhancementModel: "gpt-5-mini",
     customVocabulary: "",
-    sttModel: "gpt-4o-mini-transcribe",
+    sttModel: DEFAULT_STT_MODEL,
     enhancementMode: "default",
   };
 }

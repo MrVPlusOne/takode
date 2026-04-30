@@ -178,6 +178,28 @@ describe("settings-manager", () => {
     });
   });
 
+  it("persists custom STT models across reloads", async () => {
+    // Custom OpenAI-compatible transcription providers can expose model names outside the built-in list.
+    updateSettings({
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+        sttModel: "whisper-large-v3",
+      },
+    });
+
+    await _flushForTest();
+
+    const savedSettings = JSON.parse(await readFile(settingsPath, "utf-8"));
+    expect(savedSettings.transcriptionConfig.sttModel).toBe("whisper-large-v3");
+
+    _resetForTest(settingsPath);
+
+    expect(getSettings().transcriptionConfig.sttModel).toBe("whisper-large-v3");
+  });
+
   it("persists voiceCaptureMode preference across reloads", async () => {
     // Save a voice capture mode preference (e.g. user switched to "append" during recording)
     updateSettings({
