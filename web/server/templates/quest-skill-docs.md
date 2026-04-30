@@ -114,6 +114,10 @@ TLDR metadata is for human scanning, but it must not hide major parts of the ful
 - For multi-topic content, use multiple bullets or sentences, roughly compressing every one to two paragraphs or major sections into one concise TLDR item.
 - Keep the full content complete and agent-readable while making the TLDR human-scannable without being lossy.
 
+## File Link Guidance
+
+When quest feedback, comments, summaries, notes, or phase documentation refer to repository files, prefer Takode custom file-link syntax with a short label and repo-root-relative target, for example `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`. Custom `file:` links are preferred because they preserve richer location metadata such as line ranges. Standard Markdown file links to repo files may be opened best-effort by Questmaster when clicked, but they are only a fallback. Keep plain paths literal inside shell commands, code snippets, copied logs, or when the path is intentionally not a clickable repo-file reference.
+
 ## Quest Journey Phase Documentation
 
 When a quest is running through a Quest Journey, every active phase should leave durable quest feedback before handoff or phase end. The entry should be scoped to the current phase when possible, contain full agent-oriented detail for future sessions, and include TLDR metadata for human scanning when the body has more than one small point.

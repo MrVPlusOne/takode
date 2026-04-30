@@ -224,6 +224,10 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase.assigneeBrief).toContain("--tldr-file");
       expect(phase.assigneeBrief).toContain("current-phase inference");
       expect(phase.assigneeBrief).toContain("--no-phase");
+      expect(phase.assigneeBrief).toContain(
+        "[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)",
+      );
+      expect(phase.assigneeBrief).toContain("standard Markdown file links are best-effort fallback only");
       expect(phase.assigneeBrief).toContain(phaseSpecificExpectations.get(phase.id));
       expect(phase.leaderBrief).toContain("phase documentation");
       expect(phase.leaderBrief).toContain("full agent-oriented detail plus TLDR metadata");

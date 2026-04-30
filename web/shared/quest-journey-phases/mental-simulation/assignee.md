@@ -20,6 +20,7 @@ Phase documentation:
 - Before reporting back, add or refresh a quest feedback entry documenting this phase when working on a quest. Prefer the phase-scoped primitive with current-phase inference: `quest feedback add q-N --text-file <body> --tldr-file <tldr> --kind review`.
 - If inference is unavailable or ambiguous, use explicit phase flags such as `--phase mental-simulation`, `--phase-position`, `--phase-occurrence`, or `--phase-occurrence-id`; use `--no-phase` only when a flat comment is intentional.
 - Write full agent-oriented detail first, then add TLDR metadata that preserves the major points.
+- When referencing repository files in quest feedback or phase documentation, prefer Takode file-link syntax such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`; standard Markdown file links are best-effort fallback only.
 - Document scenarios replayed, concrete examples, risks, recommendations, confidence limits, and the quest documentation hygiene judgment when reviewing a quest.
 
 Deliverable:

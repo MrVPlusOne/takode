@@ -13,12 +13,13 @@ const mockEditQuestFeedback = vi.fn();
 const mockDeleteQuestFeedback = vi.fn();
 const mockGetQuestHistory = vi.fn();
 const mockGetQuestCommit = vi.fn();
+const mockGetSettings = vi.fn();
 const mockMarkNotificationDone = vi.fn();
 const mockMarkAllNotificationsDone = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
-    getSettings: vi.fn().mockResolvedValue({ editorConfig: { editor: "none" } }),
+    getSettings: (...args: unknown[]) => mockGetSettings(...args),
     openVsCodeRemoteFile: vi.fn(),
     checkQuestVerification: (...args: unknown[]) => mockCheckQuestVerification(...args),
     transitionQuest: (...args: unknown[]) => mockTransitionQuest(...args),
@@ -122,6 +123,8 @@ describe("QuestDetailPanel", () => {
     mockDeleteQuestFeedback.mockReset();
     mockGetQuestHistory.mockReset();
     mockGetQuestCommit.mockReset();
+    mockGetSettings.mockReset();
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
     mockMarkNotificationDone.mockReset();
     mockMarkAllNotificationsDone.mockReset();
     document.body.style.overflow = "";
@@ -489,6 +492,73 @@ describe("QuestDetailPanel", () => {
     fireEvent.click(screen.getByText("Full feedback"));
     expect(await screen.findByText("Full agent-dense feedback body.")).toBeTruthy();
     expect(screen.getByText("Full agent-dense feedback body.")).toBeVisible();
+  });
+
+  it("renders custom file links in feedback TLDR metadata through the markdown file opener", async () => {
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const quest = makeVerificationQuest({
+      feedback: [
+        {
+          author: "agent",
+          text: "Full body stays collapsed.",
+          tldr: "See [QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42).",
+          ts: Date.now(),
+          authorSessionId: "session-abc",
+        },
+      ],
+    });
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: "q-42",
+      sessions: new Map([["session-abc", { session_id: "session-abc", cwd: "/repo", repo_root: "/repo" } as never]]),
+    });
+
+    render(<QuestDetailPanel />);
+    fireEvent.click(screen.getByRole("link", { name: "QuestDetailPanel.tsx:42" }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith(
+        "vscode://file//repo/web/src/components/QuestDetailPanel.tsx:42:1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+    openSpy.mockRestore();
+  });
+
+  it("renders standard Markdown repo file links in feedback TLDRs without auto-linking plain paths", async () => {
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-local" } });
+    const openSpy = vi.spyOn(window, "open").mockImplementation(() => null);
+    const quest = makeVerificationQuest({
+      feedback: [
+        {
+          author: "agent",
+          text: "Full body stays collapsed.",
+          tldr: "See [QuestDetailPanel](web/src/components/QuestDetailPanel.tsx#L42); plain path web/src/components/QuestDetailPanel.tsx:99 stays literal.",
+          ts: Date.now(),
+          authorSessionId: "session-abc",
+        },
+      ],
+    });
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: "q-42",
+      sessions: new Map([["session-abc", { session_id: "session-abc", cwd: "/repo", repo_root: "/repo" } as never]]),
+    });
+
+    render(<QuestDetailPanel />);
+    expect(screen.queryByRole("link", { name: "web/src/components/QuestDetailPanel.tsx:99" })).toBeNull();
+    fireEvent.click(screen.getByRole("link", { name: "QuestDetailPanel" }));
+
+    await waitFor(() => {
+      expect(openSpy).toHaveBeenCalledWith(
+        "vscode://file//repo/web/src/components/QuestDetailPanel.tsx:42:1",
+        "_blank",
+        "noopener,noreferrer",
+      );
+    });
+    openSpy.mockRestore();
   });
 
   it("shows phase TLDRs on the quest documentation timeline with full detail collapsed", async () => {

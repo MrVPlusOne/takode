@@ -10,9 +10,14 @@ import { SessionNumChip } from "./SessionNumChip.js";
 interface QuestPhaseDocumentationTimelineProps {
   summary: QuestPhaseDocumentationSummary;
   searchHighlight?: string | null;
+  sessionId?: string;
 }
 
-export function QuestPhaseDocumentationTimeline({ summary, searchHighlight }: QuestPhaseDocumentationTimelineProps) {
+export function QuestPhaseDocumentationTimeline({
+  summary,
+  searchHighlight,
+  sessionId,
+}: QuestPhaseDocumentationTimelineProps) {
   const groups = summary.groups.filter((group) => group.entries.length > 0);
   if (groups.length === 0) return null;
 
@@ -88,6 +93,7 @@ export function QuestPhaseDocumentationTimeline({ summary, searchHighlight }: Qu
                           <MarkdownContent
                             text={preview}
                             size="sm"
+                            sessionId={sessionId}
                             searchHighlight={
                               searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
                             }
@@ -99,6 +105,7 @@ export function QuestPhaseDocumentationTimeline({ summary, searchHighlight }: Qu
                             <MarkdownContent
                               text={entry.text}
                               size="sm"
+                              sessionId={sessionId}
                               searchHighlight={
                                 searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
                               }

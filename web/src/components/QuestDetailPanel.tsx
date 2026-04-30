@@ -814,6 +814,7 @@ export function QuestDetailPanel() {
   const questTldr = getQuestTldr(quest);
   const questNotes = getQuestNotes(quest);
   const questSessionId = getQuestOwnerSessionId(quest);
+  const questMarkdownSessionId = questSessionId ?? undefined;
   const leaderSessionId = getQuestLeaderSessionId(quest);
   const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
   const phaseDocumentationSummary = summarizeQuestPhaseDocumentation(quest);
@@ -1146,6 +1147,7 @@ export function QuestDetailPanel() {
                       <MarkdownContent
                         text={questTldr}
                         size="sm"
+                        sessionId={questMarkdownSessionId}
                         searchHighlight={
                           searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
                         }
@@ -1156,12 +1158,14 @@ export function QuestDetailPanel() {
                     <QuestPhaseDocumentationTimeline
                       summary={phaseDocumentationSummary}
                       searchHighlight={searchHighlight}
+                      sessionId={questMarkdownSessionId}
                     />
                   )}
                   {description && (
                     <MarkdownContent
                       text={description}
                       size="sm"
+                      sessionId={questMarkdownSessionId}
                       searchHighlight={
                         searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
                       }
@@ -1400,16 +1404,26 @@ export function QuestDetailPanel() {
                                   <>
                                     {entry.tldr ? (
                                       <div className="space-y-1">
-                                        <div className="text-xs font-medium text-cc-fg">{entry.tldr}</div>
+                                        <div className="font-medium text-cc-fg">
+                                          <MarkdownContent
+                                            text={entry.tldr}
+                                            size="sm"
+                                            sessionId={questMarkdownSessionId}
+                                          />
+                                        </div>
                                         <details className="text-xs text-cc-muted">
                                           <summary className="cursor-pointer select-none">Full feedback</summary>
                                           <div className="mt-1 text-cc-fg">
-                                            <MarkdownContent text={entry.text} size="sm" />
+                                            <MarkdownContent
+                                              text={entry.text}
+                                              size="sm"
+                                              sessionId={questMarkdownSessionId}
+                                            />
                                           </div>
                                         </details>
                                       </div>
                                     ) : (
-                                      <MarkdownContent text={entry.text} size="sm" />
+                                      <MarkdownContent text={entry.text} size="sm" sessionId={questMarkdownSessionId} />
                                     )}
                                     {entry.images && entry.images.length > 0 && (
                                       <div className="flex flex-wrap gap-1 mt-1">
@@ -1496,7 +1510,7 @@ export function QuestDetailPanel() {
               {/* Notes */}
               {questNotes && (
                 <div className="px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg">
-                  <MarkdownContent text={questNotes} size="sm" />
+                  <MarkdownContent text={questNotes} size="sm" sessionId={questMarkdownSessionId} />
                 </div>
               )}
 

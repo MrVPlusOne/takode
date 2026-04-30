@@ -404,6 +404,80 @@ function parseFileLinkFromHref(href?: string): FileLinkTarget | null {
   };
 }
 
+function parseStandardFileLinkFromHref(href?: string): FileLinkTarget | null {
+  if (!href) return null;
+  const trimmed = href.trim();
+  if (!trimmed || trimmed.startsWith("#") || trimmed.startsWith("//") || /^file:/i.test(trimmed)) return null;
+  if (/^[a-z][a-z0-9+.-]*:/i.test(trimmed) && !/^[A-Za-z]:[\\/]/.test(trimmed)) return null;
+
+  let decoded = trimmed;
+  try {
+    decoded = decodeURIComponent(trimmed);
+  } catch {
+    return null;
+  }
+
+  const hashIndex = decoded.indexOf("#");
+  const queryIndex = decoded.indexOf("?");
+  const endIndex = Math.min(...[hashIndex, queryIndex].filter((index) => index >= 0), decoded.length);
+  const rawPath = decoded.slice(0, endIndex);
+  const fragment = hashIndex >= 0 ? decoded.slice(hashIndex + 1).split("?")[0] : "";
+  const target = parseFilePathLocation(rawPath, parseLineFragment(fragment));
+  if (!target || !looksLikeLocalFilePath(target.path) || hasUnsafePathTraversal(target.path)) return null;
+  return target;
+}
+
+function parseFilePathLocation(rawPath: string, fragmentLocation?: Partial<FileLinkTarget>): FileLinkTarget | null {
+  let path = rawPath.replace(/^\.\//, "");
+  if (!path) return null;
+  let line = fragmentLocation?.line ?? 1;
+  let column = fragmentLocation?.column ?? 1;
+  let endLine = fragmentLocation?.endLine;
+
+  if (!fragmentLocation?.line) {
+    const lineRangeMatch = path.match(/^(.*):(\d+)-(\d+)$/);
+    const lineColMatch = path.match(/^(.*):(\d+):(\d+)$/);
+    const lineOnlyMatch = path.match(/^(.*):(\d+)$/);
+    const match = lineRangeMatch || lineColMatch || lineOnlyMatch;
+    if (match) {
+      path = match[1];
+      line = Number.parseInt(match[2], 10);
+      if (lineRangeMatch) endLine = Number.parseInt(lineRangeMatch[3], 10);
+      if (lineColMatch) column = Number.parseInt(lineColMatch[3], 10);
+    }
+  }
+
+  if (line < 1 || column < 1) return null;
+  if (Number.isFinite(endLine) && Number(endLine) < line) return null;
+  return {
+    path,
+    line,
+    column,
+    ...(Number.isFinite(endLine) ? { endLine: Number(endLine) } : {}),
+    isRelative: !isAbsoluteFilePath(path),
+  };
+}
+
+function parseLineFragment(fragment: string): Partial<FileLinkTarget> | undefined {
+  const match = fragment.match(/^L(\d+)(?:-L?(\d+))?$/i);
+  if (!match) return undefined;
+  const line = Number.parseInt(match[1], 10);
+  const endLine = match[2] ? Number.parseInt(match[2], 10) : undefined;
+  return { line, column: 1, ...(Number.isFinite(endLine) ? { endLine } : {}) };
+}
+
+function looksLikeLocalFilePath(path: string): boolean {
+  const basename = getPathBasename(path);
+  const extensionlessFiles = new Set(["readme", "makefile", "dockerfile", "claude", "agents"]);
+  return Boolean(basename && (basename.includes(".") || extensionlessFiles.has(basename.toLowerCase())));
+}
+
+function hasUnsafePathTraversal(path: string): boolean {
+  return normalizePathSeparators(path)
+    .split("/")
+    .some((part) => part === "..");
+}
+
 function transformMarkdownUrl(url: string): string {
   if (parseQuestIdFromHref(url) || parseSessionLinkFromHref(url) != null || parseFileLinkFromHref(url)) return url;
   if (/^file:/i.test(url.trim())) return "";
@@ -608,6 +682,14 @@ export function MarkdownContent({
             if (fileTarget) {
               return (
                 <FileMarkdownLink target={fileTarget} sessionId={sessionId}>
+                  {children}
+                </FileMarkdownLink>
+              );
+            }
+            const standardFileTarget = parseStandardFileLinkFromHref(href);
+            if (standardFileTarget) {
+              return (
+                <FileMarkdownLink target={standardFileTarget} sessionId={sessionId}>
                   {children}
                 </FileMarkdownLink>
               );

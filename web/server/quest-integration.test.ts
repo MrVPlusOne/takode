@@ -80,6 +80,9 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("TLDR Quality Guidance");
     expect(skill).toContain("Write the full description, feedback, or summary body first");
     expect(skill).toContain("quest feedback add q-N --text-file summary.md --tldr-file summary-tldr.md");
+    expect(skill).toContain("File Link Guidance");
+    expect(skill).toContain("[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)");
+    expect(skill).toContain("Standard Markdown file links to repo files may be opened best-effort");
     expect(skill).toContain("Quest Journey Phase Documentation");
     expect(skill).toContain("every active phase should leave durable quest feedback");
     expect(skill).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");

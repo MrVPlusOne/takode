@@ -1852,8 +1852,8 @@ export function PlaygroundInteractiveSections() {
                           {
                             author: "agent" as const,
                             kind: "phase_summary" as const,
-                            text: "Implemented the responsive wrapper and verified that the sidebar content scrolls independently on narrow screens.",
-                            tldr: "Implemented the narrow-screen wrapper and scroll behavior.",
+                            text: "Implemented the responsive wrapper in [QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42) and verified that the sidebar content scrolls independently on narrow screens.",
+                            tldr: "Implemented the narrow-screen wrapper in [QuestDetailPanel](web/src/components/QuestDetailPanel.tsx#L42).",
                             ts: Date.now() - 5400000,
                             authorSessionId: "abc-123",
                             journeyRunId: "playground-run-1",

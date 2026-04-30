@@ -150,6 +150,24 @@ describe("MarkdownContent quest links", () => {
     mockReadFile.mockResolvedValue({ path: "/tmp/file", content: "" });
   });
 
+  function setRepoSession({ isWorktree = false }: { isWorktree?: boolean } = {}) {
+    useStore.setState((state) => ({
+      ...state,
+      currentSessionId: "s1",
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            cwd: isWorktree ? "/worktrees/repo-branch" : "/repo",
+            repo_root: "/repo",
+            is_worktree: isWorktree,
+          } as never,
+        ],
+      ]),
+    }));
+  }
+
   it("opens quest links as overlay on the current route", () => {
     render(<MarkdownContent text="[q-42](quest:q-42)" />);
 
@@ -845,20 +863,7 @@ describe("MarkdownContent quest links", () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
     mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-2" });
 
-    useStore.setState((state) => ({
-      ...state,
-      currentSessionId: "s1",
-      sessions: new Map([
-        [
-          "s1",
-          {
-            session_id: "s1",
-            cwd: "/repo",
-            repo_root: "/repo",
-          } as never,
-        ],
-      ]),
-    }));
+    setRepoSession();
 
     render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162:4)" />);
     fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
@@ -877,21 +882,7 @@ describe("MarkdownContent quest links", () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
     mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-worktree" });
 
-    useStore.setState((state) => ({
-      ...state,
-      currentSessionId: "s1",
-      sessions: new Map([
-        [
-          "s1",
-          {
-            session_id: "s1",
-            cwd: "/worktrees/repo-branch",
-            repo_root: "/repo",
-            is_worktree: true,
-          } as never,
-        ],
-      ]),
-    }));
+    setRepoSession({ isWorktree: true });
 
     render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162:4)" />);
     fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
@@ -939,6 +930,98 @@ describe("MarkdownContent quest links", () => {
         column: 1,
       });
     });
+  });
+
+  it("opens standard Markdown repo file links through the file-link path", async () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-standard" });
+    setRepoSession();
+
+    render(<MarkdownContent text="[Panel](web/src/components/QuestDetailPanel.tsx)" />);
+    fireEvent.click(screen.getByRole("link", { name: "Panel" }));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 1,
+        column: 1,
+      });
+    });
+  });
+
+  it("parses GitHub-style line fragments on standard Markdown repo file links", async () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-fragment" });
+    setRepoSession();
+
+    render(<MarkdownContent text="[Panel](web/src/components/QuestDetailPanel.tsx#L42-L57)" />);
+    fireEvent.click(screen.getByRole("link", { name: "Panel" }));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 42,
+        column: 1,
+        endLine: 57,
+      });
+    });
+  });
+
+  it("parses suffix line, column, and range metadata on standard Markdown repo file links", async () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-suffix" });
+    setRepoSession();
+
+    render(
+      <MarkdownContent
+        text={
+          "[Line](web/src/components/QuestDetailPanel.tsx:42) [Column](web/src/components/QuestDetailPanel.tsx:42:7) [Range](web/src/components/QuestDetailPanel.tsx:42-57)"
+        }
+      />,
+    );
+    fireEvent.click(screen.getByRole("link", { name: "Line" }));
+    fireEvent.click(screen.getByRole("link", { name: "Column" }));
+    fireEvent.click(screen.getByRole("link", { name: "Range" }));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 42,
+        column: 1,
+      });
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 42,
+        column: 7,
+      });
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 42,
+        column: 1,
+        endLine: 57,
+      });
+    });
+  });
+
+  it("preserves normal external and unsafe standard Markdown links as non-file links", () => {
+    mockGetSettings.mockClear();
+
+    render(
+      <div>
+        <MarkdownContent text="[external](https://example.com/file.ts)" />
+        <MarkdownContent text="[unsafe](../outside.ts)" />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "external" }));
+    fireEvent.click(screen.getByRole("link", { name: "unsafe" }));
+
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "external" }).getAttribute("href")).toBe("https://example.com/file.ts");
+    expect(screen.getByRole("link", { name: "unsafe" }).getAttribute("href")).toBe("../outside.ts");
   });
 
   it("shows the remote VSCode error when the server reports no running VSCode window", async () => {

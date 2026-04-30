@@ -32,6 +32,13 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Takode session #42");
   });
 
+  it("includes Takode file-link guidance for quest comments and phase documentation", () => {
+    const result = buildCompanionInstructions({ sessionNum: 42, backend: "codex" });
+    expect(result).toContain("[app.ts:42](file:src/app.ts:42)");
+    expect(result).toContain("including in quest comments and phase documentation");
+    expect(result).toContain("Do not use `file://` URI schemes");
+  });
+
   it("includes worktree guardrails when worktree is provided", () => {
     const result = buildCompanionInstructions({
       worktree: { branch: "test-branch", repoRoot: "/repo" },

@@ -38,6 +38,8 @@ Use `takode phases` to list available phase metadata and exact brief paths. Lead
 
 Each active phase should leave durable quest documentation before the leader treats the phase as complete. The actor for the phase writes the full entry for future agents first, then derives TLDR metadata for human scanning.
 
+When documenting repository files, use Takode custom file links such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)` instead of plain paths. Standard Markdown file links to repo files are a best-effort clickable fallback in Questmaster, but custom `file:` links remain preferred because they carry richer location metadata.
+
 Prefer the q-991 phase-scoped feedback primitive with current-phase inference:
 
 ```bash
