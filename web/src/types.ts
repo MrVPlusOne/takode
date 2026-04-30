@@ -29,6 +29,7 @@ import type {
   ActiveTurnRoute,
   ThreadRef,
   ThreadAttachmentMarker,
+  ThreadTransitionMarker,
   ThreadRoutingError,
 } from "../server/session-types.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
@@ -80,6 +81,7 @@ export type {
   ActiveTurnRoute,
   ThreadRef,
   ThreadAttachmentMarker,
+  ThreadTransitionMarker,
   ThreadRoutingError,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";
@@ -158,6 +160,7 @@ export interface ChatMessage {
     threadKey?: string;
     questId?: string;
     threadAttachmentMarker?: ThreadAttachmentMarker;
+    threadTransitionMarker?: ThreadTransitionMarker;
     crossThreadActivityMarker?: {
       threadKey: string;
       questId?: string;

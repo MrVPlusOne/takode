@@ -1,5 +1,11 @@
-import { inferThreadTargetFromTextContent, normalizeThreadTarget } from "../shared/thread-routing.js";
-import type { BrowserIncomingMessage, BrowserOutgoingMessage, PermissionRequest, ThreadRef } from "./session-types.js";
+import { inferThreadTargetFromTextContent, isQuestThreadKey, normalizeThreadTarget } from "../shared/thread-routing.js";
+import type {
+  BrowserIncomingMessage,
+  BrowserOutgoingMessage,
+  PermissionRequest,
+  ThreadRef,
+  ThreadTransitionMarker,
+} from "./session-types.js";
 
 export interface ThreadRouteMetadata {
   threadKey: string;
@@ -175,6 +181,54 @@ export function hasThreadAttachmentMarker(history: BrowserIncomingMessage[], mar
   return history.some((entry) => entry.type === "thread_attachment_marker" && entry.markerKey === markerKey);
 }
 
+export function inferThreadAttachmentSourceRoute(
+  history: BrowserIncomingMessage[],
+  destinationThreadKey: string,
+  indices: number[],
+): ThreadRouteMetadata | null {
+  const destination = routeKey({ threadKey: destinationThreadKey });
+  let sourceRoute: ThreadRouteMetadata | null = null;
+
+  for (const index of indices) {
+    const route = routeFromHistoryEntry(history[index]);
+    if (!route || !isQuestThreadKey(route.threadKey) || routeKey(route) === destination) continue;
+    if (sourceRoute && !sameThreadRoute(sourceRoute, route)) return null;
+    sourceRoute = route;
+  }
+
+  return sourceRoute;
+}
+
+export function appendThreadTransitionMarkerForRouteSwitch(
+  history: BrowserIncomingMessage[],
+  destinationRoute: ThreadRouteMetadata | null | undefined,
+  timestamp = Date.now(),
+): ThreadTransitionMarker | null {
+  if (!destinationRoute || !isQuestThreadKey(destinationRoute.threadKey)) return null;
+
+  const source = findPreviousQuestRoute(history);
+  if (!source || sameThreadRoute(source.route, destinationRoute)) return null;
+
+  const markerKey = `thread-transition:${source.route.threadKey}->${destinationRoute.threadKey}:${source.index}`;
+  if (hasThreadTransitionMarker(history, markerKey)) return null;
+
+  const marker: ThreadTransitionMarker = {
+    type: "thread_transition_marker",
+    id: `thread-transition-${timestamp}-${history.length}`,
+    timestamp,
+    markerKey,
+    sourceThreadKey: source.route.threadKey,
+    ...(source.route.questId ? { sourceQuestId: source.route.questId } : {}),
+    threadKey: destinationRoute.threadKey,
+    ...(destinationRoute.questId ? { questId: destinationRoute.questId } : {}),
+    transitionedAt: timestamp,
+    reason: "route_switch",
+    sourceMessageIndex: source.index,
+  };
+  history.push(marker);
+  return marker;
+}
+
 export function compactIndexRanges(indices: number[]): string[] {
   if (indices.length === 0) return [];
   const ranges: string[] = [];
@@ -191,6 +245,37 @@ export function compactIndexRanges(indices: number[]): string[] {
   }
   ranges.push(formatRange(start, previous));
   return ranges;
+}
+
+function findPreviousQuestRoute(
+  history: BrowserIncomingMessage[],
+): { route: ThreadRouteMetadata; index: number } | null {
+  for (let index = history.length - 1; index >= 0; index--) {
+    const entry = history[index];
+    if (!entry || entry.type === "thread_transition_marker") continue;
+    const route = routeFromHistoryEntry(entry);
+    if (route) {
+      if (!isQuestThreadKey(route.threadKey)) return null;
+      return { route, index };
+    }
+    if (isImplicitMainRouteBoundary(entry)) return null;
+  }
+  return null;
+}
+
+function isImplicitMainRouteBoundary(entry: BrowserIncomingMessage): boolean {
+  switch (entry.type) {
+    case "assistant":
+    case "user_message":
+    case "leader_user_message":
+      return true;
+    default:
+      return false;
+  }
+}
+
+function hasThreadTransitionMarker(history: BrowserIncomingMessage[], markerKey: string): boolean {
+  return history.some((entry) => entry.type === "thread_transition_marker" && entry.markerKey === markerKey);
 }
 
 function formatRange(start: number, end: number): string {

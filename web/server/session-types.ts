@@ -280,6 +280,8 @@ export interface ThreadAttachmentMarker {
   id: string;
   timestamp: number;
   markerKey: string;
+  sourceThreadKey?: string;
+  sourceQuestId?: string;
   threadKey: string;
   questId?: string;
   attachedAt: number;
@@ -290,6 +292,20 @@ export interface ThreadAttachmentMarker {
   count: number;
   firstMessageId?: string;
   firstMessageIndex?: number;
+}
+
+export interface ThreadTransitionMarker {
+  type: "thread_transition_marker";
+  id: string;
+  timestamp: number;
+  markerKey: string;
+  sourceThreadKey: string;
+  sourceQuestId?: string;
+  threadKey: string;
+  questId?: string;
+  transitionedAt: number;
+  reason: "route_switch";
+  sourceMessageIndex?: number;
 }
 
 export interface ActiveTurnRoute {
@@ -650,6 +666,7 @@ export type BrowserIncomingMessageBase =
   | { type: "compact_summary"; summary: string }
   | { type: "tool_result_preview"; previews: ToolResultPreview[] }
   | ThreadAttachmentMarker
+  | ThreadTransitionMarker
   | {
       type: "permission_denied";
       id: string;

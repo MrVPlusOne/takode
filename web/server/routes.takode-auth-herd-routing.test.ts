@@ -651,6 +651,34 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge.persistSessionById).toHaveBeenCalledWith("orch-1");
   });
 
+  it("records source route metadata on moved-message attachment markers", async () => {
+    // Source metadata lets the original quest thread keep a visible handoff row
+    // after messages are attached to a different destination quest.
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory = [
+      { type: "assistant", message: { id: "a1", content: [] }, threadKey: "q-940", questId: "q-940" },
+      { type: "assistant", message: { id: "a2", content: [] }, threadKey: "q-940", questId: "q-940" },
+      { type: "assistant", message: { id: "a3", content: [] }, threadKey: "q-940", questId: "q-940" },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", range: "1-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    const marker = bridge._sessions["orch-1"].messageHistory[3];
+    expect(marker).toMatchObject({
+      type: "thread_attachment_marker",
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      threadKey: "q-941",
+      questId: "q-941",
+      messageIndices: [1, 2],
+    });
+  });
+
   it("does not duplicate thread attachment markers for repeated or overlapping attach requests", async () => {
     // Re-attaching an identical selection should be idempotent. Overlapping
     // selections should only hide newly attached messages and create a marker

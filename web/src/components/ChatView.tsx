@@ -83,6 +83,12 @@ function messageThreadKeys(message: ChatMessage): string[] {
   addThreadKey(metadata?.quest?.questId);
   addThreadKey(metadata?.threadAttachmentMarker?.threadKey);
   addThreadKey(metadata?.threadAttachmentMarker?.questId);
+  addThreadKey(metadata?.threadAttachmentMarker?.sourceThreadKey);
+  addThreadKey(metadata?.threadAttachmentMarker?.sourceQuestId);
+  addThreadKey(metadata?.threadTransitionMarker?.threadKey);
+  addThreadKey(metadata?.threadTransitionMarker?.questId);
+  addThreadKey(metadata?.threadTransitionMarker?.sourceThreadKey);
+  addThreadKey(metadata?.threadTransitionMarker?.sourceQuestId);
   for (const ref of metadata?.threadRefs ?? []) {
     addThreadKey(ref.threadKey);
   }

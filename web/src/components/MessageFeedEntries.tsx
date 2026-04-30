@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import type { ChatMessage, ContentBlock, ThreadAttachmentMarker } from "../types.js";
+import type { ChatMessage, ContentBlock, ThreadAttachmentMarker, ThreadTransitionMarker } from "../types.js";
 import { isSubagentToolName } from "../types.js";
 import {
   isUserBoundaryEntry,
@@ -37,6 +37,7 @@ import {
   formatThreadAttachmentMarkerDetails,
   isCrossThreadActivityMarkerMessage,
   isThreadAttachmentMarkerMessage,
+  isThreadTransitionMarkerMessage,
 } from "../utils/thread-projection.js";
 import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
 import { isAttentionLedgerMessage } from "../utils/attention-records.js";
@@ -242,7 +243,11 @@ function isHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: Ch
 }
 
 function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
-  return isThreadAttachmentMarkerMessage(message) || isCrossThreadActivityMarkerMessage(message);
+  return (
+    isThreadAttachmentMarkerMessage(message) ||
+    isThreadTransitionMarkerMessage(message) ||
+    isCrossThreadActivityMarkerMessage(message)
+  );
 }
 
 function formatHerdBatchTimeRange(messages: ChatMessage[]): string {
@@ -310,18 +315,24 @@ function ThreadMarkerClusterRow({
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
   const moveSummary = summarizeThreadAttachmentMarkers(messages);
+  const transitionSummary = summarizeThreadTransitionMarkers(messages);
   const activitySummary = summarizeCrossThreadActivityMarkers(messages);
-  if (!moveSummary && !activitySummary) return null;
+  if (!moveSummary && !transitionSummary && !activitySummary) return null;
   const firstMessage = messages[0];
-  const firstThreadKey = moveSummary?.destinations[0]?.threadKey ?? activitySummary?.destinations[0]?.threadKey;
+  const firstThreadKey =
+    moveSummary?.destinations[0]?.threadKey ??
+    transitionSummary?.destinations[0]?.threadKey ??
+    activitySummary?.destinations[0]?.threadKey;
   const details = buildThreadMarkerClusterDetails(messages);
-  const showDetails = details.length > 0 && (messages.length > 1 || !!moveSummary);
+  const showDetails = details.length > 0 && (messages.length > 1 || !!moveSummary || !!transitionSummary);
   const testId =
-    moveSummary && activitySummary
+    [moveSummary, transitionSummary, activitySummary].filter(Boolean).length > 1
       ? "thread-system-marker-cluster"
       : moveSummary
         ? "thread-attachment-marker"
-        : "cross-thread-activity-marker";
+        : transitionSummary
+          ? "thread-transition-marker"
+          : "cross-thread-activity-marker";
 
   return (
     <div
@@ -343,10 +354,21 @@ function ThreadMarkerClusterRow({
             )}
           </div>
         )}
+        {transitionSummary && (
+          <div>
+            <TransitionSummaryLine summary={transitionSummary} onSelectThread={onSelectThread} />
+            {!moveSummary && showDetails && (
+              <>
+                <span className="mx-1.5 text-cc-muted/35">·</span>
+                <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
+              </>
+            )}
+          </div>
+        )}
         {activitySummary && (
           <div>
             <ActivitySummaryLine summary={activitySummary} onSelectThread={onSelectThread} />
-            {!moveSummary && showDetails && (
+            {!moveSummary && !transitionSummary && showDetails && (
               <>
                 <span className="mx-1.5 text-cc-muted/35">·</span>
                 <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
@@ -434,6 +456,26 @@ function ActivitySummaryLine({
   );
 }
 
+function TransitionSummaryLine({
+  summary,
+  onSelectThread,
+}: {
+  summary: { transitions: ThreadTransitionDestinationSummary[] };
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  return (
+    <>
+      {summary.transitions.map((transition, index) => (
+        <span key={`${transition.sourceLabel}-${transition.destination.threadKey}`}>
+          {index > 0 && <span className="text-cc-muted">, </span>}
+          <span>Work continued from {transition.sourceLabel} to </span>
+          <ThreadMarkerDestinationButton destination={transition.destination} onSelectThread={onSelectThread} />
+        </span>
+      ))}
+    </>
+  );
+}
+
 function ThreadMarkerDestinationButton({
   destination,
   onSelectThread,
@@ -506,12 +548,43 @@ function summarizeThreadAttachmentMarkers(messages: ChatMessage[]): {
   return { count, destinations: [...destinations.values()] };
 }
 
+type ThreadTransitionDestinationSummary = {
+  sourceLabel: string;
+  destination: ThreadMarkerDestinationSummary;
+};
+
+function summarizeThreadTransitionMarkers(messages: ChatMessage[]): {
+  transitions: ThreadTransitionDestinationSummary[];
+  destinations: ThreadMarkerDestinationSummary[];
+} | null {
+  const transitions: ThreadTransitionDestinationSummary[] = [];
+  for (const message of messages) {
+    const marker = message.metadata?.threadTransitionMarker;
+    if (!marker) continue;
+    transitions.push({
+      sourceLabel: formatThreadLabel(marker.sourceQuestId ?? marker.sourceThreadKey),
+      destination: {
+        threadKey: marker.threadKey,
+        label: formatThreadLabel(marker.questId ?? marker.threadKey),
+        count: 1,
+      },
+    });
+  }
+  if (transitions.length === 0) return null;
+  return { transitions, destinations: transitions.map((transition) => transition.destination) };
+}
+
 function buildThreadMarkerClusterDetails(messages: ChatMessage[]): string[] {
   const details: string[] = [];
   for (const message of messages) {
     const attachment = message.metadata?.threadAttachmentMarker;
     if (attachment) {
       details.push(formatThreadAttachmentDetail(attachment));
+      continue;
+    }
+    const transition = message.metadata?.threadTransitionMarker;
+    if (transition) {
+      details.push(formatThreadTransitionDetail(transition));
       continue;
     }
     const activity = message.metadata?.crossThreadActivityMarker;
@@ -529,6 +602,16 @@ function formatThreadAttachmentDetail(marker: ThreadAttachmentMarker): string {
   const countLabel = `${marker.count} ${marker.count === 1 ? "message" : "messages"}`;
   const details = formatThreadAttachmentMarkerDetails(marker);
   return `${countLabel} moved to thread:${destination}${details ? ` · ${details}` : ""}`;
+}
+
+function formatThreadTransitionDetail(marker: ThreadTransitionMarker): string {
+  return `Work continued from ${formatThreadLabel(marker.sourceQuestId ?? marker.sourceThreadKey)} to ${formatThreadLabel(
+    marker.questId ?? marker.threadKey,
+  )}`;
+}
+
+function formatThreadLabel(threadKey: string): string {
+  return threadKey === "main" ? "Main" : `thread:${threadKey}`;
 }
 
 function ToolMessageGroup({

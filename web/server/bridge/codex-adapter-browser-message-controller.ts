@@ -11,7 +11,11 @@ import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
 import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
 import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
 import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
-import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
+import {
+  appendThreadTransitionMarkerForRouteSwitch,
+  normalizeThreadRoute,
+  type ThreadRouteMetadata,
+} from "../thread-routing-metadata.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 
@@ -318,6 +322,11 @@ export async function handleCodexAdapterBrowserMessage(
   }
 
   if (outgoing?.type === "assistant") {
+    const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+      session.messageHistory,
+      normalizeThreadRoute(outgoing.threadKey, outgoing.questId),
+    );
+    if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(outgoing);
     deps.persistSession(session);
   } else if (outgoing?.type === "result") {

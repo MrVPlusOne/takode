@@ -392,6 +392,7 @@ function normalizeHistoryMessages(
     } else if (
       histMsg.type === "compact_marker" ||
       histMsg.type === "thread_attachment_marker" ||
+      histMsg.type === "thread_transition_marker" ||
       histMsg.type === "permission_denied" ||
       histMsg.type === "permission_approved"
     ) {
@@ -632,6 +633,12 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     }
 
     case "thread_attachment_marker": {
+      const [message] = normalizeHistoryMessageToChatMessages(data, -1);
+      if (message) store.appendMessage(sessionId, message);
+      break;
+    }
+
+    case "thread_transition_marker": {
       const [message] = normalizeHistoryMessageToChatMessages(data, -1);
       if (message) store.appendMessage(sessionId, message);
       break;

@@ -65,6 +65,7 @@ import {
 import {
   buildThreadAttachmentSelection,
   hasThreadAttachmentMarker,
+  inferThreadAttachmentSourceRoute,
   inferThreadRouteFromTextContent,
   routeKey,
   sameThreadRoute,
@@ -1044,6 +1045,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       return c.json({ error: "Provide --message <index>, --range <start-end>, or --turn <turn>" }, 400);
     }
 
+    const sortedIndices = [...indices].sort((a, b) => a - b);
+    const sourceRoute = inferThreadAttachmentSourceRoute(session.messageHistory, questId, sortedIndices);
     const ref: ThreadRef = {
       threadKey: questId,
       questId,
@@ -1054,7 +1057,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const attached: number[] = [];
     const alreadyAttached: number[] = [];
     const outOfRange: number[] = [];
-    for (const index of [...indices].sort((a, b) => a - b)) {
+    for (const index of sortedIndices) {
       const entry = session.messageHistory[index];
       if (!entry) {
         outOfRange.push(index);
@@ -1081,6 +1084,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
           id: `thread-attachment-${timestamp}-${session.messageHistory.length}`,
           timestamp,
           markerKey: selection.markerKey,
+          ...(sourceRoute ? { sourceThreadKey: sourceRoute.threadKey } : {}),
+          ...(sourceRoute?.questId ? { sourceQuestId: sourceRoute.questId } : {}),
           threadKey: questId,
           questId,
           attachedAt: timestamp,

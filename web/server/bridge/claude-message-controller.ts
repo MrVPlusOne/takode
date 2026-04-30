@@ -47,7 +47,12 @@ import {
   extractQuestThreadRemindersFromContent,
   queueQuestThreadRemindersForCompletedTurn,
 } from "./quest-thread-reminder.js";
-import { routeFromHistoryEntry, type ThreadRouteMetadata } from "../thread-routing-metadata.js";
+import {
+  appendThreadTransitionMarkerForRouteSwitch,
+  normalizeThreadRoute,
+  routeFromHistoryEntry,
+  type ThreadRouteMetadata,
+} from "../thread-routing-metadata.js";
 
 type BroadcastOptions = {
   skipBuffer?: boolean;
@@ -413,6 +418,11 @@ export function handleAssistantMessage(
       ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
       ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
     };
+    const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+      session.messageHistory,
+      normalizeThreadRoute(routed.threadKey, routed.questId),
+    );
+    if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
     maybeUpdateContextUsedPercentFromAssistantUsage(
@@ -472,6 +482,11 @@ export function handleAssistantMessage(
       ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
     };
     session.assistantAccumulator.set(msgId, { contentBlockIds });
+    const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+      session.messageHistory,
+      normalizeThreadRoute(routed.threadKey, routed.questId),
+    );
+    if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
   } else {

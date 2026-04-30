@@ -205,11 +205,33 @@ export function usePlaygroundSeed() {
         },
       }),
       makePlaygroundMessage({
+        id: "playground-thread-transition-marker",
+        role: "system",
+        content: "Work continued from Main to thread:q-962",
+        timestamp: Date.now() - 145_000,
+        historyIndex: 3,
+        variant: "info",
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "playground-thread-transition-marker",
+            timestamp: Date.now() - 145_000,
+            markerKey: "thread-transition:main->q-962:0",
+            sourceThreadKey: "main",
+            threadKey: "q-962",
+            questId: "q-962",
+            transitionedAt: Date.now() - 145_000,
+            reason: "route_switch",
+            sourceMessageIndex: 0,
+          },
+        },
+      }),
+      makePlaygroundMessage({
         id: "playground-thread-q961",
         role: "assistant",
         content: "Implementation is underway.",
         timestamp: Date.now() - 120_000,
-        historyIndex: 3,
+        historyIndex: 4,
         metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -217,7 +239,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Tool calls and implementation notes are continuing in q-961.",
         timestamp: Date.now() - 110_000,
-        historyIndex: 4,
+        historyIndex: 5,
         metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -225,7 +247,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Queued until the dependency finishes.",
         timestamp: Date.now() - 90_000,
-        historyIndex: 5,
+        historyIndex: 6,
         metadata: { threadRefs: [{ threadKey: "q-962", questId: "q-962", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -233,7 +255,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Waiting for a free worker before dispatch.",
         timestamp: Date.now() - 60_000,
-        historyIndex: 6,
+        historyIndex: 7,
         metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -241,7 +263,7 @@ export function usePlaygroundSeed() {
         role: "assistant",
         content: "Completed Journey is ready for review without active phase cues.",
         timestamp: Date.now() - 30_000,
-        historyIndex: 7,
+        historyIndex: 8,
         metadata: { threadRefs: [{ threadKey: "q-964", questId: "q-964", source: "explicit" }] },
       }),
     ]);

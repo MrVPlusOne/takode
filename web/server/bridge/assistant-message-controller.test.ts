@@ -233,6 +233,62 @@ describe("assistant-message-controller", () => {
     expect(session.messageHistory[0]).toMatchObject(msg);
   });
 
+  it("persists source-thread transition markers before routed quest handoffs", () => {
+    // When a leader thread moves from one quest to another, the source thread
+    // needs a durable handoff marker so the UI does not look like it stopped.
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "previous-q940", content: [] } as any,
+      threadKey: "q-940",
+      questId: "q-940",
+      threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }],
+    });
+    session.messageHistory.push({ type: "tool_result_preview", previews: [] });
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941]\nDispatching worker" }]), {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+      persistSession: () => {},
+    });
+
+    expect(broadcasts).toHaveLength(2);
+    expect(broadcasts[0]).toMatchObject({
+      type: "thread_transition_marker",
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      threadKey: "q-941",
+      questId: "q-941",
+      reason: "route_switch",
+    });
+    expect(broadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-941", questId: "q-941" });
+    expect(session.messageHistory).toHaveLength(4);
+    expect(session.messageHistory[2]).toMatchObject({ type: "thread_transition_marker" });
+  });
+
+  it("does not infer source-thread transition markers across Main assistant boundaries", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "previous-q940", content: [] } as any,
+      threadKey: "q-940",
+      questId: "q-940",
+      threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }],
+    });
+
+    routeAssistantMessage(session, [{ type: "text", text: "Global Main update" }]);
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nSeparate quest update" }]);
+
+    expect(msg).toMatchObject({ type: "assistant", threadKey: "q-941", questId: "q-941" });
+    expect(session.messageHistory).toHaveLength(3);
+    expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(false);
+  });
+
   it("strips same-line leader thread prefixes and persists quest thread metadata", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;

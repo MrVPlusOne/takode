@@ -68,11 +68,13 @@ describe("Playground", () => {
   it("documents compact moved-message markers without quest activity summaries", () => {
     render(<Playground />);
 
-    const marker = screen.getAllByTestId("thread-attachment-marker")[0];
+    const marker = screen.getAllByTestId("thread-system-marker-cluster")[0];
     expect(marker).toHaveTextContent("1 message moved to thread:q-961");
+    expect(marker).toHaveTextContent("Work continued from Main to thread:q-962");
     expect(marker).not.toHaveTextContent("activities in thread:");
     expect(within(marker).queryByText("Jump")).toBeNull();
     expect(within(marker).getByRole("button", { name: "thread:q-961" })).toBeTruthy();
+    expect(within(marker).getByRole("button", { name: "thread:q-962" })).toBeTruthy();
   });
 
   it("documents Work Board Bar tab shrinking and phase legend states", () => {

@@ -1,5 +1,5 @@
 import type { BrowserIncomingMessage, ContentBlock, ChatMessage } from "../types.js";
-import { formatThreadAttachmentMarkerSummary } from "./thread-projection.js";
+import { formatThreadAttachmentMarkerSummary, formatThreadTransitionMarkerSummary } from "./thread-projection.js";
 import {
   parseCommandThreadComment,
   parseThreadTextPrefix,
@@ -302,6 +302,20 @@ export function normalizeHistoryMessageToChatMessages(
         historyIndex,
         variant: "info",
         metadata: { threadAttachmentMarker: histMsg },
+      },
+    ];
+  }
+
+  if (histMsg.type === "thread_transition_marker") {
+    return [
+      {
+        id: histMsg.id,
+        role: "system",
+        content: formatThreadTransitionMarkerSummary(histMsg),
+        timestamp: histMsg.timestamp,
+        historyIndex,
+        variant: "info",
+        metadata: { threadTransitionMarker: histMsg },
       },
     ];
   }

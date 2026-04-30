@@ -1,4 +1,4 @@
-import type { ChatMessage, ThreadAttachmentMarker } from "../types.js";
+import type { ChatMessage, ThreadAttachmentMarker, ThreadTransitionMarker } from "../types.js";
 import { inferThreadTargetFromTextContent, isQuestThreadKey } from "../../shared/thread-routing.js";
 
 export const MAIN_THREAD_KEY = "main";
@@ -20,6 +20,10 @@ export function isThreadAttachmentMarkerMessage(message: ChatMessage): boolean {
   return !!message.metadata?.threadAttachmentMarker;
 }
 
+export function isThreadTransitionMarkerMessage(message: ChatMessage): boolean {
+  return !!message.metadata?.threadTransitionMarker;
+}
+
 export function isCrossThreadActivityMarkerMessage(message: ChatMessage): boolean {
   return !!message.metadata?.crossThreadActivityMarker;
 }
@@ -39,6 +43,12 @@ export function formatThreadAttachmentMarkerDetails(marker: ThreadAttachmentMark
     parts.push(`Message ids: ${marker.messageIds.join(", ")}`);
   }
   return parts.join(" · ");
+}
+
+export function formatThreadTransitionMarkerSummary(marker: ThreadTransitionMarker): string {
+  const source = formatThreadLabel(marker.sourceQuestId ?? marker.sourceThreadKey);
+  const destination = formatThreadLabel(marker.questId ?? marker.threadKey);
+  return `Work continued from ${source} to ${destination}`;
 }
 
 function normalizedRouteKeys(message: ChatMessage): Set<string> {
@@ -64,7 +74,7 @@ function normalizedRouteKeys(message: ChatMessage): Set<string> {
 }
 
 function messageHasThreadRef(message: ChatMessage, threadKey: string): boolean {
-  if (isThreadAttachmentMarkerMessage(message)) return false;
+  if (isThreadAttachmentMarkerMessage(message) || isThreadTransitionMarkerMessage(message)) return false;
   return normalizedRouteKeys(message).has(normalizeThreadKey(threadKey));
 }
 
@@ -113,8 +123,70 @@ function isCoveredBackfillMessage(message: ChatMessage, targets: { ids: Set<stri
   return typeof message.historyIndex === "number" && targets.indices.has(message.historyIndex);
 }
 
+function nonBackfillRouteKeys(message: ChatMessage): Set<string> {
+  const keys = new Set<string>();
+  const add = (value: string | undefined) => {
+    if (!value) return;
+    const normalized = normalizeThreadKey(value);
+    if (!normalized || normalized === MAIN_THREAD_KEY) return;
+    keys.add(normalized);
+  };
+
+  const metadata = message.metadata;
+  add(metadata?.threadKey);
+  add(metadata?.questId);
+  for (const ref of metadata?.threadRefs ?? []) {
+    if (ref.source === "backfill") continue;
+    add(ref.threadKey);
+    add(ref.questId);
+  }
+  const inferred = inferredHerdEventRoute(message);
+  add(inferred?.threadKey);
+  add(inferred?.questId);
+  return keys;
+}
+
+function markerCoversMessage(marker: ThreadAttachmentMarker, message: ChatMessage): boolean {
+  if (marker.messageIds.includes(message.id)) return true;
+  return typeof message.historyIndex === "number" && marker.messageIndices.includes(message.historyIndex);
+}
+
+function attachmentMarkerSourceMatchesThread(
+  marker: ThreadAttachmentMarker,
+  messages: ChatMessage[],
+  threadKey: string,
+): boolean {
+  const target = normalizeThreadKey(threadKey);
+  if (normalizeThreadKey(marker.sourceThreadKey ?? "") === target) return true;
+  if (normalizeThreadKey(marker.sourceQuestId ?? "") === target) return true;
+
+  return messages.some((message) => {
+    if (!markerCoversMessage(marker, message)) return false;
+    return nonBackfillRouteKeys(message).has(target);
+  });
+}
+
+function transitionMarkerSourceMatchesThread(marker: ThreadTransitionMarker, threadKey: string): boolean {
+  const target = normalizeThreadKey(threadKey);
+  return (
+    normalizeThreadKey(marker.sourceThreadKey) === target || normalizeThreadKey(marker.sourceQuestId ?? "") === target
+  );
+}
+
+function threadSystemMarkerVisibleInQuestThread(
+  message: ChatMessage,
+  messages: ChatMessage[],
+  threadKey: string,
+): boolean {
+  const attachment = message.metadata?.threadAttachmentMarker;
+  if (attachment) return attachmentMarkerSourceMatchesThread(attachment, messages, threadKey);
+  const transition = message.metadata?.threadTransitionMarker;
+  if (transition) return transitionMarkerSourceMatchesThread(transition, threadKey);
+  return false;
+}
+
 function hasExplicitNonMainRoute(message: ChatMessage): boolean {
-  if (isThreadAttachmentMarkerMessage(message)) return false;
+  if (isThreadAttachmentMarkerMessage(message) || isThreadTransitionMarkerMessage(message)) return false;
   const inferred = inferredHerdEventRoute(message);
   if (inferred) return true;
   const metadata = message.metadata;
@@ -218,6 +290,13 @@ function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
       projected.push(message);
       continue;
     }
+    if (isThreadTransitionMarkerMessage(message)) {
+      flushHiddenRun();
+      if (isMainThreadKey(message.metadata?.threadTransitionMarker?.sourceThreadKey ?? "")) {
+        projected.push(message);
+      }
+      continue;
+    }
     if (isCoveredBackfillMessage(message, markerTargets)) {
       continue;
     }
@@ -243,17 +322,27 @@ function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
 function filterQuestThreadMessages(messages: ChatMessage[], threadKey: string): ChatMessage[] {
   const includedToolUseIds = new Set<string>();
   for (const message of messages) {
-    if (!messageHasThreadRef(message, threadKey)) continue;
+    if (
+      !messageHasThreadRef(message, threadKey) &&
+      !threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)
+    ) {
+      continue;
+    }
     for (const toolUseId of messageToolUseIds(message)) {
       includedToolUseIds.add(toolUseId);
     }
   }
 
   return messages.filter((message) => {
+    if (threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)) return true;
     if (messageHasThreadRef(message, threadKey)) return true;
     if (message.parentToolUseId && includedToolUseIds.has(message.parentToolUseId)) return true;
     return messageToolUseIds(message).some((toolUseId) => includedToolUseIds.has(toolUseId));
   });
+}
+
+function formatThreadLabel(threadKey: string): string {
+  return isMainThreadKey(threadKey) ? "Main" : `thread:${threadKey}`;
 }
 
 export function filterMessagesForThread(messages: ChatMessage[], threadKey: string): ChatMessage[] {

@@ -29,7 +29,7 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import type { ChatMessage, ThreadAttachmentMarker } from "../types.js";
+import type { ChatMessage, ThreadAttachmentMarker, ThreadTransitionMarker } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 
 // Mock react-markdown to avoid ESM issues in tests
@@ -170,6 +170,21 @@ function movedMarker(overrides: Partial<ThreadAttachmentMarker> & { id: string; 
     ranges: [],
     firstMessageId: overrides.id,
     firstMessageIndex: 0,
+    ...overrides,
+  };
+}
+
+function transitionMarker(
+  overrides: Partial<ThreadTransitionMarker> & { id: string; sourceThreadKey: string; threadKey: string },
+) {
+  return {
+    type: "thread_transition_marker" as const,
+    timestamp: 1,
+    markerKey: `thread-transition:${overrides.sourceThreadKey}->${overrides.threadKey}:0`,
+    transitionedAt: 1,
+    reason: "route_switch" as const,
+    questId: overrides.threadKey,
+    sourceQuestId: overrides.sourceThreadKey,
     ...overrides,
   };
 }
@@ -724,6 +739,163 @@ describe("MessageFeed - collapsed turns", () => {
     expectTextContent(markerRow, "1 message moved to thread:q-941");
     expect(screen.getByRole("button", { name: "thread:q-941" })).toBeTruthy();
     expect(screen.queryByText("Attached historical context")).toBeNull();
+  });
+
+  it("shows moved-message attachment summaries in the source quest thread", () => {
+    // Manual move/attach markers keep their old count + destination affordance,
+    // and source metadata lets the original quest thread explain the handoff.
+    const sid = "test-source-thread-marker-backed-handoff";
+    const marker = movedMarker({
+      id: "marker-q-941",
+      threadKey: "q-941",
+      count: 2,
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      messageIds: ["m-source-1", "m-source-2"],
+      messageIndices: [1, 2],
+      ranges: ["1-2"],
+    });
+    const onSelectThread = vi.fn();
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "m-source-1",
+        role: "assistant",
+        content: "Source quest setup",
+        historyIndex: 1,
+        metadata: { threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "m-source-2",
+        role: "assistant",
+        content: "Source quest approval",
+        historyIndex: 2,
+        metadata: { threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "2 messages moved to q-941",
+        metadata: { threadAttachmentMarker: marker },
+      }),
+      makeMessage({
+        id: "dest-only",
+        role: "assistant",
+        content: "Destination quest work",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-940" onSelectThread={onSelectThread} />);
+
+    expect(screen.getByText("Source quest setup")).toBeTruthy();
+    expect(screen.queryByText("Destination quest work")).toBeNull();
+    const markerRow = screen.getByTestId("thread-attachment-marker");
+    expectTextContent(markerRow, "2 messages moved to thread:q-941");
+    fireEvent.click(screen.getByRole("button", { name: "thread:q-941" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-941");
+  });
+
+  it("infers legacy moved-message source visibility from covered source-routed messages", () => {
+    const sid = "test-source-thread-legacy-marker-inference";
+    const marker = movedMarker({
+      id: "marker-q-941",
+      threadKey: "q-941",
+      count: 1,
+      messageIds: ["m-source"],
+      messageIndices: [4],
+      ranges: ["4"],
+    });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "m-source",
+        role: "assistant",
+        content: "Legacy source-routed context",
+        historyIndex: 4,
+        metadata: { threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "1 message moved to q-941",
+        metadata: { threadAttachmentMarker: marker },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-940" />);
+
+    expect(screen.getByText("Legacy source-routed context")).toBeTruthy();
+    expectTextContent(screen.getByTestId("thread-attachment-marker"), "1 message moved to thread:q-941");
+  });
+
+  it("shows pure route-switch handoffs in the source quest thread without moved-message counts", () => {
+    const sid = "test-source-thread-route-switch-handoff";
+    const marker = transitionMarker({
+      id: "transition-q940-q941",
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      threadKey: "q-941",
+      questId: "q-941",
+    });
+    const onSelectThread = vi.fn();
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "source-update",
+        role: "assistant",
+        content: "Source quest waits for approval",
+        metadata: { threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "Work continued from thread:q-940 to thread:q-941",
+        metadata: { threadTransitionMarker: marker },
+      }),
+      makeMessage({
+        id: "dest-update",
+        role: "assistant",
+        content: "Destination quest dispatch",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+    ]);
+
+    const sourceView = render(<MessageFeed sessionId={sid} threadKey="q-940" onSelectThread={onSelectThread} />);
+    const transition = screen.getByTestId("thread-transition-marker");
+    expectTextContent(transition, "Work continued from thread:q-940 to thread:q-941");
+    expect(transition.textContent).not.toContain("messages moved");
+    expect(screen.queryByText("Destination quest dispatch")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "thread:q-941" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-941");
+    sourceView.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+    expect(screen.getByText("Destination quest dispatch")).toBeTruthy();
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
+  });
+
+  it("does not surface quest-to-quest route-switch handoffs as Main noise", () => {
+    const sid = "test-main-suppresses-quest-route-switch-handoff";
+    const marker = transitionMarker({
+      id: "transition-q940-q941",
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      threadKey: "q-941",
+      questId: "q-941",
+    });
+    setStoreMessages(sid, [
+      makeMessage({ id: "main-setup", role: "assistant", content: "Main setup" }),
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "Work continued from thread:q-940 to thread:q-941",
+        metadata: { threadTransitionMarker: marker },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Main setup")).toBeTruthy();
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
+    expect(screen.queryByText(/Work continued from/)).toBeNull();
   });
 
   it("keeps old unmarked backfill references visible in Main", () => {

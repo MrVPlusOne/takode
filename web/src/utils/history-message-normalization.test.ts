@@ -161,6 +161,36 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     ]);
   });
 
+  it("normalizes thread transition markers into handoff system messages", () => {
+    const message: BrowserIncomingMessage = {
+      type: "thread_transition_marker",
+      id: "transition-q-940-q-941",
+      timestamp: 1235,
+      markerKey: "thread-transition:q-940->q-941:7",
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      threadKey: "q-941",
+      questId: "q-941",
+      transitionedAt: 1235,
+      reason: "route_switch",
+      sourceMessageIndex: 7,
+    };
+
+    const normalized = normalizeHistoryMessageToChatMessages(message, 10);
+
+    expect(normalized).toEqual([
+      {
+        id: "transition-q-940-q-941",
+        role: "system",
+        content: "Work continued from thread:q-940 to thread:q-941",
+        timestamp: 1235,
+        historyIndex: 10,
+        variant: "info",
+        metadata: { threadTransitionMarker: message },
+      },
+    ]);
+  });
+
   it("replays leader user-visible messages as assistant Markdown", () => {
     const message: BrowserIncomingMessage = {
       type: "leader_user_message",
