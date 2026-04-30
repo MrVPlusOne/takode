@@ -10,4 +10,5 @@ Leader actions:
 - Tell fresh reviewers to load the essential skills/context for the target first: `quest` when reviewing quest state or feedback, and `takode-orchestration` when inspecting prior sessions or cross-session history.
 - Point the reviewer to the exact scenarios, sessions, quests, workflows, or artifacts to simulate.
 - Ask for a scenario-grounded review, not a generic correctness pass.
+- Require reviewers to judge relevant phase documentation quality when reviewing a quest, and to add or refresh documentation for the mental-simulation phase with full agent-oriented detail plus TLDR metadata before reporting back.
 - Revise the remaining Journey if the simulation reveals missing evidence or missing phases.

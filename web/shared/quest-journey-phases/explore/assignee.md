@@ -7,6 +7,12 @@ Boundary:
 - Prefer concrete repo, session, artifact, or workflow evidence over guesses.
 - Do not implement, review, port, or change quest status.
 
+Phase documentation:
+- Before reporting back, add or refresh a quest feedback entry documenting this phase when working on a quest. Prefer the phase-scoped primitive with current-phase inference: `quest feedback add q-N --text-file <body> --tldr-file <tldr> --kind phase-finding`.
+- If inference is unavailable or ambiguous, use explicit phase flags such as `--phase explore`, `--phase-position`, `--phase-occurrence`, or `--phase-occurrence-id`; use `--no-phase` only when a flat comment is intentional.
+- Write full agent-oriented detail first, then add TLDR metadata that preserves the major points.
+- Document findings, evidence sources, newly discovered ambiguities or blockers, implementation considerations, surprises, and Journey-revision evidence.
+
 Deliverable:
 - Return an exploration summary with:
   - major findings

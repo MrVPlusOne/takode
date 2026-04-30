@@ -24,6 +24,7 @@ Worker-visible boundary:
 - If the leader already pointed to exact prior messages, quests, or discussions, the worker should inspect those sources directly rather than doing broad exploration.
 - If the worker believes the Journey should change, they should surface the evidence in the read-in rather than assuming approval for a different phase sequence.
 - The worker must not explore, implement, review, execute, port, or change quest status.
+- Before reporting back, the worker should document the Alignment phase on the quest with full agent-oriented detail plus TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary`; use explicit `--phase alignment` or occurrence flags if current-phase inference is unavailable.
 
 Exit evidence:
 - A lightweight alignment read-in is available in plain text, including concrete understanding, ambiguities, clarification questions, blockers, surprises, and any evidence that may justify leader-owned Journey revision.

@@ -80,6 +80,11 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("TLDR Quality Guidance");
     expect(skill).toContain("Write the full description, feedback, or summary body first");
     expect(skill).toContain("quest feedback add q-N --text-file summary.md --tldr-file summary-tldr.md");
+    expect(skill).toContain("Quest Journey Phase Documentation");
+    expect(skill).toContain("every active phase should leave durable quest feedback");
+    expect(skill).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
+    expect(skill).toContain("If inference is unavailable or ambiguous");
+    expect(skill).toContain("Reviewers should check documentation quality, not just whether a comment exists");
     expect(skill).toContain("One TLDR bullet or sentence is fine only when the source truly has one main point");
     expect(skill).toContain("For long multi-topic summaries, write the full `Summary:` body first");
     expect(skill).toContain("Reviewer-owned quest hygiene");

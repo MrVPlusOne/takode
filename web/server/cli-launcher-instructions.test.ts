@@ -141,7 +141,10 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Initial Journey approval comes before dispatch");
     expect(result).toContain("not a routine second user-approval gate");
     expect(result).toContain("Alignment approval is leader-owned by default");
-    expect(result).toContain("long multi-topic summaries should include `--tldr` metadata");
+    expect(result).toContain("Every active phase needs durable quest documentation");
+    expect(result).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
+    expect(result).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
+    expect(result).toContain("Reviewers should judge phase documentation quality, not just presence");
     expect(result).toContain("significant ambiguity, scope change, Journey revision, user-visible tradeoff");
     expect(result).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(result).toContain(

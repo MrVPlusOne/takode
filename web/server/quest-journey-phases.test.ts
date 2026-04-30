@@ -108,8 +108,8 @@ describe("Quest Journey phase directory loading", () => {
 
     expect(implementPhase?.leaderBrief).toContain("cheap, local, reversible outcome evidence");
     expect(implementPhase?.assigneeBrief).toContain("those belong in `EXECUTING`");
-    expect(implementPhase?.assigneeBrief).toContain("For long multi-topic summaries");
-    expect(implementPhase?.assigneeBrief).toContain("add `--tldr` metadata that preserves the major topics");
+    expect(implementPhase?.assigneeBrief).toContain("Phase documentation");
+    expect(implementPhase?.assigneeBrief).toContain("changed files or artifacts");
     expect(executePhase?.leaderBrief).toContain("Use `EXECUTING` instead of `IMPLEMENTING`");
     expect(executePhase?.assigneeBrief).toContain(
       "Do not turn this phase into the main implementation or debugging loop",
@@ -178,6 +178,8 @@ describe("Quest Journey phase directory loading", () => {
     expect(codeReviewPhase?.assigneeBrief).toContain("implementation completeness");
     expect(codeReviewPhase?.assigneeBrief).toContain("Do not become the implementer, porter, or redesign owner");
     expect(codeReviewPhase?.assigneeBrief).toContain("small quest-hygiene issues");
+    expect(codeReviewPhase?.assigneeBrief).toContain("Review documentation quality, not just presence");
+    expect(codeReviewPhase?.assigneeBrief).toContain("quest documentation hygiene judgment");
   });
 
   it("seeds Mental Simulation briefs with abstract end-to-end validation boundaries", async () => {
@@ -197,6 +199,52 @@ describe("Quest Journey phase directory loading", () => {
       "Do not reject pre-implementation use when the leader has supplied a concrete enough design",
     );
     expect(mentalSimulationPhase?.assigneeBrief).toContain("when real execution is hard");
+  });
+
+  it("seeds all phase briefs with durable phase documentation guidance", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const phaseSpecificExpectations = new Map([
+      ["alignment", "concrete understanding"],
+      ["explore", "evidence sources"],
+      ["implement", "changed files or artifacts"],
+      ["code-review", "review scope"],
+      ["mental-simulation", "scenarios replayed"],
+      ["execute", "monitor and stop conditions"],
+      ["outcome-review", "evidence judged"],
+      ["bookkeeping", "shared records updated"],
+      ["port", "ordered synced SHAs"],
+    ]);
+
+    for (const phase of phases) {
+      expect(phase.assigneeBrief).toContain("Phase documentation");
+      expect(phase.assigneeBrief).toContain("quest feedback add q-N --text-file");
+      expect(phase.assigneeBrief).toContain("--tldr-file");
+      expect(phase.assigneeBrief).toContain("current-phase inference");
+      expect(phase.assigneeBrief).toContain("--no-phase");
+      expect(phase.assigneeBrief).toContain(phaseSpecificExpectations.get(phase.id));
+      expect(phase.leaderBrief).toContain("phase documentation");
+      expect(phase.leaderBrief).toContain("full agent-oriented detail plus TLDR metadata");
+    }
+  });
+
+  it("seeds review phases with documentation quality checks", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const codeReviewPhase = phases.find((phase) => phase.id === "code-review");
+    const outcomeReviewPhase = phases.find((phase) => phase.id === "outcome-review");
+
+    for (const phase of [codeReviewPhase, outcomeReviewPhase]) {
+      expect(phase?.assigneeBrief).toContain("Review documentation quality, not just presence");
+      expect(phase?.assigneeBrief).toContain("useful full detail");
+      expect(phase?.assigneeBrief).toContain("TLDR metadata");
+      expect(phase?.assigneeBrief).toContain("correctly phase-associated");
+      expect(phase?.leaderBrief).toContain("Require reviewers to judge phase documentation quality");
+    }
   });
 
   it("builds a read-only phase catalog with source metadata and exact display paths", async () => {

@@ -18,6 +18,7 @@ Worker-visible boundary:
 - The worker may run the approved operation and monitor it within the stated risk envelope.
 - The worker must escalate when stop conditions or new risks appear.
 - This is the phase for the approved run itself, not the main implementation or debugging loop.
+- Before reporting back, the worker should document the Execute phase on the quest with approved action, monitors, stop conditions, outcome, deviations, artifacts or logs, follow-up needs, and TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind artifact`; use explicit `--phase execute` or occurrence flags if current-phase inference is unavailable.
 
 Exit evidence:
 - Execution report, artifact/run identifiers, monitor results, and any triggered alerts or stop conditions.

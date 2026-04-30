@@ -16,6 +16,7 @@ Leader actions:
 Worker-visible boundary:
 - The worker may update durable coordination state and consolidate the current facts for the next reader.
 - The worker should not invent new implementation scope inside this phase.
+- Before reporting back, the worker should document the Bookkeeping phase on the quest with records updated, superseded facts, external locations, durable handoff facts, and TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary`; use explicit `--phase bookkeeping` or occurrence flags if current-phase inference is unavailable.
 
 Exit evidence:
 - Durable state is current, discoverable, and consistent with the latest accepted result.

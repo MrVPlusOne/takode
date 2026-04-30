@@ -227,14 +227,22 @@ This dispatch happens only after the user has approved the initial Journey from 
 
 **Workers must stop after each phase boundary.** The dispatch message only authorizes alignment. After alignment approval, the worker performs the approved next phase. After implementation, the worker STOPS and waits -- it does NOT self-review, run review skills on its own, run `/self-groom`, or self-port. The leader advances the quest through Quest Journey phases.
 
+**Every phase needs durable quest documentation.** Before a phase is considered complete, the actor for that phase should add or refresh a quest feedback entry scoped to the current phase when working on a quest. Prefer current-phase inference with the q-991 primitive:
+
+```bash
+quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md --kind phase-summary
+```
+
+Use `--kind phase-finding` for exploration findings, `--kind review` for review phases, or `--kind artifact` for execution artifacts when that is more accurate. If current-phase inference is unavailable or ambiguous, require explicit phase/run/occurrence flags such as `--phase implement`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run`. Use `--no-phase` only when a flat quest comment is intentional. The full body is for future agents; the TLDR is for human scanning and should preserve every major topic.
+
 **Make every follow-up message phase-explicit.**
-- **Initial dispatch**: invoke the alignment phase and include the exact assignee brief path: `~/.companion/quest-journey-phases/alignment/assignee.md`. The worker returns a lightweight read-in with concrete understanding, ambiguities, clarification questions, blockers, surprises, and any evidence that may justify leader-owned Journey revision, then stops. The user-approved proposal that led to this dispatch must already have stated the scheduling/orchestration plan, even in the simple case: "spawn fresh and dispatch immediately if approved."
-- **Every phase dispatch**: include `Read this phase brief first:` plus the exact assignee brief path from `takode phases`, for example `~/.companion/quest-journey-phases/implement/assignee.md`. Do this for workers and reviewers.
+- **Initial dispatch**: invoke the alignment phase and include the exact assignee brief path: `~/.companion/quest-journey-phases/alignment/assignee.md`. The worker returns a lightweight read-in, documents the alignment phase on the quest when possible, then stops. The user-approved proposal that led to this dispatch must already have stated the scheduling/orchestration plan, even in the simple case: "spawn fresh and dispatch immediately if approved."
+- **Every phase dispatch**: include `Read this phase brief first:` plus the exact assignee brief path from `takode phases`, for example `~/.companion/quest-journey-phases/implement/assignee.md`. Do this for workers and reviewers, and remind them to document the current phase before reporting back.
 - **Alignment approval**: after the worker returns the read-in, the leader normally approves the next phase directly. Escalate back to the user only when the read-in introduces significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocking issue. If real unknowns remain, route to `explore`; if the next move is already clear, invoke that phase and say so explicitly. Do not imply review, porting, or quest transitions are authorized.
-- **Review or rework follow-up**: say exactly what the worker should do now, then tell them to report back and wait. Tell the worker to refresh the existing quest summary/comment as a user-oriented outcome note covering what changed, why it matters, and what verification passed. For long multi-topic summaries, tell the worker to write the full comment first and add `--tldr` metadata that preserves the major topics. Consolidate feedback-addressing details into that same comment when clear instead of adding near-duplicate quest comments. Do not imply porting is authorized.
-- **Reviewer-owned quest hygiene**: reviewers may directly fix clear quest hygiene issues they know how to fix, including stale addressed flags, missing/refreshable summaries, and verification checklist checks backed by evidence. Expect reviewers to report those fixes in ACCEPT/CHALLENGE output. Do not send the worker rework for hygiene the reviewer already fixed; do send substantive failures, critical intention mismatches, missing or dishonest work, and ambiguity back through the normal review loop.
+- **Review or rework follow-up**: say exactly what the worker should do now, then tell them to report back and wait. Tell the worker to add or refresh the current phase documentation with what changed, why it matters, verification evidence, remaining risks, and addressed feedback when applicable. Do not imply porting is authorized.
+- **Reviewer-owned quest hygiene**: reviewers may directly fix clear quest hygiene issues they know how to fix, including stale addressed flags, missing/refreshable summaries, and verification checklist checks backed by evidence. Reviewers should judge phase documentation quality, not just presence: phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the primitive is available. Expect reviewers to report those fixes or documentation findings in ACCEPT/CHALLENGE output. Do not send the worker rework for hygiene the reviewer already fixed; do send substantive failures, critical intention mismatches, missing or dishonest work, and ambiguity back through the normal review loop.
 - **If review follow-up needs more code changes**: tell the worker to commit the current worktree state, make the fixes in a separate follow-up commit, and send the changed worktree back to Code Review only after that checkpoint exists. This lets the reviewer inspect a clean incremental diff of only the new work. This does not require reviewers to commit and does not apply to purely read-only follow-up review discussion.
-- **Porting**: send a separate, explicit `/port-changes` instruction only after reviewer ACCEPT. Require the worker's report-back to include a dedicated `Synced SHAs: sha1,sha2` line with the ordered synced SHAs from the main repo and the status of required post-port verification. These details belong in the report and consolidated quest summary, not in `quest complete --items`; verification items are only for human-checkable acceptance checks. For refactor quests, the full automated gate before merge or final acceptance is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, the worker must document the exception explicitly. If the required post-port verification run fails, dispatch a suitable worker to fix `main` immediately rather than waiting.
+- **Porting**: send a separate, explicit `/port-changes` instruction only after reviewer ACCEPT. Require the worker's report-back to include a dedicated `Synced SHAs: sha1,sha2` line with the ordered synced SHAs from the main repo and the status of required post-port verification. These details belong in the report and phase documentation, not in `quest complete --items`; verification items are only for human-checkable acceptance checks. For refactor quests, the full automated gate before merge or final acceptance is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, the worker must document the exception explicitly. If the required post-port verification run fails, dispatch a suitable worker to fix `main` immediately rather than waiting.
 - **Docs/skills/prompts/templates still count when tracked**: if a worker changes git-tracked docs, skill files, prompts, templates, or other text-only files, treat it as commit-producing work. It must go through normal review, porting, and `quest complete ... --commit/--commits` structured metadata after sync.
 - **Investigation/design quests**: say what artifact or evidence to produce, then tell the worker to stop and report back. Use an explicit Journey that omits `port` only when the quest will produce zero git-tracked changes. Do not use that for text-only tracked-file edits, and do not assume the worker should self-complete or self-transition the quest.
 
@@ -244,28 +252,28 @@ This dispatch happens only after the user has approved the initial Journey from 
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/implement/assignee.md`
 
-Implement the approved plan, add or refresh the consolidated quest summary comment for the human reader, then stop and report back. The summary should state what changed, why it matters, and what verification passed, without turning into a review/rework timeline. For long multi-topic summaries, write the full comment first and add `--tldr` metadata that preserves the major topics. If this also addresses human feedback, explain that in the same comment when it remains clear. Do not run review workflows on your own, run /self-groom, run /port-changes, or change the quest status yourself.
+Implement the approved plan, add or refresh the current Implement phase documentation with full agent-oriented detail plus TLDR metadata, then stop and report back. Document what changed, why it matters, what verification passed, remaining risks, and any addressed feedback. Do not run review workflows on your own, run /self-groom, run /port-changes, or change the quest status yourself.
 ```
 
 ```
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/implement/assignee.md`
 
-Address the reviewer findings, add or refresh the consolidated user-oriented quest summary comment, then stop and report back. Do not port yet.
+Address the reviewer findings, add or refresh the current Implement phase documentation with full detail plus TLDR metadata, then stop and report back. Do not port yet.
 ```
 
 ```
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/implement/assignee.md`
 
-Address the review findings. If you need more code changes, commit the current worktree state, make the fixes in a separate follow-up commit, and send the changed worktree back to Code Review only after that checkpoint exists so the reviewer can inspect a clean incremental diff. This does not apply to purely read-only follow-up review discussion. Add or refresh the consolidated user-oriented quest summary comment, then stop and report back. Do not port yet.
+Address the review findings. If you need more code changes, commit the current worktree state, make the fixes in a separate follow-up commit, and send the changed worktree back to Code Review only after that checkpoint exists so the reviewer can inspect a clean incremental diff. This does not apply to purely read-only follow-up review discussion. Add or refresh the current Implement phase documentation with full detail plus TLDR metadata, then stop and report back. Do not port yet.
 ```
 
 ```
 Read this phase brief first:
 - `~/.companion/quest-journey-phases/port/assignee.md`
 
-Port now using /port-changes, then report back when sync is complete. Include a dedicated `Synced SHAs: sha1,sha2` line with the ordered synced SHAs from the main repo so the later `quest complete ... --commits ...` handoff can attach structured commit metadata instead of relying on feedback comments alone.
+Port now using /port-changes, add or refresh the current Port phase documentation, then report back when sync is complete. Include a dedicated `Synced SHAs: sha1,sha2` line with the ordered synced SHAs from the main repo so the later `quest complete ... --commits ...` handoff can attach structured commit metadata instead of relying on feedback comments alone.
 ```
 
 **For feedback rework dispatches**, use this extended template instead:

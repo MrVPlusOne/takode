@@ -34,6 +34,31 @@ Use `takode phases` to list available phase metadata and exact brief paths. Lead
 | Bookkeeping | `BOOKKEEPING` | `~/.companion/quest-journey-phases/bookkeeping/leader.md` | `~/.companion/quest-journey-phases/bookkeeping/assignee.md` | Record durable shared external state such as quest updates, stream updates, artifact locations, handoff facts, and superseded facts | read the bookkeeping leader brief, record the durable shared state update, then advance when the facts and handoff state are current |
 | Port | `PORTING` | `~/.companion/quest-journey-phases/port/leader.md` | `~/.companion/quest-journey-phases/port/assignee.md` | Sync accepted tracked changes back to the main repo | read the port leader brief, then wait for sync confirmation and post-port verification before removing the row |
 
+## Phase Documentation Contract
+
+Each active phase should leave durable quest documentation before the leader treats the phase as complete. The actor for the phase writes the full entry for future agents first, then derives TLDR metadata for human scanning.
+
+Prefer the q-991 phase-scoped feedback primitive with current-phase inference:
+
+```bash
+quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md --kind phase-summary
+```
+
+Use `--kind phase-finding` for exploration findings, `--kind review` for review phases, or `--kind artifact` for execution artifacts when that better describes the entry. If inference is unavailable or ambiguous, use explicit flags such as `--phase`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run`. Use `--no-phase` only when a flat unscoped quest comment is intentional, such as non-Journey bookkeeping or legacy quest compatibility.
+
+Phase documentation should stay specific to the phase:
+- Alignment: concrete understanding, ambiguities, clarification questions, blockers, surprises, and Journey-revision evidence.
+- Explore: findings, evidence sources, ambiguities or blockers, implementation considerations, and Journey-revision evidence.
+- Implement: changed files or artifacts, rationale, verification, remaining risks, and addressed feedback.
+- Code Review: review scope, aspects covered, evidence checked, findings or ACCEPT rationale, and documentation hygiene judgment.
+- Mental Simulation: scenarios replayed, concrete examples, risks, recommendations, and confidence limits.
+- Execute: approved action, monitors, stop conditions, outcome, deviations, artifacts or logs, and follow-up needs.
+- Outcome Review: evidence judged, acceptance or insufficiency rationale, bounded reruns, and follow-up routing.
+- Bookkeeping: records updated, superseded facts, external locations, and durable handoff facts.
+- Port: ordered synced SHAs, post-port verification, port anomalies, and remaining sync risks.
+
+Review phases must judge documentation quality, not just presence. Check phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the phase-scoped primitive is available.
+
 ## Recommended Default
 
 The recommended built-in tracked-code Journey is:
@@ -104,7 +129,7 @@ Rules:
 - **Alignment approval is leader-owned by default.** Once the user has approved the initial Journey plus scheduling plan, the leader normally approves the returned worker read-in and dispatches the next phase.
 - **Escalate alignment back to the user only for real blockers.** Significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another blocking issue can require fresh user approval.
 - **Alignment approval authorizes exactly one next phase.** For example: explore now, then stop and report back.
-- **Workers must stop at phase boundaries.** They do not self-review, self-port, or self-transition.
+- **Workers and reviewers document, report, then stop at phase boundaries.** They do not self-review, self-port, self-transition, or self-complete unless explicitly instructed.
 - **Porting requires an explicit instruction.**
 
 ## Review Phases

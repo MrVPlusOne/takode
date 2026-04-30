@@ -458,11 +458,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain(
-      "perform exactly the approved next phase, update the user-oriented quest summary comment when appropriate, and stop when done",
-    );
-    expect(guardrails).toContain("what changed, why it matters, and what verification passed");
-    expect(guardrails).toContain("long multi-topic summaries should include `--tldr` metadata");
+    expect(guardrails).toContain("Every active phase needs durable quest documentation");
+    expect(guardrails).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
+    expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
+    expect(guardrails).toContain("perform exactly the approved next phase, document the current phase on the quest");
+    expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain(
       "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense",
@@ -547,11 +547,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain(
-      "perform exactly the approved next phase, update the user-oriented quest summary comment when appropriate, and stop when done",
-    );
-    expect(guardrails).toContain("what changed, why it matters, and what verification passed");
-    expect(guardrails).toContain("long multi-topic summaries should include `--tldr` metadata");
+    expect(guardrails).toContain("Every active phase needs durable quest documentation");
+    expect(guardrails).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
+    expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
+    expect(guardrails).toContain("perform exactly the approved next phase, document the current phase on the quest");
+    expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
     expect(guardrails).toContain("small bounded reruns or repros");

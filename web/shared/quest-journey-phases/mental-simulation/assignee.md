@@ -16,5 +16,11 @@ Boundary:
 - Do not reject pre-implementation use when the leader has supplied a concrete enough design and scenarios.
 - Prefer actual `EXECUTING` plus `OUTCOME_REVIEWING` when end-to-end execution is feasible and appropriate; use Mental Simulation when real execution is hard, incomplete, high-stakes, or should be reviewed before running.
 
+Phase documentation:
+- Before reporting back, add or refresh a quest feedback entry documenting this phase when working on a quest. Prefer the phase-scoped primitive with current-phase inference: `quest feedback add q-N --text-file <body> --tldr-file <tldr> --kind review`.
+- If inference is unavailable or ambiguous, use explicit phase flags such as `--phase mental-simulation`, `--phase-position`, `--phase-occurrence`, or `--phase-occurrence-id`; use `--no-phase` only when a flat comment is intentional.
+- Write full agent-oriented detail first, then add TLDR metadata that preserves the major points.
+- Document scenarios replayed, concrete examples, risks, recommendations, confidence limits, and the quest documentation hygiene judgment when reviewing a quest.
+
 Deliverable:
 - Return a scenario-grounded review with concrete examples, risks, and recommendations, then stop.

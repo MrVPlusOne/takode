@@ -12,6 +12,7 @@ Leader actions:
 - Include the exact assignee brief path: `~/.companion/quest-journey-phases/code-review/assignee.md`.
 - Tell fresh reviewers to load the essential skills/context for the target first: `quest` when reviewing quest state or feedback, and `takode-orchestration` when inspecting prior sessions or cross-session history.
 - Expect a comprehensive landing-risk review of correctness, regressions, tests, maintainability, quest hygiene, implementation completeness, and meaningful evidence, while keeping reviewers out of implementation and porting.
+- Require reviewers to judge phase documentation quality, not just presence: phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the primitive is available.
 - Send findings back to the worker when rework is needed. If the worker must change code after review, require the worker to commit the current worktree state, make the fixes in a separate follow-up commit, and send the changed worktree back to Code Review only after that checkpoint exists. This lets the reviewer inspect a clean incremental diff and does not apply to purely read-only follow-up review discussion.
 - Keep the board row in `CODE_REVIEWING`.
 
@@ -21,6 +22,7 @@ Reviewer-visible boundary:
 - Before judging the result, write down the review aspects that are relevant for this change. Cover correctness, regression risk, tests, maintainability, quest hygiene, implementation completeness, and meaningful evidence review unless a category is genuinely irrelevant; say why skipped categories are irrelevant.
 - Report substantive bugs, missing coverage, unsupported verification, design/maintainability risks, incomplete implementation, and quest-hygiene gaps that matter for landing.
 - Do not become the implementer, porter, or redesign owner. You may directly fix only small quest-hygiene issues already supported by the workflow, such as stale addressed flags, refreshable summaries, or verification checks backed by evidence.
+- Before reporting back, the reviewer should document the Code Review phase on the quest with full agent-oriented detail plus TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind review`; use explicit `--phase code-review` or occurrence flags if current-phase inference is unavailable.
 
 Exit evidence:
 - Reviewer acceptance or concrete findings that the worker must address.

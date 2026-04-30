@@ -114,6 +114,31 @@ TLDR metadata is for human scanning, but it must not hide major parts of the ful
 - For multi-topic content, use multiple bullets or sentences, roughly compressing every one to two paragraphs or major sections into one concise TLDR item.
 - Keep the full content complete and agent-readable while making the TLDR human-scannable without being lossy.
 
+## Quest Journey Phase Documentation
+
+When a quest is running through a Quest Journey, every active phase should leave durable quest feedback before handoff or phase end. The entry should be scoped to the current phase when possible, contain full agent-oriented detail for future sessions, and include TLDR metadata for human scanning when the body has more than one small point.
+
+Prefer current-phase inference:
+
+```bash
+quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md --kind phase-summary
+```
+
+Use `--kind phase-finding` for exploration findings, `--kind review` for review phases, or `--kind artifact` for execution artifacts when that better describes the entry. If inference is unavailable or ambiguous, attach manually with `--phase`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run`. Use `--no-phase` only when you intentionally want a flat unscoped feedback entry, such as legacy/non-Journey quest notes.
+
+Write phase documentation for the phase that just ran:
+- Alignment: concrete understanding, ambiguities, clarification questions, blockers, surprises, and Journey-revision evidence.
+- Explore: findings, evidence sources, ambiguities or blockers, implementation considerations, and Journey-revision evidence.
+- Implement: changed files or artifacts, rationale, verification, remaining risks, and addressed feedback.
+- Code Review: review scope, aspects covered, evidence checked, findings or ACCEPT rationale, and documentation hygiene judgment.
+- Mental Simulation: scenarios replayed, concrete examples, risks, recommendations, and confidence limits.
+- Execute: approved action, monitor and stop conditions, outcome, deviations, artifact or log locations, and follow-up needs.
+- Outcome Review: evidence judged, acceptance or insufficiency rationale, bounded reruns, and follow-up routing.
+- Bookkeeping: records updated, superseded facts, external locations, and durable handoff facts.
+- Port: ordered synced SHAs, post-port verification, port anomalies, and remaining sync risks.
+
+Reviewers should check documentation quality, not just whether a comment exists. Good phase documentation is relevant to the phase, includes useful full detail, has TLDR metadata that preserves major points when appropriate, and is correctly phase-associated when the phase-scoped primitive is available.
+
 ## Complete Flag Reference
 
 ### quest create [<title> | --title "..." | --title-file <path>|-] [flags]
@@ -494,6 +519,7 @@ Use `quest complete` for the normal worker handoff from `in_progress` to `done` 
    - `quest feedback q-N --text "Summary: <what changed, why it matters, and what verification passed>"` for short single-topic summaries
    - For long multi-topic summaries, write the full `Summary:` body first, then add `--tldr` or `--tldr-file` with one concise bullet or sentence for each major topic
    - Prefer body first, TLDR second: `quest feedback q-N --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md`
+   - For Quest Journey work, the current phase documentation entry should usually carry this detail; prefer a phase-scoped `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary` entry over a duplicate flat summary
    - Briefly describe what changed, why it matters to the user or project, and what verification passed
    - This should be the one substantive quest-level prose summary by default
    - Write the summary as an outcome note, not a review or rework timeline
@@ -538,6 +564,7 @@ When you are reviewing another agent's quest, directly fix straightforward quest
 
 - Use `quest address q-N <index>` when worker evidence clearly addressed a human feedback entry but the addressed flag is stale.
 - Use `quest feedback latest/list/show` to inspect whether a summary can be refreshed. When the worker report and diff give enough evidence, add or refresh a user-oriented summary with `quest feedback add q-N --text "Summary: ..."` for short single-topic content, or `quest feedback add q-N --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md` for long multi-topic content so the TLDR preserves the major topics from the full summary.
+- For Quest Journey work, check phase documentation quality before accepting: phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the phase-scoped primitive is available.
 - Use `quest check q-N <index>` when you personally verified a checklist item.
 - Report every hygiene fix you made in your ACCEPT/CHALLENGE output.
 
