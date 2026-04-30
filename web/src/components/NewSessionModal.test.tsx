@@ -480,9 +480,19 @@ describe("NewSessionModal", () => {
     await user.click(await screen.findByRole("button", { name: /Default \(gpt-5\.5\)/ }));
 
     // Regression coverage for q-447: the shared Claude/Codex model menu must
-    // scroll internally so options lower than the modal bottom remain usable.
+    // scroll internally and avoid modal ancestors that clip absolute children,
+    // so options lower than the modal bottom remain reachable.
     const dropdown = screen.getByTestId("new-session-model-dropdown");
     expect(dropdown).toHaveClass("max-h-60", "overflow-y-auto", "overscroll-contain");
+    const modalCard = screen.getByTestId("new-session-modal-card");
+    const clippingAncestors: Element[] = [];
+    for (let node = dropdown.parentElement; node; node = node.parentElement) {
+      if (node.classList.contains("overflow-hidden")) {
+        clippingAncestors.push(node);
+      }
+      if (node === modalCard) break;
+    }
+    expect(clippingAncestors).toHaveLength(0);
 
     await user.click(await screen.findByRole("button", { name: /GPT-5\.4 Mini/ }));
     await user.click(screen.getByRole("button", { name: "Create Session" }));

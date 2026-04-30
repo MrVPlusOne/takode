@@ -563,7 +563,8 @@ export function NewSessionModal({
       >
         {/* Popover card — anchored near the top-left, next to sidebar */}
         <div
-          className="absolute left-[272px] top-2 bg-cc-card border border-cc-border rounded-2xl shadow-2xl w-[400px] max-w-[calc(100vw-2rem)] max-md:left-2 max-md:right-2 max-md:w-auto overflow-hidden"
+          className="absolute left-[272px] top-2 bg-cc-card border border-cc-border rounded-2xl shadow-2xl w-[400px] max-w-[calc(100vw-2rem)] max-md:left-2 max-md:right-2 max-md:w-auto"
+          data-testid="new-session-modal-card"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
