@@ -113,3 +113,92 @@ describe("ToolBlock multi-file Edit rendering", () => {
     });
   });
 });
+
+describe("ToolBlock multi-file Write rendering", () => {
+  it("renders patch changes under each change path when content fallback would otherwise be non-empty", async () => {
+    // Write parsing can derive synthetic content from patch text. Multi-file
+    // patch payloads must be grouped before that fallback renders one combined
+    // new-file diff with no per-file headers or Open File targets.
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    const postMessageSpy = vi.spyOn(window.parent, "postMessage");
+    const configPath = "/Users/jiayiwei/Code/companion/web/src/config.ts";
+    const serverConfigPath = "/Users/jiayiwei/Code/companion/web/server/config.ts";
+
+    const { container } = render(
+      <ToolBlock
+        name="Write"
+        input={{
+          file_path: configPath,
+          changes: [
+            {
+              path: configPath,
+              kind: "create",
+              diff: [
+                "diff --git a/web/src/config.ts b/web/src/config.ts",
+                "--- /dev/null",
+                "+++ b/web/src/config.ts",
+                "@@ -0,0 +1,2 @@",
+                "+export const uiMode = 'compact';",
+                "+export const showDiffHeaders = true;",
+              ].join("\n"),
+            },
+            {
+              path: serverConfigPath,
+              kind: "create",
+              diff: [
+                "diff --git a/web/server/config.ts b/web/server/config.ts",
+                "--- /dev/null",
+                "+++ b/web/server/config.ts",
+                "@@ -0,0 +1,2 @@",
+                "+export const apiMode = 'strict';",
+                "+export const emitPatchGroups = true;",
+              ].join("\n"),
+            },
+          ],
+        }}
+        toolUseId="tool-multi-file-write-path-repro"
+        defaultOpen={false}
+      />,
+    );
+
+    const header = screen.getByRole("button", { name: /Write File.*2 files/ });
+    expect(header.textContent).not.toContain("config.ts");
+    expect(screen.queryByRole("button", { name: "Open File" })).toBeNull();
+
+    fireEvent.click(header);
+
+    const diffFiles = Array.from(container.querySelectorAll(".diff-file"));
+    expect(diffFiles).toHaveLength(2);
+    expect(diffFiles[0].textContent).toContain("web/src/");
+    expect(diffFiles[0].textContent).toContain("config.ts");
+    expect(diffFiles[0].textContent).toContain("uiMode");
+    expect(diffFiles[1].textContent).toContain("web/server/");
+    expect(diffFiles[1].textContent).toContain("config.ts");
+    expect(diffFiles[1].textContent).toContain("apiMode");
+
+    const openButtons = screen.getAllByRole("button", { name: "Open File" });
+    expect(openButtons).toHaveLength(2);
+
+    fireEvent.click(openButtons[0]);
+    fireEvent.click(openButtons[1]);
+
+    await waitFor(() => {
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        {
+          source: "takode-vscode-prototype",
+          type: "takode:open-file",
+          payload: { absolutePath: configPath, line: 1, column: 1 },
+        },
+        "*",
+      );
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        {
+          source: "takode-vscode-prototype",
+          type: "takode:open-file",
+          payload: { absolutePath: serverConfigPath, line: 1, column: 1 },
+        },
+        "*",
+      );
+    });
+  });
+});

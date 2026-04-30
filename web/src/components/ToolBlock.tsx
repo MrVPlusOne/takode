@@ -1111,22 +1111,23 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
 
   // File path and Open File button are now in the ToolBlock header
 
+  if (changePatchGroups.length > 1 && unifiedDiff) {
+    return (
+      <div className="space-y-2">
+        {changePatchGroups.map((group) => (
+          <DiffViewer
+            key={group.filePath}
+            unifiedDiff={group.unifiedDiff}
+            fileName={group.filePath}
+            mode="full"
+            headerActions={<DiffOpenFileButton filePath={group.filePath} cwd={sessionCwd} line={1} />}
+          />
+        ))}
+      </div>
+    );
+  }
+
   if (!content && unifiedDiff) {
-    if (changePatchGroups.length > 1) {
-      return (
-        <div className="space-y-2">
-          {changePatchGroups.map((group) => (
-            <DiffViewer
-              key={group.filePath}
-              unifiedDiff={group.unifiedDiff}
-              fileName={group.filePath}
-              mode="full"
-              headerActions={<DiffOpenFileButton filePath={group.filePath} cwd={sessionCwd} line={1} />}
-            />
-          ))}
-        </div>
-      );
-    }
     return <DiffViewer unifiedDiff={unifiedDiff} mode="full" />;
   }
 
