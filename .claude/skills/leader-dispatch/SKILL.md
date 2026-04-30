@@ -54,6 +54,8 @@ The approval surface can be a natural leader response. It should still be concre
 
 Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, and `port` are self-explanatory unless the user or quest adds unusual work for that phase. Add concise notes for non-standard phases such as `explore`, `execute`, `outcome-review`, `mental-simulation`, or `bookkeeping`; state why the phase is needed and what evidence, scenario, outcome, or durable state it covers.
 
+When a proposal includes multiple non-standard phase notes, format them as bullets keyed by phase, for example `- Execute: ...` and `- Outcome Review: ...`. Keep the phase list, phase notes, and scheduling plan visually separate so the approval surface is easy to scan before the user confirms.
+
 The scheduling/orchestration plan must state at least:
 - which worker you expect to use, or that you will spawn fresh
 - whether you will dispatch immediately after approval or keep the quest `QUEUED`

@@ -40,6 +40,8 @@ One user confirmation can approve both the quest draft and the Journey/schedulin
 
 For Journey notes, omit standard tracked-code phase notes by default: `alignment`, `implement`, `code-review`, and `port` only need notes for unusual phase-specific work. Explain non-standard phases concisely: why the phase is needed and what evidence, scenario, outcome, or durable state it covers.
 
+When a proposal includes multiple non-standard phase notes, format them as bullets keyed by phase, for example `- Execute: ...` and `- Outcome Review: ...`. Keep the phase list, phase notes, and scheduling plan visually separate so the approval surface is easy to scan before the user confirms.
+
 Clarification-needed case: ask the material questions using the quest framing below. After the user clarifies and no major ambiguity remains, the next response should include both the proposed quest draft and proposed Journey/scheduling draft together. More than two confirmation rounds should happen only when new, genuine ambiguity remains.
 
 When you only need quest text approval and dispatch is not in scope, use:
