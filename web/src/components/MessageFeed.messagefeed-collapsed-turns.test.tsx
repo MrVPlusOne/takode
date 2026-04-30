@@ -29,7 +29,7 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import type { ChatMessage } from "../types.js";
+import type { ChatMessage, ThreadAttachmentMarker } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 
 // Mock react-markdown to avoid ESM issues in tests
@@ -155,6 +155,38 @@ function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role
     timestamp: Date.now(),
     ...overrides,
   };
+}
+
+function movedMarker(overrides: Partial<ThreadAttachmentMarker> & { id: string; threadKey: string; count: number }) {
+  return {
+    type: "thread_attachment_marker" as const,
+    timestamp: 1,
+    markerKey: `thread-attachment:${overrides.threadKey}:${overrides.id}`,
+    questId: overrides.threadKey,
+    attachedAt: 1,
+    attachedBy: "session-1",
+    messageIds: [],
+    messageIndices: [],
+    ranges: [],
+    firstMessageId: overrides.id,
+    firstMessageIndex: 0,
+    ...overrides,
+  };
+}
+
+function hiddenThreadMessages(threadKey: string, count: number, idPrefix: string): ChatMessage[] {
+  return Array.from({ length: count }, (_, index) =>
+    makeMessage({
+      id: `${idPrefix}-${index}`,
+      role: "assistant",
+      content: `${threadKey} hidden update ${index}`,
+      metadata: { threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }] },
+    }),
+  );
+}
+
+function expectTextContent(element: Element, text: string) {
+  expect(element.textContent).toContain(text);
 }
 
 function makeFeedEntryMessage(msg: ChatMessage): FeedEntry {
@@ -632,8 +664,10 @@ describe("MessageFeed - collapsed turns", () => {
     render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
     expect(screen.getByText("Main setup")).toBeTruthy();
-    expect(screen.getByTestId("thread-attachment-marker").getAttribute("data-thread-key")).toBe("q-941");
-    expect(screen.getByText("1 message moved to q-941")).toBeTruthy();
+    const markerRow = screen.getByTestId("thread-attachment-marker");
+    expect(markerRow.getAttribute("data-thread-key")).toBe("q-941");
+    expectTextContent(markerRow, "1 message moved to thread:q-941");
+    expect(screen.getByRole("button", { name: "thread:q-941" })).toBeTruthy();
     expect(screen.queryByText("Attached historical context")).toBeNull();
   });
 
@@ -1015,9 +1049,75 @@ describe("MessageFeed - collapsed turns", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-976");
   });
 
-  it("keeps moved-message and normal message rows as hidden-activity grouping boundaries", () => {
-    // Moved-message markers have their own Jump/Details behavior and ordinary
-    // Main messages are visible content, so both should split hidden activity.
+  it("merges screenshot-style mixed moved-message and activity marker clusters", () => {
+    // Adjacent thread-system markers should read as one compact event instead
+    // of repeating separate activity/moved rows like the q-1008 screenshot.
+    const sid = "test-main-thread-marker-mixed-cluster";
+    const onSelectThread = vi.fn();
+    const markerA = movedMarker({
+      id: "marker-q-1006-a",
+      threadKey: "q-1006",
+      timestamp: 11,
+      count: 6,
+      messageIds: ["m1", "m2", "m3", "m4", "m5", "m6"],
+      messageIndices: [1, 2, 3, 4, 5, 6],
+      ranges: ["1-6"],
+    });
+    const markerB = movedMarker({
+      id: "marker-q-1006-b",
+      threadKey: "q-1006",
+      timestamp: 13,
+      count: 9,
+      messageIds: ["m7", "m8", "m9"],
+      messageIndices: [7, 8, 9],
+      ranges: ["7-15"],
+    });
+    setStoreMessages(sid, [
+      ...hiddenThreadMessages("q-1003", 4, "q1003-before"),
+      ...hiddenThreadMessages("q-1004", 6, "q1004-before"),
+      makeMessage({
+        id: markerA.id,
+        role: "system",
+        content: "6 messages moved to q-1006",
+        timestamp: markerA.timestamp,
+        metadata: { threadAttachmentMarker: markerA },
+      }),
+      ...hiddenThreadMessages("q-1006", 1, "q1006-middle"),
+      makeMessage({
+        id: markerB.id,
+        role: "system",
+        content: "9 messages moved to q-1006",
+        timestamp: markerB.timestamp,
+        metadata: { threadAttachmentMarker: markerB },
+      }),
+      ...hiddenThreadMessages("q-1006", 8, "q1006-after"),
+      ...hiddenThreadMessages("q-1003", 4, "q1003-after"),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+
+    const cluster = screen.getByTestId("thread-system-marker-cluster");
+    expect(screen.queryByText("Jump")).toBeNull();
+    expectTextContent(cluster, "15 messages moved to thread:q-1006");
+    expectTextContent(cluster, "23 activities in thread:q-1003, thread:q-1004, thread:q-1006");
+    expect(screen.getAllByRole("button", { name: "thread:q-1006" }).length).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getAllByRole("button", { name: "thread:q-1006" })[0]);
+    expect(onSelectThread).toHaveBeenCalledWith("q-1006");
+
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    const details = screen.getByTestId("thread-marker-cluster-details");
+    expectTextContent(details, "4 activities in thread:q-1003");
+    expectTextContent(details, "6 activities in thread:q-1004");
+    expectTextContent(details, "6 messages moved to thread:q-1006");
+    expectTextContent(details, "1 activity in thread:q-1006");
+    expectTextContent(details, "9 messages moved to thread:q-1006");
+    expectTextContent(details, "8 activities in thread:q-1006");
+  });
+
+  it("stops thread-system marker clusters at ordinary visible content", () => {
+    // Ordinary chat content is the visual boundary. Markers on either side
+    // should not merge across it.
     const sid = "test-main-hidden-activity-boundaries";
     const marker = {
       type: "thread_attachment_marker" as const,
@@ -1064,17 +1164,15 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
-    expect(screen.getAllByTestId("cross-thread-activity-marker")).toHaveLength(3);
-    expect(screen.getByTestId("thread-attachment-marker")).toBeTruthy();
-    expect(screen.getByText("1 message moved to q-972")).toBeTruthy();
+    expect(screen.getAllByTestId("thread-system-marker-cluster")).toHaveLength(1);
+    expect(screen.getAllByTestId("cross-thread-activity-marker")).toHaveLength(1);
     expect(screen.getByText("Visible Main boundary")).toBeTruthy();
-    expect(screen.getAllByText("1 activity in")).toHaveLength(3);
-    expect(screen.getByRole("button", { name: "thread:q-968" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "thread:q-976" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "thread:q-980" })).toBeTruthy();
+    expectTextContent(screen.getByTestId("thread-system-marker-cluster"), "1 message moved to thread:q-972");
+    expectTextContent(screen.getByTestId("thread-system-marker-cluster"), "2 activities in thread:q-968, thread:q-976");
+    expectTextContent(screen.getByTestId("cross-thread-activity-marker"), "1 activity in thread:q-980");
   });
 
-  it("uses attachment marker clicks to select the destination thread", () => {
+  it("uses moved marker destination links to select the destination thread", () => {
     const sid = "test-marker-selects-thread";
     const onSelectThread = vi.fn();
     const marker = {
@@ -1103,12 +1201,62 @@ describe("MessageFeed - collapsed turns", () => {
     ]);
 
     render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
-    fireEvent.click(screen.getByRole("button", { name: "Jump" }));
+    fireEvent.click(screen.getByRole("button", { name: "thread:q-941" }));
 
     expect(onSelectThread).toHaveBeenCalledWith("q-941");
+    expect(screen.queryByText("Jump")).toBeNull();
   });
 
-  it("groups adjacent moved-message markers and expands exact details", () => {
+  it("groups move-only marker clusters across multiple destinations", () => {
+    const sid = "test-grouped-moved-marker-destinations";
+    const markerA = movedMarker({ id: "marker-a", threadKey: "q-1006", count: 15, ranges: ["1-15"] });
+    const markerB = movedMarker({ id: "marker-b", threadKey: "q-1008", count: 4, ranges: ["16-19"] });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: markerA.id,
+        role: "system",
+        content: "15 messages moved to q-1006",
+        timestamp: markerA.timestamp,
+        metadata: { threadAttachmentMarker: markerA },
+      }),
+      makeMessage({
+        id: markerB.id,
+        role: "system",
+        content: "4 messages moved to q-1008",
+        timestamp: markerB.timestamp,
+        metadata: { threadAttachmentMarker: markerB },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+
+    const cluster = screen.getByTestId("thread-attachment-marker");
+    expectTextContent(cluster, "15 messages moved to thread:q-1006, 4 to thread:q-1008");
+    expect(screen.getByRole("button", { name: "thread:q-1006" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-1008" })).toBeTruthy();
+  });
+
+  it("aggregates activity-only marker clusters with compact destination links", () => {
+    const sid = "test-activity-only-marker-cluster";
+    setStoreMessages(sid, [
+      ...hiddenThreadMessages("q-1003", 10, "activity-q1003"),
+      ...hiddenThreadMessages("q-1004", 14, "activity-q1004"),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+
+    const cluster = screen.getByTestId("cross-thread-activity-marker");
+    expectTextContent(cluster, "24 activities in thread:q-1003, thread:q-1004");
+    expect(screen.getByRole("button", { name: "thread:q-1003" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-1004" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    const details = screen.getByTestId("thread-marker-cluster-details");
+    expectTextContent(details, "10 activities in thread:q-1003");
+    expectTextContent(details, "14 activities in thread:q-1004");
+  });
+
+  it("groups adjacent moved-message markers and expands chronological details", () => {
     const sid = "test-grouped-moved-markers";
     const markerA = {
       type: "thread_attachment_marker" as const,
@@ -1158,11 +1306,17 @@ describe("MessageFeed - collapsed turns", () => {
     render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
     expect(screen.getAllByTestId("thread-attachment-marker")).toHaveLength(1);
-    expect(screen.getByText("3 messages moved to q-972")).toBeTruthy();
+    expectTextContent(screen.getByTestId("thread-attachment-marker"), "3 messages moved to thread:q-972");
 
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    expect(screen.getByText(/Ranges: 1-2, 3/)).toBeTruthy();
-    expect(screen.getByText(/Message ids: m1, m2, m3/)).toBeTruthy();
+    const details = screen.getByTestId("thread-marker-cluster-details");
+    expect(details.textContent?.indexOf("2 messages moved to thread:q-972")).toBeLessThan(
+      details.textContent?.indexOf("1 message moved to thread:q-972") ?? Number.POSITIVE_INFINITY,
+    );
+    expectTextContent(details, "Ranges: 1-2");
+    expectTextContent(details, "Ranges: 3");
+    expectTextContent(details, "Message ids: m1, m2");
+    expectTextContent(details, "Message ids: m3");
   });
 
   it("filters quest-thread views to associated messages while Main stays implicit", () => {

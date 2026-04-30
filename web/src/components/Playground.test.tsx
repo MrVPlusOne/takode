@@ -65,6 +65,17 @@ describe("Playground", () => {
     expect(screen.queryByText(/@to\(user\)/)).toBeNull();
   });
 
+  it("documents compact mixed thread-system marker clusters", () => {
+    render(<Playground />);
+
+    const markerClusters = screen.getAllByTestId("thread-system-marker-cluster");
+    expect(markerClusters.length).toBeGreaterThan(0);
+    expect(markerClusters[0]).toHaveTextContent("1 message moved to thread:q-961");
+    expect(markerClusters[0]).toHaveTextContent("3 activities in thread:q-961, thread:q-962");
+    expect(within(markerClusters[0]).queryByText("Jump")).toBeNull();
+    expect(within(markerClusters[0]).getAllByRole("button", { name: "thread:q-961" }).length).toBeGreaterThan(0);
+  });
+
   it("documents Work Board Bar tab shrinking and phase legend states", () => {
     render(<Playground />);
 

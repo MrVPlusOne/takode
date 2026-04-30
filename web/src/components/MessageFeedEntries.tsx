@@ -35,7 +35,6 @@ import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import {
   formatThreadAttachmentMarkerDetails,
-  formatThreadAttachmentMarkerSummary,
   isCrossThreadActivityMarkerMessage,
   isThreadAttachmentMarkerMessage,
 } from "../utils/thread-projection.js";
@@ -242,6 +241,10 @@ function isHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: Ch
   return entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId === "herd-events";
 }
 
+function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
+  return isThreadAttachmentMarkerMessage(message) || isCrossThreadActivityMarkerMessage(message);
+}
+
 function formatHerdBatchTimeRange(messages: ChatMessage[]): string {
   const first = messages[0];
   const last = messages[messages.length - 1];
@@ -298,7 +301,7 @@ function HerdEventBatchGroup({ messages, sessionId }: { messages: ChatMessage[];
   );
 }
 
-function ThreadAttachmentMarkerRow({
+function ThreadMarkerClusterRow({
   messages,
   onSelectThread,
 }: {
@@ -306,108 +309,170 @@ function ThreadAttachmentMarkerRow({
   onSelectThread?: (threadKey: string) => void;
 }) {
   const [detailsOpen, setDetailsOpen] = useState(false);
-  const marker = mergeThreadAttachmentMarkers(messages);
-  if (!marker) return null;
-  const destination = marker.questId ?? marker.threadKey;
-  const label = formatThreadAttachmentMarkerSummary(marker);
-  const details = formatThreadAttachmentMarkerDetails(marker);
+  const moveSummary = summarizeThreadAttachmentMarkers(messages);
+  const activitySummary = summarizeCrossThreadActivityMarkers(messages);
+  if (!moveSummary && !activitySummary) return null;
   const firstMessage = messages[0];
+  const firstThreadKey = moveSummary?.destinations[0]?.threadKey ?? activitySummary?.destinations[0]?.threadKey;
+  const details = buildThreadMarkerClusterDetails(messages);
+  const showDetails = details.length > 0 && (messages.length > 1 || !!moveSummary);
+  const testId =
+    moveSummary && activitySummary
+      ? "thread-system-marker-cluster"
+      : moveSummary
+        ? "thread-attachment-marker"
+        : "cross-thread-activity-marker";
 
   return (
     <div
       className="animate-[fadeSlideIn_0.2s_ease-out] pl-9"
-      data-testid="thread-attachment-marker"
-      data-thread-key={marker.threadKey}
+      data-testid={testId}
+      data-thread-key={firstThreadKey}
       data-message-id={firstMessage?.id}
-      data-feed-block-id={getMessageFeedBlockId(firstMessage?.id ?? marker.markerKey)}
+      data-feed-block-id={getMessageFeedBlockId(firstMessage?.id ?? "thread-marker-cluster")}
     >
-      <div className="max-w-full text-[11px] text-cc-muted font-mono-code">
-        <span>{label}</span>
-        <span className="mx-1.5 text-cc-muted/35">·</span>
-        <button
-          type="button"
-          onClick={() => onSelectThread?.(marker.threadKey)}
-          className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:text-cc-muted/60"
-          disabled={!onSelectThread}
-          title={`Open ${destination} thread`}
-        >
-          Jump
-        </button>
-        {details && (
-          <>
-            <span className="mx-1.5 text-cc-muted/35">·</span>
-            <button
-              type="button"
-              onClick={() => setDetailsOpen((v) => !v)}
-              className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline"
-              aria-expanded={detailsOpen}
-            >
-              Details
-            </button>
-          </>
+      <div className="max-w-full space-y-0.5 text-[11px] text-cc-muted font-mono-code">
+        {moveSummary && (
+          <div>
+            <MoveSummaryLine summary={moveSummary} onSelectThread={onSelectThread} />
+            {showDetails && (
+              <>
+                <span className="mx-1.5 text-cc-muted/35">·</span>
+                <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
+              </>
+            )}
+          </div>
         )}
-        {detailsOpen && details && <div className="mt-1 max-w-3xl whitespace-pre-wrap text-cc-muted/70">{details}</div>}
+        {activitySummary && (
+          <div>
+            <ActivitySummaryLine summary={activitySummary} onSelectThread={onSelectThread} />
+            {!moveSummary && showDetails && (
+              <>
+                <span className="mx-1.5 text-cc-muted/35">·</span>
+                <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
+              </>
+            )}
+          </div>
+        )}
+        {detailsOpen && showDetails && (
+          <div className="mt-1 max-w-3xl space-y-0.5 text-cc-muted/70" data-testid="thread-marker-cluster-details">
+            {details.map((detail, index) => (
+              <div key={`${detail}-${index}`}>{detail}</div>
+            ))}
+          </div>
+        )}
       </div>
     </div>
   );
 }
 
-function CrossThreadActivityMarkerRow({
-  messages,
+function DetailsToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline"
+      aria-expanded={open}
+    >
+      Details
+    </button>
+  );
+}
+
+type ThreadMarkerDestinationSummary = {
+  threadKey: string;
+  label: string;
+  count: number;
+};
+
+function MoveSummaryLine({
+  summary,
   onSelectThread,
 }: {
-  messages: ChatMessage[];
+  summary: { count: number; destinations: ThreadMarkerDestinationSummary[] };
   onSelectThread?: (threadKey: string) => void;
 }) {
-  const summary = summarizeCrossThreadActivityMarkers(messages);
-  if (!summary) return null;
-  const countLabel = `${summary.count} ${summary.count === 1 ? "activity" : "activities"}`;
-  const firstMessage = messages[0];
-  const firstDestination = summary.destinations[0];
+  const grouped = summary.destinations.length > 1;
+  const countLabel = `${summary.count} ${summary.count === 1 ? "message" : "messages"} moved to `;
   return (
-    <div
-      className="animate-[fadeSlideIn_0.2s_ease-out] pl-9"
-      data-testid="cross-thread-activity-marker"
-      data-thread-key={firstDestination?.threadKey}
-      data-message-id={firstMessage?.id}
-      data-feed-block-id={getMessageFeedBlockId(firstMessage?.id ?? "cross-thread-activity-marker")}
+    <>
+      {!grouped && <span>{countLabel}</span>}
+      {summary.destinations.map((destination, index) => (
+        <span key={destination.threadKey}>
+          {index > 0 && <span className="text-cc-muted">, </span>}
+          {grouped && (
+            <span>
+              {destination.count}{" "}
+              {index === 0 ? `${destination.count === 1 ? "message" : "messages"} moved to ` : "to "}
+            </span>
+          )}
+          <ThreadMarkerDestinationButton destination={destination} onSelectThread={onSelectThread} />
+        </span>
+      ))}
+    </>
+  );
+}
+
+function ActivitySummaryLine({
+  summary,
+  onSelectThread,
+}: {
+  summary: { count: number; destinations: ThreadMarkerDestinationSummary[] };
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const countLabel = `${summary.count} ${summary.count === 1 ? "activity" : "activities"} in `;
+  return (
+    <>
+      <span>{countLabel}</span>
+      {summary.destinations.map((destination, index) => (
+        <span key={destination.threadKey}>
+          {index > 0 && <span className="text-cc-muted">, </span>}
+          <ThreadMarkerDestinationButton destination={destination} onSelectThread={onSelectThread} />
+        </span>
+      ))}
+    </>
+  );
+}
+
+function ThreadMarkerDestinationButton({
+  destination,
+  onSelectThread,
+}: {
+  destination: ThreadMarkerDestinationSummary;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelectThread?.(destination.threadKey)}
+      className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:text-cc-muted/60"
+      disabled={!onSelectThread}
+      title={`Open ${destination.label}`}
     >
-      <div className="max-w-full text-[11px] text-cc-muted font-mono-code">
-        <span>{countLabel} in </span>
-        {summary.destinations.map((destination, index) => (
-          <span key={destination.threadKey}>
-            {index > 0 && <span className="text-cc-muted">, </span>}
-            <button
-              type="button"
-              onClick={() => onSelectThread?.(destination.threadKey)}
-              className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:text-cc-muted/60"
-              disabled={!onSelectThread}
-              title={`Open ${destination.label}`}
-            >
-              {destination.label}
-            </button>
-          </span>
-        ))}
-      </div>
-    </div>
+      {destination.label}
+    </button>
   );
 }
 
 function summarizeCrossThreadActivityMarkers(messages: ChatMessage[]): {
   count: number;
-  destinations: { threadKey: string; label: string }[];
+  destinations: ThreadMarkerDestinationSummary[];
 } | null {
-  const destinations = new Map<string, { threadKey: string; label: string }>();
+  const destinations = new Map<string, ThreadMarkerDestinationSummary>();
   let count = 0;
   for (const message of messages) {
     const marker = message.metadata?.crossThreadActivityMarker;
     if (!marker) continue;
     count += marker.count;
-    if (!destinations.has(marker.threadKey)) {
-      const destination = marker.questId ?? marker.threadKey;
+    const destination = marker.questId ?? marker.threadKey;
+    const existing = destinations.get(marker.threadKey);
+    if (existing) {
+      existing.count += marker.count;
+    } else {
       destinations.set(marker.threadKey, {
         threadKey: marker.threadKey,
         label: `thread:${destination}`,
+        count: marker.count,
       });
     }
   }
@@ -415,21 +480,55 @@ function summarizeCrossThreadActivityMarkers(messages: ChatMessage[]): {
   return { count, destinations: [...destinations.values()] };
 }
 
-function mergeThreadAttachmentMarkers(messages: ChatMessage[]): ThreadAttachmentMarker | null {
-  const markers = messages
-    .map((message) => message.metadata?.threadAttachmentMarker)
-    .filter((marker): marker is ThreadAttachmentMarker => Boolean(marker));
-  const first = markers[0];
-  if (!first) return null;
-  return {
-    ...first,
-    count: markers.reduce((sum, marker) => sum + marker.count, 0),
-    messageIds: [...new Set(markers.flatMap((marker) => marker.messageIds))],
-    messageIndices: [...new Set(markers.flatMap((marker) => marker.messageIndices))].sort((a, b) => a - b),
-    ranges: markers.flatMap((marker) => marker.ranges),
-    firstMessageId: first.firstMessageId,
-    firstMessageIndex: first.firstMessageIndex,
-  };
+function summarizeThreadAttachmentMarkers(messages: ChatMessage[]): {
+  count: number;
+  destinations: ThreadMarkerDestinationSummary[];
+} | null {
+  const destinations = new Map<string, ThreadMarkerDestinationSummary>();
+  let count = 0;
+  for (const message of messages) {
+    const marker = message.metadata?.threadAttachmentMarker;
+    if (!marker) continue;
+    count += marker.count;
+    const destination = marker.questId ?? marker.threadKey;
+    const existing = destinations.get(marker.threadKey);
+    if (existing) {
+      existing.count += marker.count;
+    } else {
+      destinations.set(marker.threadKey, {
+        threadKey: marker.threadKey,
+        label: `thread:${destination}`,
+        count: marker.count,
+      });
+    }
+  }
+  if (count === 0 || destinations.size === 0) return null;
+  return { count, destinations: [...destinations.values()] };
+}
+
+function buildThreadMarkerClusterDetails(messages: ChatMessage[]): string[] {
+  const details: string[] = [];
+  for (const message of messages) {
+    const attachment = message.metadata?.threadAttachmentMarker;
+    if (attachment) {
+      details.push(formatThreadAttachmentDetail(attachment));
+      continue;
+    }
+    const activity = message.metadata?.crossThreadActivityMarker;
+    if (activity) {
+      const destination = activity.questId ?? activity.threadKey;
+      const countLabel = `${activity.count} ${activity.count === 1 ? "activity" : "activities"}`;
+      details.push(`${countLabel} in thread:${destination}`);
+    }
+  }
+  return details;
+}
+
+function formatThreadAttachmentDetail(marker: ThreadAttachmentMarker): string {
+  const destination = marker.questId ?? marker.threadKey;
+  const countLabel = `${marker.count} ${marker.count === 1 ? "message" : "messages"}`;
+  const details = formatThreadAttachmentMarkerDetails(marker);
+  return `${countLabel} moved to thread:${destination}${details ? ` · ${details}` : ""}`;
 }
 
 function ToolMessageGroup({
@@ -586,34 +685,16 @@ export const FeedEntries = memo(function FeedEntries({
           continue;
         }
       }
-      if (entry.kind === "message" && isThreadAttachmentMarkerMessage(entry.msg)) {
-        const batch: ChatMessage[] = [entry.msg];
-        let j = i + 1;
-        const marker = entry.msg.metadata?.threadAttachmentMarker;
-        while (j < entries.length) {
-          const next = entries[j];
-          if (next.kind !== "message" || !isThreadAttachmentMarkerMessage(next.msg)) break;
-          const nextMarker = next.msg.metadata?.threadAttachmentMarker;
-          if (!marker || !nextMarker || nextMarker.threadKey !== marker.threadKey) break;
-          batch.push(next.msg);
-          j++;
-        }
-        result.push(<ThreadAttachmentMarkerRow key={entry.msg.id} messages={batch} onSelectThread={onSelectThread} />);
-        i = j;
-        continue;
-      }
-      if (entry.kind === "message" && isCrossThreadActivityMarkerMessage(entry.msg)) {
+      if (entry.kind === "message" && isThreadSystemMarkerMessage(entry.msg)) {
         const batch: ChatMessage[] = [entry.msg];
         let j = i + 1;
         while (j < entries.length) {
           const next = entries[j];
-          if (next.kind !== "message" || !isCrossThreadActivityMarkerMessage(next.msg)) break;
+          if (next.kind !== "message" || !isThreadSystemMarkerMessage(next.msg)) break;
           batch.push(next.msg);
           j++;
         }
-        result.push(
-          <CrossThreadActivityMarkerRow key={entry.msg.id} messages={batch} onSelectThread={onSelectThread} />,
-        );
+        result.push(<ThreadMarkerClusterRow key={entry.msg.id} messages={batch} onSelectThread={onSelectThread} />);
         i = j;
         continue;
       }
