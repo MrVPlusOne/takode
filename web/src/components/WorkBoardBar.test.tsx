@@ -289,7 +289,7 @@ describe("WorkBoardBar", () => {
         ["s1", [{ questId: "q-3", status: "DONE", title: "Finished work", updatedAt: 3, completedAt: 3 }]],
       ]),
     });
-    const { getAllByTestId, queryByText } = render(
+    const { getAllByTestId, getByTestId, queryByText } = render(
       <WorkBoardBar
         sessionId="s1"
         attentionRecords={[
@@ -322,13 +322,15 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const chips = getAllByTestId("thread-chip");
-    expect(chips.map((chip) => chip.getAttribute("data-thread-key"))).toEqual(["q-5", "q-1", "q-2"]);
-    expect(chips.find((chip) => chip.getAttribute("data-thread-key") === "q-1")).toHaveAttribute(
+    const tabs = getAllByTestId("thread-tab");
+    expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-unified-tab-track", "true");
+    expect(queryByText("Active")).not.toBeInTheDocument();
+    expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-5", "q-1", "q-2"]);
+    expect(tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-1")).toHaveAttribute(
       "data-needs-input",
       "true",
     );
-    expect(chips.find((chip) => chip.getAttribute("data-thread-key") === "q-2")).toHaveAttribute(
+    expect(tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-2")).toHaveAttribute(
       "data-needs-input",
       "false",
     );
@@ -336,13 +338,13 @@ describe("WorkBoardBar", () => {
     expect(queryByText("Finished work")).not.toBeInTheDocument();
   });
 
-  it("renders open thread tabs separately from closed active chips", () => {
+  it("renders open and board-active threads on one continuous tab track", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
 
-    const { getAllByTestId } = render(
+    const { getAllByTestId, queryByText } = render(
       <WorkBoardBar
         sessionId="s1"
         openThreadKeys={["q-1"]}
@@ -351,13 +353,15 @@ describe("WorkBoardBar", () => {
     );
 
     const tabs = getAllByTestId("thread-tab");
-    expect(tabs).toHaveLength(1);
-    expect(tabs[0]).toHaveAttribute("data-thread-key", "q-1");
+    expect(tabs).toHaveLength(2);
+    expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2"]);
     expect(tabs[0]).toHaveAttribute("data-needs-input", "true");
-    expect(getAllByTestId("thread-chip").map((chip) => chip.getAttribute("data-thread-key"))).toEqual(["q-2"]);
+    expect(tabs[0]).toHaveAttribute("data-closable", "false");
+    expect(tabs[1]).toHaveAttribute("data-closable", "false");
+    expect(queryByText("Active")).not.toBeInTheDocument();
   });
 
-  it("colors closed thread-chip titles by board phase without rendering a separate phase label", () => {
+  it("colors unified board-active tab titles without rendering a separate phase label", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
@@ -365,27 +369,29 @@ describe("WorkBoardBar", () => {
 
     const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" />);
 
-    const implementingChip = getAllByTestId("thread-chip").find(
-      (chip) => chip.getAttribute("data-thread-key") === "q-1",
-    )!;
-    const implementingTitle = within(implementingChip).getByTestId("thread-tab-title");
+    const implementingTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const implementingTitle = within(implementingTab).getByTestId("thread-tab-title");
     expect(implementingTitle).toHaveStyle({
       color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
     });
     expect(implementingTitle).toHaveTextContent("q-1");
     expect(implementingTitle).toHaveTextContent("Fix bug");
-    expect(within(implementingChip).queryByText("Implement")).not.toBeInTheDocument();
+    expect(within(implementingTab).queryByText("Implement")).not.toBeInTheDocument();
 
-    const queuedChip = getAllByTestId("thread-chip").find((chip) => chip.getAttribute("data-thread-key") === "q-2")!;
-    expect(within(queuedChip).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "");
-    expect(within(queuedChip).queryByText("Queued")).not.toBeInTheDocument();
+    const queuedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    expect(within(queuedTab).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
+    expect(within(queuedTab).getByTestId("thread-tab-title")).not.toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-muted)",
+    );
+    expect(within(queuedTab).queryByText("Queued")).not.toBeInTheDocument();
   });
 
   it("shrinks open tabs like browser tabs before falling back to horizontal scrolling", () => {
     const onCloseThreadTab = vi.fn();
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionBoards: new Map([["s1", []]]),
     });
 
     const { getByTestId, getAllByTestId } = render(
@@ -394,6 +400,10 @@ describe("WorkBoardBar", () => {
         currentThreadKey="q-1"
         openThreadKeys={["q-1", "q-2"]}
         onCloseThreadTab={onCloseThreadTab}
+        threadRows={[
+          { threadKey: "q-1", questId: "q-1", title: "Open discussion", messageCount: 2 },
+          { threadKey: "q-2", questId: "q-2", title: "Older discussion", messageCount: 1 },
+        ]}
       />,
     );
 
@@ -468,7 +478,9 @@ describe("WorkBoardBar", () => {
     });
 
     const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1"]} />);
-    expect(view.getByTestId("thread-tab")).toHaveAttribute("data-new-tab", "false");
+    expect(
+      view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1"),
+    ).toHaveAttribute("data-new-tab", "false");
 
     view.rerender(<WorkBoardBar sessionId="s1" openThreadKeys={["q-2", "q-1"]} />);
 
@@ -499,7 +511,8 @@ describe("WorkBoardBar", () => {
 
     const queuedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
     const queuedTitle = within(queuedTab).getByTestId("thread-tab-title");
-    expect(queuedTitle).toHaveAttribute("data-title-color", "");
+    expect(queuedTitle).toHaveAttribute("data-title-color", "var(--color-cc-fg)");
+    expect(queuedTitle).not.toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(within(queuedTab).queryByText("Queued")).not.toBeInTheDocument();
   });
 
@@ -582,7 +595,7 @@ describe("WorkBoardBar", () => {
       activeTurnRoutes: new Map([["s1", { threadKey: "q-1", questId: "q-1" }]]),
     });
 
-    const { getByTestId, getAllByTestId } = render(
+    const { getAllByTestId } = render(
       <WorkBoardBar
         sessionId="s1"
         currentThreadKey="q-1"
@@ -591,7 +604,7 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    const needsInputTab = getByTestId("thread-tab");
+    const needsInputTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(within(needsInputTab).queryByTestId("thread-tab-status-dot")).not.toBeInTheDocument();
     expect(within(needsInputTab).getByTestId("thread-tab-needs-input-bell")).toHaveAttribute(
       "data-active-output",
@@ -649,7 +662,7 @@ describe("WorkBoardBar", () => {
       sessionCompletedBoards: new Map([["s1", completed]]),
     });
 
-    const { queryByText, rerender, getAllByTestId } = render(
+    const { queryByText, queryByTestId, rerender, getAllByTestId } = render(
       <WorkBoardBar
         sessionId="s1"
         threadRows={[{ threadKey: "q-3", questId: "q-3", title: "Finished work", messageCount: 2, section: "done" }]}
@@ -669,24 +682,31 @@ describe("WorkBoardBar", () => {
     expect(getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-3")).toHaveTextContent(
       "Finished work",
     );
-    expect(getAllByTestId("thread-chip").map((chip) => chip.getAttribute("data-thread-key"))).not.toContain("q-3");
+    expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
   });
 
-  it("keeps Main pinned and closes only user-opened thread tabs", () => {
+  it("keeps Main pinned and only exposes close controls for closable thread tabs", () => {
     const onCloseThreadTab = vi.fn();
+    const completed = [{ questId: "q-3", status: "DONE", title: "Finished work", updatedAt: 3, completedAt: 3 }];
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionCompletedBoards: new Map([["s1", completed]]),
     });
 
-    const { getByTestId, getByLabelText, queryByLabelText } = render(
-      <WorkBoardBar sessionId="s1" openThreadKeys={["q-1"]} onCloseThreadTab={onCloseThreadTab} />,
+    const { getAllByTestId, getByTestId, getByLabelText, queryByLabelText } = render(
+      <WorkBoardBar sessionId="s1" openThreadKeys={["q-1", "q-3"]} onCloseThreadTab={onCloseThreadTab} />,
     );
 
     expect(getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
     expect(queryByLabelText("Close Main")).not.toBeInTheDocument();
-    fireEvent.click(getByLabelText("Close q-1"));
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-1");
+    const activeTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const completedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
+    expect(activeTab).toHaveAttribute("data-closable", "false");
+    expect(completedTab).toHaveAttribute("data-closable", "true");
+    expect(within(activeTab).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
+    fireEvent.click(getByLabelText("Close q-3"));
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-3");
   });
 
   it("uses sibling select and close buttons for open tabs", () => {
@@ -697,27 +717,28 @@ describe("WorkBoardBar", () => {
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
 
-    const { getByTestId, getByLabelText } = render(
+    const { getAllByTestId, getByLabelText } = render(
       <WorkBoardBar
         sessionId="s1"
-        openThreadKeys={["q-1"]}
+        openThreadKeys={["q-99"]}
         onSelectThread={onSelectThread}
         onCloseThreadTab={onCloseThreadTab}
+        threadRows={[{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }]}
       />,
     );
 
-    const tab = getByTestId("thread-tab");
+    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-99")!;
     expect(tab.tagName).toBe("DIV");
     expect(tab.querySelector("button button")).toBeNull();
 
     fireEvent.click(within(tab).getByTestId("thread-tab-select"));
-    expect(onSelectThread).toHaveBeenCalledWith("q-1");
+    expect(onSelectThread).toHaveBeenCalledWith("q-99");
 
-    fireEvent.click(getByLabelText("Close q-1"));
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-1");
+    fireEvent.click(getByLabelText("Close q-99"));
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-99");
   });
 
-  it("routes thread chip clicks to the owning thread", () => {
+  it("routes unified active tab clicks to the owning thread", () => {
     const onSelectThread = vi.fn();
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
@@ -732,7 +753,11 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    fireEvent.click(getAllByTestId("thread-chip").find((chip) => chip.getAttribute("data-thread-key") === "q-2")!);
+    fireEvent.click(
+      within(getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!).getByTestId(
+        "thread-tab-select",
+      ),
+    );
     expect(onSelectThread).toHaveBeenCalledWith("q-2");
   });
 

@@ -460,6 +460,10 @@ function openThreadTabsKey(sessionId: string): string {
   return `cc-leader-open-thread-tabs:${sessionId}`;
 }
 
+function boardThreadKeySet(board: BoardRowData[]): Set<string> {
+  return new Set(board.map((row) => normalizeThreadKey(row.questId)));
+}
+
 function shouldPersistOpenThreadTab(threadKey: string): boolean {
   const normalized = normalizeThreadKey(threadKey);
   return normalized !== "" && normalized !== MAIN_THREAD_KEY && normalized !== ALL_THREADS_KEY;
@@ -650,9 +654,11 @@ export function ChatView({
     const normalized = normalizeThreadKey(threadKey);
     if (!shouldPersistOpenThreadTab(normalized)) return;
     setOpenThreadTabKeys((existing) =>
-      existing.includes(normalized) ? existing : placeOpenThreadTabKey(existing, normalized, "last"),
+      existing.includes(normalized) ? existing : placeOpenThreadTabKey(existing, normalized, "first"),
     );
   }, []);
+  const previousActiveBoardThreadKeysRef = useRef<Set<string> | null>(null);
+  const recentlyInactiveBoardThreadKeysRef = useRef<Set<string>>(new Set());
   const lastManualThreadSelectionAtRef = useRef(0);
   const initializedAttachmentMarkerKeysRef = useRef(false);
   const baselineAttachmentMarkersAfterHistoryLoadRef = useRef(false);
@@ -687,6 +693,8 @@ export function ChatView({
     baselineAttachmentMarkersAfterHistoryLoadRef.current = false;
     observedAttachmentMarkerKeysRef.current = new Set();
     lastManualThreadSelectionAtRef.current = 0;
+    previousActiveBoardThreadKeysRef.current = null;
+    recentlyInactiveBoardThreadKeysRef.current = new Set();
   }, [sessionId]);
 
   useEffect(() => {
@@ -700,7 +708,36 @@ export function ChatView({
 
   useEffect(() => {
     scopedSetItem(openThreadTabsKey(sessionId), JSON.stringify(openThreadTabKeys));
-  }, [openThreadTabKeys]);
+  }, [openThreadTabKeys, sessionId]);
+
+  useEffect(() => {
+    if (!isLeaderSession || preview) return;
+    const currentActiveKeys = boardThreadKeySet(activeBoard);
+    const previousActiveKeys = previousActiveBoardThreadKeysRef.current;
+    previousActiveBoardThreadKeysRef.current = currentActiveKeys;
+    if (!previousActiveKeys) return;
+
+    const recentlyInactiveKeys = recentlyInactiveBoardThreadKeysRef.current;
+    for (const key of previousActiveKeys) {
+      if (!currentActiveKeys.has(key)) recentlyInactiveKeys.add(key);
+    }
+    for (const key of currentActiveKeys) {
+      recentlyInactiveKeys.delete(key);
+    }
+
+    const completedKeys = boardThreadKeySet(completedBoard);
+    const selectedThread = normalizeThreadKey(selectedThreadKey || MAIN_THREAD_KEY);
+    const completedInactiveKeys = [...recentlyInactiveKeys].filter((key) => completedKeys.has(key));
+    for (const key of completedInactiveKeys) {
+      recentlyInactiveKeys.delete(key);
+    }
+
+    const newlyCompletedKeys = completedInactiveKeys.filter((key) => key !== selectedThread);
+    if (newlyCompletedKeys.length === 0) return;
+
+    const newlyCompleted = new Set(newlyCompletedKeys);
+    setOpenThreadTabKeys((existing) => existing.filter((key) => !newlyCompleted.has(key)));
+  }, [activeBoard, completedBoard, isLeaderSession, preview, selectedThreadKey]);
 
   useEffect(() => {
     if (!routeSyncEnabled || preview) return;

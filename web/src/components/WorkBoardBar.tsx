@@ -39,6 +39,7 @@ export interface BoardSummarySegment {
 }
 
 const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
+const QUEUED_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
 
 /**
  * Build a compact status summary for the collapsed board bar.
@@ -142,6 +143,7 @@ interface PrimaryThreadChip {
   messageCount?: number;
   needsInput: boolean;
   titleColor?: string;
+  canClose: boolean;
   route?: AttentionRecord["route"];
   updatedAt: number;
 }
@@ -204,6 +206,7 @@ function boardRowDetail(row: BoardRowData): string | undefined {
 }
 
 function boardRowTitleColor(row: BoardRowData): string | undefined {
+  if ((row.status ?? "").trim().toUpperCase() === "QUEUED") return QUEUED_THREAD_TITLE_COLOR;
   const currentPhase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
   const phase = currentPhase ?? getQuestJourneyPhaseForState(row.status);
   return phase?.color.accent;
@@ -249,6 +252,7 @@ function mergePrimaryThreadChip(chips: Map<string, PrimaryThreadChip>, chip: Pri
     messageCount: Math.max(existing.messageCount ?? 0, chip.messageCount ?? 0),
     needsInput: existing.needsInput || chip.needsInput,
     titleColor: existing.titleColor ?? chip.titleColor,
+    canClose: existing.canClose && chip.canClose,
     route: existing.route ?? chip.route,
     updatedAt: Math.max(existing.updatedAt, chip.updatedAt),
   });
@@ -286,6 +290,7 @@ function buildPrimaryThreadChips({
       detail: boardRowDetail(row),
       needsInput: (row.waitForInput?.length ?? 0) > 0 || attention.some(isNeedsInputAttention),
       titleColor: boardRowTitleColor(row),
+      canClose: false,
       route: attention[0]?.route,
       updatedAt: Math.max(row.updatedAt, ...attention.map((record) => record.updatedAt), 0),
     });
@@ -303,6 +308,7 @@ function buildPrimaryThreadChips({
       detail: threadRowDetail(row),
       messageCount: row.messageCount,
       needsInput: attention.some(isNeedsInputAttention),
+      canClose: false,
       route: attention[0]?.route,
       updatedAt: Math.max(...attention.map((record) => record.updatedAt), 0),
     });
@@ -318,6 +324,7 @@ function buildPrimaryThreadChips({
       title: record.title,
       detail: record.actionLabel,
       needsInput: records.some(isNeedsInputAttention),
+      canClose: false,
       route: record.route,
       updatedAt: Math.max(...records.map((candidate) => candidate.updatedAt), 0),
     });
@@ -367,6 +374,7 @@ function buildOpenThreadTabs({
       messageCount: active?.messageCount ?? row?.messageCount,
       needsInput: active?.needsInput ?? (boardRow?.waitForInput?.length ?? 0) > 0,
       titleColor: completedTitleColor ?? active?.titleColor ?? (boardRow ? boardRowTitleColor(boardRow) : undefined),
+      canClose: !activeBoardRow,
       route: active?.route,
       updatedAt: active?.updatedAt ?? boardRow?.updatedAt ?? 0,
     });
@@ -378,7 +386,6 @@ function buildOpenThreadTabs({
 function ThreadTabRail({
   mainState,
   tabs,
-  closedChips,
   sessionId,
   currentThreadKey,
   onSelectThread,
@@ -387,7 +394,6 @@ function ThreadTabRail({
 }: {
   mainState?: PrimaryThreadChip;
   tabs: PrimaryThreadChip[];
-  closedChips: PrimaryThreadChip[];
   sessionId: string;
   currentThreadKey: string;
   onSelectThread?: (threadKey: string) => void;
@@ -491,7 +497,8 @@ function ThreadTabRail({
       className="border-b border-cc-border bg-cc-card px-3 pb-0 pt-1.5 sm:px-4"
       data-testid="thread-tab-rail"
       data-open-tab-count={tabs.length + 1}
-      data-closed-chip-count={closedChips.length}
+      data-closed-chip-count="0"
+      data-unified-tab-track="true"
       data-overflow="horizontal-scroll-after-min"
     >
       <div className="flex min-w-0 items-end gap-1.5 overflow-x-auto">
@@ -532,6 +539,7 @@ function ThreadTabRail({
               data-needs-input={tab.needsInput ? "true" : "false"}
               data-new-tab={newTab ? "true" : "false"}
               data-min-label={tab.questId ?? tab.threadKey}
+              data-closable={tab.canClose ? "true" : "false"}
             >
               <button
                 type="button"
@@ -546,7 +554,7 @@ function ThreadTabRail({
                   <span className="min-w-0 truncate">{tab.title}</span>
                 </ActiveTitle>
               </button>
-              {onCloseThreadTab && (
+              {onCloseThreadTab && tab.canClose && (
                 <button
                   type="button"
                   aria-label={`Close ${tab.questId ?? tab.title}`}
@@ -569,42 +577,6 @@ function ThreadTabRail({
             </div>
           );
         })}
-        {closedChips.length > 0 && (
-          <>
-            <span className="shrink-0 pl-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-cc-muted/70">
-              Active
-            </span>
-            {closedChips.map((chip) => {
-              const selected = isSelectedThread(currentThreadKey, chip.threadKey);
-              const activeOutput = isActiveOutputThread(runningActiveTurnRoute, chip.threadKey);
-              const tone = chip.needsInput
-                ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
-                : selected
-                  ? "border-cc-primary/45 bg-cc-primary/12 text-cc-fg"
-                  : "border-cc-border/70 bg-cc-hover/35 text-cc-muted hover:bg-cc-hover/65 hover:text-cc-fg";
-              return (
-                <button
-                  key={chip.threadKey}
-                  type="button"
-                  onClick={() => openThread(chip.threadKey, chip.route)}
-                  title={`${chip.questId ? `${chip.questId}: ${chip.title}` : chip.title}${chip.needsInput ? " needs input" : ""}`}
-                  className={`inline-flex min-w-[6.25rem] max-w-[18rem] flex-[0_1_11rem] items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset ${tone}`}
-                  data-testid="thread-chip"
-                  data-thread-key={chip.threadKey}
-                  data-needs-input={chip.needsInput ? "true" : "false"}
-                  data-min-label={chip.questId ?? chip.threadKey}
-                  aria-pressed={selected}
-                >
-                  {chip.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
-                  <ActiveTitle activeOutput={activeOutput} titleColor={chip.titleColor}>
-                    {chip.questId && <span className="shrink-0 font-mono-code">{chip.questId}</span>}
-                    <span className="min-w-0 truncate">{chip.title}</span>
-                  </ActiveTitle>
-                </button>
-              );
-            })}
-          </>
-        )}
       </div>
     </div>
   );
@@ -729,6 +701,10 @@ export function WorkBoardBar({
       ),
     [activeThreadChips, openThreadTabKeys],
   );
+  const unifiedThreadTabs = useMemo(
+    () => [...openThreadTabs, ...closedActiveThreadChips],
+    [closedActiveThreadChips, openThreadTabs],
+  );
   const boardThreadKeys = useMemo(() => {
     const keys = new Set<string>();
     for (const row of activeBoardRows) keys.add(normalizeThreadKey(row.questId));
@@ -827,8 +803,7 @@ export function WorkBoardBar({
 
       <ThreadTabRail
         mainState={mainThreadState}
-        tabs={openThreadTabs}
-        closedChips={closedActiveThreadChips}
+        tabs={unifiedThreadTabs}
         sessionId={sessionId}
         currentThreadKey={currentThreadKey}
         onSelectThread={onSelectThread}

@@ -580,6 +580,217 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
   });
 
+  it("opens newly selected leader tabs at the left while preserving restored baseline order", () => {
+    localStorage.setItem("test-server:cc-leader-open-thread-tabs:s1", '["q-941","q-777"]');
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m-q941",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+            {
+              id: "m-q777",
+              role: "assistant",
+              content: "q-777 update",
+              timestamp: 3,
+              metadata: { threadRefs: [{ threadKey: "q-777", questId: "q-777", source: "explicit" }] },
+            },
+            {
+              id: "m-q1005",
+              role: "assistant",
+              content: "q-1005 update",
+              timestamp: 4,
+              metadata: { threadRefs: [{ threadKey: "q-1005", questId: "q-1005", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-941", title: "Existing thread", status: "in_progress" },
+        { questId: "q-777", title: "Older restored tab", status: "in_progress" },
+        { questId: "q-1005", title: "Newest manual tab", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941,q-777");
+    fireEvent.click(scope.getByRole("button", { name: /q-1005 newest manual tab/i }));
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1005,q-941,q-777");
+    expect(localStorage.getItem("test-server:cc-leader-open-thread-tabs:s1")).toBe('["q-1005","q-941","q-777"]');
+  });
+
+  it("auto-closes an open quest tab after completion unless that thread is selected", async () => {
+    localStorage.setItem("test-server:cc-leader-open-thread-tabs:s1", '["q-941","q-777"]');
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      sessionBoards: new Map([
+        [
+          "s1",
+          [
+            { questId: "q-941", status: "IMPLEMENTING", title: "Active tab", updatedAt: 2 },
+            { questId: "q-777", status: "IMPLEMENTING", title: "Still active", updatedAt: 1 },
+          ],
+        ],
+      ]),
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m-q941",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+            {
+              id: "m-q777",
+              role: "assistant",
+              content: "q-777 update",
+              timestamp: 3,
+              metadata: { threadRefs: [{ threadKey: "q-777", questId: "q-777", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-941", title: "Active tab", status: "in_progress" },
+        { questId: "q-777", title: "Still active", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941,q-777");
+
+    mockState.sessionBoards = new Map([
+      ["s1", [{ questId: "q-777", status: "IMPLEMENTING", title: "Still active", updatedAt: 4 }]],
+    ]);
+    mockState.sessionCompletedBoards = new Map([
+      ["s1", [{ questId: "q-941", status: "DONE", title: "Active tab", updatedAt: 5, completedAt: 5 }]],
+    ]);
+    view.rerender(<ChatView sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-777");
+    });
+    expect(localStorage.getItem("test-server:cc-leader-open-thread-tabs:s1")).toBe('["q-777"]');
+  });
+
+  it("auto-closes when active removal and completed history arrive in separate updates", async () => {
+    localStorage.setItem("test-server:cc-leader-open-thread-tabs:s1", '["q-941","q-777"]');
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      sessionBoards: new Map([
+        [
+          "s1",
+          [
+            { questId: "q-941", status: "IMPLEMENTING", title: "Completing tab", updatedAt: 2 },
+            { questId: "q-777", status: "IMPLEMENTING", title: "Still active", updatedAt: 1 },
+          ],
+        ],
+      ]),
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m-q941",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+            {
+              id: "m-q777",
+              role: "assistant",
+              content: "q-777 update",
+              timestamp: 3,
+              metadata: { threadRefs: [{ threadKey: "q-777", questId: "q-777", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-941", title: "Completing tab", status: "in_progress" },
+        { questId: "q-777", title: "Still active", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941,q-777");
+
+    mockState.sessionBoards = new Map([
+      ["s1", [{ questId: "q-777", status: "IMPLEMENTING", title: "Still active", updatedAt: 4 }]],
+    ]);
+    view.rerender(<ChatView sessionId="s1" />);
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941,q-777");
+
+    mockState.sessionCompletedBoards = new Map([
+      ["s1", [{ questId: "q-941", status: "DONE", title: "Completing tab", updatedAt: 5, completedAt: 5 }]],
+    ]);
+    view.rerender(<ChatView sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-777");
+    });
+  });
+
+  it("keeps an open completed quest tab when the user is currently viewing it", async () => {
+    localStorage.setItem("test-server:cc-leader-open-thread-tabs:s1", '["q-941"]');
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-941", status: "IMPLEMENTING", title: "Selected active tab", updatedAt: 2 }]],
+      ]),
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m-q941",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      quests: [{ questId: "q-941", title: "Selected active tab", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    fireEvent.click(scope.getByRole("button", { name: /q-941 selected active tab/i }));
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
+
+    mockState.sessionBoards = new Map([["s1", []]]);
+    mockState.sessionCompletedBoards = new Map([
+      ["s1", [{ questId: "q-941", status: "DONE", title: "Selected active tab", updatedAt: 5, completedAt: 5 }]],
+    ]);
+    view.rerender(<ChatView sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
+    });
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
+  });
+
   it("opens a newly observed moved-message quest tab immediately after Main and auto-selects when the newest user message moved", async () => {
     localStorage.setItem("test-server:cc-leader-open-thread-tabs:s1", '["q-941"]');
     resetStore({

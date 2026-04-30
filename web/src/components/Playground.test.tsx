@@ -95,9 +95,18 @@ describe("Playground", () => {
     expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(
       expect.arrayContaining(["q-42", "q-55", "q-61", "q-77", "q-88"]),
     );
+    expect(within(rail).queryByText("Active")).not.toBeInTheDocument();
     expect(tabs[0]).toHaveClass("min-w-[6.25rem]", "max-w-[18rem]", "flex-[1_1_11rem]");
-    expect(within(tabs[0]).getByTestId("thread-tab-close")).toHaveAttribute("data-compact-close", "true");
+    expect(tabs[0]).toHaveAttribute("data-closable", "false");
+    expect(within(tabs[0]).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
+    const queuedTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-55");
+    expect(within(queuedTab!).getByTestId("thread-tab-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-fg)",
+    );
     const completedTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-88");
+    expect(completedTab).toHaveAttribute("data-closable", "true");
+    expect(within(completedTab!).getByTestId("thread-tab-close")).toHaveAttribute("data-compact-close", "true");
     expect(within(completedTab!).getByTestId("thread-tab-title")).toHaveAttribute(
       "data-title-color",
       "var(--color-cc-muted)",
