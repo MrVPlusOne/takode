@@ -152,6 +152,9 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Every active phase needs durable quest documentation");
     expect(result).toContain("Phase documentation should be useful, not ritual");
+    expect(result).toContain("Worker-stream checkpoints are optional early visibility");
+    expect(result).toContain("takode worker-stream");
+    expect(result).toContain("do not let it replace phase documentation");
     expect(result).toContain("If the actor's context was compacted during the phase");
     expect(result).toContain("Provide only deltas the actor is unlikely to infer");
     expect(result).toContain("Bookkeeping is for extra durable state");

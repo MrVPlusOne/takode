@@ -50,6 +50,8 @@ Use `--kind phase-finding` for exploration findings, `--kind review` for review 
 
 Apply a value filter to phase documentation: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases. If the actor's context was compacted during the phase, or if memory confidence is low, they should reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, they should use working memory and current artifacts instead of unnecessary session archaeology.
 
+For valuable nontrivial phase outcomes, the assignee may run `takode worker-stream` once the substantive result is ready so the leader can start reading while required paperwork finishes. Treat worker-stream output as an early internal checkpoint only: it is optional, not mandatory ceremony, and it does not replace phase documentation, final debrief metadata, or leader-owned phase transitions.
+
 Phase documentation should stay specific to the phase:
 - Alignment: concrete understanding, ambiguities, clarification questions, blockers, surprises, and Journey-revision evidence.
 - Explore: findings, evidence sources, ambiguities or blockers, implementation considerations, and Journey-revision evidence.

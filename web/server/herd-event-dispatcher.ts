@@ -223,6 +223,7 @@ export function isSessionIdleRuntime(
  *  onWorkerEvent filters out injected agent/system messages before delivery. */
 const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "turn_end",
+  "worker_stream",
   "user_message",
   "permission_request",
   "permission_resolved",
@@ -850,7 +851,7 @@ export class HerdEventDispatcher {
   private resolveEventThreadRoute(event: TakodeEvent): ThreadRouteMetadata {
     const eventRoute =
       threadRouteFromEvent(event) ??
-      inferTurnEndRouteFromHistory(event, this.wsBridge.getSession(event.sessionId)?.messageHistory);
+      inferActivityEventRouteFromHistory(event, this.wsBridge.getSession(event.sessionId)?.messageHistory);
     if (eventRoute && eventRoute.threadKey !== "main") return eventRoute;
 
     const questId =
@@ -1112,7 +1113,13 @@ export function formatHerdEventBatch(events: TakodeEvent[], options?: FormatBatc
 
 export function renderHerdEventBatch(events: TakodeEvent[], options?: FormatBatchOptions): RenderedHerdEventBatch {
   const nowTs = options?.nowTs ?? Date.now();
-  const renderedLines = events.map((event) => formatSingleEvent(event, nowTs, options));
+  const renderWatermarks = options?.lastEmittedMsgTo ? new Map(options.lastEmittedMsgTo) : undefined;
+  const renderedLines = events.map((event) => {
+    const renderOptions = renderWatermarks ? { ...options, lastEmittedMsgTo: renderWatermarks } : options;
+    const rendered = formatSingleEvent(event, nowTs, renderOptions);
+    if (renderWatermarks) updateLastEmittedMsgTo(renderWatermarks, [event]);
+    return rendered;
+  });
   return {
     content: formatRenderedHerdEventBatch(events, renderedLines),
     renderedLines,
@@ -1157,6 +1164,25 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const statusLine = `${label} | turn_end | ${success} ${duration}${compacted}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
 
       // Auto-inject peek-style activity summary between events
+      const activity = buildActivityForEvent(evt, options);
+      if (activity) {
+        return `${statusLine}\n${activity}`;
+      }
+      return statusLine;
+    }
+    case "worker_stream": {
+      const duration = formatDuration(evt.data.duration_ms);
+      const tools = formatToolCounts(evt.data.tools);
+      const resultPreview =
+        typeof evt.data.resultPreview === "string" ? ` | "${truncate(evt.data.resultPreview, 60)}"` : "";
+      const userInitiated = evt.data.turn_source === "user" ? " (user-initiated)" : "";
+      const range = evt.data.msgRange;
+      const rangeStr = range ? ` | [${range.from}]-[${range.to}]` : "";
+      const um = evt.data.userMsgs;
+      const userMsgStr = um ? ` | ${um.count} user msg${um.count === 1 ? "" : "s"} [${um.ids.join(", ")}]` : "";
+      const qc = evt.data.questChange;
+      const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
+      const statusLine = `${label} | worker_stream | checkpoint ${duration}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
       const activity = buildActivityForEvent(evt, options);
       if (activity) {
         return `${statusLine}\n${activity}`;
@@ -1302,11 +1328,9 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
  *  Uses the event's msgRange to fetch the relevant message history slice,
  *  with deduplication to avoid re-injecting overlapping content. */
 function buildActivityForEvent(evt: TakodeEvent, options?: FormatBatchOptions): string | null {
-  if (evt.event !== "turn_end") return null;
-  if (!options?.getMessages) return null;
-
-  const range = evt.data.msgRange;
+  const range = getActivityEventRange(evt);
   if (!range) return null;
+  if (!options?.getMessages) return null;
 
   // Deduplication: start after the last-emitted message for this worker
   const lastEmitted = options.lastEmittedMsgTo?.get(evt.sessionId) ?? -1;
@@ -1325,8 +1349,7 @@ function buildActivityForEvent(evt: TakodeEvent, options?: FormatBatchOptions): 
 /** Update per-worker deduplication watermarks after delivering a batch. */
 function updateLastEmittedMsgTo(watermarks: Map<string, number>, events: TakodeEvent[]): void {
   for (const evt of events) {
-    if (evt.event !== "turn_end") continue;
-    const range = evt.data.msgRange;
+    const range = getActivityEventRange(evt);
     if (!range) continue;
     const current = watermarks.get(evt.sessionId) ?? -1;
     if (range.to > current) {
@@ -1335,10 +1358,19 @@ function updateLastEmittedMsgTo(watermarks: Map<string, number>, events: TakodeE
   }
 }
 
+function getActivityEventRange(evt: TakodeEvent): { from: number; to: number } | undefined {
+  if (evt.event === "turn_end" || evt.event === "worker_stream") return evt.data.msgRange;
+  return undefined;
+}
+
 function threadRouteFromEvent(event: TakodeEvent): ThreadRouteMetadata | null {
   const questId = questIdFromEvent(event);
   if (questId && /^q-\d+$/i.test(questId)) return threadRouteForTarget(questId.toLowerCase(), "inferred");
-  if (event.event === "turn_end" && event.data.threadKey && /^q-\d+$/i.test(event.data.threadKey)) {
+  if (
+    (event.event === "turn_end" || event.event === "worker_stream") &&
+    event.data.threadKey &&
+    /^q-\d+$/i.test(event.data.threadKey)
+  ) {
     return threadRouteForTarget(event.data.threadKey.toLowerCase(), "inferred");
   }
   return null;
@@ -1347,6 +1379,7 @@ function threadRouteFromEvent(event: TakodeEvent): ThreadRouteMetadata | null {
 function questIdFromEvent(event: TakodeEvent): string | undefined {
   switch (event.event) {
     case "turn_end":
+    case "worker_stream":
       return event.data.questId ?? event.data.questChange?.questId;
     case "board_stalled":
     case "board_dispatchable":
@@ -1360,11 +1393,11 @@ function questIdFromEvent(event: TakodeEvent): string | undefined {
   }
 }
 
-function inferTurnEndRouteFromHistory(
+function inferActivityEventRouteFromHistory(
   event: TakodeEvent,
   history: BrowserIncomingMessage[] | undefined,
 ): ThreadRouteMetadata | null {
-  if (event.event !== "turn_end" || !history?.length) return null;
+  if ((event.event !== "turn_end" && event.event !== "worker_stream") || !history?.length) return null;
   const candidates = new Set<number>();
   for (const index of event.data.userMsgs?.ids ?? []) {
     if (Number.isInteger(index)) candidates.add(index);
@@ -1398,6 +1431,30 @@ function getStableHerdEventKey(event: TakodeEvent): string | null {
       event.data.interrupt_origin,
       event.data.restart_prep_operation_id,
       event.data.compacted,
+      event.data.threadKey,
+      event.data.questId,
+      stableToolCountsPart(event.data.tools),
+      truncate(typeof event.data.resultPreview === "string" ? event.data.resultPreview : "", 60),
+      range.from,
+      range.to,
+      event.data.questChange?.questId,
+      event.data.questChange?.from,
+      event.data.questChange?.to,
+      event.data.userMsgs?.count,
+      stableNumberListPart(event.data.userMsgs?.ids),
+      event.data.turn_source,
+    ]
+      .map(stableKeyPart)
+      .join("|");
+  }
+  if (event.event === "worker_stream") {
+    const range = event.data.msgRange;
+    if (!range) return null;
+    return [
+      "worker_stream",
+      event.sessionId,
+      event.data.reason,
+      event.data.duration_ms,
       event.data.threadKey,
       event.data.questId,
       stableToolCountsPart(event.data.tools),

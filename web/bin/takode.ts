@@ -758,6 +758,12 @@ Options:
   --suggest <answer>  Suggested answer for needs-input notifications (repeat up to 3 times)
 `;
 
+const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]
+
+Stream the current worker/reviewer turn activity to the leader as an internal herd checkpoint.
+Use after a substantive nontrivial phase outcome is ready, before finishing remaining paperwork.
+`;
+
 const PHASES_HELP = `Usage: takode phases [--json]
 
 List available Quest Journey phases from phase metadata, including exact leader/assignee brief paths.
@@ -989,6 +995,9 @@ function printCommandHelp(command: string, argv: string[]): boolean {
       return true;
     case "notify":
       console.log(NOTIFY_HELP);
+      return true;
+    case "worker-stream":
+      console.log(WORKER_STREAM_HELP);
       return true;
     case "phases":
       console.log(PHASES_HELP);
@@ -3600,6 +3609,39 @@ async function handleNotify(base: string, args: string[]): Promise<void> {
   console.log(`Notification sent (${category}, id ${notificationLabel})`);
 }
 
+async function handleWorkerStream(base: string, args: string[]): Promise<void> {
+  const flags = parseFlags(args);
+  assertKnownFlags(flags, new Set(["json"]), WORKER_STREAM_HELP.trim());
+  const positional = args.filter((arg) => !arg.startsWith("--"));
+  if (positional.length > 0) err(WORKER_STREAM_HELP.trim());
+
+  const selfId = getCallerSessionId();
+  const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/worker-stream`, {})) as {
+    ok: boolean;
+    streamed: boolean;
+    reason: string;
+    msgRange?: { from: number; to: number };
+  };
+  if (flags.json === true) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+
+  if (result.streamed) {
+    const range = result.msgRange ? ` [${result.msgRange.from}]-[${result.msgRange.to}]` : "";
+    console.log(`Worker stream checkpoint queued${range}.`);
+    return;
+  }
+
+  const reason =
+    result.reason === "not_generating"
+      ? "session is not currently generating"
+      : result.reason === "dispatcher_unavailable"
+        ? "herd event dispatcher is unavailable"
+        : "no new activity to stream";
+  console.log(`No worker stream checkpoint sent: ${reason}.`);
+}
+
 async function handlePhases(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
   const positional = args.filter((arg) => !arg.startsWith("--"));
@@ -5049,6 +5091,7 @@ Commands:
   refresh-branch Refresh git branch info for a session after checkout/rebase
   branch         Branch info and management for the current session
   notify         Alert the user (e.g. takode notify review "ready for verification")
+  worker-stream  Stream a worker/reviewer checkpoint to the leader
   phases        List Quest Journey phases and exact phase brief paths
   board          Quest Journey work board (e.g. takode board show, takode board advance q-12)
   timer          Session-scoped timers (create, list, cancel)
@@ -5096,6 +5139,7 @@ Examples:
   takode refresh-branch 1
   takode branch status
   takode branch set-base origin/main
+  takode worker-stream
   takode phases
   takode board --help
   takode board advance q-12
@@ -5145,6 +5189,7 @@ try {
     ["refresh-branch", {}],
     ["branch", {}],
     ["notify", {}],
+    ["worker-stream", {}],
     ["phases", {}],
     ["board", {}],
     ["timer", {}],
@@ -5266,6 +5311,9 @@ try {
       break;
     case "notify":
       await handleNotify(base, args);
+      break;
+    case "worker-stream":
+      await handleWorkerStream(base, args);
       break;
     case "phases":
       await handlePhases(base, args);

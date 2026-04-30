@@ -85,6 +85,9 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Standard Markdown file links to repo files may be opened best-effort");
     expect(skill).toContain("Quest Journey Phase Documentation");
     expect(skill).toContain("every active phase should leave durable quest feedback");
+    expect(skill).toContain("takode worker-stream");
+    expect(skill).toContain("optional, creates an internal herd checkpoint");
+    expect(skill).toContain("does not replace phase documentation, final debrief metadata");
     expect(skill).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
     expect(skill).toContain("If inference is unavailable or ambiguous");
     expect(skill).toContain("Reviewers should check documentation quality, not just whether a comment exists");

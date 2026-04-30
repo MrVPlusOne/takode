@@ -281,6 +281,36 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("routes worker_stream events using active route metadata before source session claim", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(launcher.getSession!).mockReturnValue({ claimedQuestId: "q-101" });
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "worker_stream",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 1000,
+          threadKey: "q-505",
+          questId: "q-505",
+          msgRange: { from: 10, to: 12 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-505",
+      questId: "q-505",
+    });
+
+    dispatcher.destroy();
+  });
+
   it("infers turn_end quest routing from persisted user-message history after restart", () => {
     const { bridge, launcher } = createMocks();
     vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
@@ -321,6 +351,51 @@ describe("HerdEventDispatcher", () => {
     expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
       threadKey: "q-998",
       questId: "q-998",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("infers worker_stream quest routing from persisted user-message history after restart", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              { type: "user_message", id: "u-main", content: "main", timestamp: 1, threadKey: "main" },
+              {
+                type: "user_message",
+                id: "u-q606",
+                content: "checkpoint q-606",
+                timestamp: 2,
+                threadKey: "q-606",
+                questId: "q-606",
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "worker_stream",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 1000,
+          msgRange: { from: 1, to: 1 },
+          userMsgs: { count: 1, ids: [1] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-606",
+      questId: "q-606",
     });
 
     dispatcher.destroy();
@@ -825,6 +900,60 @@ describe("HerdEventDispatcher", () => {
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
 
     replayDispatcher.destroy();
+  });
+
+  it("uses delivered worker_stream checkpoints to avoid duplicate final turn activity", () => {
+    const { bridge, launcher } = createMocks();
+    const workerHistory = Array.from({ length: 15 }, (_value, index) => ({
+      type: "user_message",
+      content: `activity ${index}`,
+      timestamp: Date.now(),
+    }));
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1" ? ({ messageHistory: workerHistory } as any) : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        event: "worker_stream",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 10, to: 12 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    const checkpointContent = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
+    expect(checkpointContent).toContain('user: "activity 10"');
+    expect(checkpointContent).toContain('user: "activity 12"');
+
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "turn_end",
+        data: {
+          duration_ms: 8000,
+          msgRange: { from: 10, to: 14 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+    const finalContent = vi.mocked(bridge.injectUserMessage).mock.calls[1][1];
+    expect(finalContent).toContain("turn_end");
+    expect(finalContent).not.toContain('user: "activity 10"');
+    expect(finalContent).not.toContain('user: "activity 12"');
+    expect(finalContent).toContain('user: "activity 13"');
+    expect(finalContent).toContain('user: "activity 14"');
+
+    dispatcher.destroy();
   });
 
   it("wakes idle-killed leader when herd event arrives", () => {
@@ -1436,6 +1565,62 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("suppresses duplicate worker_stream events with the same message range", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        id: 1,
+        event: "worker_stream",
+        ts: 1000,
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 1957, to: 1967 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "worker_stream",
+        ts: 2000,
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 1957, to: 1967 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    triggerEvent(
+      makeEvent({
+        id: 3,
+        event: "worker_stream",
+        ts: 3000,
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 1970, to: 1971 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+
+    dispatcher.destroy();
+  });
+
   it("suppresses duplicate board_stalled events when only age fields change", () => {
     // A still-stalled row should not keep notifying just because stalledForMs
     // or the rendered relative age changed. A changed reason remains deliverable.
@@ -1574,6 +1759,34 @@ describe("formatHerdEventBatch", () => {
     expect(result).toContain("12.3s");
     expect(result).toContain("tools: 5");
     expect(result).toContain("Added JWT validation");
+  });
+
+  it("formats worker_stream checkpoint events with a distinct label and activity fields", () => {
+    const events = [
+      makeEvent({
+        event: "worker_stream",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 12300,
+          tools: { Edit: 3, Bash: 2 },
+          resultPreview: "Phase findings are ready",
+          msgRange: { from: 169, to: 281 },
+          userMsgs: { count: 2, ids: [172, 240] },
+          turn_source: "user",
+          questChange: { questId: "q-1010", from: "EXPLORING", to: "IMPLEMENTING" },
+        },
+      }),
+    ];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("worker_stream");
+    expect(result).toContain("checkpoint 12.3s");
+    expect(result).toContain("(user-initiated)");
+    expect(result).toContain("tools: 5");
+    expect(result).toContain("[169]-[281]");
+    expect(result).toContain("2 user msgs [172, 240]");
+    expect(result).toContain("q-1010: EXPLORING");
+    expect(result).toContain("IMPLEMENTING");
+    expect(result).toContain("Phase findings are ready");
   });
 
   it("formats permission_request events", () => {
@@ -2169,15 +2382,15 @@ describe("formatHerdEventBatch with activity injection", () => {
     expect(result).not.toContain("should not appear");
   });
 
-  it("does not deduplicate within a single batch (watermarks updated by caller after delivery)", () => {
-    // Within one formatHerdEventBatch call, watermarks aren't updated yet --
-    // that's the caller's job via updateLastEmittedMsgTo after injection.
-    // So two events from the same session each get their full msgRange.
+  it("deduplicates range-bearing activity within a single rendered batch", () => {
+    // A worker_stream checkpoint and the final turn_end can be delivered in one
+    // herd batch. The second event should only surface activity after the first
+    // event's range so the leader does not read duplicate content.
     const events = [
       makeEvent({
-        event: "turn_end",
+        event: "worker_stream",
         sessionId: "worker-1",
-        data: { duration_ms: 3000, msgRange: { from: 10, to: 15 } },
+        data: { reason: "checkpoint", duration_ms: 3000, msgRange: { from: 10, to: 15 } },
       }),
       makeEvent({
         event: "turn_end",
@@ -2190,19 +2403,63 @@ describe("formatHerdEventBatch with activity injection", () => {
     const requestedRanges: Array<{ from: number; to: number }> = [];
     const watermarks = new Map<string, number>();
 
-    formatHerdEventBatch(events, {
+    const result = formatHerdEventBatch(events, {
       getMessages: (_sid, from, to) => {
         requestedRanges.push({ from, to });
-        return [{ type: "user_message", content: `msg ${from}-${to}`, timestamp: Date.now() }] as any;
+        return Array.from({ length: to - from + 1 }, (_value, offset) => ({
+          type: "user_message",
+          content: `msg ${from + offset}`,
+          timestamp: Date.now(),
+        })) as any;
       },
       lastEmittedMsgTo: watermarks,
     });
 
-    // Both events get their full range -- no within-batch dedup
+    // The formatter still fetches the full range so indexing stays stable, but
+    // the second event only renders activity after the checkpoint range.
     expect(requestedRanges[0]).toEqual({ from: 10, to: 15 });
     expect(requestedRanges[1]).toEqual({ from: 13, to: 20 });
-    // This is intentional: the batch is a single delivery unit.)
-    expect(requestedRanges[1]).toEqual({ from: 13, to: 20 });
+    expect(result).toContain('user: "msg 10"');
+    expect(result).toContain('user: "msg 15"');
+    expect(result).toContain('user: "msg 16"');
+    expect(result).toContain('user: "msg 20"');
+  });
+
+  it("includes activity summary for worker_stream events when getMessages is provided", () => {
+    const events = [
+      makeEvent({
+        event: "worker_stream",
+        sessionId: "worker-1",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 10, to: 12 },
+        },
+      }),
+    ];
+    const mockMessages = [
+      { type: "user_message", content: "Prepare the phase finding", timestamp: Date.now() },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "Findings ready" },
+            { type: "tool_use", id: "tu1", name: "Bash", input: { command: "bun test" } },
+          ],
+        },
+        timestamp: Date.now(),
+      },
+      { type: "result", data: { result: "Checkpoint ready", is_error: false, duration_ms: 5000 } },
+    ];
+
+    const result = formatHerdEventBatch(events, {
+      getMessages: (_sid, _from, _to) => mockMessages as any,
+    });
+
+    expect(result).toContain("worker_stream");
+    expect(result).toContain('user: "Prepare the phase finding"');
+    expect(result).toContain("Tool Calls not shown above: 1 Bash.");
+    expect(result).toContain("Checkpoint ready");
   });
 
   it("fetches the full range and skips activity when no content survives deduplication", () => {

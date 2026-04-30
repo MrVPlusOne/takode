@@ -1168,6 +1168,7 @@ export interface CreationProgressEvent {
 
 export type TakodeEventType =
   | "turn_end"
+  | "worker_stream"
   | "turn_start"
   | "compaction_started"
   | "compaction_finished"
@@ -1224,6 +1225,22 @@ export interface TakodeTurnEndEventData {
   /** Explicit route for the user message that drove this turn, when known. */
   threadKey?: string;
   questId?: string;
+}
+
+export interface TakodeWorkerStreamEventData
+  extends Pick<
+    TakodeTurnEndEventData,
+    | "duration_ms"
+    | "tools"
+    | "resultPreview"
+    | "msgRange"
+    | "questChange"
+    | "userMsgs"
+    | "turn_source"
+    | "threadKey"
+    | "questId"
+  > {
+  reason?: "checkpoint";
 }
 
 export interface TakodeCompactionEventData {
@@ -1333,6 +1350,7 @@ export interface TakodeHerdBatchSnapshot {
 
 export interface TakodeEventDataByType {
   turn_end: TakodeTurnEndEventData;
+  worker_stream: TakodeWorkerStreamEventData;
   turn_start: TakodeTurnStartEventData;
   compaction_started: TakodeCompactionEventData;
   compaction_finished: TakodeCompactionEventData;

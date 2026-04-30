@@ -226,6 +226,9 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase.assigneeBrief).toContain("--no-phase");
       expect(phase.assigneeBrief).toContain("Apply a value filter");
       expect(phase.assigneeBrief).toContain("If context was compacted during this phase");
+      expect(phase.assigneeBrief).toContain("Optional checkpoint");
+      expect(phase.assigneeBrief).toContain("takode worker-stream");
+      expect(phase.assigneeBrief).toContain("does not replace phase documentation");
       expect(phase.assigneeBrief).toContain(
         "[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)",
       );

@@ -35,6 +35,7 @@ import type {
   TakodeEventType,
   TakodePermissionRequestEventData,
   TakodeTurnEndEventData,
+  TakodeWorkerStreamEventData,
   BoardRow,
   SessionNotification,
   SessionAttentionRecord,
@@ -402,6 +403,8 @@ interface Session {
   compactedDuringTurn: boolean;
   /** Message history indices of user messages received during the current turn (for turn_end herd events) */
   userMessageIdsThisTurn: number[];
+  /** Thread/quest route associated with the currently active turn, when known. */
+  activeTurnRoute?: ActiveTurnRoute | null;
   /** Number of follow-up turns queued while a current turn is still running. */
   queuedTurnStarts: number;
   /** Dispatch reasons for queued follow-up turns (aligned with queuedTurnStarts). */
@@ -534,6 +537,13 @@ interface BoardDispatchableCandidate {
   action?: string;
 }
 
+export interface WorkerStreamCheckpointResult {
+  ok: true;
+  streamed: boolean;
+  reason: "streamed" | "not_generating" | "no_activity" | "dispatcher_unavailable";
+  msgRange?: NonNullable<TakodeWorkerStreamEventData["msgRange"]>;
+}
+
 const BOARD_STALL_THRESHOLD_MS = 3 * 60_000;
 
 type GitSessionKey =
@@ -588,6 +598,7 @@ export class WsBridge {
   /** Per-session serialization chain for externally injected/browser-routed messages.
    *  Preserves send order across async image ingestion without blocking other sessions. */
   private sessionRouteChains = new Map<string, Promise<void>>();
+  private workerStreamCheckpointMsgTo = new Map<string, number>();
   /** Per-session serialization chain for Codex quest lifecycle reconciliation. */
   private codexQuestLifecycleChains = new Map<string, Promise<void>>();
   store: SessionStore | null = null;
@@ -875,6 +886,45 @@ export class WsBridge {
       return;
     }
     this.herdEventDispatcher.emitTakodeEvent(sessionId, event, data, actorSessionId);
+  }
+
+  emitWorkerStreamCheckpoint(sessionId: string): WorkerStreamCheckpointResult {
+    const session = this.sessions.get(sessionId);
+    if (!session?.isGenerating) {
+      return { ok: true, streamed: false, reason: "not_generating" };
+    }
+    if (!this.herdEventDispatcher) {
+      return { ok: true, streamed: false, reason: "dispatcher_unavailable" };
+    }
+
+    const summary = this.buildTurnToolSummary(session);
+    const range = summary.msgRange;
+    if (!range) {
+      return { ok: true, streamed: false, reason: "no_activity" };
+    }
+
+    const lastCheckpointTo = this.workerStreamCheckpointMsgTo.get(sessionId) ?? -1;
+    if (range.to <= lastCheckpointTo) {
+      return { ok: true, streamed: false, reason: "no_activity", msgRange: range };
+    }
+
+    this.workerStreamCheckpointMsgTo.set(sessionId, range.to);
+    const elapsed = session.generationStartedAt ? Date.now() - session.generationStartedAt : 0;
+    const turnSource = getCurrentTurnTriggerSourceController(session, {
+      isSystemSourceTag: (agentSource) => this.isSystemSourceTag(agentSource),
+    });
+    const activeTurnRoute = session.activeTurnRoute;
+
+    this.emitTakodeEvent(sessionId, "worker_stream", {
+      reason: "checkpoint",
+      duration_ms: elapsed,
+      ...summary,
+      turn_source: turnSource,
+      ...(activeTurnRoute?.threadKey ? { threadKey: activeTurnRoute.threadKey } : {}),
+      ...(activeTurnRoute?.questId ? { questId: activeTurnRoute.questId } : {}),
+    });
+
+    return { ok: true, streamed: true, reason: "streamed", msgRange: range };
   }
 
   /** Subscribe to takode events for a set of sessions. Returns an unsubscribe function.
@@ -2857,6 +2907,7 @@ export class WsBridge {
       },
       buildTurnToolSummary: (session: Session) => this.buildTurnToolSummary(session),
       recordGenerationStarted: (session: Session, reason: string) => {
+        this.workerStreamCheckpointMsgTo.delete(session.id);
         this.recorder?.recordServerEvent(
           session.id,
           "generation_started",

@@ -124,6 +124,8 @@ When a quest is running through a Quest Journey, every active phase should leave
 
 Apply a value filter: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases. If your context was compacted during the phase, or if memory confidence is low, reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 
+For valuable nontrivial phase outcomes, a worker or reviewer may run `takode worker-stream` after the substantive result is ready so the leader can start reading while required paperwork finishes. This is optional, creates an internal herd checkpoint, and does not replace phase documentation, final debrief metadata, or leader-owned phase transitions.
+
 Prefer current-phase inference:
 
 ```bash

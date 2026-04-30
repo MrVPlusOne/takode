@@ -1574,6 +1574,39 @@ export function createTakodeRoutes(ctx: RouteContext) {
     });
   });
 
+  // ─── Worker stream checkpoints ─────────────────────────────────────────
+
+  api.post("/sessions/:id/worker-stream", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    if (id !== auth.callerId) {
+      return c.json({ error: "Can only stream checkpoints from your own session" }, 403);
+    }
+
+    const launcherSession = launcher.getSession(id);
+    if (!launcherSession) return c.json({ error: "Session not found" }, 404);
+    if (!launcherSession.herdedBy) {
+      return c.json({ error: "worker-stream requires a herded worker or reviewer session" }, 409);
+    }
+
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+    if (typeof bridgeAny.emitWorkerStreamCheckpoint !== "function") {
+      return c.json({ error: "worker-stream is unavailable" }, 500);
+    }
+
+    const result = bridgeAny.emitWorkerStreamCheckpoint(id) as {
+      ok: boolean;
+      streamed: boolean;
+      reason: string;
+      msgRange?: { from: number; to: number };
+    };
+    return c.json(result);
+  });
+
   // ─── User notifications ──────────────────────────────────────────────
 
   api.post("/sessions/:id/notify", async (c) => {
