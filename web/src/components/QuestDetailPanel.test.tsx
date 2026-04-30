@@ -1001,6 +1001,22 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByText("1/2")).toBeTruthy();
   });
 
+  it("does not render user-facing Inbox copy for completed quests with inbox metadata", () => {
+    // q-1034: Questmaster details must keep verification visible without exposing the deprecated inbox concept.
+    const quest = makeVerificationQuest({ verificationInboxUnread: true });
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByTestId("quest-detail-panel")).toBeInTheDocument();
+    expect(screen.getByText("1/2")).toBeInTheDocument();
+    expect(screen.getByText("Sidebar no overflow on iPhone SE")).toBeInTheDocument();
+    expect(screen.getByText("Scroll works")).toBeInTheDocument();
+    expect(screen.queryByText("Inbox")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Inbox" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Later" })).not.toBeInTheDocument();
+  });
+
   it("shows images with clickable thumbnails", () => {
     const quest = makeVerificationQuest({
       images: [{ id: "img-1", filename: "screenshot.png", mimeType: "image/png", path: "/path/to/img-1.png" }],

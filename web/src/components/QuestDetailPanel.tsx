@@ -8,7 +8,6 @@ import {
   extractPastedImages,
   extractHashtags,
   findHashtagTokenAtCursor,
-  isVerificationInboxUnread,
   isQuestUnderReview,
   getDoneVerificationItems,
   autoResizeTextarea,
@@ -506,42 +505,6 @@ export function QuestDetailPanel() {
     }
   }
 
-  async function handleMarkVerificationRead(questId: string): Promise<boolean> {
-    setError("");
-    try {
-      const updatedQuest = await api.markQuestVerificationRead(questId);
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
-      return true;
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-      return false;
-    }
-  }
-
-  async function handleMarkVerificationInbox(questId: string) {
-    setError("");
-    try {
-      const updatedQuest = await api.markQuestVerificationInbox(questId);
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
-        );
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
   useEffect(() => {
     if (!quest || activeCommitIndex === null) return;
     const sha = quest.commitShas?.[activeCommitIndex];
@@ -809,7 +772,6 @@ export function QuestDetailPanel() {
   const isCancelled = isQuestCancelled(quest);
   const cfg = STATUS_CONFIG[quest.status];
   const isEditing = editingId === quest.questId;
-  const isInboxVerification = isVerificationInboxUnread(quest);
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
   const description = getQuestDescription(quest);
@@ -867,12 +829,6 @@ export function QuestDetailPanel() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              {isInboxVerification && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                  Inbox
-                </span>
-              )}
               {questSessionId && <SessionNumChip sessionId={questSessionId} />}
               {leaderSessionId && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
@@ -1703,28 +1659,6 @@ export function QuestDetailPanel() {
                     </button>
                   )}
                 </div>
-
-                {isQuestUnderReview(quest) &&
-                  (isInboxVerification ? (
-                    <button
-                      onClick={async () => {
-                        const marked = await handleMarkVerificationRead(quest.questId);
-                        if (marked) closePanel();
-                      }}
-                      title="Remove from Review Inbox and keep it under review for now."
-                      className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
-                    >
-                      Later
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleMarkVerificationInbox(quest.questId)}
-                      title="Move this quest back to Review Inbox to prioritize it again."
-                      className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
-                    >
-                      Inbox
-                    </button>
-                  ))}
               </div>
             </>
           )}
