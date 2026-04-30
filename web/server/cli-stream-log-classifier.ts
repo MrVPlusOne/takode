@@ -25,6 +25,7 @@ export function classifyCliStreamLogLevel(label: "stdout" | "stderr", text: stri
   if (label === "stdout") return "info";
   if (isMaiCodexWrapperDiagnostic(text)) return "info";
   if (isCodexRefreshTokenReusedNoise(text)) return "warn";
+  if (isCodexOpenTelemetryExportNoise(text)) return "warn";
   if (isCodexApplyPatchVerificationFailure(text)) return "warn";
   return "error";
 }
@@ -64,6 +65,22 @@ function hasCodexRefreshTokenReusePattern(normalized: string): boolean {
 
 function isCodexActionableAuthFailureLine(normalized: string): boolean {
   return CODEX_ACTIONABLE_AUTH_FAILURE_PATTERNS.some((pattern) => normalized.includes(pattern));
+}
+
+function isCodexOpenTelemetryExportNoise(text: string): boolean {
+  const lines = normalizedLines(text);
+  if (lines.length === 0) return false;
+  if (lines.some(isCodexActionableAuthFailureLine)) return false;
+
+  return lines.every(isCodexLocalOpenTelemetryExportFailureLine);
+}
+
+function isCodexLocalOpenTelemetryExportFailureLine(normalized: string): boolean {
+  if (!normalized.includes("opentelemetry_sdk")) return false;
+  if (!normalized.includes("batchspanprocessor")) return false;
+  if (!normalized.includes("export")) return false;
+  if (!normalized.includes("http://localhost:14318/v1/logs")) return false;
+  return true;
 }
 
 function isCodexAuthRefreshJsonLine(normalized: string): boolean {

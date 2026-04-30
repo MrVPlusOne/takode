@@ -82,6 +82,35 @@ describe("CLI stream log classification", () => {
     expect(classifyCliStreamLogLevel("stderr", chunk)).toBe("warn");
   });
 
+  it("classifies known Codex OpenTelemetry localhost export failures as warn", () => {
+    // Codex can repeatedly reject local OTLP exports while sessions continue normally;
+    // this should remain visible without becoming Takode server ERROR noise.
+    const line =
+      "\u001b[2m2026-04-30T08:17:49.522146Z\u001b[0m \u001b[31mERROR\u001b[0m " +
+      "\u001b[2mopentelemetry_sdk::trace::span_processor\u001b[0m\u001b[2m:\u001b[0m " +
+      'BatchSpanProcessor.Flush.ExportError InternalFailure("reqwest::Error { kind: Status(400, None), url: \\"http://localhost:14318/v1/logs\\" }") Failed during the export process';
+
+    expect(classifyCliStreamLogLevel("stderr", line)).toBe("warn");
+  });
+
+  it("classifies chunks containing multiple OpenTelemetry localhost export failures as warn", () => {
+    // Bun stderr chunks can carry several pure telemetry export records together.
+    const chunk = [
+      '2026-04-30T08:18:01.000000Z ERROR opentelemetry_sdk::trace::span_processor: BatchSpanProcessor.Flush.ExportError InternalFailure("reqwest::Error { kind: Status(400, None), url: \\"http://localhost:14318/v1/logs\\" }") Failed during the export process',
+      '2026-04-30T08:18:02.000000Z ERROR opentelemetry_sdk::trace::span_processor: BatchSpanProcessor.Export.Error Operation failed: reqwest::Error { kind: Status(400, None), url: "http://localhost:14318/v1/logs" }',
+    ].join("\n");
+
+    expect(classifyCliStreamLogLevel("stderr", chunk)).toBe("warn");
+  });
+
+  it("does not demote OpenTelemetry export failures for non-local endpoints", () => {
+    // The demotion is intentionally scoped to the known local Codex collector failure.
+    const line =
+      '2026-04-30T08:18:01.000000Z ERROR opentelemetry_sdk::trace::span_processor: BatchSpanProcessor.Flush.ExportError InternalFailure("reqwest::Error { kind: Status(400, None), url: \\"https://collector.example/v1/logs\\" }") Failed during the export process';
+
+    expect(classifyCliStreamLogLevel("stderr", line)).toBe("error");
+  });
+
   it("keeps auth-degraded feature failures as errors", () => {
     // Feature failures from expired auth remain actionable and should stay ERROR.
     const line =
@@ -118,6 +147,16 @@ describe("CLI stream log classification", () => {
       "2026-04-29T23:19:35.251581Z ERROR codex_core::tools::router: error=apply_patch verification failed: Failed to find expected lines in /repo/file.ts:",
       "  expected source context from the patch failure",
       "ERROR unrelated_component: generic stderr failure",
+    ].join("\n");
+
+    expect(classifyCliStreamLogLevel("stderr", chunk)).toBe("error");
+  });
+
+  it("does not demote OpenTelemetry chunks mixed with actionable auth failures", () => {
+    // A real auth/MCP failure in the same decoded stderr chunk must still win.
+    const chunk = [
+      '2026-04-30T08:18:01.000000Z ERROR opentelemetry_sdk::trace::span_processor: BatchSpanProcessor.Flush.ExportError InternalFailure("reqwest::Error { kind: Status(400, None), url: \\"http://localhost:14318/v1/logs\\" }") Failed during the export process',
+      "ERROR rmcp::transport::worker: worker quit with fatal: Provided authentication token is expired.",
     ].join("\n");
 
     expect(classifyCliStreamLogLevel("stderr", chunk)).toBe("error");
