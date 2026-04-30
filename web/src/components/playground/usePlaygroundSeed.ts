@@ -57,6 +57,9 @@ export function usePlaygroundSeed() {
     const prevFeedScrollPositions = new Map(demoSessionIds.map((id) => [id, snapshot.feedScrollPosition.get(id)]));
     const prevHistoryLoading = new Map(demoSessionIds.map((id) => [id, snapshot.historyLoading.get(id)]));
     const prevSessionBoards = new Map(demoSessionIds.map((id) => [id, snapshot.sessionBoards.get(id)]));
+    const prevSessionBoardRowStatuses = new Map(
+      demoSessionIds.map((id) => [id, snapshot.sessionBoardRowStatuses.get(id)]),
+    );
     const prevSessionCompletedBoards = new Map(
       demoSessionIds.map((id) => [id, snapshot.sessionCompletedBoards.get(id)]),
     );
@@ -292,6 +295,20 @@ export function usePlaygroundSeed() {
         journey: { mode: "active", phaseIds: ["alignment", "implement", "code-review"] },
       },
     ]);
+    store.setSessionBoardRowStatuses(PLAYGROUND_THREAD_PANEL_SESSION_ID, {
+      "q-961": {
+        worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
+        reviewer: { sessionId: "playground-thread-reviewer", sessionNum: 1306, status: "idle" },
+      },
+      "q-962": {
+        worker: { sessionId: "playground-thread-worker-queued", sessionNum: 1320, status: "idle" },
+        reviewer: null,
+      },
+      "q-963": {
+        worker: { sessionId: "playground-thread-worker-dispatch", sessionNum: 1305, status: "disconnected" },
+        reviewer: null,
+      },
+    });
     store.setSessionCompletedBoard(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
       {
         questId: "q-964",
@@ -667,6 +684,7 @@ export function usePlaygroundSeed() {
         const feedScrollPosition = new Map(s.feedScrollPosition);
         const historyLoading = new Map(s.historyLoading);
         const sessionBoards = new Map(s.sessionBoards);
+        const sessionBoardRowStatuses = new Map(s.sessionBoardRowStatuses);
         const sessionCompletedBoards = new Map(s.sessionCompletedBoards);
         const sessionNotifications = new Map(s.sessionNotifications);
         const sessionAttentionRecords = new Map(s.sessionAttentionRecords);
@@ -693,6 +711,7 @@ export function usePlaygroundSeed() {
           const prevFeedScrollPosition = prevFeedScrollPositions.get(demoId);
           const prevLoading = prevHistoryLoading.get(demoId);
           const prevPendingCodex = prevPendingCodexInputs.get(demoId);
+          const prevBoardRowStatuses = prevSessionBoardRowStatuses.get(demoId);
           const prevCompletedBoard = prevSessionCompletedBoards.get(demoId);
           const prevSessionToolProgress = prevToolProgress.get(demoId);
           const prevSessionToolResults = prevToolResults.get(demoId);
@@ -731,6 +750,8 @@ export function usePlaygroundSeed() {
           const prevNotifications = prevSessionNotifications.get(demoId);
           if (prevBoard) sessionBoards.set(demoId, prevBoard);
           else sessionBoards.delete(demoId);
+          if (prevBoardRowStatuses) sessionBoardRowStatuses.set(demoId, prevBoardRowStatuses);
+          else sessionBoardRowStatuses.delete(demoId);
           if (prevNotifications) sessionNotifications.set(demoId, prevNotifications);
           else sessionNotifications.delete(demoId);
           if (prevAttentionRecords) sessionAttentionRecords.set(demoId, prevAttentionRecords);
@@ -772,6 +793,7 @@ export function usePlaygroundSeed() {
           feedScrollPosition,
           historyLoading,
           sessionBoards,
+          sessionBoardRowStatuses,
           sessionCompletedBoards,
           sessionNotifications,
           sessionAttentionRecords,

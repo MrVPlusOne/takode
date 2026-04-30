@@ -281,6 +281,17 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
     const normalized = (status ?? "").trim().toLowerCase();
     return normalized === "done" || normalized === "completed" || normalized === "needs_verification";
   },
+  QuestJourneyPreviewCard: ({
+    quest,
+    journey,
+  }: {
+    quest?: { questId: string; title?: string };
+    journey?: { currentPhaseId?: string };
+  }) => (
+    <div data-testid="quest-journey-preview-card">
+      {quest?.questId} {quest?.title} {journey?.currentPhaseId ?? "journey"}
+    </div>
+  ),
   QuestJourneyTimeline: ({ journey }: { journey?: { currentPhaseId?: string } }) => (
     <div data-testid="quest-journey-timeline">{journey?.currentPhaseId ?? "journey"}</div>
   ),
@@ -863,10 +874,14 @@ describe("ChatView backend banners", () => {
     expect(rows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-100", "q-200"]);
   });
 
-  it("shows quest Journey context in the quest-thread banner and can return to Main", () => {
+  it("shows one hoverable Journey label plus participant context in the quest-thread banner", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
-      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      sdkSessions: [
+        { sessionId: "s1", archived: false, isOrchestrator: true },
+        { sessionId: "worker-968", sessionNum: 1321, state: "running", cliConnected: true },
+        { sessionId: "reviewer-968", sessionNum: 1306, state: "connected", cliConnected: true },
+      ],
       sessionBoards: new Map([
         [
           "s1",
@@ -874,6 +889,8 @@ describe("ChatView backend banners", () => {
             {
               questId: "q-968",
               title: "Thread navigation rework",
+              worker: "worker-968",
+              workerNum: 1321,
               status: "IMPLEMENTING",
               updatedAt: 4,
               createdAt: 2,
@@ -884,6 +901,17 @@ describe("ChatView backend banners", () => {
               },
             },
           ],
+        ],
+      ]),
+      sessionBoardRowStatuses: new Map([
+        [
+          "s1",
+          {
+            "q-968": {
+              worker: { sessionId: "worker-968", sessionNum: 1321, name: "Clear Mesa", status: "running" },
+              reviewer: { sessionId: "reviewer-968", sessionNum: 1306, status: "idle" },
+            },
+          },
         ],
       ]),
       quests: [{ questId: "q-968", title: "Thread navigation rework", status: "in_progress" }],
@@ -897,8 +925,16 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-968");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Thread navigation rework");
     expect(scope.getByTestId("quest-journey-timeline")).toHaveTextContent("implement");
+    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Worker");
+    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("#1321");
+    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Clear Mesa");
+    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Reviewer");
+    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("#1306");
+    expect(scope.queryByTestId("quest-thread-banner-return-main")).not.toBeInTheDocument();
 
-    fireEvent.click(scope.getByTestId("quest-thread-banner-return-main"));
-    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+    fireEvent.mouseEnter(scope.getByTestId("quest-thread-journey-hover-target"));
+    expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).toBeInTheDocument();
+
+    expect(scope.getAllByText("implement")).toHaveLength(1);
   });
 });

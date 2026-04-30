@@ -1189,6 +1189,31 @@ export function PlaygroundInteractiveSections() {
                     },
                   ];
                   state.setSessionBoard(boardSessionId, boardData);
+                  state.setSessionStatus(boardSessionId, "running");
+                  state.setActiveTurnRoute(boardSessionId, { threadKey: "q-42", questId: "q-42" });
+                  state.setSessionBoardRowStatuses(boardSessionId, {
+                    "q-42": {
+                      worker: {
+                        sessionId: "playground-board-worker",
+                        sessionNum: 5,
+                        name: "Clear Mesa",
+                        status: "running",
+                      },
+                      reviewer: { sessionId: "playground-board-reviewer", sessionNum: 6, status: "idle" },
+                    },
+                    "q-55": {
+                      worker: { sessionId: "playground-board-worker-queued", sessionNum: 8, status: "idle" },
+                      reviewer: null,
+                    },
+                    "q-61": {
+                      worker: {
+                        sessionId: "playground-board-worker-proposed",
+                        sessionNum: 9,
+                        status: "disconnected",
+                      },
+                      reviewer: null,
+                    },
+                  });
                   state.setSessionCompletedBoard(boardSessionId, [
                     {
                       questId: "q-88",
@@ -1318,7 +1343,6 @@ export function PlaygroundInteractiveSections() {
                   sessionId="playground-board-bar"
                   currentThreadKey="q-42"
                   currentThreadLabel="q-42"
-                  onReturnToMain={() => {}}
                   onSelectThread={() => {}}
                   openThreadKeys={["q-42", "q-88"]}
                   onCloseThreadTab={() => {}}

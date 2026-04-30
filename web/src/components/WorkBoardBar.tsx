@@ -7,7 +7,7 @@
  * it. Visible for orchestrator sessions even before the first board item exists
  * because it is also the primary Main / All Threads / quest navigator.
  */
-import type { CSSProperties } from "react";
+import type { CSSProperties, ReactNode } from "react";
 import { useMemo, useState, useEffect } from "react";
 import { useStore } from "../store.js";
 import {
@@ -15,6 +15,7 @@ import {
   getQuestJourneyPhase,
   getQuestJourneyPresentation,
 } from "../../shared/quest-journey.js";
+import type { ActiveTurnRoute } from "../types.js";
 import { BoardTable, orderBoardRows } from "./BoardTable.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
@@ -78,6 +79,10 @@ function isSelectedThread(currentThreadKey: string, targetThreadKey: string): bo
   return normalizeThreadKey(currentThreadKey) === normalizeThreadKey(targetThreadKey);
 }
 
+function isActiveOutputThread(activeTurnRoute: ActiveTurnRoute | null | undefined, targetThreadKey: string): boolean {
+  return normalizeThreadKey(activeTurnRoute?.threadKey ?? MAIN_THREAD_KEY) === normalizeThreadKey(targetThreadKey);
+}
+
 function rowMatchesQuery(row: BoardRowData, query: string): boolean {
   if (!query) return true;
   return [row.questId, row.title, row.status, row.worker, row.workerNum?.toString(), ...(row.waitFor ?? [])]
@@ -117,10 +122,6 @@ function ThreadNavButton({
       data-testid={testId}
       aria-pressed={selected}
     >
-      <span
-        className={`h-2 w-2 shrink-0 rounded-full ${selected ? "bg-cc-primary" : "bg-cc-muted/50"}`}
-        aria-hidden="true"
-      />
       <span className="min-w-0">
         <span className="block truncate text-[11px] font-medium">{label}</span>
         {detail && <span className="block truncate text-[10px] text-cc-muted/80">{detail}</span>}
@@ -360,6 +361,59 @@ function ThreadTabRail({
   onSelectThread?: (threadKey: string) => void;
   onCloseThreadTab?: (threadKey: string) => void;
 }) {
+  function NeedsInputBell({ activeOutput }: { activeOutput: boolean }) {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="h-3 w-3 shrink-0 text-amber-400"
+        aria-hidden="true"
+        data-testid="thread-tab-needs-input-bell"
+        data-active-output={activeOutput ? "true" : "false"}
+      >
+        <path d="M8 2.5a3.5 3.5 0 0 0-3.5 3.5v1.8c0 .7-.24 1.38-.68 1.92L3 10.75h10l-.82-1.03a3.05 3.05 0 0 1-.68-1.92V6A3.5 3.5 0 0 0 8 2.5Z" />
+        <path d="M6.75 12.5a1.35 1.35 0 0 0 2.5 0" />
+      </svg>
+    );
+  }
+
+  function ActiveTitle({ activeOutput, children }: { activeOutput: boolean; children: ReactNode }) {
+    return (
+      <span
+        className={`inline-flex min-w-0 items-center gap-1.5 rounded px-1 ${
+          activeOutput ? "border border-sky-400/35 bg-sky-400/10 text-sky-100" : ""
+        }`.trim()}
+        style={
+          activeOutput
+            ? {
+                ["--glow-color" as string]: "rgba(56, 189, 248, 0.35)",
+                animation: "reviewer-badge-glow 2s ease-in-out infinite",
+              }
+            : undefined
+        }
+        data-testid="thread-tab-title"
+        data-active-output={activeOutput ? "true" : "false"}
+      >
+        {children}
+      </span>
+    );
+  }
+
+  function tabTone({ selected, needsInput }: { selected: boolean; needsInput: boolean }): string {
+    if (selected) {
+      return needsInput
+        ? "relative z-10 -mb-px rounded-b-none border-amber-400/45 border-b-cc-bg bg-cc-bg text-cc-fg shadow-[inset_0_1px_0_rgba(251,191,36,0.18)]"
+        : "relative z-10 -mb-px rounded-b-none border-cc-border border-b-cc-bg bg-cc-bg text-cc-fg shadow-[inset_0_1px_0_rgba(255,255,255,0.04)]";
+    }
+    return needsInput
+      ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
+      : "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg";
+  }
+
   const openThread = (threadKey: string, route?: AttentionRecord["route"]) => {
     const targetThread = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
     const selectedThread = normalizeThreadKey(currentThreadKey || "main");
@@ -381,49 +435,48 @@ function ThreadTabRail({
 
   const mainSelected = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
   const mainNeedsInput = mainState?.needsInput ?? false;
-  const mainTone = mainNeedsInput
-    ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
-    : mainSelected
-      ? "border-cc-primary/45 bg-cc-primary/12 text-cc-fg"
-      : "border-cc-border/70 bg-cc-hover/35 text-cc-muted hover:bg-cc-hover/65 hover:text-cc-fg";
-  const mainDot = mainNeedsInput ? "bg-amber-400" : mainSelected ? "bg-cc-primary" : "bg-cc-muted/50";
+  const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
+  const activeTurnRoute = useStore((s) => s.activeTurnRoutes.get(sessionId));
+  const runningActiveTurnRoute = sessionStatus === "running" ? activeTurnRoute : null;
+  const mainActiveOutput = isActiveOutputThread(runningActiveTurnRoute, MAIN_THREAD_KEY);
+  const mainTone = tabTone({ selected: mainSelected, needsInput: mainNeedsInput });
 
   return (
     <div
-      className="border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
+      className="border-b border-cc-border bg-cc-card px-3 pb-0 pt-1.5 sm:px-4"
       data-testid="thread-tab-rail"
       data-open-tab-count={tabs.length + 1}
       data-closed-chip-count={closedChips.length}
     >
-      <div className="flex min-w-0 items-center gap-1.5 overflow-x-auto">
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-cc-muted/70">Tabs</span>
+      <div className="flex min-w-0 items-end gap-1.5 overflow-x-auto">
+        <span className="mb-1 shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-cc-muted/70">
+          Tabs
+        </span>
         <button
           type="button"
           onClick={() => openThread(MAIN_THREAD_KEY)}
-          title={mainState?.title ?? "Main"}
-          className={`inline-flex max-w-[14rem] shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${mainTone}`}
+          title={mainNeedsInput ? `${mainState?.title ?? "Main"} needs input` : (mainState?.title ?? "Main")}
+          className={`inline-flex max-w-[14rem] shrink-0 items-center gap-1.5 rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors ${mainTone}`}
           data-testid="thread-main-tab"
           data-thread-key={MAIN_THREAD_KEY}
           data-needs-input={mainNeedsInput ? "true" : "false"}
           aria-pressed={mainSelected}
         >
-          <span className={`h-2 w-2 shrink-0 rounded-full ${mainDot}`} aria-hidden="true" />
-          <span>Main</span>
+          {mainNeedsInput && <NeedsInputBell activeOutput={mainActiveOutput} />}
+          <ActiveTitle activeOutput={mainActiveOutput}>
+            <span>Main</span>
+          </ActiveTitle>
           {mainState?.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{mainState.detail}</span>}
         </button>
         {tabs.map((tab) => {
           const selected = isSelectedThread(currentThreadKey, tab.threadKey);
-          const tone = tab.needsInput
-            ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
-            : selected
-              ? "border-cc-primary/45 bg-cc-primary/12 text-cc-fg"
-              : "border-cc-border/70 bg-cc-hover/35 text-cc-muted hover:bg-cc-hover/65 hover:text-cc-fg";
-          const dot = tab.needsInput ? "bg-amber-400" : selected ? "bg-cc-primary" : "bg-cc-muted/50";
+          const activeOutput = isActiveOutputThread(runningActiveTurnRoute, tab.threadKey);
+          const tone = tabTone({ selected, needsInput: tab.needsInput });
           return (
             <div
               key={tab.threadKey}
-              title={tab.questId ? `${tab.questId}: ${tab.title}` : tab.title}
-              className={`inline-flex max-w-[18rem] shrink-0 items-stretch rounded-md border text-[11px] font-medium transition-colors ${tone}`}
+              title={`${tab.questId ? `${tab.questId}: ${tab.title}` : tab.title}${tab.needsInput ? " needs input" : ""}`}
+              className={`inline-flex max-w-[18rem] shrink-0 items-stretch rounded-t-md border text-[11px] font-medium transition-colors ${tone}`}
               data-testid="thread-tab"
               data-thread-key={tab.threadKey}
               data-needs-input={tab.needsInput ? "true" : "false"}
@@ -435,9 +488,11 @@ function ThreadTabRail({
                 data-testid="thread-tab-select"
                 aria-pressed={selected}
               >
-                <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
-                {tab.questId && <span className="shrink-0 font-mono-code">{tab.questId}</span>}
-                <span className="min-w-0 truncate">{tab.title}</span>
+                {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
+                <ActiveTitle activeOutput={activeOutput}>
+                  {tab.questId && <span className="shrink-0 font-mono-code">{tab.questId}</span>}
+                  <span className="min-w-0 truncate">{tab.title}</span>
+                </ActiveTitle>
                 {tab.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{tab.detail}</span>}
               </button>
               {onCloseThreadTab && (
@@ -466,27 +521,29 @@ function ThreadTabRail({
             </span>
             {closedChips.map((chip) => {
               const selected = isSelectedThread(currentThreadKey, chip.threadKey);
+              const activeOutput = isActiveOutputThread(runningActiveTurnRoute, chip.threadKey);
               const tone = chip.needsInput
                 ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
                 : selected
                   ? "border-cc-primary/45 bg-cc-primary/12 text-cc-fg"
                   : "border-cc-border/70 bg-cc-hover/35 text-cc-muted hover:bg-cc-hover/65 hover:text-cc-fg";
-              const dot = chip.needsInput ? "bg-amber-400" : selected ? "bg-cc-primary" : "bg-cc-muted/50";
               return (
                 <button
                   key={chip.threadKey}
                   type="button"
                   onClick={() => openThread(chip.threadKey, chip.route)}
-                  title={chip.questId ? `${chip.questId}: ${chip.title}` : chip.title}
+                  title={`${chip.questId ? `${chip.questId}: ${chip.title}` : chip.title}${chip.needsInput ? " needs input" : ""}`}
                   className={`inline-flex max-w-[18rem] shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${tone}`}
                   data-testid="thread-chip"
                   data-thread-key={chip.threadKey}
                   data-needs-input={chip.needsInput ? "true" : "false"}
                   aria-pressed={selected}
                 >
-                  <span className={`h-2 w-2 shrink-0 rounded-full ${dot}`} aria-hidden="true" />
-                  {chip.questId && <span className="shrink-0 font-mono-code">{chip.questId}</span>}
-                  <span className="min-w-0 truncate">{chip.title}</span>
+                  {chip.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
+                  <ActiveTitle activeOutput={activeOutput}>
+                    {chip.questId && <span className="shrink-0 font-mono-code">{chip.questId}</span>}
+                    <span className="min-w-0 truncate">{chip.title}</span>
+                  </ActiveTitle>
                   {chip.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{chip.detail}</span>}
                 </button>
               );
@@ -502,7 +559,6 @@ export function WorkBoardBar({
   sessionId,
   currentThreadKey = "main",
   currentThreadLabel = "Main",
-  onReturnToMain,
   onSelectThread,
   openThreadKeys = [],
   onCloseThreadTab,
@@ -512,7 +568,6 @@ export function WorkBoardBar({
   sessionId: string;
   currentThreadKey?: string;
   currentThreadLabel?: string;
-  onReturnToMain?: () => void;
   onSelectThread?: (threadKey: string) => void;
   openThreadKeys?: string[];
   onCloseThreadTab?: (threadKey: string) => void;
@@ -554,7 +609,6 @@ export function WorkBoardBar({
   const completedCount = completedBoard?.length ?? 0;
   const activeBoardRows = board ?? [];
   const completedBoardRows = completedBoard ?? [];
-  const showReturnToMain = !isMainThreadKey(currentThreadKey) && !!onReturnToMain;
   const activeThreadChips = useMemo(
     () => buildPrimaryThreadChips({ activeBoardRows, threadRows, attentionRecords }),
     [activeBoardRows, attentionRecords, threadRows],
@@ -679,20 +733,6 @@ export function WorkBoardBar({
             <path d="M3 5l3-3 3 3" />
           </svg>
         </button>
-        {showReturnToMain && (
-          <button
-            type="button"
-            onClick={onReturnToMain}
-            className="flex shrink-0 items-center justify-center border-l border-cc-border/70 px-3 text-cc-muted transition-colors hover:bg-cc-hover/60 hover:text-cc-fg"
-            title="Return to Main"
-            aria-label="Return to Main"
-            data-testid="workboard-return-main"
-          >
-            <svg className="h-3.5 w-3.5" viewBox="0 0 16 16" fill="none" aria-hidden="true">
-              <path d="M10 4L6 8l4 4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-            </svg>
-          </button>
-        )}
       </div>
 
       <ThreadTabRail

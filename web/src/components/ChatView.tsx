@@ -1,4 +1,14 @@
-import { useMemo, useState, useEffect, useRef, useCallback } from "react";
+import {
+  useMemo,
+  useState,
+  useEffect,
+  useRef,
+  useCallback,
+  useLayoutEffect,
+  type MouseEvent,
+  type ReactNode,
+} from "react";
+import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -18,14 +28,15 @@ import { SearchBar } from "./SearchBar.js";
 import { useSessionSearch } from "../hooks/useSessionSearch.js";
 import { navigateToSessionThread, threadRouteFromHash } from "../utils/routing.js";
 import type { BoardRowData } from "./BoardTable.js";
-import { isCompletedJourneyPresentationStatus, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
-import { QuestInlineLink } from "./QuestInlineLink.js";
 import {
-  getQuestJourneyCurrentPhaseId,
-  getQuestJourneyPhase,
-  getQuestJourneyPhaseForState,
-  getQuestJourneyPresentation,
-} from "../../shared/quest-journey.js";
+  isCompletedJourneyPresentationStatus,
+  QuestJourneyPreviewCard,
+  QuestJourneyTimeline,
+} from "./QuestJourneyTimeline.js";
+import { QuestInlineLink } from "./QuestInlineLink.js";
+import { SessionInlineLink } from "./SessionInlineLink.js";
+import { SessionStatusDot } from "./SessionStatusDot.js";
+import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import { parseCommandThreadComment, parseThreadTextPrefix } from "../../shared/thread-routing.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
 import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
@@ -182,21 +193,6 @@ function buildLeaderThreadRows({
   return [...rows.values()].sort((a, b) => a.createdAt - b.createdAt || a.threadKey.localeCompare(b.threadKey));
 }
 
-function phaseLabelForThread(row: LeaderThreadRow): { label: string; color?: string } | null {
-  if (row.journey?.phaseIds?.length) {
-    if (isDoneThreadRow(row)) return { label: "Done" };
-    const phase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.boardStatus));
-    if (phase) return { label: phase.label, color: phase.color.accent };
-  }
-  const phase = getQuestJourneyPhaseForState(row.boardStatus);
-  if (phase) return { label: phase.label, color: phase.color.accent };
-  const presentation = getQuestJourneyPresentation(row.boardStatus);
-  if (presentation) return { label: presentation.label };
-  if (row.status === "needs_verification") return { label: "Verification" };
-  if (row.status === "done") return { label: "Done" };
-  return null;
-}
-
 function isDoneThreadRow(row: LeaderThreadRow): boolean {
   return (
     row.section === "done" ||
@@ -207,6 +203,130 @@ function isDoneThreadRow(row: LeaderThreadRow): boolean {
 
 function journeyStatusForThread(row: LeaderThreadRow): string | undefined {
   return isDoneThreadRow(row) ? "done" : row.boardStatus;
+}
+
+function QuestJourneyHoverTarget({ row, children }: { row: LeaderThreadRow; children: ReactNode }) {
+  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cardRef = useRef<HTMLDivElement>(null);
+  const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
+  const cardWidth = 380;
+  const gap = 6;
+
+  useEffect(
+    () => () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    },
+    [],
+  );
+
+  useLayoutEffect(() => {
+    if (!cardRef.current || !hoverRect) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const el = cardRef.current;
+    if (rect.right > window.innerWidth - 8) {
+      el.style.left = `${Math.max(8, window.innerWidth - cardWidth - 8)}px`;
+    }
+    if (rect.bottom > window.innerHeight - 8) {
+      el.style.top = `${Math.max(8, hoverRect.top - rect.height - gap)}px`;
+    }
+    if (rect.top < 8) {
+      el.style.top = "8px";
+    }
+  }, [hoverRect]);
+
+  function showPreview(event: MouseEvent<HTMLDivElement>) {
+    if (!row.journey?.phaseIds?.length) return;
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setHoverRect(event.currentTarget.getBoundingClientRect());
+  }
+
+  function scheduleHidePreview() {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => setHoverRect(null), 100);
+  }
+
+  return (
+    <>
+      <div
+        className="inline-flex max-w-full min-w-0"
+        onMouseEnter={showPreview}
+        onMouseLeave={scheduleHidePreview}
+        data-testid="quest-thread-journey-hover-target"
+      >
+        {children}
+      </div>
+      {row.journey &&
+        hoverRect &&
+        createPortal(
+          <div
+            ref={cardRef}
+            className="fixed z-50 pointer-events-auto hidden-on-touch"
+            style={{
+              left: hoverRect.left,
+              top: hoverRect.bottom + gap,
+              width: cardWidth,
+              transform: `scale(${zoomLevel})`,
+              transformOrigin: "top left",
+            }}
+            onMouseEnter={() => {
+              if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+            }}
+            onMouseLeave={() => setHoverRect(null)}
+            data-testid="quest-thread-journey-hover-card"
+          >
+            <div className="rounded-lg border border-cc-border bg-cc-card p-2.5 shadow-xl">
+              <QuestJourneyPreviewCard
+                journey={row.journey}
+                status={journeyStatusForThread(row)}
+                quest={{ questId: row.questId ?? row.threadKey, title: row.title }}
+                onQuestClick={() => useStore.getState().openQuestOverlay(row.questId ?? row.threadKey)}
+              />
+            </div>
+          </div>,
+          document.body,
+        )}
+    </>
+  );
+}
+
+function QuestThreadParticipant({
+  role,
+  participant,
+  fallbackSessionId,
+  fallbackSessionNum,
+}: {
+  role: "Worker" | "Reviewer";
+  participant?: BoardRowSessionStatus["worker"] | BoardRowSessionStatus["reviewer"];
+  fallbackSessionId?: string;
+  fallbackSessionNum?: number;
+}) {
+  const sessionId = participant?.sessionId ?? fallbackSessionId ?? null;
+  const sessionNum = participant?.sessionNum ?? fallbackSessionNum ?? undefined;
+  const dotProps = useParticipantSessionStatusDotProps(sessionId, participant?.status);
+  if (!sessionId && sessionNum == null) return null;
+
+  return (
+    <span
+      className="inline-flex min-w-0 items-center gap-1.5 text-[11px] text-cc-muted"
+      data-testid="quest-thread-participant"
+    >
+      {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
+      <span className="shrink-0 text-cc-muted/75">{role}</span>
+      {sessionId ? (
+        <SessionInlineLink
+          sessionId={sessionId}
+          sessionNum={sessionNum}
+          className="shrink-0 font-mono-code text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2"
+        >
+          {`#${sessionNum ?? "?"}`}
+        </SessionInlineLink>
+      ) : (
+        <span className="shrink-0 font-mono-code text-cc-muted">{`#${sessionNum ?? "?"}`}</span>
+      )}
+      {participant?.name && <span className="min-w-0 truncate text-cc-fg/80">{participant.name}</span>}
+    </span>
+  );
 }
 
 function CompactingIndicator({ sessionId }: { sessionId: string }) {
@@ -332,21 +452,13 @@ function isAvailableLeaderThread(threadKey: string, rows: LeaderThreadRow[]): bo
   return rows.some((row) => row.threadKey === normalized);
 }
 
-function QuestThreadBanner({
-  row,
-  threadKey,
-  onReturnToMain,
-}: {
-  row?: LeaderThreadRow;
-  threadKey: string;
-  onReturnToMain: () => void;
-}) {
+function QuestThreadBanner({ row, threadKey }: { row?: LeaderThreadRow; threadKey: string }) {
   const questId = row?.questId ?? threadKey.toLowerCase();
   const title = row?.title;
-  const phase = row ? phaseLabelForThread(row) : null;
+  const hasParticipantContext = !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
   return (
-    <div className="shrink-0 border-b border-cc-border bg-cc-card/85 px-3 py-2" data-testid="quest-thread-banner">
-      <div className="flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1.5">
+    <div className="shrink-0 border-b border-cc-border bg-cc-bg px-3 py-2" data-testid="quest-thread-banner">
+      <div className="flex min-w-0 items-start gap-3">
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
             <span className="shrink-0 font-medium text-cc-muted">Viewing quest thread</span>
@@ -357,34 +469,26 @@ function QuestThreadBanner({
               {questId}
             </QuestInlineLink>
             {title && <span className="min-w-0 truncate font-medium text-cc-fg">{title}</span>}
-            {phase && (
-              <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-cc-muted">
-                <span
-                  className="h-1.5 w-1.5 rounded-full bg-current"
-                  style={phase.color ? { color: phase.color } : undefined}
-                  aria-hidden="true"
-                />
-                <span style={phase.color ? { color: phase.color } : undefined}>{phase.label}</span>
-              </span>
-            )}
           </div>
           {row?.journey && (
-            <QuestJourneyTimeline
-              journey={row.journey}
-              status={journeyStatusForThread(row)}
-              compact
-              className="mt-1 text-[10px]"
-            />
+            <div className="mt-1">
+              <QuestJourneyHoverTarget row={row}>
+                <QuestJourneyTimeline journey={row.journey} status={journeyStatusForThread(row)} compact />
+              </QuestJourneyHoverTarget>
+            </div>
+          )}
+          {hasParticipantContext && (
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1">
+              <QuestThreadParticipant
+                role="Worker"
+                participant={row?.rowStatus?.worker}
+                fallbackSessionId={row?.boardRow?.worker}
+                fallbackSessionNum={row?.boardRow?.workerNum}
+              />
+              <QuestThreadParticipant role="Reviewer" participant={row?.rowStatus?.reviewer} />
+            </div>
           )}
         </div>
-        <button
-          type="button"
-          onClick={onReturnToMain}
-          className="shrink-0 text-xs font-medium text-blue-300 hover:text-blue-200 hover:underline"
-          data-testid="quest-thread-banner-return-main"
-        >
-          Return to Main
-        </button>
       </div>
     </div>
   );
@@ -741,7 +845,6 @@ export function ChatView({
           sessionId={sessionId}
           currentThreadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
           currentThreadLabel={isLeaderSession ? selectedThreadLabel : "Main"}
-          onReturnToMain={isLeaderSession ? () => handleSelectThread(MAIN_THREAD_KEY) : undefined}
           onSelectThread={isLeaderSession ? handleSelectThread : undefined}
           openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
           onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}
@@ -756,11 +859,7 @@ export function ChatView({
       ) : (
         <div className="flex min-h-0 flex-1 flex-col">
           {!preview && showQuestThreadBanner && (
-            <QuestThreadBanner
-              row={selectedThreadRow}
-              threadKey={selectedThreadKey}
-              onReturnToMain={() => handleSelectThread(MAIN_THREAD_KEY)}
-            />
+            <QuestThreadBanner row={selectedThreadRow} threadKey={selectedThreadKey} />
           )}
           <MessageFeed
             sessionId={sessionId}

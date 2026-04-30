@@ -116,6 +116,8 @@ interface MockStoreState {
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
   sdkSessions: Array<{ sessionId: string; isOrchestrator?: boolean }>;
+  sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
+  activeTurnRoutes: Map<string, import("../types.js").ActiveTurnRoute | null>;
 }
 
 let mockState: MockStoreState;
@@ -126,6 +128,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionBoardRowStatuses: new Map(),
     sessionCompletedBoards: new Map(),
     sdkSessions: [],
+    sessionStatus: new Map(),
+    activeTurnRoutes: new Map(),
     ...overrides,
   };
 }
@@ -254,24 +258,17 @@ describe("WorkBoardBar", () => {
     expect(getByText("2 items")).toBeInTheDocument();
   });
 
-  it("shows the current thread and can return to Main from a quest thread", () => {
-    const onReturnToMain = vi.fn();
+  it("shows the current thread without a redundant return-to-Main control", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
-    const { getByTestId } = render(
-      <WorkBoardBar
-        sessionId="s1"
-        currentThreadKey="q-968"
-        currentThreadLabel="q-968"
-        onReturnToMain={onReturnToMain}
-      />,
+    const { getByTestId, queryByTestId } = render(
+      <WorkBoardBar sessionId="s1" currentThreadKey="q-968" currentThreadLabel="q-968" />,
     );
 
     expect(getByTestId("workboard-current-thread")).toHaveTextContent("q-968");
-    fireEvent.click(getByTestId("workboard-return-main"));
-    expect(onReturnToMain).toHaveBeenCalledTimes(1);
+    expect(queryByTestId("workboard-return-main")).not.toBeInTheDocument();
   });
 
   it("does not show BoardTable when collapsed (default)", () => {
@@ -357,6 +354,43 @@ describe("WorkBoardBar", () => {
     expect(tabs[0]).toHaveAttribute("data-thread-key", "q-1");
     expect(tabs[0]).toHaveAttribute("data-needs-input", "true");
     expect(getAllByTestId("thread-chip").map((chip) => chip.getAttribute("data-thread-key"))).toEqual(["q-2"]);
+  });
+
+  it("glows the active output tab title while preserving needs-input bells", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionStatus: new Map([["s1", "running"]]),
+      activeTurnRoutes: new Map([["s1", { threadKey: "q-1", questId: "q-1" }]]),
+    });
+
+    const { getByTestId, getAllByTestId } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-1"
+        openThreadKeys={["q-1"]}
+        attentionRecords={[attentionRecord({ id: "needs-input", state: "unresolved", dedupeKey: "needs-input" })]}
+      />,
+    );
+
+    const needsInputTab = getByTestId("thread-tab");
+    expect(within(needsInputTab).queryByTestId("thread-tab-status-dot")).not.toBeInTheDocument();
+    expect(within(needsInputTab).getByTestId("thread-tab-needs-input-bell")).toHaveAttribute(
+      "data-active-output",
+      "true",
+    );
+    expect(within(needsInputTab).getByTestId("thread-tab-needs-input-bell")).not.toHaveClass("animate-pulse");
+    expect(within(needsInputTab).getByTestId("thread-tab-title")).toHaveAttribute("data-active-output", "true");
+    expect(within(needsInputTab).getByTestId("thread-tab-title")).toHaveStyle({
+      animation: "reviewer-badge-glow 2s ease-in-out infinite",
+    });
+
+    const inactiveTitle = getAllByTestId("thread-tab-title").find(
+      (title) => title.closest("[data-thread-key]")?.getAttribute("data-thread-key") === "q-2",
+    );
+    expect(inactiveTitle).toBeTruthy();
+    expect(inactiveTitle).toHaveAttribute("data-active-output", "false");
+    expect(inactiveTitle).not.toHaveStyle({ animation: "reviewer-badge-glow 2s ease-in-out infinite" });
   });
 
   it("embeds Main-owned needs-input state into the pinned Main tab without a duplicate chip", () => {
