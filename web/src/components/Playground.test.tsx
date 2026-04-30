@@ -65,15 +65,14 @@ describe("Playground", () => {
     expect(screen.queryByText(/@to\(user\)/)).toBeNull();
   });
 
-  it("documents compact mixed thread-system marker clusters", () => {
+  it("documents compact moved-message markers without quest activity summaries", () => {
     render(<Playground />);
 
-    const markerClusters = screen.getAllByTestId("thread-system-marker-cluster");
-    expect(markerClusters.length).toBeGreaterThan(0);
-    expect(markerClusters[0]).toHaveTextContent("1 message moved to thread:q-961");
-    expect(markerClusters[0]).toHaveTextContent("3 activities in thread:q-961, thread:q-962");
-    expect(within(markerClusters[0]).queryByText("Jump")).toBeNull();
-    expect(within(markerClusters[0]).getAllByRole("button", { name: "thread:q-961" }).length).toBeGreaterThan(0);
+    const marker = screen.getAllByTestId("thread-attachment-marker")[0];
+    expect(marker).toHaveTextContent("1 message moved to thread:q-961");
+    expect(marker).not.toHaveTextContent("activities in thread:");
+    expect(within(marker).queryByText("Jump")).toBeNull();
+    expect(within(marker).getByRole("button", { name: "thread:q-961" })).toBeTruthy();
   });
 
   it("documents Work Board Bar tab shrinking and phase legend states", () => {

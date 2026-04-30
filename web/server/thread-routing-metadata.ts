@@ -1,4 +1,4 @@
-import { normalizeThreadTarget } from "../shared/thread-routing.js";
+import { inferThreadTargetFromTextContent, normalizeThreadTarget } from "../shared/thread-routing.js";
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, PermissionRequest, ThreadRef } from "./session-types.js";
 
 export interface ThreadRouteMetadata {
@@ -17,6 +17,7 @@ export interface ThreadAttachmentSelection {
 }
 
 type ThreadedHistoryEntry = Pick<BrowserIncomingMessage, "threadKey" | "questId" | "threadRefs">;
+type TextContentHistoryEntry = ThreadedHistoryEntry & { content?: string };
 
 export function threadRouteForTarget(threadKey: string, source: ThreadRef["source"] = "explicit"): ThreadRouteMetadata {
   const target = normalizeThreadTarget(threadKey) ?? { threadKey: "main" };
@@ -50,6 +51,18 @@ export function routeFromHistoryEntry(entry: ThreadedHistoryEntry | undefined): 
   if (direct) return direct;
   const firstRef = entry.threadRefs?.find((ref) => normalizeThreadTarget(ref.threadKey));
   return firstRef ? threadRouteForTarget(firstRef.threadKey, firstRef.source) : null;
+}
+
+export function inferThreadRouteFromTextContent(content: string | undefined): ThreadRouteMetadata | null {
+  if (!content) return null;
+  const target = inferThreadTargetFromTextContent(content);
+  return target ? threadRouteForTarget(target.threadKey, "inferred") : null;
+}
+
+export function inferRouteFromHistoryEntryContent(
+  entry: TextContentHistoryEntry | undefined,
+): ThreadRouteMetadata | null {
+  return inferThreadRouteFromTextContent(entry?.content);
 }
 
 export function inferCurrentThreadRoute(history: BrowserIncomingMessage[]): ThreadRouteMetadata {

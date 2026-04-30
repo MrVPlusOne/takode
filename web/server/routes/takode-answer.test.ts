@@ -23,6 +23,7 @@ function createTestApp() {
   const handleBrowserMessage = vi.fn(async (_ws: any, _raw: string) => {});
   const broadcastToSession = vi.fn();
   const persistSessionById = vi.fn();
+  const injectUserMessage = vi.fn(() => "sent" as const);
   const launcher = {
     resolveSessionId: vi.fn((id: string) => id),
     getSession: vi.fn((id: string) =>
@@ -37,6 +38,7 @@ function createTestApp() {
       launcher,
       wsBridge: {
         getSession: vi.fn(() => session),
+        injectUserMessage,
         handleBrowserMessage,
         broadcastToSession,
         persistSessionById,
@@ -50,7 +52,7 @@ function createTestApp() {
     } as any),
   );
 
-  return { app, handleBrowserMessage, broadcastToSession, persistSessionById, session };
+  return { app, handleBrowserMessage, injectUserMessage, broadcastToSession, persistSessionById, session };
 }
 
 describe("takode answer permission routing", () => {
@@ -80,6 +82,47 @@ describe("takode answer permission routing", () => {
       updated_input: { plan: "Step 1: fix the approval path", allowedPrompts: [] },
       actorSessionId: "orch-1",
     });
+  });
+});
+
+describe("takode cross-session message routing", () => {
+  it("adds inferred quest route metadata for an unambiguous quest dispatch", async () => {
+    const { app, injectUserMessage } = createTestApp();
+
+    const res = await app.request("/api/sessions/worker-1/message", {
+      method: "POST",
+      body: JSON.stringify({ content: "Review [q-1009](quest:q-1009) in the Code Review phase." }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ ok: true, sessionId: "worker-1", delivery: "sent" });
+    expect(injectUserMessage).toHaveBeenCalledWith(
+      "worker-1",
+      "Review [q-1009](quest:q-1009) in the Code Review phase.",
+      { sessionId: "orch-1" },
+      undefined,
+      expect.objectContaining({ threadKey: "q-1009", questId: "q-1009" }),
+    );
+  });
+
+  it("keeps ambiguous multi-quest dispatches unthreaded unless explicit route metadata is provided", async () => {
+    const { app, injectUserMessage } = createTestApp();
+
+    const res = await app.request("/api/sessions/worker-1/message", {
+      method: "POST",
+      body: JSON.stringify({
+        content: "Compare [q-1009](quest:q-1009) with [q-1010](quest:q-1010).",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(injectUserMessage).toHaveBeenCalledWith(
+      "worker-1",
+      "Compare [q-1009](quest:q-1009) with [q-1010](quest:q-1010).",
+      { sessionId: "orch-1" },
+      undefined,
+      undefined,
+    );
   });
 });
 

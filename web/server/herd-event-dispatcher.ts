@@ -31,6 +31,7 @@ import type {
 } from "./session-types.js";
 import { formatActivitySummaryDetailed } from "./herd-activity-formatter.js";
 import {
+  inferRouteFromHistoryEntryContent,
   routeFromHistoryEntry,
   routeKey,
   threadRouteForTarget,
@@ -1410,8 +1411,13 @@ function inferActivityEventRouteFromHistory(
   }
 
   for (const index of candidates) {
-    const route = routeFromHistoryEntry(history[index]);
+    const entry = history[index];
+    const route = routeFromHistoryEntry(entry);
     if (route && route.threadKey !== "main") return threadRouteForTarget(route.threadKey, "inferred");
+    if (entry?.type === "user_message" && entry.agentSource?.sessionId) {
+      const inferredRoute = inferRouteFromHistoryEntryContent(entry);
+      if (inferredRoute && inferredRoute.threadKey !== "main") return inferredRoute;
+    }
   }
   return null;
 }

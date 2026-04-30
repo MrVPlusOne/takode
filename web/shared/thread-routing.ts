@@ -9,6 +9,8 @@ export type ThreadRouteParseResult =
 
 const TEXT_THREAD_MARKER_RE = /^\[thread:(main|q-\d+)\](.*)$/;
 const COMMAND_THREAD_COMMENT_RE = /^#\s*thread:(main|q-\d+)\s*$/;
+const QUEST_MENTION_RE = /\bq-\d+\b/gi;
+const LEADING_QUEST_TARGET_RE = /^(?:work on|advance|review|reopen)\b/i;
 
 export function isQuestThreadKey(threadKey: string): boolean {
   return /^q-\d+$/.test(threadKey);
@@ -19,6 +21,20 @@ export function normalizeThreadTarget(raw: string): ThreadRouteTarget | null {
   if (threadKey === "main") return { threadKey };
   if (isQuestThreadKey(threadKey)) return { threadKey, questId: threadKey };
   return null;
+}
+
+export function inferThreadTargetFromTextContent(text: string): ThreadRouteTarget | null {
+  const uniqueQuestIds = uniqueQuestMentions(text);
+  if (uniqueQuestIds.length === 1) {
+    return normalizeThreadTarget(uniqueQuestIds[0]);
+  }
+
+  const leadingLine = firstNonEmptyLine(text.split(/\r?\n/))?.text ?? "";
+  if (!LEADING_QUEST_TARGET_RE.test(leadingLine)) return null;
+
+  const leadingQuestIds = uniqueQuestMentions(leadingLine);
+  if (leadingQuestIds.length !== 1) return null;
+  return normalizeThreadTarget(leadingQuestIds[0]);
 }
 
 export function formatThreadMarker(threadKey: string): string {
@@ -62,6 +78,14 @@ function firstNonEmptyLine(lines: string[]): { index: number; text: string } | n
     if (text) return { index, text };
   }
   return null;
+}
+
+function uniqueQuestMentions(text: string): string[] {
+  const mentions = new Set<string>();
+  for (const match of text.matchAll(QUEST_MENTION_RE)) {
+    mentions.add(match[0].toLowerCase());
+  }
+  return [...mentions];
 }
 
 function removeLineAt(lines: string[], index: number): string {

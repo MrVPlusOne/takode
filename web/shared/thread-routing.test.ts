@@ -1,5 +1,10 @@
 import { describe, expect, it } from "vitest";
-import { parseCommandThreadComment, parseThreadTextPrefix, stripCommandThreadComment } from "./thread-routing.js";
+import {
+  inferThreadTargetFromTextContent,
+  parseCommandThreadComment,
+  parseThreadTextPrefix,
+  stripCommandThreadComment,
+} from "./thread-routing.js";
 
 describe("thread-routing", () => {
   it("parses and strips mandatory leader text prefixes", () => {
@@ -52,5 +57,21 @@ describe("thread-routing", () => {
     expect(parseCommandThreadComment(command)).toEqual({ threadKey: "q-941", questId: "q-941" });
     expect(stripCommandThreadComment(command)).toBe("rg -n thread web/src");
     expect(parseCommandThreadComment("rg -n thread web/src")).toBeNull();
+  });
+
+  it("infers durable quest routes only from unambiguous text content", () => {
+    // History replay can recover route metadata from durable leader prompts,
+    // but only for clear single-target quest dispatches.
+    expect(inferThreadTargetFromTextContent("Review [q-1009](quest:q-1009) in Code Review.")).toEqual({
+      threadKey: "q-1009",
+      questId: "q-1009",
+    });
+    expect(
+      inferThreadTargetFromTextContent("Advance [q-1009](quest:q-1009) to Port.\n\nDo not include q-1010."),
+    ).toEqual({
+      threadKey: "q-1009",
+      questId: "q-1009",
+    });
+    expect(inferThreadTargetFromTextContent("Compare q-1009 with q-1010 before deciding.")).toBeNull();
   });
 });

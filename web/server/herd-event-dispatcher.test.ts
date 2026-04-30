@@ -401,6 +401,132 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("infers turn_end quest routing from unambiguous agent-sourced quest prompts", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              {
+                type: "user_message",
+                id: "u-review",
+                content: "Review [q-1009](quest:q-1009) in the repeated Mental Simulation phase.",
+                timestamp: 1,
+                agentSource: { sessionId: "leader-1", sessionLabel: "#1286" },
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          msgRange: { from: 0, to: 0 },
+          userMsgs: { count: 1, ids: [0] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-1009",
+      questId: "q-1009",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("infers turn_end quest routing from a leading target when later context mentions other quests", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              {
+                type: "user_message",
+                id: "u-port",
+                content: "Advance [q-1009](quest:q-1009) to Port.\n\nDo not include [q-1010](quest:q-1010).",
+                timestamp: 1,
+                agentSource: { sessionId: "leader-1", sessionLabel: "#1286" },
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          msgRange: { from: 0, to: 0 },
+          userMsgs: { count: 1, ids: [0] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-1009",
+      questId: "q-1009",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("keeps ambiguous multi-quest turn_end prompts in Main", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              {
+                type: "user_message",
+                id: "u-ambiguous",
+                content: "Compare [q-1009](quest:q-1009) with [q-1010](quest:q-1010).",
+                timestamp: 1,
+                agentSource: { sessionId: "leader-1", sessionLabel: "#1286" },
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          msgRange: { from: 0, to: 0 },
+          userMsgs: { count: 1, ids: [0] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({ threadKey: "main" });
+
+    dispatcher.destroy();
+  });
+
   it("filters non-actionable events (turn_start)", () => {
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);

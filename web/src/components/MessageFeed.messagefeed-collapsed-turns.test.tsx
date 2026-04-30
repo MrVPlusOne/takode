@@ -580,7 +580,7 @@ describe("MessageFeed - collapsed turns", () => {
 
   it("keeps explicitly routed quest messages out of Main", () => {
     // Clean Main excludes messages with explicit non-main route metadata while
-    // replacing hidden routed activity with a sparse awareness marker.
+    // avoiding compact quest activity markers that look like Main activity.
     const sid = "test-main-clean-explicit-route";
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
@@ -595,10 +595,30 @@ describe("MessageFeed - collapsed turns", () => {
     render(<MessageFeed sessionId={sid} />);
 
     expect(screen.getByText("Main-only setup")).toBeTruthy();
-    expect(screen.getByTestId("cross-thread-activity-marker").getAttribute("data-thread-key")).toBe("q-941");
-    expect(screen.getByText("1 activity in")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "thread:q-941" })).toBeTruthy();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
     expect(screen.queryByText("q-941 routed update")).toBeNull();
+  });
+
+  it("keeps explicitly routed quest messages visible in their quest thread and All Threads", () => {
+    const sid = "test-quest-routed-visibility";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "a-q941",
+        role: "assistant",
+        content: "q-941 routed update",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+    ]);
+
+    const questView = render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+    expect(screen.getByText("q-941 routed update")).toBeTruthy();
+    expect(screen.queryByText("Main-only setup")).toBeNull();
+    questView.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+    expect(screen.getByText("q-941 routed update")).toBeTruthy();
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
   });
 
   it("keeps quest-scoped herd event injections out of Main without activity markers", () => {
@@ -619,6 +639,35 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.getByText("Main-only setup")).toBeTruthy();
     expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
     expect(screen.queryByText("6 activities in q-998")).toBeNull();
+  });
+
+  it("recovers legacy Main-routed herd messages from unambiguous quest content", () => {
+    const sid = "test-main-legacy-herd-content-route";
+    const content = '#1329 | turn_end after 10s\n[114] leader: "Review [q-1009](quest:q-1009) now."';
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "herd-q1009",
+        role: "user",
+        content,
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+        metadata: { threadKey: "main" },
+      }),
+    ]);
+
+    const mainView = render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
+    expect(screen.queryByText(content)).toBeNull();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    mainView.unmount();
+
+    const questView = render(<MessageFeed sessionId={sid} threadKey="q-1009" />);
+    expect(screen.getByText("#1329")).toBeTruthy();
+    questView.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+    expect(screen.getByText("#1329")).toBeTruthy();
   });
 
   it("shows marker-backed attachment summaries in Main and hides the covered backfill messages", () => {
@@ -761,9 +810,8 @@ describe("MessageFeed - collapsed turns", () => {
     ]);
   });
 
-  it("groups hidden Main activity markers and includes the triggering routed user message", () => {
+  it("suppresses hidden quest activity markers including the triggering routed user message", () => {
     const sid = "test-main-hidden-activity-group";
-    const onSelectThread = vi.fn();
     setStoreMessages(sid, [
       makeMessage({ id: "u-main", role: "user", content: "Main-only setup" }),
       makeMessage({
@@ -780,17 +828,13 @@ describe("MessageFeed - collapsed turns", () => {
       }),
     ]);
 
-    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
     expect(screen.getByText("Main-only setup")).toBeTruthy();
-    expect(screen.getByText("2 activities in")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "thread:q-975" })).toBeTruthy();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
     expect(screen.queryByText("Hidden q-975 user trigger")).toBeNull();
     expect(screen.queryByText("Hidden q-975 assistant response")).toBeNull();
     expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
-
-    fireEvent.click(screen.getByRole("button", { name: "thread:q-975" }));
-    expect(onSelectThread).toHaveBeenCalledWith("q-975");
   });
 
   it("does not duplicate active needs-input notifications as Main ledger rows", () => {
@@ -823,7 +867,7 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
     expect(screen.queryByText("Approve the implementation direction")).toBeNull();
     expect(screen.queryByText("Hidden q-983 implementation note")).toBeNull();
-    expect(screen.getByText("1 activity in")).toBeTruthy();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
   });
 
   it("keeps resolved attention ledger rows visible with resolved state", () => {
@@ -1002,36 +1046,36 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByText("q-984: Implement compact chips")).toBeNull();
   });
 
-  it("merges consecutive hidden Main activity markers across destination threads", () => {
-    // Consecutive hidden activity should stay compact even when a leader is
-    // working across several quest threads while Main is selected.
+  it("merges consecutive hidden non-quest Main activity markers across destination threads", () => {
+    // Non-quest routed activity still keeps the sparse awareness marker; quest
+    // activity is suppressed in Main so it cannot look like Main timeline work.
     const sid = "test-main-hidden-activity-multi-thread-group";
     const onSelectThread = vi.fn();
     setStoreMessages(sid, [
       makeMessage({ id: "u-main", role: "user", content: "Main-only setup" }),
       makeMessage({
-        id: "a-q968-1",
+        id: "a-side-a-1",
         role: "assistant",
-        content: "Hidden q-968 first update",
-        metadata: { threadRefs: [{ threadKey: "q-968", questId: "q-968", source: "explicit" }] },
+        content: "Hidden side-a first update",
+        metadata: { threadRefs: [{ threadKey: "side-a", source: "explicit" }] },
       }),
       makeMessage({
-        id: "a-q968-2",
+        id: "a-side-a-2",
         role: "assistant",
-        content: "Hidden q-968 second update",
-        metadata: { threadRefs: [{ threadKey: "q-968", questId: "q-968", source: "explicit" }] },
+        content: "Hidden side-a second update",
+        metadata: { threadRefs: [{ threadKey: "side-a", source: "explicit" }] },
       }),
       makeMessage({
-        id: "a-q976",
+        id: "a-side-b",
         role: "assistant",
-        content: "Hidden q-976 update",
-        metadata: { threadRefs: [{ threadKey: "q-976", questId: "q-976", source: "explicit" }] },
+        content: "Hidden side-b update",
+        metadata: { threadRefs: [{ threadKey: "side-b", source: "explicit" }] },
       }),
       makeMessage({
-        id: "a-q980",
+        id: "a-side-c",
         role: "assistant",
-        content: "Hidden q-980 update",
-        metadata: { threadRefs: [{ threadKey: "q-980", questId: "q-980", source: "explicit" }] },
+        content: "Hidden side-c update",
+        metadata: { threadRefs: [{ threadKey: "side-c", source: "explicit" }] },
       }),
     ]);
 
@@ -1039,19 +1083,19 @@ describe("MessageFeed - collapsed turns", () => {
 
     expect(screen.getAllByTestId("cross-thread-activity-marker")).toHaveLength(1);
     expect(screen.getByText("4 activities in")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "thread:q-968" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "thread:q-976" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "thread:q-980" })).toBeTruthy();
-    expect(screen.queryByText("Hidden q-968 first update")).toBeNull();
-    expect(screen.queryByText("Hidden q-976 update")).toBeNull();
+    expect(screen.getByRole("button", { name: "thread:side-a" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:side-b" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:side-c" })).toBeTruthy();
+    expect(screen.queryByText("Hidden side-a first update")).toBeNull();
+    expect(screen.queryByText("Hidden side-b update")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: "thread:q-976" }));
-    expect(onSelectThread).toHaveBeenCalledWith("q-976");
+    fireEvent.click(screen.getByRole("button", { name: "thread:side-b" }));
+    expect(onSelectThread).toHaveBeenCalledWith("side-b");
   });
 
-  it("merges screenshot-style mixed moved-message and activity marker clusters", () => {
-    // Adjacent thread-system markers should read as one compact event instead
-    // of repeating separate activity/moved rows like the q-1008 screenshot.
+  it("keeps screenshot-style moved-message clusters while suppressing quest activity rows", () => {
+    // Attachment markers are explicit Main actions and remain visible; hidden
+    // quest activity around them does not produce compact Main activity rows.
     const sid = "test-main-thread-marker-mixed-cluster";
     const onSelectThread = vi.fn();
     const markerA = movedMarker({
@@ -1096,10 +1140,10 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
 
-    const cluster = screen.getByTestId("thread-system-marker-cluster");
+    const marker = screen.getByTestId("thread-attachment-marker");
     expect(screen.queryByText("Jump")).toBeNull();
-    expectTextContent(cluster, "15 messages moved to thread:q-1006");
-    expectTextContent(cluster, "23 activities in thread:q-1003, thread:q-1004, thread:q-1006");
+    expectTextContent(marker, "15 messages moved to thread:q-1006");
+    expect(marker.textContent).not.toContain("activities in thread:");
     expect(screen.getAllByRole("button", { name: "thread:q-1006" }).length).toBeGreaterThan(0);
 
     fireEvent.click(screen.getAllByRole("button", { name: "thread:q-1006" })[0]);
@@ -1107,12 +1151,9 @@ describe("MessageFeed - collapsed turns", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Details" }));
     const details = screen.getByTestId("thread-marker-cluster-details");
-    expectTextContent(details, "4 activities in thread:q-1003");
-    expectTextContent(details, "6 activities in thread:q-1004");
     expectTextContent(details, "6 messages moved to thread:q-1006");
-    expectTextContent(details, "1 activity in thread:q-1006");
     expectTextContent(details, "9 messages moved to thread:q-1006");
-    expectTextContent(details, "8 activities in thread:q-1006");
+    expect(details.textContent).not.toContain("activities in thread:");
   });
 
   it("stops thread-system marker clusters at ordinary visible content", () => {
@@ -1164,12 +1205,13 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
-    expect(screen.getAllByTestId("thread-system-marker-cluster")).toHaveLength(1);
-    expect(screen.getAllByTestId("cross-thread-activity-marker")).toHaveLength(1);
+    expect(screen.queryByTestId("thread-system-marker-cluster")).toBeNull();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
     expect(screen.getByText("Visible Main boundary")).toBeTruthy();
-    expectTextContent(screen.getByTestId("thread-system-marker-cluster"), "1 message moved to thread:q-972");
-    expectTextContent(screen.getByTestId("thread-system-marker-cluster"), "2 activities in thread:q-968, thread:q-976");
-    expectTextContent(screen.getByTestId("cross-thread-activity-marker"), "1 activity in thread:q-980");
+    expectTextContent(screen.getByTestId("thread-attachment-marker"), "1 message moved to thread:q-972");
+    expect(screen.queryByText("Hidden q-968 update")).toBeNull();
+    expect(screen.queryByText("Hidden q-976 update")).toBeNull();
+    expect(screen.queryByText("Hidden q-980 update")).toBeNull();
   });
 
   it("uses moved marker destination links to select the destination thread", () => {
@@ -1236,7 +1278,7 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.getByRole("button", { name: "thread:q-1008" })).toBeTruthy();
   });
 
-  it("aggregates activity-only marker clusters with compact destination links", () => {
+  it("suppresses activity-only marker clusters for quest destinations", () => {
     const sid = "test-activity-only-marker-cluster";
     setStoreMessages(sid, [
       ...hiddenThreadMessages("q-1003", 10, "activity-q1003"),
@@ -1245,15 +1287,9 @@ describe("MessageFeed - collapsed turns", () => {
 
     render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
-    const cluster = screen.getByTestId("cross-thread-activity-marker");
-    expectTextContent(cluster, "24 activities in thread:q-1003, thread:q-1004");
-    expect(screen.getByRole("button", { name: "thread:q-1003" })).toBeTruthy();
-    expect(screen.getByRole("button", { name: "thread:q-1004" })).toBeTruthy();
-
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    const details = screen.getByTestId("thread-marker-cluster-details");
-    expectTextContent(details, "10 activities in thread:q-1003");
-    expectTextContent(details, "14 activities in thread:q-1004");
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    expect(screen.queryByText("q-1003 hidden update 0")).toBeNull();
+    expect(screen.queryByText("q-1004 hidden update 0")).toBeNull();
   });
 
   it("groups adjacent moved-message markers and expands chronological details", () => {

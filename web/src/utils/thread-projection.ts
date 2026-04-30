@@ -1,4 +1,5 @@
 import type { ChatMessage, ThreadAttachmentMarker } from "../types.js";
+import { inferThreadTargetFromTextContent, isQuestThreadKey } from "../../shared/thread-routing.js";
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
@@ -56,6 +57,9 @@ function normalizedRouteKeys(message: ChatMessage): Set<string> {
     add(ref.threadKey);
     add(ref.questId);
   }
+  const inferred = inferredHerdEventRoute(message);
+  add(inferred?.threadKey);
+  add(inferred?.questId);
   return keys;
 }
 
@@ -111,6 +115,8 @@ function isCoveredBackfillMessage(message: ChatMessage, targets: { ids: Set<stri
 
 function hasExplicitNonMainRoute(message: ChatMessage): boolean {
   if (isThreadAttachmentMarkerMessage(message)) return false;
+  const inferred = inferredHerdEventRoute(message);
+  if (inferred) return true;
   const metadata = message.metadata;
   if (!metadata) return false;
 
@@ -121,28 +127,41 @@ function hasExplicitNonMainRoute(message: ChatMessage): boolean {
 
 function explicitNonMainRoute(message: ChatMessage): { threadKey: string; questId?: string } | null {
   const metadata = message.metadata;
-  if (!metadata) return null;
-  if (metadata.threadKey && !isMainThreadKey(metadata.threadKey)) {
-    return {
-      threadKey: normalizeThreadKey(metadata.threadKey),
-      ...(metadata.questId ? { questId: metadata.questId } : {}),
-    };
+  if (metadata) {
+    if (metadata.threadKey && !isMainThreadKey(metadata.threadKey)) {
+      return {
+        threadKey: normalizeThreadKey(metadata.threadKey),
+        ...(metadata.questId ? { questId: metadata.questId } : {}),
+      };
+    }
+    if (metadata.questId && !isMainThreadKey(metadata.questId)) {
+      return { threadKey: normalizeThreadKey(metadata.questId), questId: metadata.questId };
+    }
+    const ref = (metadata.threadRefs ?? []).find((candidate) => {
+      return candidate.source !== "backfill" && !isMainThreadKey(candidate.threadKey);
+    });
+    if (ref) {
+      return {
+        threadKey: normalizeThreadKey(ref.threadKey),
+        ...(ref.questId ? { questId: ref.questId } : {}),
+      };
+    }
   }
-  if (metadata.questId && !isMainThreadKey(metadata.questId)) {
-    return { threadKey: normalizeThreadKey(metadata.questId), questId: metadata.questId };
-  }
-  const ref = (metadata.threadRefs ?? []).find((candidate) => {
-    return candidate.source !== "backfill" && !isMainThreadKey(candidate.threadKey);
-  });
-  if (!ref) return null;
-  return {
-    threadKey: normalizeThreadKey(ref.threadKey),
-    ...(ref.questId ? { questId: ref.questId } : {}),
-  };
+  return inferredHerdEventRoute(message);
 }
 
 function isHerdEventMessage(message: ChatMessage): boolean {
   return message.agentSource?.sessionId === "herd-events";
+}
+
+function inferredHerdEventRoute(message: ChatMessage): { threadKey: string; questId?: string } | null {
+  if (!isHerdEventMessage(message) || typeof message.content !== "string") return null;
+  const target = inferThreadTargetFromTextContent(message.content);
+  if (!target || isMainThreadKey(target.threadKey)) return null;
+  return {
+    threadKey: normalizeThreadKey(target.threadKey),
+    ...(target.questId ? { questId: target.questId } : {}),
+  };
 }
 
 function buildCrossThreadActivityMarker(
@@ -186,7 +205,9 @@ function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
 
   const flushHiddenRun = () => {
     if (!hiddenRunRoute || hiddenRun.length === 0) return;
-    projected.push(buildCrossThreadActivityMarker(hiddenRun, hiddenRunRoute));
+    if (!isQuestThreadKey(hiddenRunRoute.threadKey)) {
+      projected.push(buildCrossThreadActivityMarker(hiddenRun, hiddenRunRoute));
+    }
     hiddenRun = [];
     hiddenRunRoute = null;
   };

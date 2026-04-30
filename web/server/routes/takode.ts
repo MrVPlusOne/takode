@@ -65,6 +65,7 @@ import {
 import {
   buildThreadAttachmentSelection,
   hasThreadAttachmentMarker,
+  inferThreadRouteFromTextContent,
   routeKey,
   sameThreadRoute,
   threadRouteForTarget,
@@ -923,6 +924,19 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (typeof body.content !== "string" || !body.content.trim()) {
       return c.json({ error: "content is required" }, 400);
     }
+    const rawThreadKey =
+      typeof body.threadKey === "string"
+        ? body.threadKey.trim()
+        : typeof body.thread_key === "string"
+          ? body.thread_key.trim()
+          : typeof body.questId === "string"
+            ? body.questId.trim()
+            : "";
+    const explicitRoute = rawThreadKey ? threadRouteForTarget(rawThreadKey) : null;
+    if (rawThreadKey && routeKey(explicitRoute) === "main" && rawThreadKey.trim().toLowerCase() !== "main") {
+      return c.json({ error: "threadKey must be main or q-N" }, 400);
+    }
+    const threadRoute = explicitRoute ?? inferThreadRouteFromTextContent(body.content) ?? undefined;
     // Validate optional agentSource label from callers.
     let sessionLabel: string | undefined;
     if (body.agentSource && typeof body.agentSource === "object") {
@@ -944,7 +958,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         return c.json({ error: "Session is herded — only its leader can send messages" }, 403);
       }
     }
-    const delivery = wsBridge.injectUserMessage(id, body.content, agentSource);
+    const delivery = wsBridge.injectUserMessage(id, body.content, agentSource, undefined, threadRoute);
     if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
     return c.json({ ok: true, sessionId: id, delivery });
   });
