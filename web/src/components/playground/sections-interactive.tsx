@@ -1338,13 +1338,13 @@ export function PlaygroundInteractiveSections() {
               >
                 Seed board data
               </button>
-              <div className="border border-cc-border rounded-lg overflow-hidden">
+              <div className="max-w-[28rem] border border-cc-border rounded-lg overflow-hidden">
                 <WorkBoardBar
                   sessionId="playground-board-bar"
                   currentThreadKey="q-42"
                   currentThreadLabel="q-42"
                   onSelectThread={() => {}}
-                  openThreadKeys={["q-42", "q-88"]}
+                  openThreadKeys={["q-42", "q-55", "q-61", "q-77", "q-88"]}
                   onCloseThreadTab={() => {}}
                   threadRows={[
                     {
@@ -1483,8 +1483,8 @@ export function PlaygroundInteractiveSections() {
               </div>
               <p className="text-[10px] text-cc-muted">
                 Click "Seed board data" first, then click the bar to toggle between collapsed summary and expanded table
-                view. The expanded state is intended to persist per session and stay open while you interact with the
-                composer.
+                view. The constrained width keeps several open tabs visible so their quest-id minimums, phase-colored
+                titles, compact close affordances, and horizontal overflow behavior can be inspected.
               </p>
             </div>
           </Card>

@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
-import { render, screen, within } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import "@testing-library/jest-dom";
 
 beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
@@ -62,5 +63,23 @@ describe("Playground", () => {
       ),
     ).toBeTruthy();
     expect(screen.queryByText(/@to\(user\)/)).toBeNull();
+  });
+
+  it("documents Work Board Bar tab shrinking and phase legend states", () => {
+    render(<Playground />);
+
+    fireEvent.click(screen.getByText("Seed board data"));
+
+    const rail = screen.getByTestId("thread-tab-rail");
+    expect(rail).toHaveAttribute("data-overflow", "horizontal-scroll-after-min");
+    expect(screen.getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
+    expect(screen.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Implement");
+
+    const tabs = screen.getAllByTestId("thread-tab");
+    expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(
+      expect.arrayContaining(["q-42", "q-55", "q-61", "q-77", "q-88"]),
+    );
+    expect(tabs[0]).toHaveClass("min-w-[6.25rem]", "max-w-[18rem]", "flex-[1_1_11rem]");
+    expect(within(tabs[0]).getByTestId("thread-tab-close")).toHaveAttribute("data-compact-close", "true");
   });
 });

@@ -231,9 +231,10 @@ describe("WorkBoardBar", () => {
     });
     const { getByText, getByTestId } = render(<WorkBoardBar sessionId="s1" />);
     expect(getByText("Empty")).toBeInTheDocument();
-    expect(getByTestId("workboard-current-thread")).toHaveTextContent("Main");
+    expect(getByTestId("workboard-current-thread")).toHaveTextContent("Main Thread");
     expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-open-tab-count", "1");
     expect(getByTestId("thread-main-tab")).toHaveAttribute("data-thread-key", "main");
+    expect(getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
   });
 
   it("keeps the primary workboard navigator visible when no board data exists for session", () => {
@@ -356,6 +357,83 @@ describe("WorkBoardBar", () => {
     expect(getAllByTestId("thread-chip").map((chip) => chip.getAttribute("data-thread-key"))).toEqual(["q-2"]);
   });
 
+  it("shrinks open tabs like browser tabs before falling back to horizontal scrolling", () => {
+    const onCloseThreadTab = vi.fn();
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+
+    const { getByTestId, getAllByTestId } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-1"
+        openThreadKeys={["q-1", "q-2"]}
+        onCloseThreadTab={onCloseThreadTab}
+      />,
+    );
+
+    expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-overflow", "horizontal-scroll-after-min");
+    expect(getByTestId("thread-main-tab")).toHaveAttribute("data-min-label", "Main Thread");
+    expect(getByTestId("thread-main-tab")).toHaveClass("min-w-[7.75rem]", "max-w-[14rem]", "flex-[0_1_9.5rem]");
+
+    const tabs = getAllByTestId("thread-tab");
+    expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-1", "q-2"]);
+    for (const tab of tabs) {
+      // The fixed minimum protects the quest id; flex shrink keeps tabs browser-like until that minimum is reached.
+      expect(tab).toHaveClass("min-w-[6.25rem]", "max-w-[18rem]", "flex-[1_1_11rem]");
+    }
+
+    const selectedClose = within(tabs[0]).getByTestId("thread-tab-close");
+    expect(selectedClose).toHaveAttribute("data-compact-close", "true");
+    expect(selectedClose).toHaveAttribute("data-selected", "true");
+    expect(selectedClose).toHaveClass("w-5", "opacity-100");
+
+    const inactiveClose = within(tabs[1]).getByTestId("thread-tab-close");
+    expect(inactiveClose).toHaveAttribute("data-compact-close", "true");
+    expect(inactiveClose).toHaveAttribute("data-selected", "false");
+    expect(inactiveClose).toHaveClass("w-5", "sm:opacity-0", "sm:group-hover:opacity-100", "focus-visible:opacity-100");
+  });
+
+  it("colors the whole visible quest tab title by phase without rendering a separate phase label", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+
+    const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1", "q-2"]} />);
+
+    const implementingTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const implementingTitle = within(implementingTab).getByTestId("thread-tab-title");
+    expect(implementingTitle).toHaveStyle({
+      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
+    });
+    expect(implementingTitle).toHaveTextContent("q-1");
+    expect(implementingTitle).toHaveTextContent("Fix bug");
+    expect(within(implementingTab).queryByText("Implement")).not.toBeInTheDocument();
+
+    const queuedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    const queuedTitle = within(queuedTab).getByTestId("thread-tab-title");
+    expect(queuedTitle).toHaveAttribute("data-title-color", "");
+    expect(within(queuedTab).queryByText("Queued")).not.toBeInTheDocument();
+  });
+
+  it("keeps the all-quests board summary as the active phase color legend", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+
+    const { getByTestId } = render(<WorkBoardBar sessionId="s1" />);
+
+    const summary = getByTestId("workboard-phase-summary");
+    expect(summary).toHaveTextContent("1 Implement");
+    expect(summary).toHaveTextContent("1 Queued");
+    expect(within(summary).getByText("1 Implement")).toHaveStyle({
+      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
+    });
+  });
+
   it("glows the active output tab title while preserving needs-input bells", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
@@ -463,7 +541,7 @@ describe("WorkBoardBar", () => {
       <WorkBoardBar sessionId="s1" openThreadKeys={["q-1"]} onCloseThreadTab={onCloseThreadTab} />,
     );
 
-    expect(getByTestId("thread-main-tab")).toHaveTextContent("Main");
+    expect(getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
     expect(queryByLabelText("Close Main")).not.toBeInTheDocument();
     fireEvent.click(getByLabelText("Close q-1"));
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-1");

@@ -13,13 +13,14 @@ import { useStore } from "../store.js";
 import {
   getQuestJourneyCurrentPhaseId,
   getQuestJourneyPhase,
+  getQuestJourneyPhaseForState,
   getQuestJourneyPresentation,
 } from "../../shared/quest-journey.js";
 import type { ActiveTurnRoute } from "../types.js";
 import { BoardTable, orderBoardRows } from "./BoardTable.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
-import { ALL_THREADS_KEY, MAIN_THREAD_KEY, isMainThreadKey } from "../utils/thread-projection.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { isAttentionRecordActive, type AttentionRecord } from "../utils/attention-records.js";
 
 export interface WorkBoardThreadNavigationRow {
@@ -137,6 +138,7 @@ interface PrimaryThreadChip {
   detail?: string;
   messageCount?: number;
   needsInput: boolean;
+  titleColor?: string;
   route?: AttentionRecord["route"];
   updatedAt: number;
 }
@@ -198,6 +200,12 @@ function boardRowDetail(row: BoardRowData): string | undefined {
   return row.status;
 }
 
+function boardRowTitleColor(row: BoardRowData): string | undefined {
+  const currentPhase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
+  const phase = currentPhase ?? getQuestJourneyPhaseForState(row.status);
+  return phase?.color.accent;
+}
+
 function threadRowDetail(row: WorkBoardThreadNavigationRow): string {
   const count = row.messageCount ?? 0;
   return `${count} message${count === 1 ? "" : "s"}`;
@@ -222,6 +230,7 @@ function mergePrimaryThreadChip(chips: Map<string, PrimaryThreadChip>, chip: Pri
     detail: existing.needsInput ? existing.detail : (chip.detail ?? existing.detail),
     messageCount: Math.max(existing.messageCount ?? 0, chip.messageCount ?? 0),
     needsInput: existing.needsInput || chip.needsInput,
+    titleColor: existing.titleColor ?? chip.titleColor,
     route: existing.route ?? chip.route,
     updatedAt: Math.max(existing.updatedAt, chip.updatedAt),
   });
@@ -258,6 +267,7 @@ function buildPrimaryThreadChips({
       title: row.title ?? row.questId,
       detail: boardRowDetail(row),
       needsInput: (row.waitForInput?.length ?? 0) > 0 || attention.some(isNeedsInputAttention),
+      titleColor: boardRowTitleColor(row),
       route: attention[0]?.route,
       updatedAt: Math.max(row.updatedAt, ...attention.map((record) => record.updatedAt), 0),
     });
@@ -336,6 +346,7 @@ function buildOpenThreadTabs({
       detail: active?.detail ?? (boardRow ? boardRowDetail(boardRow) : doneThreadDetail(row)),
       messageCount: active?.messageCount ?? row?.messageCount,
       needsInput: active?.needsInput ?? (boardRow?.waitForInput?.length ?? 0) > 0,
+      titleColor: active?.titleColor ?? (boardRow ? boardRowTitleColor(boardRow) : undefined),
       route: active?.route,
       updatedAt: active?.updatedAt ?? boardRow?.updatedAt ?? 0,
     });
@@ -381,22 +392,36 @@ function ThreadTabRail({
     );
   }
 
-  function ActiveTitle({ activeOutput, children }: { activeOutput: boolean; children: ReactNode }) {
+  function ActiveTitle({
+    activeOutput,
+    titleColor,
+    children,
+  }: {
+    activeOutput: boolean;
+    titleColor?: string;
+    children: ReactNode;
+  }) {
+    const style: CSSProperties | undefined =
+      activeOutput || titleColor
+        ? {
+            ...(activeOutput
+              ? {
+                  ["--glow-color" as string]: "rgba(56, 189, 248, 0.35)",
+                  animation: "reviewer-badge-glow 2s ease-in-out infinite",
+                }
+              : {}),
+            ...(titleColor ? { color: titleColor } : {}),
+          }
+        : undefined;
     return (
       <span
         className={`inline-flex min-w-0 items-center gap-1.5 rounded px-1 ${
           activeOutput ? "border border-sky-400/35 bg-sky-400/10 text-sky-100" : ""
         }`.trim()}
-        style={
-          activeOutput
-            ? {
-                ["--glow-color" as string]: "rgba(56, 189, 248, 0.35)",
-                animation: "reviewer-badge-glow 2s ease-in-out infinite",
-              }
-            : undefined
-        }
+        style={style}
         data-testid="thread-tab-title"
         data-active-output={activeOutput ? "true" : "false"}
+        data-title-color={titleColor ?? ""}
       >
         {children}
       </span>
@@ -447,6 +472,7 @@ function ThreadTabRail({
       data-testid="thread-tab-rail"
       data-open-tab-count={tabs.length + 1}
       data-closed-chip-count={closedChips.length}
+      data-overflow="horizontal-scroll-after-min"
     >
       <div className="flex min-w-0 items-end gap-1.5 overflow-x-auto">
         <span className="mb-1 shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-cc-muted/70">
@@ -455,16 +481,19 @@ function ThreadTabRail({
         <button
           type="button"
           onClick={() => openThread(MAIN_THREAD_KEY)}
-          title={mainNeedsInput ? `${mainState?.title ?? "Main"} needs input` : (mainState?.title ?? "Main")}
-          className={`inline-flex max-w-[14rem] shrink-0 items-center gap-1.5 rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors ${mainTone}`}
+          title={
+            mainNeedsInput ? `${mainState?.title ?? "Main Thread"} needs input` : (mainState?.title ?? "Main Thread")
+          }
+          className={`inline-flex min-w-[7.75rem] max-w-[14rem] flex-[0_1_9.5rem] items-center gap-1.5 rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors ${mainTone}`}
           data-testid="thread-main-tab"
           data-thread-key={MAIN_THREAD_KEY}
           data-needs-input={mainNeedsInput ? "true" : "false"}
+          data-min-label="Main Thread"
           aria-pressed={mainSelected}
         >
           {mainNeedsInput && <NeedsInputBell activeOutput={mainActiveOutput} />}
           <ActiveTitle activeOutput={mainActiveOutput}>
-            <span>Main</span>
+            <span className="min-w-0 truncate">Main Thread</span>
           </ActiveTitle>
           {mainState?.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{mainState.detail}</span>}
         </button>
@@ -476,31 +505,35 @@ function ThreadTabRail({
             <div
               key={tab.threadKey}
               title={`${tab.questId ? `${tab.questId}: ${tab.title}` : tab.title}${tab.needsInput ? " needs input" : ""}`}
-              className={`inline-flex max-w-[18rem] shrink-0 items-stretch rounded-t-md border text-[11px] font-medium transition-colors ${tone}`}
+              className={`group inline-flex min-w-[6.25rem] max-w-[18rem] flex-[1_1_11rem] items-stretch rounded-t-md border text-[11px] font-medium transition-colors ${tone}`}
               data-testid="thread-tab"
               data-thread-key={tab.threadKey}
               data-needs-input={tab.needsInput ? "true" : "false"}
+              data-min-label={tab.questId ?? tab.threadKey}
             >
               <button
                 type="button"
                 onClick={() => openThread(tab.threadKey, tab.route)}
-                className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-2 py-1 text-left"
+                className="inline-flex min-w-0 flex-1 items-center gap-1.5 px-1.5 py-1 text-left"
                 data-testid="thread-tab-select"
                 aria-pressed={selected}
               >
                 {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
-                <ActiveTitle activeOutput={activeOutput}>
+                <ActiveTitle activeOutput={activeOutput} titleColor={tab.titleColor}>
                   {tab.questId && <span className="shrink-0 font-mono-code">{tab.questId}</span>}
                   <span className="min-w-0 truncate">{tab.title}</span>
                 </ActiveTitle>
-                {tab.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{tab.detail}</span>}
               </button>
               {onCloseThreadTab && (
                 <button
                   type="button"
                   aria-label={`Close ${tab.questId ?? tab.title}`}
-                  className="inline-flex w-6 shrink-0 items-center justify-center border-l border-current/10 text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
+                  className={`inline-flex w-5 shrink-0 items-center justify-center border-l border-current/10 text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:opacity-100 ${
+                    selected ? "opacity-100" : "opacity-70 sm:opacity-0 sm:group-hover:opacity-100"
+                  }`}
                   data-testid="thread-tab-close"
+                  data-compact-close="true"
+                  data-selected={selected ? "true" : "false"}
                   onClick={(event) => {
                     event.stopPropagation();
                     onCloseThreadTab(tab.threadKey);
@@ -533,18 +566,18 @@ function ThreadTabRail({
                   type="button"
                   onClick={() => openThread(chip.threadKey, chip.route)}
                   title={`${chip.questId ? `${chip.questId}: ${chip.title}` : chip.title}${chip.needsInput ? " needs input" : ""}`}
-                  className={`inline-flex max-w-[18rem] shrink-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${tone}`}
+                  className={`inline-flex min-w-[6.25rem] max-w-[18rem] flex-[0_1_11rem] items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${tone}`}
                   data-testid="thread-chip"
                   data-thread-key={chip.threadKey}
                   data-needs-input={chip.needsInput ? "true" : "false"}
+                  data-min-label={chip.questId ?? chip.threadKey}
                   aria-pressed={selected}
                 >
                   {chip.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
-                  <ActiveTitle activeOutput={activeOutput}>
+                  <ActiveTitle activeOutput={activeOutput} titleColor={chip.titleColor}>
                     {chip.questId && <span className="shrink-0 font-mono-code">{chip.questId}</span>}
                     <span className="min-w-0 truncate">{chip.title}</span>
                   </ActiveTitle>
-                  {chip.detail && <span className="shrink-0 text-[10px] text-cc-muted/80">{chip.detail}</span>}
                 </button>
               );
             })}
@@ -558,7 +591,7 @@ function ThreadTabRail({
 export function WorkBoardBar({
   sessionId,
   currentThreadKey = "main",
-  currentThreadLabel = "Main",
+  currentThreadLabel = "Main Thread",
   onSelectThread,
   openThreadKeys = [],
   onCloseThreadTab,
@@ -762,7 +795,7 @@ export function WorkBoardBar({
             <div className="border-b border-cc-border px-3 py-2" data-testid="workboard-thread-nav">
               <div className="grid gap-1.5 sm:grid-cols-2">
                 <ThreadNavButton
-                  label="Main"
+                  label="Main Thread"
                   detail="Clean staging thread"
                   selected={isSelectedThread(currentThreadKey, "main")}
                   onClick={() => onSelectThread("main")}
