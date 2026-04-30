@@ -450,4 +450,50 @@ describe("NewSessionModal", () => {
       );
     });
   });
+
+  it("keeps a long shared model picker scrollable and can select a lower Codex model", async () => {
+    const user = userEvent.setup();
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "codex",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      sessionRole: "worker",
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+    });
+    mockApi.getBackendModels.mockResolvedValue([
+      { value: "arcanine", label: "arcanine" },
+      { value: "flaaffy", label: "flaaffy" },
+      { value: "flaaffy-dex", label: "flaaffy-dex" },
+      { value: "gpt-5.5", label: "GPT-5.5" },
+      { value: "oai-2.1", label: "oai-2.1" },
+      { value: "gpt-5.4", label: "GPT-5.4" },
+      { value: "gpt-5.4-mini", label: "GPT-5.4 Mini" },
+    ]);
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    await user.click(await screen.findByRole("button", { name: /Default \(gpt-5\.5\)/ }));
+
+    // Regression coverage for q-447: the shared Claude/Codex model menu must
+    // scroll internally so options lower than the modal bottom remain usable.
+    const dropdown = screen.getByTestId("new-session-model-dropdown");
+    expect(dropdown).toHaveClass("max-h-60", "overflow-y-auto", "overscroll-contain");
+
+    await user.click(await screen.findByRole("button", { name: /GPT-5\.4 Mini/ }));
+    await user.click(screen.getByRole("button", { name: "Create Session" }));
+
+    await waitFor(() => {
+      expect(mockQueuePendingSession).toHaveBeenCalledWith(
+        expect.objectContaining({
+          backend: "codex",
+          createOpts: expect.objectContaining({ model: "gpt-5.4-mini" }),
+        }),
+      );
+    });
+  });
 });

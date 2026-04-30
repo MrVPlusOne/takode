@@ -1311,7 +1311,10 @@ export function NewSessionModal({
                       </svg>
                     </button>
                     {showModelDropdown && (
-                      <div className="absolute left-0 top-full mt-1 w-48 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1">
+                      <div
+                        className="absolute left-0 top-full mt-1 w-48 max-h-60 overflow-y-auto overscroll-contain bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1"
+                        data-testid="new-session-model-dropdown"
+                      >
                         {displayModels.map((m) => (
                           <button
                             key={m.value}
