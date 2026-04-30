@@ -569,6 +569,26 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByText("q-941 routed update")).toBeNull();
   });
 
+  it("keeps quest-scoped herd event injections out of Main without activity markers", () => {
+    const sid = "test-main-no-herd-thread-markers";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "herd-q998",
+        role: "user",
+        content: "6 activities in q-998",
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+        metadata: { threadRefs: [{ threadKey: "q-998", questId: "q-998", source: "inferred" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    expect(screen.queryByText("6 activities in q-998")).toBeNull();
+  });
+
   it("shows marker-backed attachment summaries in Main and hides the covered backfill messages", () => {
     // A persisted attachment marker is the compatibility boundary: Main keeps
     // the summary row but removes the moved/attached backfill content.
@@ -740,7 +760,35 @@ describe("MessageFeed - collapsed turns", () => {
 
     const row = screen.getByTestId("attention-ledger-row");
     expect(row.getAttribute("data-attention-state")).toBe("resolved");
+    expect(screen.getByText("Finished")).toBeTruthy();
+    expect(screen.queryByText(/ready for review/i)).toBeNull();
     expect(screen.getByText("Resolved")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Review" })).toBeTruthy();
+  });
+
+  it("renders review ledger rows with compact finished copy and no duplicate summary", () => {
+    const sid = "test-main-attention-ledger-review-finished";
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-983 ready for review: Compact notification cards",
+        timestamp: 120,
+        messageId: null,
+        threadKey: "q-983",
+        questId: "q-983",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.textContent).toContain("Finished: Compact notification cards");
+    expect(row.textContent).toContain("q-983");
+    expect(row.textContent?.match(/Compact notification cards/g)).toHaveLength(1);
+    expect(screen.queryByText(/ready for review/i)).toBeNull();
     expect(screen.getByRole("button", { name: "Review" })).toBeTruthy();
   });
 

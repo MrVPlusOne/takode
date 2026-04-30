@@ -30,7 +30,12 @@ import type {
   TakodeHerdBatchSnapshot,
 } from "./session-types.js";
 import { formatActivitySummaryDetailed } from "./herd-activity-formatter.js";
-import { routeKey, threadRouteForTarget, type ThreadRouteMetadata } from "./thread-routing-metadata.js";
+import {
+  routeFromHistoryEntry,
+  routeKey,
+  threadRouteForTarget,
+  type ThreadRouteMetadata,
+} from "./thread-routing-metadata.js";
 import { wakeIdleKilledSession as wakeIdleKilledSessionController } from "./idle-manager.js";
 import {
   onSessionActivityStateChanged as onSessionActivityStateChangedController,
@@ -843,8 +848,12 @@ export class HerdEventDispatcher {
   }
 
   private resolveEventThreadRoute(event: TakodeEvent): ThreadRouteMetadata {
+    const eventRoute =
+      threadRouteFromEvent(event) ??
+      inferTurnEndRouteFromHistory(event, this.wsBridge.getSession(event.sessionId)?.messageHistory);
+    if (eventRoute && eventRoute.threadKey !== "main") return eventRoute;
+
     const questId =
-      questIdFromEvent(event) ??
       this.launcher.getSession?.(event.sessionId)?.claimedQuestId ??
       this.wsBridge.getSession(event.sessionId)?.state?.claimedQuestId;
     return questId && /^q-\d+$/i.test(questId)
@@ -1326,10 +1335,19 @@ function updateLastEmittedMsgTo(watermarks: Map<string, number>, events: TakodeE
   }
 }
 
+function threadRouteFromEvent(event: TakodeEvent): ThreadRouteMetadata | null {
+  const questId = questIdFromEvent(event);
+  if (questId && /^q-\d+$/i.test(questId)) return threadRouteForTarget(questId.toLowerCase(), "inferred");
+  if (event.event === "turn_end" && event.data.threadKey && /^q-\d+$/i.test(event.data.threadKey)) {
+    return threadRouteForTarget(event.data.threadKey.toLowerCase(), "inferred");
+  }
+  return null;
+}
+
 function questIdFromEvent(event: TakodeEvent): string | undefined {
   switch (event.event) {
     case "turn_end":
-      return event.data.questChange?.questId;
+      return event.data.questId ?? event.data.questChange?.questId;
     case "board_stalled":
     case "board_dispatchable":
       return event.data.questId;
@@ -1340,6 +1358,29 @@ function questIdFromEvent(event: TakodeEvent): string | undefined {
     default:
       return undefined;
   }
+}
+
+function inferTurnEndRouteFromHistory(
+  event: TakodeEvent,
+  history: BrowserIncomingMessage[] | undefined,
+): ThreadRouteMetadata | null {
+  if (event.event !== "turn_end" || !history?.length) return null;
+  const candidates = new Set<number>();
+  for (const index of event.data.userMsgs?.ids ?? []) {
+    if (Number.isInteger(index)) candidates.add(index);
+  }
+  const range = event.data.msgRange;
+  if (range) {
+    for (let index = range.to; index >= range.from; index--) {
+      candidates.add(index);
+    }
+  }
+
+  for (const index of candidates) {
+    const route = routeFromHistoryEntry(history[index]);
+    if (route && route.threadKey !== "main") return threadRouteForTarget(route.threadKey, "inferred");
+  }
+  return null;
 }
 
 function getStableHerdEventKey(event: TakodeEvent): string | null {
@@ -1357,6 +1398,8 @@ function getStableHerdEventKey(event: TakodeEvent): string | null {
       event.data.interrupt_origin,
       event.data.restart_prep_operation_id,
       event.data.compacted,
+      event.data.threadKey,
+      event.data.questId,
       stableToolCountsPart(event.data.tools),
       truncate(typeof event.data.resultPreview === "string" ? event.data.resultPreview : "", 60),
       range.from,

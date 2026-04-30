@@ -364,6 +364,7 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     const restartPrepOperationId = interrupted ? session.restartPrepInterruptOperationId || null : null;
     const compacted = session.compactedDuringTurn;
     const turnSource = deps.getCurrentTurnTriggerSource?.(session) ?? "unknown";
+    const activeTurnRoute = session.activeTurnRoute;
     session.interruptedDuringTurn = false;
     session.interruptSourceDuringTurn = null;
     session.restartPrepInterruptOperationId = null;
@@ -379,6 +380,8 @@ export function setGenerating<S extends GenerationLifecycleSession>(
       ...(compacted ? { compacted: true } : {}),
       ...toolSummary,
       turn_source: turnSource,
+      ...(activeTurnRoute?.threadKey ? { threadKey: activeTurnRoute.threadKey } : {}),
+      ...(activeTurnRoute?.questId ? { questId: activeTurnRoute.questId } : {}),
     });
 
     deps.onOrchestratorTurnEnd?.(session.id);

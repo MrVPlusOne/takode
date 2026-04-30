@@ -55,10 +55,13 @@ export function AttentionLedgerRow({
     : "border-cc-border/70 bg-cc-card/35 text-cc-muted";
   const iconClasses = isActive ? (isReview ? "text-emerald-300" : "text-amber-300") : "text-cc-muted/70";
   const stateLabel = STATE_LABELS[record.state];
+  const summary = record.summary.trim();
+  const showSummary = summary.length > 0 && summary !== record.title.trim();
+  const shellClasses = isReview ? "rounded-md px-3 py-2" : "rounded-lg px-3 py-2.5";
 
   return (
     <div
-      className={`group rounded-lg border px-3 py-2.5 transition-colors ${statusClasses}`}
+      className={`group border transition-colors ${shellClasses} ${statusClasses}`}
       data-testid="attention-ledger-row"
       data-attention-state={record.state}
       data-attention-type={record.type}
@@ -75,7 +78,7 @@ export function AttentionLedgerRow({
             </span>
             {record.questId && <span className="font-mono-code text-[11px] text-cc-muted/80">{record.questId}</span>}
           </div>
-          <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-cc-muted">{record.summary}</p>
+          {showSummary && <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-cc-muted">{summary}</p>}
         </div>
         <button
           type="button"

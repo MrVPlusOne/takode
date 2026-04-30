@@ -263,6 +263,25 @@ describe("setGenerating(false) — queued turn handling", () => {
     );
   });
 
+  it("emits active quest-thread route metadata on turn_end before clearing turn state", () => {
+    markRunningFromUserDispatch(deps, session, "user_message", null, 2, {
+      threadKey: "q-941",
+      questId: "q-941",
+    });
+
+    setGenerating(deps, session, false, "result");
+
+    expect(deps.emitTakodeEvent).toHaveBeenLastCalledWith(
+      session.id,
+      "turn_end",
+      expect.objectContaining({
+        threadKey: "q-941",
+        questId: "q-941",
+      }),
+    );
+    expect(session.activeTurnRoute).toBeNull();
+  });
+
   it("emits system interrupt source when no explicit human source was recorded", () => {
     setGenerating(deps, session, true, "initial");
 

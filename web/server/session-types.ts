@@ -1221,6 +1221,9 @@ export interface TakodeTurnEndEventData {
   /** Who triggered this turn: "user" (direct chat), "leader" (orchestrator),
    *  "system" (internal injection), or "unknown" (no user message tracked). */
   turn_source?: "user" | "leader" | "system" | "unknown";
+  /** Explicit route for the user message that drove this turn, when known. */
+  threadKey?: string;
+  questId?: string;
 }
 
 export interface TakodeCompactionEventData {

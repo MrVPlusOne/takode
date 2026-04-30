@@ -70,9 +70,44 @@ describe("attention records", () => {
     expect(records[1]).toMatchObject({
       id: "notification:n-2",
       type: "review_ready",
+      title: "Finished",
+      summary: "",
       actionLabel: "Review",
       priority: "review",
       route: { threadKey: "q-984", questId: "q-984", messageId: "m-2" },
+    });
+  });
+
+  it("converts ready-for-review notification copy into compact finished ledger display", () => {
+    const records = buildAttentionRecords({
+      leaderSessionId: "leader-1",
+      notifications: [
+        notification({
+          id: "n-review",
+          category: "review",
+          summary: "q-984 ready for review: Compact notification inbox copy",
+          threadKey: "q-984",
+          questId: "q-984",
+        }),
+        notification({
+          id: "n-batch",
+          category: "review",
+          summary: "2 quests ready for review: q-1, q-2",
+          threadKey: "main",
+          questId: undefined,
+          timestamp: 200,
+        }),
+      ],
+    });
+
+    expect(records[0]).toMatchObject({
+      title: "Finished: Compact notification inbox copy",
+      summary: "",
+      questId: "q-984",
+    });
+    expect(records[1]).toMatchObject({
+      title: "2 quests finished",
+      summary: "q-1, q-2",
     });
   });
 

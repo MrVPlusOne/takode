@@ -252,6 +252,80 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("routes turn_end events using active route metadata before source session claim", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(launcher.getSession!).mockReturnValue({ claimedQuestId: "q-101" });
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          threadKey: "q-404",
+          questId: "q-404",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-404",
+      questId: "q-404",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("infers turn_end quest routing from persisted user-message history after restart", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              { type: "user_message", id: "u-main", content: "main", timestamp: 1, threadKey: "main" },
+              {
+                type: "user_message",
+                id: "u-q998",
+                content: "review q-998",
+                timestamp: 2,
+                threadKey: "q-998",
+                questId: "q-998",
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          msgRange: { from: 1, to: 1 },
+          userMsgs: { count: 1, ids: [1] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-998",
+      questId: "q-998",
+    });
+
+    dispatcher.destroy();
+  });
+
   it("filters non-actionable events (turn_start)", () => {
     const { bridge, launcher } = createMocks();
     const dispatcher = new HerdEventDispatcher(bridge, launcher);

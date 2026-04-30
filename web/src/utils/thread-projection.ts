@@ -141,6 +141,10 @@ function explicitNonMainRoute(message: ChatMessage): { threadKey: string; questI
   };
 }
 
+function isHerdEventMessage(message: ChatMessage): boolean {
+  return message.agentSource?.sessionId === "herd-events";
+}
+
 function buildCrossThreadActivityMarker(
   hiddenMessages: ChatMessage[],
   route: { threadKey: string; questId?: string },
@@ -204,6 +208,7 @@ function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
 
     const route = explicitNonMainRoute(message);
     if (!route) continue;
+    if (isHerdEventMessage(message)) continue;
     if (hiddenRunRoute && hiddenRunRoute.threadKey !== route.threadKey) {
       flushHiddenRun();
     }

@@ -110,7 +110,9 @@ function attentionRecordFromNotification(leaderSessionId: string, notification: 
   const isReview = notification.category === "review";
   const route = routeForNotification(notification);
   const state: AttentionRecord["state"] = notification.done ? "resolved" : "unresolved";
-  const title = notification.summary ?? (isReview ? "Ready for review" : "Needs input");
+  const display = isReview
+    ? reviewDisplayFromNotification(notification)
+    : { title: notification.summary ?? "Needs input", summary: notification.summary ?? "Needs input" };
 
   return {
     id: `notification:${notification.id}`,
@@ -124,8 +126,8 @@ function attentionRecordFromNotification(leaderSessionId: string, notification: 
     },
     ...(route.questId ? { questId: route.questId } : {}),
     threadKey: route.threadKey,
-    title,
-    summary: title,
+    title: display.title,
+    summary: display.summary,
     actionLabel: isReview ? "Review" : "Answer",
     priority: isReview ? "review" : "needs_input",
     state,
@@ -136,6 +138,32 @@ function attentionRecordFromNotification(leaderSessionId: string, notification: 
     chipEligible: true,
     ledgerEligible: true,
     dedupeKey: `notification:${notification.id}`,
+  };
+}
+
+function reviewDisplayFromNotification(notification: SessionNotification): { title: string; summary: string } {
+  const summary = notification.summary?.trim();
+  if (!summary) return { title: "Finished", summary: "" };
+
+  const single = summary.match(/^\s*(q-\d+)\s+(?:ready\s+for\s+review|finished)(?:\s*:\s*(.+?))?\s*$/i);
+  if (single) {
+    const title = single[2]?.trim();
+    return { title: title ? `Finished: ${title}` : "Finished", summary: "" };
+  }
+
+  const multi = summary.match(/^\s*(\d+)\s+quests?\s+(?:ready\s+for\s+review|finished)\s*:\s*(.+?)\s*$/i);
+  if (multi) {
+    const count = multi[1];
+    const quests = multi[2].trim();
+    return {
+      title: `${count} ${count === "1" ? "quest" : "quests"} finished`,
+      summary: quests,
+    };
+  }
+
+  return {
+    title: summary.replace(/\bready\s+for\s+review\b/gi, "finished"),
+    summary: "",
   };
 }
 
