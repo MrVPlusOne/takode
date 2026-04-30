@@ -236,14 +236,25 @@ function buildBoardScopedPatch(args: {
   existingRuns: QuestJourneyRun[];
   now: number;
 }): { entryPatch: Partial<QuestFeedbackEntry>; journeyRuns: QuestJourneyRun[] } | { error: string } {
-  const normalized = normalizeQuestJourneyPlan(args.row.journey, args.row.status);
-  const activeIndex = getQuestJourneyCurrentPhaseIndex(args.row.journey, args.row.status);
   const statusPhaseId = getQuestJourneyPhaseForState(args.row.status)?.id;
-  if (statusPhaseId && normalized.currentPhaseId && statusPhaseId !== normalized.currentPhaseId) {
+  const rawJourneyCurrentPhaseId = getQuestJourneyPhase(args.row.journey?.currentPhaseId)?.id;
+  if (statusPhaseId && rawJourneyCurrentPhaseId && statusPhaseId !== rawJourneyCurrentPhaseId) {
     return {
-      error: `Board status ${args.row.status} disagrees with journey.currentPhaseId ${normalized.currentPhaseId}.`,
+      error: `Board status ${args.row.status} disagrees with journey.currentPhaseId ${rawJourneyCurrentPhaseId}.`,
     };
   }
+  const rawPlan = normalizeQuestJourneyPlan(args.row.journey, undefined);
+  const rawActiveIndex = args.row.journey?.activePhaseIndex;
+  const rawActivePosition =
+    typeof rawActiveIndex === "number" && Number.isInteger(rawActiveIndex) ? rawActiveIndex + 1 : undefined;
+  const rawActivePhaseId = rawActivePosition !== undefined ? rawPlan.phaseIds[rawActivePosition - 1] : undefined;
+  if (statusPhaseId && rawActivePhaseId && statusPhaseId !== rawActivePhaseId) {
+    return {
+      error: `Board status ${args.row.status} disagrees with journey.activePhaseIndex ${rawActivePosition} (${rawActivePhaseId}).`,
+    };
+  }
+  const normalized = normalizeQuestJourneyPlan(args.row.journey, args.row.status);
+  const activeIndex = getQuestJourneyCurrentPhaseIndex(args.row.journey, args.row.status);
   if (activeIndex === undefined) return { error: "Active board row does not identify a current phase occurrence." };
   const phaseIndex = resolvePhaseIndex(normalized.phaseIds, args.parsed, activeIndex);
   if ("error" in phaseIndex) return phaseIndex;

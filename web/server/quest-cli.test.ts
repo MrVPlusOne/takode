@@ -95,6 +95,9 @@ describe("quest CLI help", () => {
     expect(result.stdout).toContain("quest edit q-1 --desc-file body.md");
     expect(result.stdout).toContain("quest feedback q-1 --text-file note.md");
     expect(result.stdout).toContain("quest feedback q-1 --text-file note.md --tldr-file note-tldr.md");
+    expect(result.stdout).toContain("--phase-occurrence <n>");
+    expect(result.stdout).toContain("--phase-occurrence-id <id>");
+    expect(result.stdout).toContain("--infer-phase");
     expect(result.stdout).toContain('complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>]');
     expect(result.stdout).toContain("quest complete q-1 --items-file items.txt");
     expect(result.stdout).toContain("quest done q-1 --notes-file closeout.md");

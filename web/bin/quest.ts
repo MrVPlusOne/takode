@@ -1889,9 +1889,9 @@ Commands:
   edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--json]
                                                          Edit in place
   check  <id> <index> [--json]                           Toggle verification item
-  feedback <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--journey-run <id>] [--kind <kind>] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
+  feedback <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
                                                          Add feedback entry
-  feedback add <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--journey-run <id>] [--kind <kind>] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
+  feedback add <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
                                                          Add feedback entry explicitly
   feedback list <id> [--last N] [--author human|agent|all] [--unaddressed] [--json]
                                                          List indexed feedback entries

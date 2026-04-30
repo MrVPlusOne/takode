@@ -128,6 +128,63 @@ describe("quest phase documentation resolution", () => {
     });
   });
 
+  it("falls back when board status and raw journey current phase disagree during inference", () => {
+    // The resolver must inspect the raw board row, because normalization derives
+    // currentPhaseId from status and can otherwise hide inconsistent state.
+    const result = resolveQuestFeedbackDocumentation({
+      quest: quest(),
+      authorSessionId: "worker-1",
+      request: {},
+      boardRows: [
+        {
+          leaderSessionId: "leader-1",
+          row: {
+            questId: "q-1",
+            status: "IMPLEMENTING",
+            createdAt: 10,
+            updatedAt: 90,
+            journey: {
+              phaseIds: ["alignment", "implement", "code-review"],
+              activePhaseIndex: 2,
+              currentPhaseId: "code-review",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.error).toBeUndefined();
+    expect(result.entryPatch).toEqual({});
+    expect(result.warning).toContain("disagrees with journey.currentPhaseId code-review");
+  });
+
+  it("rejects explicit scope when board status and journey active index disagree", () => {
+    const result = resolveQuestFeedbackDocumentation({
+      quest: quest(),
+      authorSessionId: "worker-1",
+      request: { phase: "implement" },
+      boardRows: [
+        {
+          leaderSessionId: "leader-1",
+          row: {
+            questId: "q-1",
+            status: "IMPLEMENTING",
+            createdAt: 10,
+            updatedAt: 90,
+            journey: {
+              phaseIds: ["alignment", "implement", "code-review"],
+              activePhaseIndex: 2,
+              currentPhaseId: "implement",
+            },
+          },
+        },
+      ],
+    });
+
+    expect(result.status).toBe(409);
+    expect(result.error).toContain("disagrees with journey.activePhaseIndex 3 (code-review)");
+  });
+
   it("falls back to flat feedback with a warning when active board rows conflict", () => {
     // Inference is intentionally non-blocking for legacy feedback, but an
     // ambiguous active board must not silently choose the wrong phase scope.
