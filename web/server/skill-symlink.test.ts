@@ -97,20 +97,19 @@ describe("ensureSkillSymlinks", () => {
     // by the Claude source when the repo has an .agents/skills copy.
     fsMocks.existsSync.mockImplementation((targetDir: string) => {
       return (
-        targetDir === "/repo/.agents/skills/playwright-e2e-tester" ||
-        targetDir === "/repo/.claude/skills/playwright-e2e-tester"
+        targetDir === "/repo/.agents/skills/browser-validator" || targetDir === "/repo/.claude/skills/browser-validator"
       );
     });
 
-    await ensureSkillSymlinks(["playwright-e2e-tester"]);
+    await ensureSkillSymlinks(["browser-validator"]);
 
     expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
-      "/repo/.agents/skills/playwright-e2e-tester",
-      "/home/tester/.agents/skills/playwright-e2e-tester",
+      "/repo/.agents/skills/browser-validator",
+      "/home/tester/.agents/skills/browser-validator",
     );
     expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(
       expect.any(String),
-      "/home/tester/.codex/skills/playwright-e2e-tester",
+      "/home/tester/.codex/skills/browser-validator",
     );
   });
 
