@@ -1,4 +1,14 @@
-import { memo, useState, useEffect, useCallback, useRef, useMemo, useSyncExternalStore } from "react";
+import {
+  memo,
+  useState,
+  useEffect,
+  useCallback,
+  useRef,
+  useMemo,
+  useSyncExternalStore,
+  useLayoutEffect,
+  type WheelEvent as ReactWheelEvent,
+} from "react";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { questIdFromHash, withoutQuestIdInHash } from "../utils/routing.js";
@@ -65,6 +75,7 @@ const FILTER_TABS: Array<{ value: QuestStatus | "all"; label: string }> = [
 const QUEST_PAGE_SIZE = 50;
 const MAX_RENDERED_QUESTS = 150;
 const SEARCH_DEBOUNCE_MS = 500;
+const AUTO_PAGE_SCROLL_THRESHOLD = 120;
 
 // ─── Helpers ────────────────────────────────────────────────────────────────
 
@@ -261,6 +272,13 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
   const pageRequestSeqRef = useRef(0);
   const visibleWindowRef = useRef({ offset: 0, count: 0 });
+  const autoPagingDirectionRef = useRef<"next" | "previous" | null>(null);
+  const prependAnchorRef = useRef<{
+    questId: string;
+    offsetTop: number | null;
+    scrollHeight: number;
+    scrollTop: number;
+  } | null>(null);
 
   // Search, tags, and view mode -- local state initialized from store, synced back on every change.
   // Local state ensures React re-renders on every keystroke; store persists across navigation.
@@ -329,6 +347,22 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   useEffect(() => {
     visibleWindowRef.current = { offset: windowOffset, count: pagedQuests.length };
   }, [windowOffset, pagedQuests.length]);
+
+  useLayoutEffect(() => {
+    const anchor = prependAnchorRef.current;
+    const el = scrollContainerRef.current;
+    if (!anchor || !el) return;
+
+    const anchorEl = Array.from(el.querySelectorAll<HTMLElement>("[data-quest-id]")).find(
+      (node) => node.dataset.questId === anchor.questId,
+    );
+    const offsetDelta =
+      anchorEl && anchor.offsetTop !== null
+        ? anchorEl.offsetTop - anchor.offsetTop
+        : el.scrollHeight - anchor.scrollHeight;
+    el.scrollTop = anchor.scrollTop + offsetDelta;
+    prependAnchorRef.current = null;
+  }, [pagedQuests]);
 
   const loadQuestPage = useCallback(
     async (offset: number, mode: "replace" | "append" | "prepend", pageLimit = QUEST_PAGE_SIZE) => {
@@ -778,10 +812,84 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const previousPageOffset = windowOffset > 0 ? Math.max(0, windowOffset - QUEST_PAGE_SIZE) : null;
   const nextPageOffset = windowOffset + pagedQuests.length < pageInfo.total ? windowOffset + pagedQuests.length : null;
 
+  const capturePrependAnchor = useCallback(() => {
+    const el = scrollContainerRef.current;
+    const questId = pagedQuests[0]?.questId;
+    if (!el || !questId) return;
+    const anchorEl = Array.from(el.querySelectorAll<HTMLElement>("[data-quest-id]")).find(
+      (node) => node.dataset.questId === questId,
+    );
+    prependAnchorRef.current = {
+      questId,
+      offsetTop: anchorEl?.offsetTop ?? null,
+      scrollHeight: el.scrollHeight,
+      scrollTop: el.scrollTop,
+    };
+  }, [pagedQuests]);
+
+  const triggerAutoPageLoad = useCallback(
+    (direction: "next" | "previous") => {
+      if (questsLoading || loadingMoreDirection !== null || autoPagingDirectionRef.current !== null) return;
+      if (direction === "next") {
+        if (nextPageOffset === null) return;
+        autoPagingDirectionRef.current = "next";
+        void loadQuestPage(nextPageOffset, "append").finally(() => {
+          autoPagingDirectionRef.current = null;
+        });
+        return;
+      }
+      if (previousPageOffset === null) return;
+      capturePrependAnchor();
+      autoPagingDirectionRef.current = "previous";
+      void loadQuestPage(previousPageOffset, "prepend").finally(() => {
+        autoPagingDirectionRef.current = null;
+      });
+    },
+    [capturePrependAnchor, loadQuestPage, loadingMoreDirection, nextPageOffset, previousPageOffset, questsLoading],
+  );
+
+  const evaluateAutoPageBoundary = useCallback(
+    (deltaY: number) => {
+      if (!isActive) return;
+      const el = scrollContainerRef.current;
+      if (!el) return;
+
+      const distanceFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      const nearTop = el.scrollTop <= AUTO_PAGE_SCROLL_THRESHOLD;
+      const nearBottom = distanceFromBottom <= AUTO_PAGE_SCROLL_THRESHOLD;
+
+      if (nearTop && previousPageOffset !== null && deltaY <= 0) {
+        triggerAutoPageLoad("previous");
+        return;
+      }
+      if (nearBottom && nextPageOffset !== null && deltaY >= 0) {
+        triggerAutoPageLoad("next");
+      }
+    },
+    [isActive, nextPageOffset, previousPageOffset, triggerAutoPageLoad],
+  );
+
+  const handleAutoPageScroll = useCallback(() => {
+    evaluateAutoPageBoundary(0);
+  }, [evaluateAutoPageBoundary]);
+
+  const handleAutoPageWheel = useCallback(
+    (event: ReactWheelEvent<HTMLDivElement>) => {
+      evaluateAutoPageBoundary(event.deltaY);
+    },
+    [evaluateAutoPageBoundary],
+  );
+
   // ─── Render ───────────────────────────────────────────────────────────
 
   return (
-    <div ref={scrollContainerRef} className="h-full bg-cc-bg overflow-y-auto">
+    <div
+      ref={scrollContainerRef}
+      data-testid="questmaster-scroll-container"
+      onScroll={handleAutoPageScroll}
+      onWheel={handleAutoPageWheel}
+      className="h-full bg-cc-bg overflow-y-auto"
+    >
       {/* ─── Sticky header ─────────────────────────────────────────────── */}
       <div className="sticky top-0 z-20 bg-cc-bg">
         <div className="max-w-5xl mx-auto px-4 sm:px-8 pt-4 sm:pt-6">
@@ -1143,6 +1251,16 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
             </div>
           ) : (
             <>
+              <QuestPageBoundaryStatus
+                position="top"
+                total={pageInfo.total}
+                limit={pageInfo.limit}
+                windowOffset={windowOffset}
+                renderedCount={pagedQuests.length}
+                loadingDirection={loadingMoreDirection}
+                canLoadPrevious={previousPageOffset !== null}
+                canLoadNext={nextPageOffset !== null}
+              />
               {viewMode === "compact" && (
                 <CompactQuestTable
                   quests={compactQuests}
@@ -1219,18 +1337,13 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
                   );
                 })}
               </div>
-              <QuestPageControls
+              <QuestPageBoundaryStatus
+                position="bottom"
                 total={pageInfo.total}
                 limit={pageInfo.limit}
                 windowOffset={windowOffset}
                 renderedCount={pagedQuests.length}
                 loadingDirection={loadingMoreDirection}
-                onLoadPrevious={() => {
-                  if (previousPageOffset !== null) void loadQuestPage(previousPageOffset, "prepend");
-                }}
-                onLoadNext={() => {
-                  if (nextPageOffset !== null) void loadQuestPage(nextPageOffset, "append");
-                }}
                 canLoadPrevious={previousPageOffset !== null}
                 canLoadNext={nextPageOffset !== null}
               />
@@ -1242,7 +1355,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   );
 }
 
-function QuestPageControls({
+function QuestPageBoundaryStatus({
+  position,
   total,
   limit,
   windowOffset,
@@ -1250,9 +1364,8 @@ function QuestPageControls({
   loadingDirection,
   canLoadPrevious,
   canLoadNext,
-  onLoadPrevious,
-  onLoadNext,
 }: {
+  position: "top" | "bottom";
   total: number;
   limit: number;
   windowOffset: number;
@@ -1260,35 +1373,32 @@ function QuestPageControls({
   loadingDirection: "next" | "previous" | null;
   canLoadPrevious: boolean;
   canLoadNext: boolean;
-  onLoadPrevious: () => void;
-  onLoadNext: () => void;
 }) {
   if (total <= limit && windowOffset === 0) return null;
+  if (position === "top" && !canLoadPrevious && loadingDirection !== "previous") return null;
   const start = total === 0 ? 0 : windowOffset + 1;
   const end = Math.min(windowOffset + renderedCount, total);
+  const canLoad = position === "top" ? canLoadPrevious : canLoadNext;
+  const loading = loadingDirection === (position === "top" ? "previous" : "next");
+  const hint = loading
+    ? position === "top"
+      ? "Loading previous results..."
+      : "Loading more results..."
+    : canLoad
+      ? position === "top"
+        ? "Scroll up to load previous results"
+        : "Scroll down to load more results"
+      : position === "top"
+        ? "Start of results"
+        : "End of results";
 
   return (
-    <div className="flex flex-col items-center gap-2 py-4 text-xs text-cc-muted">
-      <div>
+    <div className="flex flex-col items-center gap-1 py-4 text-xs text-cc-muted" data-testid={`quest-page-${position}`}>
+      <div data-testid={`quest-page-${position}-range`}>
         Showing {start}-{end} of {total}
       </div>
-      <div className="flex items-center gap-2">
-        <button
-          type="button"
-          disabled={!canLoadPrevious || loadingDirection !== null}
-          onClick={onLoadPrevious}
-          className="px-3 py-1.5 rounded-lg border border-cc-border bg-cc-card text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          {loadingDirection === "previous" ? "Loading..." : "Previous"}
-        </button>
-        <button
-          type="button"
-          disabled={!canLoadNext || loadingDirection !== null}
-          onClick={onLoadNext}
-          className="px-3 py-1.5 rounded-lg border border-cc-border bg-cc-card text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer disabled:cursor-not-allowed disabled:opacity-45"
-        >
-          {loadingDirection === "next" ? "Loading..." : "Load more"}
-        </button>
+      <div className="text-[11px] text-cc-muted/70" data-testid={`quest-page-${position}-hint`}>
+        {hint}
       </div>
     </div>
   );

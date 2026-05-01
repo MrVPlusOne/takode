@@ -372,12 +372,28 @@ function renderedQuestIds(): string[] {
   return questElements.map((el) => el.dataset.questId).filter((questId): questId is string => !!questId);
 }
 
-function clickLoadMore() {
-  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-    (candidate) => candidate.textContent === "Load more",
-  );
-  if (!button) throw new Error("Load more button not found");
-  fireEvent.click(button);
+function getQuestmasterScrollContainer() {
+  return screen.getByTestId("questmaster-scroll-container");
+}
+
+function setScrollMetrics(el: HTMLElement, metrics: { scrollTop: number; clientHeight: number; scrollHeight: number }) {
+  Object.defineProperty(el, "clientHeight", { configurable: true, value: metrics.clientHeight });
+  Object.defineProperty(el, "scrollHeight", { configurable: true, value: metrics.scrollHeight });
+  el.scrollTop = metrics.scrollTop;
+}
+
+function scrollNearQuestmasterBottom() {
+  const el = getQuestmasterScrollContainer();
+  setScrollMetrics(el, { scrollTop: 880, clientHeight: 100, scrollHeight: 1_000 });
+  fireEvent.scroll(el);
+}
+
+async function settleLatestQuestPageRequest() {
+  const latestResult = mockListQuestPage.mock.results.at(-1);
+  if (!latestResult || latestResult.type !== "return") return;
+  await act(async () => {
+    await latestResult.value;
+  });
 }
 
 beforeEach(() => {
@@ -937,28 +953,33 @@ describe("QuestmasterPage status display", () => {
       expect(renderedQuestIds()).toHaveLength(50);
       expect(renderedQuestIds()[0]).toBe("q-1");
     });
+    await settleLatestQuestPageRequest();
 
-    clickLoadMore();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
+
+    scrollNearQuestmasterBottom();
     await waitFor(() => {
       expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 50 }));
       expect(renderedQuestIds()).toHaveLength(100);
       expect(renderedQuestIds()[99]).toBe("q-100");
     });
 
-    clickLoadMore();
+    scrollNearQuestmasterBottom();
     await waitFor(() => {
       expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100, limit: 50 }));
       expect(renderedQuestIds()).toHaveLength(150);
       expect(renderedQuestIds()[149]).toBe("q-150");
     });
 
-    clickLoadMore();
+    scrollNearQuestmasterBottom();
     await waitFor(() => {
       expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 150, limit: 50 }));
       expect(renderedQuestIds()).toHaveLength(150);
       expect(renderedQuestIds()[0]).toBe("q-26");
       expect(renderedQuestIds()[149]).toBe("q-175");
-      expect(screen.getByText("Showing 26-175 of 175")).toBeInTheDocument();
+      expect(screen.getByTestId("quest-page-bottom-range")).toHaveTextContent("Showing 26-175 of 175");
+      expect(screen.getByText("Scroll up to load previous results")).toBeInTheDocument();
     });
   });
 

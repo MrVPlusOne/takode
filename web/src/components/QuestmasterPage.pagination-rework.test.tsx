@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { multiWordMatch } from "../../shared/search-utils.js";
 import type { QuestmasterTask, QuestStatus } from "../types.js";
@@ -206,12 +206,28 @@ function renderedQuestIds(): string[] {
   return questElements.map((el) => el.dataset.questId).filter((questId): questId is string => !!questId);
 }
 
-function clickLoadMore() {
-  const button = Array.from(document.querySelectorAll<HTMLButtonElement>("button")).find(
-    (candidate) => candidate.textContent === "Load more",
-  );
-  if (!button) throw new Error("Load more button not found");
-  fireEvent.click(button);
+function getQuestmasterScrollContainer() {
+  return screen.getByTestId("questmaster-scroll-container");
+}
+
+function setScrollMetrics(el: HTMLElement, metrics: { scrollTop: number; clientHeight: number; scrollHeight: number }) {
+  Object.defineProperty(el, "clientHeight", { configurable: true, value: metrics.clientHeight });
+  Object.defineProperty(el, "scrollHeight", { configurable: true, value: metrics.scrollHeight });
+  el.scrollTop = metrics.scrollTop;
+}
+
+function scrollNearQuestmasterBottom() {
+  const el = getQuestmasterScrollContainer();
+  setScrollMetrics(el, { scrollTop: 880, clientHeight: 100, scrollHeight: 1_000 });
+  fireEvent.scroll(el);
+}
+
+async function settleLatestQuestPageRequest() {
+  const latestResult = mockListQuestPage.mock.results.at(-1);
+  if (!latestResult || latestResult.type !== "return") return;
+  await act(async () => {
+    await latestResult.value;
+  });
 }
 
 beforeEach(() => {
@@ -268,19 +284,24 @@ describe("QuestmasterPage paged browsing rework", () => {
     renderQuestmaster();
 
     await waitFor(() => expect(renderedQuestIds()[0]).toBe("q-1"));
-    clickLoadMore();
+    await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
+    await settleLatestQuestPageRequest();
+    expect(screen.queryByRole("button", { name: "Load more" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Previous" })).not.toBeInTheDocument();
+
+    scrollNearQuestmasterBottom();
     await waitFor(() =>
       expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 50 })),
     );
-    clickLoadMore();
+    scrollNearQuestmasterBottom();
     await waitFor(() =>
       expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100, limit: 50 })),
     );
-    clickLoadMore();
+    scrollNearQuestmasterBottom();
     await waitFor(() => {
       expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 150, limit: 50 }));
       expect(renderedQuestIds()[0]).toBe("q-51");
-      expect(screen.getByText("Showing 51-200 of 200")).toBeInTheDocument();
+      expect(screen.getByTestId("quest-page-bottom-range")).toHaveTextContent("Showing 51-200 of 200");
     });
 
     mockListQuestPage.mockClear();
@@ -289,8 +310,66 @@ describe("QuestmasterPage paged browsing rework", () => {
     await waitFor(() => {
       expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 150 }));
       expect(renderedQuestIds()[0]).toBe("q-51");
-      expect(screen.getByText("Showing 51-200 of 200")).toBeInTheDocument();
+      expect(screen.getByTestId("quest-page-bottom-range")).toHaveTextContent("Showing 51-200 of 200");
     });
+  });
+
+  it("loads the previous page on upward boundary scroll and preserves the current anchor row", async () => {
+    mockState.questmasterViewMode = "compact";
+    mockState.questmasterCompactSort = { column: "quest", direction: "asc" };
+    mockGetSettings.mockResolvedValue({
+      questmasterViewMode: "compact",
+      questmasterCompactSort: { column: "quest", direction: "asc" },
+    });
+    mockState.quests = Array.from({ length: 200 }, (_, index) => {
+      const questNumber = index + 1;
+      return makeQuest({
+        questId: `q-${questNumber}`,
+        title: `Generated quest ${String(questNumber).padStart(3, "0")}`,
+        status: "done",
+        createdAt: questNumber,
+        updatedAt: questNumber,
+      });
+    });
+    const offsetTopSpy = vi.spyOn(HTMLElement.prototype, "offsetTop", "get").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      const rows = Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]"));
+      return Math.max(0, rows.indexOf(this)) * 24;
+    });
+
+    try {
+      renderQuestmaster();
+      await waitFor(() => expect(renderedQuestIds()[0]).toBe("q-1"));
+      await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
+      await settleLatestQuestPageRequest();
+      scrollNearQuestmasterBottom();
+      await waitFor(() =>
+        expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 50 })),
+      );
+      scrollNearQuestmasterBottom();
+      await waitFor(() =>
+        expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100, limit: 50 })),
+      );
+      scrollNearQuestmasterBottom();
+      await waitFor(() => {
+        expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 150, limit: 50 }));
+        expect(renderedQuestIds()[0]).toBe("q-51");
+      });
+
+      const scroller = getQuestmasterScrollContainer();
+      setScrollMetrics(scroller, { scrollTop: 4, clientHeight: 100, scrollHeight: 1_000 });
+      fireEvent.wheel(scroller, { deltaY: -100 });
+
+      await waitFor(() => {
+        expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0, limit: 50 }));
+        expect(renderedQuestIds()[0]).toBe("q-1");
+        expect(renderedQuestIds()[149]).toBe("q-150");
+        expect(scroller.scrollTop).toBeGreaterThan(1_000);
+      });
+    } finally {
+      offsetTopSpy.mockRestore();
+    }
   });
 
   it("does not insert a newly created quest into a page filtered by nonmatching search text", async () => {
