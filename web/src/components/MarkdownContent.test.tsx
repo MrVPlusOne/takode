@@ -393,7 +393,8 @@ describe("MarkdownContent quest links", () => {
     expect(screen.getByTestId("quest-journey-preview-card")).toBeTruthy();
     expect(screen.getByTestId("quest-journey-timeline").getAttribute("data-journey-mode")).toBe("active");
     expect(screen.getByText("Active Journey")).toBeTruthy();
-    expect(screen.getByText("Implement")).toBeTruthy();
+    expect(within(screen.getByTestId("quest-hover-status-row")).getByText("Implement")).toBeTruthy();
+    expect(within(screen.getByTestId("quest-journey-timeline")).getByText("Implement")).toBeTruthy();
   });
 
   it("shows completed quests with the full completed Journey in the shared hover card", async () => {

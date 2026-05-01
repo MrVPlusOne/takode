@@ -526,7 +526,7 @@ describe("NotificationChip", () => {
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-345" }));
 
     expect(screen.getByText("Compress herd events more aggressively")).toBeInTheDocument();
-    expect(screen.getByText("Done")).toBeInTheDocument();
+    expect(within(screen.getByTestId("quest-hover-status-row")).getByText("Completed")).toBeInTheDocument();
   });
 
   it("shows a Read All control and marks all active notifications done", () => {
