@@ -122,6 +122,8 @@ export function emitSyntheticToolResultPreview(
     total_size: totalSize,
     is_truncated: isTruncated,
     duration_seconds: durationSeconds,
+    synthetic_reason: reason,
+    retained_output: !!retainedOutput,
   };
   const browserMsg: BrowserIncomingMessage = {
     type: "tool_result_preview",

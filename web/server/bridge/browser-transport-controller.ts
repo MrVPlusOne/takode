@@ -25,6 +25,7 @@ import type {
   SessionTaskEntry,
   SessionState,
   TakodeHerdBatchSnapshot,
+  ToolResultPreview,
   VsCodeOpenFileCommand,
   VsCodeSelectionState,
   VsCodeWindowState,
@@ -879,6 +880,7 @@ export function sendHistoryWindowSync(
     const endIdx = lastTurn && lastTurn.endIdx >= 0 ? lastTurn.endIdx : Math.max(0, session.messageHistory.length - 1);
     messages = session.messageHistory.slice(startIdx, endIdx + 1);
   }
+  messages = appendResolvedToolResultPreviewsForWindow(messages, session.messageHistory);
 
   sendToBrowser(ws, {
     type: "history_window_sync",
@@ -892,6 +894,59 @@ export function sendHistoryWindowSync(
       visible_section_count: normalizedVisibleSectionCount,
     },
   } as BrowserIncomingMessage);
+}
+
+function appendResolvedToolResultPreviewsForWindow(
+  windowMessages: BrowserIncomingMessage[],
+  fullHistory: BrowserIncomingMessage[],
+): BrowserIncomingMessage[] {
+  const visibleToolUseIds: string[] = [];
+  const seenToolUseIds = new Set<string>();
+  const resolvedInWindow = new Set<string>();
+
+  for (const msg of windowMessages) {
+    if (msg.type === "assistant") {
+      const content = msg.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (block.type !== "tool_use" || !block.id || seenToolUseIds.has(block.id)) continue;
+        seenToolUseIds.add(block.id);
+        visibleToolUseIds.push(block.id);
+      }
+      continue;
+    }
+    if (msg.type === "tool_result_preview") {
+      for (const preview of msg.previews || []) {
+        if (typeof preview.tool_use_id === "string") resolvedInWindow.add(preview.tool_use_id);
+      }
+    }
+  }
+
+  if (visibleToolUseIds.length === 0) return windowMessages;
+
+  const latestPreviewByToolUseId = new Map<string, ToolResultPreview>();
+  for (const msg of fullHistory) {
+    if (msg.type !== "tool_result_preview") continue;
+    for (const preview of msg.previews || []) {
+      if (seenToolUseIds.has(preview.tool_use_id) && !resolvedInWindow.has(preview.tool_use_id)) {
+        latestPreviewByToolUseId.set(preview.tool_use_id, preview);
+      }
+    }
+  }
+
+  const supplementalPreviews = visibleToolUseIds
+    .filter((toolUseId) => !resolvedInWindow.has(toolUseId))
+    .map((toolUseId) => latestPreviewByToolUseId.get(toolUseId))
+    .filter((preview): preview is ToolResultPreview => preview != null);
+  if (supplementalPreviews.length === 0) return windowMessages;
+
+  return [
+    ...windowMessages,
+    {
+      type: "tool_result_preview",
+      previews: supplementalPreviews,
+    },
+  ];
 }
 
 export async function handleSessionSubscribe(

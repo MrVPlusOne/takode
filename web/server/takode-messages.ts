@@ -23,6 +23,13 @@ export interface TakodePeekTool {
   name: string;
   /** One-line summary (e.g. "server/routes.ts +15 lines") */
   summary: string;
+  status?: "running" | "completed" | "error" | "orphaned";
+  durationSeconds?: number;
+  result?: string;
+  resultTruncated?: boolean;
+  resultTotalSize?: number;
+  syntheticReason?: string;
+  retainedOutput?: boolean;
 }
 
 export interface TakodePeekMessage {
@@ -372,6 +379,39 @@ function resolveToolResult(
     return `${prefix} ${preview.content}${suffix}`;
   }
   return null;
+}
+
+function isSyntheticTerminalResultPreview(preview: ToolResultPreview): boolean {
+  if (preview.synthetic_reason) return true;
+  return /terminal command (completed, but no output was captured|did not deliver a final result|was interrupted|failed before the final tool result)/i.test(
+    preview.content,
+  );
+}
+
+function buildPeekTool(
+  block: { id: string; name: string; input: Record<string, unknown> },
+  idx: number,
+  toolResultPreviews: Map<string, ToolResultPreview>,
+): TakodePeekTool {
+  const preview = toolResultPreviews.get(block.id);
+  const base: TakodePeekTool = {
+    idx,
+    name: block.name,
+    summary: buildToolSummary(block.name, block.input),
+  };
+  if (!preview) return { ...base, status: "running" };
+
+  const isSynthetic = isSyntheticTerminalResultPreview(preview);
+  return {
+    ...base,
+    status: isSynthetic ? "orphaned" : preview.is_error ? "error" : "completed",
+    ...(typeof preview.duration_seconds === "number" ? { durationSeconds: preview.duration_seconds } : {}),
+    ...(preview.content ? { result: truncate(preview.content, 100) } : {}),
+    ...(preview.is_truncated ? { resultTruncated: true } : {}),
+    ...(typeof preview.total_size === "number" ? { resultTotalSize: preview.total_size } : {}),
+    ...(preview.synthetic_reason ? { syntheticReason: preview.synthetic_reason } : {}),
+    ...(typeof preview.retained_output === "boolean" ? { retainedOutput: preview.retained_output } : {}),
+  };
 }
 
 function deriveTurnResultPreview(
@@ -770,11 +810,7 @@ function buildTurnMessages(
         if (visibleToolBlocks.length > 0) {
           peekMsg.tools = visibleToolBlocks.map((block) => {
             const blockIdx = msg.message.content.indexOf(block);
-            return {
-              idx: blockIdx >= 0 ? blockIdx : 0,
-              name: block.name,
-              summary: buildToolSummary(block.name, block.input),
-            };
+            return buildPeekTool(block, blockIdx >= 0 ? blockIdx : 0, toolResultPreviews);
           });
         }
       }
@@ -1093,14 +1129,10 @@ export function buildPeekRange(
           return true;
         });
         if (visibleBlocks.length > 0) {
-          if (options.showTools) {
+          if (options.showTools || visibleBlocks.length === 1) {
             peekMsg.tools = visibleBlocks.map((block) => {
               const blockIdx = msg.message.content.indexOf(block);
-              return {
-                idx: blockIdx >= 0 ? blockIdx : 0,
-                name: block.name,
-                summary: buildToolSummary(block.name, block.input),
-              };
+              return buildPeekTool(block, blockIdx >= 0 ? blockIdx : 0, toolResultPreviews);
             });
           } else {
             const counts: Record<string, number> = {};

@@ -503,6 +503,23 @@ export function usePlaygroundSeed() {
           },
         ],
       },
+      {
+        id: "playground-codex-terminal-bash-orphaned",
+        role: "assistant",
+        content: "",
+        timestamp: Date.now() - 18_000,
+        model: "gpt-5.3-codex",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "playground-codex-orphaned-bash",
+            name: "Bash",
+            input: {
+              command: "git status --short",
+            },
+          },
+        ],
+      },
     ]);
     store.setToolStartTimestamps(PLAYGROUND_CODEX_TERMINAL_SESSION_ID, {
       "playground-codex-live-bash": Date.now() - 49_000,
@@ -534,6 +551,16 @@ export function usePlaygroundSeed() {
       total_size: 53,
       is_truncated: false,
       duration_seconds: 14.1,
+    });
+    store.setToolResult(PLAYGROUND_CODEX_TERMINAL_SESSION_ID, "playground-codex-orphaned-bash", {
+      tool_use_id: "playground-codex-orphaned-bash",
+      content: "Terminal command did not deliver a final result after a later tool completed.",
+      is_error: false,
+      total_size: 77,
+      is_truncated: false,
+      duration_seconds: 121.7,
+      synthetic_reason: "superseded_by_later_completed_tool",
+      retained_output: false,
     });
 
     store.addSession({

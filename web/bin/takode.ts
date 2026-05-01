@@ -571,6 +571,15 @@ function formatTimestampCompact(epoch: number): string {
   return dateKey(epoch) === dateKey(Date.now()) ? formatTime(epoch) : `${formatDate(epoch)} ${formatTime(epoch)}`;
 }
 
+function formatDurationSeconds(seconds: number): string {
+  if (seconds < 0.1) return "<0.1s";
+  if (seconds < 10) return `${seconds.toFixed(1)}s`;
+  if (seconds < 60) return `${Math.round(seconds)}s`;
+  const mins = Math.floor(seconds / 60);
+  const secs = Math.round(seconds % 60);
+  return `${mins}m${secs}s`;
+}
+
 type SessionTimerDetail = {
   id: string;
   type: string;
@@ -1196,20 +1205,60 @@ interface CollapsedToolGroup {
   name: string;
   count: number;
   summaries: string[];
+  tools: PeekTool[];
 }
 
-function collapseToolCalls(tools: Array<{ name: string; summary: string }>): CollapsedToolGroup[] {
+type PeekTool = {
+  idx: number;
+  name: string;
+  summary: string;
+  status?: "running" | "completed" | "error" | "orphaned";
+  durationSeconds?: number;
+  result?: string;
+  resultTruncated?: boolean;
+  resultTotalSize?: number;
+  syntheticReason?: string;
+  retainedOutput?: boolean;
+};
+
+function collapseToolCalls(tools: PeekTool[]): CollapsedToolGroup[] {
   const groups: CollapsedToolGroup[] = [];
   for (const tool of tools) {
     const last = groups[groups.length - 1];
     if (last && last.name === tool.name) {
       last.count++;
       last.summaries.push(tool.summary);
+      last.tools.push(tool);
     } else {
-      groups.push({ name: tool.name, count: 1, summaries: [tool.summary] });
+      groups.push({ name: tool.name, count: 1, summaries: [tool.summary], tools: [tool] });
     }
   }
   return groups;
+}
+
+function formatPeekToolStatus(tool: PeekTool): string {
+  const duration = typeof tool.durationSeconds === "number" ? ` ${formatDurationSeconds(tool.durationSeconds)}` : "";
+  switch (tool.status) {
+    case "completed":
+      return `✓${duration}`;
+    case "error":
+      return `✗${duration}`;
+    case "orphaned":
+      return `orphaned${duration}`;
+    case "running":
+      return "running";
+    default:
+      return "";
+  }
+}
+
+function formatPeekToolLine(tool: PeekTool): string {
+  const status = formatPeekToolStatus(tool);
+  const summary = truncate(tool.summary, 80);
+  const parts = [formatInlineText(tool.name), status, summary].filter(Boolean);
+  const result = tool.result ? ` -- ${truncate(tool.result, 100)}${tool.resultTruncated ? " [truncated]" : ""}` : "";
+  const reason = tool.syntheticReason ? ` (${formatInlineText(tool.syntheticReason)})` : "";
+  return `${parts.join(" ")}${reason}${result}`;
 }
 
 // ─── Command handlers ───────────────────────────────────────────────────────
@@ -1825,7 +1874,7 @@ type PeekMessage = {
   type: string;
   content: string;
   ts: number;
-  tools?: Array<{ idx: number; name: string; summary: string }>;
+  tools?: PeekTool[];
   toolCounts?: Record<string, number>;
   dur?: number;
   success?: boolean;
@@ -1969,9 +2018,8 @@ function printExpandedMessages(messages: PeekMessage[]): void {
             const isLastGroup = ci === collapsed.length - 1;
             const connector = isLastGroup && isLast ? "└─" : "├─";
             if (group.count === 1) {
-              console.log(
-                `  ${pipe}       ${connector} ${formatInlineText(group.name).padEnd(6)} ${truncate(group.summaries[0], 80)}`,
-              );
+              const detail = formatPeekToolLine(group.tools[0]!);
+              console.log(`  ${pipe}       ${connector} ${detail}`);
             } else {
               // Multiple consecutive calls of the same tool -- show count + combined summaries
               const summaryParts = group.summaries.filter(Boolean).slice(0, 3);
@@ -2147,7 +2195,7 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
             console.log(`  ${idx.padEnd(7)} ${time}  tool`);
           }
           for (const tool of msg.tools) {
-            console.log(`  ${idx.padEnd(7)}           → ${formatInlineText(tool.name)}: ${truncate(tool.summary, 80)}`);
+            console.log(`  ${idx.padEnd(7)}           → ${formatPeekToolLine(tool)}`);
           }
         } else {
           // Compact tool counts (default)

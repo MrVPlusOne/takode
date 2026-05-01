@@ -808,9 +808,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
       const turn = allTurns[turnNum];
       const endIdx = turn.endIdx >= 0 ? turn.endIdx : history.length - 1;
-      const count = endIdx - turn.startIdx + 1;
       const showTools = c.req.query("showTools") === "true";
-      return c.json({ ...base, ...buildPeekRange(history, { from: turn.startIdx, count, showTools }, sessionId) });
+      return c.json({
+        ...base,
+        ...buildPeekRange(history, { from: turn.startIdx, until: endIdx, showTools }, sessionId),
+      });
     }
 
     if (fromParam !== undefined || untilParam !== undefined) {

@@ -12,6 +12,7 @@ import {
   broadcastToBrowsers,
   injectUserMessage,
   sendLeaderProjectionSnapshot,
+  sendHistoryWindowSync,
   type BrowserTransportSessionLike,
 } from "./browser-transport-controller.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
@@ -267,6 +268,95 @@ describe("leader projection snapshots", () => {
     expect(snapshot.projection.threadRows).toEqual([
       expect.objectContaining({ threadKey: "q-1039", title: "Projection summaries", messageCount: 1 }),
     ]);
+  });
+});
+
+describe("history window tool results", () => {
+  it("includes resolved previews for visible Codex tools even when the preview is outside the window slice", () => {
+    const send = vi.fn();
+    const session = makeSession({
+      backendType: "codex",
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "u1",
+          content: "Check status",
+          timestamp: 1,
+        } as BrowserIncomingMessage,
+        {
+          type: "assistant",
+          message: {
+            id: "a1",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.5",
+            content: [
+              {
+                type: "tool_use",
+                id: "call-orphaned",
+                name: "Bash",
+                input: { command: "git status --short" },
+              },
+            ],
+            stop_reason: null,
+            usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 2,
+          tool_start_times: { "call-orphaned": 2 },
+        } as BrowserIncomingMessage,
+        {
+          type: "result",
+          data: {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "Done",
+            duration_ms: 1000,
+            duration_api_ms: 900,
+            num_turns: 1,
+            total_cost_usd: 0,
+            stop_reason: "end_turn",
+            session_id: "test-session",
+          },
+        } as BrowserIncomingMessage,
+        {
+          type: "tool_result_preview",
+          previews: [
+            {
+              tool_use_id: "call-orphaned",
+              content: "Terminal command did not deliver a final result after a later tool completed.",
+              is_error: false,
+              total_size: 77,
+              is_truncated: false,
+              duration_seconds: 121.7,
+              synthetic_reason: "superseded_by_later_completed_tool",
+              retained_output: false,
+            },
+          ],
+        } as BrowserIncomingMessage,
+      ],
+    });
+
+    sendHistoryWindowSync(
+      session,
+      { send },
+      { fromTurn: 0, turnCount: 1, sectionTurnCount: 1, visibleSectionCount: 1 },
+    );
+
+    const payload = JSON.parse(send.mock.calls[0][0]);
+    expect(payload.type).toBe("history_window_sync");
+    expect(payload.messages.map((msg: BrowserIncomingMessage) => msg.type)).toEqual([
+      "user_message",
+      "assistant",
+      "result",
+      "tool_result_preview",
+    ]);
+    expect(payload.messages.at(-1).previews[0]).toMatchObject({
+      tool_use_id: "call-orphaned",
+      synthetic_reason: "superseded_by_later_completed_tool",
+      retained_output: false,
+    });
   });
 });
 

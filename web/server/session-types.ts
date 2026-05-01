@@ -244,6 +244,10 @@ export interface ToolResultPreview {
   is_truncated: boolean;
   /** Wall-clock duration in seconds (tool_use → tool_result), rounded to 0.1s. Omitted if unknown. */
   duration_seconds?: number;
+  /** Present when the server synthesized this preview to resolve an orphaned Codex tool call. */
+  synthetic_reason?: string;
+  /** Whether retained live terminal output was available for a synthesized preview. */
+  retained_output?: boolean;
 }
 
 export const TOOL_RESULT_PREVIEW_LIMIT = 300;

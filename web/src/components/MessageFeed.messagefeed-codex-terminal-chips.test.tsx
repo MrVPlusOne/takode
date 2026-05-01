@@ -348,7 +348,17 @@ function setStoreToolStartTimestamps(sessionId: string, timestamps: Record<strin
 
 function setStoreToolResults(
   sessionId: string,
-  results: Record<string, { content: string; is_truncated: boolean; duration_seconds?: number; is_error?: boolean }>,
+  results: Record<
+    string,
+    {
+      content: string;
+      is_truncated: boolean;
+      duration_seconds?: number;
+      is_error?: boolean;
+      synthetic_reason?: string;
+      retained_output?: boolean;
+    }
+  >,
 ) {
   const map = new Map();
   map.set(sessionId, new Map(Object.entries(results)));
@@ -694,6 +704,38 @@ describe("MessageFeed - Codex terminal chips", () => {
     expect(screen.queryByTestId("live-activity-rail")).toBeNull();
     expect(screen.queryByText("Live terminal")).toBeNull();
     expect(screen.getByText("bun run test")).toBeTruthy();
+  });
+
+  it("does not render a synthesized orphaned Codex Bash result as live", () => {
+    const sid = "test-codex-orphaned-complete";
+    setStoreSessionBackend(sid, "codex");
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "codex-orphaned-1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-orphaned-1", name: "Bash", input: { command: "git status --short" } },
+        ],
+      }),
+    ]);
+    setStoreToolStartTimestamps(sid, { "tu-orphaned-1": Date.now() - 121_700 });
+    setStoreToolResults(sid, {
+      "tu-orphaned-1": {
+        content: "Terminal command did not deliver a final result after a later tool completed.",
+        is_truncated: false,
+        duration_seconds: 121.7,
+        synthetic_reason: "superseded_by_later_completed_tool",
+        retained_output: false,
+      },
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByTestId("codex-live-terminal-chip")).toBeNull();
+    expect(screen.queryByTestId("live-activity-rail")).toBeNull();
+    expect(screen.getByText("git status --short")).toBeTruthy();
+    expect(screen.getByText("2m2s")).toBeTruthy();
   });
 
   it("keeps a completed live terminal transcript visible in the inline Bash card", () => {
