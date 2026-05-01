@@ -1044,7 +1044,7 @@ async function cmdCreate(): Promise<void> {
     ...options("image"),
     ...options("images").flatMap((group) => group.split(",").map((p) => p.trim())),
   ].filter(Boolean);
-  const relationships = parseRelationshipFlags(option);
+  const relationships = parseRelationshipFlags({ option });
 
   try {
     const uploadedImages =
@@ -1544,12 +1544,23 @@ async function cmdInbox(): Promise<void> {
 }
 
 async function cmdEdit(): Promise<void> {
-  validateFlags(["title", "title-file", "desc", "desc-file", "tldr", "tldr-file", "tags", "follow-up-of", "json"]);
+  validateFlags([
+    "title",
+    "title-file",
+    "desc",
+    "desc-file",
+    "tldr",
+    "tldr-file",
+    "tags",
+    "follow-up-of",
+    "clear-follow-up-of",
+    "json",
+  ]);
   const id = positional(0);
   if (!id) {
     die(
       'Usage: quest edit <questId> [--title "..." | --title-file <path>|-] ' +
-        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"]',
+        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2" | --clear-follow-up-of]',
     );
   }
 
@@ -1576,7 +1587,10 @@ async function cmdEdit(): Promise<void> {
         .map((t) => t.trim())
         .filter(Boolean)
     : undefined;
-  const relationships = parseRelationshipFlags(option);
+  if (flag("clear-follow-up-of") && flag("follow-up-of")) {
+    die("Use either --follow-up-of or --clear-follow-up-of, not both");
+  }
+  const relationships = parseRelationshipFlags({ option, clearFollowUpOf: flag("clear-follow-up-of") });
 
   if (
     title === undefined &&
@@ -1586,7 +1600,7 @@ async function cmdEdit(): Promise<void> {
     relationships === undefined
   ) {
     die(
-      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, or --follow-up-of is required",
+      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, --follow-up-of, or --clear-follow-up-of is required",
     );
   }
 

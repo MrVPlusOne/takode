@@ -25,7 +25,7 @@ Commands:
                                                          Change status
   later  <id> [--json]                                   Move review-pending quest out of inbox
   inbox  <id> [--json]                                   Move review-pending quest back to inbox
-  edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--json]
+  edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--json]
                                                          Edit in place
   check  <id> <index> [--json]                           Toggle verification item
   feedback <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
@@ -67,6 +67,7 @@ Safer rich-text input:
   quest edit q-1 --desc-file body.md
   quest create "Follow-up" --follow-up-of q-1
   quest edit q-2 --follow-up-of "q-1,q-3"
+  quest edit q-2 --clear-follow-up-of
   quest feedback q-1 --text-file note.md --tldr-file note-tldr.md
   quest feedback latest q-1 --author human --unaddressed --full
   quest feedback show q-1 0

@@ -58,4 +58,25 @@ describe("quest CLI relationships", () => {
       relatedQuests: [{ questId: "q-1", kind: "follow_up_of", explicit: true }],
     });
   });
+
+  it("clears explicit follow-up links and removes derived reverse relationships", async () => {
+    // Regression coverage for review feedback: clearing must be an intentional public CLI syntax, not an empty-value accident.
+    expect((await runQuest(["create", "Original"], home)).status).toBe(0);
+    expect((await runQuest(["create", "Follow-up", "--follow-up-of", "q-1"], home)).status).toBe(0);
+
+    const relatedSearch = await runQuest(["list", "--text", "has_follow_up", "--json"], home);
+    expect(JSON.parse(relatedSearch.stdout).map((quest: { questId: string }) => quest.questId)).toEqual(["q-1"]);
+
+    const clear = await runQuest(["edit", "q-2", "--clear-follow-up-of"], home);
+    expect(clear.status).toBe(0);
+
+    const original = JSON.parse((await runQuest(["show", "q-1", "--json"], home)).stdout);
+    const followUp = JSON.parse((await runQuest(["show", "q-2", "--json"], home)).stdout);
+    const clearedSearch = await runQuest(["list", "--text", "has_follow_up", "--json"], home);
+
+    expect(followUp.relationships).toBeUndefined();
+    expect(followUp.relatedQuests).toBeUndefined();
+    expect(original.relatedQuests).toBeUndefined();
+    expect(JSON.parse(clearedSearch.stdout)).toEqual([]);
+  });
 });
