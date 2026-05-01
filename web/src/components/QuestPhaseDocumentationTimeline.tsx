@@ -5,7 +5,9 @@ import {
 } from "../../shared/quest-phase-documentation-summary.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
+import { QuestPhaseNoteImages } from "./QuestPhaseNoteImages.js";
 import { SessionNumChip } from "./SessionNumChip.js";
+import { useState } from "react";
 
 interface QuestPhaseDocumentationTimelineProps {
   summary: QuestPhaseDocumentationSummary;
@@ -71,48 +73,13 @@ export function QuestPhaseDocumentationTimeline({
                   {group.entries.map((entry) => {
                     const preview = entry.tldr?.trim() || compactText(phaseDocumentationPreview(entry));
                     return (
-                      <div
+                      <PhaseDocumentationEntry
                         key={entry.index}
-                        className="rounded-md border border-cc-border/70 bg-cc-input-bg/70 px-2 py-1.5"
-                        data-testid="quest-phase-documentation-entry"
-                      >
-                        <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5">
-                          <span className="shrink-0 font-mono-code text-[10px] text-cc-muted">#{entry.index}</span>
-                          {entry.authorSessionId ? (
-                            <SessionNumChip
-                              sessionId={entry.authorSessionId}
-                              className="text-[10px] font-medium font-mono text-cc-primary hover:text-cc-primary-hover"
-                            />
-                          ) : (
-                            <span className="text-[10px] font-medium text-cc-muted">{entry.author}</span>
-                          )}
-                          {entry.kind && <span className="text-[10px] text-cc-muted">{entry.kind}</span>}
-                          <span className="text-[10px] text-cc-muted/60">{timeAgo(entry.ts)}</span>
-                        </div>
-                        <div className="text-xs text-cc-fg">
-                          <MarkdownContent
-                            text={preview}
-                            size="sm"
-                            sessionId={sessionId}
-                            searchHighlight={
-                              searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
-                            }
-                          />
-                        </div>
-                        <details className="mt-1 text-xs text-cc-muted">
-                          <summary className="cursor-pointer select-none">Full phase detail</summary>
-                          <div className="mt-1 text-cc-fg">
-                            <MarkdownContent
-                              text={entry.text}
-                              size="sm"
-                              sessionId={sessionId}
-                              searchHighlight={
-                                searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null
-                              }
-                            />
-                          </div>
-                        </details>
-                      </div>
+                        entry={entry}
+                        preview={preview}
+                        searchHighlight={searchHighlight}
+                        sessionId={sessionId}
+                      />
                     );
                   })}
                 </div>
@@ -122,6 +89,54 @@ export function QuestPhaseDocumentationTimeline({
         })}
       </ol>
     </section>
+  );
+}
+
+function PhaseDocumentationEntry({
+  entry,
+  preview,
+  searchHighlight,
+  sessionId,
+}: {
+  entry: QuestPhaseDocumentationSummary["groups"][number]["entries"][number];
+  preview: string;
+  searchHighlight?: string | null;
+  sessionId?: string;
+}) {
+  const [detailOpen, setDetailOpen] = useState(false);
+  const highlight = searchHighlight ? { query: searchHighlight, mode: "fuzzy" as const, isCurrent: false } : null;
+
+  return (
+    <div
+      className="rounded-md border border-cc-border/70 bg-cc-input-bg/70 px-2 py-1.5"
+      data-testid="quest-phase-documentation-entry"
+    >
+      <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5">
+        <span className="shrink-0 font-mono-code text-[10px] text-cc-muted">#{entry.index}</span>
+        {entry.authorSessionId ? (
+          <SessionNumChip
+            sessionId={entry.authorSessionId}
+            className="text-[10px] font-medium font-mono text-cc-primary hover:text-cc-primary-hover"
+          />
+        ) : (
+          <span className="text-[10px] font-medium text-cc-muted">{entry.author}</span>
+        )}
+        {entry.kind && <span className="text-[10px] text-cc-muted">{entry.kind}</span>}
+        <span className="text-[10px] text-cc-muted/60">{timeAgo(entry.ts)}</span>
+      </div>
+      <div className="text-xs text-cc-fg">
+        <MarkdownContent text={preview} size="sm" sessionId={sessionId} searchHighlight={highlight} />
+      </div>
+      <details className="mt-1 text-xs text-cc-muted" onToggle={(event) => setDetailOpen(event.currentTarget.open)}>
+        <summary className="cursor-pointer select-none" onClick={() => setDetailOpen((open) => !open)}>
+          Full phase detail
+        </summary>
+        <div className="mt-1 text-cc-fg">
+          <MarkdownContent text={entry.text} size="sm" sessionId={sessionId} searchHighlight={highlight} />
+          {detailOpen && <QuestPhaseNoteImages text={entry.text} />}
+        </div>
+      </details>
+    </div>
   );
 }
 

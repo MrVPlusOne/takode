@@ -19,6 +19,7 @@ const mockMarkAllNotificationsDone = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
+    getFsImageUrl: (path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`,
     getSettings: (...args: unknown[]) => mockGetSettings(...args),
     openVsCodeRemoteFile: vi.fn(),
     checkQuestVerification: (...args: unknown[]) => mockCheckQuestVerification(...args),
@@ -638,6 +639,63 @@ describe("QuestDetailPanel", () => {
 
     fireEvent.click(within(timeline).getByText("Full phase detail"));
     expect(await screen.findByText("Full second implementation detail.")).toBeVisible();
+  });
+
+  it("shows phase-note image thumbnails only inside expanded phase details", () => {
+    // This verifies q-1056 scope: phase-note image previews belong to expanded
+    // Journey detail notes, not collapsed summaries or unrelated feedback.
+    const quest = makeVerificationQuest({
+      tldr: "Short quest summary.",
+      journeyRuns: [
+        {
+          runId: "run-1",
+          source: "board",
+          phaseIds: ["execute"],
+          status: "completed",
+          createdAt: Date.now() - 5000,
+          updatedAt: Date.now() - 1000,
+          phaseOccurrences: [
+            {
+              occurrenceId: "run-1:p1",
+              phaseId: "execute",
+              phaseIndex: 0,
+              phasePosition: 1,
+              phaseOccurrence: 1,
+              status: "completed",
+            },
+          ],
+        },
+      ],
+      feedback: [
+        {
+          author: "agent",
+          kind: "phase_summary",
+          text: "Screenshot artifacts:\n- Desktop: /tmp/takode-q-1056/desktop.png\n- Mobile: `/tmp/takode-q-1056/mobile.jpeg`",
+          tldr: "Execute evidence captured.",
+          ts: Date.now(),
+          authorSessionId: "session-abc",
+          journeyRunId: "run-1",
+          phaseOccurrenceId: "run-1:p1",
+          phaseId: "execute",
+          phasePosition: 1,
+          phaseOccurrence: 1,
+        },
+      ],
+    });
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+
+    render(<QuestDetailPanel />);
+
+    const timeline = screen.getByTestId("quest-phase-documentation-timeline");
+    expect(within(timeline).queryByTestId("phase-note-image-thumbnails")).toBeNull();
+
+    fireEvent.click(within(timeline).getByText("Full phase detail"));
+    const thumbnailStrip = within(timeline).getByTestId("phase-note-image-thumbnails");
+    fireEvent.load(screen.getByAltText("desktop.png"));
+    fireEvent.load(screen.getByAltText("mobile.jpeg"));
+
+    expect(within(thumbnailStrip).getByRole("button", { name: "Open image desktop.png" })).toBeVisible();
+    expect(within(thumbnailStrip).getByRole("button", { name: "Open image mobile.jpeg" })).toBeVisible();
   });
 
   it("orders completed quest detail as TLDRs, full details, then Journey details", () => {
