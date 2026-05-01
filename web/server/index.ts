@@ -906,7 +906,6 @@ await ensureSkillSymlinks([
   "reviewer-groom",
   "skeptic-review",
   "worktree-rules",
-  "playwright-e2e-tester",
   "random-memory-ideas",
 ]);
 

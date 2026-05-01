@@ -9,7 +9,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, isolated ports, 
 
 ## Non-Negotiables
 
-- Use `agent-browser` for interactive Takode browser validation. Do not use Playwright MCP, raw Playwright scripts, or other browser automation libraries for Takode exploration unless the user explicitly asks for a non-interactive automation artifact.
+- Use `agent-browser` for interactive Takode browser validation.
 - Never stop, kill, restart, bind over, or replace an existing server on `:3456`. In this project, `:3456` is the live/session server agents depend on.
 - Hold the relevant Takode lease before starting or using shared resources:
   - `takode lease acquire dev-server:companion --purpose "Validate <quest or change>" --ttl 30m --wait`

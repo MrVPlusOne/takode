@@ -40,6 +40,7 @@ describe("index startup skill registration", () => {
     expect(registered).toContain("reviewer-groom");
     expect(registered).toContain("skeptic-review");
     expect(registered).toContain("worktree-rules");
+    expect(registered).not.toContain("playwright-e2e-tester");
   });
 
   it("keeps skeptic-review summary creation guidance from teaching lossy long summaries", async () => {
