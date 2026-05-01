@@ -1059,6 +1059,9 @@ describe("WorkBoardBar", () => {
 
     const { getByTestId } = render(<WorkBoardBar sessionId="s1" onSelectThread={onSelectThread} />);
     fireEvent.click(getByTestId("workboard-summary-button"));
+    const controls = getByTestId("workboard-thread-controls");
+    expect(within(controls).getByTestId("workboard-thread-nav")).toBeInTheDocument();
+    expect(within(controls).getByLabelText("Search threads, board, and history")).toBeInTheDocument();
     expect(getByTestId("workboard-thread-main")).toHaveAttribute("data-variant", "compact");
     expect(getByTestId("workboard-thread-main")).toHaveAttribute("data-secondary", "false");
     expect(getByTestId("workboard-thread-all")).toHaveAttribute("data-variant", "compact");
@@ -1068,6 +1071,47 @@ describe("WorkBoardBar", () => {
 
     expect(onSelectThread).toHaveBeenNthCalledWith(1, "main");
     expect(onSelectThread).toHaveBeenNthCalledWith(2, "all");
+  });
+
+  it("keeps thread search compact until focused or populated", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+
+    const { getByLabelText, getByTestId } = render(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} />);
+    fireEvent.click(getByTestId("workboard-summary-button"));
+
+    const controls = getByTestId("workboard-thread-controls");
+    const search = getByTestId("workboard-thread-search");
+    const input = getByLabelText("Search threads, board, and history");
+    expect(controls).toHaveAttribute("data-search-expanded", "false");
+    expect(search).toHaveAttribute("data-expanded", "false");
+
+    fireEvent.focus(input);
+    expect(controls).toHaveAttribute("data-search-expanded", "true");
+    expect(search).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.blur(input);
+    expect(controls).toHaveAttribute("data-search-expanded", "false");
+    expect(search).toHaveAttribute("data-expanded", "false");
+
+    fireEvent.change(input, { target: { value: "q-99" } });
+    expect(input).toHaveValue("q-99");
+    expect(controls).toHaveAttribute("data-search-expanded", "true");
+    expect(search).toHaveAttribute("data-expanded", "true");
+
+    fireEvent.keyDown(input, { key: "Escape" });
+    expect(input).toHaveValue("");
+    expect(getByTestId("board-table")).toBeInTheDocument();
+    expect(controls).toHaveAttribute("data-search-expanded", "false");
+    expect(search).toHaveAttribute("data-expanded", "false");
+
+    fireEvent.change(input, { target: { value: "q-99" } });
+    fireEvent.click(getByLabelText("Clear thread search"));
+    expect(input).toHaveValue("");
+    expect(controls).toHaveAttribute("data-search-expanded", "false");
+    expect(search).toHaveAttribute("data-expanded", "false");
   });
 
   it("navigates active and completed quest threads without changing QuestLink semantics", () => {

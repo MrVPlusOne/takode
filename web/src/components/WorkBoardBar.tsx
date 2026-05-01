@@ -156,6 +156,75 @@ function ThreadNavButton({
   );
 }
 
+function ThreadSearchField({
+  query,
+  expanded,
+  onQueryChange,
+  onFocusChange,
+}: {
+  query: string;
+  expanded: boolean;
+  onQueryChange: (query: string) => void;
+  onFocusChange: (focused: boolean) => void;
+}) {
+  return (
+    <div
+      className={`relative ml-auto h-8 ${
+        expanded ? "min-w-[8.5rem] flex-1" : "w-9 flex-none"
+      } sm:min-w-[12rem] sm:max-w-md sm:flex-1`}
+      data-testid="workboard-thread-search"
+      data-expanded={expanded ? "true" : "false"}
+    >
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        className={`pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cc-muted ${
+          expanded ? "left-2" : "left-1/2 -translate-x-1/2 sm:left-2 sm:translate-x-0"
+        }`}
+        aria-hidden="true"
+      >
+        <circle cx="6.5" cy="6.5" r="4.5" />
+        <path d="M10 10l3.5 3.5" strokeLinecap="round" />
+      </svg>
+      <input
+        type="search"
+        value={query}
+        onChange={(event) => onQueryChange(event.target.value)}
+        onFocus={() => onFocusChange(true)}
+        onBlur={() => onFocusChange(false)}
+        onKeyDown={(event) => {
+          if (event.key !== "Escape") return;
+          event.stopPropagation();
+          onQueryChange("");
+          event.currentTarget.blur();
+        }}
+        placeholder="Search threads, board, history"
+        className={`h-full w-full rounded-md border border-cc-border bg-cc-input-bg py-1.5 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted/65 focus:border-cc-primary/60 ${
+          expanded
+            ? "pl-7 pr-7"
+            : "cursor-pointer px-0 text-transparent placeholder:text-transparent sm:pl-7 sm:pr-7 sm:text-cc-fg sm:placeholder:text-cc-muted/65"
+        }`}
+        aria-label="Search threads, board, and history"
+      />
+      {query && (
+        <button
+          type="button"
+          onMouseDown={(event) => event.preventDefault()}
+          onClick={() => onQueryChange("")}
+          className="absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+          aria-label="Clear thread search"
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
+            <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+          </svg>
+        </button>
+      )}
+    </div>
+  );
+}
+
 interface PrimaryThreadChip {
   threadKey: string;
   questId?: string;
@@ -683,12 +752,14 @@ export function WorkBoardBar({
   const [expanded, setExpanded] = useState(() => readExpandedState(sessionId));
   const [completedExpanded, setCompletedExpanded] = useState(false);
   const [threadQuery, setThreadQuery] = useState("");
+  const [threadSearchFocused, setThreadSearchFocused] = useState(false);
   const showMainWorkBoard = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
 
   useEffect(() => {
     setExpanded(readExpandedState(sessionId));
     setCompletedExpanded(false);
     setThreadQuery("");
+    setThreadSearchFocused(false);
   }, [sessionId]);
 
   useEffect(() => {
@@ -824,6 +895,7 @@ export function WorkBoardBar({
     () => offBoardThreads.filter((row) => threadRowMatchesQuery(row, normalizedThreadQuery)),
     [normalizedThreadQuery, offBoardThreads],
   );
+  const threadSearchExpanded = threadSearchFocused || normalizedThreadQuery.length > 0;
   const summarySegments = useMemo(() => {
     const segments =
       activeCount === 0 && completedCount === 0 && offBoardThreads.length > 0
@@ -901,19 +973,13 @@ export function WorkBoardBar({
       {/* Expanded board table -- inline, pushes the feed down */}
       {showMainWorkBoard && expanded && (
         <div className="border-b border-cc-border bg-cc-card max-h-[55dvh] overflow-y-auto">
-          <div className="border-b border-cc-border px-3 py-2" data-testid="workboard-thread-search">
-            <input
-              type="search"
-              value={threadQuery}
-              onChange={(event) => setThreadQuery(event.target.value)}
-              placeholder="Search threads, board, history"
-              className="w-full rounded-md border border-cc-border bg-cc-input-bg px-2.5 py-1.5 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted/65 focus:border-cc-primary/60"
-              aria-label="Search threads, board, and history"
-            />
-          </div>
-          {onSelectThread && (
-            <div className="border-b border-cc-border px-3 py-1.5" data-testid="workboard-thread-nav">
-              <div className="flex min-w-0 flex-wrap items-center gap-1.5">
+          <div
+            className="flex min-w-0 items-center gap-1.5 border-b border-cc-border px-3 py-1.5"
+            data-testid="workboard-thread-controls"
+            data-search-expanded={threadSearchExpanded ? "true" : "false"}
+          >
+            {onSelectThread && (
+              <div className="flex min-w-0 shrink-0 items-center gap-1.5" data-testid="workboard-thread-nav">
                 <ThreadNavButton
                   label="Main Thread"
                   detail="Clean staging thread"
@@ -932,8 +998,14 @@ export function WorkBoardBar({
                   secondary
                 />
               </div>
-            </div>
-          )}
+            )}
+            <ThreadSearchField
+              query={threadQuery}
+              expanded={threadSearchExpanded}
+              onQueryChange={setThreadQuery}
+              onFocusChange={setThreadSearchFocused}
+            />
+          </div>
           {filteredBoard.length > 0 && (
             <BoardTable
               board={filteredBoard}
