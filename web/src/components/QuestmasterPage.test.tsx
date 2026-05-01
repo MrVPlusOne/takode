@@ -1520,6 +1520,18 @@ describe("QuestmasterPage status display", () => {
     // doesn't re-render here. The important assertion (overlay ID) is above.
   });
 
+  it("keeps the New Quest title field out of textarea auto-resize work", () => {
+    // The typing-latency fix relies on the title being a single-line input
+    // inside a paint/layout containment boundary instead of resizing a
+    // textarea above the full Questmaster list on every keystroke.
+    renderQuestmaster();
+
+    fireEvent.click(screen.getByRole("button", { name: /New Quest/i }));
+
+    expect(screen.getByTestId("questmaster-create-form")).toHaveStyle({ contain: "layout paint style" });
+    expect(screen.getByPlaceholderText("Quest title").tagName).toBe("INPUT");
+  });
+
   it("does not extract numeric-leading session references as quest tags on create", async () => {
     // Numeric-leading references like #123 often point to sessions, so create
     // flow extraction should keep them out of the saved tag list.
