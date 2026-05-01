@@ -5,7 +5,12 @@ import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { SessionNotification } from "../types.js";
 import { isClearedNotificationStatus, type NotificationStatusSnapshot } from "../notification-status.js";
-import { runAfterNotificationOwnerThreadSelected } from "../utils/notification-thread.js";
+import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
+import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
+import {
+  resolveNotificationOwnerThreadKey,
+  runAfterNotificationOwnerThreadSelected,
+} from "../utils/notification-thread.js";
 
 const EMPTY: SessionNotification[] = [];
 type NotificationCategory = SessionNotification["category"];
@@ -185,20 +190,27 @@ function NotificationItem({
     api.markNotificationDone(sessionId, notif.id, !notif.done).catch(() => {});
   }, [sessionId, notif.id, notif.done]);
 
+  const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
+  const fallbackChipMessageId =
+    notif.category === "needs-input" && !notif.messageId && ownerThreadKey !== MAIN_THREAD_KEY
+      ? attentionLedgerMessageIdForNotificationId(notif.id)
+      : null;
+  const jumpTargetMessageId = notif.messageId ?? fallbackChipMessageId;
+
   const jumpToMessage = useCallback(() => {
-    if (!notif.messageId) return;
+    if (!jumpTargetMessageId) return;
     runAfterNotificationOwnerThreadSelected({
       notification: notif,
       currentThreadKey,
       onSelectThread,
       action: () => {
         const store = useStore.getState();
-        store.requestScrollToMessage(sessionId, notif.messageId!);
-        store.setExpandAllInTurn(sessionId, notif.messageId!);
+        store.requestScrollToMessage(sessionId, jumpTargetMessageId);
+        store.setExpandAllInTurn(sessionId, jumpTargetMessageId);
       },
     });
     // Don't close panel -- user may want to click multiple notifications
-  }, [sessionId, notif, currentThreadKey, onSelectThread]);
+  }, [sessionId, notif, currentThreadKey, onSelectThread, jumpTargetMessageId]);
 
   const startReply = useCallback(
     (answer?: string) => (e: React.MouseEvent) => {
@@ -287,7 +299,7 @@ function NotificationItem({
           <span
             className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isNeedsInput ? "bg-amber-400" : "bg-emerald-400"}`}
           />
-          {notif.messageId ? (
+          {jumpTargetMessageId ? (
             <div
               role="button"
               tabIndex={0}

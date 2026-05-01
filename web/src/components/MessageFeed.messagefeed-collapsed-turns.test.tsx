@@ -1075,6 +1075,61 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
   });
 
+  it("renders routed unanchored needs-input notifications in their owner thread feed", () => {
+    const sid = "test-owner-thread-unanchored-needs-input";
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        summary: "Approve the implementation direction",
+        timestamp: 120,
+        messageId: null,
+        threadKey: "q-983",
+        questId: "q-983",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.getAttribute("data-attention-state")).toBe("unresolved");
+    expect(row.getAttribute("data-attention-type")).toBe("needs_input");
+    expect(screen.getByText("Approve the implementation direction")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Answer" })).toBeTruthy();
+  });
+
+  it("does not duplicate anchored owner-thread needs-input notifications as synthetic ledger rows", () => {
+    const sid = "test-owner-thread-anchored-needs-input-no-ledger";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-q983",
+        role: "assistant",
+        content: "I need approval before continuing.",
+        timestamp: 110,
+        metadata: { threadRefs: [{ threadKey: "q-983", questId: "q-983", source: "explicit" }] },
+      }),
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        summary: "Approve the implementation direction",
+        timestamp: 120,
+        messageId: "a-q983",
+        threadKey: "q-983",
+        questId: "q-983",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.getAllByText("Approve the implementation direction")).toHaveLength(1);
+  });
+
   it("keeps resolved attention ledger rows visible with resolved state", () => {
     const sid = "test-main-attention-ledger-resolved";
     setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);

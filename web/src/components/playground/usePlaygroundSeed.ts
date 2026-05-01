@@ -303,6 +303,16 @@ export function usePlaygroundSeed() {
         done: false,
       },
       {
+        id: "playground-missing-user-decision",
+        category: "needs-input",
+        summary: "Approve dispatching the q-963 follow-up worker",
+        timestamp: Date.now() - 64_000,
+        messageId: null,
+        threadKey: "q-963",
+        questId: "q-963",
+        done: false,
+      },
+      {
         id: "playground-attention-reviewed",
         category: "review",
         summary: "q-962 review already handled",

@@ -450,9 +450,9 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Thread Projections"
-        description="Main shows staging activity and explicit attachment markers without quest activity summaries; All Threads preserves the global view; quest projections keep attached context with routed activity."
+        description="Main shows staging activity and explicit attachment markers without quest activity summaries; All Threads preserves the global view; quest projections keep attached context plus routed notification chips."
       >
-        <div className="grid gap-4 xl:grid-cols-3">
+        <div className="grid gap-4 xl:grid-cols-4">
           <Card label="Main">
             <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
               <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="main" />
@@ -466,6 +466,11 @@ export function PlaygroundOverviewSections() {
           <Card label="Quest Thread">
             <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
               <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-961" />
+            </div>
+          </Card>
+          <Card label="Routed Notification">
+            <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+              <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-963" />
             </div>
           </Card>
         </div>

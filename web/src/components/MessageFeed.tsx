@@ -281,9 +281,13 @@ export function MessageFeed({
       sessionNotifications,
     ],
   );
+  const baseMessageIds = useMemo(() => new Set(baseMessages.map((message) => message.id)), [baseMessages]);
   const attentionLedgerMessages = useMemo(
-    () => (isMainThreadKey(threadKey) ? buildAttentionLedgerMessages(attentionRecords) : EMPTY_MESSAGES),
-    [attentionRecords, threadKey],
+    () =>
+      buildAttentionLedgerMessages(attentionRecords, normalizedThreadKey, {
+        availableMessageIds: baseMessageIds,
+      }),
+    [attentionRecords, baseMessageIds, normalizedThreadKey],
   );
   const messages = useMemo(
     () => mergeChronologicalMessages(baseMessages, attentionLedgerMessages),

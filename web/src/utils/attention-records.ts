@@ -1,6 +1,6 @@
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import type { ChatMessage, SessionAttentionRecord, SessionNotification } from "../types.js";
-import { MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 
 export type AttentionRecord = SessionAttentionRecord;
 
@@ -22,6 +22,10 @@ export interface BuildAttentionRecordsInput {
   boardRows?: ReadonlyArray<AttentionBoardRowSource>;
   completedBoardRows?: ReadonlyArray<AttentionBoardRowSource>;
   messages?: ReadonlyArray<ChatMessage>;
+}
+
+export interface BuildAttentionLedgerMessagesOptions {
+  availableMessageIds?: ReadonlySet<string>;
 }
 
 interface ReviewNotificationDisplay {
@@ -111,8 +115,43 @@ export function isAttentionLedgerMessage(message: ChatMessage): boolean {
   return !!message.metadata?.attentionRecord;
 }
 
-export function buildAttentionLedgerMessages(records: ReadonlyArray<AttentionRecord>): ChatMessage[] {
-  return selectMainLedgerRecords(records).map(attentionRecordToMessage);
+export function buildAttentionLedgerMessages(
+  records: ReadonlyArray<AttentionRecord>,
+  threadKey: string = MAIN_THREAD_KEY,
+  options: BuildAttentionLedgerMessagesOptions = {},
+): ChatMessage[] {
+  return selectLedgerRecordsForThread(records, threadKey, options.availableMessageIds).map(attentionRecordToMessage);
+}
+
+function selectLedgerRecordsForThread(
+  records: ReadonlyArray<AttentionRecord>,
+  threadKey: string,
+  availableMessageIds?: ReadonlySet<string>,
+): AttentionRecord[] {
+  const normalized = normalizeThreadKey(threadKey);
+  if (normalized === MAIN_THREAD_KEY) return selectMainLedgerRecords(records);
+  if (normalized === ALL_THREADS_KEY) return [];
+
+  return records
+    .filter((record) => shouldRenderOwnerThreadNotificationRecord(record, normalized, availableMessageIds))
+    .sort(compareAttentionRecordsChronologically);
+}
+
+function shouldRenderOwnerThreadNotificationRecord(
+  record: AttentionRecord,
+  threadKey: string,
+  availableMessageIds?: ReadonlySet<string>,
+): boolean {
+  if (!record.ledgerEligible) return false;
+  if (record.source.kind !== "notification") return false;
+  if (record.type !== "needs_input" || record.priority !== "needs_input") return false;
+  if (!isAttentionRecordActive(record)) return false;
+
+  const targetThreadKey = normalizeThreadKey(record.route.threadKey || record.threadKey);
+  if (targetThreadKey !== threadKey) return false;
+
+  const anchoredMessageId = record.route.messageId || record.source.messageId || null;
+  return !anchoredMessageId || !availableMessageIds?.has(anchoredMessageId);
 }
 
 export function mergeChronologicalMessages(messages: ChatMessage[], insertedMessages: ChatMessage[]): ChatMessage[] {
@@ -423,7 +462,7 @@ function summarizeReworkMessage(content: string): string {
 
 function attentionRecordToMessage(record: AttentionRecord): ChatMessage {
   return {
-    id: `attention-ledger:${record.id}`,
+    id: attentionLedgerMessageIdForRecord(record),
     role: "system",
     content: `${record.actionLabel}: ${record.title}`,
     timestamp: record.createdAt,
@@ -434,6 +473,14 @@ function attentionRecordToMessage(record: AttentionRecord): ChatMessage {
       attentionRecord: record,
     },
   };
+}
+
+export function attentionLedgerMessageIdForRecord(record: Pick<AttentionRecord, "id">): string {
+  return `attention-ledger:${record.id}`;
+}
+
+export function attentionLedgerMessageIdForNotificationId(notificationId: string): string {
+  return `attention-ledger:notification:${notificationId}`;
 }
 
 function upsertAttentionRecord(records: Map<string, AttentionRecord>, record: AttentionRecord): void {

@@ -299,6 +299,41 @@ describe("NotificationChip", () => {
     }
   });
 
+  it("switches to an owner thread and targets the synthetic chip for unanchored needs-input notifications", () => {
+    const onSelectThread = vi.fn();
+    vi.useFakeTimers();
+    setNotifications("s1", [
+      {
+        id: "n-q977",
+        category: "needs-input",
+        summary: "Approve q-977 dispatch?",
+        timestamp: Date.now(),
+        messageId: null,
+        threadKey: "q-977",
+        questId: "q-977",
+        done: false,
+      },
+    ]);
+
+    try {
+      render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
+      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      fireEvent.click(screen.getByRole("button", { name: /Approve q-977 dispatch/i }));
+
+      expect(onSelectThread).toHaveBeenCalledWith("q-977");
+      expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+
+      expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
+      expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("switches out of All Threads before starting a suggested-answer reply", () => {
     const onSelectThread = vi.fn();
     vi.useFakeTimers();
