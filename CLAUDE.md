@@ -35,7 +35,8 @@ The Takode server symlinks project skills into global skill directories at start
 | `reviewer-groom` | `.claude/skills/reviewer-groom/` | Reviewer-owned quality review for another agent's change |
 | `skeptic-review` | `.claude/skills/skeptic-review/` | Adversarial work integrity review of worker output |
 | `worktree-rules` (`/port-changes`) | `.claude/skills/worktree-rules/` | Worktree-to-main-repo porting workflow; `worktree-rules` is the underlying skill slug and `/port-changes` is the user-facing command/alias |
-| `playwright-e2e-tester` | `.claude/skills/playwright-e2e-tester/` | E2E browser testing via Playwright MCP |
+| `playwright-e2e-tester` | `.claude/skills/playwright-e2e-tester/` | Non-Takode E2E browser testing via Playwright MCP |
+| `takode-ui-e2e-validation` | `.agents/skills/takode-ui-e2e-validation/` | Takode UI/E2E validation with `agent-browser`, leases, isolated ports, Playground coverage, and screenshot evidence |
 
 Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) into the Claude and `.agents` skill directories at startup.
 Legacy compatibility aliases also remain installed for older references: `quest-journey-implementation`, `quest-journey-skeptic-review`, `quest-journey-reviewer-groom`, and `quest-journey-porting`. New work should use the canonical phase skills above.
@@ -333,6 +334,8 @@ Git worktrees are the preferred isolation model for this project. Container supp
   - **Worktree setup must be fully async.** Creating a new worktree session involves file I/O (guardrails injection, git exclude, settings symlinks) and git commands (`update-index --skip-worktree`). On NFS, synchronous versions of these operations can block the event loop for 10+ seconds, killing all CLI WebSocket connections. All worktree setup methods in `cli-launcher.ts` (`injectWorktreeGuardrails`, `addWorktreeGitExclude`, `symlinkProjectSettings`) must use async I/O.
 
 ## Browser Exploration
+
+For Takode UI/E2E validation workflows, use the `takode-ui-e2e-validation` skill.
 
 Before browser/E2E work, you must acquire the appropriate resource lease, for example `takode lease acquire agent-browser --purpose "Inspect q-N UI" --ttl 20m --wait`. Use `takode lease status <resource>` only to inspect current ownership before acquiring; it is not a substitute for holding the lease. Prefer scoped keys like `dev-server:companion` for repo-local dev servers. Heartbeat while using the resource and release it promptly when done.
 

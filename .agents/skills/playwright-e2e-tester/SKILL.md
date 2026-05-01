@@ -1,11 +1,13 @@
 ---
 name: playwright-e2e-tester
-description: "Use this skill when you need end-to-end UI testing in a real browser (Playwright MCP runs), including visual verification, workflow checks, and regression testing with screenshot evidence."
+description: "Use this skill when you need non-Takode end-to-end UI testing in a real browser with Playwright MCP runs, including visual verification, workflow checks, and regression testing with screenshot evidence. For interactive Takode UI validation, use takode-ui-e2e-validation instead."
 ---
 
 # Playwright E2E Tester
 
 Use this skill to run browser-based E2E verification for UI changes, bug fixes, and user workflows.
+
+Takode project exception: for interactive Takode UI validation, use `takode-ui-e2e-validation` instead. Takode agents must use `agent-browser` and must never stop, kill, or replace the live `:3456` server during validation.
 
 ## When To Use
 

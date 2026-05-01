@@ -1,0 +1,4 @@
+interface:
+  display_name: "Takode UI E2E Validation"
+  short_description: "Validate Takode UI with agent-browser"
+  default_prompt: "Use $takode-ui-e2e-validation to validate this Takode UI workflow safely."
