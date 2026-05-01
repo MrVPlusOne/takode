@@ -11,9 +11,10 @@ Validate Takode UI changes with `agent-browser`, scoped leases, isolated ports, 
 
 - Use `agent-browser` for interactive Takode browser validation.
 - Never stop, kill, restart, bind over, or replace an existing server on `:3456`. In this project, `:3456` is the live/session server agents depend on.
-- Hold the relevant Takode lease before starting or using shared resources:
-  - `takode lease acquire dev-server:companion --purpose "Validate <quest or change>" --ttl 30m --wait`
-  - `takode lease acquire agent-browser --purpose "Validate <quest or change>" --ttl 20m --wait`
+- Hold the Takode lease for each shared resource you will use:
+  - Full browser validation usually needs both `dev-server:companion` and `agent-browser`.
+  - Server-only work needs `dev-server:companion`.
+  - Browser-only inspection of an already-authorized server needs `agent-browser`.
 - Release leases promptly when validation is finished.
 - Validate in dark theme. Use a mobile viewport at least `430x932` when checking mobile behavior.
 
@@ -25,6 +26,8 @@ Validate Takode UI changes with `agent-browser`, scoped leases, isolated ports, 
 4. Open and operate the UI with `agent-browser`.
 5. Capture screenshots for important visual states and optimized evidence paths.
 6. Record what was validated, what passed or failed, screenshots/artifacts, and residual risk in the quest phase notes or final report.
+
+If a lease command queues you behind another session, wait for the Resource Lease message that says you now hold the resource. The queued output includes the current owner and queue details; do not poll unless you need a manual status refresh.
 
 For command patterns, artifact handling, and surface-specific heuristics, read [references/takode-validation-guide.md](references/takode-validation-guide.md).
 

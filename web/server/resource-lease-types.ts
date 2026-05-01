@@ -62,6 +62,7 @@ export type ResourceLeaseAcquireResult =
       status: "queued";
       waiter: ResourceLeaseWaiter;
       lease: ResourceLease;
+      waiters: ResourceLeaseWaiter[];
       position: number;
     }
   | {

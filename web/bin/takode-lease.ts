@@ -14,6 +14,8 @@ export interface TakodeLeaseDeps {
 interface LeaseDetail {
   resourceKey: string;
   ownerSessionId: string;
+  ownerSessionNum?: number;
+  ownerSessionName?: string;
   questId?: string;
   purpose: string;
   metadata: Record<string, string>;
@@ -27,6 +29,8 @@ interface WaiterDetail {
   id: string;
   resourceKey: string;
   waiterSessionId: string;
+  waiterSessionNum?: number;
+  waiterSessionName?: string;
   questId?: string;
   purpose: string;
   metadata: Record<string, string>;
@@ -43,7 +47,7 @@ interface LeaseStatusDetail {
 
 type AcquireResult =
   | { status: "acquired" | "already_owned"; lease: LeaseDetail; waiters: WaiterDetail[] }
-  | { status: "queued"; waiter: WaiterDetail; lease: LeaseDetail; position: number }
+  | { status: "queued"; waiter: WaiterDetail; lease: LeaseDetail; waiters: WaiterDetail[]; position: number }
   | { status: "unavailable"; lease: LeaseDetail; waiters: WaiterDetail[] };
 
 export const LEASE_HELP = `Usage: takode lease <acquire|status|list|renew|heartbeat|release|wait> ...
@@ -72,6 +76,8 @@ you are queued and the server will send your session a message when the lease is
 export const LEASE_WAIT_HELP = `Usage: takode lease wait <resource> --purpose <text> [--ttl <duration>] [--quest q-N] [--metadata k=v] [--json]
 
 Acquire immediately if the resource is free; otherwise join the FIFO waiter queue.
+When queued, the server will send your session a Resource Lease message when
+the lease is promoted; you do not need to poll.
 `;
 
 export const LEASE_STATUS_HELP = `Usage: takode lease status [resource] [--json]
@@ -208,13 +214,20 @@ async function handleRelease(args: string[], deps: TakodeLeaseDeps): Promise<voi
 
 function printAcquireResult(result: AcquireResult, deps: TakodeLeaseDeps): void {
   if (result.status === "queued") {
-    console.log(
-      `Queued for ${result.waiter.resourceKey} at position ${result.position}; current owner ${result.lease.ownerSessionId}.`,
-    );
+    const waiterCount = Math.max(result.waiters.length, result.position);
+    const positionSuffix = waiterCount > 0 ? ` of ${waiterCount}` : "";
+    console.log(`Queued for ${result.waiter.resourceKey} at position ${result.position}${positionSuffix}.`);
+    console.log(`  current owner: ${formatLeaseOwner(result.lease, deps)}`);
+    if (result.lease.questId) console.log(`  owner quest: ${result.lease.questId}`);
+    console.log(`  owner heartbeat: ${formatTimeWithAge(result.lease.heartbeatAt, deps)}`);
+    console.log(`  owner ttl: ${formatDuration(result.lease.ttlMs)}`);
+    console.log(`  owner expires: ${formatTimeWithAge(result.lease.expiresAt, deps, "from now")}`);
+    console.log(`  owner purpose: ${deps.formatInlineText(result.lease.purpose)}`);
+    console.log("You will receive a Resource Lease message in this session when promoted; no polling is needed.");
     return;
   }
   if (result.status === "unavailable") {
-    console.log(`Unavailable: ${result.lease.resourceKey} is held by ${result.lease.ownerSessionId}.`);
+    console.log(`Unavailable: ${result.lease.resourceKey} is held by ${formatLeaseOwner(result.lease, deps)}.`);
     if (result.waiters.length) console.log(`Waiters: ${result.waiters.length}`);
     return;
   }
@@ -228,7 +241,7 @@ function printStatuses(statuses: LeaseStatusDetail[], deps: TakodeLeaseDeps): vo
       console.log(`${status.resourceKey}: available`);
     } else {
       console.log(`${status.resourceKey}: held`);
-      console.log(`  owner: ${deps.formatInlineText(status.lease.ownerSessionId)}`);
+      console.log(`  owner: ${formatLeaseOwner(status.lease, deps)}`);
       console.log(`  acquired: ${formatTimeWithAge(status.lease.acquiredAt, deps)}`);
       console.log(`  heartbeat: ${formatTimeWithAge(status.lease.heartbeatAt, deps)}`);
       console.log(`  ttl: ${formatDuration(status.lease.ttlMs)}`);
@@ -241,7 +254,7 @@ function printStatuses(statuses: LeaseStatusDetail[], deps: TakodeLeaseDeps): vo
     if (status.waiters.length > 0) {
       console.log(`  waiters: ${status.waiters.length}`);
       for (const waiter of status.waiters) {
-        console.log(`    ${waiter.id}: ${deps.formatInlineText(waiter.waiterSessionId)}`);
+        console.log(`    ${waiter.id}: ${formatWaiter(waiter, deps)}`);
         console.log(`      queued: ${formatTimeWithAge(waiter.queuedAt, deps)}`);
         console.log(`      requested ttl: ${formatDuration(waiter.ttlMs)}`);
         if (waiter.questId) console.log(`      quest: ${waiter.questId}`);
@@ -251,6 +264,30 @@ function printStatuses(statuses: LeaseStatusDetail[], deps: TakodeLeaseDeps): vo
       }
     }
   }
+}
+
+function formatLeaseOwner(lease: LeaseDetail, deps: TakodeLeaseDeps): string {
+  return formatSessionReference(lease.ownerSessionId, lease.ownerSessionNum, lease.ownerSessionName, deps);
+}
+
+function formatWaiter(waiter: WaiterDetail, deps: TakodeLeaseDeps): string {
+  return formatSessionReference(waiter.waiterSessionId, waiter.waiterSessionNum, waiter.waiterSessionName, deps);
+}
+
+function formatSessionReference(
+  sessionId: string,
+  sessionNum: number | undefined,
+  sessionName: string | undefined,
+  deps: TakodeLeaseDeps,
+): string {
+  const id = deps.formatInlineText(sessionId);
+  const trimmedName = sessionName?.trim();
+  const label = typeof sessionNum === "number" ? `#${sessionNum}` : "";
+  const name = trimmedName ? deps.formatInlineText(trimmedName) : "";
+  if (label && name) return `${label} ${name} (${id})`;
+  if (label) return `${label} (${id})`;
+  if (name) return `${name} (${id})`;
+  return id;
 }
 
 function parseFlags(argv: string[]): Record<string, string | boolean> {

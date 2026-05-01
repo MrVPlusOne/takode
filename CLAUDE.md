@@ -336,7 +336,7 @@ Git worktrees are the preferred isolation model for this project. Container supp
 
 For Takode UI/E2E validation workflows, use the `takode-ui-e2e-validation` skill.
 
-Before browser/E2E work, you must acquire the appropriate resource lease, for example `takode lease acquire agent-browser --purpose "Inspect q-N UI" --ttl 20m --wait`. Use `takode lease status <resource>` only to inspect current ownership before acquiring; it is not a substitute for holding the lease. Prefer scoped keys like `dev-server:companion` for repo-local dev servers. Heartbeat while using the resource and release it promptly when done.
+Before browser/E2E work, you must acquire the appropriate resource lease. Full browser validation usually needs both `dev-server:companion` and `agent-browser`; server-only work needs `dev-server:companion`; browser-only inspection of an already-authorized server needs `agent-browser`. Use `takode lease status <resource>` only to inspect current ownership before acquiring; it is not a substitute for holding the lease. If a lease command queues you, wait for the Resource Lease promotion message instead of polling. Heartbeat while using the resource and release it promptly when done.
 
 Always use the `agent-browser` CLI command to explore the browser.
 When running E2E tests, use the dark theme, as it is the primary theme of this app.

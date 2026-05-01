@@ -4,12 +4,21 @@ Use this reference after loading the `takode-ui-e2e-validation` skill when detai
 
 ## Lease Pattern
 
-Acquire leases before touching shared browser or server resources:
+Acquire leases before touching shared browser or server resources. Choose the lease scope by the resource you will actually use:
 
 ```bash
+# Full browser validation on an isolated Takode app normally needs both:
 takode lease acquire dev-server:companion --purpose "Validate q-N UI" --ttl 30m --wait
 takode lease acquire agent-browser --purpose "Validate q-N UI" --ttl 20m --wait
+
+# Server-only validation or setup:
+takode lease acquire dev-server:companion --purpose "Validate q-N server" --ttl 30m --wait
+
+# Browser-only inspection of an already-authorized server:
+takode lease acquire agent-browser --purpose "Inspect q-N UI" --ttl 20m --wait
 ```
+
+If the command queues behind another holder, it prints the owner and queue details, then the server sends a Resource Lease message to your session when you are promoted. Do not poll in a loop; use `takode lease status <resource>` only for an intentional manual refresh.
 
 Renew long sessions before leases expire:
 
@@ -25,7 +34,7 @@ takode lease release agent-browser
 takode lease release dev-server:companion
 ```
 
-If a lease is held by another session, wait or choose a documented non-conflicting path. Do not start a competing browser or dev server.
+If a lease is held by another session, queue, wait for the Resource Lease promotion message, or choose a documented non-conflicting path. Do not start a competing browser or dev server.
 
 ## Server And Port Safety
 

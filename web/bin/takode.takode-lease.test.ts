@@ -222,4 +222,107 @@ describe("takode lease", () => {
       server.close();
     }
   });
+
+  it("prints queued wait details and no-poll guidance", async () => {
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-self", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "POST" && url === "/api/resource-leases/agent-browser/wait") {
+        const now = Date.now();
+        res.writeHead(202, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            result: {
+              status: "queued",
+              position: 2,
+              lease: {
+                resourceKey: "agent-browser",
+                ownerSessionId: "owner-session-id",
+                ownerSessionNum: 1370,
+                ownerSessionName: "Questmaster Execute",
+                questId: "q-1051",
+                purpose: "Execute validation for q-1051",
+                metadata: {},
+                acquiredAt: now - 120_000,
+                heartbeatAt: now - 30_000,
+                ttlMs: 1_800_000,
+                expiresAt: now + 1_770_000,
+              },
+              waiter: {
+                id: "w2",
+                resourceKey: "agent-browser",
+                waiterSessionId: "worker-self",
+                waiterSessionNum: 1364,
+                waiterSessionName: "Notification Execute",
+                questId: "q-1060",
+                purpose: "Execute q-1060 browser validation",
+                metadata: {},
+                queuedAt: now,
+                ttlMs: 1_800_000,
+              },
+              waiters: [
+                {
+                  id: "w1",
+                  resourceKey: "agent-browser",
+                  waiterSessionId: "other-waiter",
+                  purpose: "Already queued",
+                  metadata: {},
+                  queuedAt: now - 10_000,
+                  ttlMs: 1_800_000,
+                },
+                {
+                  id: "w2",
+                  resourceKey: "agent-browser",
+                  waiterSessionId: "worker-self",
+                  waiterSessionNum: 1364,
+                  waiterSessionName: "Notification Execute",
+                  questId: "q-1060",
+                  purpose: "Execute q-1060 browser validation",
+                  metadata: {},
+                  queuedAt: now,
+                  ttlMs: 1_800_000,
+                },
+              ],
+            },
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(
+        ["lease", "wait", "agent-browser", "--purpose", "Execute q-1060 browser validation", "--port", String(port)],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: "worker-self",
+          COMPANION_AUTH_TOKEN: "auth-self",
+        },
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Queued for agent-browser at position 2 of 2.");
+      expect(result.stdout).toContain("current owner: #1370 Questmaster Execute (owner-session-id)");
+      expect(result.stdout).toContain("owner quest: q-1051");
+      expect(result.stdout).toContain("owner purpose: Execute validation for q-1051");
+      expect(result.stdout).toContain("Resource Lease message");
+      expect(result.stdout).toContain("no polling is needed");
+    } finally {
+      server.close();
+    }
+  });
 });

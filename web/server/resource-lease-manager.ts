@@ -179,6 +179,7 @@ export class ResourceLeaseManager {
         status: "queued" as const,
         waiter,
         lease: existing,
+        waiters: this.getWaiters(input.resourceKey),
         position: this.getWaiters(input.resourceKey).findIndex((entry) => entry.id === waiter.id) + 1,
       };
     }
@@ -199,6 +200,7 @@ export class ResourceLeaseManager {
         status: "queued" as const,
         waiter,
         lease: this.waiterPlaceholderLease(waiters[0]),
+        waiters: this.getWaiters(input.resourceKey),
         position: this.getWaiters(input.resourceKey).findIndex((entry) => entry.id === waiter.id) + 1,
       };
     }

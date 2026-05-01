@@ -11,6 +11,10 @@ describe("resource lease routes", () => {
   let tempDir: string;
   let manager: ResourceLeaseManager;
   let app: Hono;
+  const launcherSessions = new Map([
+    ["owner", { sessionId: "owner", sessionNum: 1370, name: "Owner Execute" }],
+    ["waiter", { sessionId: "waiter", sessionNum: 1364, name: "Waiter Execute" }],
+  ]);
 
   beforeEach(async () => {
     tempDir = mkdtempSync(join(tmpdir(), "resource-lease-routes-"));
@@ -24,6 +28,10 @@ describe("resource lease routes", () => {
       "/api",
       createResourceLeaseRoutes({
         resourceLeaseManager: manager,
+        launcher: {
+          getSession: (sessionId: string) => launcherSessions.get(sessionId),
+          getSessionNum: (sessionId: string) => launcherSessions.get(sessionId)?.sessionNum,
+        },
         wsBridge: {
           getSession: (sessionId: string) => ({
             state: { claimedQuestId: sessionId === "owner" ? "q-979" : undefined },
@@ -54,8 +62,50 @@ describe("resource lease routes", () => {
     expect(body.result.lease).toMatchObject({
       resourceKey: "dev-server:companion",
       ownerSessionId: "owner",
+      ownerSessionNum: 1370,
+      ownerSessionName: "Owner Execute",
       questId: "q-979",
       metadata: { url: "http://localhost:5174" },
+    });
+  });
+
+  it("enriches queued acquire responses with owner and waiter session labels", async () => {
+    await app.request("/api/resource-leases/agent-browser/acquire", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-test-session": "owner" },
+      body: JSON.stringify({ purpose: "Inspect UI" }),
+    });
+
+    const response = await app.request("/api/resource-leases/agent-browser/acquire", {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-test-session": "waiter" },
+      body: JSON.stringify({ purpose: "Need browser next", wait: true }),
+    });
+
+    expect(response.status).toBe(202);
+    const body = await response.json();
+    expect(body.result).toMatchObject({
+      status: "queued",
+      position: 1,
+      lease: {
+        ownerSessionId: "owner",
+        ownerSessionNum: 1370,
+        ownerSessionName: "Owner Execute",
+        questId: "q-979",
+        purpose: "Inspect UI",
+      },
+      waiter: {
+        waiterSessionId: "waiter",
+        waiterSessionNum: 1364,
+        waiterSessionName: "Waiter Execute",
+        purpose: "Need browser next",
+      },
+    });
+    expect(body.result.waiters).toHaveLength(1);
+    expect(body.result.waiters[0]).toMatchObject({
+      waiterSessionId: "waiter",
+      waiterSessionNum: 1364,
+      waiterSessionName: "Waiter Execute",
     });
   });
 
