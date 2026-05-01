@@ -359,6 +359,7 @@ describe("QuestmasterPage status display", () => {
 
     expect(await screen.findAllByRole("columnheader", { name: "Quest" })).toHaveLength(1);
     expect(screen.getAllByRole("columnheader", { name: "Owner" })).toHaveLength(1);
+    expect(screen.getAllByRole("columnheader", { name: "Leader" })).toHaveLength(1);
     expect(screen.getAllByRole("columnheader", { name: "Verify" })).toHaveLength(1);
     expect(screen.getAllByRole("table")).toHaveLength(1);
     expect(screen.queryByText("Review Inbox")).not.toBeInTheDocument();
@@ -414,17 +415,73 @@ describe("QuestmasterPage status display", () => {
 
     const row = await screen.findByRole("button", { name: /q-88 Active Journey quest/ });
     const status = within(row).getByText("Implement");
+    expect(within(row).queryByText("In Progress")).not.toBeInTheDocument();
+
+    fireEvent.mouseEnter(status);
+    expect(await screen.findByTestId("quest-hover-journey")).toBeInTheDocument();
+    expect(screen.getByTestId("quest-hover-status-row")).toHaveTextContent("Implement");
+  });
+
+  it("uses persisted Journey runs for compact Status and Status hover previews", async () => {
+    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-89-v1", questId: "q-89", title: "Persisted Journey quest" }),
+        status: "in_progress",
+        journeyRuns: [
+          {
+            runId: "run-89",
+            source: "board",
+            phaseIds: ["alignment", "implement", "code-review"],
+            status: "active",
+            createdAt: 1,
+            updatedAt: 2,
+            workerSessionId: "worker-89",
+            workerSessionNum: 89,
+            phaseOccurrences: [
+              {
+                occurrenceId: "run-89:p1",
+                phaseId: "alignment",
+                phaseIndex: 0,
+                phasePosition: 1,
+                phaseOccurrence: 1,
+                status: "completed",
+                boardState: "PLANNING",
+              },
+              {
+                occurrenceId: "run-89:p2",
+                phaseId: "implement",
+                phaseIndex: 1,
+                phasePosition: 2,
+                phaseOccurrence: 1,
+                status: "active",
+                boardState: "IMPLEMENTING",
+              },
+            ],
+          },
+        ],
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster({ isActive: true });
+
+    const row = await screen.findByRole("button", { name: /q-89 Persisted Journey quest/ });
+    const status = within(row).getByText("Implement");
+    expect(within(row).queryByText("In Progress")).not.toBeInTheDocument();
 
     fireEvent.mouseEnter(status);
     expect(await screen.findByTestId("quest-hover-journey")).toBeInTheDocument();
   });
 
-  it("limits compact title cells to title, tags, and markdown-rendered description TLDR", async () => {
+  it("limits compact title cells to title, tags, and one plain-text description TLDR string", async () => {
     mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
     mockState.quests = [
       {
         ...buildVerificationQuest({ id: "q-90-v1", questId: "q-90", title: "Markdown TLDR quest" }),
-        tldr: "Use [q-986](quest:q-986) direction.",
+        tldr: [
+          "Use [q-986](quest:q-986) direction for the compact table.",
+          "Keep this second line in the same truncated string instead of a second rendered line.",
+        ].join("\n"),
         debriefTldr: "Debrief should not appear in compact title cells.",
         feedback: [
           {
@@ -442,43 +499,83 @@ describe("QuestmasterPage status display", () => {
     renderQuestmaster({ isActive: true });
 
     const row = await screen.findByRole("button", { name: /q-90 Markdown TLDR quest/ });
-    const tldrLink = screen.getByRole("link", { name: "q-986" });
-    expect(tldrLink).toHaveAttribute("href", "#/questmaster?quest=q-986");
+    const tldr = within(row).getByTestId("quest-compact-tldr");
+    expect(tldr).toHaveTextContent(
+      "Use q-986 direction for the compact table. Keep this second line in the same truncated string instead of a second rendered line.",
+    );
+    expect(within(tldr).queryByRole("link", { name: "q-986" })).not.toBeInTheDocument();
     expect(within(row).getByText("#ui")).toBeInTheDocument();
     expect(within(row).getByText("#questmaster")).toBeInTheDocument();
     expect(within(row).queryByText(/Debrief should not appear/)).not.toBeInTheDocument();
     expect(within(row).queryByText(/Phase summary should not appear/)).not.toBeInTheDocument();
-
-    mockState.openQuestOverlay.mockClear();
-    fireEvent.click(tldrLink);
-    expect(mockState.openQuestOverlay.mock.calls.map((call) => call[0])).toEqual(["q-986"]);
   });
 
-  it("does not intercept keyboard activation on compact TLDR markdown links", async () => {
+  it("splits compact Owner and Leader into separate columns", async () => {
     mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+    mockState.sdkSessions = [
+      {
+        sessionId: "worker-1347",
+        sessionNum: 1347,
+        state: "idle",
+        cwd: "/tmp",
+        createdAt: 1,
+        archived: false,
+      },
+      {
+        sessionId: "leader-1286",
+        sessionNum: 1286,
+        state: "idle",
+        cwd: "/tmp",
+        createdAt: 1,
+        archived: false,
+      },
+    ];
     mockState.quests = [
       {
-        ...buildVerificationQuest({ id: "q-90-v1", questId: "q-90", title: "Markdown TLDR quest" }),
-        tldr: "Use [q-986](quest:q-986) direction.",
+        ...buildVerificationQuest({ id: "q-91-v1", questId: "q-91", title: "Split owner leader quest" }),
+        sessionId: "worker-1347",
+        leaderSessionId: "leader-1286",
       } as QuestmasterTask,
     ];
 
     renderQuestmaster({ isActive: true });
 
-    await screen.findByRole("button", { name: /q-90 Markdown TLDR quest/ });
-    const tldrLink = screen.getByRole("link", { name: "q-986" });
-    tldrLink.focus();
-    expect(tldrLink).toHaveFocus();
+    const row = await screen.findByRole("button", { name: /q-91 Split owner leader quest/ });
+    const cells = row.querySelectorAll("td");
+    expect(cells[2]).toHaveTextContent("#1347");
+    expect(cells[2]).not.toHaveTextContent("Leader");
+    expect(cells[2]).not.toHaveTextContent("#1286");
+    expect(cells[3]).toHaveTextContent("#1286");
+  });
 
-    const enterEvent = createEvent.keyDown(tldrLink, { key: "Enter" });
-    fireEvent(tldrLink, enterEvent);
+  it("does not intercept keyboard activation on compact quest ID links", async () => {
+    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-92-v1", questId: "q-92", title: "Quest ID link quest" }),
+      } as QuestmasterTask,
+    ];
+
+    renderQuestmaster({ isActive: true });
+
+    await screen.findByRole("button", { name: /q-92 Quest ID link quest/ });
+    const questLink = screen.getByRole("link", { name: "q-92" });
+    questLink.focus();
+    expect(questLink).toHaveFocus();
+
+    const enterEvent = createEvent.keyDown(questLink, { key: "Enter" });
+    fireEvent(questLink, enterEvent);
     expect(enterEvent.defaultPrevented).toBe(false);
 
-    const spaceEvent = createEvent.keyDown(tldrLink, { key: " " });
-    fireEvent(tldrLink, spaceEvent);
+    const spaceEvent = createEvent.keyDown(questLink, { key: " " });
+    fireEvent(questLink, spaceEvent);
     expect(spaceEvent.defaultPrevented).toBe(false);
     expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
     expect(mockState.questOverlayId).toBeNull();
+
+    fireEvent.click(questLink);
+    expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-92");
+    expect(mockState.questOverlayId).toBe("q-92");
   });
 
   it("pauses fallback polling while the tab is hidden and resumes on visibility", async () => {
@@ -817,13 +914,23 @@ describe("QuestmasterPage status display", () => {
     expect(screen.getByRole("button", { name: "Copied!" })).toBeInTheDocument();
   });
 
-  it("copies the quest id from a compact row without opening the overlay", async () => {
+  it("opens compact quest id links with hover previews and copies from the adjacent icon", async () => {
     mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
 
     renderQuestmaster({ isActive: true });
     await screen.findByRole("button", { name: /q-1 Fresh verification quest/ });
 
-    fireEvent.click(screen.getAllByRole("button", { name: "q-1" })[0]);
+    const questLink = screen.getByRole("link", { name: "q-1" });
+    fireEvent.mouseEnter(questLink);
+    expect(await screen.findByTestId("quest-hover-card")).toBeInTheDocument();
+
+    fireEvent.click(questLink);
+    expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1");
+    expect(mockState.questOverlayId).toBe("q-1");
+
+    mockState.openQuestOverlay.mockClear();
+    mockState.questOverlayId = null;
+    fireEvent.click(screen.getByRole("button", { name: "Copy quest ID q-1" }));
 
     await waitFor(() => {
       expect(mockClipboardWriteText).toHaveBeenCalledWith("q-1");
@@ -832,16 +939,21 @@ describe("QuestmasterPage status display", () => {
     expect(mockState.questOverlayId).toBeNull();
   });
 
-  it("blocks compact row keyboard open when the quest id button is activated", async () => {
+  it("blocks compact row keyboard open when compact quest id controls are focused", async () => {
     mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
 
     renderQuestmaster({ isActive: true });
     await screen.findByRole("button", { name: /q-1 Fresh verification quest/ });
 
-    const copyButton = screen.getAllByRole("button", { name: "q-1" })[0];
+    const questLink = screen.getByRole("link", { name: "q-1" });
+    const copyButton = screen.getByRole("button", { name: "Copy quest ID q-1" });
 
-    // JSDOM does not synthesize the native click from Enter, so assert the
-    // keydown does not bubble to the row, then emulate the activation click.
+    fireEvent.keyDown(questLink, { key: " " });
+    expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
+    expect(mockState.questOverlayId).toBeNull();
+
+    // JSDOM does not synthesize the native button click from Enter, so assert
+    // the keydown does not bubble to the row, then emulate activation click.
     fireEvent.keyDown(copyButton, { key: "Enter" });
     expect(mockState.openQuestOverlay).not.toHaveBeenCalled();
     expect(mockState.questOverlayId).toBeNull();

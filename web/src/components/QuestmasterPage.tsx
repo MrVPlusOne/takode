@@ -29,6 +29,8 @@ import {
   getQuestLeaderSessionId,
   CopyableQuestId,
 } from "../utils/quest-helpers.js";
+import { markdownToPlainText, writeClipboardText } from "../utils/copy-utils.js";
+import { buildQuestJourneyContextByQuestId, type QuestJourneyContext } from "../utils/quest-journey-context.js";
 import {
   extractPastedImages,
   extractHashtags,
@@ -49,11 +51,7 @@ import type {
   QuestmasterViewMode,
 } from "../api.js";
 import type { QuestmasterTask, QuestStatus, QuestFeedbackEntry, QuestImage } from "../types.js";
-import {
-  getQuestJourneyPhaseForState,
-  getQuestJourneyPresentation,
-  type QuestJourneyPlanState,
-} from "../../shared/quest-journey.js";
+import { getQuestJourneyPhaseForState, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 
 // ─── Status config ──────────────────────────────────────────────────────────
 
@@ -86,6 +84,7 @@ const COMPACT_SORT_COLUMNS: readonly QuestmasterCompactSortColumn[] = [
   "quest",
   "title",
   "owner",
+  "leader",
   "status",
   "verify",
   "feedback",
@@ -96,6 +95,7 @@ const DEFAULT_COMPACT_SORT_DIRECTIONS: Record<QuestmasterCompactSortColumn, Ques
   quest: "asc",
   title: "asc",
   owner: "asc",
+  leader: "asc",
   status: "asc",
   verify: "desc",
   feedback: "desc",
@@ -111,18 +111,7 @@ const STATUS_SORT_RANK: Record<QuestStatus, number> = {
 type CompactSortContext = {
   sessionNumById: Map<string, number>;
   sessionNameById: Map<string, string>;
-  journeyContextByQuestId: Map<string, QuestmasterJourneyContext>;
-};
-
-type QuestmasterJourneyBoardRow = {
-  questId: string;
-  journey?: QuestJourneyPlanState;
-  status?: string;
-};
-
-type QuestmasterJourneyContext = {
-  row: QuestmasterJourneyBoardRow;
-  completed: boolean;
+  journeyContextByQuestId: Map<string, QuestJourneyContext>;
 };
 
 type QuestmasterDisplayStatus = {
@@ -182,6 +171,14 @@ function ownerSortLabel(quest: QuestmasterTask, context: CompactSortContext): st
   return (context.sessionNameById.get(sessionId) || sessionId).trim().toLowerCase();
 }
 
+function leaderSortLabel(quest: QuestmasterTask, context: CompactSortContext): string {
+  const sessionId = getQuestLeaderSessionId(quest);
+  if (!sessionId) return "";
+  const sessionNum = context.sessionNumById.get(sessionId);
+  if (typeof sessionNum === "number") return `#${String(sessionNum).padStart(8, "0")}`;
+  return (context.sessionNameById.get(sessionId) || sessionId).trim().toLowerCase();
+}
+
 function verificationSortTuple(quest: QuestmasterTask): [number, number, number] {
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   if (!hasVerification) return [0, 0, 0];
@@ -197,28 +194,9 @@ function feedbackSortTuple(quest: QuestmasterTask): [number, number] {
   return [openCount, humanEntries.length];
 }
 
-function buildQuestmasterJourneyContextByQuestId(
-  sessionBoards: ReadonlyMap<string, readonly QuestmasterJourneyBoardRow[]>,
-  completedBoards: ReadonlyMap<string, readonly QuestmasterJourneyBoardRow[]>,
-): Map<string, QuestmasterJourneyContext> {
-  const contexts = new Map<string, QuestmasterJourneyContext>();
-  for (const board of sessionBoards.values()) {
-    for (const row of board) {
-      contexts.set(row.questId.toLowerCase(), { row, completed: false });
-    }
-  }
-  for (const board of completedBoards.values()) {
-    for (const row of board) {
-      const questKey = row.questId.toLowerCase();
-      if (!contexts.has(questKey)) contexts.set(questKey, { row, completed: true });
-    }
-  }
-  return contexts;
-}
-
 function getQuestmasterDisplayStatus(
   quest: QuestmasterTask,
-  journeyContext?: QuestmasterJourneyContext,
+  journeyContext?: QuestJourneyContext,
 ): QuestmasterDisplayStatus {
   const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
   if (isCancelled) {
@@ -272,6 +250,7 @@ function compareCompactSortColumn(
   if (column === "quest") return compareQuestIds(left.questId, right.questId);
   if (column === "title") return compareText(left.title, right.title);
   if (column === "owner") return compareText(ownerSortLabel(left, context), ownerSortLabel(right, context));
+  if (column === "leader") return compareText(leaderSortLabel(left, context), leaderSortLabel(right, context));
   if (column === "status") {
     const leftStatus = getQuestmasterDisplayStatus(
       left,
@@ -376,6 +355,41 @@ function renderSearchHighlightText(text: string, searchText: string): React.Reac
       )}
     </>
   );
+}
+
+const COMPACT_TLDR_MAX_CHARS = 180;
+
+function QuestTldrSnippet({
+  text,
+  searchText,
+  className = "",
+}: {
+  text: string;
+  searchText: string;
+  className?: string;
+}) {
+  const plainText = useMemo(() => markdownToSingleLinePlainText(text), [text]);
+  const snippet = useMemo(() => truncatePlainText(plainText, COMPACT_TLDR_MAX_CHARS), [plainText]);
+  if (!snippet) return null;
+  return (
+    <div
+      data-testid="quest-compact-tldr"
+      className={`truncate text-cc-muted ${className}`}
+      title={plainText.length > snippet.length ? plainText : undefined}
+    >
+      {renderSearchHighlightText(snippet, searchText)}
+    </div>
+  );
+}
+
+function markdownToSingleLinePlainText(markdown: string): string {
+  return markdownToPlainText(markdown).replace(/\s+/g, " ").trim();
+}
+
+function truncatePlainText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  const slice = text.slice(0, Math.max(0, maxChars - 1)).trimEnd();
+  return `${slice}…`;
 }
 
 function QuestTldrMarkdown({
@@ -1036,8 +1050,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const sortByRecencyDesc = (items: QuestmasterTask[]): QuestmasterTask[] =>
     [...items].sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
   const journeyContextByQuestId = useMemo(
-    () => buildQuestmasterJourneyContextByQuestId(sessionBoards, sessionCompletedBoards),
-    [sessionBoards, sessionCompletedBoards],
+    () => buildQuestJourneyContextByQuestId(quests, sessionBoards, sessionCompletedBoards),
+    [quests, sessionBoards, sessionCompletedBoards],
   );
   const compactSortContext = useMemo<CompactSortContext>(
     () => ({
@@ -1744,7 +1758,7 @@ const QuestCard = memo(function QuestCard({
   isExpanded: boolean;
   onOpenQuest: (quest: QuestmasterTask) => void;
   searchText: string;
-  journeyContext?: QuestmasterJourneyContext;
+  journeyContext?: QuestJourneyContext;
 }) {
   const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
   const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
@@ -1901,14 +1915,14 @@ function CompactQuestTable({
   quests: QuestmasterTask[];
   onOpenQuest: (quest: QuestmasterTask) => void;
   searchText: string;
-  journeyContextByQuestId: Map<string, QuestmasterJourneyContext>;
+  journeyContextByQuestId: Map<string, QuestJourneyContext>;
   sort: QuestmasterCompactSort;
   sortSaving: boolean;
   onSortChange: (column: QuestmasterCompactSortColumn) => void;
 }) {
   return (
     <div className="overflow-x-auto rounded-xl border border-cc-border bg-cc-card">
-      <table className="w-full min-w-[760px] text-xs">
+      <table className="w-full min-w-[840px] text-xs">
         <thead>
           <tr className="border-b border-cc-border bg-cc-bg/50 text-cc-muted">
             <CompactSortHeader
@@ -1928,6 +1942,13 @@ function CompactQuestTable({
             <CompactSortHeader
               column="owner"
               label="Owner"
+              sort={sort}
+              sortSaving={sortSaving}
+              onSortChange={onSortChange}
+            />
+            <CompactSortHeader
+              column="leader"
+              label="Leader"
               sort={sort}
               sortSaving={sortSaving}
               onSortChange={onSortChange}
@@ -2014,6 +2035,82 @@ function CompactSortHeader({
   );
 }
 
+function CompactQuestIdControls({ quest, searchText }: { quest: QuestmasterTask; searchText: string }) {
+  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const [copied, setCopied] = useState(false);
+  const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const copiedTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+      if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    },
+    [],
+  );
+
+  function handleMouseEnter(event: ReactMouseEvent<HTMLAnchorElement>) {
+    if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+    setHoverRect(event.currentTarget.getBoundingClientRect());
+  }
+
+  function handleMouseLeave() {
+    if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+    hideHoverTimerRef.current = setTimeout(() => setHoverRect(null), 100);
+  }
+
+  async function handleCopy(event: ReactMouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    await writeClipboardText(quest.questId);
+    setCopied(true);
+    if (copiedTimerRef.current) clearTimeout(copiedTimerRef.current);
+    copiedTimerRef.current = setTimeout(() => setCopied(false), 1200);
+  }
+
+  return (
+    <span className="inline-flex items-center gap-1.5">
+      <a
+        href={`#/questmaster?quest=${quest.questId}`}
+        className="font-mono-code text-blue-400 hover:text-blue-300 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-300/70 rounded-sm"
+        onClick={(event) => {
+          event.preventDefault();
+          event.stopPropagation();
+          useStore.getState().openQuestOverlay(quest.questId);
+        }}
+        onMouseEnter={handleMouseEnter}
+        onMouseLeave={handleMouseLeave}
+      >
+        {renderSearchHighlightText(quest.questId, searchText)}
+      </a>
+      <button
+        type="button"
+        className={`inline-flex h-5 w-5 items-center justify-center rounded border border-transparent text-cc-muted transition-colors hover:border-cc-border hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
+          copied ? "text-emerald-300" : ""
+        }`}
+        aria-label={`Copy quest ID ${quest.questId}`}
+        title={copied ? `Copied ${quest.questId}` : `Copy ${quest.questId}`}
+        onClick={handleCopy}
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
+          <rect x="5" y="3" width="8" height="10" rx="1.5" />
+          <path d="M3 11V5.5A2.5 2.5 0 015.5 3H9" />
+        </svg>
+      </button>
+      {hoverRect && (
+        <QuestHoverCard
+          quest={quest}
+          anchorRect={hoverRect}
+          onMouseEnter={() => {
+            if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
+          }}
+          onMouseLeave={() => setHoverRect(null)}
+        />
+      )}
+    </span>
+  );
+}
+
 const CompactQuestRow = memo(function CompactQuestRow({
   quest,
   onOpenQuest,
@@ -2023,7 +2120,7 @@ const CompactQuestRow = memo(function CompactQuestRow({
   quest: QuestmasterTask;
   onOpenQuest: (quest: QuestmasterTask) => void;
   searchText: string;
-  journeyContext?: QuestmasterJourneyContext;
+  journeyContext?: QuestJourneyContext;
 }) {
   const isCancelled = "cancelled" in quest && !!(quest as { cancelled?: boolean }).cancelled;
   const displayStatus = getQuestmasterDisplayStatus(quest, journeyContext);
@@ -2054,15 +2151,7 @@ const CompactQuestRow = memo(function CompactQuestRow({
       }`}
     >
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
-        <CopyableQuestId
-          questId={quest.questId}
-          className="font-mono-code text-blue-400 group-hover:text-blue-300"
-          onClick={(e) => {
-            e.preventDefault();
-          }}
-        >
-          {renderSearchHighlightText(quest.questId, searchText)}
-        </CopyableQuestId>
+        <CompactQuestIdControls quest={quest} searchText={searchText} />
       </td>
       <td className="px-3 py-1.5 align-middle">
         <div
@@ -2080,30 +2169,21 @@ const CompactQuestRow = memo(function CompactQuestRow({
           </div>
         )}
         {quest.tldr && (
-          <QuestTldrMarkdown text={quest.tldr} searchText={searchText} className="mt-0.5 max-w-[360px] text-[11px]" />
+          <QuestTldrSnippet text={quest.tldr} searchText={searchText} className="mt-0.5 max-w-[360px] text-[11px]" />
         )}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
         {questSessionId ? (
-          <div className="flex items-center gap-1.5">
-            <SessionNumChip sessionId={questSessionId} />
-            {leaderSessionId && (
-              <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
-                <span>Leader</span>
-                <SessionNumChip sessionId={leaderSessionId} />
-              </span>
-            )}
-          </div>
+          <SessionNumChip sessionId={questSessionId} />
         ) : (
-          <div className="flex items-center gap-1.5">
-            <span className="text-cc-muted">{"\u2014"}</span>
-            {leaderSessionId && (
-              <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
-                <span>Leader</span>
-                <SessionNumChip sessionId={leaderSessionId} />
-              </span>
-            )}
-          </div>
+          <span className="text-cc-muted">{"\u2014"}</span>
+        )}
+      </td>
+      <td className="px-3 py-1.5 whitespace-nowrap align-middle">
+        {leaderSessionId ? (
+          <SessionNumChip sessionId={leaderSessionId} />
+        ) : (
+          <span className="text-cc-muted">{"\u2014"}</span>
         )}
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">

@@ -2045,7 +2045,7 @@ function PlaygroundQuestmasterCompactDemo() {
             title: "Completed verification uses Verify column",
             status: "done" as const,
             description: "Keep manual verification visible without Status saying Inbox.",
-            tldr: "Completed row links to [q-986](quest:q-986) but Status stays `Completed`.",
+            tldr: "Completed row references [q-986](quest:q-986) and keeps verification separated from Status, even when this TLDR wraps across authoring lines.",
             createdAt: now - 300_000,
             statusChangedAt: now - 200_000,
             updatedAt: now - 10_000,
@@ -2079,6 +2079,28 @@ function PlaygroundQuestmasterCompactDemo() {
           ...quests,
         ],
         sessionBoards,
+        sdkSessions: [
+          ...state.sdkSessions.filter(
+            (session) =>
+              !["playground-questmaster-worker", "playground-questmaster-leader"].includes(session.sessionId),
+          ),
+          {
+            sessionId: "playground-questmaster-worker",
+            sessionNum: 902,
+            state: "connected" as const,
+            cwd: "/tmp/playground",
+            createdAt: now - 240_000,
+            archived: false,
+          },
+          {
+            sessionId: "playground-questmaster-leader",
+            sessionNum: 1286,
+            state: "connected" as const,
+            cwd: "/tmp/playground",
+            createdAt: now - 300_000,
+            archived: false,
+          },
+        ],
         questmasterViewMode: "compact" as const,
         questmasterCompactSort: { column: "updated" as const, direction: "desc" as const },
         questmasterSearchQuery: "",

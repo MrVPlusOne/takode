@@ -72,6 +72,7 @@ export const QUESTMASTER_COMPACT_SORT_COLUMNS = [
   "quest",
   "title",
   "owner",
+  "leader",
   "status",
   "verify",
   "feedback",

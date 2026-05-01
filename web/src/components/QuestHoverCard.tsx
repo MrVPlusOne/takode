@@ -3,8 +3,9 @@ import { createPortal } from "react-dom";
 import type { BoardParticipantStatus, BoardRowSessionStatus, QuestmasterTask } from "../types.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
+import { findQuestJourneyContext, type QuestJourneyBoardRow } from "../utils/quest-journey-context.js";
 import { useStore } from "../store.js";
-import type { QuestJourneyPlanState } from "../../shared/quest-journey.js";
+import { getQuestJourneyPhaseForState, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyPreviewCard } from "./QuestJourneyTimeline.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 
@@ -13,21 +14,6 @@ interface QuestHoverCardProps {
   anchorRect: DOMRect;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
-}
-
-interface QuestJourneyBoardRow {
-  questId: string;
-  journey?: QuestJourneyPlanState;
-  status?: string;
-  worker?: string;
-  workerNum?: number;
-  completedAt?: number;
-}
-
-interface QuestJourneyContext {
-  row: QuestJourneyBoardRow;
-  rowStatus?: BoardRowSessionStatus;
-  completed: boolean;
 }
 
 export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }: QuestHoverCardProps) {
@@ -59,8 +45,8 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
   const sessionCompletedBoards = useStore((state) => state.sessionCompletedBoards);
   const sessionBoardRowStatuses = useStore((state) => state.sessionBoardRowStatuses);
   const journeyContext = useMemo(
-    () => findQuestJourneyContext(quest.questId, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses),
-    [quest.questId, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses],
+    () => findQuestJourneyContext(quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses),
+    [quest, sessionBoards, sessionCompletedBoards, sessionBoardRowStatuses],
   );
   const journeyBoardRow = journeyContext?.row;
   const workerParticipant = resolveWorkerParticipant(journeyBoardRow, journeyContext?.rowStatus);
@@ -72,6 +58,10 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
   const top = anchorRect.bottom + gap;
   const journeyStatus =
     isCompletedJourneyPresentationStatus(quest.status) || journeyContext?.completed ? "done" : journeyBoardRow?.status;
+  const journeyPhase = !journeyContext?.completed ? getQuestJourneyPhaseForState(journeyBoardRow?.status) : null;
+  const journeyPresentation = !journeyContext?.completed ? getQuestJourneyPresentation(journeyBoardRow?.status) : null;
+  const statusLabel = journeyPresentation?.label ?? journeyPhase?.label ?? statusTheme.label;
+  const statusDotStyle = journeyPhase?.color.accent ? { backgroundColor: journeyPhase.color.accent } : undefined;
   const showOwnerSession = !!ownerSessionId && workerParticipant?.sessionId !== ownerSessionId;
 
   useLayoutEffect(() => {
@@ -114,8 +104,11 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
           <span
             className={`shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border ${statusTheme.bg} ${statusTheme.text} ${statusTheme.border}`}
           >
-            <span className={`w-1.5 h-1.5 rounded-full ${statusTheme.dot}`} />
-            {statusTheme.label}
+            <span
+              className={`w-1.5 h-1.5 rounded-full ${statusDotStyle ? "" : statusTheme.dot}`}
+              style={statusDotStyle}
+            />
+            {statusLabel}
           </span>
         </div>
         {quest.tags && quest.tags.length > 0 && (
@@ -181,28 +174,6 @@ function getResponsiveCardWidth(): number {
   const preferredWidth = 450;
   if (typeof window === "undefined") return preferredWidth;
   return Math.max(240, Math.min(preferredWidth, window.innerWidth - 16));
-}
-
-function findQuestJourneyContext(
-  questId: string,
-  sessionBoards: ReadonlyMap<string, readonly QuestJourneyBoardRow[]>,
-  completedBoards: ReadonlyMap<string, readonly QuestJourneyBoardRow[]>,
-  rowStatuses: ReadonlyMap<string, Record<string, BoardRowSessionStatus>>,
-): QuestJourneyContext | null {
-  const normalizedQuestId = questId.toLowerCase();
-  for (const [sessionId, board] of sessionBoards) {
-    const match = board.find((row) => row.questId.toLowerCase() === normalizedQuestId);
-    if (match) {
-      return { row: match, rowStatus: rowStatuses.get(sessionId)?.[match.questId], completed: false };
-    }
-  }
-  for (const [sessionId, board] of completedBoards) {
-    const match = board.find((row) => row.questId.toLowerCase() === normalizedQuestId);
-    if (match) {
-      return { row: match, rowStatus: rowStatuses.get(sessionId)?.[match.questId], completed: true };
-    }
-  }
-  return null;
 }
 
 function resolveWorkerParticipant(

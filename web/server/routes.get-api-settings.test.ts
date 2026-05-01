@@ -94,7 +94,7 @@ vi.mock("./session-names.js", () => ({
 }));
 
 vi.mock("./settings-manager.js", () => ({
-  QUESTMASTER_COMPACT_SORT_COLUMNS: ["quest", "title", "owner", "status", "verify", "feedback", "updated"],
+  QUESTMASTER_COMPACT_SORT_COLUMNS: ["quest", "title", "owner", "leader", "status", "verify", "feedback", "updated"],
   DEFAULT_QUESTMASTER_COMPACT_SORT: { column: "updated", direction: "desc" },
   getSettings: vi.fn(() => ({
     serverName: "",
