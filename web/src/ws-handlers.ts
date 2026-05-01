@@ -1,7 +1,7 @@
 import { useStore } from "./store.js";
 import { api } from "./api.js";
 import { createComposerDraftImage } from "./components/composer-image-utils.js";
-import type { BrowserIncomingMessage, ContentBlock, ChatMessage, TaskItem } from "./types.js";
+import type { BrowserIncomingMessage, BrowserOutgoingMessage, ContentBlock, ChatMessage, TaskItem } from "./types.js";
 import { generateUniqueSessionName } from "./utils/names.js";
 import { playNotificationSound, playReviewSound, playNeedsInputSound } from "./utils/notification-sound.js";
 import {
@@ -41,6 +41,7 @@ const CLI_DISCONNECT_DEBOUNCE_MS = 250;
 
 export interface WsMessageHandlerDeps {
   disconnectSession: (sessionId: string) => void;
+  sendToSession: (sessionId: string, msg: BrowserOutgoingMessage) => boolean;
 }
 
 function clearPendingCliDisconnect(sessionId: string): void {
@@ -528,6 +529,35 @@ function resolvePendingMessageScroll(sessionId: string, messages: ChatMessage[])
 function historyWindowStartIndex(data: Extract<BrowserIncomingMessage, { type: "history_window_sync" }>): number {
   const startIndex = data.window.start_index;
   return typeof startIndex === "number" && Number.isFinite(startIndex) ? Math.max(0, Math.floor(startIndex)) : 0;
+}
+
+function requestUncachedHistoryWindow(
+  sessionId: string,
+  data: Extract<BrowserIncomingMessage, { type: "history_window_sync" }>,
+  deps: WsMessageHandlerDeps,
+): void {
+  deps.sendToSession(sessionId, {
+    type: "history_window_request",
+    from_turn: data.window.from_turn,
+    turn_count: data.window.turn_count,
+    section_turn_count: data.window.section_turn_count,
+    visible_section_count: data.window.visible_section_count,
+  });
+}
+
+function requestUncachedThreadWindow(
+  sessionId: string,
+  data: Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>,
+  deps: WsMessageHandlerDeps,
+): void {
+  deps.sendToSession(sessionId, {
+    type: "thread_window_request",
+    thread_key: data.window.thread_key,
+    from_item: data.window.from_item,
+    item_count: data.window.item_count,
+    section_item_count: data.window.section_item_count,
+    visible_item_count: data.window.visible_item_count,
+  });
 }
 
 function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, deps: WsMessageHandlerDeps) {
@@ -1675,9 +1705,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "history_window_sync": {
       const sourceMessages =
-        data.cache_hit === true
-          ? (resolveCachedHistoryWindowMessages(sessionId, data.window) ?? data.messages)
-          : data.messages;
+        data.cache_hit === true ? resolveCachedHistoryWindowMessages(sessionId, data.window) : data.messages;
+      if (!sourceMessages) {
+        requestUncachedHistoryWindow(sessionId, data, deps);
+        break;
+      }
       resetAuthoritativeHistoryState(sessionId);
       const { chatMessages, frozenCount } = normalizeHistoryMessages(
         sessionId,
@@ -1705,9 +1737,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "thread_window_sync": {
       const sourceEntries =
-        data.cache_hit === true
-          ? (resolveCachedThreadWindowEntries(sessionId, data.window) ?? data.entries)
-          : data.entries;
+        data.cache_hit === true ? resolveCachedThreadWindowEntries(sessionId, data.window) : data.entries;
+      if (!sourceEntries) {
+        requestUncachedThreadWindow(sessionId, data, deps);
+        break;
+      }
       const chatMessages = normalizeThreadWindowEntries(sessionId, sourceEntries);
       store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages);
       clearPendingUploadsCoveredByHistory(

@@ -59,6 +59,7 @@ handleIncomingMessage = createWsMessageHandler({
   disconnectSession: (sessionId) => {
     transport.disconnectSession(sessionId);
   },
+  sendToSession: (sessionId, msg) => transport.sendToSession(sessionId, msg),
 });
 
 export { resolveSessionFilePath };

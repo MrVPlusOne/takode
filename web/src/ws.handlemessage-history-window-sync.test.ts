@@ -227,6 +227,58 @@ describe("handleMessage: history_window_sync", () => {
     ).toEqual(["u-cached"]);
   });
 
+  it("refetches a cache-hit history window without replacing visible state when the local cache entry is missing", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    const existingWindow = {
+      from_turn: 250,
+      turn_count: 50,
+      total_turns: 320,
+      start_index: 125,
+      section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+    };
+    useStore
+      .getState()
+      .setMessages("s1", [{ id: "still-visible", role: "assistant", content: "keep me", timestamp: 1 }], {
+        frozenCount: 0,
+      });
+    useStore.getState().setHistoryWindow("s1", existingWindow);
+    lastWs.send.mockClear();
+
+    fireMessage({
+      type: "history_window_sync",
+      cache_hit: true,
+      messages: [],
+      window: {
+        from_turn: 100,
+        turn_count: 150,
+        total_turns: 320,
+        start_index: 50,
+        section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        window_hash: "missing-local-history-window",
+      },
+    });
+
+    expect(
+      useStore
+        .getState()
+        .messages.get("s1")
+        ?.map((msg) => msg.id),
+    ).toEqual(["still-visible"]);
+    expect(useStore.getState().historyWindows.get("s1")).toEqual(existingWindow);
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lastWs.send.mock.calls[0][0])).toEqual({
+      type: "history_window_request",
+      from_turn: 100,
+      turn_count: 150,
+      section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+    });
+  });
+
   it("keeps a pending raw-index scroll when the current history window does not contain the target", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -491,5 +543,62 @@ describe("handleMessage: thread_window_sync", () => {
         ?.get("q-1040")
         ?.map((message) => message.id),
     ).toEqual(["u-thread-cached"]);
+  });
+
+  it("refetches a cache-hit selected-thread window without replacing visible state when the local cache is invalid", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    const existingThreadWindow = {
+      thread_key: "q-1040",
+      from_item: 30,
+      item_count: 10,
+      total_items: 40,
+      source_history_length: 150,
+      section_item_count: 10,
+      visible_item_count: 2,
+    };
+    useStore
+      .getState()
+      .setThreadWindow("s1", "q-1040", existingThreadWindow, [
+        { id: "still-visible-thread", role: "user", content: "keep thread", timestamp: 1 },
+      ]);
+    localStorage.setItem("cc-thread-window-cache:v1:s1:q-1040", "{not valid json");
+    lastWs.send.mockClear();
+
+    fireMessage({
+      type: "thread_window_sync",
+      cache_hit: true,
+      thread_key: "q-1040",
+      entries: [],
+      window: {
+        thread_key: "q-1040",
+        from_item: 20,
+        item_count: 10,
+        total_items: 40,
+        source_history_length: 150,
+        section_item_count: 10,
+        visible_item_count: 2,
+        window_hash: "invalid-local-thread-window",
+      },
+    });
+
+    expect(
+      useStore
+        .getState()
+        .threadWindowMessages.get("s1")
+        ?.get("q-1040")
+        ?.map((message) => message.id),
+    ).toEqual(["still-visible-thread"]);
+    expect(useStore.getState().threadWindows.get("s1")?.get("q-1040")).toEqual(existingThreadWindow);
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
+    expect(JSON.parse(lastWs.send.mock.calls[0][0])).toEqual({
+      type: "thread_window_request",
+      thread_key: "q-1040",
+      from_item: 20,
+      item_count: 10,
+      section_item_count: 10,
+      visible_item_count: 2,
+    });
   });
 });
