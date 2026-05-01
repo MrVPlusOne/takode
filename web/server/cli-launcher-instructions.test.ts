@@ -58,6 +58,8 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Do not fire the notification before the detailed text is visible");
     expect(result).toContain("one to three `--suggest <answer>` options");
     expect(result).toContain("never use suggestions instead of writing the full context in chat");
+    expect(result).toContain("blocks only the thread, quest, or board row it concerns");
+    expect(result).toContain("global orchestration, worker-slot scheduling, shared resource safety");
   });
 
   it("includes global resource lease guidance for shared dev-server and browser work", () => {
@@ -116,6 +118,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("route back deliberately: `implement`");
     expect(result).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(result).toContain("After that user-visible text exists, call `takode notify needs-input`");
+    expect(result).toContain("blocks only the thread, quest, or board row it concerns");
+    expect(result).toContain("Treat a prompt as global only when the visible question explicitly concerns");
+    expect(result).toContain("Process herd events and continue unrelated quests normally");
   });
 
   it("returns codex-flavored guardrails for codex backend", () => {
@@ -128,6 +133,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Escalate alignment back to the user only");
     expect(result).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
     expect(result).toContain("does not apply to purely read-only follow-up review discussion");
+    expect(result).toContain("blocks only the thread, quest, or board row it concerns");
     expect(result).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
     expect(result).toContain("small bounded reruns or repros");
     expect(result).toContain("approval-gated runs");

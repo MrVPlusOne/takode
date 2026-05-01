@@ -45,7 +45,7 @@ Read these files or invoke these skills when performing the corresponding operat
 - **Route leader messages explicitly.** Every leader text response starts with a first-line thread marker: `[thread:main]` for general conversation or `[thread:q-N]` for a quest thread. The marker is stripped from rendering and used as thread metadata. Shell/terminal commands that belong to a thread should start with `# thread:main` or `# thread:q-N` as their first non-empty line.
 - **Do not use `takode user-message` as the new publishing path.** It remains deprecated compatibility only. Use ordinary leader responses with mandatory thread markers, plus `takode notify` when notification state or suggested answers are needed.
 - **Never use `AskUserQuestion` or `EnterPlanMode`.** These block your turn and prevent herd event processing. Ask clarifying questions in a normal leader response with the right `[thread:...]` marker, then call `takode notify needs-input` so the user never misses it. For obvious short choices, add one to three `--suggest <answer>` flags.
-- **Use `takode notify` at these moments:** `needs-input` every time you ask the user a question or need a decision before work can continue; first send the detailed question or decision text as a marked leader response, then call `takode notify needs-input` with a short summary. Use `--suggest` only for concise obvious options, typically binary choices like yes/no. Use `review` only for significant non-quest deliverables that are ready for the user's eyes, not for quest completion.
+- **Use `takode notify` at these moments:** `needs-input` every time you ask the user a question or need a decision before work can continue; first send the detailed question or decision text as a marked leader response, then call `takode notify needs-input` with a short summary. A pending `needs-input` decision blocks only the thread, quest, or board row it concerns; continue unrelated quests and herd events normally. Treat a prompt as global only when the visible question explicitly concerns global orchestration, worker-slot scheduling, shared resource safety, or another cross-quest dependency. Use `--suggest` only for concise obvious options, typically binary choices like yes/no. Use `review` only for significant non-quest deliverables that are ready for the user's eyes, not for quest completion.
 - **Prefer plain-text inspection by default.** When using `takode info`, `takode peek`, `takode scan`, or `quest show` to read for judgment, scanability, or general situational awareness, use the normal plain-text output first. It is usually more token-efficient and easier to reason about than `--json`.
 - **Use `--json` only when exact machine fields matter.** Reach for JSON when you need precise structured data such as feedback `addressed` flags, `commitShas`, version-local quest metadata from `quest history`, exact IDs, or machine-oriented filtering/branching.
 
@@ -85,14 +85,14 @@ Three distinct operations -- never confuse them:
 
 ## Maintaining Focus
 
-- **Don't let herd events override your decision to wait for the user.** If you asked the user a question, keep waiting even if herd events arrive. Acknowledge events briefly, but don't proceed until the user responds.
+- **Don't let herd events override scoped waits.** If you asked the user a question, keep the affected thread, quest, or board row waiting even if herd events arrive. Acknowledge events briefly, continue unrelated orchestration normally, and treat the wait as global only when the prompt explicitly concerns global orchestration, worker-slot scheduling, shared resource safety, or another cross-quest dependency.
 - **When the user is directly steering a herded worker**: stay out of it. Resume normal coordination once the user stops interacting.
 - **After context compaction, refresh state.** Run `takode list` to see your herd with each worker's recent task history before making dispatch decisions.
 
 ## User Notifications
 
 Tie `takode notify` calls to Quest Journey phase events:
-- **`takode notify needs-input "need decision on auth approach for q-42" --suggest yes --suggest no`**: every time you ask the user a question or need a decision before work can continue. First send the detailed question or decision text as a marked leader response, then call `takode notify needs-input` with a short summary so the user never misses it. Suggested answers are optional and only for short, obvious choices.
+- **`takode notify needs-input "need decision on auth approach for q-42" --suggest yes --suggest no`**: every time you ask the user a question or need a decision before work can continue. First send the detailed question or decision text as a marked leader response, then call `takode notify needs-input` with a short summary so the user never misses it. The wait is scoped to the affected thread, quest, or board row unless the visible question explicitly says it is global for orchestration, worker-slot scheduling, shared resource safety, or a cross-quest dependency. Suggested answers are optional and only for short, obvious choices.
 - **Do not call `takode notify review` for quest completion**: when a work board item is completed, Takode already fires the review notification automatically. Sending another one creates duplicate quest-completion notifications.
 
 Do not notify for routine progress or intermediate steps.
@@ -274,7 +274,7 @@ Deprecated compatibility publisher for older leader sessions. New leader workflo
 
 ### `takode notify <category> <summary> [--suggest <answer>]...`
 
-Alert the user when they need to take action. Available to all sessions (not orchestrator-only). For leader sessions, send the detailed question or decision text as a normal marked leader response first, then use `takode notify needs-input` for attention state and optional suggested answers. The summary is required -- always describe what specifically needs attention.
+Alert the user when they need to take action. Available to all sessions (not orchestrator-only). For leader sessions, send the detailed question or decision text as a normal marked leader response first, then use `takode notify needs-input` for attention state and optional suggested answers. Pending leader decisions are scoped to their affected thread, quest, or board row by default; continue unrelated orchestration unless the prompt explicitly creates a global or cross-quest blocker. The summary is required -- always describe what specifically needs attention.
 
 Categories: `needs-input`, `review`
 

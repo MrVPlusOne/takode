@@ -124,6 +124,21 @@ function needsInput(id: string, summary: string, timestamp: number, done = false
   };
 }
 
+function questNeedsInput(
+  id: string,
+  summary: string,
+  timestamp: number,
+  questId: string,
+  done = false,
+): SessionNotification {
+  return {
+    ...needsInput(id, summary, timestamp, done),
+    threadKey: questId,
+    questId,
+    threadRefs: [{ threadKey: questId, questId, source: "explicit" }],
+  };
+}
+
 function review(id: string, summary: string, timestamp: number): SessionNotification {
   return {
     id,
@@ -312,6 +327,78 @@ describe("direct user needs-input reminders", () => {
     expect(cliContent).toContain(
       "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
     );
+  });
+
+  it("filters direct user reminders to pending needs-input notifications from the same quest thread", async () => {
+    // A response in one quest thread must not be polluted by unresolved prompts
+    // from Main or a different quest thread.
+    const session = makeSession([
+      needsInput("n-1", "Main pending question", 100),
+      questNeedsInput("n-2", "Current quest question", 200, "q-941"),
+      questNeedsInput("n-3", "Other quest question", 300, "q-942"),
+      questNeedsInput("n-4", "Resolved current quest question", 400, "q-941", true),
+    ]);
+    const deps = makeDeps({ isOrchestrator: true });
+
+    await handleUserMessage(
+      session,
+      userMessage({
+        content: "Fresh q-941 reply",
+        threadKey: "q-941",
+        questId: "q-941",
+      }),
+      deps,
+    );
+
+    expect(session.messageHistory).toHaveLength(2);
+    expect(session.messageHistory[0]).toMatchObject({
+      content: expect.stringContaining("Unresolved same-session same-thread needs-input notifications (q-941): 1."),
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    expect(session.messageHistory[0]).toMatchObject({ content: expect.stringContaining("2. Current quest question") });
+    expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Main pending question") });
+    expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Other quest question") });
+    expect(session.messageHistory[0]).toMatchObject({
+      content: expect.not.stringContaining("Resolved current quest question"),
+    });
+    expect(session.messageHistory[1]).toMatchObject({
+      type: "user_message",
+      content: "Fresh q-941 reply",
+      threadKey: "q-941",
+      questId: "q-941",
+    });
+
+    const cliContent = sentCliContent(deps);
+    expect(cliContent).toContain("Unresolved same-session same-thread needs-input notifications (q-941): 1.");
+    expect(cliContent).toContain("2. Current quest question");
+    expect(cliContent).not.toContain("Main pending question");
+    expect(cliContent).not.toContain("Other quest question");
+  });
+
+  it("keeps Main direct user reminders scoped away from pending quest-thread needs-input notifications", async () => {
+    // Legacy notifications without route metadata behave as Main-scoped; they
+    // should remain visible in Main without leaking quest-thread prompts there.
+    const session = makeSession([
+      needsInput("n-1", "Main pending question", 100),
+      questNeedsInput("n-2", "Quest pending question", 200, "q-941"),
+    ]);
+    const deps = makeDeps({ isOrchestrator: true });
+
+    await handleUserMessage(session, userMessage({ content: "Fresh Main reply" }), deps);
+
+    expect(session.messageHistory).toHaveLength(2);
+    expect(session.messageHistory[0]).toMatchObject({
+      content: expect.stringContaining("Unresolved same-session same-thread needs-input notifications (main): 1."),
+      threadKey: "main",
+    });
+    expect(session.messageHistory[0]).toMatchObject({ content: expect.stringContaining("1. Main pending question") });
+    expect(session.messageHistory[0]).toMatchObject({ content: expect.not.stringContaining("Quest pending question") });
+
+    const cliContent = sentCliContent(deps);
+    expect(cliContent).toContain("1. Main pending question");
+    expect(cliContent).not.toContain("Quest pending question");
   });
 
   it("does not inject a reminder when the current leader session has no pending needs-input notifications", async () => {
