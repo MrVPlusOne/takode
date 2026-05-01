@@ -510,6 +510,7 @@ describe("WorkBoardBar", () => {
 
     const tabs = getAllByTestId("thread-tab");
     const offBoardTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-5")!;
+    const expectedNextThread = tabs[tabs.indexOf(offBoardTab) + 1]?.getAttribute("data-thread-key") ?? "main";
     const boardActiveTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(offBoardTab).toHaveAttribute("data-closable", "true");
     expect(boardActiveTab).toHaveAttribute("data-closable", "false");
@@ -517,8 +518,8 @@ describe("WorkBoardBar", () => {
 
     fireEvent.click(getByLabelText("Close q-5"));
 
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-5");
-    expect(onSelectThread).toHaveBeenCalledWith("main");
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-5", expectedNextThread);
+    expect(onSelectThread).toHaveBeenCalledWith(expectedNextThread);
     expect(queryByText("q-5 rework requested")).not.toBeInTheDocument();
     expect(getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual(
       expect.arrayContaining(["q-1", "q-2"]),
@@ -895,7 +896,7 @@ describe("WorkBoardBar", () => {
     expect(completedTab).toHaveAttribute("data-closable", "true");
     expect(within(activeTab).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
     fireEvent.click(getByLabelText("Close q-3"));
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-3");
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-3", "q-2");
   });
 
   it("uses sibling select and close buttons for open tabs", () => {
@@ -903,7 +904,7 @@ describe("WorkBoardBar", () => {
     const onCloseThreadTab = vi.fn();
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionBoards: new Map([["s1", []]]),
     });
 
     const { getAllByTestId, getByLabelText } = render(
@@ -924,7 +925,43 @@ describe("WorkBoardBar", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-99");
 
     fireEvent.click(getByLabelText("Close q-99"));
-    expect(onCloseThreadTab).toHaveBeenCalledWith("q-99");
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-99", "main");
+  });
+
+  it("passes the right-hand visible tab as the active close fallback for persisted tabs", () => {
+    const onSelectThread = vi.fn();
+    const onCloseThreadTab = vi.fn();
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", []]]),
+    });
+
+    const { getAllByTestId, getByLabelText } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-middle"
+        openThreadKeys={["q-left", "q-middle", "q-right"]}
+        onSelectThread={onSelectThread}
+        onCloseThreadTab={onCloseThreadTab}
+        threadRows={[
+          { threadKey: "q-left", questId: "q-left", title: "Left thread", messageCount: 1 },
+          { threadKey: "q-middle", questId: "q-middle", title: "Selected thread", messageCount: 2 },
+          { threadKey: "q-right", questId: "q-right", title: "Right thread", messageCount: 3 },
+        ]}
+      />,
+    );
+
+    // Preserve the current rendered tab order: the fallback should be the visible neighbor to the right.
+    expect(getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+      "q-left",
+      "q-middle",
+      "q-right",
+    ]);
+
+    fireEvent.click(getByLabelText("Close q-middle"));
+
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-middle", "q-right");
+    expect(onSelectThread).not.toHaveBeenCalled();
   });
 
   it("routes unified active tab clicks to the owning thread", () => {

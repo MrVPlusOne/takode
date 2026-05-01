@@ -247,6 +247,15 @@ interface PrimaryThreadChip {
   updatedAt: number;
 }
 
+function threadKeyToSelectAfterClosing(threadKey: string, tabs: ReadonlyArray<PrimaryThreadChip>): string {
+  const normalized = normalizeThreadKey(threadKey);
+  const closingIndex = tabs.findIndex((tab) => normalizeThreadKey(tab.threadKey) === normalized);
+  if (closingIndex < 0) return MAIN_THREAD_KEY;
+
+  const rightTab = tabs.slice(closingIndex + 1).find((tab) => normalizeThreadKey(tab.threadKey) !== normalized);
+  return rightTab ? normalizeThreadKey(rightTab.threadKey) : MAIN_THREAD_KEY;
+}
+
 function OtherThreadSection({
   rows,
   totalCount,
@@ -782,7 +791,7 @@ export function WorkBoardBar({
   currentThreadLabel?: string;
   onSelectThread?: (threadKey: string) => void;
   openThreadKeys?: string[];
-  onCloseThreadTab?: (threadKey: string) => void;
+  onCloseThreadTab?: (threadKey: string, nextThreadKey: string) => void;
   threadRows?: WorkBoardThreadNavigationRow[];
   attentionRecords?: ReadonlyArray<AttentionRecord>;
 }) {
@@ -911,12 +920,13 @@ export function WorkBoardBar({
   );
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);
-    onCloseThreadTab?.(normalized);
+    const nextThreadKey = threadKeyToSelectAfterClosing(normalized, unifiedThreadTabs);
+    onCloseThreadTab?.(normalized, nextThreadKey);
     if (openThreadTabKeys.has(normalized)) return;
 
     setDismissedAutoThreadTabKeys((existing) => new Set([...existing, normalized]));
     if (isSelectedThread(currentThreadKey, normalized)) {
-      onSelectThread?.(MAIN_THREAD_KEY);
+      onSelectThread?.(nextThreadKey);
     }
   };
   const boardThreadKeys = useMemo(() => {

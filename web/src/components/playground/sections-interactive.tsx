@@ -1414,9 +1414,10 @@ export function PlaygroundInteractiveSections() {
                   }
                   onSelectThread={setBoardPreviewThreadKey}
                   openThreadKeys={boardOpenThreadKeys}
-                  onCloseThreadTab={(threadKey) =>
-                    setBoardOpenThreadKeys((keys) => keys.filter((key) => key !== threadKey))
-                  }
+                  onCloseThreadTab={(threadKey, nextThreadKey) => {
+                    setBoardOpenThreadKeys((keys) => keys.filter((key) => key !== threadKey));
+                    setBoardPreviewThreadKey((current) => (current === threadKey ? nextThreadKey : current));
+                  }}
                   threadRows={[
                     {
                       threadKey: "q-99",

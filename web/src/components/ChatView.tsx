@@ -701,13 +701,13 @@ export function ChatView({
     [openThreadTab, preview, selectedThreadKey, sessionId],
   );
   const handleCloseThreadTab = useCallback(
-    (threadKey: string) => {
+    (threadKey: string, nextThreadKey = MAIN_THREAD_KEY) => {
       const normalized = normalizeThreadKey(threadKey);
       const nextOpenThreadTabKeys = openThreadTabKeysRef.current.filter((key) => key !== normalized);
       openThreadTabKeysRef.current = nextOpenThreadTabKeys;
       setOpenThreadTabKeys(nextOpenThreadTabKeys);
       if (normalizeThreadKey(selectedThreadKey) === normalized) {
-        handleSelectThread(MAIN_THREAD_KEY);
+        handleSelectThread(nextThreadKey);
       }
     },
     [handleSelectThread, selectedThreadKey],
