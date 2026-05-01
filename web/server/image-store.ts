@@ -3,62 +3,40 @@ import { mkdir, writeFile, readdir, rm, access } from "node:fs/promises";
 import { join } from "node:path";
 import { homedir } from "node:os";
 import { randomBytes } from "node:crypto";
+import {
+  AGENT_QUALITY,
+  MIME_TO_EXT,
+  optimizeImageBufferForStore,
+  requireSharp,
+  resetSharpLoaderForTest,
+  resizeImageBufferForStore,
+  setSharpLoaderForTest,
+  SHARP_UNAVAILABLE_MESSAGE,
+  SharpUnavailableError,
+  STORE_MAX_DIM,
+  isSharpUnavailableError,
+} from "./image-optimizer.js";
+
+export {
+  AGENT_QUALITY,
+  MIME_TO_EXT,
+  resetSharpLoaderForTest,
+  setSharpLoaderForTest,
+  SHARP_UNAVAILABLE_MESSAGE,
+  SharpUnavailableError,
+  STORE_MAX_DIM,
+  isSharpUnavailableError,
+};
 
 export interface ImageRef {
   imageId: string;
   media_type: string;
 }
 
-export const MIME_TO_EXT: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpeg",
-  "image/jpg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "image/svg+xml": "svg",
-  "image/bmp": "bmp",
-  "image/tiff": "tiff",
-  "image/avif": "avif",
-  "image/heic": "heic",
-  "image/heif": "heif",
-};
-
 const DEFAULT_BASE_DIR = join(homedir(), ".companion", "images");
 
 const THUMB_MAX_DIM = 300;
 const THUMB_QUALITY = 80;
-/** JPEG quality for lossless-to-JPEG conversion (q-230 confirmed no visible quality loss at 85). */
-const AGENT_QUALITY = 85;
-
-/** Lossless formats that benefit from lossy JPEG conversion on ingest. */
-const JPEG_ELIGIBLE_MIMES = new Set(["image/png", "image/bmp", "image/tiff"]);
-
-/**
- * Max pixel dimension for stored images. Claude Code's Read tool rejects
- * images exceeding 2000x2000px, so we cap at 1920px to leave headroom.
- * Applied once at storage time for both session images and quest images.
- */
-export const STORE_MAX_DIM = 1920;
-
-export const SHARP_UNAVAILABLE_MESSAGE =
-  "Image processing unavailable because sharp failed to load its native runtime.";
-
-export class SharpUnavailableError extends Error {
-  constructor(feature: string) {
-    super(`${SHARP_UNAVAILABLE_MESSAGE} (${feature})`);
-    this.name = "SharpUnavailableError";
-  }
-}
-
-export function isSharpUnavailableError(error: unknown): error is SharpUnavailableError {
-  return error instanceof SharpUnavailableError;
-}
-
-export function setSharpLoaderForTest(loader: (() => Promise<SharpModule>) | null): void {
-  sharpLoader = loader ?? defaultSharpLoader;
-  sharpModulePromise = null;
-  sharpLoadFailureLogged = false;
-}
 
 /**
  * Downscale raster images that would exceed the Read tool's 2000px limit.
@@ -66,78 +44,7 @@ export function setSharpLoaderForTest(loader: (() => Promise<SharpModule>) | nul
  * if sharp can't process the input.
  */
 export async function resizeForStore(data: Buffer, mimeType: string, maxDim = STORE_MAX_DIM): Promise<Buffer> {
-  if (mimeType === "image/svg+xml") return data;
-  const sharp = await requireSharp("resize images");
-  return resizeRasterForStore(data, sharp, maxDim);
-}
-
-export function resetSharpLoaderForTest(): void {
-  setSharpLoaderForTest(null);
-}
-
-interface SharpMetadata {
-  width?: number;
-  height?: number;
-}
-
-interface SharpPipeline {
-  metadata(): Promise<SharpMetadata>;
-  rotate(): SharpPipeline;
-  resize(options: { width: number; height: number; fit: "inside"; withoutEnlargement?: boolean }): SharpPipeline;
-  jpeg(options: { quality: number }): SharpPipeline;
-  toBuffer(): Promise<Buffer>;
-  toFile(path: string): Promise<unknown>;
-}
-
-type SharpModule = (input: Buffer) => SharpPipeline;
-
-const defaultSharpLoader = async (): Promise<SharpModule> => {
-  const module = (await import("sharp")) as { default?: SharpModule };
-  const sharp = module.default;
-  if (!sharp) {
-    throw new Error("sharp module did not expose a default export");
-  }
-  return sharp;
-};
-
-let sharpLoader: () => Promise<SharpModule> = defaultSharpLoader;
-let sharpModulePromise: Promise<SharpModule | null> | null = null;
-let sharpLoadFailureLogged = false;
-
-async function resizeRasterForStore(data: Buffer, sharp: SharpModule, maxDim = STORE_MAX_DIM): Promise<Buffer> {
-  try {
-    const meta = await sharp(data).metadata();
-    if (!meta.width || !meta.height) return data;
-    if (meta.width <= maxDim && meta.height <= maxDim) return data;
-    return await sharp(data)
-      .rotate()
-      .resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true })
-      .toBuffer();
-  } catch (err) {
-    console.warn("[image-store] Failed to resize image, saving original:", err);
-    return data;
-  }
-}
-
-async function loadSharp(): Promise<SharpModule | null> {
-  if (!sharpModulePromise) {
-    sharpModulePromise = sharpLoader().catch((err) => {
-      if (!sharpLoadFailureLogged) {
-        sharpLoadFailureLogged = true;
-        console.warn("[image-store] sharp unavailable, image processing disabled:", err);
-      }
-      return null;
-    });
-  }
-  return sharpModulePromise;
-}
-
-async function requireSharp(feature: string): Promise<SharpModule> {
-  const sharp = await loadSharp();
-  if (!sharp) {
-    throw new SharpUnavailableError(feature);
-  }
-  return sharp;
+  return resizeImageBufferForStore(data, mimeType, maxDim);
 }
 
 export class ImageStore {
@@ -165,22 +72,13 @@ export class ImageStore {
     const dir = this.sessionDir(sessionId);
     await mkdir(dir, { recursive: true });
 
-    let actualMediaType = mediaType;
     const imageId = `${Date.now()}-${this.counter++}-${randomBytes(3).toString("hex")}`;
     const thumbPath = join(dir, `${imageId}.thumb.jpeg`);
 
     const raw = Buffer.from(base64Data, "base64");
-    let buffer = mediaType === "image/svg+xml" ? raw : await resizeRasterForStore(raw, sharp, STORE_MAX_DIM);
-
-    // Convert lossless formats (PNG, BMP, TIFF) to JPEG for ~22% size savings
-    if (JPEG_ELIGIBLE_MIMES.has(mediaType)) {
-      try {
-        buffer = await sharp(buffer).jpeg({ quality: AGENT_QUALITY }).toBuffer();
-        actualMediaType = "image/jpeg";
-      } catch (err) {
-        console.warn(`[image-store] JPEG conversion failed for ${imageId}, keeping original format:`, err);
-      }
-    }
+    const optimized = await optimizeImageBufferForStore(raw, mediaType, { jpegQuality: AGENT_QUALITY });
+    const buffer = optimized.data;
+    const actualMediaType = optimized.mediaType;
 
     const ext = MIME_TO_EXT[actualMediaType] || "bin";
     const originalPath = join(dir, `${imageId}.orig.${ext}`);

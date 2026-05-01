@@ -84,6 +84,8 @@ This workflow uses Playwright MCP through shell commands, not direct Playwright 
 
 - Raw MCP screenshots are typically written under /tmp/playwright-mcp-output/
 - Copy relevant screenshots to a repo-local evidence directory with descriptive filenames.
+- For agent-readable evidence, prefer optimized siblings: run `quest optimize-image <path>` for local/generated screenshots that are not already marked with `.takode-agent.`, then cite or attach the returned sibling path. Preserve originals for precision/debugging.
+- Do not recompress user-uploaded chat or Questmaster image paths; those already pass through Takode's upload image pipeline unless they are older unmarked files with concrete size/dimension evidence.
 
 ## Required Output
 

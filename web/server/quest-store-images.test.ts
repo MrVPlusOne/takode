@@ -55,7 +55,7 @@ describe("saveQuestImage", () => {
     );
   });
 
-  it("resizes images exceeding 1920px to fit within the limit", async () => {
+  it("resizes and converts images exceeding 1920px to the shared JPEG policy", async () => {
     // Claude Code's Read tool rejects images >2000x2000px. saveQuestImage
     // should downscale at upload time so workers can read quest screenshots.
     const bigImage = await sharp({
@@ -72,10 +72,14 @@ describe("saveQuestImage", () => {
     // Aspect ratio preserved: 2500x2000 -> 1920x1536
     expect(meta.width).toBe(1920);
     expect(meta.height).toBe(1536);
+    expect(meta.format).toBe("jpeg");
+    expect(result.mimeType).toBe("image/jpeg");
+    expect(result.path.endsWith(".jpg")).toBe(true);
   });
 
-  it("preserves small images without resizing", async () => {
-    // Images already within the limit should pass through unchanged.
+  it("converts small eligible images without resizing", async () => {
+    // Images already within the limit should keep their dimensions but still
+    // share the chat upload lossless-to-JPEG compression behavior.
     const smallImage = await sharp({
       create: { width: 800, height: 600, channels: 4, background: { r: 0, g: 255, b: 0, alpha: 1 } },
     })
@@ -87,6 +91,8 @@ describe("saveQuestImage", () => {
     const meta = await sharp(saved).metadata();
     expect(meta.width).toBe(800);
     expect(meta.height).toBe(600);
+    expect(meta.format).toBe("jpeg");
+    expect(result.mimeType).toBe("image/jpeg");
   });
 
   it("skips resize for SVG images", async () => {

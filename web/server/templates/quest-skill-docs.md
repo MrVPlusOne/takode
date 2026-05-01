@@ -90,6 +90,7 @@ quest feedback show <id> <index> [--json]                     Show one indexed f
 quest address <id> <index> [--json]                          Toggle feedback addressed status
 quest delete <id> [--json]                                    Delete quest
 quest resize-image <path> [--max-dim 1920] [--json]           Resize an image to fit within max dimension
+quest optimize-image <path> [--max-dim 1920] [--json]         Write an optimized .takode-agent sibling image
 ```
 
 ## ⚠️ Important: Flag Names
@@ -442,7 +443,11 @@ Every quest should have at least one tag. Common patterns: component/area (e.g. 
 Quests can have attached images at `~/.companion/questmaster/images/`.
 `quest show` displays file paths. Use the Read tool to view them.
 
-**If the Read tool fails with a dimension error** (e.g. "dimensions exceed the 2000x2000px limit"), resize the image first: `quest resize-image <path>`. New uploads are auto-resized, but older images may exceed the limit.
+**Local/generated screenshots:** Prefer optimized `.takode-agent.` sibling images for agent-readable evidence. Takode's `agent-browser screenshot` wrapper preserves the original and returns an optimized sibling by default; use `--takode-original` or `TAKODE_AGENT_BROWSER_ORIGINAL=1` only when pixel-level precision/debugging requires the original. For other local/generated image files, run `quest optimize-image <path>` and use the returned sibling path. Do not recompress paths already containing `.takode-agent.`.
+
+**User-uploaded/chat/Questmaster images:** New uploads are already processed by the server image pipeline. Do not run `quest optimize-image` on those unless the path is an older unmarked image and there is concrete evidence it exceeds model image limits.
+
+**If the Read tool fails with a dimension error** (e.g. "dimensions exceed the 2000x2000px limit"), use `quest optimize-image <path>` for a non-mutating sibling, or `quest resize-image <path>` only when an in-place resize is explicitly acceptable.
 
 **Forward user screenshots.** When the user includes screenshots in their message that are relevant to a quest (bug reports, UI feedback, design references), attach them either on creation (`quest create ... --image <path>`) or in follow-up feedback (`quest feedback ... --image <path>`). This gives workers visual context they wouldn't otherwise have.
 

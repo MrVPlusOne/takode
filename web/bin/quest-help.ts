@@ -40,6 +40,7 @@ Commands:
   address <id> <index> [--json]                          Toggle feedback addressed status
   delete <id> [--json]                                   Delete quest
   resize-image <path> [--max-dim 1920] [--json]          Resize an image to fit within max dimension
+  optimize-image <path> [--max-dim 1920] [--json]        Write an optimized .takode-agent sibling image
 
 Environment:
   COMPANION_SESSION_ID  Session ID (auto-set by Companion)

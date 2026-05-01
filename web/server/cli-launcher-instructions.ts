@@ -130,7 +130,8 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
   parts.push(
     "## Image Reading\n\n" +
       "If a user message includes image attachments, read every attached image before you respond. Make that your first step for that turn.\n\n" +
-      "Always try reading images directly first. Only resize when the Read tool fails due to oversized dimensions.",
+      "Always try user-uploaded chat or Questmaster images directly first; new uploads already pass through Takode's image pipeline.\n\n" +
+      "For local/generated screenshots, prefer optimized agent-readable files. Takode's `agent-browser screenshot` wrapper preserves the original and returns a `.takode-agent.` sibling by default. Use `--takode-original` or `TAKODE_AGENT_BROWSER_ORIGINAL=1` only when precision/debugging requires the original. For other local/generated images, run `quest optimize-image <path>` and use the returned sibling path. Do not recompress paths already containing `.takode-agent.`.",
   );
 
   if (opts?.extraInstructions) {

@@ -1,6 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { readdir, readFile, unlink, writeFile, mkdir } from "node:fs/promises";
 import { extname, join } from "node:path";
+import { MIME_TO_EXT, optimizeImageBufferForStore } from "./image-optimizer.js";
 import type { QuestImage, QuestmasterTask } from "./quest-types.js";
 
 type QuestImageStoreDeps<TStore> = {
@@ -16,16 +17,9 @@ type QuestImageStoreDeps<TStore> = {
   writeQuest: (quest: QuestmasterTask) => Promise<void>;
 };
 
-// Map quest MIME types to file extensions. Uses image-store's map for common
-// types but also supports .svg via a local lookup since IMAGE_MIME_TO_EXT
-// values don't include the leading dot that quest filenames use.
-const QUEST_MIME_TO_EXT: Record<string, string> = {
-  "image/png": ".png",
-  "image/jpeg": ".jpg",
-  "image/gif": ".gif",
-  "image/webp": ".webp",
-  "image/svg+xml": ".svg",
-};
+const QUEST_MIME_TO_EXT = Object.fromEntries(
+  Object.entries(MIME_TO_EXT).map(([mimeType, ext]) => [mimeType, `.${ext === "jpeg" ? "jpg" : ext}`]),
+);
 
 export async function saveQuestImageFile(args: {
   data: Buffer;
@@ -36,13 +30,12 @@ export async function saveQuestImageFile(args: {
 }): Promise<QuestImage> {
   await args.ensureLiveImagesDir();
   const id = randomBytes(8).toString("hex");
-  const ext = QUEST_MIME_TO_EXT[args.mimeType] || extname(args.filename) || ".bin";
+  const optimized = await optimizeImageBufferForStore(args.data, args.mimeType);
+  const ext = QUEST_MIME_TO_EXT[optimized.mediaType] || ".bin";
   const diskName = `${id}${ext}`;
   const diskPath = join(args.liveImagesDir, diskName);
-  const { resizeForStore } = await import("./image-store.js");
-  const finalData = await resizeForStore(args.data, args.mimeType);
-  await writeFile(diskPath, finalData);
-  return { id, filename: args.filename, mimeType: args.mimeType, path: diskPath };
+  await writeFile(diskPath, optimized.data);
+  return { id, filename: args.filename, mimeType: optimized.mediaType, path: diskPath };
 }
 
 export async function addQuestImagesToStore<TStore>(

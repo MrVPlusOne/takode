@@ -310,7 +310,11 @@ This ensures workers load the quest skill (so CLI commands work), read pending f
 
 Do not let a stale review acceptance, stale port confirmation, or any other old-scope completion advance the board after that reset. Those completions are now historical context, not the active quest state.
 
-**Forward user screenshots.** When the user provides screenshots alongside a task request, attach them to the quest via `quest feedback q-XX --image <path>` before dispatching. If no quest exists (e.g. ad-hoc investigation), send the image file path to the worker via `takode send` so they can Read it. `takode spawn` does not support images -- always use a follow-up message or quest attachment.
+**Forward user screenshots.** When the user provides screenshots alongside a task request, attach them to the quest via `quest feedback q-XX --image <path>` before dispatching. If no quest exists (e.g. ad-hoc investigation), send the image file path to the worker via `takode send` so they can Read it. `takode spawn` does not support images -- always use a follow-up message or quest attachment. User-uploaded chat and Questmaster images already pass through Takode's image pipeline; do not ask workers to recompress them unless the path is an older unmarked image with concrete size/dimension evidence.
+
+**Local/generated screenshot paths.** When forwarding evidence produced by `agent-browser screenshot`, prefer the returned `.takode-agent.` path. The Takode wrapper preserves the original sibling for precision/debugging; use `--takode-original` only when the worker truly needs the original pixels. For other local/generated image files, run `quest optimize-image <path>` before sending and forward the returned sibling.
+
+**413 recovery.** Do not blindly retry a worker or reviewer turn that failed with `413 Payload Too Large` or equivalent request-size wording, especially after image-heavy browser evidence. First try a manual `/compact` or remove redundant local image references where possible. If the session is stuck or retained context cannot be reduced, replace/restart the actor with bounded instructions: point at the durable quest notes, optimized `.takode-agent.` evidence paths, and exact remaining question instead of replaying the full image-heavy transcript.
 
 ### 8. Board Commands for Proposal and Promotion
 
