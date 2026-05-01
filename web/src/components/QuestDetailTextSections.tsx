@@ -7,6 +7,7 @@ import {
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestPhaseDocumentationTimeline } from "./QuestPhaseDocumentationTimeline.js";
+import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
 import type { ReactNode } from "react";
 import type { QuestmasterTask } from "../types.js";
 import type { QuestPhaseDocumentationSummary } from "../../shared/quest-phase-documentation-summary.js";
@@ -43,6 +44,7 @@ export function QuestDetailTextSections({
     !description &&
     !questDebrief &&
     !questDebriefTldr &&
+    !quest.relatedQuests?.length &&
     !phaseDocumentationSummary.hasPhaseDocumentation &&
     !(quest.status === "done" && journey)
   ) {
@@ -51,6 +53,7 @@ export function QuestDetailTextSections({
 
   return (
     <div className="space-y-2">
+      <QuestRelationshipLinks quest={quest} />
       {hasFinalDebrief ? (
         <>
           {(questTldr || questDebriefTldr) && (

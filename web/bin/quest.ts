@@ -78,7 +78,9 @@ import {
 } from "./quest-feedback.js";
 import { showHelp } from "./quest-help.js";
 import { runOptimizeImageCommand, runResizeImageCommand } from "./quest-image.js";
+import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
+import { runTagsCommand } from "./quest-tags-command.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
@@ -989,7 +991,19 @@ async function cmdHistory(): Promise<void> {
 }
 
 async function cmdCreate(): Promise<void> {
-  validateFlags(["title", "title-file", "desc", "desc-file", "tldr", "tldr-file", "tags", "image", "images", "json"]);
+  validateFlags([
+    "title",
+    "title-file",
+    "desc",
+    "desc-file",
+    "tldr",
+    "tldr-file",
+    "tags",
+    "follow-up-of",
+    "image",
+    "images",
+    "json",
+  ]);
   const positionalTitle = positional(0);
   const title = await readOptionalRichTextOption({
     inlineFlag: "title",
@@ -1004,7 +1018,7 @@ async function cmdCreate(): Promise<void> {
     die(
       'Usage: quest create [<title> | --title "..." | --title-file <path>|-] ' +
         '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] ' +
-        '[--tags "t1,t2"] [--image <path>] [--images "p1,p2"]',
+        '[--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"]',
     );
   }
 
@@ -1030,6 +1044,7 @@ async function cmdCreate(): Promise<void> {
     ...options("image"),
     ...options("images").flatMap((group) => group.split(",").map((p) => p.trim())),
   ].filter(Boolean);
+  const relationships = parseRelationshipFlags(option);
 
   try {
     const uploadedImages =
@@ -1048,6 +1063,7 @@ async function cmdCreate(): Promise<void> {
       description,
       ...(normalizedTldr ? { tldr: normalizedTldr } : {}),
       tags,
+      ...(relationships ? { relationships } : {}),
       ...(resolvedImages?.length ? { images: resolvedImages } : {}),
     });
     await notifyServer();
@@ -1528,7 +1544,7 @@ async function cmdInbox(): Promise<void> {
 }
 
 async function cmdEdit(): Promise<void> {
-  validateFlags(["title", "title-file", "desc", "desc-file", "tldr", "tldr-file", "tags", "json"]);
+  validateFlags(["title", "title-file", "desc", "desc-file", "tldr", "tldr-file", "tags", "follow-up-of", "json"]);
   const id = positional(0);
   if (!id) {
     die(
@@ -1560,9 +1576,18 @@ async function cmdEdit(): Promise<void> {
         .map((t) => t.trim())
         .filter(Boolean)
     : undefined;
+  const relationships = parseRelationshipFlags(option);
 
-  if (title === undefined && description === undefined && tldr === undefined && tags === undefined) {
-    die("At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, or --tags is required");
+  if (
+    title === undefined &&
+    description === undefined &&
+    tldr === undefined &&
+    tags === undefined &&
+    relationships === undefined
+  ) {
+    die(
+      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, or --follow-up-of is required",
+    );
   }
 
   try {
@@ -1571,6 +1596,7 @@ async function cmdEdit(): Promise<void> {
       ...(description !== undefined ? { description } : {}),
       ...(tldr !== undefined ? { tldr: normalizedTldr ?? "" } : {}),
       ...(tags !== undefined ? { tags } : {}),
+      ...(relationships !== undefined ? { relationships } : {}),
     });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
@@ -1889,34 +1915,6 @@ async function cmdDelete(): Promise<void> {
   }
 }
 
-async function cmdTags(): Promise<void> {
-  validateFlags(["json"]);
-  const quests = await listQuests();
-  const tagCounts = new Map<string, number>();
-  for (const q of quests) {
-    if (q.tags) {
-      for (const tag of q.tags) {
-        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
-      }
-    }
-  }
-
-  if (jsonOutput) {
-    out(Object.fromEntries(tagCounts));
-    return;
-  }
-
-  if (tagCounts.size === 0) {
-    console.log("No tags found.");
-    return;
-  }
-  // Sort by count desc, then alpha
-  const sorted = [...tagCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  for (const [tag, count] of sorted) {
-    console.log(`  ${tag} (${count})`);
-  }
-}
-
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -1934,7 +1932,7 @@ async function main(): Promise<void> {
     case "history":
       return cmdHistory();
     case "tags":
-      return cmdTags();
+      return runTagsCommand({ listQuests, validateFlags, jsonOutput, out });
     case "create":
       return cmdCreate();
     case "claim":

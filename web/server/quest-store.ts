@@ -8,7 +8,6 @@ import type {
   QuestCreateInput,
   QuestPatchInput,
   QuestTransitionInput,
-  QuestFeedbackEntry,
   QuestImage,
   QuestVerificationItem,
   QuestIdea,
@@ -28,7 +27,6 @@ import {
   normalizeCommitShas,
   normalizeQuestOwnership,
   normalizeVerificationItems,
-  shouldMarkVerificationInboxUnreadFromFeedbackPatch,
 } from "./quest-store-helpers.js";
 import {
   addQuestImagesToStore,
@@ -36,6 +34,12 @@ import {
   removeQuestImageFromStore,
   saveQuestImageFile,
 } from "./quest-store-images.js";
+import {
+  normalizeQuestRelationships,
+  stripDerivedQuestRelationships,
+  withQuestRelationshipSummaries,
+} from "./quest-relationships.js";
+import { applyQuestPatch } from "./quest-store-patch.js";
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
@@ -283,7 +287,7 @@ function computeNextQuestNumberFromQuestIds(questIds: string[]): number {
 }
 
 function normalizeLiveQuest(quest: QuestmasterTask): QuestmasterTask {
-  const normalized = normalizeQuestOwnership({ ...quest }) as QuestmasterTask & {
+  const normalized = normalizeQuestOwnership(stripDerivedQuestRelationships({ ...quest })) as QuestmasterTask & {
     id: string;
     createdAt: number;
     questId: string;
@@ -299,6 +303,9 @@ function normalizeLiveQuest(quest: QuestmasterTask): QuestmasterTask {
     typeof normalized.statusChangedAt === "number" && normalized.statusChangedAt > 0
       ? normalized.statusChangedAt
       : normalized.createdAt;
+  const relationships = normalizeQuestRelationships(normalized.relationships, normalized.questId);
+  if (relationships) normalized.relationships = relationships;
+  else delete normalized.relationships;
   return normalized;
 }
 
@@ -749,7 +756,7 @@ async function updateLatestSnapshotWithQuest(quest: QuestmasterTask): Promise<vo
   await withLatestSnapshotLock(async () => {
     const currentVersionFilesByQuest = await listQuestVersionFilesByQuest();
     const current = await readFreshLatestSnapshotOrRebuild(currentVersionFilesByQuest);
-    const nextQuest = normalizeQuestOwnership(quest);
+    const nextQuest = normalizeQuestOwnership(stripDerivedQuestRelationships(quest));
     const remaining = current.quests.filter((existing) => existing.questId !== nextQuest.questId);
     const nextSnapshot = buildLatestSnapshot(
       [...remaining, nextQuest],
@@ -803,7 +810,7 @@ async function readQuestAtPath(path: string): Promise<QuestmasterTask | null> {
 
 async function writeQuest(quest: QuestmasterTask): Promise<void> {
   await ensureDir();
-  const normalized = normalizeQuestOwnership(quest);
+  const normalized = normalizeQuestOwnership(stripDerivedQuestRelationships(quest));
   await writeFile(filePath(normalized.id), JSON.stringify(normalized, null, 2), "utf-8");
   await updateLatestSnapshotWithQuest(normalized);
 }
@@ -1239,6 +1246,9 @@ function buildCreatedQuest(
     ...(liveStore ? { statusChangedAt: now } : {}),
     ...(input.tags?.length ? { tags: input.tags } : {}),
     ...(input.parentId ? { parentId: input.parentId } : {}),
+    ...(normalizeQuestRelationships(input.relationships, questId)
+      ? { relationships: normalizeQuestRelationships(input.relationships, questId) }
+      : {}),
     ...(input.images?.length ? { images: input.images } : {}),
   };
 
@@ -1289,6 +1299,7 @@ function buildTransitionedQuest(
     !input.sessionId &&
     !input.verificationItems &&
     !input.commitShas &&
+    input.relationships === undefined &&
     !input.notes &&
     input.debrief === undefined &&
     input.debriefTldr === undefined &&
@@ -1307,6 +1318,10 @@ function buildTransitionedQuest(
   const currentActiveSessionId = getActiveSessionId(current);
   const currentPreviousOwners = getPreviousOwnerSessionIds(current);
   const leaderSessionId = input.leaderSessionId?.trim() || getLeaderSessionId(current);
+  const relationships =
+    input.relationships !== undefined
+      ? normalizeQuestRelationships(input.relationships, current.questId)
+      : normalizeQuestRelationships(current.relationships, current.questId);
   const previousOwners = [...currentPreviousOwners];
   const base = {
     id: liveStore ? current.questId : nextVersionId(current.questId, current.version),
@@ -1321,6 +1336,7 @@ function buildTransitionedQuest(
     ...(current.images?.length ? { images: current.images } : {}),
     ...(leaderSessionId ? { leaderSessionId } : {}),
     ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
+    ...(relationships ? { relationships } : {}),
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
     ...(currentJourneyRuns?.length ? { journeyRuns: currentJourneyRuns } : {}),
     ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
@@ -1480,6 +1496,9 @@ function buildCancelledQuest(current: QuestmasterTask, notes: string | undefined
     ...(current.images?.length ? { images: current.images } : {}),
     ...(leaderSessionId ? { leaderSessionId } : {}),
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
+    ...(normalizeQuestRelationships(current.relationships, current.questId)
+      ? { relationships: normalizeQuestRelationships(current.relationships, current.questId) }
+      : {}),
     ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
     ...(cancelJourneyRuns?.length ? { journeyRuns: cancelJourneyRuns } : {}),
     status: "done",
@@ -1499,16 +1518,21 @@ function buildCancelledQuest(current: QuestmasterTask, notes: string | undefined
 /** List the latest version of every quest. */
 export async function listQuests(): Promise<QuestmasterTask[]> {
   const liveStore = await readLiveQuestStore();
-  if (liveStore) return liveStore.quests;
+  if (liveStore) return withQuestRelationshipSummaries(liveStore.quests);
   const snapshot = await loadLatestSnapshot();
-  return snapshot.quests;
+  return withQuestRelationshipSummaries(snapshot.quests);
 }
 
 /** Get the latest version of a quest by questId. */
 export async function getQuest(questId: string): Promise<QuestmasterTask | null> {
   const liveStore = await readLiveQuestStore();
-  if (liveStore) return getLiveQuestById(liveStore, questId);
-  return readLatestQuestVersionForId(questId);
+  if (liveStore) {
+    const quests = withQuestRelationshipSummaries(liveStore.quests);
+    return getLiveQuestById({ ...liveStore, quests }, questId);
+  }
+  const snapshot = await loadLatestSnapshot();
+  const quests = withQuestRelationshipSummaries(snapshot.quests);
+  return quests.find((quest) => quest.questId === questId) ?? null;
 }
 
 /** Get a specific version by full version id (e.g., "q-1-v3"). */
@@ -1572,68 +1596,22 @@ export async function patchQuest(
   const liveStore = await readLiveQuestStore();
   if (liveStore) {
     return mutateLiveQuestStore(async (store) => {
-      const current =
-        options?.current && options.current.questId === questId ? options.current : getLiveQuestById(store, questId);
+      const current = stripDerivedQuestRelationships(
+        options?.current && options.current.questId === questId ? options.current : getLiveQuestById(store, questId),
+      );
       if (!current) return { store, result: null };
 
-      const markVerificationInboxUnread = shouldMarkVerificationInboxUnreadFromFeedbackPatch(current, patch.feedback);
-      const updated = { ...current, updatedAt: Date.now() } as QuestmasterTask;
-      if (patch.title !== undefined) (updated as { title: string }).title = patch.title.trim();
-      if (patch.description !== undefined) {
-        (updated as { description?: string }).description = patch.description.trim();
-      }
-      if (patch.tldr !== undefined) {
-        const tldr = normalizeTldr(patch.tldr);
-        if (tldr) (updated as { tldr?: string }).tldr = tldr;
-        else delete (updated as { tldr?: string }).tldr;
-      }
-      if (patch.tags !== undefined) {
-        (updated as { tags?: string[] }).tags = patch.tags;
-      }
-      if (patch.feedback !== undefined) {
-        (updated as { feedback?: QuestFeedbackEntry[] }).feedback =
-          patch.feedback.length > 0 ? patch.feedback : undefined;
-      }
-      if (patch.journeyRuns !== undefined) {
-        (updated as { journeyRuns?: QuestmasterTask["journeyRuns"] }).journeyRuns =
-          patch.journeyRuns.length > 0 ? patch.journeyRuns : undefined;
-      }
-      if (markVerificationInboxUnread && hasQuestReviewMetadata(updated)) {
-        (updated as QuestDone).verificationInboxUnread = true;
-      }
-
+      const updated = applyQuestPatch(current, questId, patch);
       return { store: upsertLiveQuest(store, updated), result: normalizeLiveQuest(updated) };
     });
   }
 
-  const current = options?.current && options.current.questId === questId ? options.current : await getQuest(questId);
+  const current = stripDerivedQuestRelationships(
+    options?.current && options.current.questId === questId ? options.current : await getQuest(questId),
+  );
   if (!current) return null;
 
-  const markVerificationInboxUnread = shouldMarkVerificationInboxUnreadFromFeedbackPatch(current, patch.feedback);
-  const updated = { ...current, updatedAt: Date.now() } as QuestmasterTask;
-  if (patch.title !== undefined) (updated as { title: string }).title = patch.title.trim();
-  if (patch.description !== undefined) {
-    (updated as { description?: string }).description = patch.description.trim();
-  }
-  if (patch.tldr !== undefined) {
-    const tldr = normalizeTldr(patch.tldr);
-    if (tldr) (updated as { tldr?: string }).tldr = tldr;
-    else delete (updated as { tldr?: string }).tldr;
-  }
-  if (patch.tags !== undefined) {
-    (updated as { tags?: string[] }).tags = patch.tags;
-  }
-  if (patch.feedback !== undefined) {
-    (updated as { feedback?: QuestFeedbackEntry[] }).feedback = patch.feedback.length > 0 ? patch.feedback : undefined;
-  }
-  if (patch.journeyRuns !== undefined) {
-    (updated as { journeyRuns?: QuestmasterTask["journeyRuns"] }).journeyRuns =
-      patch.journeyRuns.length > 0 ? patch.journeyRuns : undefined;
-  }
-  if (markVerificationInboxUnread && hasQuestReviewMetadata(updated)) {
-    (updated as QuestDone).verificationInboxUnread = true;
-  }
-
+  const updated = applyQuestPatch(current, questId, patch);
   await writeQuest(updated);
   return updated;
 }

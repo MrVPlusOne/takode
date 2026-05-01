@@ -7,6 +7,7 @@ import {
   summarizeQuestPhaseDocumentation,
   type IndexedQuestFeedbackEntry,
 } from "../shared/quest-phase-documentation-summary.js";
+import { formatQuestRelationships } from "./quest-relationship-format.js";
 export type { SessionMetadata } from "./quest-session-metadata.js";
 
 type FormatSessionOptions = {
@@ -175,6 +176,7 @@ export function formatQuestDetail(
       lines.push(`  ${sha}`);
     }
   }
+  lines.push(...formatQuestRelationships(q));
   const phaseDocumentation = summarizeQuestPhaseDocumentation(q);
   const documentedGroups = phaseDocumentation.groups.filter((group) => group.entries.length > 0);
   if (documentedGroups.length > 0) {

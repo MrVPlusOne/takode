@@ -1,5 +1,6 @@
 import type { QuestDone, QuestFeedbackEntry, QuestmasterTask } from "./quest-types.js";
 import { normalizeTldr } from "./quest-tldr.js";
+import { questRelationshipSearchText } from "./quest-relationships.js";
 
 export interface QuestGrepMatch {
   questId: string;
@@ -122,6 +123,21 @@ export function grepQuests(
         },
         text: description,
         tldr: quest.tldr,
+      });
+    }
+
+    const relationships = questRelationshipSearchText(quest);
+    if (relationships) {
+      pushContentMatch({
+        re,
+        pushMatch,
+        match: {
+          questId: quest.questId,
+          title: quest.title,
+          status: quest.status,
+          matchedField: "relationships",
+        },
+        text: relationships,
       });
     }
 

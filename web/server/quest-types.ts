@@ -31,10 +31,24 @@ export type LegacyQuestStatus = QuestStatus | "needs_verification";
 export type QuestFeedbackKind = "comment" | "phase_summary" | "phase_finding" | "review" | "artifact" | "system";
 export type QuestJourneyRunStatus = "active" | "completed" | "archived" | "manual";
 export type QuestPhaseOccurrenceStatus = "pending" | "active" | "completed" | "skipped" | "manual";
+export type QuestRelatedQuestKind = "follow_up_of" | "has_follow_up" | "references" | "referenced_by";
 
 export interface QuestVerificationItem {
   text: string;
   checked: boolean;
+}
+
+/** Explicit persisted relationships authored by humans or agents. */
+export interface QuestRelationships {
+  /** Earlier quests this quest explicitly follows up on. */
+  followUpOf?: string[];
+}
+
+/** Derived read model combining explicit relationships and detected quest references. */
+export interface QuestRelatedQuest {
+  questId: string;
+  kind: QuestRelatedQuestKind;
+  explicit: boolean;
 }
 
 /** A single entry in the quest feedback thread (PR-review style). */
@@ -145,6 +159,10 @@ interface QuestBase {
   leaderSessionId?: string;
   /** Ordered synced commit SHAs associated with this quest's verification handoff. */
   commitShas?: string[];
+  /** Explicit quest relationships. Supplemental backlinks are derived at read time. */
+  relationships?: QuestRelationships;
+  /** Read-only summary for CLI/UI inspection. Not persisted. */
+  relatedQuests?: QuestRelatedQuest[];
   /** Durable Quest Journey run snapshots used by phase-scoped documentation. */
   journeyRuns?: QuestJourneyRun[];
   /** Threaded feedback conversation that must survive quest version transitions. */
@@ -253,6 +271,7 @@ export interface QuestCreateInput {
   status?: QuestStatus;
   tags?: string[];
   parentId?: string;
+  relationships?: QuestRelationships;
   /** Pre-saved images to attach on creation */
   images?: QuestImage[];
 }
@@ -263,6 +282,7 @@ export interface QuestPatchInput {
   description?: string;
   tldr?: string;
   tags?: string[];
+  relationships?: QuestRelationships;
   /** Replace the feedback thread (used by the append endpoint after adding an entry) */
   feedback?: QuestFeedbackEntry[];
   /** Replace durable Journey run snapshots used by phase-scoped documentation */
@@ -284,6 +304,8 @@ export interface QuestTransitionInput {
   verificationItems?: (QuestVerificationItem | string)[];
   /** Ordered synced commit SHAs to attach at verification handoff. */
   commitShas?: string[];
+  /** Explicit quest relationships to carry into this new status version. */
+  relationships?: QuestRelationships;
   /** Review inbox state for done quests that are awaiting/under human review. */
   verificationInboxUnread?: boolean;
   /** Closure notes for done status (commit hashes, reasoning, etc.) */

@@ -32,6 +32,7 @@ import { getQuestDebriefTldr } from "../utils/quest-editor-helpers.js";
 import { QuestPhaseScanLines } from "./QuestPhaseScanLines.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestmasterCreateForm } from "./QuestmasterCreateForm.js";
+import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
 import {
   CompactQuestTable,
   QuestStatusHoverTarget,
@@ -1478,6 +1479,7 @@ const QuestCard = memo(function QuestCard({
               </div>
             )}
             <QuestPhaseScanLines quest={quest} searchText={searchText} className="mt-0.5" />
+            <QuestRelationshipLinks quest={quest} variant="inline" />
             <div className="flex items-center gap-2 mt-0.5">
               <CopyableQuestId questId={quest.questId} className="text-[10px] text-cc-muted/50 shrink-0">
                 {renderSearchHighlightText(quest.questId, searchText)}

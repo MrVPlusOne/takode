@@ -1,6 +1,7 @@
 import type { QuestmasterTask } from "./quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
 import { multiWordMatch, normalizeForSearch } from "../shared/search-utils.js";
+import { questRelationshipSearchText } from "./quest-relationships.js";
 
 export interface QuestListFilterOptions {
   status?: string;
@@ -253,6 +254,7 @@ function getQuestSearchRank(quest: QuestmasterTask, query: string): SearchRank |
     { rank: 1, text: quest.title },
     { rank: 2, text: quest.tldr },
     { rank: 3, text: "description" in quest ? quest.description : undefined },
+    { rank: 3, text: questRelationshipSearchText(quest) },
     { rank: 4, text: quest.status === "done" && quest.cancelled !== true ? quest.debriefTldr : undefined },
     { rank: 5, text: quest.status === "done" && quest.cancelled !== true ? quest.debrief : undefined },
     ...("feedback" in quest

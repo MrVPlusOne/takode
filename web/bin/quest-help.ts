@@ -12,7 +12,7 @@ Commands:
   status <id> [--json]                                   Show compact action-oriented quest status
   history <id> [--json]                                  Show quest history
   tags   [--json]                                        List all existing tags with counts
-  create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json]
+  create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json]
                                                          Create a quest
   claim  <id> [--session <sid>] [--json]                 Claim for session
   complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>] [--commit <sha>] [--commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]
@@ -25,7 +25,7 @@ Commands:
                                                          Change status
   later  <id> [--json]                                   Move review-pending quest out of inbox
   inbox  <id> [--json]                                   Move review-pending quest back to inbox
-  edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--json]
+  edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--json]
                                                          Edit in place
   check  <id> <index> [--json]                           Toggle verification item
   feedback <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
@@ -58,12 +58,15 @@ Verification scopes:
 Search tips:
   quest list --text "foo"   Filter quests broadly by text
   quest grep "foo|bar"      Search inside quest text/debrief/comments with contextual snippets
+  quest grep "follow_up"    Search related quest metadata and backlinks too
 
 Safer rich-text input:
   quest create --title-file title.txt --desc-file body.md
   quest create --title-file title.txt --desc-file body.md --tldr-file summary.txt
   printf '%s\\n' 'Copied \`$(snippet)\` stays literal' | quest create "Quest title" --desc-file -
   quest edit q-1 --desc-file body.md
+  quest create "Follow-up" --follow-up-of q-1
+  quest edit q-2 --follow-up-of "q-1,q-3"
   quest feedback q-1 --text-file note.md --tldr-file note-tldr.md
   quest feedback latest q-1 --author human --unaddressed --full
   quest feedback show q-1 0
