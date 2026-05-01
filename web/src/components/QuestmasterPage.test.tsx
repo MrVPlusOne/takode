@@ -473,6 +473,78 @@ describe("QuestmasterPage status display", () => {
     expect(await screen.findByTestId("quest-hover-journey")).toBeInTheDocument();
   });
 
+  it("keeps done quests Completed in compact Status despite stale Journey phase context", async () => {
+    mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
+    mockState.quests = [
+      {
+        ...buildVerificationQuest({ id: "q-93-v1", questId: "q-93", title: "Done quest with stale board row" }),
+        status: "done",
+        sessionId: "worker-93",
+        leaderSessionId: "leader-93",
+      } as QuestmasterTask,
+      {
+        ...buildVerificationQuest({ id: "q-94-v1", questId: "q-94", title: "Done quest with stale run" }),
+        status: "done",
+        journeyRuns: [
+          {
+            runId: "run-94",
+            source: "board",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            status: "active",
+            createdAt: 1,
+            updatedAt: 2,
+            workerSessionId: "worker-94",
+            workerSessionNum: 94,
+            phaseOccurrences: [
+              {
+                occurrenceId: "run-94:p4",
+                phaseId: "port",
+                phaseIndex: 3,
+                phasePosition: 4,
+                phaseOccurrence: 1,
+                status: "active",
+                boardState: "PORTING",
+              },
+            ],
+          },
+        ],
+      } as QuestmasterTask,
+    ];
+    mockState.sessionBoards = new Map([
+      [
+        "leader-93",
+        [
+          {
+            questId: "q-93",
+            title: "Done quest with stale board row",
+            worker: "worker-93",
+            workerNum: 93,
+            status: "PORTING",
+            updatedAt: 10_000,
+            journey: {
+              mode: "active",
+              phaseIds: ["alignment", "implement", "code-review", "port"],
+              currentPhaseId: "port",
+              activePhaseIndex: 3,
+            },
+          },
+        ],
+      ],
+    ]);
+
+    renderQuestmaster({ isActive: true });
+
+    const staleBoardRow = await screen.findByRole("button", { name: /q-93 Done quest with stale board row/ });
+    expect(within(staleBoardRow).getByText("Completed")).toBeInTheDocument();
+    expect(within(staleBoardRow).queryByText("Port")).not.toBeInTheDocument();
+    expect(within(staleBoardRow).getByText("0/1")).toBeInTheDocument();
+
+    const staleRunRow = screen.getByRole("button", { name: /q-94 Done quest with stale run/ });
+    expect(within(staleRunRow).getByText("Completed")).toBeInTheDocument();
+    expect(within(staleRunRow).queryByText("Port")).not.toBeInTheDocument();
+    expect(within(staleRunRow).getByText("0/1")).toBeInTheDocument();
+  });
+
   it("limits compact title cells to title, tags, and one plain-text description TLDR string", async () => {
     mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
     mockState.quests = [

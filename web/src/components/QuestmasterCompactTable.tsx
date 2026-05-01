@@ -109,6 +109,16 @@ export function getQuestmasterDisplayStatus(
     };
   }
 
+  if (quest.status === "done") {
+    const cfg = { ...QUEST_STATUS_THEME.done, label: "Completed" };
+    return {
+      label: cfg.label,
+      dotClass: cfg.dot,
+      textClass: cfg.text,
+      sortRank: STATUS_SORT_RANK.done,
+    };
+  }
+
   if (journeyContext && !journeyContext.completed) {
     const presentation = getQuestJourneyPresentation(journeyContext.row.status);
     const phase = getQuestJourneyPhaseForState(journeyContext.row.status);
@@ -127,9 +137,7 @@ export function getQuestmasterDisplayStatus(
   const cfg =
     quest.status === "refined"
       ? { ...QUEST_STATUS_THEME.refined, label: "Actionable" }
-      : quest.status === "done"
-        ? { ...QUEST_STATUS_THEME.done, label: "Completed" }
-        : QUEST_STATUS_THEME[quest.status];
+      : QUEST_STATUS_THEME[quest.status];
   const sortRank = STATUS_SORT_RANK[quest.status] ?? 4;
   return {
     label: cfg.label,
