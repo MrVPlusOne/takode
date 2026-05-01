@@ -113,18 +113,22 @@ vi.mock("./MessageFeed.js", () => ({
     projectThreadRoutes,
     latestIndicatorMode,
     onSelectThread,
+    additionalAttentionRecords = [],
   }: {
     sessionId: string;
     threadKey?: string;
     projectThreadRoutes?: boolean;
     latestIndicatorMode?: string;
     onSelectThread?: (threadKey: string) => void;
+    additionalAttentionRecords?: Array<import("../types.js").SessionAttentionRecord>;
   }) => (
     <div
       data-testid="message-feed"
       data-thread-key={threadKey}
       data-project-thread-routes={String(projectThreadRoutes)}
       data-latest-indicator-mode={latestIndicatorMode}
+      data-additional-attention-count={additionalAttentionRecords.length}
+      data-additional-attention-types={additionalAttentionRecords.map((record) => record.type).join(",")}
     >
       {sessionId}
       {onSelectThread && (
@@ -659,6 +663,68 @@ describe("ChatView backend banners", () => {
     fireEvent.click(scope.getByRole("button", { name: /q-1005 newest manual tab/i }));
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1005,q-941,q-777");
     expect(localStorage.getItem("test-server:cc-leader-open-thread-tabs:s1")).toBe('["q-1005","q-941","q-777"]');
+  });
+
+  it("records a Main event once for newly opened leader thread tabs without reordering existing tabs", () => {
+    localStorage.setItem("test-server:cc-leader-open-thread-tabs:s1", '["q-941","q-777"]');
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m-q941",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+            {
+              id: "m-q777",
+              role: "assistant",
+              content: "q-777 update",
+              timestamp: 3,
+              metadata: { threadRefs: [{ threadKey: "q-777", questId: "q-777", source: "explicit" }] },
+            },
+            {
+              id: "m-q1005",
+              role: "assistant",
+              content: "q-1005 update",
+              timestamp: 4,
+              metadata: { threadRefs: [{ threadKey: "q-1005", questId: "q-1005", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-941", title: "Already open tab", status: "in_progress" },
+        { questId: "q-777", title: "Older restored tab", status: "in_progress" },
+        { questId: "q-1005", title: "Freshly opened tab", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941,q-777");
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-additional-attention-count", "0");
+
+    fireEvent.click(scope.getByRole("button", { name: /q-1005 freshly opened tab/i }));
+
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1005,q-941,q-777");
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-additional-attention-count", "1");
+    expect(scope.getByTestId("message-feed")).toHaveAttribute(
+      "data-additional-attention-types",
+      "quest_thread_created",
+    );
+
+    fireEvent.click(scope.getByTestId("mock-workboard-main"));
+    fireEvent.click(scope.getByRole("button", { name: /q-941 already open tab/i }));
+
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1005,q-941,q-777");
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-additional-attention-count", "1");
   });
 
   it("auto-closes an open quest tab after completion unless that thread is selected", async () => {

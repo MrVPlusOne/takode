@@ -67,6 +67,7 @@ import {
   isMainThreadKey,
   normalizeThreadKey,
 } from "../utils/thread-projection.js";
+import type { SessionAttentionRecord } from "../types.js";
 import { YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
 import { PawTrailAvatar, PawCounterContext, PawScrollProvider, HidePawContext } from "./PawTrail.js";
 import { isTouchDevice } from "../utils/mobile.js";
@@ -114,6 +115,7 @@ const CODEX_TERMINAL_INSPECTOR_MIN_WIDTH_PX = 320;
 const CODEX_TERMINAL_INSPECTOR_MIN_HEIGHT_PX = 240;
 const CODEX_TERMINAL_INSPECTOR_DEFAULT_WIDTH_PX = 512;
 const CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX = 360;
+const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 
 type CodexTerminalInspectorViewport = {
   width: number;
@@ -208,6 +210,7 @@ export function MessageFeed({
   onLatestIndicatorVisibleChange,
   onJumpToLatestReady,
   onSelectThread,
+  additionalAttentionRecords = EMPTY_ATTENTION_RECORDS,
 }: {
   sessionId: string;
   threadKey?: string;
@@ -217,6 +220,7 @@ export function MessageFeed({
   onLatestIndicatorVisibleChange?: (visible: boolean) => void;
   onJumpToLatestReady?: ((scrollToLatest: (() => void) | null) => void) | undefined;
   onSelectThread?: (threadKey: string) => void;
+  additionalAttentionRecords?: ReadonlyArray<SessionAttentionRecord>;
 }) {
   const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
   const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
@@ -258,13 +262,17 @@ export function MessageFeed({
     () =>
       buildAttentionRecords({
         leaderSessionId: sessionId,
-        records: sessionAttentionRecords,
+        records:
+          additionalAttentionRecords.length > 0
+            ? [...(sessionAttentionRecords ?? []), ...additionalAttentionRecords]
+            : sessionAttentionRecords,
         notifications: sessionNotifications,
         boardRows: sessionBoard,
         completedBoardRows: sessionCompletedBoard,
         messages: messagesAvailableForDerivation,
       }),
     [
+      additionalAttentionRecords,
       messagesAvailableForDerivation,
       sessionAttentionRecords,
       sessionBoard,

@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import { useStore } from "../store.js";
 import type { SessionAttentionRecord } from "../types.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
+import { CatPawAvatar } from "./CatIcons.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 
 type AttentionRecord = SessionAttentionRecord;
@@ -29,6 +30,8 @@ export function AttentionLedgerRow({
   const isActive = record.state === "unresolved" || record.state === "seen" || record.state === "reopened";
   const isReview = record.priority === "review";
   const isJourneyLifecycle = record.type === "quest_journey_started" || record.type === "quest_completed_recent";
+  const isThreadCreated = record.type === "quest_thread_created";
+  const isNonActionEvent = record.type === "quest_journey_started" || isThreadCreated;
   const targetThread = normalizeThreadKey(record.route.threadKey || record.threadKey || MAIN_THREAD_KEY);
 
   const openRoute = useCallback(() => {
@@ -50,12 +53,24 @@ export function AttentionLedgerRow({
     scrollToRouteTarget();
   }, [currentThreadKey, onSelectThread, record.route.messageId, sessionId, targetThread]);
 
-  const statusClasses = isActive
-    ? isReview
-      ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-100"
-      : "border-amber-500/25 bg-amber-500/5 text-amber-100"
-    : "border-cc-border/70 bg-cc-card/35 text-cc-muted";
-  const iconClasses = isActive ? (isReview ? "text-emerald-300" : "text-amber-300") : "text-cc-muted/70";
+  const statusClasses = isThreadCreated
+    ? "border-sky-400/25 bg-sky-400/10 text-sky-50 shadow-[inset_0_1px_0_rgba(125,211,252,0.08)]"
+    : record.type === "quest_journey_started"
+      ? "border-fuchsia-400/25 bg-fuchsia-400/10 text-fuchsia-50 shadow-[inset_0_1px_0_rgba(240,171,252,0.08)]"
+      : isActive
+        ? isReview
+          ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-100"
+          : "border-amber-500/25 bg-amber-500/5 text-amber-100"
+        : "border-cc-border/70 bg-cc-card/35 text-cc-muted";
+  const iconClasses = isThreadCreated
+    ? "text-sky-300"
+    : record.type === "quest_journey_started"
+      ? "text-fuchsia-300"
+      : isActive
+        ? isReview
+          ? "text-emerald-300"
+          : "text-amber-300"
+        : "text-cc-muted/70";
   const stateLabel = STATE_LABELS[record.state];
   const summary = record.summary.trim();
   const showSummary = summary.length > 0 && summary !== record.title.trim();
@@ -68,15 +83,16 @@ export function AttentionLedgerRow({
       data-testid="attention-ledger-row"
       data-attention-state={record.state}
       data-attention-type={record.type}
+      data-attention-event={isNonActionEvent ? "true" : "false"}
     >
       <div className="flex min-w-0 items-start gap-2.5">
         <span className={`mt-0.5 shrink-0 ${iconClasses}`} aria-hidden="true">
-          <AttentionStateIcon state={record.state} />
+          {isNonActionEvent ? <AttentionEventIcon type={record.type} /> : <AttentionStateIcon state={record.state} />}
         </span>
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
             <span className="truncate text-sm font-medium text-cc-fg">{record.title}</span>
-            {!isReview && (
+            {!isReview && !isNonActionEvent && (
               <span className="rounded-md border border-current/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-normal opacity-80">
                 {stateLabel}
               </span>
@@ -101,7 +117,7 @@ export function AttentionLedgerRow({
           </div>
           {showSummary && <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-cc-muted">{summary}</p>}
         </div>
-        {!isJourneyLifecycle && (
+        {!isJourneyLifecycle && !isThreadCreated && (
           <button
             type="button"
             onClick={openRoute}
@@ -116,6 +132,20 @@ export function AttentionLedgerRow({
         )}
       </div>
     </div>
+  );
+}
+
+function AttentionEventIcon({ type }: { type: AttentionRecord["type"] }) {
+  if (type === "quest_journey_started") {
+    return <CatPawAvatar className="attention-paw-stamp h-4 w-4" />;
+  }
+  return (
+    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.4" className="h-4 w-4">
+      <path d="M3 4.5A1.5 1.5 0 0 1 4.5 3h7A1.5 1.5 0 0 1 13 4.5v5A1.5 1.5 0 0 1 11.5 11h-7A1.5 1.5 0 0 1 3 9.5v-5Z" />
+      <path d="M6.5 13h3" strokeLinecap="round" />
+      <path d="M8 11v2" strokeLinecap="round" />
+      <path d="M6.5 7h3M8 5.5V8.5" strokeLinecap="round" />
+    </svg>
   );
 }
 

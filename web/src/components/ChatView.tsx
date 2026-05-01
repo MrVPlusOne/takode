@@ -426,6 +426,56 @@ function readOpenThreadTabKeys(sessionId: string): string[] {
   }
 }
 
+function threadOpenedEventSummary(threadKey: string, row?: LeaderThreadRow): string {
+  if (row?.questId && row.title) return `${row.questId}: ${row.title}`;
+  if (row?.title) return row.title;
+  if (isQuestThreadKey(threadKey)) return `${threadKey} is open in a thread tab.`;
+  return `${threadKey} is open in a thread tab.`;
+}
+
+function buildThreadOpenedAttentionRecord({
+  sessionId,
+  threadKey,
+  row,
+  timestamp,
+}: {
+  sessionId: string;
+  threadKey: string;
+  row?: LeaderThreadRow;
+  timestamp: number;
+}): SessionAttentionRecord {
+  const normalized = normalizeThreadKey(threadKey);
+  const questId = row?.questId ?? (isQuestThreadKey(normalized) ? normalized : undefined);
+  return {
+    id: `thread-opened:${sessionId}:${normalized}`,
+    leaderSessionId: sessionId,
+    type: "quest_thread_created",
+    source: {
+      kind: "manual",
+      id: normalized,
+      ...(questId ? { questId } : {}),
+      signature: "thread-opened",
+    },
+    ...(questId ? { questId } : {}),
+    threadKey: normalized,
+    title: "Thread opened",
+    summary: threadOpenedEventSummary(normalized, row),
+    actionLabel: "Open",
+    priority: "created",
+    state: "resolved",
+    createdAt: timestamp,
+    updatedAt: timestamp,
+    resolvedAt: timestamp,
+    route: {
+      threadKey: normalized,
+      ...(questId ? { questId } : {}),
+    },
+    chipEligible: false,
+    ledgerEligible: true,
+    dedupeKey: `thread-opened:${normalized}`,
+  };
+}
+
 function isAvailableLeaderThread(threadKey: string, rows: LeaderThreadRow[]): boolean {
   const normalized = normalizeThreadKey(threadKey);
   if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY) return true;
@@ -534,6 +584,9 @@ export function ChatView({
   );
   const [selectedThreadKey, setSelectedThreadKey] = useState("main");
   const [openThreadTabKeys, setOpenThreadTabKeys] = useState(() => readOpenThreadTabKeys(sessionId));
+  const openThreadTabKeysRef = useRef(openThreadTabKeys);
+  const recordedThreadOpenEventKeysRef = useRef<Set<string>>(new Set());
+  const [threadOpenEventRecords, setThreadOpenEventRecords] = useState<SessionAttentionRecord[]>([]);
   const {
     activeBoard,
     completedBoard,
@@ -556,7 +609,11 @@ export function ChatView({
       isLeaderSession
         ? buildAttentionRecords({
             leaderSessionId: sessionId,
-            records: [...(persistedAttentionRecords ?? []), ...(leaderProjection?.messageAttentionRecords ?? [])],
+            records: [
+              ...(persistedAttentionRecords ?? []),
+              ...(leaderProjection?.messageAttentionRecords ?? []),
+              ...threadOpenEventRecords,
+            ],
             notifications: sessionNotifications,
             boardRows: activeBoard,
             completedBoardRows: completedBoard,
@@ -573,6 +630,7 @@ export function ChatView({
       persistedAttentionRecords,
       sessionId,
       sessionNotifications,
+      threadOpenEventRecords,
     ],
   );
   const navigationThreadRows = useMemo(
@@ -588,13 +646,40 @@ export function ChatView({
     [navigationThreadRows, selectedThreadKey],
   );
   const workBoardThreadRows = useMemo(() => toWorkBoardThreadRows(navigationThreadRows), [navigationThreadRows]);
-  const openThreadTab = useCallback((threadKey: string) => {
-    const normalized = normalizeThreadKey(threadKey);
-    if (!shouldPersistOpenThreadTab(normalized)) return;
-    setOpenThreadTabKeys((existing) =>
-      existing.includes(normalized) ? existing : placeOpenThreadTabKey(existing, normalized, "first"),
-    );
-  }, []);
+  useEffect(() => {
+    openThreadTabKeysRef.current = openThreadTabKeys;
+  }, [openThreadTabKeys]);
+  const recordThreadOpenEvent = useCallback(
+    (threadKey: string) => {
+      const normalized = normalizeThreadKey(threadKey);
+      if (!shouldPersistOpenThreadTab(normalized)) return;
+      if (recordedThreadOpenEventKeysRef.current.has(normalized)) return;
+      recordedThreadOpenEventKeysRef.current.add(normalized);
+      const row = navigationThreadRows.find((candidate) => candidate.threadKey === normalized);
+      const record = buildThreadOpenedAttentionRecord({
+        sessionId,
+        threadKey: normalized,
+        row,
+        timestamp: Date.now(),
+      });
+      setThreadOpenEventRecords((existing) =>
+        existing.some((candidate) => candidate.dedupeKey === record.dedupeKey) ? existing : [...existing, record],
+      );
+    },
+    [navigationThreadRows, sessionId],
+  );
+  const openThreadTab = useCallback(
+    (threadKey: string) => {
+      const normalized = normalizeThreadKey(threadKey);
+      if (!shouldPersistOpenThreadTab(normalized)) return;
+      if (openThreadTabKeysRef.current.includes(normalized)) return;
+      const nextOpenThreadTabKeys = placeOpenThreadTabKey(openThreadTabKeysRef.current, normalized, "first");
+      openThreadTabKeysRef.current = nextOpenThreadTabKeys;
+      setOpenThreadTabKeys(nextOpenThreadTabKeys);
+      recordThreadOpenEvent(normalized);
+    },
+    [recordThreadOpenEvent],
+  );
   const previousActiveBoardThreadKeysRef = useRef<Set<string> | null>(null);
   const recentlyInactiveBoardThreadKeysRef = useRef<Set<string>>(new Set());
   const lastManualThreadSelectionAtRef = useRef(0);
@@ -618,7 +703,9 @@ export function ChatView({
   const handleCloseThreadTab = useCallback(
     (threadKey: string) => {
       const normalized = normalizeThreadKey(threadKey);
-      setOpenThreadTabKeys((existing) => existing.filter((key) => key !== normalized));
+      const nextOpenThreadTabKeys = openThreadTabKeysRef.current.filter((key) => key !== normalized);
+      openThreadTabKeysRef.current = nextOpenThreadTabKeys;
+      setOpenThreadTabKeys(nextOpenThreadTabKeys);
       if (normalizeThreadKey(selectedThreadKey) === normalized) {
         handleSelectThread(MAIN_THREAD_KEY);
       }
@@ -633,6 +720,8 @@ export function ChatView({
     lastManualThreadSelectionAtRef.current = 0;
     previousActiveBoardThreadKeysRef.current = null;
     recentlyInactiveBoardThreadKeysRef.current = new Set();
+    recordedThreadOpenEventKeysRef.current = new Set();
+    setThreadOpenEventRecords([]);
   }, [sessionId]);
 
   useEffect(() => {
@@ -641,7 +730,9 @@ export function ChatView({
   }, [routeSyncEnabled, sessionId]);
 
   useEffect(() => {
-    setOpenThreadTabKeys(readOpenThreadTabKeys(sessionId));
+    const restoredOpenThreadTabs = readOpenThreadTabKeys(sessionId);
+    openThreadTabKeysRef.current = restoredOpenThreadTabs;
+    setOpenThreadTabKeys(restoredOpenThreadTabs);
   }, [sessionId]);
 
   useEffect(() => {
@@ -674,7 +765,9 @@ export function ChatView({
     if (newlyCompletedKeys.length === 0) return;
 
     const newlyCompleted = new Set(newlyCompletedKeys);
-    setOpenThreadTabKeys((existing) => existing.filter((key) => !newlyCompleted.has(key)));
+    const nextOpenThreadTabKeys = openThreadTabKeysRef.current.filter((key) => !newlyCompleted.has(key));
+    openThreadTabKeysRef.current = nextOpenThreadTabKeys;
+    setOpenThreadTabKeys(nextOpenThreadTabKeys);
   }, [activeBoard, completedBoard, isLeaderSession, preview, selectedThreadKey]);
 
   useEffect(() => {
@@ -785,7 +878,7 @@ export function ChatView({
 
       const wasOpen = openThreadTabKeys.includes(targetThreadKey);
       if (!wasOpen) {
-        setOpenThreadTabKeys((existing) => placeOpenThreadTabKey(existing, targetThreadKey, "first"));
+        openThreadTab(targetThreadKey);
       }
 
       const manualNavigationAfterAttachment = lastManualThreadSelectionAtRef.current > marker.attachedAt;
@@ -819,6 +912,7 @@ export function ChatView({
     historyLoading,
     isLeaderSession,
     openThreadTabKeys,
+    openThreadTab,
     preview,
     routeThreadKey,
     selectedThreadKey,
@@ -1000,6 +1094,7 @@ export function ChatView({
             threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
             projectThreadRoutes={isLeaderSession}
             onSelectThread={isLeaderSession ? handleSelectThread : undefined}
+            additionalAttentionRecords={isLeaderSession ? threadOpenEventRecords : undefined}
           />
         </div>
       )}

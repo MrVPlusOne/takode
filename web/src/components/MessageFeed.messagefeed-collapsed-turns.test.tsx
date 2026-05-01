@@ -1169,10 +1169,54 @@ describe("MessageFeed - collapsed turns", () => {
 
     const row = screen.getByTestId("attention-ledger-row");
     expect(row.getAttribute("data-attention-type")).toBe("quest_journey_started");
+    expect(row.getAttribute("data-attention-event")).toBe("true");
+    expect(row.className).toContain("border-fuchsia-400/25");
     expect(row.textContent).toContain("Journey started");
     expect(within(row).getByRole("link", { name: "q-1033" })).toBeTruthy();
     fireEvent.click(within(row).getByRole("button", { name: "Open thread:q-1033" }));
     expect(onSelectThread).toHaveBeenCalledWith("q-1033");
+    expect(row.textContent).not.toContain("Resolved");
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+  });
+
+  it("renders thread-created ledger rows as non-action event chips", () => {
+    const sid = "test-main-attention-ledger-thread-created";
+    const onSelectThread = vi.fn();
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreAttentionRecords(sid, [
+      {
+        id: "thread-opened:q-1034",
+        leaderSessionId: sid,
+        type: "quest_thread_created",
+        source: { kind: "manual", id: "q-1034", questId: "q-1034", signature: "thread-opened" },
+        questId: "q-1034",
+        threadKey: "q-1034",
+        title: "Thread opened",
+        summary: "q-1034: Thread event chip",
+        actionLabel: "Open",
+        priority: "created",
+        state: "resolved",
+        createdAt: 121,
+        updatedAt: 121,
+        resolvedAt: 121,
+        route: { threadKey: "q-1034", questId: "q-1034" },
+        chipEligible: false,
+        ledgerEligible: true,
+        dedupeKey: "thread-opened:q-1034",
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.getAttribute("data-attention-type")).toBe("quest_thread_created");
+    expect(row.getAttribute("data-attention-event")).toBe("true");
+    expect(row.className).toContain("border-sky-400/25");
+    expect(row.textContent).toContain("Thread opened");
+    expect(within(row).getByRole("link", { name: "q-1034" })).toBeTruthy();
+    fireEvent.click(within(row).getByRole("button", { name: "Open thread:q-1034" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-1034");
+    expect(row.textContent).not.toContain("Resolved");
     expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
   });
 
