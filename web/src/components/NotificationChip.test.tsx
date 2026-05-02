@@ -488,7 +488,7 @@ describe("NotificationChip", () => {
     expect(screen.queryByText(/2 quests ready for review/i)).toBeNull();
   });
 
-  it("uses a full-width mobile popover shell while staying height-capped", () => {
+  it("uses a full-width mobile popover shell while staying anchored above the feed chip", () => {
     setNotifications("s1", [
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
     ]);
@@ -498,9 +498,51 @@ describe("NotificationChip", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
     expect(dialog.className).toContain("inset-x-3");
-    expect(dialog.className).toContain("max-h-[min(60vh,28rem)]");
+    expect(dialog.className).toContain("bottom-[var(--notification-popover-bottom)]");
+    expect(dialog.className).toContain("max-h-[min(60vh,28rem,var(--notification-popover-available-height))]");
     expect(dialog.className).toContain("sm:w-80");
-    expect(dialog.className).toContain("sm:max-h-[50vh]");
+    expect(dialog.className).toContain("sm:max-h-[min(50vh,var(--notification-popover-available-height))]");
+    expect(dialog.style.getPropertyValue("--notification-popover-bottom")).toBe("56px");
+  });
+
+  it("raises the popover above the chip when the composer pushes the feed controls higher", () => {
+    // The notification chip sits inside the feed, above the composer. Anchoring
+    // the panel above that chip keeps the composer and send controls usable on
+    // narrow layouts with taller composer surfaces.
+    const originalInnerHeight = window.innerHeight;
+    Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
+    setNotifications("s1", [
+      { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
+    ]);
+
+    try {
+      render(<NotificationChip sessionId="s1" />);
+      const chip = screen.getByRole("button", { name: "Notification inbox: 1 review notification" });
+      Object.defineProperty(chip, "getBoundingClientRect", {
+        configurable: true,
+        value: () => ({
+          x: 640,
+          y: 620,
+          top: 620,
+          right: 780,
+          bottom: 644,
+          left: 640,
+          width: 140,
+          height: 24,
+          toJSON: () => ({}),
+        }),
+      });
+
+      fireEvent.click(chip);
+
+      const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
+      expect(dialog.style.getPropertyValue("--notification-popover-bottom")).toBe("188px");
+      expect(dialog.style.getPropertyValue("--notification-popover-available-height")).toBe(
+        "calc(100dvh - 188px - 12px)",
+      );
+    } finally {
+      Object.defineProperty(window, "innerHeight", { configurable: true, value: originalInnerHeight });
+    }
   });
 
   it("does not show a message preview when hovering a notification row", () => {

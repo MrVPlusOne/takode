@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
@@ -14,6 +14,53 @@ import {
 
 const EMPTY: SessionNotification[] = [];
 type NotificationCategory = SessionNotification["category"];
+const NOTIFICATION_POPOVER_MIN_BOTTOM_PX = 56;
+const NOTIFICATION_POPOVER_ANCHOR_GAP_PX = 8;
+const NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX = 12;
+
+function getNotificationPopoverBottomPx(anchor: HTMLElement | null): number {
+  if (typeof window === "undefined" || !anchor) return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
+  const anchorRect = anchor.getBoundingClientRect();
+  if (anchorRect.top === 0 && anchorRect.bottom === 0 && anchorRect.width === 0 && anchorRect.height === 0) {
+    return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
+  }
+  const anchorTop = anchorRect.top;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  if (!Number.isFinite(anchorTop) || viewportHeight <= 0) return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
+  return Math.max(
+    NOTIFICATION_POPOVER_MIN_BOTTOM_PX,
+    Math.ceil(viewportHeight - anchorTop + NOTIFICATION_POPOVER_ANCHOR_GAP_PX),
+  );
+}
+
+function useNotificationPopoverLayout(anchor: HTMLElement | null) {
+  const [bottomPx, setBottomPx] = useState(NOTIFICATION_POPOVER_MIN_BOTTOM_PX);
+
+  useLayoutEffect(() => {
+    const update = () => setBottomPx(getNotificationPopoverBottomPx(anchor));
+    update();
+
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && anchor) {
+      observer = new ResizeObserver(update);
+      observer.observe(anchor);
+    }
+
+    return () => {
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+      observer?.disconnect();
+    };
+  }, [anchor]);
+
+  return {
+    "--notification-popover-bottom": `${bottomPx}px`,
+    "--notification-popover-available-height": `calc(100dvh - ${bottomPx}px - ${NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX}px)`,
+  } as CSSProperties;
+}
 
 function useNotifications(sessionId: string) {
   const all = useStore((s) => s.sessionNotifications?.get(sessionId)) ?? EMPTY;
@@ -346,11 +393,13 @@ function NotificationItem({
 function NotificationPopover({
   sessionId,
   onClose,
+  anchor,
   currentThreadKey,
   onSelectThread,
 }: {
   sessionId: string;
   onClose: () => void;
+  anchor: HTMLElement | null;
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
 }) {
@@ -358,6 +407,7 @@ function NotificationPopover({
   const questOverlayId = useStore((s) => s.questOverlayId);
   const [showDone, setShowDone] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverLayoutStyle = useNotificationPopoverLayout(anchor);
   const markAllRead = useCallback(() => {
     api.markAllNotificationsDone(sessionId).catch(() => {});
   }, [sessionId]);
@@ -394,7 +444,8 @@ function NotificationPopover({
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed inset-x-3 bottom-14 z-50 flex max-h-[min(60vh,28rem)] flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:inset-x-auto sm:right-3 sm:w-80 sm:max-w-[calc(100vw-1.5rem)] sm:max-h-[50vh]"
+      className="fixed inset-x-3 bottom-[var(--notification-popover-bottom)] z-50 flex max-h-[min(60vh,28rem,var(--notification-popover-available-height))] flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:inset-x-auto sm:right-3 sm:w-80 sm:max-w-[calc(100vw-1.5rem)] sm:max-h-[min(50vh,var(--notification-popover-available-height))]"
+      style={popoverLayoutStyle}
       role="dialog"
       aria-label="Notification inbox"
     >
@@ -505,6 +556,7 @@ export function NotificationChip({
   const { active } = useNotifications(sessionId);
   const summary = useNotificationSummary(sessionId);
   const [open, setOpen] = useState(false);
+  const chipRef = useRef<HTMLButtonElement>(null);
   const { needsInput, review } = useMemo(() => getEffectiveNotificationBreakdown(active, summary), [active, summary]);
   const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review }), [needsInput, review]);
   const visibleSegments = useMemo(
@@ -524,6 +576,7 @@ export function NotificationChip({
   return (
     <>
       <button
+        ref={chipRef}
         onClick={toggle}
         aria-label={ariaLabel}
         className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1 overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md cursor-pointer hover:border-white/15 transition-colors"
@@ -544,6 +597,7 @@ export function NotificationChip({
         <NotificationPopover
           sessionId={sessionId}
           onClose={close}
+          anchor={chipRef.current}
           currentThreadKey={currentThreadKey}
           onSelectThread={onSelectThread}
         />
