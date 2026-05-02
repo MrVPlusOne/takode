@@ -317,7 +317,7 @@ describe("MarkdownContent quest links", () => {
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-42" }));
 
     expect(await screen.findByTestId("quest-hover-owner-session")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "#123" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Owner session #123 Auth Worker" })).toBeTruthy();
     expect(screen.getByText("Auth Worker")).toBeTruthy();
   });
 
@@ -403,12 +403,24 @@ describe("MarkdownContent quest links", () => {
 
     // Leader can come from live herding metadata even when the quest record itself lacks leaderSessionId.
     expect(await screen.findByTestId("quest-hover-leader-session")).toBeTruthy();
-    expect(within(screen.getByTestId("quest-hover-leader-session")).getByRole("link", { name: "#7" })).toBeTruthy();
+    expect(
+      within(screen.getByTestId("quest-hover-leader-session")).getByRole("link", {
+        name: "Leader session #7 Quest Leader",
+      }),
+    ).toBeTruthy();
     expect(screen.getByText("Quest Leader")).toBeTruthy();
     expect(screen.getByTestId("quest-hover-worker-session").textContent).toContain("Worker");
     expect(screen.getByTestId("quest-hover-reviewer-session").textContent).toContain("Reviewer");
-    expect(within(screen.getByTestId("quest-hover-worker-session")).getByRole("link", { name: "#123" })).toBeTruthy();
-    expect(within(screen.getByTestId("quest-hover-reviewer-session")).getByRole("link", { name: "#8" })).toBeTruthy();
+    expect(
+      within(screen.getByTestId("quest-hover-worker-session")).getByRole("link", {
+        name: "Worker #123 Auth Worker running",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId("quest-hover-reviewer-session")).getByRole("link", {
+        name: "Reviewer #8 Quest Reviewer idle",
+      }),
+    ).toBeTruthy();
     expect(screen.queryByTestId("quest-hover-owner-session")).toBeNull();
     expect(screen.getByTestId("quest-journey-preview-card")).toBeTruthy();
     expect(screen.getByTestId("quest-journey-timeline").getAttribute("data-journey-mode")).toBe("active");

@@ -8,6 +8,9 @@ import { useStore } from "../store.js";
 import { getQuestJourneyPhaseForState, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyPreviewCard } from "./QuestJourneyTimeline.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
+import { SessionStatusDot } from "./SessionStatusDot.js";
+import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
+import { timeAgo } from "../utils/quest-helpers.js";
 
 interface QuestHoverCardProps {
   quest: QuestmasterTask;
@@ -20,6 +23,7 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
   const cardRef = useRef<HTMLDivElement>(null);
   const statusTheme = getQuestStatusTheme(quest.status);
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
+  const openQuestOverlay = useStore((state) => state.openQuestOverlay);
   const ownerSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionId = useStore((state) => {
     const recordedLeader = getQuestLeaderSessionId(quest);
@@ -65,6 +69,7 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
   const statusLabel = journeyPresentation?.label ?? journeyPhase?.label ?? terminalStatusLabel;
   const statusDotStyle = journeyPhase?.color.accent ? { backgroundColor: journeyPhase.color.accent } : undefined;
   const showOwnerSession = !!ownerSessionId && workerParticipant?.sessionId !== ownerSessionId;
+  const completedAt = quest.status === "done" ? quest.completedAt : null;
 
   useLayoutEffect(() => {
     if (!cardRef.current) return;
@@ -92,14 +97,33 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
       data-testid="quest-hover-card"
     >
       <div className="max-h-[min(32rem,calc(100vh-1rem))] overflow-y-auto rounded-xl border border-cc-border bg-cc-card px-3 py-2.5 shadow-xl">
-        <div className="min-w-0">
-          <div className="text-[11px] text-cc-muted">{quest.questId}</div>
-          <div
-            data-testid="quest-hover-title"
-            className="mt-0.5 text-sm font-semibold text-cc-fg leading-snug break-words"
-          >
-            {quest.title}
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <div className="text-[11px] text-cc-muted">{quest.questId}</div>
+            <div
+              data-testid="quest-hover-title"
+              className="mt-0.5 text-sm font-semibold text-cc-fg leading-snug break-words"
+            >
+              {quest.title}
+            </div>
           </div>
+          <button
+            type="button"
+            data-testid="quest-hover-open-button"
+            className="inline-flex h-7 shrink-0 items-center gap-1.5 rounded-md border border-cc-border/70 bg-cc-hover/20 px-2 text-[11px] font-medium text-cc-muted transition-colors hover:border-cc-primary/45 hover:bg-cc-hover/55 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 active:bg-cc-hover/70"
+            aria-label={`Open ${quest.questId} quest details`}
+            onClick={() => {
+              openQuestOverlay(quest.questId);
+              onMouseLeave();
+            }}
+          >
+            <span>Open quest</span>
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
+              <path d="M6 4h6v6" />
+              <path d="M12 4 5 11" />
+              <path d="M4 6v6h6" />
+            </svg>
+          </button>
         </div>
         <div data-testid="quest-hover-status-row" className="mt-2 flex min-w-0 items-center gap-2">
           <span className="shrink-0 text-[10px] uppercase tracking-wider text-cc-muted/60">Status</span>
@@ -112,6 +136,11 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
             />
             {statusLabel}
           </span>
+          {completedAt != null && (
+            <span data-testid="quest-hover-completed-at" className="min-w-0 truncate text-[10px] text-cc-muted/70">
+              Finished {timeAgo(completedAt)}
+            </span>
+          )}
         </div>
         {quest.tags && quest.tags.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mt-2">
@@ -123,6 +152,12 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
                 {tag}
               </span>
             ))}
+          </div>
+        )}
+        {quest.tldr && (
+          <div data-testid="quest-hover-tldr" className="mt-2 pt-2 border-t border-cc-border/50">
+            <div className="text-[10px] uppercase tracking-wider text-cc-muted/60">Summary</div>
+            <p className="mt-1 text-[11px] leading-snug text-cc-muted break-words">{quest.tldr}</p>
           </div>
         )}
         {journeyBoardRow?.journey && (
@@ -198,24 +233,17 @@ function ParticipantMetadataRow({
   participant: BoardParticipantStatus;
   tone: "worker" | "reviewer";
 }) {
-  const toneClass =
-    tone === "reviewer"
-      ? "border-violet-400/20 bg-violet-400/10 text-violet-200 hover:bg-violet-400/20"
-      : "border-cc-primary/15 bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20";
   return (
     <div data-testid={testId} className="mt-2 pt-2 border-t border-cc-border/50">
       <div className="text-[10px] uppercase tracking-wider text-cc-muted/60">{label}</div>
-      <div className="mt-1 flex items-center gap-2 min-w-0 flex-wrap">
-        <SessionInlineLink
-          sessionId={participant.sessionId}
-          sessionNum={participant.sessionNum}
-          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${toneClass}`}
-        >
-          {participant.sessionNum != null ? `#${participant.sessionNum}` : participant.sessionId.slice(0, 8)}
-        </SessionInlineLink>
-        {participant.name && <span className="min-w-0 truncate text-[11px] text-cc-muted">{participant.name}</span>}
-        <span className="shrink-0 text-[10px] capitalize text-cc-muted/80">{participant.status}</span>
-      </div>
+      <QuestHoverSessionChip
+        role={label}
+        sessionId={participant.sessionId}
+        sessionNum={participant.sessionNum}
+        sessionName={participant.name}
+        status={participant.status}
+        tone={tone}
+      />
     </div>
   );
 }
@@ -235,23 +263,61 @@ function SessionMetadataRow({
   sessionName?: string;
   tone: "owner" | "leader";
 }) {
-  const toneClass =
-    tone === "leader"
-      ? "border-amber-400/20 bg-amber-400/10 text-amber-200 hover:bg-amber-400/20"
-      : "border-cc-primary/15 bg-cc-primary/10 text-cc-primary hover:bg-cc-primary/20";
   return (
     <div data-testid={testId} className="mt-2 pt-2 border-t border-cc-border/50">
       <div className="text-[10px] uppercase tracking-wider text-cc-muted/60">{label}</div>
-      <div className="mt-1 flex items-center gap-2 min-w-0 flex-wrap">
-        <SessionInlineLink
-          sessionId={sessionId}
-          sessionNum={sessionNum}
-          className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-medium transition-colors ${toneClass}`}
-        >
-          {sessionNum != null ? `#${sessionNum}` : sessionId.slice(0, 8)}
-        </SessionInlineLink>
-        {sessionName && <span className="min-w-0 truncate text-[11px] text-cc-muted">{sessionName}</span>}
-      </div>
+      <QuestHoverSessionChip
+        role={label}
+        sessionId={sessionId}
+        sessionNum={sessionNum}
+        sessionName={sessionName}
+        tone={tone}
+      />
     </div>
+  );
+}
+
+function QuestHoverSessionChip({
+  role,
+  sessionId,
+  sessionNum,
+  sessionName,
+  status,
+  tone,
+}: {
+  role: string;
+  sessionId: string;
+  sessionNum: number | null | undefined;
+  sessionName?: string;
+  status?: BoardParticipantStatus["status"];
+  tone: "worker" | "reviewer" | "owner" | "leader";
+}) {
+  const dotProps = useParticipantSessionStatusDotProps(sessionId, status);
+  const toneClass =
+    tone === "leader"
+      ? "border-amber-400/25 bg-amber-400/10 text-amber-100 hover:border-amber-300/45 hover:bg-amber-400/20"
+      : tone === "reviewer"
+        ? "border-violet-400/25 bg-violet-400/10 text-violet-100 hover:border-violet-300/45 hover:bg-violet-400/20"
+        : "border-cc-primary/20 bg-cc-primary/10 text-cc-fg hover:border-cc-primary/45 hover:bg-cc-primary/20";
+  const displaySession = sessionNum != null ? `#${sessionNum}` : sessionId.slice(0, 8);
+  const titleSession = sessionNum != null ? `#${sessionNum}` : sessionId;
+  const statusLabel = status ? status.replace(/_/g, " ") : null;
+  const ariaLabel = [role, titleSession, sessionName, statusLabel].filter(Boolean).join(" ");
+
+  return (
+    <SessionInlineLink
+      sessionId={sessionId}
+      sessionNum={sessionNum}
+      className={`mt-1 inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 active:bg-cc-hover/70 ${toneClass}`}
+      dataTestId="quest-hover-session-chip"
+      ariaLabel={ariaLabel}
+      title={`Open ${role.toLowerCase()} ${titleSession}`}
+    >
+      {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
+      <span className="shrink-0 text-cc-muted/80">{role}</span>
+      <span className="shrink-0 font-mono-code text-amber-300">{displaySession}</span>
+      {sessionName && <span className="min-w-0 truncate text-cc-fg/80">{sessionName}</span>}
+      {statusLabel && <span className="shrink-0 capitalize text-cc-muted/75">{statusLabel}</span>}
+    </SessionInlineLink>
   );
 }

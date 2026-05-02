@@ -22,13 +22,13 @@ export function useParticipantSessionStatusDotProps(
   const sdkSession = useStore((s) =>
     sessionId ? s.sdkSessions.find((session) => session.sessionId === sessionId) : null,
   );
-  const hasSessionStatus = useStore((s) => (sessionId ? s.sessionStatus.has(sessionId) : false));
-  const liveStatus = useStore((s) => (sessionId ? (s.sessionStatus.get(sessionId) ?? null) : null));
-  const hasCliConnected = useStore((s) => (sessionId ? s.cliConnected.has(sessionId) : false));
-  const cliConnected = useStore((s) => (sessionId ? s.cliConnected.get(sessionId) : undefined));
-  const disconnectReason = useStore((s) => (sessionId ? s.cliDisconnectReason.get(sessionId) : undefined));
-  const permCount = useStore((s) => (sessionId ? (s.pendingPermissions.get(sessionId)?.size ?? 0) : 0));
-  const hasUnread = useStore((s) => (sessionId ? !!s.sessionAttention.get(sessionId) : false));
+  const hasSessionStatus = useStore((s) => (sessionId ? (s.sessionStatus?.has(sessionId) ?? false) : false));
+  const liveStatus = useStore((s) => (sessionId ? (s.sessionStatus?.get(sessionId) ?? null) : null));
+  const hasCliConnected = useStore((s) => (sessionId ? (s.cliConnected?.has(sessionId) ?? false) : false));
+  const cliConnected = useStore((s) => (sessionId ? s.cliConnected?.get(sessionId) : undefined));
+  const disconnectReason = useStore((s) => (sessionId ? s.cliDisconnectReason?.get(sessionId) : undefined));
+  const permCount = useStore((s) => (sessionId ? (s.pendingPermissions?.get(sessionId)?.size ?? 0) : 0));
+  const hasUnread = useStore((s) => (sessionId ? !!s.sessionAttention?.get(sessionId) : false));
 
   const hasLiveSession =
     !!sdkSession || hasSessionStatus || hasCliConnected || disconnectReason !== undefined || permCount > 0 || hasUnread;
