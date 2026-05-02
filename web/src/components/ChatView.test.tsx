@@ -12,6 +12,10 @@ interface MockStoreState {
       backend_state?: "initializing" | "resuming" | "recovering" | "connected" | "disconnected" | "broken";
       backend_error?: string | null;
       isOrchestrator?: boolean;
+      claimedQuestId?: string | null;
+      claimedQuestTitle?: string | null;
+      claimedQuestStatus?: string | null;
+      claimedQuestLeaderSessionId?: string | null;
     }
   >;
   cliConnected: Map<string, boolean>;
@@ -25,6 +29,11 @@ interface MockStoreState {
     sessionNum?: number;
     state?: "starting" | "connected" | "running" | "exited";
     cliConnected?: boolean;
+    herdedBy?: string;
+    claimedQuestId?: string | null;
+    claimedQuestTitle?: string | null;
+    claimedQuestStatus?: string | null;
+    claimedQuestLeaderSessionId?: string | null;
   }>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
   sessionNotifications: Map<string, import("../types.js").SessionNotification[]>;
@@ -35,7 +44,7 @@ interface MockStoreState {
   leaderProjections: Map<string, import("../types.js").LeaderProjectionSnapshot>;
   messages: Map<string, unknown[]>;
   historyLoading: Map<string, boolean>;
-  quests: Array<{ questId: string; title: string; status: string }>;
+  quests: Array<Record<string, unknown> & { questId: string; title: string; status: string }>;
   zoomLevel: number;
   openQuestOverlay: (questId: string) => void;
 }
@@ -257,12 +266,24 @@ vi.mock("./SessionInlineLink.js", () => ({
     sessionNum,
     children,
     className,
+    dataTestId,
+    ariaLabel,
+    title,
   }: {
     sessionNum?: number | null;
     children: ReactNode;
     className?: string;
+    dataTestId?: string;
+    ariaLabel?: string;
+    title?: string;
   }) => (
-    <a href={`#session-${sessionNum ?? "unknown"}`} className={className}>
+    <a
+      href={`#session-${sessionNum ?? "unknown"}`}
+      className={className}
+      data-testid={dataTestId}
+      aria-label={ariaLabel}
+      title={title}
+    >
       {children}
     </a>
   ),
@@ -1550,6 +1571,9 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Clear Mesa");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Reviewer");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("#1306");
+    expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
+    expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("data-testid", "quest-thread-participant");
+    expect(scope.getByLabelText("Reviewer #1306")).toHaveAttribute("href", "#session-1306");
     expect(scope.queryByTestId("quest-thread-banner-return-main")).not.toBeInTheDocument();
 
     fireEvent.mouseEnter(scope.getByTestId("quest-thread-journey-hover-target"));
@@ -1619,6 +1643,152 @@ describe("ChatView backend banners", () => {
     fireEvent.click(scope.getByTestId("quest-thread-journey-hover-target"));
     expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).toBeInTheDocument();
     expect(document.body.querySelector('[data-testid="quest-journey-preview-card"]')).toHaveTextContent("1 note");
+  });
+
+  it("renders a current quest banner for worker sessions with leader and reviewer chips", () => {
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            backend_state: "connected",
+            backend_error: null,
+            claimedQuestId: "q-968",
+            claimedQuestTitle: "Thread navigation rework",
+            claimedQuestStatus: "in_progress",
+            claimedQuestLeaderSessionId: "leader-968",
+          },
+        ],
+      ]),
+      sdkSessions: [
+        { sessionId: "s1", archived: false, sessionNum: 1364, herdedBy: "leader-968" },
+        { sessionId: "leader-968", archived: false, isOrchestrator: true, sessionNum: 1286 },
+        { sessionId: "reviewer-968", archived: false, sessionNum: 1365 },
+      ],
+      sessionBoards: new Map([
+        [
+          "leader-968",
+          [
+            {
+              questId: "q-968",
+              title: "Thread navigation rework",
+              worker: "s1",
+              workerNum: 1364,
+              status: "IMPLEMENTING",
+              updatedAt: 4,
+              createdAt: 2,
+              journey: {
+                mode: "active",
+                phaseIds: ["alignment", "implement", "code-review"],
+                currentPhaseId: "implement",
+              },
+            },
+          ],
+        ],
+      ]),
+      sessionBoardRowStatuses: new Map([
+        [
+          "leader-968",
+          {
+            "q-968": {
+              worker: { sessionId: "s1", sessionNum: 1364, name: "Worker Current", status: "running" },
+              reviewer: { sessionId: "reviewer-968", sessionNum: 1365, status: "idle" },
+            },
+          },
+        ],
+      ]),
+      quests: [
+        {
+          questId: "q-968",
+          title: "Thread navigation rework",
+          status: "in_progress",
+          sessionId: "s1",
+          leaderSessionId: "leader-968",
+          createdAt: 1,
+        },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    const banner = scope.getByTestId("quest-thread-banner");
+    expect(banner).toHaveAttribute("data-variant", "session");
+    expect(banner).toHaveTextContent("Quest");
+    expect(banner).toHaveTextContent("q-968");
+    expect(banner).toHaveTextContent("Thread navigation rework");
+    expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("implement");
+    expect(scope.getByLabelText("Leader #1286")).toHaveAttribute("href", "#session-1286");
+    expect(scope.getByLabelText("Reviewer #1365")).toHaveAttribute("href", "#session-1365");
+    expect(banner).not.toHaveTextContent("Worker");
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+  });
+
+  it("falls back to the newest completed quest owned by a normal session without guessing unrelated quests", () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null }]]),
+      sdkSessions: [
+        { sessionId: "s1", archived: false, sessionNum: 1375 },
+        { sessionId: "leader-new", archived: false, isOrchestrator: true, sessionNum: 1286 },
+      ],
+      sessionCompletedBoards: new Map([
+        [
+          "leader-new",
+          [
+            {
+              questId: "q-971",
+              title: "Newest completed worker quest",
+              worker: "s1",
+              workerNum: 1375,
+              status: "DONE",
+              updatedAt: 20,
+              completedAt: 20,
+              createdAt: 2,
+              journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+            },
+          ],
+        ],
+      ]),
+      quests: [
+        {
+          questId: "q-970",
+          title: "Older completed worker quest",
+          status: "done",
+          previousOwnerSessionIds: ["s1"],
+          leaderSessionId: "leader-old",
+          completedAt: 10,
+          createdAt: 1,
+        },
+        {
+          questId: "q-971",
+          title: "Newest completed worker quest",
+          status: "done",
+          previousOwnerSessionIds: ["s1"],
+          leaderSessionId: "leader-new",
+          completedAt: 20,
+          createdAt: 2,
+        },
+        {
+          questId: "q-999",
+          title: "Unrelated completed quest",
+          status: "done",
+          previousOwnerSessionIds: ["someone-else"],
+          completedAt: 30,
+          createdAt: 3,
+        },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    const banner = scope.getByTestId("quest-thread-banner");
+    expect(banner).toHaveAttribute("data-variant", "session");
+    expect(banner).toHaveTextContent("q-971");
+    expect(banner).toHaveTextContent("Newest completed worker quest");
+    expect(banner).not.toHaveTextContent("q-970");
+    expect(banner).not.toHaveTextContent("q-999");
+    expect(scope.getByLabelText("Leader #1286")).toHaveAttribute("href", "#session-1286");
   });
 
   it("defers leader message-derived tabs and attention while history restore is still loading", () => {

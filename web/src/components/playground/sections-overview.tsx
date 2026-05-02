@@ -266,6 +266,29 @@ export function PlaygroundOverviewSections() {
         },
       },
     },
+    {
+      label: "Worker session banner",
+      threadKey: "q-966",
+      row: {
+        threadKey: "q-966",
+        questId: "q-966",
+        title: "Polish current quest banner chips",
+        status: "in_progress",
+        boardStatus: "IMPLEMENTING",
+        section: "active" as const,
+        leaderSessionId: "playground-thread-panel-wait-for",
+        leaderSessionNum: 1286,
+        journey: {
+          mode: "active" as const,
+          phaseIds: ["alignment", "implement", "code-review"],
+          currentPhaseId: "implement",
+        },
+        rowStatus: {
+          worker: { sessionId: "playground-worker-banner", sessionNum: 1364, status: "idle" },
+          reviewer: { sessionId: "playground-worker-banner-reviewer", sessionNum: 1365, status: "idle" },
+        },
+      },
+    },
   ];
 
   return (
@@ -351,7 +374,12 @@ export function PlaygroundOverviewSections() {
               <div className="border-b border-cc-border/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
                 {label}
               </div>
-              <QuestThreadBanner row={row} threadKey={threadKey} />
+              <QuestThreadBanner
+                row={row}
+                threadKey={threadKey}
+                variant={label === "Worker session banner" ? "session" : "thread"}
+                currentSessionId={label === "Worker session banner" ? "playground-worker-banner" : undefined}
+              />
             </div>
           ))}
         </div>

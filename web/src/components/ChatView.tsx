@@ -52,6 +52,7 @@ import {
 import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 import { buildAttentionRecords } from "../utils/attention-records.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
+import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import type {
   BoardRowSessionStatus,
   ChatMessage,
@@ -69,6 +70,8 @@ export interface QuestThreadBannerRow {
   journey?: BoardRowData["journey"];
   boardRow?: BoardRowData;
   rowStatus?: BoardRowSessionStatus;
+  leaderSessionId?: string | null;
+  leaderSessionNum?: number | null;
   section?: "active" | "done";
 }
 
@@ -196,44 +199,135 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
   );
 }
 
-function QuestThreadParticipant({
+type QuestBannerVariant = "thread" | "session";
+type QuestBannerParticipantRole = "Worker" | "Reviewer" | "Leader";
+
+function questTimestamp(quest: QuestmasterTask): number {
+  if ("completedAt" in quest && typeof quest.completedAt === "number") return quest.completedAt;
+  if (typeof quest.statusChangedAt === "number") return quest.statusChangedAt;
+  if (typeof quest.updatedAt === "number") return quest.updatedAt;
+  return quest.createdAt;
+}
+
+function findQuestById(quests: QuestmasterTask[], questId?: string | null): QuestmasterTask | undefined {
+  if (!questId) return undefined;
+  const normalized = questId.toLowerCase();
+  return quests.find((quest) => quest.questId.toLowerCase() === normalized);
+}
+
+function findSessionQuestCandidate(sessionId: string, quests: QuestmasterTask[]): QuestmasterTask | undefined {
+  const active = quests.find((quest) => quest.status === "in_progress" && quest.sessionId === sessionId);
+  if (active) return active;
+  return quests
+    .filter((quest) => {
+      if (quest.status !== "done") return false;
+      if (quest.sessionId === sessionId) return true;
+      return quest.previousOwnerSessionIds?.includes(sessionId) === true;
+    })
+    .sort((a, b) => questTimestamp(b) - questTimestamp(a) || b.questId.localeCompare(a.questId))[0];
+}
+
+function findQuestBoardContext({
+  questId,
+  leaderSessionId,
+  sessionBoards,
+  sessionCompletedBoards,
+  rowStatuses,
+}: {
+  questId: string;
+  leaderSessionId?: string | null;
+  sessionBoards: ReadonlyMap<string, readonly BoardRowData[]>;
+  sessionCompletedBoards: ReadonlyMap<string, readonly BoardRowData[]>;
+  rowStatuses: ReadonlyMap<string, Record<string, BoardRowSessionStatus>>;
+}): { row?: BoardRowData; rowStatus?: BoardRowSessionStatus; leaderSessionId?: string } {
+  const normalizedQuestId = questId.toLowerCase();
+  const preferredLeaderId = leaderSessionId ?? undefined;
+  const leaderIds = [
+    ...(preferredLeaderId ? [preferredLeaderId] : []),
+    ...[...sessionBoards.keys(), ...sessionCompletedBoards.keys()].filter((id) => id !== preferredLeaderId),
+  ];
+
+  for (const candidateLeaderId of leaderIds) {
+    const row =
+      sessionBoards
+        .get(candidateLeaderId)
+        ?.find((candidate) => candidate.questId.toLowerCase() === normalizedQuestId) ??
+      sessionCompletedBoards
+        .get(candidateLeaderId)
+        ?.find((candidate) => candidate.questId.toLowerCase() === normalizedQuestId);
+    const rowStatus =
+      rowStatuses.get(candidateLeaderId)?.[questId] ?? rowStatuses.get(candidateLeaderId)?.[normalizedQuestId];
+    if (row || rowStatus) return { row, rowStatus, leaderSessionId: candidateLeaderId };
+  }
+
+  return {};
+}
+
+function QuestBannerParticipantChip({
   role,
   participant,
+  sessionId: explicitSessionId,
   fallbackSessionId,
   fallbackSessionNum,
+  currentSessionId,
 }: {
-  role: "Worker" | "Reviewer";
-  participant?: BoardRowSessionStatus["worker"] | BoardRowSessionStatus["reviewer"];
+  role: QuestBannerParticipantRole;
+  participant?: BoardRowSessionStatus["worker"] | BoardRowSessionStatus["reviewer"] | null;
+  sessionId?: string | null;
   fallbackSessionId?: string;
   fallbackSessionNum?: number;
+  currentSessionId?: string;
 }) {
-  const sessionId = participant?.sessionId ?? fallbackSessionId ?? null;
-  const sessionNum = participant?.sessionNum ?? fallbackSessionNum ?? undefined;
+  const candidateSessionId = participant?.sessionId ?? explicitSessionId ?? fallbackSessionId ?? null;
+  const candidateSessionNum = participant?.sessionNum ?? fallbackSessionNum ?? undefined;
+  const resolvedSession = useStore((s) =>
+    candidateSessionId
+      ? s.sdkSessions.find((session) => session.sessionId === candidateSessionId)
+      : candidateSessionNum != null
+        ? s.sdkSessions.find((session) => session.sessionNum === candidateSessionNum)
+        : undefined,
+  );
+  const sessionId = candidateSessionId ?? resolvedSession?.sessionId ?? null;
+  const sessionNum = candidateSessionNum ?? resolvedSession?.sessionNum ?? undefined;
   const dotProps = useParticipantSessionStatusDotProps(sessionId, participant?.status);
+  if (currentSessionId && sessionId === currentSessionId) return null;
   if (!sessionId && sessionNum == null) return null;
   const label = `${role} #${sessionNum ?? "?"}${participant?.name ? ` ${participant.name}` : ""}`;
-
-  return (
-    <span
-      className="inline-flex h-5 max-w-[9.5rem] min-w-0 items-center gap-1 rounded-full border border-cc-border/60 bg-cc-hover/25 px-1.5 text-[10px] leading-none text-cc-muted sm:max-w-[12rem]"
-      data-testid="quest-thread-participant"
-      title={label}
-      aria-label={label}
-    >
+  const chipClass =
+    "inline-flex h-5 max-w-[9.5rem] min-w-0 items-center gap-1 rounded-full border border-cc-border/60 bg-cc-hover/25 px-1.5 text-[10px] leading-none text-cc-muted transition-colors hover:border-cc-primary/45 hover:bg-cc-hover/55 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 active:bg-cc-hover/70 sm:max-w-[12rem]";
+  const content = (
+    <>
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
       <span className="hidden shrink-0 text-cc-muted/75 sm:inline">{role}</span>
-      {sessionId ? (
-        <SessionInlineLink
-          sessionId={sessionId}
-          sessionNum={sessionNum}
-          className="shrink-0 font-mono-code text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2"
-        >
-          {`#${sessionNum ?? "?"}`}
-        </SessionInlineLink>
-      ) : (
-        <span className="shrink-0 font-mono-code text-cc-muted">{`#${sessionNum ?? "?"}`}</span>
-      )}
+      <span className="shrink-0 font-mono-code text-amber-300">{`#${sessionNum ?? "?"}`}</span>
       {participant?.name && <span className="hidden min-w-0 truncate text-cc-fg/75 md:inline">{participant.name}</span>}
+    </>
+  );
+
+  return (
+    <SessionInlineLink
+      sessionId={sessionId}
+      sessionNum={sessionNum}
+      className={chipClass}
+      dataTestId="quest-thread-participant"
+      ariaLabel={label}
+      title={`Open ${role.toLowerCase()} session ${sessionNum != null ? `#${sessionNum}` : sessionId}`}
+    >
+      {content}
+    </SessionInlineLink>
+  );
+}
+
+function QuestStatusFallbackPill({ status }: { status?: string }) {
+  if (!status) return null;
+  const statusTheme = getQuestStatusTheme(status);
+  return (
+    <span
+      className={`inline-flex h-5 shrink-0 items-center gap-1 rounded-full border px-1.5 text-[10px] leading-none ${statusTheme.bg} ${statusTheme.text} ${statusTheme.border}`}
+      data-testid="quest-banner-status-pill"
+    >
+      <span className={`h-1.5 w-1.5 rounded-full ${statusTheme.dot}`} />
+      {statusTheme.label}
     </span>
   );
 }
@@ -482,20 +576,91 @@ function isAvailableLeaderThread(threadKey: string, rows: LeaderThreadRow[]): bo
   return rows.some((row) => row.threadKey === normalized);
 }
 
-export function QuestThreadBanner({ row, threadKey }: { row?: QuestThreadBannerRow; threadKey: string }) {
+function buildSessionQuestBannerRow({
+  sessionId,
+  claimedQuestId,
+  claimedQuestTitle,
+  claimedQuestStatus,
+  claimedQuestLeaderSessionId,
+  herdedBy,
+  quests,
+  sessionBoards,
+  sessionCompletedBoards,
+  rowStatuses,
+}: {
+  sessionId: string;
+  claimedQuestId?: string | null;
+  claimedQuestTitle?: string | null;
+  claimedQuestStatus?: string | null;
+  claimedQuestLeaderSessionId?: string | null;
+  herdedBy?: string | null;
+  quests: QuestmasterTask[];
+  sessionBoards: ReadonlyMap<string, readonly BoardRowData[]>;
+  sessionCompletedBoards: ReadonlyMap<string, readonly BoardRowData[]>;
+  rowStatuses: ReadonlyMap<string, Record<string, BoardRowSessionStatus>>;
+}): QuestThreadBannerRow | null {
+  const quest = findQuestById(quests, claimedQuestId) ?? findSessionQuestCandidate(sessionId, quests);
+  const questId = claimedQuestId ?? quest?.questId;
+  if (!questId) return null;
+
+  const leaderSessionId = claimedQuestLeaderSessionId ?? quest?.leaderSessionId ?? herdedBy ?? null;
+  const boardContext = findQuestBoardContext({
+    questId,
+    leaderSessionId,
+    sessionBoards,
+    sessionCompletedBoards,
+    rowStatuses,
+  });
+  const boardRow = boardContext.row;
+  const rowStatus = boardContext.rowStatus;
+  const resolvedLeaderSessionId = leaderSessionId ?? boardContext.leaderSessionId ?? null;
+  const title = quest?.title ?? claimedQuestTitle ?? boardRow?.title ?? questId;
+  const status = quest?.status ?? claimedQuestStatus ?? boardRow?.status;
+
+  return {
+    threadKey: questId.toLowerCase(),
+    questId,
+    title,
+    ...(status ? { status } : {}),
+    ...(boardRow?.status ? { boardStatus: boardRow.status } : {}),
+    ...(boardRow?.journey ? { journey: boardRow.journey } : {}),
+    ...(boardRow ? { boardRow } : {}),
+    ...(rowStatus ? { rowStatus } : {}),
+    ...(resolvedLeaderSessionId ? { leaderSessionId: resolvedLeaderSessionId } : {}),
+    section: status === "done" || boardRow?.completedAt ? "done" : "active",
+  };
+}
+
+export function QuestThreadBanner({
+  row,
+  threadKey,
+  variant = "thread",
+  currentSessionId,
+}: {
+  row?: QuestThreadBannerRow;
+  threadKey: string;
+  variant?: QuestBannerVariant;
+  currentSessionId?: string;
+}) {
   const questId = row?.questId ?? threadKey.toLowerCase();
   const title = row?.title;
-  const hasParticipantContext = !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
-  const hasMeta = !!row?.journey || hasParticipantContext;
+  const isSessionBanner = variant === "session";
+  const hasParticipantContext = isSessionBanner
+    ? !!(row?.leaderSessionId || row?.rowStatus?.reviewer)
+    : !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
+  const hasMeta = !!row?.journey || !!row?.status || hasParticipantContext;
   return (
     <div
       className="shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3"
       data-testid="quest-thread-banner"
+      data-variant={variant}
       data-layout="compact-inline"
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
         <div className="inline-flex min-w-0 max-w-full flex-[1_1_16rem] items-baseline gap-1.5">
-          <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">Thread</span>
+          <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">
+            {isSessionBanner ? "Quest" : "Thread"}
+          </span>
           <QuestInlineLink
             questId={questId}
             className="shrink-0 font-mono-code font-medium text-blue-300 hover:text-blue-200 hover:underline"
@@ -520,15 +685,34 @@ export function QuestThreadBanner({ row, threadKey }: { row?: QuestThreadBannerR
                 />
               </QuestJourneyHoverTarget>
             )}
+            {!row?.journey && <QuestStatusFallbackPill status={row?.status} />}
             {hasParticipantContext && (
               <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
-                <QuestThreadParticipant
-                  role="Worker"
-                  participant={row?.rowStatus?.worker}
-                  fallbackSessionId={row?.boardRow?.worker}
-                  fallbackSessionNum={row?.boardRow?.workerNum}
-                />
-                <QuestThreadParticipant role="Reviewer" participant={row?.rowStatus?.reviewer} />
+                {isSessionBanner ? (
+                  <>
+                    <QuestBannerParticipantChip
+                      role="Leader"
+                      sessionId={row?.leaderSessionId}
+                      fallbackSessionNum={row?.leaderSessionNum ?? undefined}
+                      currentSessionId={currentSessionId}
+                    />
+                    <QuestBannerParticipantChip
+                      role="Reviewer"
+                      participant={row?.rowStatus?.reviewer}
+                      currentSessionId={currentSessionId}
+                    />
+                  </>
+                ) : (
+                  <>
+                    <QuestBannerParticipantChip
+                      role="Worker"
+                      participant={row?.rowStatus?.worker}
+                      fallbackSessionId={row?.boardRow?.worker}
+                      fallbackSessionNum={row?.boardRow?.workerNum}
+                    />
+                    <QuestBannerParticipantChip role="Reviewer" participant={row?.rowStatus?.reviewer} />
+                  </>
+                )}
               </div>
             )}
           </div>
@@ -561,26 +745,39 @@ export function ChatView({
     isLeaderSession,
     historyLoading,
     hasKnownThreadSources,
+    claimedQuestId,
+    claimedQuestTitle,
+    claimedQuestStatus,
+    claimedQuestLeaderSessionId,
+    herdedBy,
   } = useStore(
-    useShallow((s) => ({
-      sessionPerms: s.pendingPermissions.get(sessionId),
-      connStatus: s.connectionStatus.get(sessionId) ?? "disconnected",
-      backendState: s.sessions.get(sessionId)?.backend_state ?? "disconnected",
-      backendError: s.sessions.get(sessionId)?.backend_error ?? null,
-      cliConnected: s.cliConnected.get(sessionId) ?? false,
-      cliEverConnected: s.cliEverConnected.get(sessionId) ?? false,
-      cliDisconnectReason: s.cliDisconnectReason.get(sessionId) ?? null,
-      isArchived: s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.archived ?? false,
-      isLeaderSession:
-        s.sessions.get(sessionId)?.isOrchestrator === true ||
-        s.sdkSessions.some((sdk) => sdk.sessionId === sessionId && sdk.isOrchestrator === true),
-      historyLoading: s.historyLoading.get(sessionId) ?? false,
-      hasKnownThreadSources:
-        s.messages.has(sessionId) ||
-        s.leaderProjections.has(sessionId) ||
-        s.sessionBoards.has(sessionId) ||
-        s.sessionCompletedBoards.has(sessionId),
-    })),
+    useShallow((s) => {
+      const sessionState = s.sessions.get(sessionId);
+      const sdkSession = s.sdkSessions.find((sdk) => sdk.sessionId === sessionId);
+      return {
+        sessionPerms: s.pendingPermissions.get(sessionId),
+        connStatus: s.connectionStatus.get(sessionId) ?? "disconnected",
+        backendState: sessionState?.backend_state ?? "disconnected",
+        backendError: sessionState?.backend_error ?? null,
+        cliConnected: s.cliConnected.get(sessionId) ?? false,
+        cliEverConnected: s.cliEverConnected.get(sessionId) ?? false,
+        cliDisconnectReason: s.cliDisconnectReason.get(sessionId) ?? null,
+        isArchived: sdkSession?.archived ?? false,
+        isLeaderSession: sessionState?.isOrchestrator === true || sdkSession?.isOrchestrator === true,
+        historyLoading: s.historyLoading.get(sessionId) ?? false,
+        hasKnownThreadSources:
+          s.messages.has(sessionId) ||
+          s.leaderProjections.has(sessionId) ||
+          s.sessionBoards.has(sessionId) ||
+          s.sessionCompletedBoards.has(sessionId),
+        claimedQuestId: sessionState?.claimedQuestId ?? sdkSession?.claimedQuestId,
+        claimedQuestTitle: sessionState?.claimedQuestTitle ?? sdkSession?.claimedQuestTitle,
+        claimedQuestStatus: sessionState?.claimedQuestStatus ?? sdkSession?.claimedQuestStatus,
+        claimedQuestLeaderSessionId:
+          sessionState?.claimedQuestLeaderSessionId ?? sdkSession?.claimedQuestLeaderSessionId,
+        herdedBy: sdkSession?.herdedBy,
+      };
+    }),
   );
   const [selectedThreadKey, setSelectedThreadKey] = useState("main");
   const [openThreadTabKeys, setOpenThreadTabKeys] = useState(() => readOpenThreadTabKeys(sessionId));
@@ -596,12 +793,46 @@ export function ChatView({
   } = useLeaderThreadModel(sessionId, historyLoading);
   const sessionNotifications = useStore((s) => s.sessionNotifications.get(sessionId));
   const persistedAttentionRecords = useStore((s) => s.sessionAttentionRecords.get(sessionId));
+  const quests = useStore((s) => s.quests);
+  const allSessionBoards = useStore((s) => s.sessionBoards);
+  const allSessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
+  const allSessionBoardRowStatuses = useStore((s) => s.sessionBoardRowStatuses);
   const routeSyncEnabled = hasThreadRoute !== undefined || routeThreadKey !== undefined;
   const showQuestThreadBanner =
     isLeaderSession &&
     selectedThreadKey.toLowerCase() !== MAIN_THREAD_KEY &&
     selectedThreadKey.toLowerCase() !== ALL_THREADS_KEY &&
     isQuestThreadKey(selectedThreadKey);
+  const sessionQuestBannerRow = useMemo(
+    () =>
+      !isLeaderSession
+        ? buildSessionQuestBannerRow({
+            sessionId,
+            claimedQuestId,
+            claimedQuestTitle,
+            claimedQuestStatus,
+            claimedQuestLeaderSessionId,
+            herdedBy,
+            quests,
+            sessionBoards: allSessionBoards,
+            sessionCompletedBoards: allSessionCompletedBoards,
+            rowStatuses: allSessionBoardRowStatuses,
+          })
+        : null,
+    [
+      allSessionBoardRowStatuses,
+      allSessionBoards,
+      allSessionCompletedBoards,
+      claimedQuestId,
+      claimedQuestLeaderSessionId,
+      claimedQuestStatus,
+      claimedQuestTitle,
+      herdedBy,
+      isLeaderSession,
+      quests,
+      sessionId,
+    ],
+  );
   const composerThreadKey = isLeaderSession ? composeThreadKeyForSelection(selectedThreadKey) : MAIN_THREAD_KEY;
   const composerQuestId = isLeaderSession && isQuestThreadKey(composerThreadKey) ? composerThreadKey : undefined;
   const attentionRecords = useMemo(
@@ -1088,6 +1319,14 @@ export function ChatView({
         <div className="flex min-h-0 flex-1 flex-col">
           {!preview && showQuestThreadBanner && (
             <QuestThreadBanner row={selectedThreadRow} threadKey={selectedThreadKey} />
+          )}
+          {!preview && !showQuestThreadBanner && sessionQuestBannerRow && (
+            <QuestThreadBanner
+              row={sessionQuestBannerRow}
+              threadKey={sessionQuestBannerRow.threadKey}
+              variant="session"
+              currentSessionId={sessionId}
+            />
           )}
           <MessageFeed
             sessionId={sessionId}

@@ -332,9 +332,14 @@ export interface SdkSessionInfo {
   /** Accumulated search keywords from the session auto-namer */
   keywords?: string[];
   /** Current claimed quest status for sidebar/title rendering. */
+  claimedQuestId?: string | null;
+  /** Current claimed quest title for sidebar/title rendering. */
+  claimedQuestTitle?: string | null;
   claimedQuestStatus?: string | null;
   /** Review inbox metadata for a claimed done quest, if it is still in review flow. */
   claimedQuestVerificationInboxUnread?: boolean;
+  /** Orchestrating leader session for the claimed quest, when known. */
+  claimedQuestLeaderSessionId?: string | null;
   /** Epoch ms of last real activity (user/assistant message, not keep_alive) */
   lastActivityAt?: number;
   /** Epoch ms of last user message (for sidebar activity sort -- not updated by assistant/tool activity) */
