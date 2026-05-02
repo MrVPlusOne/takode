@@ -176,7 +176,7 @@ export function buildLeaderThreadRowsFromSummaries(input: BuildLeaderThreadRowsI
   const completedBoard = input.completedBoard ?? [];
   const activeKeys = new Set(activeBoard.map((row) => row.questId.toLowerCase()));
   const boardRowById = new Map<string, LeaderProjectionBoardRow>();
-  for (const row of [...activeBoard, ...completedBoard]) {
+  for (const row of [...completedBoard, ...activeBoard]) {
     boardRowById.set(row.questId.toLowerCase(), row);
   }
 
@@ -230,6 +230,7 @@ export function buildLeaderThreadRowsFromSummaries(input: BuildLeaderThreadRowsI
   }
   for (const row of completedBoard) {
     const key = row.questId.toLowerCase();
+    if (activeKeys.has(key)) continue;
     addQuestRow(row.questId, {
       title: row.title,
       boardStatus: row.status,

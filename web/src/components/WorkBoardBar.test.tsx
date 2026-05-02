@@ -738,6 +738,49 @@ describe("WorkBoardBar", () => {
     });
   });
 
+  it("uses active phase color when an open tab has both active and completed board rows", () => {
+    const repeatedActive: BoardRowData = {
+      questId: "q-3",
+      status: "USER_CHECKPOINTING",
+      title: "Repeated Journey",
+      journey: {
+        presetId: "full-code",
+        phaseIds: ["alignment", "explore", "user-checkpoint", "implement"],
+        currentPhaseId: "user-checkpoint",
+        activePhaseIndex: 2,
+      },
+      updatedAt: 4,
+    };
+    const repeatedCompleted: BoardRowData = {
+      questId: "q-3",
+      status: "PORTING",
+      title: "Repeated Journey",
+      journey: {
+        presetId: "full-code",
+        phaseIds: ["alignment", "implement", "code-review", "port"],
+        currentPhaseId: "port",
+        activePhaseIndex: 3,
+      },
+      updatedAt: 3,
+      completedAt: 3,
+    };
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", [...BOARD_DATA, repeatedActive]]]),
+      sessionCompletedBoards: new Map([["s1", [repeatedCompleted]]]),
+    });
+
+    const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-3" openThreadKeys={["q-3"]} />);
+
+    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-3")!;
+    expect(tab).toHaveAttribute("data-closable", "false");
+    const title = within(tab).getByTestId("thread-tab-title");
+    expect(title).toHaveStyle({
+      color: getQuestJourneyPhaseForState("USER_CHECKPOINTING")?.color.accent,
+    });
+    expect(title).not.toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+  });
+
   it("uses done gray for off-board done thread tabs when only thread metadata is available", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],

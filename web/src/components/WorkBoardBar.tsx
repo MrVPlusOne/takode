@@ -507,7 +507,11 @@ function buildOpenThreadTabs({
     const completedBoardRow = completedBoardByKey.get(threadKey);
     const boardRow = activeBoardRow ?? completedBoardRow;
     if (!active && !row && !boardRow) continue;
-    const completedTitleColor = doneThreadTitleColor({ boardRow, row, completed: !!completedBoardRow });
+    const completedTitleColor = doneThreadTitleColor({
+      boardRow,
+      row,
+      completed: !activeBoardRow && !!completedBoardRow,
+    });
 
     tabs.push({
       threadKey,

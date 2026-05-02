@@ -152,6 +152,61 @@ describe("leader projection summaries", () => {
     ]);
   });
 
+  it("keeps active board state when a quest also has completed Journey history", () => {
+    // Reopened/repeated Journeys can leave an older completed board row for the
+    // same quest. Current-status navigation must keep the active row payload.
+    const rows = buildLeaderThreadRowsFromSummaries({
+      activeBoard: [
+        {
+          questId: "q-1071",
+          title: "Repeated Journey",
+          status: "USER_CHECKPOINTING",
+          createdAt: 1,
+          updatedAt: 20,
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "explore", "user-checkpoint", "implement"],
+            currentPhaseId: "user-checkpoint",
+            activePhaseIndex: 2,
+          },
+        },
+      ],
+      completedBoard: [
+        {
+          questId: "q-1071",
+          title: "Repeated Journey",
+          status: "PORTING",
+          createdAt: 1,
+          updatedAt: 10,
+          completedAt: 10,
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review", "port"],
+            currentPhaseId: "port",
+            activePhaseIndex: 3,
+          },
+        },
+      ],
+      threadSummaries: [{ threadKey: "q-1071", questId: "q-1071", messageCount: 2, firstMessageAt: 1 }],
+      quests: [{ questId: "q-1071", title: "Repeated Journey", status: "in_progress", createdAt: 1 }],
+    });
+
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      threadKey: "q-1071",
+      section: "active",
+      boardStatus: "USER_CHECKPOINTING",
+      journey: {
+        currentPhaseId: "user-checkpoint",
+        activePhaseIndex: 2,
+      },
+      boardRow: {
+        status: "USER_CHECKPOINTING",
+      },
+    });
+    expect(rows[0]?.boardRow).not.toHaveProperty("completedAt");
+  });
+
   it("merges projection summaries with only post-projection live messages", () => {
     // Cold windows may overlap the projection's raw history. Only messages
     // appended after the projection source length should extend the summary.
