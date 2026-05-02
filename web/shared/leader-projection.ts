@@ -13,6 +13,12 @@ import type {
   ThreadTransitionMarker,
 } from "../server/session-types.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
+import type { LeaderThreadRouteIndex } from "./leader-thread-route-index.js";
+import {
+  buildRawTurnBoundariesFromRouteIndex,
+  collectLeaderThreadSummariesFromRouteIndex,
+  leaderThreadRouteIndexMatchesSource,
+} from "./leader-thread-route-index.js";
 import { normalizeThreadTarget, parseCommandThreadComment, parseThreadTextPrefix } from "./thread-routing.js";
 
 export interface LeaderProjectionBoardRow extends Omit<BoardRow, "createdAt"> {
@@ -51,6 +57,7 @@ export interface BuildLeaderProjectionInput {
   rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
   notifications?: ReadonlyArray<SessionNotification>;
   attentionRecords?: ReadonlyArray<SessionAttentionRecord>;
+  threadRouteIndex?: LeaderThreadRouteIndex;
   revision?: number;
   generatedAt?: number;
 }
@@ -67,7 +74,10 @@ export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
 
 export function buildLeaderProjectionSnapshot(input: BuildLeaderProjectionInput): LeaderProjectionSnapshot {
-  const threadSummaries = collectLeaderThreadSummaries(input.messageHistory);
+  const routeIndex = usableThreadRouteIndex(input.threadRouteIndex, input.messageHistory);
+  const threadSummaries = routeIndex
+    ? collectLeaderThreadSummariesFromRouteIndex(routeIndex)
+    : collectLeaderThreadSummaries(input.messageHistory);
   const messageAttentionRecords = collectMessageAttentionRecords(input.leaderSessionId, input.messageHistory);
   const activeBoard = [...(input.activeBoard ?? [])];
   const completedBoard = [...(input.completedBoard ?? [])];
@@ -95,8 +105,17 @@ export function buildLeaderProjectionSnapshot(input: BuildLeaderProjectionInput)
     workBoardThreadRows: threadRows.map(toWorkBoardThreadRow),
     messageAttentionRecords,
     attentionRecords,
-    rawTurnBoundaries: buildRawTurnBoundaries(input.messageHistory),
+    rawTurnBoundaries: routeIndex
+      ? buildRawTurnBoundariesFromRouteIndex(routeIndex)
+      : buildRawTurnBoundaries(input.messageHistory),
   };
+}
+
+function usableThreadRouteIndex(
+  index: LeaderThreadRouteIndex | undefined,
+  messages: ReadonlyArray<LeaderProjectionMessageLike>,
+): LeaderThreadRouteIndex | null {
+  return leaderThreadRouteIndexMatchesSource(index, messages) ? index : null;
 }
 
 export function collectLeaderThreadSummaries(
