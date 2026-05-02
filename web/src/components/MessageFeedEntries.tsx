@@ -30,7 +30,7 @@ import {
   getTurnFeedBlockId,
   isTimedChatMessage,
 } from "./message-feed-utils.js";
-import type { FeedSection } from "./message-feed-sections.js";
+import { findPreviousSectionStartIndex, type FeedSection } from "./message-feed-sections.js";
 import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import {
@@ -109,9 +109,7 @@ function getTurnSummaryDurationMs(turn: Turn, nextTurn: Turn | null, leaderMode:
   return getNormalTurnDurationMs(turn);
 }
 
-export function findPreviousSectionStartIndex(sections: FeedSection[], fromIndex: number): number | null {
-  return fromIndex > 0 ? Math.min(fromIndex - 1, sections.length - 1) : null;
-}
+export { findPreviousSectionStartIndex };
 
 function TurnSummaryStats({
   stats,

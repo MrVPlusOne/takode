@@ -18,7 +18,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { api } from "../api.js";
 import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
-import { FeedFooter, TurnEntries, findPreviousSectionStartIndex } from "./MessageFeedEntries.js";
+import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
 import { SAVE_THREAD_VIEWPORT_EVENT, getFeedViewportKey } from "../utils/thread-viewport.js";
 import {
   CodexTerminalInspector,
@@ -35,12 +35,8 @@ import {
 import {
   DEFAULT_VISIBLE_SECTION_COUNT,
   FEED_SECTION_TURN_COUNT,
-  buildFeedSections,
   findActiveTaskTurnIdForScroll,
   findSectionWindowStartIndexForTarget,
-  findVisibleSectionEndIndex,
-  findVisibleSectionStartIndex,
-  type FeedSection,
   type TurnOffsetIndex,
 } from "./message-feed-sections.js";
 import {
@@ -61,15 +57,7 @@ import {
   isTimedChatMessage,
 } from "./message-feed-utils.js";
 import { isSubagentToolName } from "../types.js";
-import {
-  collectRetainedNotificationSourceMessageIds,
-  collectMessageToolUseIds,
-  filterMessagesForThread,
-  isAllThreadsKey,
-  isMainThreadKey,
-  normalizeThreadKey,
-  recoverRoutedNotificationSourceMessages,
-} from "../utils/thread-projection.js";
+import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
 import type { SessionAttentionRecord } from "../types.js";
 import { YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
 import { PawTrailAvatar, PawCounterContext, PawScrollProvider, HidePawContext } from "./PawTrail.js";
@@ -81,18 +69,8 @@ import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { getThreadWindowItemCount } from "../../shared/thread-window.js";
 import { collectAnchoredNotificationMessageIds } from "../utils/anchored-notifications.js";
-import { composeSelectedFeedMessages } from "../utils/thread-window-messages.js";
-import {
-  buildAttentionLedgerMessages,
-  buildAttentionRecords,
-  mergeChronologicalMessages,
-} from "../utils/attention-records.js";
-import {
-  collectMergedThreadAttachmentKeysForThread,
-  enrichThreadOpenedRecordsWithMovement,
-  removeMergedThreadAttachmentMarkers,
-} from "./message-feed-thread-movement.js";
 import { getCachedHistoryWindowHash, getCachedThreadWindowHash } from "../utils/history-window-cache.js";
+import { buildFeedMessageModel, buildFeedWindowModel } from "../utils/feed-render-model.js";
 import {
   isUserBoundaryEntry,
   useFeedModel,
@@ -111,7 +89,7 @@ export {
   findSectionWindowStartIndexForTarget,
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
-};
+} from "./message-feed-sections.js";
 
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
@@ -172,97 +150,43 @@ export function MessageFeed({
     (s) => s.threadWindowMessages?.get(sessionId)?.get(normalizedThreadKey) ?? EMPTY_MESSAGES,
   );
   const sessionNotifications = useStore((s) => s.sessionNotifications?.get(sessionId));
-  const retainedNotificationSourceMessageIds = useMemo(
-    () => collectRetainedNotificationSourceMessageIds(sessionNotifications, threadKey),
-    [sessionNotifications, threadKey],
-  );
-  const messagesAvailableForDerivation = useMemo(
+  const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords?.get(sessionId));
+  const sessionBoard = useStore((s) => s.sessionBoards?.get(sessionId));
+  const sessionCompletedBoard = useStore((s) => s.sessionCompletedBoards?.get(sessionId));
+  const feedMessageModel = useMemo(
     () =>
-      composeSelectedFeedMessages({
+      buildFeedMessageModel({
+        leaderSessionId: sessionId,
+        threadKey,
+        projectThreadRoutes,
         allMessages,
         historyLoading,
         selectedFeedWindow,
         selectedFeedWindowEnabled,
         selectedFeedWindowMessages,
-        retainedMessageIds: retainedNotificationSourceMessageIds,
-      }),
-    [
-      allMessages,
-      historyLoading,
-      retainedNotificationSourceMessageIds,
-      selectedFeedWindow,
-      selectedFeedWindowEnabled,
-      selectedFeedWindowMessages,
-    ],
-  );
-  const messagesAvailableForProjection = useMemo(
-    () => recoverRoutedNotificationSourceMessages(messagesAvailableForDerivation, sessionNotifications, threadKey),
-    [messagesAvailableForDerivation, sessionNotifications, threadKey],
-  );
-  const baseMessages = useMemo(
-    () =>
-      projectThreadRoutes
-        ? filterMessagesForThread(messagesAvailableForProjection, threadKey)
-        : messagesAvailableForDerivation,
-    [messagesAvailableForDerivation, messagesAvailableForProjection, projectThreadRoutes, threadKey],
-  );
-  const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords?.get(sessionId));
-  const sessionBoard = useStore((s) => s.sessionBoards?.get(sessionId));
-  const sessionCompletedBoard = useStore((s) => s.sessionCompletedBoards?.get(sessionId));
-  const attentionRecords = useMemo(
-    () =>
-      buildAttentionRecords({
-        leaderSessionId: sessionId,
-        records:
-          additionalAttentionRecords.length > 0
-            ? [...(sessionAttentionRecords ?? []), ...additionalAttentionRecords]
-            : sessionAttentionRecords,
-        notifications: sessionNotifications,
-        boardRows: sessionBoard,
-        completedBoardRows: sessionCompletedBoard,
-        messages: messagesAvailableForDerivation,
+        sessionNotifications,
+        sessionAttentionRecords,
+        additionalAttentionRecords,
+        sessionBoard,
+        sessionCompletedBoard,
       }),
     [
       additionalAttentionRecords,
-      messagesAvailableForDerivation,
+      allMessages,
+      historyLoading,
+      projectThreadRoutes,
+      selectedFeedWindow,
+      selectedFeedWindowEnabled,
+      selectedFeedWindowMessages,
       sessionAttentionRecords,
       sessionBoard,
       sessionCompletedBoard,
       sessionId,
       sessionNotifications,
+      threadKey,
     ],
   );
-  const attentionRecordsWithThreadMovement = useMemo(
-    () => enrichThreadOpenedRecordsWithMovement(attentionRecords, messagesAvailableForProjection),
-    [attentionRecords, messagesAvailableForProjection],
-  );
-  const mergedThreadAttachmentKeys = useMemo(
-    () => collectMergedThreadAttachmentKeysForThread(attentionRecordsWithThreadMovement, normalizedThreadKey),
-    [attentionRecordsWithThreadMovement, normalizedThreadKey],
-  );
-  const visibleBaseMessages = useMemo(
-    () => removeMergedThreadAttachmentMarkers(baseMessages, mergedThreadAttachmentKeys),
-    [baseMessages, mergedThreadAttachmentKeys],
-  );
-  const baseMessageIds = useMemo(
-    () => new Set(visibleBaseMessages.map((message) => message.id)),
-    [visibleBaseMessages],
-  );
-  const attentionLedgerMessages = useMemo(
-    () =>
-      buildAttentionLedgerMessages(attentionRecordsWithThreadMovement, normalizedThreadKey, {
-        availableMessageIds: baseMessageIds,
-      }),
-    [attentionRecordsWithThreadMovement, baseMessageIds, normalizedThreadKey],
-  );
-  const messages = useMemo(
-    () => mergeChronologicalMessages(visibleBaseMessages, attentionLedgerMessages),
-    [attentionLedgerMessages, visibleBaseMessages],
-  );
-  const visibleToolUseIds = useMemo(
-    () => (isMainThreadKey(threadKey) || isAllThreadsKey(threadKey) ? undefined : collectMessageToolUseIds(messages)),
-    [messages, threadKey],
-  );
+  const { messages, visibleToolUseIds } = feedMessageModel;
   const pendingUserUploads = useStore((s) => s.pendingUserUploads.get(sessionId) ?? EMPTY_PENDING_USER_UPLOADS);
   const pendingCodexInputs = useStore((s) => s.pendingCodexInputs.get(sessionId) ?? EMPTY_PENDING_CODEX_INPUTS);
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
@@ -585,33 +509,48 @@ export function MessageFeed({
     return () => window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshotRequest as EventListener);
   }, [persistFeedViewport, sessionId]);
 
-  const sections = useMemo(() => buildFeedSections(turns, sectionTurnCount), [sectionTurnCount, turns]);
-  const activeHistoryWindow = selectedFeedWindowEnabled ? null : historyWindow;
-  const isWindowedHistory = activeHistoryWindow !== null;
-  const activeThreadWindow = selectedFeedWindowEnabled ? selectedFeedWindow : null;
-  const isWindowedFeed = isWindowedHistory || activeThreadWindow !== null;
-  const totalSections = sections.length;
-  const latestVisibleSectionStartIndex = useMemo(
-    () => findVisibleSectionStartIndex(sections, DEFAULT_VISIBLE_SECTION_COUNT),
-    [sections],
-  );
-  const visibleSectionStartIndex = isWindowedFeed ? 0 : (sectionWindowStart ?? latestVisibleSectionStartIndex);
-  const visibleSectionEndIndex = useMemo(
+  const feedWindowModel = useMemo(
     () =>
-      isWindowedFeed
-        ? sections.length
-        : findVisibleSectionEndIndex(sections, visibleSectionStartIndex, DEFAULT_VISIBLE_SECTION_COUNT),
-    [isWindowedFeed, sections, visibleSectionStartIndex],
+      buildFeedWindowModel({
+        turns,
+        sectionTurnCount,
+        sectionWindowStart,
+        selectedFeedWindowEnabled,
+        historyWindow,
+        selectedFeedWindow,
+        streamingText,
+        historyLoading,
+        messageCount: messages.length,
+      }),
+    [
+      historyLoading,
+      historyWindow,
+      messages.length,
+      sectionTurnCount,
+      sectionWindowStart,
+      selectedFeedWindow,
+      selectedFeedWindowEnabled,
+      streamingText,
+      turns,
+    ],
   );
-  const visibleSections = useMemo(
-    () => (isWindowedFeed ? sections : sections.slice(visibleSectionStartIndex, visibleSectionEndIndex)),
-    [isWindowedFeed, sections, visibleSectionEndIndex, visibleSectionStartIndex],
-  );
-  const visibleWindowSignature = useMemo(
-    () => visibleSections.map((section) => section.id).join("|"),
-    [visibleSections],
-  );
-  const visibleTurns = useMemo(() => visibleSections.flatMap((section) => section.turns), [visibleSections]);
+  const {
+    sections,
+    activeHistoryWindow,
+    activeThreadWindow,
+    isWindowedFeed,
+    totalSections,
+    latestVisibleSectionStartIndex,
+    visibleSectionStartIndex,
+    visibleSections,
+    visibleWindowSignature,
+    visibleTurns,
+    showConversationLoading,
+    previousSectionStartIndex,
+    nextSectionStartIndex,
+    hasOlderSections,
+    hasNewerSections,
+  } = feedWindowModel;
   const { turnStates, toggleTurn } = useCollapsePolicy({
     sessionId,
     turns: visibleTurns,
@@ -622,25 +561,6 @@ export function MessageFeed({
     [turnStates],
   );
   const viewportLayoutSignature = `${visibleWindowSignature}::${collapseLayoutSignature}`;
-  const showConversationLoading = historyLoading && messages.length === 0 && !streamingText;
-  const previousSectionStartIndex = useMemo(
-    () => (isWindowedFeed ? null : findPreviousSectionStartIndex(sections, visibleSectionStartIndex)),
-    [isWindowedFeed, sections, visibleSectionStartIndex],
-  );
-  const nextSectionStartIndex = useMemo(() => {
-    if (isWindowedFeed) return null;
-    return visibleSectionStartIndex + 1 < sections.length ? visibleSectionStartIndex + 1 : null;
-  }, [isWindowedFeed, sections, visibleSectionStartIndex]);
-  const hasOlderSections = activeThreadWindow
-    ? activeThreadWindow.from_item > 0
-    : activeHistoryWindow
-      ? activeHistoryWindow.from_turn > 0
-      : previousSectionStartIndex !== null;
-  const hasNewerSections = activeThreadWindow
-    ? activeThreadWindow.from_item + activeThreadWindow.item_count < activeThreadWindow.total_items
-    : activeHistoryWindow
-      ? activeHistoryWindow.from_turn + activeHistoryWindow.turn_count < activeHistoryWindow.total_turns
-      : sectionWindowStart !== null && nextSectionStartIndex !== null;
 
   const markSectionLoadPending = useCallback((direction: "older" | "newer", key: string) => {
     if (pendingSectionLoadKeyRef.current === key) return false;
