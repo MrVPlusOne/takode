@@ -533,7 +533,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="MessageFeed Section Windowing"
-        description="Fixed 50-turn sections with older-history browsing mounted in a bounded window. This mock opens on an older section so the newer-section control is visible."
+        description="Fixed 50-turn sections with bounded older-history browsing. This mock opens on an older section so the passive newer-section affordance is visible."
       >
         <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]">
           <MessageFeed sessionId={PLAYGROUND_SECTIONED_SESSION_ID} />

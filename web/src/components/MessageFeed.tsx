@@ -100,6 +100,11 @@ const MOBILE_NAV_BASE_BOTTOM_PX = 12;
 const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const SECTION_WINDOW_TRIGGER_PX = 96;
+const BOUNDARY_CONTEXT_SECTION_COUNT = 5;
+
+function getBoundaryContextSectionCount(visibleSectionCount: number): number {
+  return Math.max(BOUNDARY_CONTEXT_SECTION_COUNT, Math.max(1, Math.floor(visibleSectionCount)) + 2);
+}
 
 // ─── Expand-on-scroll-target hook ───────────────────────────────────────────
 // Used by collapsible containers (SubagentContainer, ApprovalBatchGroup,
@@ -552,6 +557,9 @@ export function MessageFeed({
     hasOlderSections,
     hasNewerSections,
   } = feedWindowModel;
+  const isLoadingOlderSection = pendingSectionLoadDirection === "older";
+  const isLoadingNewerSection = pendingSectionLoadDirection === "newer";
+  const latestPillLabel = hasNewerSections ? "Latest section below" : "New content below";
   const { turnStates, toggleTurn } = useCollapsePolicy({
     sessionId,
     turns: visibleTurns,
@@ -571,9 +579,10 @@ export function MessageFeed({
   }, []);
 
   const requestThreadWindow = useCallback(
-    (fromItem: number) => {
+    (fromItem: number, requestedItemCount?: number) => {
       const itemCount = activeThreadWindow
-        ? activeThreadWindow.item_count ||
+        ? requestedItemCount ||
+          activeThreadWindow.item_count ||
           getThreadWindowItemCount(activeThreadWindow.visible_item_count, activeThreadWindow.section_item_count)
         : getThreadWindowItemCount(DEFAULT_VISIBLE_SECTION_COUNT, sectionTurnCount);
       const sectionItemCount = activeThreadWindow?.section_item_count ?? sectionTurnCount;
@@ -791,18 +800,29 @@ export function MessageFeed({
 
   const handleLoadOlderSection = useCallback(() => {
     if (activeThreadWindow) {
+      const itemCount = Math.max(
+        activeThreadWindow.item_count,
+        getThreadWindowItemCount(
+          getBoundaryContextSectionCount(activeThreadWindow.visible_item_count),
+          activeThreadWindow.section_item_count,
+        ),
+      );
       const nextFromItem = Math.max(0, activeThreadWindow.from_item - activeThreadWindow.section_item_count);
-      const requestKey = `thread:${normalizedThreadKey}:${nextFromItem}:${activeThreadWindow.item_count}`;
+      const requestKey = `thread:${normalizedThreadKey}:${nextFromItem}:${itemCount}`;
       if (!markSectionLoadPending("older", requestKey)) return;
       autoFollowEnabledRef.current = false;
       setShowScrollButton(true);
-      requestThreadWindow(nextFromItem);
+      requestThreadWindow(nextFromItem, itemCount);
       return;
     }
     if (activeHistoryWindow) {
-      const turnCount =
-        activeHistoryWindow.turn_count ||
-        getHistoryWindowTurnCount(activeHistoryWindow.visible_section_count, activeHistoryWindow.section_turn_count);
+      const turnCount = Math.max(
+        activeHistoryWindow.turn_count,
+        getHistoryWindowTurnCount(
+          getBoundaryContextSectionCount(activeHistoryWindow.visible_section_count),
+          activeHistoryWindow.section_turn_count,
+        ),
+      );
       const nextFromTurn = Math.max(0, activeHistoryWindow.from_turn - activeHistoryWindow.section_turn_count);
       const requestKey = `history:${nextFromTurn}:${turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
       if (!markSectionLoadPending("older", requestKey)) return;
@@ -833,19 +853,30 @@ export function MessageFeed({
 
   const handleLoadNewerSection = useCallback(() => {
     if (activeThreadWindow) {
-      const maxFromItem = Math.max(0, activeThreadWindow.total_items - activeThreadWindow.item_count);
+      const itemCount = Math.max(
+        activeThreadWindow.item_count,
+        getThreadWindowItemCount(
+          getBoundaryContextSectionCount(activeThreadWindow.visible_item_count),
+          activeThreadWindow.section_item_count,
+        ),
+      );
+      const maxFromItem = Math.max(0, activeThreadWindow.total_items - itemCount);
       const nextFromItem = Math.min(maxFromItem, activeThreadWindow.from_item + activeThreadWindow.section_item_count);
       if (nextFromItem === activeThreadWindow.from_item) return;
-      const requestKey = `thread:${normalizedThreadKey}:${nextFromItem}:${activeThreadWindow.item_count}`;
+      const requestKey = `thread:${normalizedThreadKey}:${nextFromItem}:${itemCount}`;
       if (!markSectionLoadPending("newer", requestKey)) return;
       autoFollowEnabledRef.current = false;
-      requestThreadWindow(nextFromItem);
+      requestThreadWindow(nextFromItem, itemCount);
       return;
     }
     if (activeHistoryWindow) {
-      const turnCount =
-        activeHistoryWindow.turn_count ||
-        getHistoryWindowTurnCount(activeHistoryWindow.visible_section_count, activeHistoryWindow.section_turn_count);
+      const turnCount = Math.max(
+        activeHistoryWindow.turn_count,
+        getHistoryWindowTurnCount(
+          getBoundaryContextSectionCount(activeHistoryWindow.visible_section_count),
+          activeHistoryWindow.section_turn_count,
+        ),
+      );
       const maxFromTurn = Math.max(0, activeHistoryWindow.total_turns - turnCount);
       const nextFromTurn = Math.min(
         maxFromTurn,
@@ -1698,8 +1729,12 @@ export function MessageFeed({
                 {hasOlderSections && (
                   <div className="flex justify-center pb-2" aria-live="polite">
                     <div className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted">
-                      <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                      {pendingSectionLoadDirection === "older" ? "Loading older section..." : "Older section above"}
+                      {isLoadingOlderSection ? (
+                        <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+                      ) : (
+                        <YarnBallDot className="text-cc-muted/70" />
+                      )}
+                      {isLoadingOlderSection ? "Loading older section..." : "Scroll up for older section"}
                     </div>
                   </div>
                 )}
@@ -1718,8 +1753,12 @@ export function MessageFeed({
                 {hasNewerSections && (
                   <div className="flex justify-center pt-1" aria-live="polite">
                     <div className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted">
-                      <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                      {pendingSectionLoadDirection === "newer" ? "Loading newer section..." : "Newer section below"}
+                      {isLoadingNewerSection ? (
+                        <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+                      ) : (
+                        <YarnBallDot className="text-cc-muted/70" />
+                      )}
+                      {isLoadingNewerSection ? "Loading newer section..." : "Scroll down for newer section"}
                     </div>
                   </div>
                 )}
@@ -1785,8 +1824,12 @@ export function MessageFeed({
               title="Jump to latest"
               aria-label="Jump to latest"
             >
-              <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-primary animate-pulse" />
-              <span className="truncate">New content below</span>
+              <span
+                className={`inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-primary ${
+                  hasNewerSections ? "" : "animate-pulse"
+                }`}
+              />
+              <span className="truncate">{latestPillLabel}</span>
             </button>
           </div>
         )}

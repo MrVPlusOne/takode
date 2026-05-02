@@ -611,7 +611,8 @@ describe("MessageFeed section windowing", () => {
     expect(screen.getByText("Section 2 marker")).toBeTruthy();
     expect(screen.getByText("Section 4 marker")).toBeTruthy();
     expect(screen.queryByRole("button", { name: "Load older section" })).toBeNull();
-    expect(screen.getByText("Older section above")).toBeTruthy();
+    expect(screen.getByText("Scroll up for older section")).toBeTruthy();
+    expect(screen.queryByText("Loading older section...")).toBeNull();
     expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(3);
 
     setElementScrollMetrics(scrollContainer, 1000, 300, 0);
@@ -640,7 +641,8 @@ describe("MessageFeed section windowing", () => {
     fireEvent.wheel(scrollContainer, { deltaY: -80 });
 
     expect(screen.queryByRole("button", { name: "Load newer section" })).toBeNull();
-    expect(screen.getByText("Newer section below")).toBeTruthy();
+    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
+    expect(screen.queryByText("Loading newer section...")).toBeNull();
     setElementScrollMetrics(scrollContainer, 1000, 300, 700);
     fireEvent.wheel(scrollContainer, { deltaY: 80 });
     expect(screen.queryByText("Section 1 marker")).toBeNull();
@@ -671,7 +673,7 @@ describe("MessageFeed section windowing", () => {
     expect(mockSendToSession).toHaveBeenCalledWith(sid, {
       type: "history_window_request",
       from_turn: 0,
-      turn_count: 6,
+      turn_count: 10,
       section_turn_count: 2,
       visible_section_count: 3,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
@@ -685,7 +687,7 @@ describe("MessageFeed section windowing", () => {
       sid,
       {
         from_turn: 0,
-        turn_count: 6,
+        turn_count: 10,
         total_turns: 10,
         section_turn_count: 2,
         visible_section_count: 3,
@@ -711,12 +713,62 @@ describe("MessageFeed section windowing", () => {
     expect(mockSendToSession).toHaveBeenCalledWith(sid, {
       type: "history_window_request",
       from_turn: 0,
-      turn_count: 6,
+      turn_count: 10,
       section_turn_count: 2,
       visible_section_count: 3,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       cached_window_hash: "cached-history-window",
     });
+  });
+
+  it("requests a newer history window with adjacent context for smooth reverse scrolling", () => {
+    const sid = "test-windowed-history-newer-context-request";
+    setStoreMessages(sid, makeSectionedMessages(3, 2));
+    const windows = new Map();
+    windows.set(sid, {
+      from_turn: 0,
+      turn_count: 6,
+      total_turns: 12,
+      section_turn_count: 2,
+      visible_section_count: 3,
+    });
+    mockStoreValues.historyWindows = windows;
+
+    const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+    const scrollContainer = getScrollContainer(container);
+
+    setElementScrollMetrics(scrollContainer, 1000, 300, 700);
+    fireEvent.wheel(scrollContainer, { deltaY: 80 });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, {
+      type: "history_window_request",
+      from_turn: 2,
+      turn_count: 10,
+      section_turn_count: 2,
+      visible_section_count: 3,
+      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+    });
+    expect(screen.getByText("Loading newer section...")).toBeTruthy();
+  });
+
+  it("renders a temporary five-section history window without showing an unavailable older boundary", () => {
+    const sid = "test-windowed-history-expanded-context-render";
+    setStoreMessages(sid, makeSectionedMessages(5, 2));
+    const windows = new Map();
+    windows.set(sid, {
+      from_turn: 0,
+      turn_count: 10,
+      total_turns: 12,
+      section_turn_count: 2,
+      visible_section_count: 3,
+    });
+    mockStoreValues.historyWindows = windows;
+
+    const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+
+    expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(5);
+    expect(screen.queryByText("Scroll up for older section")).toBeNull();
+    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
   });
 
   it("does not auto-load newer selected-thread content on stationary mobile top overscroll", () => {
@@ -760,8 +812,8 @@ describe("MessageFeed section windowing", () => {
         from_item: 4,
       }),
     );
-    expect(screen.getByText("Older section above")).toBeTruthy();
-    expect(screen.getByText("Newer section below")).toBeTruthy();
+    expect(screen.getByText("Scroll up for older section")).toBeTruthy();
+    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
   });
 
   it("auto-loads older selected-thread content on an upward boundary scroll", () => {
@@ -800,6 +852,7 @@ describe("MessageFeed section windowing", () => {
       expect.objectContaining({
         type: "thread_window_request",
         from_item: 0,
+        item_count: 10,
       }),
     );
     expect(screen.getByText("Loading older section...")).toBeTruthy();
@@ -924,6 +977,6 @@ describe("MessageFeed section windowing", () => {
 
     expect(await screen.findByText("Section 1 marker")).toBeTruthy();
     expect(screen.getByLabelText("Jump to latest")).toBeTruthy();
-    expect(screen.getByText("New content below")).toBeTruthy();
+    expect(screen.getByText("Latest section below")).toBeTruthy();
   });
 });
