@@ -8,6 +8,7 @@ export type FrontendPerfEntry =
       messageType: string;
       durationMs: number;
       seq?: number;
+      payloadBytes?: number;
     }
   | {
       kind: "event_replay";
@@ -70,6 +71,34 @@ export type FrontendPerfEntry =
       scannedQuestCount?: number;
       candidateCount?: number;
       suggestionCount?: number;
+    }
+  | {
+      kind: "message_history_apply";
+      timestamp: number;
+      sessionId: string;
+      rawMessageCount: number;
+      chatMessageCount: number;
+      frozenCount: number;
+      durationMs: number;
+    }
+  | {
+      kind: "tree_groups_update_apply";
+      timestamp: number;
+      sessionId: string;
+      groupCount: number;
+      assignmentCount: number;
+      nodeOrderParentCount: number;
+      nodeOrderChildCount: number;
+      durationMs: number;
+    }
+  | {
+      kind: "session_created_refresh";
+      timestamp: number;
+      sessionId: string;
+      createdSessionId: string;
+      sessionCount?: number;
+      durationMs: number;
+      ok: boolean;
     };
 
 export interface FrontendPerfDebugApi {

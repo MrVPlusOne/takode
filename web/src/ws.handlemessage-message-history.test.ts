@@ -176,6 +176,38 @@ describe("handleMessage: message_history", () => {
     expect(useStore.getState().historyLoading.has("s1")).toBe(false);
   });
 
+  it("records message_history apply diagnostics for attach-history freeze analysis", async () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        { type: "user_message", id: "u1", content: "Attach this to [q-1084](quest:q-1084)", timestamp: 1000 },
+        { type: "thread_attachment_marker", threadKey: "q-1084", questId: "q-1084", count: 1, messageIndices: [0] },
+      ],
+    });
+
+    const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
+    expect(getFrontendPerfEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "message_history_apply",
+          sessionId: "s1",
+          rawMessageCount: 2,
+          chatMessageCount: 2,
+          frozenCount: 0,
+        }),
+        expect.objectContaining({
+          kind: "ws_message",
+          sessionId: "s1",
+          messageType: "message_history",
+          payloadBytes: expect.any(Number),
+        }),
+      ]),
+    );
+  });
+
   it("resolves pending deep-link indexes against raw messageHistory indexes when entries are skipped", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

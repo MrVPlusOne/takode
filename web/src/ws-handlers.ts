@@ -26,6 +26,7 @@ import {
   resolveCachedThreadWindowEntries,
 } from "./utils/history-window-cache.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
+import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -39,6 +40,10 @@ let lastNotificationSoundAt = 0;
 const NOTIFICATION_SOUND_DEBOUNCE_MS = 1000;
 /** Delay transient backend_disconnected flips to avoid sidebar flicker during fast relaunches. */
 const CLI_DISCONNECT_DEBOUNCE_MS = 250;
+
+function perfNow(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+}
 
 export interface WsMessageHandlerDeps {
   disconnectSession: (sessionId: string) => void;
@@ -1225,12 +1230,30 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         if (sessionCreatedTimer) clearTimeout(sessionCreatedTimer);
         sessionCreatedTimer = setTimeout(() => {
           sessionCreatedTimer = null;
+          const startedAt = perfNow();
           api
             .listSessions()
             .then((list) => {
               setSdkSessionsWithNotificationFreshness(list);
+              recordFrontendPerfEntry({
+                kind: "session_created_refresh",
+                timestamp: Date.now(),
+                sessionId,
+                createdSessionId: createdId,
+                sessionCount: list.length,
+                durationMs: perfNow() - startedAt,
+                ok: true,
+              });
             })
             .catch((err) => {
+              recordFrontendPerfEntry({
+                kind: "session_created_refresh",
+                timestamp: Date.now(),
+                sessionId,
+                createdSessionId: createdId,
+                durationMs: perfNow() - startedAt,
+                ok: false,
+              });
               console.warn("[ws] Failed to refresh sessions after session_created:", err);
             });
         }, 1_000);
@@ -1436,6 +1459,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     }
 
     case "tree_groups_update": {
+      const startedAt = perfNow();
       const groups = Array.isArray(data.treeGroups) ? data.treeGroups : [];
       const assignments =
         data.treeAssignments && typeof data.treeAssignments === "object"
@@ -1446,6 +1470,16 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           ? (data.treeNodeOrder as Record<string, string[]>)
           : {};
       store.setTreeGroups(groups, assignments, nodeOrder);
+      recordFrontendPerfEntry({
+        kind: "tree_groups_update_apply",
+        timestamp: Date.now(),
+        sessionId,
+        groupCount: groups.length,
+        assignmentCount: Object.keys(assignments).length,
+        nodeOrderParentCount: Object.keys(nodeOrder).length,
+        nodeOrderChildCount: Object.values(nodeOrder).reduce((count, children) => count + children.length, 0),
+        durationMs: perfNow() - startedAt,
+      });
       break;
     }
 
@@ -1652,6 +1686,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     }
 
     case "message_history": {
+      const startedAt = perfNow();
       resetAuthoritativeHistoryState(sessionId);
       const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
       store.setMessages(sessionId, chatMessages, { frozenCount });
@@ -1665,6 +1700,15 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       taskCounters.delete(sessionId);
       updateSessionPreviewFromHistory(sessionId, data.messages);
       resolvePendingMessageScroll(sessionId, chatMessages);
+      recordFrontendPerfEntry({
+        kind: "message_history_apply",
+        timestamp: Date.now(),
+        sessionId,
+        rawMessageCount: data.messages.length,
+        chatMessageCount: chatMessages.length,
+        frozenCount,
+        durationMs: perfNow() - startedAt,
+      });
       break;
     }
 

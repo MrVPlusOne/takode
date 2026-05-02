@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // Mock env-manager and git-utils modules before any imports
 vi.mock("./env-manager.js", () => ({
@@ -493,6 +493,10 @@ beforeEach(() => {
   vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
 // ─── SSE Session Creation Streaming ──────────────────────────────────────────
@@ -611,6 +615,7 @@ describe("Takode server-authoritative auth", () => {
   it("attaches existing Main history entries to a quest thread without moving history", async () => {
     // Backfill must only add projection metadata. Main remains the flat
     // authoritative transcript, while quest threads filter over threadRefs.
+    vi.useFakeTimers();
     setupTakodeSessions();
     bridge._sessions["orch-1"].messageHistory = [
       { type: "assistant", message: { id: "a1", content: [] } },
@@ -644,6 +649,11 @@ describe("Takode server-authoritative auth", () => {
       ranges: ["1-2"],
       count: 2,
     });
+    expect(bridge.broadcastToSession).not.toHaveBeenCalledWith("orch-1", {
+      type: "message_history",
+      messages: bridge._sessions["orch-1"].messageHistory,
+    });
+    vi.advanceTimersByTime(100);
     expect(bridge.broadcastToSession).toHaveBeenCalledWith("orch-1", {
       type: "message_history",
       messages: bridge._sessions["orch-1"].messageHistory,

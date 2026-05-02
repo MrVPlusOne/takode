@@ -142,5 +142,43 @@ describe("handleMessage: session_created", () => {
     expect(useStore.getState().sdkSessions.map((s) => s.sessionId)).toEqual(["s-new-1", "s-new-2"]);
     expect(MockWebSocket.instances).toHaveLength(1);
     expect(MockWebSocket.instances[0]?.url).toBe("ws://localhost:3456/ws/browser/s-origin");
+
+    const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
+    expect(getFrontendPerfEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "session_created_refresh",
+          sessionId: "s-origin",
+          createdSessionId: "s-new-1",
+          sessionCount: 2,
+          ok: true,
+        }),
+      ]),
+    );
+  });
+
+  it("records tree_groups_update diagnostics for spawn refresh bursts", async () => {
+    wsModule.connectSession("s-origin");
+
+    fireMessage({
+      type: "tree_groups_update",
+      treeGroups: [{ id: "leaders", name: "Leaders" }],
+      treeAssignments: { "leader-1": "leaders", "worker-1": "leaders" },
+      treeNodeOrder: { leaders: ["leader-1", "worker-1"] },
+    });
+
+    const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
+    expect(getFrontendPerfEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "tree_groups_update_apply",
+          sessionId: "s-origin",
+          groupCount: 1,
+          assignmentCount: 2,
+          nodeOrderParentCount: 1,
+          nodeOrderChildCount: 2,
+        }),
+      ]),
+    );
   });
 });

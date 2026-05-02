@@ -425,6 +425,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
 
     ws.onmessage = (event) => {
       try {
+        const rawData = typeof event.data === "string" ? event.data : "";
         const data = JSON.parse(event.data) as SequencedIncomingMessage;
         const startedAt = perfNow();
         handleParsedMessage(sessionId, data);
@@ -435,6 +436,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
           messageType: data.type,
           durationMs: perfNow() - startedAt,
           ...(typeof data.seq === "number" ? { seq: data.seq } : {}),
+          ...(rawData ? { payloadBytes: rawData.length } : {}),
         });
       } catch {
         // ignore non-JSON messages
