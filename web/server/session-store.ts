@@ -276,6 +276,7 @@ export class SessionStore {
 
   private sanitizePersistedEventBuffer(
     eventBuffer: PersistedSession["eventBuffer"],
+    context?: { isLeaderSession?: boolean },
     metrics?: SessionRestoreMetrics,
   ): EventBufferSanitizeResult {
     if (!Array.isArray(eventBuffer)) return { eventBuffer, changed: false };
@@ -289,7 +290,7 @@ export class SessionStore {
     for (const event of eventBuffer) {
       const bytes = metrics ? Buffer.byteLength(JSON.stringify(event)) : 0;
       if (metrics) beforeItemBytes += bytes;
-      if (isReplayableBufferedEvent(event)) {
+      if (isReplayableBufferedEvent(event, context)) {
         sanitized.push(event);
       } else {
         if (metrics) droppedBytes += bytes;
@@ -790,7 +791,11 @@ export class SessionStore {
       restoreMetrics.activeHotJsonBytes += Buffer.byteLength(raw);
     }
 
-    const sanitizedBuffer = this.sanitizePersistedEventBuffer(hot.eventBuffer, restoreMetrics);
+    const sanitizedBuffer = this.sanitizePersistedEventBuffer(
+      hot.eventBuffer,
+      { isLeaderSession: hot.state.isOrchestrator === true },
+      restoreMetrics,
+    );
     if (sanitizedBuffer.changed) {
       hot = { ...hot, eventBuffer: sanitizedBuffer.eventBuffer };
     }

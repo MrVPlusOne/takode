@@ -11,7 +11,7 @@ import { buildThreadWindowSync, getThreadWindowItemCount } from "../../shared/th
 import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
-import { shouldBufferForReplay } from "./replay-buffer-policy.js";
+import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
 import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import type {
@@ -1173,7 +1173,8 @@ export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boo
 export function broadcastToBrowsers(
   session: BrowserTransportSessionLike,
   msg: BrowserIncomingMessage,
-  deps: Pick<BrowserTransportDeps, "eventBufferLimit" | "persistSession" | "recordOutgoingRaw">,
+  deps: Pick<BrowserTransportDeps, "eventBufferLimit" | "persistSession" | "recordOutgoingRaw"> &
+    Partial<Pick<BrowserTransportDeps, "getLauncherSessionInfo">>,
   options?: { skipBuffer?: boolean },
 ): void {
   if (session.browserSockets.size === 0 && msg.type === "result") {
@@ -1268,12 +1269,16 @@ function enqueueSessionRoute(
 function sequenceEvent(
   session: BrowserTransportSessionLike,
   msg: BrowserIncomingMessage,
-  deps: Pick<BrowserTransportDeps, "eventBufferLimit" | "persistSession">,
+  deps: Pick<BrowserTransportDeps, "eventBufferLimit" | "persistSession"> &
+    Partial<Pick<BrowserTransportDeps, "getLauncherSessionInfo">>,
   options?: { skipBuffer?: boolean },
 ): BrowserIncomingMessage {
   const seq = session.nextEventSeq++;
   const sequenced = { ...msg, seq };
-  if (!options?.skipBuffer && shouldBufferForReplay(msg)) {
+  const isLeader =
+    (session.state as { isOrchestrator?: boolean }).isOrchestrator === true ||
+    deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
+  if (!options?.skipBuffer && shouldBufferForReplayWithContext(msg, { isLeaderSession: isLeader })) {
     session.eventBuffer.push({ seq, message: msg });
     if (session.eventBuffer.length > deps.eventBufferLimit) {
       session.eventBuffer.splice(0, session.eventBuffer.length - deps.eventBufferLimit);

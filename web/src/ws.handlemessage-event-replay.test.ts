@@ -122,6 +122,10 @@ function fireMessage(data: Record<string, unknown>) {
   lastWs.onmessage!({ data: JSON.stringify(data) });
 }
 
+function flushSeqState() {
+  vi.advanceTimersByTime(60);
+}
+
 // ===========================================================================
 // Connection
 // ===========================================================================
@@ -145,14 +149,18 @@ describe("handleMessage: event_replay", () => {
     });
 
     expect(useStore.getState().streaming.get("s1")).toBe("Hello");
+    expect(localStorage.getItem("companion:last-seq:s1")).toBeNull();
+    expect(lastWs.send).not.toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 1 }));
+    flushSeqState();
     expect(localStorage.getItem("companion:last-seq:s1")).toBe("1");
     expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 1 }));
   });
 
-  it("acks only once using the latest replayed seq", () => {
+  it("batches replay ack and storage writes using the latest replayed seq", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
     lastWs.send.mockClear();
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem");
 
     fireMessage({
       type: "event_replay",
@@ -177,8 +185,13 @@ describe("handleMessage: event_replay", () => {
     });
 
     expect(useStore.getState().streaming.get("s1")).toBe("AB");
+    expect(localStorage.getItem("companion:last-seq:s1")).toBeNull();
+    expect(lastWs.send).not.toHaveBeenCalled();
+    flushSeqState();
     expect(lastWs.send).toHaveBeenCalledTimes(1);
     expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 2 }));
+    expect(localStorage.getItem("companion:last-seq:s1")).toBe("2");
+    expect(setItemSpy.mock.calls.filter(([key]) => key === "companion:last-seq:s1")).toHaveLength(1);
   });
 
   it("acks but skips stale transient replay after a cold authoritative history window", () => {
@@ -223,6 +236,7 @@ describe("handleMessage: event_replay", () => {
 
     expect(useStore.getState().streaming.get("s1")).toBeUndefined();
     expect(useStore.getState().prStatus.get("s1")).toBeUndefined();
+    flushSeqState();
     expect(localStorage.getItem("companion:last-seq:s1")).toBe("2");
     expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 2 }));
   });
@@ -263,7 +277,35 @@ describe("handleMessage: event_replay", () => {
     fireMessage({ type: "state_snapshot", sessionStatus: "running", backendConnected: true });
 
     expect(useStore.getState().streaming.get("s1")).toBe("live");
+    flushSeqState();
     expect(localStorage.getItem("companion:last-seq:s1")).toBe("1");
     expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 1 }));
+  });
+
+  it("batches live event acks so tiny stream deltas do not send per event", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    lastWs.send.mockClear();
+
+    fireMessage({
+      type: "stream_event",
+      seq: 1,
+      event: { type: "content_block_delta", delta: { type: "text_delta", text: "A" } },
+      parent_tool_use_id: null,
+    });
+    fireMessage({
+      type: "stream_event",
+      seq: 2,
+      event: { type: "content_block_delta", delta: { type: "text_delta", text: "B" } },
+      parent_tool_use_id: null,
+    });
+
+    expect(useStore.getState().streaming.get("s1")).toBe("AB");
+    expect(lastWs.send).not.toHaveBeenCalled();
+    expect(localStorage.getItem("companion:last-seq:s1")).toBeNull();
+    flushSeqState();
+    expect(lastWs.send).toHaveBeenCalledTimes(1);
+    expect(lastWs.send).toHaveBeenCalledWith(JSON.stringify({ type: "session_ack", last_seq: 2 }));
+    expect(localStorage.getItem("companion:last-seq:s1")).toBe("2");
   });
 });

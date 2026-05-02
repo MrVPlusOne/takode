@@ -332,6 +332,7 @@ export function MessageFeed({
     frozenCount,
     frozenRevision,
     anchoredNotificationMessageIds,
+    perf: { sessionId, threadKey: normalizedThreadKey },
   });
   const activeLiveSubagentEntries = useMemo(
     () =>

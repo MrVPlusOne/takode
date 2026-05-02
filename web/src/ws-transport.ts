@@ -1,5 +1,6 @@
 import type { BrowserIncomingMessage, BrowserOutgoingMessage, SdkSessionInfo } from "./types.js";
 import { scopedGetItem, scopedSetItem } from "./utils/scoped-storage.js";
+import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 
 /** Heartbeat interval — send a ping every 30s to keep the connection alive */
 const HEARTBEAT_INTERVAL_MS = 30_000;
@@ -7,6 +8,7 @@ const HEARTBEAT_INTERVAL_MS = 30_000;
 const MAX_RECONNECT_DELAY_MS = 30_000;
 /** Base reconnect delay */
 const BASE_RECONNECT_DELAY_MS = 2_000;
+const SEQ_STATE_FLUSH_DELAY_MS = 50;
 
 const IDEMPOTENT_OUTGOING_TYPES = new Set<BrowserOutgoingMessage["type"]>([
   "user_message",
@@ -80,6 +82,8 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   const heartbeatIntervals = new Map<string, ReturnType<typeof setInterval>>();
   const heartbeatOwners = new Map<string, WebSocket>();
   const lastSeqBySession = new Map<string, number>();
+  const pendingSeqStorage = new Map<string, number>();
+  const pendingAcks = new Map<string, number>();
   const coldSubscribeAwaitingSnapshot = new Set<string>();
   const coldSubscribeReceivedHistory = new Set<string>();
   const coldSubscribeBufferedReplay = new Map<string, BrowserIncomingMessage[]>();
@@ -87,6 +91,8 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
 
   let clientMsgCounter = 0;
   let suppressCloseHandling = false;
+  let seqStorageFlushTimer: ReturnType<typeof setTimeout> | null = null;
+  let ackFlushTimer: ReturnType<typeof setTimeout> | null = null;
 
   function getLastSeq(sessionId: string): number {
     const cached = lastSeqBySession.get(sessionId);
@@ -105,18 +111,113 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   function setLastSeq(sessionId: string, seq: number): void {
     const normalized = Math.max(0, Math.floor(seq));
     lastSeqBySession.set(sessionId, normalized);
-    try {
-      scopedSetItem(getLastSeqStorageKey(sessionId), String(normalized));
-    } catch {
-      // ignore storage errors
+    pendingSeqStorage.set(sessionId, normalized);
+    scheduleSeqStorageFlush();
+  }
+
+  function perfNow(): number {
+    return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+  }
+
+  function scheduleSeqStorageFlush(): void {
+    if (seqStorageFlushTimer) return;
+    seqStorageFlushTimer = setTimeout(() => {
+      seqStorageFlushTimer = null;
+      flushPendingSeqStorage();
+    }, SEQ_STATE_FLUSH_DELAY_MS);
+  }
+
+  function flushPendingSeqStorage(sessionId?: string): void {
+    const entries =
+      typeof sessionId === "string"
+        ? pendingSeqStorage.has(sessionId)
+          ? ([[sessionId, pendingSeqStorage.get(sessionId)!]] as Array<[string, number]>)
+          : []
+        : [...pendingSeqStorage.entries()];
+    if (entries.length === 0) return;
+
+    const startedAt = perfNow();
+    let writeCount = 0;
+    for (const [targetSessionId, seq] of entries) {
+      pendingSeqStorage.delete(targetSessionId);
+      try {
+        scopedSetItem(getLastSeqStorageKey(targetSessionId), String(seq));
+        writeCount++;
+      } catch {
+        // ignore storage errors
+      }
+    }
+    recordFrontendPerfEntry({
+      kind: "seq_storage_flush",
+      timestamp: Date.now(),
+      ...(sessionId ? { sessionId } : {}),
+      writeCount,
+      durationMs: perfNow() - startedAt,
+    });
+    if (typeof sessionId === "string" && pendingSeqStorage.size === 0 && seqStorageFlushTimer) {
+      clearTimeout(seqStorageFlushTimer);
+      seqStorageFlushTimer = null;
     }
   }
 
-  function ackSeq(sessionId: string, seq: number): void {
-    const ws = sockets.get(sessionId);
-    if (ws?.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type: "session_ack", last_seq: seq }));
+  function queueAckSeq(sessionId: string, seq: number): void {
+    const normalized = Math.max(0, Math.floor(seq));
+    pendingAcks.set(sessionId, Math.max(pendingAcks.get(sessionId) ?? 0, normalized));
+    scheduleAckFlush();
+  }
+
+  function scheduleAckFlush(): void {
+    if (ackFlushTimer) return;
+    ackFlushTimer = setTimeout(() => {
+      ackFlushTimer = null;
+      flushPendingAcks();
+    }, SEQ_STATE_FLUSH_DELAY_MS);
+  }
+
+  function flushPendingAcks(sessionId?: string): void {
+    const entries =
+      typeof sessionId === "string"
+        ? pendingAcks.has(sessionId)
+          ? ([[sessionId, pendingAcks.get(sessionId)!]] as Array<[string, number]>)
+          : []
+        : [...pendingAcks.entries()];
+    if (entries.length === 0) return;
+
+    let ackCount = 0;
+    let maxSeq = 0;
+    for (const [targetSessionId, seq] of entries) {
+      pendingAcks.delete(targetSessionId);
+      maxSeq = Math.max(maxSeq, seq);
+      const ws = sockets.get(targetSessionId);
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "session_ack", last_seq: seq }));
+        ackCount++;
+      }
     }
+    recordFrontendPerfEntry({
+      kind: "session_ack_flush",
+      timestamp: Date.now(),
+      ...(sessionId ? { sessionId } : {}),
+      ackCount,
+      maxSeq,
+    });
+    if (typeof sessionId === "string" && pendingAcks.size === 0 && ackFlushTimer) {
+      clearTimeout(ackFlushTimer);
+      ackFlushTimer = null;
+    }
+  }
+
+  function flushPendingSeqState(sessionId?: string): void {
+    flushPendingSeqStorage(sessionId);
+    flushPendingAcks(sessionId);
+  }
+
+  function recordConnectionCycle(
+    sessionId: string,
+    phase: "connect" | "open" | "close" | "reconnect" | "subscribe",
+    extra?: { lastSeq?: number; forceFullHistory?: boolean },
+  ): void {
+    recordFrontendPerfEntry({ kind: "connection_cycle", timestamp: Date.now(), sessionId, phase, ...extra });
   }
 
   function clearColdSubscribeState(sessionId: string): void {
@@ -147,6 +248,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
           : {}),
       }),
     );
+    recordConnectionCycle(sessionId, "subscribe", { lastSeq, forceFullHistory });
     if (lastSeq === 0 && !forceFullHistory) {
       coldSubscribeAwaitingSnapshot.add(sessionId);
       coldSubscribeReceivedHistory.delete(sessionId);
@@ -170,7 +272,9 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     }
 
     if (message.type === "event_replay" && Array.isArray(message.events)) {
+      const replayStartedAt = perfNow();
       let latestProcessed: number | undefined;
+      let processedCount = 0;
       const bufferColdReplay =
         coldSubscribeAwaitingSnapshot.has(sessionId) && coldSubscribeReceivedHistory.has(sessionId);
       const bufferedMessages: BrowserIncomingMessage[] = [];
@@ -180,6 +284,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         if (evt.seq <= previous) continue;
         setLastSeq(sessionId, evt.seq);
         latestProcessed = evt.seq;
+        processedCount++;
         if (bufferColdReplay) {
           bufferedMessages.push(evt.message);
           continue;
@@ -191,8 +296,17 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         coldSubscribeBufferedReplay.set(sessionId, [...previous, ...bufferedMessages]);
       }
       if (typeof latestProcessed === "number") {
-        ackSeq(sessionId, latestProcessed);
+        queueAckSeq(sessionId, latestProcessed);
       }
+      recordFrontendPerfEntry({
+        kind: "event_replay",
+        timestamp: Date.now(),
+        sessionId,
+        eventCount: message.events.length,
+        processedCount,
+        bufferedCount: bufferedMessages.length,
+        durationMs: perfNow() - replayStartedAt,
+      });
       return;
     }
 
@@ -200,7 +314,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
       const previous = getLastSeq(sessionId);
       if (message.seq <= previous) return;
       setLastSeq(sessionId, message.seq);
-      ackSeq(sessionId, message.seq);
+      queueAckSeq(sessionId, message.seq);
     }
 
     if (message.type === "session_init" && typeof message.nextEventSeq === "number") {
@@ -276,9 +390,11 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     }
 
     // Clear in-memory seq cache so we use localStorage as source of truth on reconnect
+    flushPendingSeqStorage(sessionId);
     lastSeqBySession.delete(sessionId);
 
     callbacks.onConnecting?.(sessionId);
+    recordConnectionCycle(sessionId, "connect");
 
     const ws = new WebSocket(getWsUrl(sessionId));
     sockets.set(sessionId, ws);
@@ -286,6 +402,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     ws.onopen = () => {
       callbacks.onConnected?.(sessionId);
       reconnectAttempts.delete(sessionId);
+      recordConnectionCycle(sessionId, "open");
 
       sendSessionSubscribe(sessionId);
 
@@ -307,14 +424,25 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data) as SequencedIncomingMessage;
+        const startedAt = perfNow();
         handleParsedMessage(sessionId, data);
+        recordFrontendPerfEntry({
+          kind: "ws_message",
+          timestamp: Date.now(),
+          sessionId,
+          messageType: data.type,
+          durationMs: perfNow() - startedAt,
+          ...(typeof data.seq === "number" ? { seq: data.seq } : {}),
+        });
       } catch {
         // ignore non-JSON messages
       }
     };
 
     ws.onclose = () => {
+      flushPendingSeqStorage(sessionId);
       clearSocketState(sessionId, ws);
+      recordConnectionCycle(sessionId, "close");
       if (suppressCloseHandling) return;
       if (intentionalCloseSockets.has(ws)) return;
       callbacks.onDisconnected?.(sessionId);
@@ -327,6 +455,8 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   }
 
   function reconnectSession(sessionId: string): void {
+    flushPendingSeqState(sessionId);
+    recordConnectionCycle(sessionId, "reconnect");
     const ws = clearSocketState(sessionId);
     if (ws) {
       intentionalCloseSockets.add(ws);
@@ -336,6 +466,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
   }
 
   function disconnectSession(sessionId: string): void {
+    flushPendingSeqState(sessionId);
     reconnectAttempts.delete(sessionId);
     const ws = clearSocketState(sessionId);
     if (ws) {
@@ -437,11 +568,24 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
 
   function closeAllForUnload(): void {
     suppressCloseHandling = true;
+    flushPendingSeqState();
     for (const [sessionId, ws] of sockets) {
       clearSocketState(sessionId);
       ws.close();
     }
     sockets.clear();
+  }
+
+  if (typeof window !== "undefined") {
+    window.addEventListener("pagehide", () => flushPendingSeqState());
+    window.addEventListener("beforeunload", () => flushPendingSeqState());
+  }
+  if (typeof document !== "undefined") {
+    document.addEventListener("visibilitychange", () => {
+      if (document.visibilityState === "hidden") {
+        flushPendingSeqState();
+      }
+    });
   }
 
   return {

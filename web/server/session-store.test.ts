@@ -250,6 +250,45 @@ describe("saveSync / load", () => {
     ]);
   });
 
+  it("drops legacy top-level leader text stream deltas while keeping worker/nested stream deltas", async () => {
+    const base = makeSession("leader-replay-buffer");
+    const session: PersistedSession = {
+      ...base,
+      state: { ...base.state, isOrchestrator: true },
+      eventBuffer: [
+        {
+          seq: 1,
+          message: {
+            type: "stream_event",
+            parent_tool_use_id: null,
+            event: { type: "content_block_delta", delta: { type: "text_delta", text: "[thread:main] " } },
+          },
+        },
+        {
+          seq: 2,
+          message: {
+            type: "stream_event",
+            parent_tool_use_id: "agent-1",
+            event: { type: "content_block_delta", delta: { type: "text_delta", text: "nested" } },
+          },
+        },
+        {
+          seq: 3,
+          message: {
+            type: "stream_event",
+            parent_tool_use_id: null,
+            event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "reasoning" } },
+          },
+        },
+      ] as PersistedSession["eventBuffer"],
+    };
+    writeFileSync(join(tempDir, "leader-replay-buffer.json"), JSON.stringify(session), "utf-8");
+
+    const loaded = await store.load("leader-replay-buffer");
+
+    expect(loaded!.eventBuffer).toEqual([session.eventBuffer![1], session.eventBuffer![2]]);
+  });
+
   it("saveSync/load preserves codexFreshTurnRequiredUntilTurnId", async () => {
     const session = makeSession("s2-codex-fresh-turn", {
       codexFreshTurnRequiredUntilTurnId: "turn-plan-1",

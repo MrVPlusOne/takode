@@ -1,6 +1,7 @@
-import { useMemo, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { isSubagentToolName, type ChatMessage, type ContentBlock } from "../types.js";
 import { EVENT_HEADER_RE } from "../utils/herd-event-parser.js";
+import { recordFeedRenderSnapshot } from "../utils/frontend-perf-recorder.js";
 
 export interface ToolItem {
   id: string;
@@ -774,6 +775,7 @@ export function useFeedModel(
     frozenCount?: number;
     frozenRevision?: number;
     anchoredNotificationMessageIds?: readonly string[];
+    perf?: { sessionId: string; threadKey: string };
   },
 ): FeedModel {
   const leaderMode = config?.leaderMode ?? false;
@@ -781,6 +783,8 @@ export function useFeedModel(
   const frozenRevision = config?.frozenRevision ?? 0;
   const anchoredNotificationMessageIds = config?.anchoredNotificationMessageIds ?? [];
   const anchoredNotificationSignature = anchoredNotificationMessageIds.join("\0");
+  const perfSessionId = config?.perf?.sessionId;
+  const perfThreadKey = config?.perf?.threadKey;
   const cacheRef = useRef<{
     leaderMode: boolean;
     frozenCount: number;
@@ -790,7 +794,7 @@ export function useFeedModel(
     frozenModel: FeedModel;
   } | null>(null);
 
-  return useMemo(() => {
+  const model = useMemo(() => {
     const frozenMessages = messages.slice(0, frozenCount);
     const activeMessages = messages.slice(frozenCount);
 
@@ -849,4 +853,17 @@ export function useFeedModel(
     anchoredNotificationMessageIds,
     anchoredNotificationSignature,
   ]);
+
+  useEffect(() => {
+    if (!perfSessionId || !perfThreadKey) return;
+    recordFeedRenderSnapshot({
+      sessionId: perfSessionId,
+      threadKey: perfThreadKey,
+      messageCount: messages.length,
+      entryCount: model.entries.length,
+      turnCount: model.turns.length,
+    });
+  }, [messages.length, model.entries.length, model.turns.length, perfSessionId, perfThreadKey]);
+
+  return model;
 }

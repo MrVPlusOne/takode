@@ -165,6 +165,26 @@ describe("handleMessage: stream_event content_block_delta", () => {
     expect(state.streamingByParentToolUseId.get("s1")?.get("agent-1")).toBe("Nested output");
   });
 
+  it("drops only top-level leader text deltas while preserving nested leader streams", () => {
+    wsModule.connectSession("leader-1");
+    fireMessage({ type: "session_init", session: { ...makeSession("leader-1"), isOrchestrator: true } });
+
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "text_delta", text: "[thread:q-1] hidden" } },
+      parent_tool_use_id: null,
+    });
+    fireMessage({
+      type: "stream_event",
+      event: { type: "content_block_delta", delta: { type: "text_delta", text: "Nested visible" } },
+      parent_tool_use_id: "agent-1",
+    });
+
+    const state = useStore.getState();
+    expect(state.streaming.has("leader-1")).toBe(false);
+    expect(state.streamingByParentToolUseId.get("leader-1")?.get("agent-1")).toBe("Nested visible");
+  });
+
   it("accumulates live codex thinking from thinking deltas", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

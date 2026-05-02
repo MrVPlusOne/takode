@@ -207,6 +207,62 @@ describe("quest_list_updated replay-buffer exclusion", () => {
   });
 });
 
+describe("leader text stream replay-buffer exclusion", () => {
+  it("sends top-level leader text deltas live without storing them for reconnect replay", () => {
+    const sendFn = vi.fn();
+    const session = makeSession({
+      browserSockets: new Set([{ send: sendFn }]),
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+    });
+    const deps = makeDeps();
+
+    broadcastToBrowsers(
+      session,
+      {
+        type: "stream_event",
+        parent_tool_use_id: null,
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "[thread:q-1] " } },
+      },
+      deps,
+    );
+
+    expect(sendFn).toHaveBeenCalledTimes(1);
+    const sent = JSON.parse(sendFn.mock.calls[0][0]);
+    expect(sent.type).toBe("stream_event");
+    expect(sent.seq).toBeDefined();
+    expect(session.eventBuffer).toHaveLength(0);
+    expect(deps.persistSession).not.toHaveBeenCalled();
+  });
+
+  it("keeps worker top-level text deltas and nested leader text deltas in the replay buffer", () => {
+    const leaderSession = makeSession({ state: { permissionMode: "default", isOrchestrator: true } as any });
+    const workerSession = makeSession({ id: "worker-session" });
+    const deps = makeDeps();
+
+    broadcastToBrowsers(
+      workerSession,
+      {
+        type: "stream_event",
+        parent_tool_use_id: null,
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "worker" } },
+      },
+      deps,
+    );
+    broadcastToBrowsers(
+      leaderSession,
+      {
+        type: "stream_event",
+        parent_tool_use_id: "agent-1",
+        event: { type: "content_block_delta", delta: { type: "text_delta", text: "nested" } },
+      },
+      deps,
+    );
+
+    expect(workerSession.eventBuffer).toHaveLength(1);
+    expect(leaderSession.eventBuffer).toHaveLength(1);
+  });
+});
+
 describe("leader projection snapshots", () => {
   it("does not buffer leader projection snapshots because they are replaceable snapshots", () => {
     const sendFn = vi.fn();
