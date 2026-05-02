@@ -17,7 +17,7 @@ colors:
   warning: "#f6e05e"
   light-bg: "#f5f5f0"
   light-fg: "#1a1a18"
-  light-surface: "#fafaf7"
+  light-surface: "#FFFFFF"
   light-sidebar: "#edeae2"
   light-user-bubble: "#ddd9ce"
 typography:
@@ -108,7 +108,7 @@ Takode uses restrained warm-neutral theming: near-black operational surfaces, lo
 - **Muted Gray** (`#858585`): Secondary text, timestamps, inactive controls.
 - **Code Black** (`#111111`): Code and diff backgrounds.
 - **Warm Light Workspace** (`#f5f5f0`): Light-mode page background.
-- **Warm Light Surface** (`#fafaf7`): Ideal light-mode card/input surface. Existing code may still use pure white in places, but new work should prefer a slightly warm neutral.
+- **Light Surface** (`#FFFFFF`): Current white light-mode card and input surface.
 - **Light Sidebar** (`#edeae2`): Light-mode sidebar.
 
 ### Semantic
