@@ -764,7 +764,7 @@ describe("getQuest", () => {
     expect(q?.title).toBe("Stable");
   });
 
-  it("reads only the latest matching version file for single-quest lookups", async () => {
+  it("uses the latest snapshot for relationship-enriched single-quest lookups", async () => {
     const reads: string[] = [];
     const instrumentedStore = await importQuestStoreWithReadSpy(reads);
 
@@ -779,11 +779,8 @@ describe("getQuest", () => {
     const q = await instrumentedStore.getQuest("q-1");
     expect(q?.id).toBe("q-1-v2");
 
-    const questReads = reads
-      .filter((path) => path.endsWith(".json"))
-      .map((path) => basename(path))
-      .filter((name) => name.startsWith("q-"));
-    expect(questReads).toEqual(["q-1-v2.json"]);
+    expect(questFileReads(reads)).toEqual([]);
+    expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
   });
 
   it("normalizes legacy done ownership (sessionId -> previousOwnerSessionIds)", async () => {
@@ -1211,7 +1208,7 @@ describe("claimQuest", () => {
     await expect(instrumentedStore.claimQuest("q-2", "sess-1")).rejects.toThrow(
       'Session already has an active quest: q-1 "Already active".',
     );
-    expect(questFileReads(reads)).toEqual(["q-2-v2.json"]);
+    expect(questFileReads(reads)).toEqual([]);
     expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
   });
 

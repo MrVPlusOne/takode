@@ -415,7 +415,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("quest-journey.md");
     expect(guardrails).toContain("board-usage.md");
     // Leader discipline: wait for user answer, follow the board-approved Journey
-    expect(guardrails).toContain("WAIT for their answer");
+    expect(guardrails).toContain("wait only on the affected scope");
     expect(guardrails).toContain("Follow the board-approved Quest Journey");
     expect(guardrails).toContain("recommended, not mandatory");
     expect(guardrails).toContain("ask what it contributes over merging that work into a later phase");
