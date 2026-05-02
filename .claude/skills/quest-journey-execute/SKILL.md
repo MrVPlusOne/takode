@@ -19,6 +19,7 @@ Worker-visible boundary:
 - The worker may run the approved operation and monitor it within the stated risk envelope.
 - The worker must escalate when stop conditions or new risks appear.
 - This is the phase for the approved run itself, not the main implementation or debugging loop.
+- For browser/UI/E2E execution, require the worker to document the approved profile/state strategy, URL/ports, reused scenarios, newly created sessions/state, screenshots or artifacts, cleanup/retention decisions, and residual risks. The canonical detailed guidance is the `takode-ui-e2e-validation` skill.
 - Before reporting back, the worker should document the Execute phase on the quest with approved action, monitors, stop conditions, outcome, deviations, artifacts or logs, follow-up needs, and TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind artifact`; use explicit `--phase execute` or occurrence flags if current-phase inference is unavailable.
 - The TLDR should preserve conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes. Keep raw SHAs, branch names, exhaustive command lists, routine paths, and detailed verification mechanics in the full body unless central to understanding.
 - Apply a value filter: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases.
