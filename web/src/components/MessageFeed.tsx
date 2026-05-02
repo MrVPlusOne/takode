@@ -119,83 +119,8 @@ const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
 const FLOATING_STATUS_MOBILE_BOTTOM_PX = 8;
 const MOBILE_NAV_BASE_BOTTOM_PX = 12;
 const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
-const CODEX_TERMINAL_INSPECTOR_MARGIN_PX = 16;
-const CODEX_TERMINAL_INSPECTOR_MIN_WIDTH_PX = 320;
-const CODEX_TERMINAL_INSPECTOR_MIN_HEIGHT_PX = 240;
-const CODEX_TERMINAL_INSPECTOR_DEFAULT_WIDTH_PX = 512;
-const CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX = 360;
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const SECTION_WINDOW_TRIGGER_PX = 96;
-
-type CodexTerminalInspectorViewport = {
-  width: number;
-  height: number;
-};
-
-type CodexTerminalInspectorLayout = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-type CodexTerminalInspectorInteraction = {
-  mode: "drag" | "resize";
-  pointerId: number;
-  startClientX: number;
-  startClientY: number;
-  startLayout: CodexTerminalInspectorLayout;
-};
-
-function clampNumber(value: number, min: number, max: number): number {
-  if (max < min) return min;
-  return Math.min(Math.max(value, min), max);
-}
-
-function getCodexTerminalInspectorViewport(element: HTMLElement | null): CodexTerminalInspectorViewport | null {
-  if (!element) return null;
-  const width = Math.round(element.clientWidth || element.getBoundingClientRect().width);
-  const height = Math.round(element.clientHeight || element.getBoundingClientRect().height);
-  if (width <= 0 || height <= 0) return null;
-  return { width, height };
-}
-
-function clampCodexTerminalInspectorLayout(
-  layout: CodexTerminalInspectorLayout,
-  viewport: CodexTerminalInspectorViewport,
-): CodexTerminalInspectorLayout {
-  const maxWidth = Math.max(180, viewport.width - CODEX_TERMINAL_INSPECTOR_MARGIN_PX * 2);
-  const maxHeight = Math.max(180, viewport.height - CODEX_TERMINAL_INSPECTOR_MARGIN_PX * 2);
-  const minWidth = Math.min(CODEX_TERMINAL_INSPECTOR_MIN_WIDTH_PX, maxWidth);
-  const minHeight = Math.min(CODEX_TERMINAL_INSPECTOR_MIN_HEIGHT_PX, maxHeight);
-  const width = clampNumber(layout.width, minWidth, maxWidth);
-  const height = clampNumber(layout.height, minHeight, maxHeight);
-  const x = clampNumber(
-    layout.x,
-    CODEX_TERMINAL_INSPECTOR_MARGIN_PX,
-    viewport.width - CODEX_TERMINAL_INSPECTOR_MARGIN_PX - width,
-  );
-  const y = clampNumber(
-    layout.y,
-    CODEX_TERMINAL_INSPECTOR_MARGIN_PX,
-    viewport.height - CODEX_TERMINAL_INSPECTOR_MARGIN_PX - height,
-  );
-  return { x, y, width, height };
-}
-
-function createDefaultCodexTerminalInspectorLayout(
-  viewport: CodexTerminalInspectorViewport,
-): CodexTerminalInspectorLayout {
-  return clampCodexTerminalInspectorLayout(
-    {
-      x: CODEX_TERMINAL_INSPECTOR_MARGIN_PX,
-      y: viewport.height - CODEX_TERMINAL_INSPECTOR_MARGIN_PX - CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX,
-      width: CODEX_TERMINAL_INSPECTOR_DEFAULT_WIDTH_PX,
-      height: CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX,
-    },
-    viewport,
-  );
-}
 
 // ─── Expand-on-scroll-target hook ───────────────────────────────────────────
 // Used by collapsible containers (SubagentContainer, ApprovalBatchGroup,
