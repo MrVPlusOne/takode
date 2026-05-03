@@ -486,6 +486,56 @@ describe("Session management", () => {
   });
 });
 
+describe("Side panel collapse storage", () => {
+  it("keeps collapse and expand state in memory when scoped localStorage writes fail", () => {
+    // Side-panel collapse state is a tiny UI restore hint. Quota/full/blocked
+    // storage must not break sidebar navigation or discard the in-memory toggle.
+    const originalSetItem = Storage.prototype.setItem;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (
+        key.includes("cc-collapsed-tree-groups") ||
+        key.includes("cc-collapsed-tree-nodes") ||
+        key.includes("cc-expanded-herd-nodes")
+      ) {
+        throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    expect(() => useStore.getState().toggleTreeGroupCollapse("group-a")).not.toThrow();
+    expect(() => useStore.getState().toggleTreeNodeCollapse("session-a")).not.toThrow();
+    expect(() => useStore.getState().toggleHerdNodeExpand("leader-a")).not.toThrow();
+
+    expect(useStore.getState().collapsedTreeGroups.has("group-a")).toBe(true);
+    expect(useStore.getState().collapsedTreeNodes.has("session-a")).toBe(true);
+    expect(useStore.getState().expandedHerdNodes.has("leader-a")).toBe(true);
+    expect(localStorage.getItem("test-server:cc-collapsed-tree-groups")).toBeNull();
+    expect(localStorage.getItem("test-server:cc-collapsed-tree-nodes")).toBeNull();
+    expect(localStorage.getItem("test-server:cc-expanded-herd-nodes")).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(3);
+
+    setItemSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("bounds persisted side-panel restore hints while preserving full in-memory state", () => {
+    // Persisted collapse/expand IDs are only restore hints. The current page can
+    // keep the full set in memory, but localStorage should stay bounded.
+    useStore.setState({ expandedHerdNodes: new Set() });
+
+    for (let index = 0; index < 505; index += 1) {
+      useStore.getState().toggleHerdNodeExpand(`leader-${index}`);
+    }
+
+    const stored = JSON.parse(localStorage.getItem("test-server:cc-expanded-herd-nodes") || "[]") as string[];
+    expect(useStore.getState().expandedHerdNodes.size).toBe(505);
+    expect(stored).toHaveLength(500);
+    expect(stored[0]).toBe("leader-5");
+    expect(stored[stored.length - 1]).toBe("leader-504");
+  });
+});
+
 describe("Questmaster refresh", () => {
   it("reconcileQuestList preserves object identity for unchanged quests", () => {
     const unchanged = makeQuest({ id: "q-1-v2", questId: "q-1", version: 2, updatedAt: 2000 });

@@ -92,6 +92,8 @@ export type { SearchMatch, SessionSearchCategory, SessionSearchState };
 export type { PendingSession };
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
+const MAX_SIDE_PANEL_STORAGE_ITEMS = 500;
+const MAX_SIDE_PANEL_STORAGE_CHARS = 20_000;
 
 function getInitialShortcutSettings(): ShortcutSettings {
   if (typeof window === "undefined") return DEFAULT_SHORTCUT_SETTINGS;
@@ -118,6 +120,21 @@ function getInitialShortcutSettings(): ShortcutSettings {
 function persistShortcutSettings(settings: ShortcutSettings): void {
   if (typeof window === "undefined") return;
   scopedSetItem("cc-shortcuts", JSON.stringify(settings));
+}
+
+function persistSidePanelStringSet(storageKey: string, values: Set<string>): void {
+  if (typeof window === "undefined") return;
+  let boundedValues = Array.from(values).slice(-MAX_SIDE_PANEL_STORAGE_ITEMS);
+  let serialized = JSON.stringify(boundedValues);
+  while (serialized.length > MAX_SIDE_PANEL_STORAGE_CHARS && boundedValues.length > 0) {
+    boundedValues = boundedValues.slice(1);
+    serialized = JSON.stringify(boundedValues);
+  }
+  try {
+    scopedSetItem(storageKey, serialized);
+  } catch (error) {
+    console.warn("[takode] Could not persist side panel state; continuing in memory.", error);
+  }
 }
 
 function shouldPauseQuestBackgroundRefresh(): boolean {
@@ -1576,7 +1593,7 @@ export const useStore = create<AppState>((set, get) => ({
       } else {
         collapsedTreeGroups.add(groupId);
       }
-      scopedSetItem("cc-collapsed-tree-groups", JSON.stringify(Array.from(collapsedTreeGroups)));
+      persistSidePanelStringSet("cc-collapsed-tree-groups", collapsedTreeGroups);
       return { collapsedTreeGroups };
     }),
 
@@ -1588,7 +1605,7 @@ export const useStore = create<AppState>((set, get) => ({
       } else {
         collapsedTreeNodes.add(sessionId);
       }
-      scopedSetItem("cc-collapsed-tree-nodes", JSON.stringify(Array.from(collapsedTreeNodes)));
+      persistSidePanelStringSet("cc-collapsed-tree-nodes", collapsedTreeNodes);
       return { collapsedTreeNodes };
     }),
 
@@ -1600,7 +1617,7 @@ export const useStore = create<AppState>((set, get) => ({
       } else {
         expandedHerdNodes.add(sessionId);
       }
-      scopedSetItem("cc-expanded-herd-nodes", JSON.stringify(Array.from(expandedHerdNodes)));
+      persistSidePanelStringSet("cc-expanded-herd-nodes", expandedHerdNodes);
       return { expandedHerdNodes };
     }),
 

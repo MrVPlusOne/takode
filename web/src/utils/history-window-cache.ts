@@ -1,11 +1,11 @@
 import type { BrowserIncomingMessage, HistoryWindowState, ThreadWindowEntry, ThreadWindowState } from "../types.js";
-import { scopedGetItem, scopedRemoveItem, scopedSetItem } from "./scoped-storage.js";
 import { normalizeThreadKey } from "./thread-projection.js";
 
-const HISTORY_CACHE_VERSION = 1;
 const MAX_HISTORY_ENTRIES_PER_SESSION = 12;
 const MAX_THREAD_ENTRIES_PER_THREAD = 12;
-const MAX_CACHE_BYTES = 1_500_000;
+
+const LEGACY_HISTORY_WINDOW_CACHE_KEY_PREFIX = "cc-history-window-cache:";
+const LEGACY_THREAD_WINDOW_CACHE_KEY_PREFIX = "cc-thread-window-cache:";
 
 interface HistoryWindowCacheEntry {
   key: string;
@@ -31,9 +31,12 @@ interface ThreadWindowCacheEntry {
 }
 
 interface WindowCacheEnvelope<TEntry> {
-  version: number;
   entries: TEntry[];
 }
+
+const historyCacheBySession = new Map<string, WindowCacheEnvelope<HistoryWindowCacheEntry>>();
+const threadCacheByKey = new Map<string, WindowCacheEnvelope<ThreadWindowCacheEntry>>();
+let legacyWindowCacheCleanupAttempted = false;
 
 export interface HistoryWindowCacheLookup {
   fromTurn: number;
@@ -51,16 +54,19 @@ export interface ThreadWindowCacheLookup {
 }
 
 export function getCachedHistoryWindowHash(sessionId: string, lookup: HistoryWindowCacheLookup): string | undefined {
+  purgeLegacyPersistedWindowCaches();
   return readHistoryCache(sessionId).entries.find((entry) => entry.key === historyEntryKey(lookup))?.windowHash;
 }
 
 export function getCachedThreadWindowHash(sessionId: string, lookup: ThreadWindowCacheLookup): string | undefined {
+  purgeLegacyPersistedWindowCaches();
   if (lookup.fromItem < 0) return undefined;
   return readThreadCache(sessionId, lookup.threadKey).entries.find((entry) => entry.key === threadEntryKey(lookup))
     ?.windowHash;
 }
 
 export function cacheHistoryWindow(sessionId: string, window: HistoryWindowState, messages: BrowserIncomingMessage[]) {
+  purgeLegacyPersistedWindowCaches();
   if (!window.window_hash || messages.length === 0) return;
   const lookup = {
     fromTurn: window.from_turn,
@@ -76,7 +82,8 @@ export function cacheHistoryWindow(sessionId: string, window: HistoryWindowState
     updatedAt: Date.now(),
   };
   writeBoundedCache(
-    historyStorageKey(sessionId),
+    historyCacheBySession,
+    sessionId,
     readHistoryCache(sessionId).entries,
     entry,
     MAX_HISTORY_ENTRIES_PER_SESSION,
@@ -84,6 +91,7 @@ export function cacheHistoryWindow(sessionId: string, window: HistoryWindowState
 }
 
 export function cacheThreadWindow(sessionId: string, window: ThreadWindowState, entries: ThreadWindowEntry[]) {
+  purgeLegacyPersistedWindowCaches();
   if (!window.window_hash || entries.length === 0) return;
   const lookup = {
     threadKey: window.thread_key,
@@ -101,7 +109,8 @@ export function cacheThreadWindow(sessionId: string, window: ThreadWindowState, 
     updatedAt: Date.now(),
   };
   writeBoundedCache(
-    threadStorageKey(sessionId, lookup.threadKey),
+    threadCacheByKey,
+    threadCacheKey(sessionId, lookup.threadKey),
     readThreadCache(sessionId, lookup.threadKey).entries,
     entry,
     MAX_THREAD_ENTRIES_PER_THREAD,
@@ -109,19 +118,18 @@ export function cacheThreadWindow(sessionId: string, window: ThreadWindowState, 
 }
 
 export function invalidateHistoryWindowCache(sessionId: string): void {
-  if (typeof window === "undefined") return;
-  scopedRemoveItem(historyStorageKey(sessionId));
+  historyCacheBySession.delete(sessionId);
 }
 
 export function invalidateThreadWindowCache(sessionId: string, threadKey: string): void {
-  if (typeof window === "undefined") return;
-  scopedRemoveItem(threadStorageKey(sessionId, threadKey));
+  threadCacheByKey.delete(threadCacheKey(sessionId, threadKey));
 }
 
 export function resolveCachedHistoryWindowMessages(
   sessionId: string,
   window: HistoryWindowState,
 ): BrowserIncomingMessage[] | null {
+  purgeLegacyPersistedWindowCaches();
   if (!window.window_hash) return null;
   const lookup = {
     fromTurn: window.from_turn,
@@ -139,6 +147,7 @@ export function resolveCachedThreadWindowEntries(
   sessionId: string,
   window: ThreadWindowState,
 ): ThreadWindowEntry[] | null {
+  purgeLegacyPersistedWindowCaches();
   if (!window.window_hash) return null;
   const lookup = {
     threadKey: window.thread_key,
@@ -151,6 +160,12 @@ export function resolveCachedThreadWindowEntries(
     (candidate) => candidate.key === threadEntryKey(lookup) && candidate.windowHash === window.window_hash,
   );
   return entry?.entries ?? null;
+}
+
+export function resetHistoryWindowCacheForTests(): void {
+  historyCacheBySession.clear();
+  threadCacheByKey.clear();
+  legacyWindowCacheCleanupAttempted = false;
 }
 
 function historyEntryKey(lookup: HistoryWindowCacheLookup): string {
@@ -172,54 +187,58 @@ function threadEntryKey(lookup: ThreadWindowCacheLookup): string {
   ].join(":");
 }
 
-function historyStorageKey(sessionId: string): string {
-  return `cc-history-window-cache:v${HISTORY_CACHE_VERSION}:${sessionId}`;
-}
-
-function threadStorageKey(sessionId: string, threadKey: string): string {
-  return `cc-thread-window-cache:v${HISTORY_CACHE_VERSION}:${sessionId}:${normalizeThreadKey(threadKey)}`;
+function threadCacheKey(sessionId: string, threadKey: string): string {
+  return `${sessionId}:${normalizeThreadKey(threadKey)}`;
 }
 
 function readHistoryCache(sessionId: string): WindowCacheEnvelope<HistoryWindowCacheEntry> {
-  return readCache(historyStorageKey(sessionId));
+  return historyCacheBySession.get(sessionId) ?? emptyCache();
 }
 
 function readThreadCache(sessionId: string, threadKey: string): WindowCacheEnvelope<ThreadWindowCacheEntry> {
-  return readCache(threadStorageKey(sessionId, threadKey));
+  return threadCacheByKey.get(threadCacheKey(sessionId, threadKey)) ?? emptyCache();
 }
 
-function readCache<TEntry>(storageKey: string): WindowCacheEnvelope<TEntry> {
-  if (typeof window === "undefined") return emptyCache();
-  const raw = scopedGetItem(storageKey);
-  if (!raw) return emptyCache();
+function purgeLegacyPersistedWindowCaches(): void {
+  if (legacyWindowCacheCleanupAttempted || typeof window === "undefined") return;
+  legacyWindowCacheCleanupAttempted = true;
   try {
-    const parsed = JSON.parse(raw) as WindowCacheEnvelope<TEntry>;
-    if (parsed?.version !== HISTORY_CACHE_VERSION || !Array.isArray(parsed.entries)) return emptyCache();
-    return parsed;
-  } catch {
-    return emptyCache();
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < localStorage.length; index += 1) {
+      const key = localStorage.key(index);
+      if (key && isLegacyWindowCacheStorageKey(key)) {
+        keysToRemove.push(key);
+      }
+    }
+    for (const key of keysToRemove) {
+      localStorage.removeItem(key);
+    }
+  } catch (error) {
+    console.warn("[takode] Could not remove legacy persisted window cache entries.", error);
   }
 }
 
+function isLegacyWindowCacheStorageKey(key: string): boolean {
+  return (
+    key.startsWith(LEGACY_HISTORY_WINDOW_CACHE_KEY_PREFIX) ||
+    key.includes(`:${LEGACY_HISTORY_WINDOW_CACHE_KEY_PREFIX}`) ||
+    key.startsWith(LEGACY_THREAD_WINDOW_CACHE_KEY_PREFIX) ||
+    key.includes(`:${LEGACY_THREAD_WINDOW_CACHE_KEY_PREFIX}`)
+  );
+}
+
 function writeBoundedCache<TEntry extends { key: string; updatedAt: number }>(
-  storageKey: string,
+  cache: Map<string, WindowCacheEnvelope<TEntry>>,
+  cacheKey: string,
   currentEntries: TEntry[],
   entry: TEntry,
   maxEntries: number,
 ) {
-  if (typeof window === "undefined") return;
   const deduped = currentEntries.filter((candidate) => candidate.key !== entry.key);
   const entries = [...deduped, entry].sort((left, right) => right.updatedAt - left.updatedAt).slice(0, maxEntries);
-  const envelope: WindowCacheEnvelope<TEntry> = { version: HISTORY_CACHE_VERSION, entries };
-  const serialized = JSON.stringify(envelope);
-  if (serialized.length > MAX_CACHE_BYTES) return;
-  try {
-    scopedSetItem(storageKey, serialized);
-  } catch {
-    // Quota errors should never break authoritative history rendering.
-  }
+  cache.set(cacheKey, { entries });
 }
 
 function emptyCache<TEntry>(): WindowCacheEnvelope<TEntry> {
-  return { version: HISTORY_CACHE_VERSION, entries: [] };
+  return { entries: [] };
 }
