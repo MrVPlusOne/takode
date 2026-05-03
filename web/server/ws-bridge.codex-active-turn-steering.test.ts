@@ -961,5 +961,36 @@ describe("Codex active-turn steering", () => {
     adapter.emitTurnSteerFailed([ensuredPendingId]);
 
     expect(session.pendingCodexInputs.find((input: any) => input.id === ensuredPendingId)?.cancelable).toBe(true);
+
+    adapter.sendBrowserMessage.mockClear();
+    adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "initial turn completed after stale steer rejection",
+        duration_ms: 100,
+        duration_api_ms: 100,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "completed",
+        usage: {
+          input_tokens: 0,
+          output_tokens: 0,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+        uuid: "codex-result-steer-failure-initial",
+        session_id: sid,
+        codex_turn_id: "turn-initial",
+      },
+    });
+    await Promise.resolve();
+
+    const startPendingCall = adapter.sendBrowserMessage.mock.calls
+      .map((args: any[]) => args[0])
+      .find((msg: any) => msg?.type === "codex_start_pending");
+    expect(getCodexStartPendingInputs(startPendingCall)[0]?.content).toContain("follow-up steer failure");
   });
 });

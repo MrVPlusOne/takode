@@ -870,9 +870,45 @@ export class CodexAdapter
       })) as { turnId: string };
       this.turnSteeredCb?.(result.turnId, msg.pendingInputIds);
     } catch (err) {
+      const recoveredStaleTurn = this.recoverStaleTurnSteerFailure(msg.expectedTurnId, err);
       this.turnSteerFailedCb?.(msg.pendingInputIds);
+      if (recoveredStaleTurn) return;
       this.emit({ type: "error", message: `Failed to steer active Codex turn: ${err}` });
     }
+  }
+
+  private recoverStaleTurnSteerFailure(expectedTurnId: string, err: unknown): boolean {
+    if (!this.isNoActiveTurnToSteerError(err)) return false;
+    if (this.currentTurnId && this.currentTurnId !== expectedTurnId) return false;
+
+    if (this.currentTurnId === expectedTurnId) {
+      console.log(
+        `[codex-adapter] Codex rejected turn/steer for stale turn ${expectedTurnId}; clearing current turn for session ${this.sessionId}`,
+      );
+      this.currentTurnId = null;
+      for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+      const routerError = this.toolRouterErrorByTurnId.get(expectedTurnId);
+      if (routerError) {
+        this.toolRouterErrorByTurnId.delete(expectedTurnId);
+        this.suppressedTurnResultIds.add(expectedTurnId);
+        this.emitTurnResult({
+          turnId: expectedTurnId,
+          status: "failed",
+          errorMessage: routerError,
+        });
+      }
+    } else {
+      console.log(
+        `[codex-adapter] Codex rejected turn/steer for already-cleared turn ${expectedTurnId}; suppressing stale steer error for session ${this.sessionId}`,
+      );
+    }
+
+    return true;
+  }
+
+  private isNoActiveTurnToSteerError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    return /\bno active turn to steer\b/i.test(message);
   }
 
   private async handleOutgoingPermissionResponse(msg: {
