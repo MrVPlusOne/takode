@@ -34,6 +34,14 @@ export type LeaderThreadTabUpdate =
       type: "close";
       threadKey: string;
       closedAt?: number;
+    }
+  | {
+      /**
+       * Legacy browser operation removed from the product model. Keep it as a
+       * runtime no-op so stale clients cannot clear authoritative server state.
+       */
+      type: "auto_close";
+      threadKeys?: unknown[];
     };
 
 export function shouldPersistLeaderThreadTab(threadKey: string): boolean {
@@ -116,38 +124,49 @@ export function canServerCandidateOpenThread(
 
 export function applyLeaderThreadTabUpdate(
   currentState: LeaderOpenThreadTabsState | undefined,
-  update: LeaderThreadTabUpdate,
+  update: LeaderThreadTabUpdate | { type?: unknown },
   now = Date.now(),
-): LeaderOpenThreadTabsState {
-  const state = normalizeLeaderOpenThreadTabsState(currentState) ?? createLeaderOpenThreadTabsState(now);
-  switch (update.type) {
+): LeaderOpenThreadTabsState | undefined {
+  const existingState = normalizeLeaderOpenThreadTabsState(currentState);
+  if (!update || typeof update !== "object") return existingState;
+  const record = update as Record<string, unknown>;
+
+  switch (record.type) {
     case "migrate": {
-      const migratedAt = validTimestamp(update.migratedAt) ?? now;
+      if (!Array.isArray(record.orderedOpenThreadKeys)) return existingState;
+      const migratedAt = validTimestamp(record.migratedAt) ?? now;
       return {
         version: LEADER_OPEN_THREAD_TABS_VERSION,
-        orderedOpenThreadKeys: normalizeLeaderOpenThreadKeys(update.orderedOpenThreadKeys),
+        orderedOpenThreadKeys: normalizeLeaderOpenThreadKeys(record.orderedOpenThreadKeys),
         closedThreadTombstones: [],
         updatedAt: migratedAt,
         migratedFromLocalStorageAt: migratedAt,
       };
     }
     case "open": {
-      const threadKey = normalizeLeaderThreadKey(update.threadKey);
+      if (typeof record.threadKey !== "string") return existingState;
+      const state = existingState ?? createLeaderOpenThreadTabsState(now);
+      const threadKey = normalizeLeaderThreadKey(record.threadKey);
       if (!shouldPersistLeaderThreadTab(threadKey)) return state;
-      if (update.source === "server_candidate" && !canServerCandidateOpenThread(state, threadKey, update.eventAt)) {
+      const source = record.source === "server_candidate" ? "server_candidate" : "user";
+      const eventAt = validTimestamp(record.eventAt);
+      if (source === "server_candidate" && !canServerCandidateOpenThread(state, threadKey, eventAt)) {
         return state;
       }
+      const placement = record.placement === "last" ? "last" : "first";
       return {
         ...state,
-        orderedOpenThreadKeys: placeLeaderOpenThreadTabKey(state.orderedOpenThreadKeys, threadKey, update.placement),
+        orderedOpenThreadKeys: placeLeaderOpenThreadTabKey(state.orderedOpenThreadKeys, threadKey, placement),
         closedThreadTombstones: state.closedThreadTombstones.filter((entry) => entry.threadKey !== threadKey),
         updatedAt: now,
       };
     }
     case "close": {
-      const threadKey = normalizeLeaderThreadKey(update.threadKey);
+      if (typeof record.threadKey !== "string") return existingState;
+      const state = existingState ?? createLeaderOpenThreadTabsState(now);
+      const threadKey = normalizeLeaderThreadKey(record.threadKey);
       if (!shouldPersistLeaderThreadTab(threadKey)) return state;
-      const closedAt = validTimestamp(update.closedAt) ?? now;
+      const closedAt = validTimestamp(record.closedAt) ?? now;
       return {
         ...state,
         orderedOpenThreadKeys: state.orderedOpenThreadKeys.filter((key) => key !== threadKey),
@@ -155,6 +174,9 @@ export function applyLeaderThreadTabUpdate(
         updatedAt: closedAt,
       };
     }
+    case "auto_close":
+    default:
+      return existingState;
   }
 }
 

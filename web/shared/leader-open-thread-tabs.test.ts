@@ -32,6 +32,17 @@ describe("leader open thread tab state", () => {
     expect(next.orderedOpenThreadKeys).not.toContain("q-50");
   });
 
+  it("ignores obsolete or unsupported update operations without replacing state", () => {
+    const state = {
+      ...createLeaderOpenThreadTabsState(10),
+      orderedOpenThreadKeys: ["q-1", "q-2"],
+    };
+
+    expect(applyLeaderThreadTabUpdate(state, { type: "auto_close", threadKeys: ["q-1"] }, 20)).toEqual(state);
+    expect(applyLeaderThreadTabUpdate(state, { type: "unknown_operation" }, 20)).toEqual(state);
+    expect(applyLeaderThreadTabUpdate(undefined, { type: "unknown_operation" }, 20)).toBeUndefined();
+  });
+
   it("preserves user closes as bounded tombstones and explicit user opens remove them", () => {
     const closed = applyLeaderThreadTabUpdate(
       { ...createLeaderOpenThreadTabsState(1), orderedOpenThreadKeys: ["q-1", "q-2"] },

@@ -435,6 +435,11 @@ export function handleBrowserProtocolMessage(
     return true;
   }
 
+  if (msg.type === "leader_thread_tabs_update" && isObsoleteLeaderThreadTabOperation(msg.operation)) {
+    deps.touchActivity?.(session.id);
+    return true;
+  }
+
   if (isIdempotentBrowserMessage(msg.type, deps) && "client_msg_id" in msg && msg.client_msg_id) {
     if (session.processedClientMessageIdSet.has(msg.client_msg_id)) return true;
     session.processedClientMessageIds.push(msg.client_msg_id);
@@ -485,6 +490,13 @@ function handleLeaderThreadTabsUpdate(
     type: "session_update",
     session: { leaderOpenThreadTabs: nextState },
   });
+}
+
+function isObsoleteLeaderThreadTabOperation(
+  operation: Extract<BrowserOutgoingMessage, { type: "leader_thread_tabs_update" }>["operation"] | { type?: unknown },
+): boolean {
+  if (!operation || typeof operation !== "object") return true;
+  return operation.type === "auto_close" || !["migrate", "open", "close"].includes(String(operation.type));
 }
 
 function statesEqual(

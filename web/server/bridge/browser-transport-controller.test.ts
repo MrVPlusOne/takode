@@ -295,6 +295,45 @@ describe("leader_thread_tabs_update", () => {
     expect(deps.persistSession).toHaveBeenCalledTimes(2);
     expect(deps.broadcastToBrowsers).toHaveBeenCalledTimes(1);
   });
+
+  it("ignores stale or unsupported tab operations without mutating server state", () => {
+    const serverState = {
+      version: 1 as const,
+      orderedOpenThreadKeys: ["q-1", "q-2"],
+      closedThreadTombstones: [],
+      updatedAt: 1,
+    };
+    const session = makeSession({
+      state: {
+        permissionMode: "default",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: serverState,
+      } as any,
+    });
+    const deps = makeInjectDeps();
+
+    for (const operation of [
+      { type: "auto_close", threadKeys: ["q-1"] },
+      { type: "unknown_operation", threadKeys: ["q-2"] },
+    ]) {
+      const handled = handleBrowserProtocolMessage(
+        session,
+        {
+          type: "leader_thread_tabs_update",
+          operation,
+          client_msg_id: `tabs-${operation.type}`,
+        } as any,
+        undefined,
+        deps,
+      );
+
+      expect(handled).toBe(true);
+    }
+
+    expect(session.state.leaderOpenThreadTabs).toEqual(serverState);
+    expect(deps.persistSession).not.toHaveBeenCalled();
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
+  });
 });
 
 describe("leader text stream replay-buffer exclusion", () => {
