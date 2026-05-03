@@ -459,6 +459,8 @@ function setStoreSelectedThreadWindow({
   totalItems,
   sectionItemCount,
   visibleItemCount,
+  hasOlderItems,
+  hasNewerItems,
   messages,
 }: {
   sessionId: string;
@@ -468,6 +470,8 @@ function setStoreSelectedThreadWindow({
   totalItems: number;
   sectionItemCount: number;
   visibleItemCount: number;
+  hasOlderItems?: boolean;
+  hasNewerItems?: boolean;
   messages: ChatMessage[];
 }) {
   mockStoreValues.threadWindows = new Map([
@@ -481,6 +485,8 @@ function setStoreSelectedThreadWindow({
             from_item: fromItem,
             item_count: itemCount,
             total_items: totalItems,
+            ...(hasOlderItems === undefined ? {} : { has_older_items: hasOlderItems }),
+            ...(hasNewerItems === undefined ? {} : { has_newer_items: hasNewerItems }),
             source_history_length: totalItems,
             section_item_count: sectionItemCount,
             visible_item_count: visibleItemCount,
@@ -856,6 +862,87 @@ describe("MessageFeed section windowing", () => {
       }),
     );
     expect(screen.getByText("Loading older section...")).toBeTruthy();
+  });
+
+  it("hides selected-thread boundary affordances when explicit server availability is false", () => {
+    const sid = "test-selected-thread-explicit-unavailable";
+    const threadKey = "q-1027";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 2,
+      itemCount: 6,
+      totalItems: 10,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      hasOlderItems: false,
+      hasNewerItems: false,
+      messages: [
+        makeMessage({ id: "u3", role: "user", content: "Completed q-1027 turn 3", timestamp: 3 }),
+        makeMessage({ id: "a3", role: "assistant", content: "Completed q-1027 reply 3", timestamp: 4 }),
+      ],
+    });
+
+    const { container } = render(
+      <MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />,
+    );
+    const scrollContainer = getScrollContainer(container);
+    setElementScrollMetrics(scrollContainer, 1000, 340, 660);
+    fireEvent.wheel(scrollContainer, { deltaY: 80 });
+
+    expect(screen.queryByText("Scroll up for older section")).toBeNull();
+    expect(screen.queryByText("Scroll down for newer section")).toBeNull();
+    expect(screen.queryByText("Latest section below")).toBeNull();
+    expect(mockSendToSession).not.toHaveBeenCalledWith(sid, expect.objectContaining({ type: "thread_window_request" }));
+  });
+
+  it("clears pending selected-thread loading after an authoritative no-op sync rerender", () => {
+    const sid = "test-selected-thread-noop-sync-clears-pending";
+    const threadKey = "q-1027";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    const messages = [
+      makeMessage({ id: "u3", role: "user", content: "Completed q-1027 turn 3", timestamp: 3 }),
+      makeMessage({ id: "a3", role: "assistant", content: "Completed q-1027 reply 3", timestamp: 4 }),
+    ];
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 0,
+      itemCount: 6,
+      totalItems: 12,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      hasOlderItems: false,
+      hasNewerItems: true,
+      messages,
+    });
+
+    const { container, rerender } = render(
+      <MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />,
+    );
+    const scrollContainer = getScrollContainer(container);
+    setElementScrollMetrics(scrollContainer, 1000, 340, 660);
+    fireEvent.wheel(scrollContainer, { deltaY: 80 });
+
+    expect(screen.getByText("Loading newer section...")).toBeTruthy();
+
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 0,
+      itemCount: 6,
+      totalItems: 12,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      hasOlderItems: false,
+      hasNewerItems: true,
+      messages,
+    });
+    rerender(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />);
+
+    expect(screen.queryByText("Loading newer section...")).toBeNull();
+    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
   });
 
   it("remounts the correct section window before scrolling to an older turn", async () => {

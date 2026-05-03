@@ -279,6 +279,57 @@ describe("feed render model builders", () => {
     expect(model.nextSectionStartIndex).toBeNull();
   });
 
+  it("prefers explicit selected-thread availability over legacy bounds math", () => {
+    const turns = Array.from({ length: 4 }, (_, index) => makeTurn(`turn-${index + 1}`));
+
+    const model = buildFeedWindowModel({
+      turns,
+      sectionTurnCount: 2,
+      sectionWindowStart: null,
+      selectedFeedWindowEnabled: true,
+      historyWindow: null,
+      selectedFeedWindow: makeWindow({
+        thread_key: "q-1027",
+        from_item: 2,
+        item_count: 6,
+        total_items: 10,
+        has_older_items: false,
+        has_newer_items: false,
+      }),
+      historyLoading: false,
+      messageCount: 8,
+    });
+
+    expect(model.hasOlderSections).toBe(false);
+    expect(model.hasNewerSections).toBe(false);
+  });
+
+  it("prefers explicit history-window availability over legacy bounds math", () => {
+    const turns = Array.from({ length: 4 }, (_, index) => makeTurn(`turn-${index + 1}`));
+
+    const model = buildFeedWindowModel({
+      turns,
+      sectionTurnCount: 2,
+      sectionWindowStart: null,
+      selectedFeedWindowEnabled: false,
+      historyWindow: {
+        from_turn: 0,
+        turn_count: 6,
+        total_turns: 12,
+        has_older_items: false,
+        has_newer_items: false,
+        section_turn_count: 2,
+        visible_section_count: 3,
+      },
+      selectedFeedWindow: null,
+      historyLoading: false,
+      messageCount: 8,
+    });
+
+    expect(model.hasOlderSections).toBe(false);
+    expect(model.hasNewerSections).toBe(false);
+  });
+
   it("keeps selected-thread feed_window_sync item order aligned with the render-model target", () => {
     const rawThreadMessage = {
       type: "user_message",

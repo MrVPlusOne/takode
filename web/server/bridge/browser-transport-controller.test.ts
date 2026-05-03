@@ -590,6 +590,7 @@ describe("history window tool results", () => {
 
     const payload = JSON.parse(send.mock.calls[0][0]);
     expect(payload.type).toBe("history_window_sync");
+    expect(payload.window).toMatchObject({ has_older_items: false, has_newer_items: true });
     expect(payload.cache_hit).toBe(true);
     expect(payload.messages).toEqual([]);
     expect(payload.window.window_hash).toBe(firstPayload.window.window_hash);
@@ -643,6 +644,7 @@ describe("history window tool results", () => {
     expect(payload.type).toBe("history_window_sync");
     expect(payload.window.from_turn).toBe(1);
     expect(payload.window.turn_count).toBe(2);
+    expect(payload.window).toMatchObject({ has_older_items: true, has_newer_items: false });
     expect(payload.messages.map((message: BrowserIncomingMessage) => (message as { id?: string }).id)).toEqual([
       "u2",
       undefined,
@@ -702,7 +704,7 @@ describe("history window tool results", () => {
         version: FEED_WINDOW_SYNC_VERSION,
         source: "history_window",
         threadKey: "main",
-        bounds: { from: 0, count: 1, total: 1 },
+        bounds: { from: 0, count: 1, total: 1, hasOlderItems: false, hasNewerItems: false },
       },
     });
     expect(sidecar.sync.windowHash).toBe(legacy.window.window_hash);
@@ -745,6 +747,7 @@ describe("selected feed thread windows", () => {
     expect(sync.thread_key).toBe("q-1040");
     expect(sync.window.source_history_length).toBe(1_000);
     expect(sync.window.total_items).toBe(10);
+    expect(sync.window).toMatchObject({ has_older_items: true, has_newer_items: false });
     expect(sync.entries).toHaveLength(3);
     expect(sync.entries.map((entry: any) => entry.history_index)).toEqual([700, 800, 900]);
     expect(sync.entries.map((entry: any) => entry.message.id)).toEqual(["u-700", "u-800", "u-900"]);
@@ -860,7 +863,14 @@ describe("selected feed thread windows", () => {
         source: "thread_window",
         threadKey: "q-1040",
         windowHash: firstWindow.window_hash,
-        bounds: { from: 0, count: 1, total: 1, sourceHistoryLength: 1 },
+        bounds: {
+          from: 0,
+          count: 1,
+          total: 1,
+          hasOlderItems: false,
+          hasNewerItems: false,
+          sourceHistoryLength: 1,
+        },
       },
     });
     expect(sidecar.sync.items).toEqual([

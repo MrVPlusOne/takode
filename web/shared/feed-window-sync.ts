@@ -4,6 +4,7 @@ import type {
   ThreadWindowEntry,
   ThreadWindowState,
 } from "../server/session-types.js";
+import { deriveWindowAvailability, readWindowAvailability } from "./window-availability.js";
 
 export const FEED_WINDOW_SYNC_VERSION = 1;
 
@@ -31,6 +32,8 @@ export interface FeedWindowSync {
     from: number;
     count: number;
     total: number;
+    hasOlderItems?: boolean;
+    hasNewerItems?: boolean;
     sourceHistoryLength?: number;
   };
 }
@@ -57,6 +60,14 @@ export function buildHistoryFeedWindowSync(input: {
       from: input.window.from_turn,
       count: input.window.turn_count,
       total: input.window.total_turns,
+      ...feedWindowBoundsAvailability(
+        input.window,
+        deriveWindowAvailability({
+          from: input.window.from_turn,
+          count: input.window.turn_count,
+          total: input.window.total_turns,
+        }),
+      ),
     },
   };
 }
@@ -80,8 +91,27 @@ export function buildThreadFeedWindowSync(input: {
       from: input.window.from_item,
       count: input.window.item_count,
       total: input.window.total_items,
+      ...feedWindowBoundsAvailability(
+        input.window,
+        deriveWindowAvailability({
+          from: input.window.from_item,
+          count: input.window.item_count,
+          total: input.window.total_items,
+        }),
+      ),
       sourceHistoryLength: input.window.source_history_length,
     },
+  };
+}
+
+function feedWindowBoundsAvailability(
+  window: Partial<Pick<HistoryWindowState | ThreadWindowState, "has_older_items" | "has_newer_items">>,
+  fallback: { has_older_items: boolean; has_newer_items: boolean },
+): { hasOlderItems: boolean; hasNewerItems: boolean } {
+  const availability = readWindowAvailability(window, fallback);
+  return {
+    hasOlderItems: availability.has_older_items,
+    hasNewerItems: availability.has_newer_items,
   };
 }
 

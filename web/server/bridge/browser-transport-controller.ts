@@ -18,6 +18,7 @@ import {
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { buildLeaderProjectionSnapshot } from "../../shared/leader-projection.js";
 import { buildThreadWindowSync, getThreadWindowItemCount } from "../../shared/thread-window.js";
+import { deriveWindowAvailability } from "../../shared/window-availability.js";
 import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
@@ -992,6 +993,11 @@ export function sendHistoryWindowSync(
     from_turn: fromTurn,
     turn_count: totalTurns === 0 ? 0 : turnCount,
     total_turns: totalTurns,
+    ...deriveWindowAvailability({
+      from: fromTurn,
+      count: totalTurns === 0 ? 0 : turnCount,
+      total: totalTurns,
+    }),
     start_index: startIdx,
     section_turn_count: normalizedSectionTurnCount,
     visible_section_count: normalizedVisibleSectionCount,

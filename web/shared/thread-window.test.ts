@@ -68,6 +68,8 @@ describe("thread window hydration", () => {
       sync.entries.map((entry) => (entry.message.type === "assistant" ? entry.message.message.id : entry.message.id)),
     ).toEqual(["u2", "a3", "a4"]);
     expect(sync.entries.map((entry) => entry.history_index)).toEqual([1, 2, 3]);
+    expect(sync.window.has_older_items).toBe(false);
+    expect(sync.window.has_newer_items).toBe(false);
   });
 
   it("expands tool closure context across requested quest window boundaries", () => {
@@ -100,6 +102,30 @@ describe("thread window hydration", () => {
     expect(sync.window.item_count).toBe(1);
     expect(sync.entries.map((entry) => entry.history_index)).toEqual([0, 1, 2]);
     expect(sync.entries.map((entry) => entry.message.type)).toEqual(["assistant", "tool_result_preview", "assistant"]);
+    expect(sync.window.has_older_items).toBe(false);
+    expect(sync.window.has_newer_items).toBe(false);
+  });
+
+  it("keeps newer availability when closure expansion does not cover every newer logical item", () => {
+    const history = [
+      assistant("a1", "using a tool", { threadKey: "q-1", toolUseId: "tool-1" }),
+      user("u2", "intermediate quest message", "q-1"),
+      assistant("a3", "tool result follow-up", { parentToolUseId: "tool-1" }),
+      user("u4", "tail quest message", "q-1"),
+    ];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-1",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+
+    expect(sync.entries.map((entry) => entry.history_index)).toEqual([0, 2]);
+    expect(sync.window.has_older_items).toBe(false);
+    expect(sync.window.has_newer_items).toBe(true);
   });
 
   it("preserves current Main feed semantics without returning quest-thread messages", () => {
@@ -174,6 +200,8 @@ describe("thread window hydration", () => {
 
     expect(sync.window.source_history_length).toBe(1_000);
     expect(sync.window.total_items).toBe(10);
+    expect(sync.window.has_older_items).toBe(true);
+    expect(sync.window.has_newer_items).toBe(false);
     expect(sync.entries).toHaveLength(3);
     expect(sync.entries.map((entry) => entry.history_index)).toEqual([700, 800, 900]);
   });

@@ -617,13 +617,7 @@ export function MessageFeed({
   useEffect(() => {
     pendingSectionLoadKeyRef.current = null;
     setPendingSectionLoadDirection(null);
-  }, [
-    activeHistoryWindow?.from_turn,
-    activeHistoryWindow?.turn_count,
-    activeThreadWindow?.from_item,
-    activeThreadWindow?.item_count,
-    sectionWindowStart,
-  ]);
+  }, [activeHistoryWindow, activeThreadWindow, sectionWindowStart]);
   // Collapsible turn IDs: all turns with agent content are collapsible (including the last).
   // Stats and text preview recompute as new messages stream in.
   const collapsibleTurnIds = useMemo(

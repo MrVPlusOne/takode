@@ -7,6 +7,7 @@ import type {
   ThreadWindowState,
   ThreadTransitionMarker,
 } from "../server/session-types.js";
+import { deriveWindowAvailability } from "./window-availability.js";
 import {
   inferThreadTargetFromTextContent,
   isQuestThreadKey,
@@ -66,6 +67,12 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
   const endItem = Math.min(totalItems, fromItem + requestedItemCount);
   const selectedItems = items.slice(fromItem, endItem);
   const entries = dedupeEntries(expandToolClosureItems(input.messageHistory, threadKey, selectedItems));
+  const availability = deriveThreadWindowAvailability({
+    items,
+    entries,
+    fromItem,
+    endItem,
+  });
   return {
     threadKey,
     entries,
@@ -74,10 +81,41 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
       from_item: fromItem,
       item_count: Math.max(0, endItem - fromItem),
       total_items: totalItems,
+      ...availability,
       source_history_length: input.messageHistory.length,
       section_item_count: sectionItemCount,
       visible_item_count: visibleItemCount,
     },
+  };
+}
+
+function deriveThreadWindowAvailability(input: {
+  items: FeedItem[];
+  entries: ThreadWindowEntry[];
+  fromItem: number;
+  endItem: number;
+}) {
+  const fallback = deriveWindowAvailability({
+    from: input.fromItem,
+    count: Math.max(0, input.endItem - input.fromItem),
+    total: input.items.length,
+  });
+  if (input.items.length === 0 || input.entries.length === 0) return fallback;
+
+  const itemIndexByKey = new Map<string, number>();
+  input.items.forEach((item, index) => {
+    itemIndexByKey.set(entryKey(item.entry), index);
+  });
+
+  const representedItemIndexes = new Set<number>();
+  input.entries.forEach((entry) => {
+    const index = itemIndexByKey.get(entryKey(entry));
+    if (index !== undefined) representedItemIndexes.add(index);
+  });
+
+  return {
+    has_older_items: input.items.some((_, index) => index < input.fromItem && !representedItemIndexes.has(index)),
+    has_newer_items: input.items.some((_, index) => index >= input.endItem && !representedItemIndexes.has(index)),
   };
 }
 
@@ -206,13 +244,16 @@ function dedupeEntries(items: FeedItem[]): ThreadWindowEntry[] {
   const seen = new Set<string>();
   const entries: ThreadWindowEntry[] = [];
   for (const item of items.sort((a, b) => a.order - b.order)) {
-    const id = rawMessageId(item.entry.message, item.entry.history_index);
-    const key = `${item.entry.history_index}:${id}`;
+    const key = entryKey(item.entry);
     if (seen.has(key)) continue;
     seen.add(key);
     entries.push(item.entry);
   }
   return entries;
+}
+
+function entryKey(entry: ThreadWindowEntry): string {
+  return `${entry.history_index}:${rawMessageId(entry.message, entry.history_index)}`;
 }
 
 function buildCrossThreadActivityItem(

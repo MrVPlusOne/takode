@@ -601,6 +601,8 @@ export interface HistoryWindowState {
   from_turn: number;
   turn_count: number;
   total_turns: number;
+  has_older_items?: boolean;
+  has_newer_items?: boolean;
   /** Raw session.messageHistory index of the first message in this window. */
   start_index?: number;
   section_turn_count: number;
@@ -613,6 +615,8 @@ export interface ThreadWindowState {
   from_item: number;
   item_count: number;
   total_items: number;
+  has_older_items?: boolean;
+  has_newer_items?: boolean;
   source_history_length: number;
   section_item_count: number;
   visible_item_count: number;

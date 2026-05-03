@@ -2,6 +2,7 @@ import type { HistoryWindowState, SessionAttentionRecord, SessionNotification, T
 import type { ChatMessage } from "../types.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import type { FeedSection } from "../components/message-feed-sections.js";
+import { deriveWindowAvailability, readWindowAvailability } from "../../shared/window-availability.js";
 import {
   DEFAULT_VISIBLE_SECTION_COUNT,
   buildFeedSections,
@@ -182,15 +183,35 @@ export function buildFeedWindowModel(input: BuildFeedWindowModelInput): FeedWind
     : findPreviousSectionStartIndex(sections, visibleSectionStartIndex);
   const nextSectionStartIndex =
     !isWindowedFeed && visibleSectionStartIndex + 1 < sections.length ? visibleSectionStartIndex + 1 : null;
-  const hasOlderSections = activeThreadWindow
-    ? activeThreadWindow.from_item > 0
-    : activeHistoryWindow
-      ? activeHistoryWindow.from_turn > 0
+  const activeThreadAvailability = activeThreadWindow
+    ? readWindowAvailability(
+        activeThreadWindow,
+        deriveWindowAvailability({
+          from: activeThreadWindow.from_item,
+          count: activeThreadWindow.item_count,
+          total: activeThreadWindow.total_items,
+        }),
+      )
+    : null;
+  const activeHistoryAvailability = activeHistoryWindow
+    ? readWindowAvailability(
+        activeHistoryWindow,
+        deriveWindowAvailability({
+          from: activeHistoryWindow.from_turn,
+          count: activeHistoryWindow.turn_count,
+          total: activeHistoryWindow.total_turns,
+        }),
+      )
+    : null;
+  const hasOlderSections = activeThreadAvailability
+    ? activeThreadAvailability.has_older_items
+    : activeHistoryAvailability
+      ? activeHistoryAvailability.has_older_items
       : previousSectionStartIndex !== null;
-  const hasNewerSections = activeThreadWindow
-    ? activeThreadWindow.from_item + activeThreadWindow.item_count < activeThreadWindow.total_items
-    : activeHistoryWindow
-      ? activeHistoryWindow.from_turn + activeHistoryWindow.turn_count < activeHistoryWindow.total_turns
+  const hasNewerSections = activeThreadAvailability
+    ? activeThreadAvailability.has_newer_items
+    : activeHistoryAvailability
+      ? activeHistoryAvailability.has_newer_items
       : input.sectionWindowStart !== null && nextSectionStartIndex !== null;
 
   return {
