@@ -1,5 +1,5 @@
 import type { BrowserIncomingMessage, HistoryWindowState, ThreadWindowEntry, ThreadWindowState } from "../types.js";
-import { scopedGetItem, scopedSetItem } from "./scoped-storage.js";
+import { scopedGetItem, scopedRemoveItem, scopedSetItem } from "./scoped-storage.js";
 import { normalizeThreadKey } from "./thread-projection.js";
 
 const HISTORY_CACHE_VERSION = 1;
@@ -106,6 +106,16 @@ export function cacheThreadWindow(sessionId: string, window: ThreadWindowState, 
     entry,
     MAX_THREAD_ENTRIES_PER_THREAD,
   );
+}
+
+export function invalidateHistoryWindowCache(sessionId: string): void {
+  if (typeof window === "undefined") return;
+  scopedRemoveItem(historyStorageKey(sessionId));
+}
+
+export function invalidateThreadWindowCache(sessionId: string, threadKey: string): void {
+  if (typeof window === "undefined") return;
+  scopedRemoveItem(threadStorageKey(sessionId, threadKey));
 }
 
 export function resolveCachedHistoryWindowMessages(

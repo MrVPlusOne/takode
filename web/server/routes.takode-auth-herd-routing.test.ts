@@ -177,6 +177,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
 import { _resetModelCache } from "./routes/system.js";
+import { _resetThreadAttachmentHistoryBroadcastsForTest } from "./routes/takode.js";
 import { trafficStats } from "./traffic-stats.js";
 import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
 import * as serverLoggerModule from "./server-logger.js";
@@ -494,6 +495,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetThreadAttachmentHistoryBroadcastsForTest();
   vi.useRealTimers();
 });
 
@@ -654,10 +656,23 @@ describe("Takode server-authoritative auth", () => {
       messages: bridge._sessions["orch-1"].messageHistory,
     });
     vi.advanceTimersByTime(100);
-    expect(bridge.broadcastToSession).toHaveBeenCalledWith("orch-1", {
-      type: "message_history",
-      messages: bridge._sessions["orch-1"].messageHistory,
-    });
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
+      "orch-1",
+      expect.objectContaining({
+        type: "thread_attachment_update",
+        affectedThreadKeys: expect.arrayContaining(["main", "q-941"]),
+        updates: [
+          expect.objectContaining({
+            target: { threadKey: "q-941", questId: "q-941" },
+            markerHistoryIndices: [3],
+            changedMessages: [
+              expect.objectContaining({ historyIndex: 1, messageId: "a2" }),
+              expect.objectContaining({ historyIndex: 2, messageId: "a3" }),
+            ],
+          }),
+        ],
+      }),
+    );
     expect(bridge.persistSessionById).toHaveBeenCalledWith("orch-1");
   });
 

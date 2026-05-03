@@ -82,6 +82,21 @@ export type FrontendPerfEntry =
       durationMs: number;
     }
   | {
+      kind: "thread_attachment_update_apply";
+      timestamp: number;
+      sessionId: string;
+      updateCount: number;
+      markerCount: number;
+      changedMessageCount: number;
+      affectedThreadCount: number;
+      requestedHistoryWindowCount: number;
+      requestedThreadWindowCount: number;
+      durationMs: number;
+      ok: boolean;
+      deduped?: boolean;
+      recoveryReason?: string;
+    }
+  | {
       kind: "tree_groups_update_apply";
       timestamp: number;
       sessionId: string;

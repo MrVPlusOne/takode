@@ -902,7 +902,11 @@ export function sendHistoryWindowSync(
   let messages: BrowserIncomingMessage[] = session.messageHistory.slice();
 
   if (totalTurns > 0) {
-    fromTurn = Math.max(0, Math.min(Math.floor(options.fromTurn), totalTurns - 1));
+    const requestedFromTurn = Math.floor(options.fromTurn);
+    fromTurn =
+      requestedFromTurn < 0
+        ? Math.max(0, totalTurns - normalizedTurnCount)
+        : Math.max(0, Math.min(requestedFromTurn, totalTurns - 1));
     const endTurnExclusive = Math.min(totalTurns, fromTurn + normalizedTurnCount);
     turnCount = Math.max(0, endTurnExclusive - fromTurn);
     startIdx = turns[fromTurn]?.startIdx ?? 0;

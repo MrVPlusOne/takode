@@ -307,6 +307,36 @@ export interface ThreadAttachmentMovementSummary {
   markerIds: string[];
 }
 
+export interface ThreadAttachmentUpdateChangedMessage {
+  historyIndex: number;
+  messageId: string;
+  threadRefs: ThreadRef[];
+}
+
+export interface ThreadAttachmentUpdateEntry {
+  target: { threadKey: string; questId?: string };
+  source?: { threadKey: string; questId?: string };
+  markers: ThreadAttachmentMarker[];
+  markerHistoryIndices: number[];
+  changedMessages: ThreadAttachmentUpdateChangedMessage[];
+  ranges: string[];
+  count: number;
+}
+
+export interface ThreadAttachmentUpdate {
+  type: "thread_attachment_update";
+  version: 1;
+  updateId: string;
+  timestamp: number;
+  attachedAt: number;
+  attachedBy: string;
+  historyLength: number;
+  affectedThreadKeys: string[];
+  maxDistanceFromTail: number;
+  maxChangedMessages: number;
+  updates: ThreadAttachmentUpdateEntry[];
+}
+
 export interface ThreadTransitionMarker {
   type: "thread_transition_marker";
   id: string;
@@ -729,6 +759,7 @@ export type BrowserIncomingMessageBase =
   | { type: "codex_pending_inputs"; inputs: PendingCodexInput[] }
   | { type: "codex_pending_input_cancelled"; input: PendingCodexInput }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }
+  | ThreadAttachmentUpdate
   | { type: "feed_window_sync"; sync: FeedWindowSync }
   | { type: "history_window_sync"; messages: BrowserIncomingMessage[]; window: HistoryWindowState; cache_hit?: boolean }
   | {

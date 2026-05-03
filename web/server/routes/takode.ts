@@ -29,12 +29,19 @@ import {
 } from "../bridge/session-git-state.js";
 import { buildBoardRowSessionStatuses as buildBoardRowSessionStatusesController } from "../board-row-session-status.js";
 import { getSettings } from "../settings-manager.js";
-import { type BrowserIncomingMessage, type BrowserOutgoingMessage, type ThreadRef } from "../session-types.js";
+import {
+  type BrowserIncomingMessage,
+  type BrowserOutgoingMessage,
+  type ThreadAttachmentUpdate,
+  type ThreadAttachmentUpdateEntry,
+  type ThreadRef,
+} from "../session-types.js";
 import {
   buildThreadAttachmentSelection,
   hasThreadAttachmentMarker,
   inferThreadAttachmentSourceRoute,
   inferThreadRouteFromTextContent,
+  messageIdForThreadAttachment,
   routeKey,
   sameThreadRoute,
   threadRouteForTarget,
@@ -45,7 +52,14 @@ import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
 
 const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
+const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
+const THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT = 300;
+const THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES = 100;
 const pendingThreadAttachmentHistoryBroadcasts = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingThreadAttachmentUpdates = new Map<
+  string,
+  { timer: ReturnType<typeof setTimeout>; changedCount: number; updates: ThreadAttachmentUpdateEntry[] }
+>();
 
 function scheduleThreadAttachmentHistoryBroadcast(wsBridge: RouteContext["wsBridge"], sessionId: string): void {
   const existing = pendingThreadAttachmentHistoryBroadcasts.get(sessionId);
@@ -60,11 +74,130 @@ function scheduleThreadAttachmentHistoryBroadcast(wsBridge: RouteContext["wsBrid
   pendingThreadAttachmentHistoryBroadcasts.set(sessionId, timer);
 }
 
+function normalizeAffectedThreadKey(threadKey: string | undefined): string | null {
+  const normalized = threadKey?.trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized;
+}
+
+function pendingThreadAttachmentChangedCount(sessionId: string): number {
+  return pendingThreadAttachmentUpdates.get(sessionId)?.changedCount ?? 0;
+}
+
+function threadAttachmentEntryAttachedAt(update: ThreadAttachmentUpdateEntry): number | undefined {
+  const markerAttachedAt = update.markers[0]?.attachedAt;
+  if (typeof markerAttachedAt === "number") return markerAttachedAt;
+  for (const message of update.changedMessages) {
+    const refAttachedAt = message.threadRefs.find((ref) => typeof ref.attachedAt === "number")?.attachedAt;
+    if (typeof refAttachedAt === "number") return refAttachedAt;
+  }
+  return undefined;
+}
+
+function threadAttachmentEntryAttachedBy(update: ThreadAttachmentUpdateEntry): string | undefined {
+  const markerAttachedBy = update.markers[0]?.attachedBy;
+  if (markerAttachedBy) return markerAttachedBy;
+  for (const message of update.changedMessages) {
+    const refAttachedBy = message.threadRefs.find((ref) => ref.attachedBy)?.attachedBy;
+    if (refAttachedBy) return refAttachedBy;
+  }
+  return undefined;
+}
+
+function buildThreadAttachmentBoundError(input: {
+  questId: string;
+  historyLength: number;
+  selectedIndices: number[];
+  changedCount: number;
+  pendingChangedCount: number;
+}): Record<string, unknown> | null {
+  const minAllowedIndex = Math.max(0, input.historyLength - THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT);
+  const validSelectedIndices = input.selectedIndices.filter((index) => index >= 0 && index < input.historyLength);
+  const minSelectedIndex = validSelectedIndices[0];
+  const maxSelectedIndex = validSelectedIndices[validSelectedIndices.length - 1];
+  if (typeof minSelectedIndex === "number" && minSelectedIndex < minAllowedIndex) {
+    return {
+      error: "Thread attach range is outside the recent bounded update window",
+      code: "THREAD_ATTACH_OUTSIDE_RECENT_WINDOW",
+      questId: input.questId,
+      historyLength: input.historyLength,
+      minSelectedIndex,
+      maxSelectedIndex,
+      minAllowedIndex,
+      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
+      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
+      suggestion: "Attach recent messages only.",
+    };
+  }
+  if (input.pendingChangedCount + input.changedCount > THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES) {
+    return {
+      error: "Thread attach selection exceeds the bounded update message limit",
+      code: "THREAD_ATTACH_TOO_MANY_MESSAGES",
+      questId: input.questId,
+      changedMessages: input.changedCount,
+      pendingChangedMessages: input.pendingChangedCount,
+      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
+      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
+      suggestion: "Attach fewer messages in this recent burst.",
+    };
+  }
+  return null;
+}
+
+function scheduleThreadAttachmentUpdateBroadcast(
+  wsBridge: RouteContext["wsBridge"],
+  sessionId: string,
+  update: ThreadAttachmentUpdateEntry,
+): void {
+  const existing = pendingThreadAttachmentUpdates.get(sessionId);
+  if (existing) clearTimeout(existing.timer);
+
+  const updates = [...(existing?.updates ?? []), update];
+  const changedCount = (existing?.changedCount ?? 0) + update.changedMessages.length;
+  const timer = setTimeout(() => {
+    pendingThreadAttachmentUpdates.delete(sessionId);
+    const session = wsBridge.getSession(sessionId);
+    if (!session) return;
+    const timestamp = Date.now();
+    const affectedThreadKeys = new Set<string>(["main"]);
+    for (const item of updates) {
+      const target = normalizeAffectedThreadKey(item.target.threadKey);
+      const targetQuest = normalizeAffectedThreadKey(item.target.questId);
+      const source = normalizeAffectedThreadKey(item.source?.threadKey);
+      const sourceQuest = normalizeAffectedThreadKey(item.source?.questId);
+      if (target) affectedThreadKeys.add(target);
+      if (targetQuest) affectedThreadKeys.add(targetQuest);
+      if (source) affectedThreadKeys.add(source);
+      if (sourceQuest) affectedThreadKeys.add(sourceQuest);
+    }
+    const markerIds = updates.flatMap((item) => item.markers.map((marker) => marker.id));
+    const event: ThreadAttachmentUpdate = {
+      type: "thread_attachment_update",
+      version: THREAD_ATTACHMENT_UPDATE_VERSION,
+      updateId: `thread-attachment-update:${timestamp}:${markerIds.join(",") || changedCount}`,
+      timestamp,
+      attachedAt: threadAttachmentEntryAttachedAt(updates[0]!) ?? timestamp,
+      attachedBy: threadAttachmentEntryAttachedBy(updates[0]!) ?? "",
+      historyLength: session.messageHistory.length,
+      affectedThreadKeys: [...affectedThreadKeys],
+      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
+      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
+      updates,
+    };
+    wsBridge.broadcastToSession(sessionId, event);
+  }, THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS);
+  pendingThreadAttachmentUpdates.set(sessionId, { timer, changedCount, updates });
+}
+
 export function _resetThreadAttachmentHistoryBroadcastsForTest(): void {
   for (const timer of pendingThreadAttachmentHistoryBroadcasts.values()) {
     clearTimeout(timer);
   }
   pendingThreadAttachmentHistoryBroadcasts.clear();
+  for (const pending of pendingThreadAttachmentUpdates.values()) {
+    clearTimeout(pending.timer);
+  }
+  pendingThreadAttachmentUpdates.clear();
 }
 
 export function createTakodeRoutes(ctx: RouteContext) {
@@ -959,7 +1092,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
       }
       const existing = entry.threadRefs ?? [];
       if (!existing.some((item) => item.threadKey.toLowerCase() === questId)) {
-        entry.threadRefs = [...existing, ref];
         attached.push(index);
       } else {
         alreadyAttached.push(index);
@@ -968,14 +1100,33 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (attached.length === 0 && alreadyAttached.length === 0) {
       return c.json({ error: "No message indices were in range", outOfRange }, 400);
     }
+    const boundError = buildThreadAttachmentBoundError({
+      questId,
+      historyLength: session.messageHistory.length,
+      selectedIndices: sortedIndices,
+      changedCount: attached.length,
+      pendingChangedCount: pendingThreadAttachmentChangedCount(id),
+    });
+    if (boundError) {
+      return c.json(boundError, 400);
+    }
+
+    for (const index of attached) {
+      const entry = session.messageHistory[index];
+      if (!entry) continue;
+      entry.threadRefs = [...(entry.threadRefs ?? []), ref];
+    }
+
     let marker: BrowserIncomingMessage | undefined;
+    let markerHistoryIndex: number | undefined;
     if (attached.length > 0) {
       const selection = buildThreadAttachmentSelection(session.messageHistory, questId, attached);
       if (!hasThreadAttachmentMarker(session.messageHistory, selection.markerKey)) {
         const timestamp = Date.now();
+        markerHistoryIndex = session.messageHistory.length;
         marker = {
           type: "thread_attachment_marker",
-          id: `thread-attachment-${timestamp}-${session.messageHistory.length}`,
+          id: `thread-attachment-${timestamp}-${markerHistoryIndex}`,
           timestamp,
           markerKey: selection.markerKey,
           ...(sourceRoute ? { sourceThreadKey: sourceRoute.threadKey } : {}),
@@ -995,8 +1146,33 @@ export function createTakodeRoutes(ctx: RouteContext) {
       }
     }
 
-    scheduleThreadAttachmentHistoryBroadcast(wsBridge, id);
-    wsBridge.persistSessionById(id);
+    if (attached.length > 0) {
+      const changedMessages = attached.map((historyIndex) => {
+        const entry = session.messageHistory[historyIndex]!;
+        return {
+          historyIndex,
+          messageId: messageIdForThreadAttachment(entry, historyIndex),
+          threadRefs: entry.threadRefs ?? [],
+        };
+      });
+      scheduleThreadAttachmentUpdateBroadcast(wsBridge, id, {
+        target: { threadKey: questId, questId },
+        ...(sourceRoute
+          ? {
+              source: {
+                threadKey: sourceRoute.threadKey,
+                ...(sourceRoute.questId ? { questId: sourceRoute.questId } : {}),
+              },
+            }
+          : {}),
+        markers: marker && marker.type === "thread_attachment_marker" ? [marker] : [],
+        markerHistoryIndices: typeof markerHistoryIndex === "number" ? [markerHistoryIndex] : [],
+        changedMessages,
+        ranges: marker && marker.type === "thread_attachment_marker" ? marker.ranges : [],
+        count: attached.length,
+      });
+      wsBridge.persistSessionById(id);
+    }
     return c.json({ ok: true, sessionId: id, questId, attached, alreadyAttached, outOfRange, marker });
   });
 

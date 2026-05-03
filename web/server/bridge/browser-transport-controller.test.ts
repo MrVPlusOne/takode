@@ -467,6 +467,61 @@ describe("history window tool results", () => {
     expect(payload.window.window_hash).toBe(firstPayload.window.window_hash);
   });
 
+  it("treats negative history window fromTurn as the latest bounded window", () => {
+    const send = vi.fn();
+    const session = makeSession({
+      messageHistory: [
+        { type: "user_message", id: "u1", content: "turn 1", timestamp: 1000 } as BrowserIncomingMessage,
+        {
+          type: "result",
+          data: {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "",
+            duration_ms: 1,
+            duration_api_ms: 1,
+            num_turns: 1,
+            total_cost_usd: 0,
+            session_id: "test-session",
+          },
+        } as BrowserIncomingMessage,
+        { type: "user_message", id: "u2", content: "turn 2", timestamp: 2000 } as BrowserIncomingMessage,
+        {
+          type: "result",
+          data: {
+            type: "result",
+            subtype: "success",
+            is_error: false,
+            result: "",
+            duration_ms: 1,
+            duration_api_ms: 1,
+            num_turns: 1,
+            total_cost_usd: 0,
+            session_id: "test-session",
+          },
+        } as BrowserIncomingMessage,
+        { type: "user_message", id: "u3", content: "turn 3", timestamp: 3000 } as BrowserIncomingMessage,
+      ],
+    });
+
+    sendHistoryWindowSync(
+      session,
+      { send },
+      { fromTurn: -1, turnCount: 2, sectionTurnCount: 1, visibleSectionCount: 2 },
+    );
+
+    const payload = JSON.parse(send.mock.calls[0][0]);
+    expect(payload.type).toBe("history_window_sync");
+    expect(payload.window.from_turn).toBe(1);
+    expect(payload.window.turn_count).toBe(2);
+    expect(payload.messages.map((message: BrowserIncomingMessage) => (message as { id?: string }).id)).toEqual([
+      "u2",
+      undefined,
+      "u3",
+    ]);
+  });
+
   it("sends additive feed_window_sync only when the browser advertises v1 support", () => {
     const send = vi.fn();
     const session = makeSession({

@@ -27,6 +27,7 @@ import {
 } from "./utils/history-window-cache.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
+import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -720,6 +721,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     case "thread_attachment_marker": {
       const [message] = normalizeHistoryMessageToChatMessages(data, -1);
       if (message) store.appendMessage(sessionId, message);
+      break;
+    }
+
+    case "thread_attachment_update": {
+      applyThreadAttachmentUpdate(sessionId, data, deps);
       break;
     }
 
