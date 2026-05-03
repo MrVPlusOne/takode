@@ -166,6 +166,11 @@ describe("Playground", () => {
     expect(activeOutputMarker).toHaveAttribute("data-reduced-motion-static", "true");
     expect(activeOutputMarker).toHaveAttribute("data-dot-position", "left");
     expect(activeOutputMarker).toHaveAttribute("data-overlaps-needs-input", "true");
+    expect(activeOutputMarker).toHaveAttribute("data-bell-center-offset", "12px");
+    expect(activeOutputMarker).toHaveAttribute("data-halo-center-offset", "12px");
+    expect(activeOutputMarker).toHaveClass("inset-0");
+    expect(activeOutputMarker).not.toHaveClass("inset-x-1");
+    expect(within(activeOutputMarker).getByTestId("thread-tab-active-output-glint-track")).toHaveClass("inset-x-1");
     expect(within(activeOutputMarker).getByTestId("thread-tab-active-output-glint")).toHaveClass(
       "thread-tab-output-glint",
     );

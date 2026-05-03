@@ -790,9 +790,14 @@ describe("WorkBoardBar", () => {
     expect(activeMarker).toHaveAttribute("data-reduced-motion-static", "true");
     expect(activeMarker).toHaveAttribute("data-dot-position", "left");
     expect(activeMarker).toHaveAttribute("data-overlaps-needs-input", "true");
+    expect(activeMarker).toHaveAttribute("data-bell-center-offset", "14px");
+    expect(activeMarker).toHaveAttribute("data-halo-center-offset", "14px");
+    expect(activeMarker).toHaveClass("inset-0");
+    expect(activeMarker).not.toHaveClass("inset-x-1");
+    expect(within(activeMarker).getByTestId("thread-tab-active-output-glint-track")).toHaveClass("inset-x-1");
     expect(within(activeMarker).getByTestId("thread-tab-active-output-glint")).toHaveClass("thread-tab-output-glint");
     expect(within(activeMarker).getByTestId("thread-tab-active-output-dot")).toHaveClass(
-      "left-1.5",
+      "left-2",
       "top-1/2",
       "h-3",
       "w-3",
@@ -1039,6 +1044,11 @@ describe("WorkBoardBar", () => {
     const activeMarker = within(needsInputTab).getByTestId("thread-tab-active-output-indicator");
     expect(activeMarker).toHaveAttribute("data-dot-position", "left");
     expect(activeMarker).toHaveAttribute("data-overlaps-needs-input", "true");
+    expect(activeMarker).toHaveAttribute("data-bell-center-offset", "12px");
+    expect(activeMarker).toHaveAttribute("data-halo-center-offset", "12px");
+    expect(activeMarker).toHaveClass("inset-0");
+    expect(activeMarker).not.toHaveClass("inset-x-1");
+    expect(within(activeMarker).getByTestId("thread-tab-active-output-glint-track")).toHaveClass("inset-x-1");
     expect(within(activeMarker).getByTestId("thread-tab-active-output-glint")).toHaveClass("thread-tab-output-glint");
     expect(within(activeMarker).getByTestId("thread-tab-active-output-dot")).toHaveClass(
       "left-1.5",
@@ -1091,10 +1101,15 @@ describe("WorkBoardBar", () => {
     expect(marker).toHaveAttribute("data-reduced-motion-static", "true");
     expect(marker).toHaveAttribute("data-dot-position", "left");
     expect(marker).toHaveAttribute("data-overlaps-needs-input", "false");
+    expect(marker).toHaveAttribute("data-bell-center-offset", "");
+    expect(marker).toHaveAttribute("data-halo-center-offset", "");
+    expect(marker).toHaveClass("inset-0");
+    expect(marker).not.toHaveClass("inset-x-1");
+    expect(within(marker).getByTestId("thread-tab-active-output-glint-track")).toHaveClass("inset-x-1");
     expect(glint).toHaveAttribute("data-reduced-motion", "animation-disabled");
     expect(glint).toHaveClass("thread-tab-output-glint");
     expect(within(marker).getByTestId("thread-tab-active-output-dot")).toHaveClass(
-      "left-1.5",
+      "left-2.5",
       "top-1",
       "h-1.5",
       "w-1.5",

@@ -595,21 +595,36 @@ function ThreadTabRail({
     );
   }
 
-  function ActiveOutputIndicator({ overlapsNeedsInput }: { overlapsNeedsInput: boolean }) {
-    const dotClassName = overlapsNeedsInput
-      ? "absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-sky-50/95 shadow-[0_0_10px_rgba(224,242,254,0.86)] ring-1 ring-violet-100/80"
-      : "absolute left-1.5 top-1 h-1.5 w-1.5 rounded-full bg-sky-100 shadow-[0_0_8px_rgba(125,211,252,0.75)] ring-1 ring-violet-100/70";
+  function ActiveOutputIndicator({
+    overlapsNeedsInput,
+    bellCenterOffset,
+  }: {
+    overlapsNeedsInput: boolean;
+    bellCenterOffset?: "12px" | "14px";
+  }) {
+    const dotClassName =
+      overlapsNeedsInput && bellCenterOffset === "14px"
+        ? "absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-sky-50/95 shadow-[0_0_10px_rgba(224,242,254,0.86)] ring-1 ring-violet-100/80"
+        : overlapsNeedsInput
+          ? "absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 rounded-full bg-sky-50/95 shadow-[0_0_10px_rgba(224,242,254,0.86)] ring-1 ring-violet-100/80"
+          : "absolute left-2.5 top-1 h-1.5 w-1.5 rounded-full bg-sky-100 shadow-[0_0_8px_rgba(125,211,252,0.75)] ring-1 ring-violet-100/70";
+    const haloCenterOffset = overlapsNeedsInput ? bellCenterOffset : undefined;
 
     return (
       <span
-        className="pointer-events-none absolute inset-x-1 inset-y-0"
+        className="pointer-events-none absolute inset-0"
         aria-hidden="true"
         data-testid="thread-tab-active-output-indicator"
         data-reduced-motion-static="true"
         data-dot-position="left"
         data-overlaps-needs-input={overlapsNeedsInput ? "true" : "false"}
+        data-bell-center-offset={bellCenterOffset ?? ""}
+        data-halo-center-offset={haloCenterOffset ?? ""}
       >
-        <span className="absolute inset-x-0 top-0 h-px overflow-hidden rounded-full bg-violet-100/30">
+        <span
+          className="absolute inset-x-1 top-0 h-px overflow-hidden rounded-full bg-violet-100/30"
+          data-testid="thread-tab-active-output-glint-track"
+        >
           <span
             className="thread-tab-output-glint absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-transparent via-white to-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.66)]"
             data-testid="thread-tab-active-output-glint"
@@ -745,7 +760,12 @@ function ThreadTabRail({
           data-min-label="Main Thread"
           aria-pressed={mainSelected}
         >
-          {mainActiveOutput && <ActiveOutputIndicator overlapsNeedsInput={mainNeedsInput} />}
+          {mainActiveOutput && (
+            <ActiveOutputIndicator
+              overlapsNeedsInput={mainNeedsInput}
+              bellCenterOffset={mainNeedsInput ? "14px" : undefined}
+            />
+          )}
           {mainNeedsInput && <NeedsInputBell activeOutput={mainActiveOutput} />}
           <ActiveTitle activeOutput={mainActiveOutput}>
             <span className="min-w-0 truncate">Main Thread</span>
@@ -780,7 +800,12 @@ function ThreadTabRail({
               data-closable={tab.canClose ? "true" : "false"}
               data-has-quest-hover={hoverQuest ? "true" : "false"}
             >
-              {activeOutput && <ActiveOutputIndicator overlapsNeedsInput={tab.needsInput} />}
+              {activeOutput && (
+                <ActiveOutputIndicator
+                  overlapsNeedsInput={tab.needsInput}
+                  bellCenterOffset={tab.needsInput ? "12px" : undefined}
+                />
+              )}
               <button
                 type="button"
                 onClick={() => openThread(tab.threadKey, tab.route)}
