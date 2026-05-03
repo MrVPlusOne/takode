@@ -115,6 +115,99 @@ describe("ToolBlock multi-file Edit rendering", () => {
 });
 
 describe("ToolBlock multi-file Write rendering", () => {
+  it("renders per-file diffs when Codex sends raw file contents in change diff fields", async () => {
+    // Codex can report newly written files as changes where `diff` is the
+    // complete file content, not unified diff text. Those still need per-file
+    // panels instead of empty diff viewers.
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    const postMessageSpy = vi.spyOn(window.parent, "postMessage");
+    const innerScriptPath = "/tmp/retry/full_datagen_inner.sh";
+    const wrapperScriptPath = "/tmp/retry/launch_tmux_retry.sh";
+
+    const { container } = render(
+      <ToolBlock
+        name="Write"
+        input={{
+          file_path: innerScriptPath,
+          changes: [
+            {
+              path: innerScriptPath,
+              kind: "add",
+              diff: [
+                "#!/usr/bin/env bash",
+                "set -uo pipefail",
+                "",
+                "EXP_ROOT=/mnt/vast/data/example/run",
+                'DATAGEN_LOG="$EXP_ROOT/logs/datagen.log"',
+                "",
+                "{",
+                '  echo "__INNER_START__ $(date -u +%FT%TZ)"',
+                '  exec python user_scripts/datagen/standalone/launch.py >> "$DATAGEN_LOG" 2>&1',
+                "}",
+              ].join("\n"),
+            },
+            {
+              path: wrapperScriptPath,
+              kind: "add",
+              diff: [
+                "#!/usr/bin/env bash",
+                "set -euo pipefail",
+                "",
+                "SESSION=baseline_rollout",
+                "INNER=/tmp/full_datagen_inner.sh",
+                "",
+                'chmod +x "$INNER"',
+                'tmux new-session -d -s "$SESSION" "bash $INNER"',
+              ].join("\n"),
+            },
+          ],
+        }}
+        toolUseId="tool-multi-file-write-raw-content"
+        defaultOpen={false}
+      />,
+    );
+
+    const header = screen.getByRole("button", { name: /Write File.*2 files/ });
+    expect(header.textContent).not.toContain("full_datagen_inner");
+    expect(screen.queryByRole("button", { name: "Open File" })).toBeNull();
+
+    fireEvent.click(header);
+
+    expect(screen.queryByText("No changes")).toBeNull();
+    const diffFiles = Array.from(container.querySelectorAll(".diff-file"));
+    expect(diffFiles).toHaveLength(2);
+    expect(diffFiles[0].textContent).toContain("full_datagen_inner.sh");
+    expect(diffFiles[0].textContent).toContain("set -uo pipefail");
+    expect(diffFiles[1].textContent).toContain("launch_tmux_retry.sh");
+    expect(diffFiles[1].textContent).toContain("tmux new-session");
+    expect(container.querySelectorAll(".diff-line-add").length).toBeGreaterThan(2);
+
+    const openButtons = screen.getAllByRole("button", { name: "Open File" });
+    expect(openButtons).toHaveLength(2);
+
+    fireEvent.click(openButtons[0]);
+    fireEvent.click(openButtons[1]);
+
+    await waitFor(() => {
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        {
+          source: "takode-vscode-prototype",
+          type: "takode:open-file",
+          payload: { absolutePath: innerScriptPath, line: 1, column: 1 },
+        },
+        "*",
+      );
+      expect(postMessageSpy).toHaveBeenCalledWith(
+        {
+          source: "takode-vscode-prototype",
+          type: "takode:open-file",
+          payload: { absolutePath: wrapperScriptPath, line: 1, column: 1 },
+        },
+        "*",
+      );
+    });
+  });
+
   it("renders patch changes under each change path when content fallback would otherwise be non-empty", async () => {
     // Write parsing can derive synthetic content from patch text. Multi-file
     // patch payloads must be grouped before that fallback renders one combined

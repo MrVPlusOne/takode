@@ -44,6 +44,16 @@ describe("Playground", () => {
     expect(within(realChat).getByText(/^\[Thread routing reminder\]/)).toBeTruthy();
   });
 
+  it("documents multi-file Write blocks whose change diff fields contain raw file content", () => {
+    render(<Playground />);
+
+    expect(screen.getByRole("button", { name: /Write File.*2 files/ })).toBeTruthy();
+    expect(screen.getByText("full_datagen_inner.sh")).toBeTruthy();
+    expect(screen.getByText("launch_tmux_retry.sh")).toBeTruthy();
+    expect(document.body).toHaveTextContent("set -uo pipefail");
+    expect(document.body).toHaveTextContent("tmux new-session");
+  });
+
   it("shows the voice mode selector before the recording label in Playground composer states", () => {
     render(<Playground />);
 

@@ -940,6 +940,41 @@ export function PlaygroundOverviewSections() {
             sessionId={MOCK_SESSION_ID}
           />
           <ToolBlock
+            name="Write"
+            input={{
+              file_path: "/tmp/retry/full_datagen_inner.sh",
+              changes: [
+                {
+                  path: "/tmp/retry/full_datagen_inner.sh",
+                  kind: "add",
+                  diff: [
+                    "#!/usr/bin/env bash",
+                    "set -uo pipefail",
+                    "",
+                    "EXP_ROOT=/mnt/vast/data/example/run",
+                    'DATAGEN_LOG="$EXP_ROOT/logs/datagen.log"',
+                    'exec python user_scripts/datagen/standalone/launch.py >> "$DATAGEN_LOG" 2>&1',
+                  ].join("\n"),
+                },
+                {
+                  path: "/tmp/retry/launch_tmux_retry.sh",
+                  kind: "add",
+                  diff: [
+                    "#!/usr/bin/env bash",
+                    "set -euo pipefail",
+                    "",
+                    "SESSION=baseline_rollout",
+                    "INNER=/tmp/full_datagen_inner.sh",
+                    'tmux new-session -d -s "$SESSION" "bash $INNER"',
+                  ].join("\n"),
+                },
+              ],
+            }}
+            toolUseId="tb-4c"
+            sessionId={MOCK_SESSION_ID}
+            defaultOpen
+          />
+          <ToolBlock
             name="Glob"
             input={{ pattern: "**/*.tsx", path: "/Users/stan/Dev/project/src" }}
             toolUseId="tb-5"

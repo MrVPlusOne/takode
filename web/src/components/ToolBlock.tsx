@@ -13,6 +13,7 @@ import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
 import {
+  getChangeContent,
   getChangeFilePath,
   getChangePatch,
   getDistinctChangeFilePaths,
@@ -929,6 +930,7 @@ interface ChangePatchGroup {
   filePath: string;
   changes: Array<Record<string, unknown>>;
   unifiedDiff: string;
+  newText: string;
 }
 
 function buildChangePatchGroups(changes: Array<Record<string, unknown>>, fallbackFilePath = ""): ChangePatchGroup[] {
@@ -946,12 +948,16 @@ function buildChangePatchGroups(changes: Array<Record<string, unknown>>, fallbac
     }
 
     groupIndexes.set(filePath, groups.length);
-    groups.push({ filePath, changes: [change], unifiedDiff: "" });
+    groups.push({ filePath, changes: [change], unifiedDiff: "", newText: "" });
   }
 
   for (const group of groups) {
     group.unifiedDiff = group.changes
       .map((change) => getChangePatch(change))
+      .filter(Boolean)
+      .join("\n");
+    group.newText = group.changes
+      .map((change) => getChangeContent(change))
       .filter(Boolean)
       .join("\n");
   }
@@ -1114,13 +1120,14 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
 
   // File path and Open File button are now in the ToolBlock header
 
-  if (changePatchGroups.length > 1 && unifiedDiff) {
+  if (changePatchGroups.length > 1 && changePatchGroups.some((group) => group.unifiedDiff || group.newText)) {
     return (
       <div className="space-y-2">
         {changePatchGroups.map((group) => (
           <DiffViewer
             key={group.filePath}
-            unifiedDiff={group.unifiedDiff}
+            unifiedDiff={group.unifiedDiff || undefined}
+            newText={group.unifiedDiff ? undefined : group.newText}
             fileName={group.filePath}
             mode="full"
             headerActions={<DiffOpenFileButton filePath={group.filePath} cwd={sessionCwd} line={1} />}
