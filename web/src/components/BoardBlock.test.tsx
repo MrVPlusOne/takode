@@ -1,25 +1,26 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, it, expect, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { act, render, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { BoardBlock } from "./BoardBlock.js";
 import type { BoardRowData } from "./BoardTable.js";
 import type { BoardRowSessionStatus } from "../types.js";
 
 const liveRowSessionStatuses = new Map<string, Record<string, BoardRowSessionStatus>>();
+const mockSetLatestBoardToolUseId = vi.fn();
 
 vi.mock("../store.js", () => ({
   useStore: (
     selector: (state: {
       latestBoardToolUseId: Map<string, string>;
       sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
-      setLatestBoardToolUseId: () => void;
+      setLatestBoardToolUseId: (sessionId: string, toolUseId: string) => void;
     }) => unknown,
   ) =>
     selector({
       latestBoardToolUseId: new Map<string, string>(),
       sessionBoardRowStatuses: liveRowSessionStatuses,
-      setLatestBoardToolUseId: () => {},
+      setLatestBoardToolUseId: mockSetLatestBoardToolUseId,
     }),
 }));
 
@@ -44,6 +45,7 @@ vi.mock("./CollapseFooter.js", () => ({
 describe("BoardBlock", () => {
   beforeEach(() => {
     liveRowSessionStatuses.clear();
+    mockSetLatestBoardToolUseId.mockClear();
   });
 
   it("prefers explicit row session statuses over the live store snapshot", () => {
@@ -83,6 +85,25 @@ describe("BoardBlock", () => {
 
     expect(screen.getByText("-- advanced q-42 to Code Review")).toBeInTheDocument();
     expect(screen.queryByText(/CODE_REVIEWING/)).toBeNull();
+  });
+
+  it("coalesces dense mount-time latest-board registration to the final board", async () => {
+    const board: BoardRowData[] = [{ questId: "q-42", title: "Quest", updatedAt: 1 }];
+
+    render(
+      <>
+        <BoardBlock board={board} sessionId="s-1" toolUseId="board-tool-1" />
+        <BoardBlock board={board} sessionId="s-1" toolUseId="board-tool-2" />
+        <BoardBlock board={board} sessionId="s-1" toolUseId="board-tool-3" />
+      </>,
+    );
+
+    await act(async () => {
+      await Promise.resolve();
+    });
+
+    expect(mockSetLatestBoardToolUseId).toHaveBeenCalledTimes(1);
+    expect(mockSetLatestBoardToolUseId).toHaveBeenCalledWith("s-1", "board-tool-3");
   });
 
   it("renders queue warnings when present", () => {

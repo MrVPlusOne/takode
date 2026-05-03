@@ -36,13 +36,39 @@ export interface BoardProposalReviewPayload {
   scheduling?: Record<string, unknown>;
 }
 
+type SetLatestBoardToolUseId = (sessionId: string, toolUseId: string) => void;
+
+const pendingLatestBoardRegistrations = new Map<string, { toolUseId: string; setLatest: SetLatestBoardToolUseId }>();
+let latestBoardRegistrationScheduled = false;
+
+function scheduleLatestBoardRegistration(
+  sessionId: string,
+  toolUseId: string,
+  setLatest: SetLatestBoardToolUseId,
+): void {
+  pendingLatestBoardRegistrations.set(sessionId, { toolUseId, setLatest });
+  if (latestBoardRegistrationScheduled) return;
+  latestBoardRegistrationScheduled = true;
+  const flush = () => {
+    latestBoardRegistrationScheduled = false;
+    const registrations = Array.from(pendingLatestBoardRegistrations.entries());
+    pendingLatestBoardRegistrations.clear();
+    for (const [nextSessionId, registration] of registrations) {
+      registration.setLatest(nextSessionId, registration.toolUseId);
+    }
+  };
+  if (typeof queueMicrotask === "function") queueMicrotask(flush);
+  else Promise.resolve().then(flush);
+}
+
 /**
  * Collapsible card that renders the leader's work board inline in the chat feed.
  * Displayed when a `takode board` CLI command yields explicit board JSON or
  * when ToolBlock can fall back to the live server-authoritative board state.
  *
- * Auto-collapse: when a new board renders, it registers as the latest via Zustand.
- * All BoardBlock instances subscribe to the latest ID -- non-latest boards collapse.
+ * Auto-collapse: when boards render, the latest one registers via Zustand.
+ * Registrations are batched so a dense historical feed does not make every
+ * mounted BoardBlock walk the global latest pointer through every old board.
  */
 export const BoardBlock = memo(function BoardBlock({
   board,
@@ -75,7 +101,7 @@ export const BoardBlock = memo(function BoardBlock({
   // Register as the latest board on mount
   useEffect(() => {
     if (toolUseId && sessionId) {
-      setLatest(sessionId, toolUseId);
+      scheduleLatestBoardRegistration(sessionId, toolUseId, setLatest);
     }
   }, [toolUseId, sessionId, setLatest]);
 

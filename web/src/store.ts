@@ -245,6 +245,7 @@ export const useStore = create<AppState>((set, get) => ({
   latestBoardToolUseId: new Map(),
   setLatestBoardToolUseId: (sessionId, toolUseId) =>
     set((s) => {
+      if (s.latestBoardToolUseId.get(sessionId) === toolUseId) return s;
       const next = new Map(s.latestBoardToolUseId);
       next.set(sessionId, toolUseId);
       return { latestBoardToolUseId: next };
