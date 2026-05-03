@@ -755,13 +755,15 @@ function ThreadTabRail({
           const tone = tabTone({ selected, needsInput: tab.needsInput });
           const newTab = newTabKeys?.has(tab.threadKey) ?? false;
           const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
+          const displayQuestId = hoverQuest?.questId ?? tab.questId;
+          const displayTitle = hoverQuest?.title ?? tab.title;
           return (
             <div
               key={tab.threadKey}
               title={
                 hoverQuest
                   ? undefined
-                  : `${tab.questId ? `${tab.questId}: ${tab.title}` : tab.title}${tab.needsInput ? " needs input" : ""}`
+                  : `${displayQuestId ? `${displayQuestId}: ${displayTitle}` : displayTitle}${tab.needsInput ? " needs input" : ""}`
               }
               onMouseEnter={(event) => showQuestHover(hoverQuest, event.currentTarget.getBoundingClientRect())}
               onMouseLeave={hoverQuest ? scheduleQuestHoverHide : undefined}
@@ -771,7 +773,7 @@ function ThreadTabRail({
               data-needs-input={tab.needsInput ? "true" : "false"}
               data-active-output={activeOutput ? "true" : "false"}
               data-new-tab={newTab ? "true" : "false"}
-              data-min-label={tab.questId ?? tab.threadKey}
+              data-min-label={displayQuestId ?? tab.threadKey}
               data-closable={tab.canClose ? "true" : "false"}
               data-has-quest-hover={hoverQuest ? "true" : "false"}
             >
@@ -785,14 +787,14 @@ function ThreadTabRail({
               >
                 {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
                 <ActiveTitle activeOutput={activeOutput} titleColor={tab.titleColor}>
-                  {tab.questId && <span className="shrink-0 font-mono-code">{tab.questId}</span>}
-                  <span className="min-w-0 truncate">{tab.title}</span>
+                  {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}
+                  <span className="min-w-0 truncate">{displayTitle}</span>
                 </ActiveTitle>
               </button>
               {onCloseThreadTab && tab.canClose && (
                 <button
                   type="button"
-                  aria-label={`Close ${tab.questId ?? tab.title}`}
+                  aria-label={`Close ${displayQuestId ?? displayTitle}`}
                   className={`inline-flex w-5 shrink-0 items-center justify-center border-l border-current/10 text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:opacity-100 ${
                     selected ? "opacity-100" : "opacity-70 sm:opacity-0 sm:group-hover:opacity-100"
                   }`}
@@ -972,9 +974,9 @@ export function WorkBoardBar({
     const normalized = normalizeThreadKey(threadKey);
     const nextThreadKey = threadKeyToSelectAfterClosing(normalized, unifiedThreadTabs);
     onCloseThreadTab?.(normalized, nextThreadKey);
-    if (openThreadTabKeys.has(normalized)) return;
 
     setDismissedAutoThreadTabKeys((existing) => new Set([...existing, normalized]));
+    if (openThreadTabKeys.has(normalized)) return;
     if (isSelectedThread(currentThreadKey, normalized)) {
       onSelectThread?.(nextThreadKey);
     }

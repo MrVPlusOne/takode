@@ -532,6 +532,71 @@ describe("WorkBoardBar", () => {
     expect(getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).not.toContain("q-5");
   });
 
+  it("uses canonical quest titles for open tabs and keeps closed attention tabs from reappearing", () => {
+    const onCloseThreadTab = vi.fn();
+    const staleReworkRecord = attentionRecord({
+      id: "reopened-q-1066",
+      type: "quest_reopened_or_rework",
+      priority: "milestone",
+      actionLabel: "Open",
+      state: "reopened",
+      route: { threadKey: "q-1066", questId: "q-1066" },
+      threadKey: "q-1066",
+      questId: "q-1066",
+      dedupeKey: "reopened-q-1066",
+      title: "q-1066: rework requested",
+      updatedAt: 300,
+    });
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", []]]),
+      quests: [
+        {
+          id: "q-1066-v1",
+          questId: "q-1066",
+          version: 1,
+          title: "Keep Codex tool-router errors from stranding sessions",
+          status: "done",
+          description: "Router failures should not strand sessions.",
+          createdAt: 1,
+          completedAt: 2,
+          verificationItems: [],
+        },
+      ],
+    });
+
+    const view = render(
+      <WorkBoardBar
+        sessionId="s1"
+        openThreadKeys={["q-1066", "q-1119"]}
+        onCloseThreadTab={onCloseThreadTab}
+        attentionRecords={[staleReworkRecord]}
+        threadRows={[{ threadKey: "q-1119", questId: "q-1119", title: "Recovery follow-up", messageCount: 1 }]}
+      />,
+    );
+
+    const q1066Tab = view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1066")!;
+    expect(q1066Tab).toHaveTextContent("q-1066");
+    expect(q1066Tab).toHaveTextContent("Keep Codex tool-router errors from stranding sessions");
+    expect(q1066Tab).not.toHaveTextContent("rework requested");
+
+    fireEvent.click(view.getByLabelText("Close q-1066"));
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-1066", "q-1119");
+
+    view.rerender(
+      <WorkBoardBar
+        sessionId="s1"
+        openThreadKeys={["q-1119"]}
+        onCloseThreadTab={onCloseThreadTab}
+        attentionRecords={[staleReworkRecord]}
+        threadRows={[{ threadKey: "q-1119", questId: "q-1119", title: "Recovery follow-up", messageCount: 1 }]}
+      />,
+    );
+
+    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1119"]);
+    expect(view.queryByText("q-1066: rework requested")).not.toBeInTheDocument();
+  });
+
   it("colors unified board-active tab titles without rendering a separate phase label", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
