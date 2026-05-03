@@ -124,6 +124,19 @@ interface FeedViewportAnchor {
   offsetTop: number;
 }
 
+function getSavedViewportRestoreKey(viewportKey: string, pos: FeedViewportPosition | null): string {
+  if (!pos) return `${viewportKey}:latest`;
+  return [
+    viewportKey,
+    pos.isAtBottom ? "bottom" : "position",
+    pos.scrollTop,
+    pos.scrollHeight,
+    pos.anchorTurnId ?? "",
+    pos.anchorOffsetTop ?? "",
+    pos.lastSeenContentBottom ?? "",
+  ].join(":");
+}
+
 // ─── Main Feed ───────────────────────────────────────────────────────────────
 
 export function MessageFeed({
@@ -162,6 +175,7 @@ export function MessageFeed({
   const savedScrollPos =
     useStore.getState().feedScrollPosition.get(getFeedViewportKey(sessionId, threadKey)) ??
     (isLeaderSession ? readLeaderViewportPosition(sessionId, normalizedThreadKey) : null);
+  const savedViewportRestoreKey = getSavedViewportRestoreKey(getFeedViewportKey(sessionId, threadKey), savedScrollPos);
   const selectedFeedWindow = useStore((s) => s.threadWindows?.get(sessionId)?.get(normalizedThreadKey) ?? null);
   const selectedFeedWindowMessages = useStore(
     (s) => s.threadWindowMessages?.get(sessionId)?.get(normalizedThreadKey) ?? EMPTY_MESSAGES,
@@ -1293,11 +1307,12 @@ export function MessageFeed({
   // useLayoutEffect runs before the browser paints, preventing the flash
   // where the feed appears at scrollTop=0 for one frame before jumping.
   useLayoutEffect(() => {
-    if (restoredViewportKeyRef.current === viewportKey) return;
     if (showConversationLoading) return;
     const pos =
       useStore.getState().feedScrollPosition.get(viewportKey) ??
       (isLeaderSession ? readLeaderViewportPosition(sessionId, normalizedThreadKey) : null);
+    const restoreKey = getSavedViewportRestoreKey(viewportKey, pos);
+    if (restoredViewportKeyRef.current === restoreKey) return;
     if (messages.length === 0 && pos?.anchorTurnId) return;
     const desiredSectionWindowStart = pos?.anchorTurnId ? getSectionWindowStartForTurnId(pos.anchorTurnId) : null;
     if (desiredSectionWindowStart !== sectionWindowStart) {
@@ -1334,7 +1349,7 @@ export function MessageFeed({
     } else {
       scrollToBottom("auto");
     }
-    restoredViewportKeyRef.current = viewportKey;
+    restoredViewportKeyRef.current = restoreKey;
   }, [
     activeThreadWindow,
     getSectionWindowStartForTurnId,
@@ -1344,6 +1359,7 @@ export function MessageFeed({
     normalizedThreadKey,
     restoreSavedScrollPosition,
     restoreTurnAnchor,
+    savedViewportRestoreKey,
     scrollToBottom,
     sectionWindowStart,
     selectedFeedWindowEnabled,
