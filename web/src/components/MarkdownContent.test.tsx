@@ -275,7 +275,7 @@ describe("MarkdownContent quest links", () => {
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-42" }));
 
     expect(await screen.findByText("Fix auth race condition")).toBeTruthy();
-    expect(screen.getByTestId("quest-hover-card").style.width).toBe("450px");
+    expect(screen.getByTestId("quest-hover-card").style.width).toBe("560px");
     expect(screen.getByText("In Progress")).toBeTruthy();
     // The status row is separate so the pill cannot steal horizontal space from the title.
     expect(within(screen.getByTestId("quest-hover-status-row")).getByText("In Progress")).toBeTruthy();
@@ -405,7 +405,7 @@ describe("MarkdownContent quest links", () => {
     expect(await screen.findByTestId("quest-hover-leader-session")).toBeTruthy();
     expect(
       within(screen.getByTestId("quest-hover-leader-session")).getByRole("link", {
-        name: "Leader session #7 Quest Leader",
+        name: "Leader #7 Quest Leader",
       }),
     ).toBeTruthy();
     expect(screen.getByText("Quest Leader")).toBeTruthy();
@@ -413,12 +413,12 @@ describe("MarkdownContent quest links", () => {
     expect(screen.getByTestId("quest-hover-reviewer-session").textContent).toContain("Reviewer");
     expect(
       within(screen.getByTestId("quest-hover-worker-session")).getByRole("link", {
-        name: "Worker #123 Auth Worker running",
+        name: "Worker #123 Auth Worker",
       }),
     ).toBeTruthy();
     expect(
       within(screen.getByTestId("quest-hover-reviewer-session")).getByRole("link", {
-        name: "Reviewer #8 Quest Reviewer idle",
+        name: "Reviewer #8 Quest Reviewer",
       }),
     ).toBeTruthy();
     expect(screen.queryByTestId("quest-hover-owner-session")).toBeNull();

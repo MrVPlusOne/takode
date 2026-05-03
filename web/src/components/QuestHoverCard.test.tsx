@@ -128,14 +128,22 @@ describe("QuestHoverCard", () => {
     render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
 
     const card = screen.getByTestId("quest-hover-card");
-    const worker = within(card).getByRole("link", { name: "Worker #123 Auth Worker running" });
-    const reviewer = within(card).getByRole("link", { name: "Reviewer #8 Quest Reviewer idle" });
-    const leader = within(card).getByRole("link", { name: "Leader session #7 Quest Leader" });
+    const worker = within(card).getByRole("link", { name: "Worker #123 Auth Worker" });
+    const reviewer = within(card).getByRole("link", { name: "Reviewer #8 Quest Reviewer" });
+    const leader = within(card).getByRole("link", { name: "Leader #7 Quest Leader" });
 
+    expect(card.style.width).toBe("560px");
     expect(worker.getAttribute("href")).toBe("#/session/123");
     expect(worker.textContent).toContain("Worker");
     expect(worker.textContent).toContain("#123");
     expect(worker.textContent).toContain("Auth Worker");
+    expect(worker.textContent).not.toContain("running");
+    expect(reviewer.textContent).not.toContain("idle");
+    expect(worker.className).toContain("rounded-full");
+    expect(worker.className).toContain("bg-cc-hover/25");
+    expect(worker.className).not.toContain("bg-cc-primary");
+    expect(reviewer.className).not.toContain("bg-violet");
+    expect(leader.className).not.toContain("bg-amber-400");
     expect(reviewer.getAttribute("href")).toBe("#/session/8");
     expect(leader.getAttribute("href")).toBe("#/session/7");
 

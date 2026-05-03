@@ -161,8 +161,8 @@ describe("Playground", () => {
     expect(within(hoverCard).getByTestId("quest-journey-timeline")).toHaveAttribute("data-journey-mode", "active");
     expect(within(hoverCard).getByTestId("quest-hover-worker-session")).toHaveTextContent("Worker");
     expect(within(hoverCard).getByTestId("quest-hover-reviewer-session")).toHaveTextContent("Reviewer");
-    expect(within(hoverCard).getByRole("link", { name: "Worker #5 Clear Mesa running" })).toBeTruthy();
-    expect(within(hoverCard).getByRole("link", { name: "Reviewer #6 Review Lead idle" })).toBeTruthy();
+    expect(within(hoverCard).getByRole("link", { name: "Worker #5 Clear Mesa" })).toBeTruthy();
+    expect(within(hoverCard).getByRole("link", { name: "Reviewer #6 Review Lead" })).toBeTruthy();
 
     fireEvent.click(screen.getByText("Simulate moved-message tab"));
     const movedTabs = screen.getAllByTestId("thread-tab");

@@ -39,6 +39,12 @@ import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
 import {
+  QUEST_PARTICIPANT_CHIP_CLASS,
+  QUEST_PARTICIPANT_NAME_CLASS,
+  QUEST_PARTICIPANT_ROLE_CLASS,
+  QUEST_PARTICIPANT_SESSION_CLASS,
+} from "./quest-participant-chip-style.js";
+import {
   buildLeaderThreadRowsFromSummaries,
   collectLeaderThreadSummaries,
   mergeLeaderThreadSummaries,
@@ -298,14 +304,12 @@ function QuestBannerParticipantChip({
   if (currentSessionId && sessionId === currentSessionId) return null;
   if (!sessionId && sessionNum == null) return null;
   const label = `${role} #${sessionNum ?? "?"}${participant?.name ? ` ${participant.name}` : ""}`;
-  const chipClass =
-    "inline-flex h-5 max-w-[9.5rem] min-w-0 items-center gap-1 rounded-full border border-cc-border/60 bg-cc-hover/25 px-1.5 text-[10px] leading-none text-cc-muted transition-colors hover:border-cc-primary/45 hover:bg-cc-hover/55 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 active:bg-cc-hover/70 sm:max-w-[12rem]";
   const content = (
     <>
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
-      <span className="hidden shrink-0 text-cc-muted/75 sm:inline">{role}</span>
-      <span className="shrink-0 font-mono-code text-amber-300">{`#${sessionNum ?? "?"}`}</span>
-      {participant?.name && <span className="hidden min-w-0 truncate text-cc-fg/75 md:inline">{participant.name}</span>}
+      <span className={QUEST_PARTICIPANT_ROLE_CLASS}>{role}</span>
+      <span className={QUEST_PARTICIPANT_SESSION_CLASS}>{`#${sessionNum ?? "?"}`}</span>
+      {participant?.name && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{participant.name}</span>}
     </>
   );
 
@@ -313,7 +317,7 @@ function QuestBannerParticipantChip({
     <SessionInlineLink
       sessionId={sessionId}
       sessionNum={sessionNum}
-      className={chipClass}
+      className={QUEST_PARTICIPANT_CHIP_CLASS}
       dataTestId="quest-thread-participant"
       ariaLabel={label}
       title={`Open ${role.toLowerCase()} session ${sessionNum != null ? `#${sessionNum}` : sessionId}`}

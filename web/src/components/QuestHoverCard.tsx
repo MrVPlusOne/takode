@@ -10,6 +10,12 @@ import { isCompletedJourneyPresentationStatus, QuestJourneyPreviewCard } from ".
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
+import {
+  QUEST_PARTICIPANT_CHIP_CLASS,
+  QUEST_PARTICIPANT_NAME_CLASS,
+  QUEST_PARTICIPANT_ROLE_CLASS,
+  QUEST_PARTICIPANT_SESSION_CLASS,
+} from "./quest-participant-chip-style.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 
 interface QuestHoverCardProps {
@@ -166,19 +172,13 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
           </div>
         )}
         {workerParticipant && (
-          <ParticipantMetadataRow
-            testId="quest-hover-worker-session"
-            label="Worker"
-            participant={workerParticipant}
-            tone="worker"
-          />
+          <ParticipantMetadataRow testId="quest-hover-worker-session" label="Worker" participant={workerParticipant} />
         )}
         {reviewerParticipant && (
           <ParticipantMetadataRow
             testId="quest-hover-reviewer-session"
             label="Reviewer"
             participant={reviewerParticipant}
-            tone="reviewer"
           />
         )}
         {showOwnerSession && ownerSessionId && (
@@ -188,7 +188,6 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
             sessionId={ownerSessionId}
             sessionNum={ownerSessionNum}
             sessionName={ownerSessionName}
-            tone="owner"
           />
         )}
         {leaderSessionId && leaderSessionId !== ownerSessionId && (
@@ -198,7 +197,7 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
             sessionId={leaderSessionId}
             sessionNum={leaderSessionNum}
             sessionName={leaderSessionName}
-            tone="leader"
+            chipRole="Leader"
           />
         )}
       </div>
@@ -208,7 +207,7 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
 }
 
 function getResponsiveCardWidth(): number {
-  const preferredWidth = 450;
+  const preferredWidth = 560;
   if (typeof window === "undefined") return preferredWidth;
   return Math.max(240, Math.min(preferredWidth, window.innerWidth - 16));
 }
@@ -226,12 +225,10 @@ function ParticipantMetadataRow({
   testId,
   label,
   participant,
-  tone,
 }: {
   testId: string;
   label: string;
   participant: BoardParticipantStatus;
-  tone: "worker" | "reviewer";
 }) {
   return (
     <div data-testid={testId} className="mt-2 pt-2 border-t border-cc-border/50">
@@ -242,7 +239,6 @@ function ParticipantMetadataRow({
         sessionNum={participant.sessionNum}
         sessionName={participant.name}
         status={participant.status}
-        tone={tone}
       />
     </div>
   );
@@ -254,24 +250,23 @@ function SessionMetadataRow({
   sessionId,
   sessionNum,
   sessionName,
-  tone,
+  chipRole,
 }: {
   testId: string;
   label: string;
   sessionId: string;
   sessionNum: number | null;
   sessionName?: string;
-  tone: "owner" | "leader";
+  chipRole?: string;
 }) {
   return (
     <div data-testid={testId} className="mt-2 pt-2 border-t border-cc-border/50">
       <div className="text-[10px] uppercase tracking-wider text-cc-muted/60">{label}</div>
       <QuestHoverSessionChip
-        role={label}
+        role={chipRole ?? label}
         sessionId={sessionId}
         sessionNum={sessionNum}
         sessionName={sessionName}
-        tone={tone}
       />
     </div>
   );
@@ -283,41 +278,31 @@ function QuestHoverSessionChip({
   sessionNum,
   sessionName,
   status,
-  tone,
 }: {
   role: string;
   sessionId: string;
   sessionNum: number | null | undefined;
   sessionName?: string;
   status?: BoardParticipantStatus["status"];
-  tone: "worker" | "reviewer" | "owner" | "leader";
 }) {
   const dotProps = useParticipantSessionStatusDotProps(sessionId, status);
-  const toneClass =
-    tone === "leader"
-      ? "border-amber-400/25 bg-amber-400/10 text-amber-100 hover:border-amber-300/45 hover:bg-amber-400/20"
-      : tone === "reviewer"
-        ? "border-violet-400/25 bg-violet-400/10 text-violet-100 hover:border-violet-300/45 hover:bg-violet-400/20"
-        : "border-cc-primary/20 bg-cc-primary/10 text-cc-fg hover:border-cc-primary/45 hover:bg-cc-primary/20";
   const displaySession = sessionNum != null ? `#${sessionNum}` : sessionId.slice(0, 8);
   const titleSession = sessionNum != null ? `#${sessionNum}` : sessionId;
-  const statusLabel = status ? status.replace(/_/g, " ") : null;
-  const ariaLabel = [role, titleSession, sessionName, statusLabel].filter(Boolean).join(" ");
+  const ariaLabel = [role, titleSession, sessionName].filter(Boolean).join(" ");
 
   return (
     <SessionInlineLink
       sessionId={sessionId}
       sessionNum={sessionNum}
-      className={`mt-1 inline-flex max-w-full min-w-0 items-center gap-1.5 rounded-md border px-2 py-1 text-[11px] leading-none transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50 active:bg-cc-hover/70 ${toneClass}`}
+      className={`mt-1 ${QUEST_PARTICIPANT_CHIP_CLASS}`}
       dataTestId="quest-hover-session-chip"
       ariaLabel={ariaLabel}
       title={`Open ${role.toLowerCase()} ${titleSession}`}
     >
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
-      <span className="shrink-0 text-cc-muted/80">{role}</span>
-      <span className="shrink-0 font-mono-code text-amber-300">{displaySession}</span>
-      {sessionName && <span className="min-w-0 truncate text-cc-fg/80">{sessionName}</span>}
-      {statusLabel && <span className="shrink-0 capitalize text-cc-muted/75">{statusLabel}</span>}
+      <span className={QUEST_PARTICIPANT_ROLE_CLASS}>{role}</span>
+      <span className={QUEST_PARTICIPANT_SESSION_CLASS}>{displaySession}</span>
+      {sessionName && <span className={QUEST_PARTICIPANT_NAME_CLASS}>{sessionName}</span>}
     </SessionInlineLink>
   );
 }
