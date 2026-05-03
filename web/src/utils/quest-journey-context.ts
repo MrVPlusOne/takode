@@ -7,6 +7,7 @@ export interface QuestJourneyBoardRow {
   status?: string;
   worker?: string;
   workerNum?: number;
+  waitFor?: string[];
   completedAt?: number;
 }
 

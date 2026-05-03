@@ -143,6 +143,49 @@ describe("QuestHoverCard", () => {
     expect(within(journey).queryByText("Hidden hover note")).toBeNull();
   });
 
+  it("shows queued wait-for reasons adjacent to the status chip", () => {
+    const quest: QuestmasterTask = {
+      id: "q-1092-v1",
+      questId: "q-1092",
+      version: 1,
+      title: "Run VS Code checkpoint comparison",
+      status: "refined",
+      description: "Queued work should explain why it is waiting.",
+      createdAt: 1,
+    };
+    useStore.setState((state) => ({
+      ...state,
+      sessionBoards: new Map([
+        [
+          "leader-abc",
+          [
+            {
+              questId: "q-1092",
+              title: "Run VS Code checkpoint comparison",
+              status: "QUEUED",
+              waitFor: ["q-1086", "#1408", "free-worker"],
+              updatedAt: 2,
+              journey: {
+                mode: "active",
+                phaseIds: ["alignment", "explore", "execute"],
+              },
+            },
+          ],
+        ],
+      ]),
+    }));
+
+    render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
+
+    const statusRow = screen.getByTestId("quest-hover-status-row");
+    const statusChip = within(statusRow).getByTestId("quest-hover-status-chip");
+    const waitForReason = within(statusRow).getByTestId("quest-hover-wait-for-reason");
+
+    expect(statusChip.textContent).toContain("Queued");
+    expect(waitForReason.textContent).toBe("Waiting for q-1086, #1408, free worker");
+    expect(statusChip.compareDocumentPosition(waitForReason) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("uses whole-chip session links for worker, reviewer, and leader participants", async () => {
     const quest: QuestmasterTask = {
       id: "q-42-v1",

@@ -5,7 +5,11 @@ import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { findQuestJourneyContext, type QuestJourneyBoardRow } from "../utils/quest-journey-context.js";
 import { useStore } from "../store.js";
-import { getQuestJourneyPhaseForState, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
+import {
+  formatWaitForRefLabel,
+  getQuestJourneyPhaseForState,
+  getQuestJourneyPresentation,
+} from "../../shared/quest-journey.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyPreviewCard } from "./QuestJourneyTimeline.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
@@ -75,6 +79,7 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
   const terminalStatusLabel = quest.status === "done" ? "Completed" : statusTheme.label;
   const statusLabel = journeyPresentation?.label ?? journeyPhase?.label ?? terminalStatusLabel;
   const statusDotStyle = journeyPhase?.color.accent ? { backgroundColor: journeyPhase.color.accent } : undefined;
+  const queuedWaitForReason = formatQueuedWaitForReason(journeyBoardRow);
   const showOwnerSession = !!ownerSessionId && workerParticipant?.sessionId !== ownerSessionId;
   const completedAt = quest.status === "done" ? quest.completedAt : null;
 
@@ -135,6 +140,7 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
         <div data-testid="quest-hover-status-row" className="mt-2 flex min-w-0 items-center gap-2">
           <span className="shrink-0 text-[10px] uppercase tracking-wider text-cc-muted/60">Status</span>
           <span
+            data-testid="quest-hover-status-chip"
             className={`shrink-0 inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded-full border ${statusTheme.bg} ${statusTheme.text} ${statusTheme.border}`}
           >
             <span
@@ -143,6 +149,11 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
             />
             {statusLabel}
           </span>
+          {queuedWaitForReason && (
+            <span data-testid="quest-hover-wait-for-reason" className="min-w-0 truncate text-[10px] text-cc-muted/80">
+              {queuedWaitForReason}
+            </span>
+          )}
           {completedAt != null && (
             <span data-testid="quest-hover-completed-at" className="min-w-0 truncate text-[10px] text-cc-muted/70">
               Finished {timeAgo(completedAt)}
@@ -207,6 +218,13 @@ function resolveWorkerParticipant(
   if (rowStatus?.worker) return rowStatus.worker;
   if (!row?.worker) return null;
   return { sessionId: row.worker, sessionNum: row.workerNum ?? null, status: "idle" };
+}
+
+function formatQueuedWaitForReason(row: QuestJourneyBoardRow | undefined): string | null {
+  if ((row?.status ?? "").trim().toUpperCase() !== "QUEUED") return null;
+  const waitFor = row?.waitFor?.map((dep) => dep.trim()).filter(Boolean) ?? [];
+  if (waitFor.length === 0) return null;
+  return `Waiting for ${waitFor.map(formatWaitForRefLabel).join(", ")}`;
 }
 
 function QuestHoverParticipants({
