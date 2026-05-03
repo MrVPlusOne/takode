@@ -1568,8 +1568,8 @@ export function PlaygroundInteractiveSections() {
                 banner/table. The constrained width keeps several open tabs visible so their quest-id minimums,
                 phase-colored titles, compact close affordances, horizontal overflow behavior, and newly inserted tab
                 pop state can be inspected. Hover quest tabs to inspect the shared quest hover card with full Journey
-                and participant context. The seeded active-output route targets q-42, so Main should not glow just
-                because it is selected.
+                and participant context. The seeded active-output route targets q-42, so Main should not show the output
+                glint just because it is selected.
               </p>
             </div>
           </Card>

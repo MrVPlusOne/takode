@@ -567,6 +567,29 @@ function ThreadTabRail({
     );
   }
 
+  function ActiveOutputIndicator() {
+    return (
+      <span
+        className="pointer-events-none absolute inset-x-1 top-0 h-2"
+        aria-hidden="true"
+        data-testid="thread-tab-active-output-indicator"
+        data-reduced-motion-static="true"
+      >
+        <span className="absolute inset-x-0 top-0 h-px overflow-hidden rounded-full bg-violet-100/30">
+          <span
+            className="thread-tab-output-glint absolute inset-y-0 left-0 w-1/2 rounded-full bg-gradient-to-r from-transparent via-white to-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.66)]"
+            data-testid="thread-tab-active-output-glint"
+            data-reduced-motion="animation-disabled"
+          />
+        </span>
+        <span
+          className="absolute right-0 top-1 h-1.5 w-1.5 rounded-full bg-sky-100 shadow-[0_0_8px_rgba(125,211,252,0.75)] ring-1 ring-violet-100/70"
+          data-testid="thread-tab-active-output-dot"
+        />
+      </span>
+    );
+  }
+
   function ActiveTitle({
     activeOutput,
     titleColor,
@@ -576,21 +599,14 @@ function ThreadTabRail({
     titleColor?: string;
     children: ReactNode;
   }) {
-    const style: CSSProperties | undefined =
-      activeOutput || titleColor
-        ? {
-            ...(activeOutput
-              ? {
-                  ["--glow-color" as string]: "rgba(56, 189, 248, 0.55)",
-                  animation: "thread-title-glow 2s ease-in-out infinite",
-                }
-              : {}),
-            ...(titleColor ? { color: titleColor } : {}),
-          }
-        : undefined;
+    const style: CSSProperties | undefined = titleColor
+      ? {
+          color: titleColor,
+        }
+      : undefined;
     return (
       <span
-        className={`inline-flex min-w-0 items-center gap-1.5 px-1 ${activeOutput ? "text-sky-100" : ""}`.trim()}
+        className="inline-flex min-w-0 items-center gap-1.5 px-1"
         style={style}
         data-testid="thread-tab-title"
         data-active-output={activeOutput ? "true" : "false"}
@@ -603,9 +619,7 @@ function ThreadTabRail({
 
   function tabTone({ selected, needsInput }: { selected: boolean; needsInput: boolean }): string {
     if (selected) {
-      return needsInput
-        ? "relative z-10 -mb-px rounded-b-none border-amber-400/60 border-b-cc-bg bg-cc-bg text-cc-fg shadow-[0_-1px_0_rgba(251,191,36,0.4),inset_0_1px_0_rgba(251,191,36,0.2)]"
-        : "relative z-10 -mb-px rounded-b-none border-cc-primary/70 border-b-cc-bg bg-cc-bg text-cc-fg shadow-[0_-1px_0_rgba(96,165,250,0.42),inset_0_1px_0_rgba(255,255,255,0.08)]";
+      return "relative z-10 -mb-px rounded-b-none border-violet-100/45 border-b-transparent bg-[linear-gradient(180deg,rgba(255,255,255,0.08),rgba(139,92,246,0.12))] text-white shadow-[0_-1px_0_rgba(221,214,254,0.78),0_0_0_1px_rgba(196,181,253,0.16),0_10px_20px_-16px_rgba(196,181,253,0.78),inset_0_1px_0_rgba(255,255,255,0.14)]";
     }
     return needsInput
       ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
@@ -692,13 +706,15 @@ function ThreadTabRail({
           title={
             mainNeedsInput ? `${mainState?.title ?? "Main Thread"} needs input` : (mainState?.title ?? "Main Thread")
           }
-          className={`inline-flex min-w-[7.75rem] max-w-[14rem] flex-[0_1_9.5rem] items-center gap-1.5 rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset ${mainTone}`}
+          className={`relative inline-flex min-w-[7.75rem] max-w-[14rem] flex-[0_1_9.5rem] items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
           data-testid="thread-main-tab"
           data-thread-key={MAIN_THREAD_KEY}
           data-needs-input={mainNeedsInput ? "true" : "false"}
+          data-active-output={mainActiveOutput ? "true" : "false"}
           data-min-label="Main Thread"
           aria-pressed={mainSelected}
         >
+          {mainActiveOutput && <ActiveOutputIndicator />}
           {mainNeedsInput && <NeedsInputBell activeOutput={mainActiveOutput} />}
           <ActiveTitle activeOutput={mainActiveOutput}>
             <span className="min-w-0 truncate">Main Thread</span>
@@ -721,19 +737,21 @@ function ThreadTabRail({
               }
               onMouseEnter={(event) => showQuestHover(hoverQuest, event.currentTarget.getBoundingClientRect())}
               onMouseLeave={hoverQuest ? scheduleQuestHoverHide : undefined}
-              className={`group inline-flex min-w-[6.25rem] max-w-[18rem] flex-[1_1_11rem] items-stretch rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${tone}`}
+              className={`group relative inline-flex min-w-[6.25rem] max-w-[18rem] flex-[1_1_11rem] items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${tone}`}
               data-testid="thread-tab"
               data-thread-key={tab.threadKey}
               data-needs-input={tab.needsInput ? "true" : "false"}
+              data-active-output={activeOutput ? "true" : "false"}
               data-new-tab={newTab ? "true" : "false"}
               data-min-label={tab.questId ?? tab.threadKey}
               data-closable={tab.canClose ? "true" : "false"}
               data-has-quest-hover={hoverQuest ? "true" : "false"}
             >
+              {activeOutput && <ActiveOutputIndicator />}
               <button
                 type="button"
                 onClick={() => openThread(tab.threadKey, tab.route)}
-                className="inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-t-[inherit] px-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset"
+                className="inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-t-[inherit] px-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset"
                 data-testid="thread-tab-select"
                 aria-pressed={selected}
               >

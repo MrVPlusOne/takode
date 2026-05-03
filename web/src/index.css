@@ -222,9 +222,22 @@ html, body {
   50% { box-shadow: 0 0 6px 0 var(--glow-color, transparent); }
 }
 
-@keyframes thread-title-glow {
-  0%, 100% { filter: drop-shadow(0 0 0 transparent); }
-  50% { filter: drop-shadow(0 0 4px var(--glow-color, transparent)); }
+@keyframes thread-tab-output-glint {
+  0% {
+    opacity: 0.42;
+    transform: translateX(-120%);
+  }
+  45% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0.42;
+    transform: translateX(220%);
+  }
+}
+
+.thread-tab-output-glint {
+  animation: thread-tab-output-glint 1.8s ease-in-out infinite;
 }
 
 @keyframes thread-tab-pop {
@@ -274,6 +287,12 @@ html, body {
 @media (prefers-reduced-motion: reduce) {
   .thread-tab-pop {
     animation: none;
+  }
+
+  .thread-tab-output-glint {
+    animation: none;
+    opacity: 0.82;
+    transform: translateX(0);
   }
 
   .attention-paw-stamp {

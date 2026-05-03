@@ -584,7 +584,7 @@ describe("WorkBoardBar", () => {
     expect(tabStrip).toHaveAttribute("data-scrollbar-active", "true");
     expect(getByTestId("thread-main-tab")).toHaveAttribute("data-min-label", "Main Thread");
     expect(getByTestId("thread-main-tab")).toHaveClass("min-w-[7.75rem]", "max-w-[14rem]", "flex-[0_1_9.5rem]");
-    expect(getByTestId("thread-main-tab")).toHaveClass("focus-visible:ring-cc-primary/70", "focus-visible:ring-inset");
+    expect(getByTestId("thread-main-tab")).toHaveClass("focus-visible:ring-violet-100/70", "focus-visible:ring-inset");
 
     const tabs = getAllByTestId("thread-tab");
     expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-1", "q-2"]);
@@ -592,9 +592,9 @@ describe("WorkBoardBar", () => {
       // The fixed minimum protects the quest id; flex shrink keeps tabs browser-like until that minimum is reached.
       expect(tab).toHaveClass("min-w-[6.25rem]", "max-w-[18rem]", "flex-[1_1_11rem]");
     }
-    expect(tabs[0]).toHaveClass("border-cc-primary/70", "bg-cc-bg");
+    expect(tabs[0]).toHaveClass("border-violet-100/45", "border-b-transparent", "text-white");
     expect(within(tabs[0]).getByTestId("thread-tab-select")).toHaveClass(
-      "focus-visible:ring-cc-primary/70",
+      "focus-visible:ring-violet-100/70",
       "focus-visible:ring-inset",
     );
 
@@ -609,7 +609,7 @@ describe("WorkBoardBar", () => {
     expect(inactiveClose).toHaveClass("w-5", "sm:opacity-0", "sm:group-hover:opacity-100", "focus-visible:opacity-100");
   });
 
-  it("keeps selected Main as one tab surface while active output glows the title text", () => {
+  it("keeps selected Main as one connected surface while active output uses a separate marker", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", []]]),
@@ -636,17 +636,24 @@ describe("WorkBoardBar", () => {
 
     const mainTab = getByTestId("thread-main-tab");
     expect(mainTab).toHaveAttribute("aria-pressed", "true");
-    // The selected tab keeps the outer selected surface; the active title no longer creates a second rounded border.
-    expect(mainTab).toHaveClass("border-amber-400/60", "bg-cc-bg", "focus-visible:ring-cc-primary/70");
+    expect(mainTab).toHaveAttribute("data-active-output", "true");
+    expect(mainTab).toHaveClass("border-violet-100/45", "border-b-transparent", "text-white");
+    expect(mainTab).toHaveClass("focus-visible:ring-violet-100/70");
+    expect(mainTab).not.toHaveClass("border-amber-400/60", "border-cc-primary/70", "border-b-cc-bg");
+    const activeMarker = within(mainTab).getByTestId("thread-tab-active-output-indicator");
+    expect(activeMarker).toHaveAttribute("data-reduced-motion-static", "true");
+    expect(within(activeMarker).getByTestId("thread-tab-active-output-glint")).toHaveClass("thread-tab-output-glint");
+    expect(within(activeMarker).getByTestId("thread-tab-active-output-dot")).toHaveClass("bg-sky-100");
     const mainTitle = within(mainTab).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "true");
-    expect(mainTitle).toHaveStyle({ animation: "thread-title-glow 2s ease-in-out infinite" });
+    expect(mainTitle.getAttribute("style") ?? "").not.toContain("animation");
     expect(mainTitle).not.toHaveClass("border");
     expect(mainTitle).not.toHaveClass("bg-sky-400/10");
+    expect(mainTitle).not.toHaveClass("text-sky-100");
     expect(mainTitle).not.toHaveClass("rounded");
   });
 
-  it("does not glow selected Main without explicit active output in Main", () => {
+  it("does not render an active output marker on selected Main without explicit active output in Main", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", []]]),
@@ -656,9 +663,41 @@ describe("WorkBoardBar", () => {
 
     const { getByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="main" />);
 
-    const mainTitle = within(getByTestId("thread-main-tab")).getByTestId("thread-tab-title");
+    const mainTab = getByTestId("thread-main-tab");
+    expect(mainTab).toHaveAttribute("data-active-output", "false");
+    expect(within(mainTab).queryByTestId("thread-tab-active-output-indicator")).not.toBeInTheDocument();
+    const mainTitle = within(mainTab).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "false");
-    expect(mainTitle).not.toHaveStyle({ animation: "thread-title-glow 2s ease-in-out infinite" });
+    expect(mainTitle.getAttribute("style") ?? "").not.toContain("animation");
+  });
+
+  it("composes selected and active-output states when they are on different tabs", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionStatus: new Map([["s1", "running"]]),
+      activeTurnRoutes: new Map([["s1", { threadKey: "q-1", questId: "q-1" }]]),
+    });
+
+    const { getAllByTestId } = render(
+      <WorkBoardBar sessionId="s1" currentThreadKey="q-2" openThreadKeys={["q-1", "q-2"]} />,
+    );
+
+    const activeTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    expect(within(activeTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "false");
+    expect(activeTab).toHaveAttribute("data-active-output", "true");
+    expect(within(activeTab).getByTestId("thread-tab-active-output-indicator")).toBeInTheDocument();
+    expect(within(activeTab).getByTestId("thread-tab-title")).toHaveStyle({
+      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
+    });
+    expect(within(activeTab).getByTestId("thread-tab-title").getAttribute("style") ?? "").not.toContain("animation");
+
+    const selectedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    expect(within(selectedTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
+    expect(selectedTab).toHaveAttribute("data-active-output", "false");
+    expect(selectedTab).toHaveClass("border-violet-100/45", "border-b-transparent", "text-white");
+    expect(selectedTab).not.toHaveClass("border-amber-400/60", "border-cc-primary/70");
+    expect(within(selectedTab).queryByTestId("thread-tab-active-output-indicator")).not.toBeInTheDocument();
   });
 
   it("marks newly added open tabs with the transient pop animation state", async () => {
@@ -820,7 +859,7 @@ describe("WorkBoardBar", () => {
     });
   });
 
-  it("glows the active output tab title while preserving needs-input bells", () => {
+  it("renders the active output marker while preserving needs-input bells and title phase color", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
@@ -838,25 +877,54 @@ describe("WorkBoardBar", () => {
     );
 
     const needsInputTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    expect(needsInputTab).toHaveAttribute("data-active-output", "true");
+    const activeMarker = within(needsInputTab).getByTestId("thread-tab-active-output-indicator");
+    expect(within(activeMarker).getByTestId("thread-tab-active-output-glint")).toHaveClass("thread-tab-output-glint");
+    expect(within(activeMarker).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
     expect(within(needsInputTab).queryByTestId("thread-tab-status-dot")).not.toBeInTheDocument();
     expect(within(needsInputTab).getByTestId("thread-tab-needs-input-bell")).toHaveAttribute(
       "data-active-output",
       "true",
     );
     expect(within(needsInputTab).getByTestId("thread-tab-needs-input-bell")).not.toHaveClass("animate-pulse");
-    expect(within(needsInputTab).getByTestId("thread-tab-title")).toHaveAttribute("data-active-output", "true");
-    expect(within(needsInputTab).getByTestId("thread-tab-title")).toHaveStyle({
-      animation: "thread-title-glow 2s ease-in-out infinite",
+    const activeTitle = within(needsInputTab).getByTestId("thread-tab-title");
+    expect(activeTitle).toHaveAttribute("data-active-output", "true");
+    expect(activeTitle).toHaveStyle({
+      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
     });
-    expect(within(needsInputTab).getByTestId("thread-tab-title")).not.toHaveClass("border");
-    expect(within(needsInputTab).getByTestId("thread-tab-title")).not.toHaveClass("bg-sky-400/10");
+    expect(activeTitle.getAttribute("style") ?? "").not.toContain("animation");
+    expect(activeTitle).not.toHaveClass("border");
+    expect(activeTitle).not.toHaveClass("bg-sky-400/10");
+    expect(activeTitle).not.toHaveClass("text-sky-100");
 
     const inactiveTitle = getAllByTestId("thread-tab-title").find(
       (title) => title.closest("[data-thread-key]")?.getAttribute("data-thread-key") === "q-2",
-    );
+    )!;
     expect(inactiveTitle).toBeTruthy();
     expect(inactiveTitle).toHaveAttribute("data-active-output", "false");
-    expect(inactiveTitle).not.toHaveStyle({ animation: "thread-title-glow 2s ease-in-out infinite" });
+    expect(inactiveTitle.getAttribute("style") ?? "").not.toContain("animation");
+    const inactiveTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    expect(inactiveTab).toHaveAttribute("data-active-output", "false");
+    expect(within(inactiveTab).queryByTestId("thread-tab-active-output-indicator")).not.toBeInTheDocument();
+  });
+
+  it("marks the output glint as reduced-motion-disabled while keeping the static marker contract", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionStatus: new Map([["s1", "running"]]),
+      activeTurnRoutes: new Map([["s1", { threadKey: "q-1", questId: "q-1" }]]),
+    });
+
+    const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} />);
+
+    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-1")!;
+    const marker = within(tab).getByTestId("thread-tab-active-output-indicator");
+    const glint = within(marker).getByTestId("thread-tab-active-output-glint");
+    expect(marker).toHaveAttribute("data-reduced-motion-static", "true");
+    expect(glint).toHaveAttribute("data-reduced-motion", "animation-disabled");
+    expect(glint).toHaveClass("thread-tab-output-glint");
+    expect(within(marker).getByTestId("thread-tab-active-output-dot")).toBeInTheDocument();
   });
 
   it("embeds Main-owned needs-input state into the pinned Main tab without a duplicate chip", () => {

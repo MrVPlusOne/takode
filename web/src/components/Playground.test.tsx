@@ -116,11 +116,15 @@ describe("Playground", () => {
     expect(screen.queryByTestId("workboard-current-thread")).toBeNull();
     expect(screen.getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
     expect(screen.getByTestId("thread-main-tab")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("thread-main-tab")).toHaveClass("border-amber-400/60", "bg-cc-bg");
+    expect(screen.getByTestId("thread-main-tab")).toHaveClass("border-violet-100/45", "border-b-transparent");
+    expect(screen.getByTestId("thread-main-tab")).not.toHaveClass("border-amber-400/60", "border-cc-primary/70");
     expect(screen.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Implement");
     const mainTitle = within(screen.getByTestId("thread-main-tab")).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "false");
-    expect(mainTitle).not.toHaveStyle({ animation: "thread-title-glow 2s ease-in-out infinite" });
+    expect(
+      within(screen.getByTestId("thread-main-tab")).queryByTestId("thread-tab-active-output-indicator"),
+    ).toBeNull();
+    expect(mainTitle.getAttribute("style") ?? "").not.toContain("animation");
     expect(mainTitle).not.toHaveClass("border");
     expect(mainTitle).not.toHaveClass("bg-sky-400/10");
 
@@ -133,8 +137,20 @@ describe("Playground", () => {
     expect(tabs[0]).toHaveAttribute("data-closable", "false");
     expect(within(tabs[0]).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
     const activeOutputTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-42");
+    expect(activeOutputTab).toHaveAttribute("data-active-output", "true");
+    const activeOutputMarker = within(activeOutputTab!).getByTestId("thread-tab-active-output-indicator");
+    expect(activeOutputMarker).toHaveAttribute("data-reduced-motion-static", "true");
+    expect(within(activeOutputMarker).getByTestId("thread-tab-active-output-glint")).toHaveClass(
+      "thread-tab-output-glint",
+    );
+    expect(within(activeOutputMarker).getByTestId("thread-tab-active-output-dot")).toBeTruthy();
     expect(within(activeOutputTab!).getByTestId("thread-tab-title")).toHaveAttribute("data-active-output", "true");
+    expect(within(activeOutputTab!).getByTestId("thread-tab-title").getAttribute("style") ?? "").not.toContain(
+      "animation",
+    );
     const queuedTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-55");
+    expect(queuedTab).toHaveAttribute("data-active-output", "false");
+    expect(within(queuedTab!).queryByTestId("thread-tab-active-output-indicator")).toBeNull();
     expect(within(queuedTab!).getByTestId("thread-tab-title")).toHaveAttribute(
       "data-title-color",
       "var(--color-cc-fg)",
@@ -159,6 +175,15 @@ describe("Playground", () => {
     expect(within(hoverCard).getByTestId("quest-hover-reviewer-session")).toHaveTextContent("Reviewer");
     expect(within(hoverCard).getByRole("link", { name: "Worker #5 Clear Mesa" })).toBeTruthy();
     expect(within(hoverCard).getByRole("link", { name: "Reviewer #6 Review Lead" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Quest thread" }));
+    const selectedActiveQuestTab = screen
+      .getAllByTestId("thread-tab")
+      .find((tab) => tab.getAttribute("data-thread-key") === "q-42")!;
+    expect(within(selectedActiveQuestTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
+    expect(selectedActiveQuestTab).toHaveClass("border-violet-100/45", "border-b-transparent");
+    expect(selectedActiveQuestTab).toHaveAttribute("data-active-output", "true");
+    expect(within(selectedActiveQuestTab).getByTestId("thread-tab-active-output-indicator")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Simulate moved-message tab"));
     const movedTabs = screen.getAllByTestId("thread-tab");
