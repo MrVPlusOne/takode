@@ -38,23 +38,29 @@ describe("AttentionLedgerRow Journey lifecycle presentation", () => {
     expect(row.className).toContain("border-fuchsia-400/25");
   });
 
-  it("renders completed Journey starts and finishes as quiet completed rows", () => {
+  it("keeps completed Journey starts quiet", () => {
+    render(<AttentionLedgerRow record={journeyRecord({ journeyLifecycleStatus: "completed" })} sessionId="s1" />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.getAttribute("data-journey-lifecycle-status")).toBe("completed");
+    expect(row.className).toContain("border-cc-border/70");
+    expect(row.className).toContain("bg-cc-card/35");
+    expect(row.className).not.toContain("border-fuchsia-400/25");
+    expect(row.className).not.toContain("bg-emerald-500/10");
+  });
+
+  it("renders Journey finished rows with completed-success treatment", () => {
     render(
-      <>
-        <AttentionLedgerRow record={journeyRecord({ journeyLifecycleStatus: "completed" })} sessionId="s1" />
-        <AttentionLedgerRow
-          record={journeyRecord({ type: "quest_completed_recent", journeyLifecycleStatus: "completed" })}
-          sessionId="s1"
-        />
-      </>,
+      <AttentionLedgerRow
+        record={journeyRecord({ type: "quest_completed_recent", journeyLifecycleStatus: "completed" })}
+        sessionId="s1"
+      />,
     );
 
-    const rows = screen.getAllByTestId("attention-ledger-row");
-    expect(rows[0].getAttribute("data-journey-lifecycle-status")).toBe("completed");
-    expect(rows[0].className).toContain("border-cc-border/70");
-    expect(rows[0].className).not.toContain("border-fuchsia-400/25");
-    expect(rows[1].textContent).toContain("Journey finished");
-    expect(rows[1].className).toContain("border-cc-border/70");
-    expect(rows[1].className).not.toContain("border-emerald-500/25");
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.textContent).toContain("Journey finished");
+    expect(row.className).toContain("border-emerald-400/30");
+    expect(row.className).toContain("bg-emerald-500/10");
+    expect(row.className).not.toContain("border-cc-border/70");
   });
 });

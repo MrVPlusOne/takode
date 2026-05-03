@@ -91,6 +91,20 @@ describe("Playground", () => {
     expect(within(marker).getByRole("button", { name: "thread:q-962" })).toBeTruthy();
   });
 
+  it("documents Journey finished as green while completed Journey starts stay quiet", () => {
+    render(<Playground />);
+
+    const rows = screen.getAllByTestId("attention-ledger-row");
+    const finishedRow = rows.find((row) => row.textContent?.includes("Journey finished"));
+    const completedStartRow = rows.find((row) => row.textContent?.includes("Completed Journey start is quiet"));
+
+    expect(finishedRow).toBeTruthy();
+    expect(finishedRow).toHaveClass("border-emerald-400/30", "bg-emerald-500/10");
+    expect(completedStartRow).toBeTruthy();
+    expect(completedStartRow).toHaveClass("border-cc-border/70", "bg-cc-card/35");
+    expect(completedStartRow).not.toHaveClass("bg-emerald-500/10");
+  });
+
   it("documents Work Board Bar tab shrinking, phase legend, and shared quest hover states", async () => {
     render(<Playground />);
 

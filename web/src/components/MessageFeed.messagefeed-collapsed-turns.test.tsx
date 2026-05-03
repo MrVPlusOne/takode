@@ -1047,6 +1047,7 @@ describe("MessageFeed - collapsed turns", () => {
     const row = screen.getByTestId("attention-ledger-row");
     expect(row.getAttribute("data-attention-state")).toBe("resolved");
     expect(screen.getByText("Journey finished")).toBeTruthy();
+    expect(row.className).toContain("bg-emerald-500/10");
     expect(screen.queryByText(/ready for review/i)).toBeNull();
     expect(row.textContent).not.toContain("Needs attention");
     expect(row.textContent).not.toContain("Resolved");
@@ -1075,6 +1076,8 @@ describe("MessageFeed - collapsed turns", () => {
 
     const row = screen.getByTestId("attention-ledger-row");
     expect(row.textContent).toContain("Journey finished");
+    expect(row.className).toContain("border-emerald-400/30");
+    expect(row.className).toContain("bg-emerald-500/10");
     expect(row.textContent).toContain("Compact notification cards");
     const questLink = within(row).getByRole("link", { name: "q-983" });
     expect(questLink.getAttribute("href")).toBe("#/?quest=q-983");

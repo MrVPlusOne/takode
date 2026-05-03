@@ -62,8 +62,9 @@ export function AttentionLedgerRow({
     scrollToRouteTarget();
   }, [currentThreadKey, onSelectThread, record.route.messageId, sessionId, targetThread]);
 
-  const statusClasses =
-    isCompletedJourneyStart || isJourneyFinished
+  const statusClasses = isJourneyFinished
+    ? "border-emerald-400/30 bg-emerald-500/10 text-emerald-50 shadow-[inset_0_1px_0_rgba(110,231,183,0.10)]"
+    : isCompletedJourneyStart
       ? "border-cc-border/70 bg-cc-card/35 text-cc-muted"
       : isThreadCreated
         ? "border-sky-400/25 bg-sky-400/10 text-sky-50 shadow-[inset_0_1px_0_rgba(125,211,252,0.08)]"
@@ -74,8 +75,9 @@ export function AttentionLedgerRow({
               ? "border-emerald-500/25 bg-emerald-500/5 text-emerald-100"
               : "border-amber-500/25 bg-amber-500/5 text-amber-100"
             : "border-cc-border/70 bg-cc-card/35 text-cc-muted";
-  const iconClasses =
-    isCompletedJourneyStart || isJourneyFinished
+  const iconClasses = isJourneyFinished
+    ? "text-emerald-300"
+    : isCompletedJourneyStart
       ? "text-cc-muted/80"
       : isThreadCreated
         ? "text-sky-300"
