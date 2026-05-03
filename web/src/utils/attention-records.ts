@@ -26,6 +26,8 @@ export interface BuildAttentionRecordsInput {
 
 export interface BuildAttentionLedgerMessagesOptions {
   availableMessageIds?: ReadonlySet<string>;
+  windowedMainFeed?: boolean;
+  mainWindowFromTimestamp?: number;
 }
 
 interface ReviewNotificationDisplay {
@@ -87,8 +89,11 @@ export function buildAttentionRecords(input: BuildAttentionRecordsInput): Attent
   return applyJourneyLifecyclePresentation([...records.values()].sort(compareAttentionRecordsChronologically));
 }
 
-export function selectMainLedgerRecords(records: ReadonlyArray<AttentionRecord>): AttentionRecord[] {
-  return records
+export function selectMainLedgerRecords(
+  records: ReadonlyArray<AttentionRecord>,
+  options: Pick<BuildAttentionLedgerMessagesOptions, "windowedMainFeed" | "mainWindowFromTimestamp"> = {},
+): AttentionRecord[] {
+  const selected = records
     .filter(
       (record) =>
         record.ledgerEligible &&
@@ -96,6 +101,13 @@ export function selectMainLedgerRecords(records: ReadonlyArray<AttentionRecord>)
         !isRedundantActiveNeedsInputNotification(record),
     )
     .sort(compareAttentionRecordsChronologically);
+  if (!options.windowedMainFeed) return selected;
+
+  return selected.filter(
+    (record) =>
+      isAttentionRecordActive(record) ||
+      (options.mainWindowFromTimestamp !== undefined && record.createdAt >= options.mainWindowFromTimestamp),
+  );
 }
 
 export function selectAttentionChipRecords(records: ReadonlyArray<AttentionRecord>): AttentionRecord[] {
@@ -126,20 +138,20 @@ export function buildAttentionLedgerMessages(
   threadKey: string = MAIN_THREAD_KEY,
   options: BuildAttentionLedgerMessagesOptions = {},
 ): ChatMessage[] {
-  return selectLedgerRecordsForThread(records, threadKey, options.availableMessageIds).map(attentionRecordToMessage);
+  return selectLedgerRecordsForThread(records, threadKey, options).map(attentionRecordToMessage);
 }
 
 function selectLedgerRecordsForThread(
   records: ReadonlyArray<AttentionRecord>,
   threadKey: string,
-  availableMessageIds?: ReadonlySet<string>,
+  options: BuildAttentionLedgerMessagesOptions,
 ): AttentionRecord[] {
   const normalized = normalizeThreadKey(threadKey);
-  if (normalized === MAIN_THREAD_KEY) return selectMainLedgerRecords(records);
+  if (normalized === MAIN_THREAD_KEY) return selectMainLedgerRecords(records, options);
   if (normalized === ALL_THREADS_KEY) return [];
 
   return records
-    .filter((record) => shouldRenderOwnerThreadNotificationRecord(record, normalized, availableMessageIds))
+    .filter((record) => shouldRenderOwnerThreadNotificationRecord(record, normalized, options.availableMessageIds))
     .sort(compareAttentionRecordsChronologically);
 }
 

@@ -104,11 +104,18 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
   );
   const visibleBaseMessages = removeMergedThreadAttachmentMarkers(baseMessages, mergedThreadAttachmentKeys);
   const baseMessageIds = new Set(visibleBaseMessages.map((message) => message.id));
+  const isWindowedMainFeed = input.selectedFeedWindowEnabled && isMainThreadKey(normalizedThreadKey);
+  const mainWindowTimestampMessages =
+    input.selectedFeedWindow && input.selectedFeedWindowMessages.length > 0
+      ? input.selectedFeedWindowMessages
+      : visibleBaseMessages;
   const attentionLedgerMessages = buildAttentionLedgerMessages(
     attentionRecordsWithThreadMovement,
     normalizedThreadKey,
     {
       availableMessageIds: baseMessageIds,
+      windowedMainFeed: isWindowedMainFeed,
+      mainWindowFromTimestamp: isWindowedMainFeed ? earliestMessageTimestamp(mainWindowTimestampMessages) : undefined,
     },
   );
   const messages = mergeChronologicalMessages(visibleBaseMessages, attentionLedgerMessages);
@@ -130,6 +137,15 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
     messages,
     visibleToolUseIds,
   };
+}
+
+function earliestMessageTimestamp(messages: ReadonlyArray<ChatMessage>): number | undefined {
+  let earliest: number | undefined;
+  for (const message of messages) {
+    if (!Number.isFinite(message.timestamp)) continue;
+    earliest = earliest === undefined ? message.timestamp : Math.min(earliest, message.timestamp);
+  }
+  return earliest;
 }
 
 function filterProjectedMessagesForThread(

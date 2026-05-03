@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import type { BrowserIncomingMessage, ChatMessage, SessionNotification, ThreadWindowState } from "../types.js";
+import type {
+  BrowserIncomingMessage,
+  ChatMessage,
+  SessionAttentionRecord,
+  SessionNotification,
+  ThreadWindowState,
+} from "../types.js";
 import type { Turn } from "../hooks/use-feed-model.js";
 import { buildFeedMessageModel, buildFeedWindowModel } from "./feed-render-model.js";
 import { buildThreadFeedWindowSync } from "../../shared/feed-window-sync.js";
@@ -31,6 +37,28 @@ function makeWindow(overrides: Partial<ThreadWindowState> = {}): ThreadWindowSta
     source_history_length: 20,
     section_item_count: 50,
     visible_item_count: 3,
+    ...overrides,
+  };
+}
+
+function makeAttentionRecord(overrides: Partial<SessionAttentionRecord> & { id: string }): SessionAttentionRecord {
+  const createdAt = overrides.createdAt ?? 1;
+  return {
+    leaderSessionId: "leader-1",
+    type: "review_ready",
+    source: { kind: "manual", signature: overrides.id },
+    threadKey: "main",
+    title: "Attention item",
+    summary: "Attention item",
+    actionLabel: "Open",
+    priority: "review",
+    state: "unresolved",
+    createdAt,
+    updatedAt: createdAt,
+    route: { threadKey: "main" },
+    chipEligible: false,
+    ledgerEligible: true,
+    dedupeKey: overrides.id,
     ...overrides,
   };
 }
@@ -113,6 +141,14 @@ describe("feed render model builders", () => {
       allMessages: [proposal, tail],
       selectedFeedWindowMessages: [tail],
       sessionNotifications: [makeNotification({ id: "n-main", messageId: proposal.id })],
+      sessionAttentionRecords: [
+        makeAttentionRecord({
+          id: "inactive-between-retained-source-and-window",
+          state: "resolved",
+          createdAt: 150,
+          updatedAt: 150,
+        }),
+      ],
     });
 
     expect(model.messages.map((message) => message.id)).toEqual(["a-proposal", "a-tail"]);
@@ -151,6 +187,79 @@ describe("feed render model builders", () => {
 
     expect(model.messages.map((message) => message.id)).toEqual(["a-main-checkpoint", "a-live-marker"]);
     expect(model.attentionLedgerMessages).toHaveLength(0);
+  });
+
+  it("keeps windowed Main attention ledger rows bounded to active and visible-window records", () => {
+    const visibleTail = makeMessage({
+      id: "a-visible-tail",
+      role: "assistant",
+      content: "Visible Main tail.",
+      timestamp: 1_000,
+      historyIndex: 25,
+    });
+
+    const model = buildMessageModel({
+      allMessages: [visibleTail],
+      selectedFeedWindowMessages: [visibleTail],
+      sessionNotifications: [],
+      sessionAttentionRecords: [
+        makeAttentionRecord({
+          id: "old-resolved",
+          state: "resolved",
+          createdAt: 100,
+          updatedAt: 100,
+          title: "Old resolved item",
+        }),
+        makeAttentionRecord({
+          id: "old-active",
+          state: "unresolved",
+          createdAt: 200,
+          updatedAt: 200,
+          title: "Old active item",
+        }),
+        makeAttentionRecord({
+          id: "recent-resolved",
+          state: "resolved",
+          createdAt: 1_100,
+          updatedAt: 1_100,
+          title: "Recent resolved item",
+        }),
+      ],
+    });
+
+    expect(model.attentionLedgerMessages.map((message) => message.metadata?.attentionRecord?.id)).toEqual([
+      "old-active",
+      "recent-resolved",
+    ]);
+  });
+
+  it("does not render stale inactive Main ledger rows before the selected window arrives", () => {
+    const model = buildMessageModel({
+      allMessages: [],
+      selectedFeedWindow: null,
+      selectedFeedWindowMessages: [],
+      sessionNotifications: [],
+      sessionAttentionRecords: [
+        makeAttentionRecord({
+          id: "old-resolved",
+          state: "resolved",
+          createdAt: 100,
+          updatedAt: 100,
+          title: "Old resolved item",
+        }),
+        makeAttentionRecord({
+          id: "old-active",
+          state: "unresolved",
+          createdAt: 200,
+          updatedAt: 200,
+          title: "Old active item",
+        }),
+      ],
+    });
+
+    expect(model.attentionLedgerMessages.map((message) => message.metadata?.attentionRecord?.id)).toEqual([
+      "old-active",
+    ]);
   });
 
   it("does not leak routed quest notification sources into the Main feed model", () => {
