@@ -834,6 +834,7 @@ export function WorkBoardBar({
   currentThreadKey = "main",
   onSelectThread,
   openThreadKeys = [],
+  closedThreadKeys,
   onCloseThreadTab,
   threadRows = [],
   attentionRecords = [],
@@ -843,6 +844,7 @@ export function WorkBoardBar({
   currentThreadLabel?: string;
   onSelectThread?: (threadKey: string) => void;
   openThreadKeys?: string[];
+  closedThreadKeys?: string[];
   onCloseThreadTab?: (threadKey: string, nextThreadKey: string) => void;
   threadRows?: WorkBoardThreadNavigationRow[];
   attentionRecords?: ReadonlyArray<AttentionRecord>;
@@ -910,9 +912,30 @@ export function WorkBoardBar({
   const newThreadTabTimeoutsRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [newThreadTabKeys, setNewThreadTabKeys] = useState<Set<string>>(() => new Set());
   const [dismissedAutoThreadTabKeys, setDismissedAutoThreadTabKeys] = useState<Set<string>>(() => new Set());
+  const closedThreadKeySet = useMemo(() => {
+    const keys = new Set<string>();
+    for (const key of closedThreadKeys ?? []) {
+      const normalized = normalizeThreadKey(key);
+      if (normalized && normalized !== MAIN_THREAD_KEY && normalized !== ALL_THREADS_KEY) keys.add(normalized);
+    }
+    return keys;
+  }, [closedThreadKeys]);
   useEffect(() => {
     setDismissedAutoThreadTabKeys(new Set());
   }, [sessionId]);
+  useEffect(() => {
+    if (closedThreadKeySet.size === 0) return;
+    setDismissedAutoThreadTabKeys((existing) => {
+      let changed = false;
+      const next = new Set(existing);
+      for (const key of closedThreadKeySet) {
+        if (next.has(key)) continue;
+        next.add(key);
+        changed = true;
+      }
+      return changed ? next : existing;
+    });
+  }, [closedThreadKeySet]);
   useEffect(() => {
     const currentKeys = openThreadTabs.map((tab) => tab.threadKey);
     const previousKeys = previousOpenThreadTabKeysRef.current;

@@ -137,12 +137,14 @@ vi.mock("./WorkBoardBar.js", () => ({
     currentThreadKey,
     onSelectThread,
     openThreadKeys = [],
+    closedThreadKeys = [],
     onCloseThreadTab,
     threadRows = [],
   }: {
     currentThreadKey?: string;
     onSelectThread?: (threadKey: string) => void;
     openThreadKeys?: string[];
+    closedThreadKeys?: string[];
     onCloseThreadTab?: (threadKey: string, nextThreadKey?: string) => void;
     threadRows?: Array<{ threadKey: string; questId?: string; title: string }>;
   }) => (
@@ -150,6 +152,7 @@ vi.mock("./WorkBoardBar.js", () => ({
       data-testid="work-board-bar"
       data-current-thread-key={currentThreadKey}
       data-open-thread-keys={openThreadKeys.join(",")}
+      data-closed-thread-keys={closedThreadKeys.join(",")}
     >
       {onSelectThread && (
         <>
@@ -249,6 +252,7 @@ describe("ChatView leader open thread tabs", () => {
     view.rerender(<ChatView sessionId="s1" />);
 
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-777");
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-closed-thread-keys", "q-941");
   });
 
   it("migrates valid legacy localStorage only when no server state exists", async () => {

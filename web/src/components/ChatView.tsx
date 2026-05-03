@@ -718,6 +718,10 @@ export function ChatView({
     isLeaderSession ? initialOpenThreadTabKeys(sessionId, authoritativeLeaderOpenThreadTabs) : [],
   );
   const openThreadTabKeysRef = useRef(openThreadTabKeys);
+  const closedThreadTabKeys = useMemo(
+    () => authoritativeLeaderOpenThreadTabs?.closedThreadTombstones.map((entry) => entry.threadKey) ?? [],
+    [authoritativeLeaderOpenThreadTabs],
+  );
   const {
     activeBoard,
     completedBoard,
@@ -1238,6 +1242,7 @@ export function ChatView({
           currentThreadLabel={isLeaderSession ? selectedThreadLabel : "Main"}
           onSelectThread={isLeaderSession ? handleSelectThread : undefined}
           openThreadKeys={isLeaderSession ? openThreadTabKeys : undefined}
+          closedThreadKeys={isLeaderSession ? closedThreadTabKeys : undefined}
           onCloseThreadTab={isLeaderSession ? handleCloseThreadTab : undefined}
           threadRows={isLeaderSession ? workBoardThreadRows : undefined}
           attentionRecords={isLeaderSession ? attentionRecords : undefined}
