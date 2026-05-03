@@ -670,6 +670,42 @@ function initialOpenThreadTabKeys(
   return leaderOpenThreadTabs?.orderedOpenThreadKeys ?? readOpenThreadTabKeys(sessionId);
 }
 
+function initialSelectedThreadKey({
+  sessionId,
+  isLeaderSession,
+  hasThreadRoute,
+  routeThreadKey,
+  leaderOpenThreadTabs,
+}: {
+  sessionId: string;
+  isLeaderSession: boolean;
+  hasThreadRoute?: boolean;
+  routeThreadKey?: string | null;
+  leaderOpenThreadTabs: LeaderOpenThreadTabsState | undefined;
+}): string {
+  if (!isLeaderSession) return MAIN_THREAD_KEY;
+  if (hasThreadRoute) {
+    if (!routeThreadKey) return MAIN_THREAD_KEY;
+    const normalizedRouteThreadKey = normalizeThreadKey(routeThreadKey);
+    if (normalizedRouteThreadKey === MAIN_THREAD_KEY || normalizedRouteThreadKey === ALL_THREADS_KEY) {
+      return normalizedRouteThreadKey;
+    }
+    return shouldPersistOpenThreadTab(normalizedRouteThreadKey) ? normalizedRouteThreadKey : MAIN_THREAD_KEY;
+  }
+
+  const restoredThreadKey = readLeaderSelectedThreadKey(sessionId);
+  if (!restoredThreadKey) return MAIN_THREAD_KEY;
+  const normalizedRestoredThreadKey = normalizeThreadKey(restoredThreadKey);
+  if (normalizedRestoredThreadKey === MAIN_THREAD_KEY || normalizedRestoredThreadKey === ALL_THREADS_KEY) {
+    return normalizedRestoredThreadKey;
+  }
+  if (!shouldPersistOpenThreadTab(normalizedRestoredThreadKey)) return MAIN_THREAD_KEY;
+  if (leaderOpenThreadTabs && !leaderOpenThreadTabs.orderedOpenThreadKeys.includes(normalizedRestoredThreadKey)) {
+    return MAIN_THREAD_KEY;
+  }
+  return normalizedRestoredThreadKey;
+}
+
 function stringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
@@ -737,7 +773,15 @@ export function ChatView({
     () => normalizeLeaderOpenThreadTabsState(leaderOpenThreadTabs),
     [leaderOpenThreadTabs],
   );
-  const [selectedThreadKey, setSelectedThreadKey] = useState("main");
+  const [selectedThreadKey, setSelectedThreadKey] = useState(() =>
+    initialSelectedThreadKey({
+      sessionId,
+      isLeaderSession,
+      hasThreadRoute,
+      routeThreadKey,
+      leaderOpenThreadTabs: authoritativeLeaderOpenThreadTabs,
+    }),
+  );
   const [openThreadTabKeys, setOpenThreadTabKeys] = useState(() =>
     isLeaderSession ? initialOpenThreadTabKeys(sessionId, authoritativeLeaderOpenThreadTabs) : [],
   );
@@ -1312,6 +1356,7 @@ export function ChatView({
             />
           )}
           <MessageFeed
+            key={`${sessionId}:${normalizeThreadKey(isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY)}`}
             sessionId={sessionId}
             threadKey={isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY}
             projectThreadRoutes={isLeaderSession}

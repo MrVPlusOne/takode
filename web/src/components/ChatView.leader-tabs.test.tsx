@@ -36,6 +36,7 @@ interface MockStoreState {
 
 let mockState: MockStoreState;
 const mockSendToSession = vi.fn((_sessionId: string, _msg: unknown) => true);
+const mockMessageFeedRenders = vi.fn();
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
@@ -123,15 +124,18 @@ vi.mock("./MessageFeed.js", () => ({
     sessionId: string;
     threadKey?: string;
     additionalAttentionRecords?: Array<import("../types.js").SessionAttentionRecord>;
-  }) => (
-    <div
-      data-testid="message-feed"
-      data-thread-key={threadKey}
-      data-additional-attention-count={additionalAttentionRecords.length}
-    >
-      {sessionId}
-    </div>
-  ),
+  }) => {
+    mockMessageFeedRenders({ sessionId, threadKey });
+    return (
+      <div
+        data-testid="message-feed"
+        data-thread-key={threadKey}
+        data-additional-attention-count={additionalAttentionRecords.length}
+      >
+        {sessionId}
+      </div>
+    );
+  },
 }));
 vi.mock("./WorkBoardBar.js", () => ({
   WorkBoardBar: ({
@@ -207,6 +211,7 @@ beforeEach(() => {
   localStorage.setItem("cc-server-id", "test-server");
   window.location.hash = "#/session/s1";
   mockSendToSession.mockClear();
+  mockMessageFeedRenders.mockClear();
 });
 
 describe("ChatView leader open thread tabs", () => {
@@ -265,6 +270,25 @@ describe("ChatView leader open thread tabs", () => {
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "q-941");
+  });
+
+  it("does not mount Main before restoring a server-open browser-local selected tab", () => {
+    // The feed owns viewport save/restore side effects. If a returning leader
+    // session first mounts Main and only later restores a saved quest tab,
+    // selected-thread content can be snapshotted under the Main viewport key.
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-941"])),
+      messages: new Map([["s1", [threadMessage("q-941", 2)]]]),
+      quests: [{ questId: "q-941", title: "Initial restore", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941");
+    expect(mockMessageFeedRenders.mock.calls[0]?.[0]).toEqual({ sessionId: "s1", threadKey: "q-941" });
+    expect(mockMessageFeedRenders).not.toHaveBeenCalledWith({ sessionId: "s1", threadKey: "main" });
   });
 
   it("falls back to Main when the browser-local selected tab is no longer server-open", async () => {
