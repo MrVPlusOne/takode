@@ -4,6 +4,7 @@ import {
   commitPendingCodexInputs,
   handleCodexAdapterInitError,
   hydrateCodexResumedHistory,
+  reconcileCodexResumedTurn,
   type CodexRecoveryOrchestratorSessionLike,
   type CodexRecoveryOrchestratorDeps,
 } from "./codex-recovery-orchestrator.js";
@@ -257,6 +258,112 @@ describe("hydrateCodexResumedHistory", () => {
     expect(session.lastUserMessage).toBe("[reply] Continue the work");
     expect(session.lastUserMessage).not.toContain("<<<REPLY_TO");
     expect(session.lastUserMessage).not.toContain("codex-agent-random-id");
+  });
+
+  it("routes and strips leader thread prefixes when hydrating recovered assistant messages", () => {
+    // External Codex resume can replay assistant text with the leader thread
+    // marker still embedded. Store the same routed shape as live assistant
+    // messages so Main and quest projections agree after reconnect.
+    const session = makeSession([]);
+    session.state.isOrchestrator = true;
+    const deps = makeDeps();
+
+    const hydrated = hydrateCodexResumedHistory(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        turns: [
+          {
+            id: "turn-1",
+            status: "completed",
+            error: null,
+            items: [{ type: "agentMessage", id: "agent-1", text: "[thread:q-1119] Created quest notes" }],
+          },
+        ],
+        lastTurn: null,
+      },
+      deps,
+    );
+
+    expect(hydrated).toBe(1);
+    expect(session.messageHistory[0]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1119",
+      questId: "q-1119",
+      threadRefs: [expect.objectContaining({ threadKey: "q-1119", questId: "q-1119", source: "explicit" })],
+    });
+    const assistant = session.messageHistory[0] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    expect(assistant.message.content).toEqual([{ type: "text", text: "Created quest notes" }]);
+  });
+});
+
+describe("reconcileCodexResumedTurn", () => {
+  it("dedupes routed recovered assistant replay against an already stored stripped leader row", () => {
+    // This matches the observed replay shape: the original Main assistant row
+    // is already stored without the leader marker, then Codex resume replays
+    // the same text as an item-* agentMessage with [thread:main] still attached.
+    const session = makeSession([
+      {
+        id: "input-1",
+        content: "continue",
+        timestamp: 1_000,
+        cancelable: false,
+      },
+    ]);
+    session.state.isOrchestrator = true;
+    session.isGenerating = true;
+    session.messageHistory.push({
+      type: "assistant",
+      message: {
+        id: "original-main",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.4",
+        content: [{ type: "text", text: "Approved with the Mental Simulation." }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 900,
+      threadKey: "main",
+    });
+    const pending = makePendingTurn();
+    pending.disconnectedAt = 2_000;
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      completeCodexTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike, turn: CodexOutboundTurn | null) => {
+        if (turn) turn.status = "completed";
+        session.pendingCodexTurns = [];
+        return true;
+      }),
+    });
+    deps.codexAssistantReplayScanLimit = 10;
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-1",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "continue" }] },
+            { type: "agentMessage", id: "item-1", text: "[thread:main] Approved with the Mental Simulation." },
+          ],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    const assistantRows = session.messageHistory.filter((message) => message.type === "assistant");
+    expect(assistantRows).toHaveLength(1);
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_recovered_messages");
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "assistant" }));
   });
 });
 

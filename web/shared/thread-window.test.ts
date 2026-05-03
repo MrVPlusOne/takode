@@ -63,6 +63,21 @@ function attachmentMarker(overrides: Partial<BrowserIncomingMessage> = {}): Brow
   };
 }
 
+function toolResultPreview(toolUseId: string, content = "preview"): BrowserIncomingMessage {
+  return {
+    type: "tool_result_preview",
+    previews: [
+      {
+        tool_use_id: toolUseId,
+        content,
+        is_error: false,
+        total_size: content.length,
+        is_truncated: false,
+      },
+    ],
+  };
+}
+
 describe("thread window hydration", () => {
   it("returns bounded selected quest feed items with tool closure context", () => {
     const history = [
@@ -244,6 +259,65 @@ describe("thread window hydration", () => {
     expect(
       sync.entries.map((entry) => (entry.message.type === "assistant" ? entry.message.message.id : entry.message.id)),
     ).toEqual(["u1", "u4"]);
+  });
+
+  it("keeps q-thread tool result previews out of Main while preserving them in the quest thread", () => {
+    const history = [
+      user("u1", "main request"),
+      assistant("a2", "quest tool", { threadKey: "q-1119", toolUseId: "tool-q" }),
+      toolResultPreview("tool-q", "quest preview"),
+      user("u4", "main follow-up"),
+    ];
+
+    const mainSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+    const questSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-1119",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+
+    expect(mainSync.entries.map((entry) => entry.history_index)).toEqual([0, 3]);
+    expect(mainSync.entries.map((entry) => entry.message.type)).toEqual(["user_message", "user_message"]);
+    expect(questSync.entries.map((entry) => entry.history_index)).toEqual([1, 2]);
+    expect(questSync.entries.map((entry) => entry.message.type)).toEqual(["assistant", "tool_result_preview"]);
+  });
+
+  it("preserves Main previews for visible and orphaned tools", () => {
+    const visibleMainHistory = [
+      assistant("a1", "main tool", { toolUseId: "tool-main" }),
+      toolResultPreview("tool-main", "main preview"),
+    ];
+    const orphanHistory = [toolResultPreview("tool-orphan", "orphan preview")];
+
+    const visibleMainSync = buildThreadWindowSync({
+      messageHistory: visibleMainHistory,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+    const orphanSync = buildThreadWindowSync({
+      messageHistory: orphanHistory,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+
+    expect(visibleMainSync.entries.map((entry) => entry.message.type)).toEqual(["assistant", "tool_result_preview"]);
+    expect(orphanSync.entries.map((entry) => entry.message.type)).toEqual(["tool_result_preview"]);
   });
 
   it("keeps backfilled source messages visible in Main without rendering attachment markers", () => {

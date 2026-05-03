@@ -6,6 +6,7 @@ import type {
   CLIResultMessage,
   ActiveTurnRoute,
   BrowserOutgoingMessage,
+  ContentBlock,
   CodexOutboundTurn,
   PendingCodexInput,
   SessionNotification,
@@ -27,6 +28,7 @@ import {
   dispatchQueuedCodexTurns as dispatchQueuedCodexTurnsState,
 } from "./codex-turn-queue.js";
 import { requestCodexAutoRecovery as requestCodexAutoRecoveryController } from "./session-registry-controller.js";
+import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
 const CODEX_INIT_RETRY_BASE_DELAY_MS = 1_000;
 type InterruptSource = "user" | "leader" | "system";
@@ -34,7 +36,7 @@ type CodexRecoveryAdapterLike = any;
 export interface CodexRecoveryOrchestratorSessionLike {
   id: string;
   backendType: "codex" | "claude" | "claude-sdk";
-  state: Pick<SessionState, "backend_state" | "backend_type" | "cwd" | "model" | "is_compacting">;
+  state: Pick<SessionState, "backend_state" | "backend_type" | "cwd" | "model" | "is_compacting" | "isOrchestrator">;
   messageHistory: BrowserIncomingMessage[];
   notifications?: SessionNotification[];
   pendingMessages: string[];
@@ -100,6 +102,7 @@ export interface CodexRecoveryOrchestratorDeps {
     historyIndex: number,
     target: UserDispatchTurnTarget,
   ) => void;
+  setGenerating: (session: CodexRecoveryOrchestratorSessionLike, generating: boolean, reason: string) => void;
   markRunningFromUserDispatch: (
     session: CodexRecoveryOrchestratorSessionLike,
     reason: string,
@@ -289,6 +292,7 @@ export function hydrateCodexResumedHistory(
       );
       if (alreadyExists) continue;
 
+      const routed = buildCodexRecoveredAssistantMessageFields(session, text);
       const assistant: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
         type: "assistant",
         message: {
@@ -296,7 +300,7 @@ export function hydrateCodexResumedHistory(
           type: "message",
           role: "assistant",
           model: session.state.model || getDefaultModelForBackend("codex"),
-          content: [{ type: "text", text }],
+          content: routed.content,
           stop_reason: null,
           usage: {
             input_tokens: 0,
@@ -307,6 +311,10 @@ export function hydrateCodexResumedHistory(
         },
         parent_tool_use_id: null,
         timestamp: ++syntheticTimestamp,
+        ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+        ...(routed.questId ? { questId: routed.questId } : {}),
+        ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+        ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
       };
       session.messageHistory.push(assistant);
       deps.broadcastToBrowsers(session, assistant);
@@ -1244,6 +1252,7 @@ export function reconcileCodexResumedTurn(
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
     deps.completeCodexTurn(session, pending);
+    clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, "codex_resume_recovered_messages", deps);
     reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_recovered_messages", deps);
     deps.dispatchQueuedCodexTurns(session, "codex_resume_recovered_messages");
     reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_recovered_messages_dispatched", deps);
@@ -1255,6 +1264,7 @@ export function reconcileCodexResumedTurn(
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
     deps.completeCodexTurn(session, pending);
+    clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, "codex_resume_synthesized_results", deps);
     reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_synthesized_results", deps);
     deps.dispatchQueuedCodexTurns(session, "codex_resume_synthesized_results");
     reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_synthesized_results_dispatched", deps);
@@ -1270,6 +1280,7 @@ export function reconcileCodexResumedTurn(
     return;
   }
   deps.completeCodexTurn(session, pending);
+  clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, "codex_resume_non_retryable", deps);
   reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_non_retryable", deps);
   deps.dispatchQueuedCodexTurns(session, "codex_resume_non_retryable");
   reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_non_retryable_dispatched", deps);
@@ -1306,6 +1317,71 @@ export function normalizeResumedUserText(text: string): string {
 function normalizeCodexRecoveredAssistantText(text: string): string {
   return text.trim().replace(/\s+/g, " ");
 }
+
+function clearGeneratingAfterRecoveredCompletedTurnIfIdle(
+  session: CodexRecoveryOrchestratorSessionLike,
+  reason: string,
+  deps: Pick<CodexRecoveryOrchestratorDeps, "setGenerating">,
+): void {
+  const hasLiveTurn = session.pendingCodexTurns.some((turn) => turn.status !== "completed");
+  if (hasLiveTurn) return;
+  deps.setGenerating(session, false, reason);
+}
+
+type CodexRecoveredAssistantRouteFields = Pick<
+  Extract<BrowserIncomingMessage, { type: "assistant" }>,
+  "threadKey" | "questId" | "threadRefs" | "threadRoutingError"
+> & { content: ContentBlock[] };
+
+function isLeaderSessionForRecoveredAssistantRouting(session: CodexRecoveryOrchestratorSessionLike): boolean {
+  return session.state.isOrchestrator === true;
+}
+
+function buildCodexRecoveredAssistantMessageFields(
+  session: CodexRecoveryOrchestratorSessionLike,
+  text: string,
+): CodexRecoveredAssistantRouteFields {
+  return normalizeLeaderAssistantRouting(
+    isLeaderSessionForRecoveredAssistantRouting(session),
+    [{ type: "text", text }],
+    null,
+  );
+}
+
+function canonicalRouteKeyForRecoveredAssistant(
+  entry: Pick<
+    Extract<BrowserIncomingMessage, { type: "assistant" }>,
+    "threadKey" | "questId" | "threadRefs" | "threadRoutingError"
+  >,
+  routed: CodexRecoveredAssistantRouteFields,
+): string {
+  const routedKey = routed.threadKey || routed.questId;
+  if (routedKey) return routedKey.trim().toLowerCase() || "main";
+  if (entry.threadKey) return entry.threadKey.trim().toLowerCase() || "main";
+  if (entry.questId) return entry.questId.trim().toLowerCase() || "main";
+  const explicitRef = (entry.threadRefs ?? []).find((ref) => ref.source !== "backfill" && ref.threadKey);
+  return explicitRef?.threadKey.trim().toLowerCase() || "main";
+}
+
+function canonicalRecoveredAssistant(
+  session: CodexRecoveryOrchestratorSessionLike,
+  text: string,
+  entry: Pick<
+    Extract<BrowserIncomingMessage, { type: "assistant" }>,
+    "threadKey" | "questId" | "threadRefs" | "threadRoutingError"
+  > = {},
+): { text: string; routeKey: string } | null {
+  const routed = buildCodexRecoveredAssistantMessageFields(session, text);
+  const textBlocks = routed.content.filter((block) => block.type === "text");
+  if (textBlocks.length !== 1) return null;
+  const normalizedText = normalizeCodexRecoveredAssistantText(textBlocks[0].text || "");
+  if (!normalizedText) return null;
+  return {
+    text: normalizedText,
+    routeKey: canonicalRouteKeyForRecoveredAssistant(entry, routed),
+  };
+}
+
 function recoverAgentMessagesFromResumedTurn(
   session: CodexRecoveryOrchestratorSessionLike,
   turn: CodexResumeTurnSnapshot,
@@ -1333,6 +1409,7 @@ function recoverAgentMessagesFromResumedTurn(
       matchedOrRecovered++;
       continue;
     }
+    const routed = buildCodexRecoveredAssistantMessageFields(session, text);
     const assistant: BrowserIncomingMessage = {
       type: "assistant",
       message: {
@@ -1340,7 +1417,7 @@ function recoverAgentMessagesFromResumedTurn(
         type: "message",
         role: "assistant",
         model: session.state.model || getDefaultModelForBackend("codex"),
-        content: [{ type: "text", text }],
+        content: routed.content,
         stop_reason: null,
         usage: {
           input_tokens: 0,
@@ -1351,6 +1428,10 @@ function recoverAgentMessagesFromResumedTurn(
       },
       parent_tool_use_id: null,
       timestamp: baseTs + i + 1,
+      ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+      ...(routed.questId ? { questId: routed.questId } : {}),
+      ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+      ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
     };
     session.messageHistory.push(assistant);
     deps.broadcastToBrowsers(session, assistant);
@@ -1514,12 +1595,12 @@ function hasOnlyRetrySafeCodexResumedItems(items: Array<Record<string, unknown>>
   });
 }
 function findMatchingRecoveredCodexAssistant(
-  session: Pick<CodexRecoveryOrchestratorSessionLike, "messageHistory">,
+  session: CodexRecoveryOrchestratorSessionLike,
   text: string,
   limit: number,
 ): Extract<BrowserIncomingMessage, { type: "assistant" }> | null {
-  const normalizedText = normalizeCodexRecoveredAssistantText(text);
-  if (!normalizedText) return null;
+  const incoming = canonicalRecoveredAssistant(session, text);
+  if (!incoming) return null;
   let scannedAssistants = 0;
   for (let i = session.messageHistory.length - 1; i >= 0; i--) {
     const entry = session.messageHistory[i];
@@ -1530,9 +1611,9 @@ function findMatchingRecoveredCodexAssistant(
     if (existing.parent_tool_use_id !== null) continue;
     const textBlocks = existing.message.content.filter((block) => block.type === "text");
     if (textBlocks.length !== 1) continue;
-    const existingText = normalizeCodexRecoveredAssistantText(textBlocks[0].text || "");
-    if (!existingText) continue;
-    if (existingText === normalizedText) return existing;
+    const existingCanonical = canonicalRecoveredAssistant(session, textBlocks[0].text || "", existing);
+    if (!existingCanonical) continue;
+    if (existingCanonical.text === incoming.text && existingCanonical.routeKey === incoming.routeKey) return existing;
   }
   return null;
 }

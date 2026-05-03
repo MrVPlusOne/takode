@@ -148,6 +148,7 @@ function buildFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>, threadK
 
 function buildMainFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>): FeedItem[] {
   const items: FeedItem[] = [];
+  const toolUseRoutes = toolUseRoutesById(messages);
   let hiddenRun: Array<{ message: BrowserIncomingMessage; index: number }> = [];
   let hiddenRunRoute: RouteTarget | null = null;
 
@@ -161,6 +162,15 @@ function buildMainFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>): Fe
   };
 
   messages.forEach((message, index) => {
+    if (message.type === "tool_result_preview") {
+      const visiblePreview = mainVisibleToolResultPreview(message, toolUseRoutes);
+      if (!visiblePreview) return;
+      if (visiblePreview !== message) {
+        flushHiddenRun();
+        items.push({ order: index, entry: { message: visiblePreview, history_index: index } });
+        return;
+      }
+    }
     if (message.type === "thread_attachment_marker") {
       flushHiddenRun();
       return;
@@ -189,6 +199,32 @@ function buildMainFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>): Fe
 
   flushHiddenRun();
   return items;
+}
+
+function toolUseRoutesById(messages: ReadonlyArray<BrowserIncomingMessage>): Map<string, RouteTarget | null> {
+  const routes = new Map<string, RouteTarget | null>();
+  for (const message of messages) {
+    if (message.type !== "assistant") continue;
+    const route = explicitNonMainRoute(message);
+    for (const block of message.message.content) {
+      if (block.type !== "tool_use") continue;
+      routes.set(block.id, route);
+    }
+  }
+  return routes;
+}
+
+function mainVisibleToolResultPreview(
+  message: Extract<BrowserIncomingMessage, { type: "tool_result_preview" }>,
+  toolUseRoutes: ReadonlyMap<string, RouteTarget | null>,
+): BrowserIncomingMessage | null {
+  const previews = message.previews.filter((preview) => {
+    const route = toolUseRoutes.get(preview.tool_use_id);
+    return !route || !isQuestThreadKey(route.threadKey);
+  });
+  if (previews.length === 0) return null;
+  if (previews.length === message.previews.length) return message;
+  return { ...message, previews };
 }
 
 function buildQuestThreadFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>, threadKey: string): FeedItem[] {
