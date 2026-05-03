@@ -109,7 +109,7 @@ describe("takode watch deprecation", () => {
   });
 
   it.each([
-    [["board", "--help"], "Usage: takode board [show|set|propose|present|promote|note|advance|rm] ..."],
+    [["board", "--help"], "Usage: takode board [show|detail|set|propose|present|promote|note|advance|rm] ..."],
     [["board", "set", "--help"], "Usage: takode board set <quest-id>"],
     [["board", "advance", "--help"], "Usage: takode board advance <quest-id>"],
     [["board", "advance-no-groom", "--help"], "`takode board advance-no-groom` was removed."],

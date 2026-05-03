@@ -135,7 +135,8 @@ describe("takode board reviewer status output", () => {
       expect(result.stdout).toContain("q-1: PLANNING -> IMPLEMENTING");
       expect(result.stdout).toContain("WORKER / REVIEWER");
       expect(result.stdout).toContain("#7 idle / #17 running");
-      expect(result.stdout).toContain("#8 disconnected / no reviewer");
+      expect(result.stdout).not.toContain("q-2");
+      expect(result.stdout).not.toContain("#8 disconnected / no reviewer");
       expect(result.stdout).not.toContain('"rowSessionStatuses"');
     } finally {
       server.close();

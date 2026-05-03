@@ -1,6 +1,6 @@
 # Quest Journey Lifecycle
 
-Every dispatched task follows a **Quest Journey** assembled from built-in phases. The work board (`takode board show`) tracks proposed pre-dispatch Journeys, active current phases, remaining phases, numbered Journey paths, indexed phase notes, and next required leader action.
+Every dispatched task follows a **Quest Journey** assembled from built-in phases. The work board (`takode board show`) tracks proposed pre-dispatch Journeys, active current phases, remaining phases, and next required leader action in compact routine output. Use `takode board show --full` for full-board Journey paths and indexed phase notes, or `takode board detail q-N` for one quest's full Journey, notes, timing history, and revision metadata.
 
 The planned Journey is board-owned state associated with the quest while that quest is on the board. Quest creation or refinement defines the quest text; it does not freeze either the proposed draft or the active Journey.
 

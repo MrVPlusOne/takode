@@ -453,6 +453,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "5",
         "--phases",
         "alignment,implement,mental-simulation,implement,mental-simulation,code-review,port",
+        "--full",
         "--port",
         String(port),
       ],

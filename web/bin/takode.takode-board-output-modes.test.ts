@@ -271,7 +271,7 @@ describe("takode board output modes", () => {
     }
   });
 
-  it("prints indexed phase notes for proposed and active Journey rows", async () => {
+  it("keeps default board show compact and moves Journey notes to board detail", async () => {
     const server = createServer((req, res) => {
       const method = req.method || "";
       const url = req.url || "";
@@ -282,7 +282,11 @@ describe("takode board output modes", () => {
         return;
       }
 
-      if (method === "GET" && url === "/api/sessions/leader-board-notes/board?resolve=true") {
+      if (
+        method === "GET" &&
+        (url === "/api/sessions/leader-board-notes/board?resolve=true" ||
+          url === "/api/sessions/leader-board-notes/board?resolve=true&include_completed=true")
+      ) {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
@@ -319,24 +323,36 @@ describe("takode board output modes", () => {
     const port = (server.address() as AddressInfo).port;
 
     try {
-      const result = await runTakode(["board", "show", "--port", String(port)], {
+      const compact = await runTakode(["board", "show", "--port", String(port)], {
         ...process.env,
         COMPANION_SESSION_ID: "leader-board-notes",
         COMPANION_AUTH_TOKEN: "auth-board-notes",
       });
 
-      expect(result.status).toBe(0);
-      expect(result.stdout).toContain(
+      expect(compact.status).toBe(0);
+      expect(compact.stdout).toContain("q-12");
+      expect(compact.stdout).not.toContain("journey:");
+      expect(compact.stdout).not.toContain("note[3]");
+      expect(compact.stdout).not.toContain("focus on stream migration behavior");
+
+      const detail = await runTakode(["board", "detail", "q-12", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board-notes",
+        COMPANION_AUTH_TOKEN: "auth-board-notes",
+      });
+
+      expect(detail.status).toBe(0);
+      expect(detail.stdout).toContain(
         "journey: 1. Alignment -> 2. Implement -> 3. Code Review -> 4. Implement -> 5. Code Review -> 6. Port",
       );
-      expect(result.stdout).toContain("note[3] Code Review: focus on stream migration behavior");
-      expect(result.stdout).toContain("note[5] Code Review: inspect only the follow-up diff");
+      expect(detail.stdout).toContain("note[3] Code Review: focus on stream migration behavior");
+      expect(detail.stdout).toContain("note[5] Code Review: inspect only the follow-up diff");
     } finally {
       server.close();
     }
   });
 
-  it("shows the active repeated phase occurrence in the Journey path", async () => {
+  it("shows the active repeated phase occurrence in the full board show output", async () => {
     const server = createServer((req, res) => {
       const method = req.method || "";
       const url = req.url || "";
@@ -388,7 +404,7 @@ describe("takode board output modes", () => {
     const port = (server.address() as AddressInfo).port;
 
     try {
-      const result = await runTakode(["board", "show", "--port", String(port)], {
+      const result = await runTakode(["board", "show", "--full", "--port", String(port)], {
         ...process.env,
         COMPANION_SESSION_ID: "leader-board-repeated",
         COMPANION_AUTH_TOKEN: "auth-board-repeated",
@@ -510,6 +526,109 @@ describe("takode board output modes", () => {
       expect(result.stdout).toContain("dispatch now");
       expect(result.stdout).toContain("q-88 can be dispatched now");
       expect(result.stdout).toContain("Next: Dispatch it now or replace QUEUED");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("prints compact mutation output for only the changed row unless full output is requested", async () => {
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-board-mutate", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/5/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-5", sessionNum: 5 }));
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/leader-board-mutate/board") {
+        await readJson(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            board: [
+              {
+                questId: "q-12",
+                title: "Compact changed row",
+                worker: "worker-5",
+                workerNum: 5,
+                status: "IMPLEMENTING",
+                waitForInput: ["n-3"],
+                journey: {
+                  phaseIds: ["alignment", "implement", "code-review", "port"],
+                  activePhaseIndex: 1,
+                  phaseNotes: { "1": "long implementation detail that belongs in board detail" },
+                },
+                createdAt: 1,
+                updatedAt: 2,
+              },
+              {
+                questId: "q-13",
+                title: "Unrelated board row",
+                worker: "worker-6",
+                workerNum: 6,
+                status: "CODE_REVIEWING",
+                createdAt: 3,
+                updatedAt: 4,
+              },
+            ],
+            rowSessionStatuses: {
+              "q-12": {
+                worker: { sessionId: "worker-5", sessionNum: 5, status: "idle" },
+                reviewer: { sessionId: "reviewer-9", sessionNum: 9, status: "disconnected" },
+              },
+              "q-13": {
+                worker: { sessionId: "worker-6", sessionNum: 6, status: "running" },
+                reviewer: null,
+              },
+            },
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const compact = await runTakode(["board", "set", "q-12", "--worker", "5", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board-mutate",
+        COMPANION_AUTH_TOKEN: "auth-board-mutate",
+      });
+
+      expect(compact.status).toBe(0);
+      expect(compact.stdout).toContain("set q-12: updated");
+      expect(compact.stdout).toContain("q-12");
+      expect(compact.stdout).toContain("#5 idle / #9 disconnected");
+      expect(compact.stdout).toContain("input 3");
+      expect(compact.stdout).toContain("wait for user input (3)");
+      expect(compact.stdout).not.toContain("q-13");
+      expect(compact.stdout).not.toContain("Unrelated board row");
+      expect(compact.stdout).not.toContain("long implementation detail");
+
+      const full = await runTakode(["board", "set", "q-12", "--worker", "5", "--full", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-board-mutate",
+        COMPANION_AUTH_TOKEN: "auth-board-mutate",
+      });
+
+      expect(full.status).toBe(0);
+      expect(full.stdout).toContain("q-12");
+      expect(full.stdout).toContain("q-13");
+      expect(full.stdout).toContain("long implementation detail");
     } finally {
       server.close();
     }

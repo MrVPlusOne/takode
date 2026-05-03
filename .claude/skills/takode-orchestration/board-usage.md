@@ -8,9 +8,15 @@ While a quest is on the board, the current planned Journey shown there is board-
 
 ### `takode board show`
 
-Display the board with phase boundaries, the full Journey path, authored phase notes, and next-action hints.
+Display the routine decision board: quest, title, worker/reviewer status, current state, wait-for state, and next-action hints. Default output is intentionally compact and does not repeat full Journey paths or phase notes.
 
-### `takode board propose <quest-id> (--phases phase-a,phase-b | --spec-file proposal.json) [--preset preset-id] [--wait-for-input 3,4 | --clear-wait-for-input]`
+Use `takode board show --full` or `takode board show --verbose` when you need full board inspection with Journey paths and indexed phase notes for every row.
+
+### `takode board detail <quest-id>`
+
+Display full board-owned context for one row: full Journey path, indexed phase notes, phase timing history, revision metadata, wait-for state, worker/reviewer status, and timestamps.
+
+### `takode board propose <quest-id> (--phases phase-a,phase-b | --spec-file proposal.json) [--preset preset-id] [--wait-for-input 3,4 | --clear-wait-for-input] [--full|--verbose]`
 
 Draft or revise a proposed pre-dispatch Journey row. Proposed rows:
 
@@ -41,17 +47,17 @@ Use `--spec-file` when composing a full proposal with phase notes and presentati
 
 Present the current proposed Journey draft as an optional user-facing approval artifact. Use this only when the rendered board proposal is helpful; natural prose approval plus a durable board update is the normal lightweight path. If you revise phases, notes, or presentation metadata after presenting, the presentation becomes stale, but promotion can still use the latest approved board-owned Journey.
 
-### `takode board promote <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input]`
+### `takode board promote <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--full|--verbose]`
 
 Promote an existing proposed Journey into active execution without redefining its phase sequence. Use this after approval.
 
 Promotion does not require a separate `takode board present` step; the leader may approve the Journey in prose, then promote the board-owned row before dispatch.
 
-### `takode board note <quest-id> <phase-position> [--text "note" | --clear]`
+### `takode board note <quest-id> <phase-position> [--text "note" | --clear] [--full|--verbose]`
 
 Add or clear one lightweight free-form note for a specific phase occurrence. Phase positions are 1-based in the CLI, so repeated phases can carry different notes.
 
-### `takode board set <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--phases phase-a,phase-b] [--preset preset-id]`
+### `takode board set <quest-id> [--worker N] [--status STATE] [--active-phase-position N] [--wait-for q-X,#Y,free-worker] [--wait-for-input 3,4 | --clear-wait-for-input] [--phases phase-a,phase-b] [--preset preset-id] [--full|--verbose]`
 
 Add or update a row.
 
@@ -100,18 +106,18 @@ When revising an active row, already completed phase occurrences are historical.
 When `--phases` is supplied for a new active row and `--status` is omitted, the board starts that row at the first planned phase. When revising an existing active row, omitting `--status` preserves the current phase occurrence by index as long as the revised phase list still includes that active boundary.
 If a repeated phase is active and the occurrence itself matters, use `--active-phase-position` so the board state and UI do not have to guess which occurrence is current.
 
-### `takode board advance <quest-id>`
+### `takode board advance <quest-id> [--full|--verbose]`
 
 Advance a quest to the next phase in that row's planned Journey. At the final planned phase, `advance` removes the row from the board, even when the Journey never included `port`.
 
-### `takode board rm <quest-id> [<quest-id> ...]`
+### `takode board rm <quest-id> [<quest-id> ...] [--full|--verbose]`
 
 Remove row(s) manually.
 
 ## Rules
 
-- Every command outputs the full board after the operation.
-- The CLI board output shows the full Journey path with numbered positions and brackets around the active occurrence when known.
+- Routine mutation commands output a compact delta by default: what changed plus the affected quest row's state, worker/reviewer, wait-for state, and next action. Use `--full` or `--verbose` on mutations when you need the full board after the operation.
+- Routine `takode board show` is compact. Use `takode board show --full` for full-board Journey paths and notes, or `takode board detail q-N` for one quest's full Journey, notes, timing history, and revision metadata.
 - Use natural prose as the normal initial approval surface, then write the approved Journey to the board before or with dispatch.
 - Use `takode board set --worker ... --phases ...` after approval when you want to create the active durable row in one step.
 - Use `takode board propose` when an existing quest benefits from a pre-dispatch draft row.

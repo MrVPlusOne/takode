@@ -796,12 +796,13 @@ interface QuestJourneyPhaseCatalogEntry {
   assigneeBriefDisplayPath: string;
 }
 
-const BOARD_HELP = `Usage: takode board [show|set|propose|present|promote|note|advance|rm] ...
+const BOARD_HELP = `Usage: takode board [show|detail|set|propose|present|promote|note|advance|rm] ...
 
 Quest Journey work board for the current leader session.
 
 Subcommands:
   show                    Show the board (default)
+  detail <quest-id>       Show full Journey details for one board row
   set <quest-id>          Add or update a board row
   propose <quest-id>      Draft or revise a proposed Journey row
   present <quest-id>      Present a proposed Journey draft for approval
@@ -812,6 +813,8 @@ Subcommands:
 
 Examples:
   takode board show
+  takode board show --full
+  takode board detail q-12
   takode board set q-12 --status PLANNING
   takode board set q-12 --phases planning,implement,code-review,port --preset full-code
   takode board set q-12 --phases planning,explore,outcome-review --preset investigation
@@ -828,8 +831,13 @@ Examples:
   takode board rm q-12
 `;
 
-const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--json]
-       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--json]
+const BOARD_DETAIL_HELP = `Usage: takode board detail <quest-id> [--json]
+
+Show full board-owned Quest Journey details, notes, timings, and revision metadata for one quest row.
+`;
+
+const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--full|--verbose] [--json]
+       takode board add <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--title <title>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--full|--verbose] [--json]
 
 Add or update a board row for a quest.
 
@@ -843,7 +851,7 @@ Quest Journey phases:
 Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` instead of using a special no-code board flag.
 `;
 
-const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
+const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
 
 Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates; omit standard-phase notes unless unusual phase-specific handling is needed.
 `;
@@ -853,22 +861,22 @@ const BOARD_PRESENT_HELP = `Usage: takode board present <quest-id> [--summary <t
 Present the current proposed Journey draft as an optional user-facing approval artifact.
 `;
 
-const BOARD_PROMOTE_HELP = `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
+const BOARD_PROMOTE_HELP = `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
 
 Promote an existing proposed Journey into active execution without redefining its phases. By default this clears any proposal hold linked through --wait-for-input.
 `;
 
-const BOARD_NOTE_HELP = `Usage: takode board note <quest-id> <phase-position> [--text <text> | --clear] [--json]
+const BOARD_NOTE_HELP = `Usage: takode board note <quest-id> <phase-position> [--text <text> | --clear] [--full|--verbose] [--json]
 
 Add or clear a lightweight per-phase Journey note. Phase positions are 1-based in CLI usage.
 `;
 
-const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--json]
+const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--full|--verbose] [--json]
 
 Advance a quest to the next Quest Journey state. Advancing from the final planned phase removes the row, even when that Journey never included \`port\`.
 `;
 
-const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--json]
+const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--full|--verbose] [--json]
 
 Remove one or more quests from the active board.
 `;
@@ -1015,6 +1023,8 @@ function printCommandHelp(command: string, argv: string[]): boolean {
       const sub = args[0];
       if (!sub || sub === "show") {
         console.log(BOARD_HELP);
+      } else if (sub === "detail") {
+        console.log(BOARD_DETAIL_HELP);
       } else if (sub === "set" || sub === "add") {
         console.log(BOARD_SET_HELP);
       } else if (sub === "propose") {
@@ -3942,6 +3952,140 @@ function formatBoardJourneyPathLine(row: BoardRow): string | null {
   return `journey: ${segments.join(" -> ")}`;
 }
 
+interface BoardRowDecisionContext {
+  activeQuestIds: Set<string>;
+  dispatchableQuestIds: Set<string>;
+  resolvedSessionDeps?: Set<string>;
+  workerSlotUsage?: { used: number; limit: number };
+}
+
+function wantsFullBoardOutput(flags: Record<string, string | boolean>): boolean {
+  return flags.full === true || flags.verbose === true;
+}
+
+function buildBoardRowDecisionContext(
+  board: BoardRow[],
+  opts?: {
+    allBoardRows?: BoardRow[];
+    resolvedSessionDeps?: Set<string>;
+    queueWarnings?: BoardQueueWarning[];
+    workerSlotUsage?: { used: number; limit: number };
+  },
+): BoardRowDecisionContext {
+  return {
+    activeQuestIds: new Set((opts?.allBoardRows || board).map((row) => row.questId)),
+    dispatchableQuestIds: new Set(
+      (opts?.queueWarnings ?? [])
+        .filter((warning) => warning.kind === "dispatchable")
+        .map((warning) => warning.questId),
+    ),
+    resolvedSessionDeps: opts?.resolvedSessionDeps,
+    workerSlotUsage: opts?.workerSlotUsage,
+  };
+}
+
+function getBoardRowBlockedDeps(row: BoardRow, context: BoardRowDecisionContext): string[] {
+  return (row.waitFor || []).filter((waitForRef) => {
+    const kind = getWaitForRefKind(waitForRef);
+    if (kind === "session") return !context.resolvedSessionDeps?.has(waitForRef);
+    if (kind === "quest") return context.activeQuestIds.has(waitForRef);
+    if (kind === "free-worker") {
+      const usage = context.workerSlotUsage;
+      return usage ? usage.used >= usage.limit : true;
+    }
+    return true;
+  });
+}
+
+function formatBoardRowWaitForState(row: BoardRow, context: BoardRowDecisionContext): string {
+  const isQueuedRow = (row.status || "").trim().toUpperCase() === "QUEUED";
+  const linkedInputWaits = row.waitForInput || [];
+  const blockedDeps = getBoardRowBlockedDeps(row, context);
+  if (!isQueuedRow && linkedInputWaits.length > 0) {
+    return `input ${formatBoardWaitForInputNotificationList(linkedInputWaits)}`;
+  }
+  if (isQueuedRow && context.dispatchableQuestIds.has(row.questId)) return "ready";
+  if (isQueuedRow && blockedDeps.length > 0) {
+    return `wait ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
+  }
+  return "--";
+}
+
+function formatBoardRowNextAction(row: BoardRow, context: BoardRowDecisionContext): string {
+  const isQueuedRow = (row.status || "").trim().toUpperCase() === "QUEUED";
+  const linkedInputWaits = row.waitForInput || [];
+  const blockedDeps = getBoardRowBlockedDeps(row, context);
+  if (!isQueuedRow && linkedInputWaits.length > 0) {
+    return `wait for user input (${formatBoardWaitForInputNotificationList(linkedInputWaits)})`;
+  }
+  if (isQueuedRow && context.dispatchableQuestIds.has(row.questId)) return "dispatch now";
+  if (isQueuedRow && blockedDeps.length > 0) {
+    return `wait for ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
+  }
+  return row.journey?.nextLeaderAction ?? (QUEST_JOURNEY_HINTS[row.status || ""] || "--");
+}
+
+function formatBoardPhaseTimingLines(row: BoardRow): string[] {
+  const phaseTimings = row.journey?.phaseTimings ?? {};
+  return Object.entries(phaseTimings)
+    .map(([rawIndex, timing]) => {
+      const index = Number.parseInt(rawIndex, 10);
+      if (!Number.isInteger(index) || index < 0) return null;
+      const phaseId = row.journey?.phaseIds?.[index];
+      const phaseLabel = getQuestJourneyPhase(phaseId)?.label ?? phaseId ?? "Unknown";
+      const started = timing.startedAt ? formatTimestampCompact(timing.startedAt) : "not started";
+      const ended = timing.endedAt ? formatTimestampCompact(timing.endedAt) : "open";
+      return `phase[${index + 1}] ${phaseLabel}: ${started} -> ${ended}`;
+    })
+    .filter((line): line is string => line !== null);
+}
+
+function printBoardDetailText(
+  row: BoardRow,
+  opts?: {
+    allBoardRows?: BoardRow[];
+    resolvedSessionDeps?: Set<string>;
+    rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+    queueWarnings?: BoardQueueWarning[];
+    workerSlotUsage?: { used: number; limit: number };
+  },
+): void {
+  const context = buildBoardRowDecisionContext([row], {
+    allBoardRows: opts?.allBoardRows,
+    resolvedSessionDeps: opts?.resolvedSessionDeps,
+    queueWarnings: opts?.queueWarnings,
+    workerSlotUsage: opts?.workerSlotUsage,
+  });
+  const journeyPathLine = formatBoardJourneyPathLine(row);
+  const noteLines = formatBoardPhaseNoteLines(row);
+  const timingLines = formatBoardPhaseTimingLines(row);
+  const rowStatus = opts?.rowSessionStatuses?.[row.questId];
+
+  console.log(`${row.questId} -- ${row.title || "(untitled)"}`);
+  console.log(`status: ${row.status || "--"}`);
+  console.log(`worker/reviewer: ${formatBoardWorkerReviewerSummary(row, rowStatus)}`);
+  console.log(`wait-for: ${formatBoardRowWaitForState(row, context)}`);
+  console.log(`action: ${formatBoardRowNextAction(row, context)}`);
+  if (journeyPathLine) console.log(journeyPathLine);
+  if (noteLines.length > 0) {
+    console.log("notes:");
+    for (const line of noteLines) console.log(`  ${line}`);
+  }
+  if (timingLines.length > 0) {
+    console.log("history:");
+    for (const line of timingLines) console.log(`  ${line}`);
+  }
+  if (row.journey?.revisionCount || row.journey?.revisionReason || row.journey?.revisedAt) {
+    console.log("revision:");
+    if (row.journey.revisionCount) console.log(`  count: ${row.journey.revisionCount}`);
+    if (row.journey.revisedAt) console.log(`  last revised: ${formatTimestampCompact(row.journey.revisedAt)}`);
+    if (row.journey.revisionReason) console.log(`  reason: ${row.journey.revisionReason}`);
+  }
+  console.log(`created: ${formatTimestampCompact(row.createdAt)}`);
+  console.log(`updated: ${formatTimestampCompact(row.updatedAt)}`);
+  if (row.completedAt) console.log(`completed: ${formatTimestampCompact(row.completedAt)}`);
+}
+
 /** Format board output as JSON with a marker for frontend detection. */
 function formatBoardOutput(
   board: BoardRow[],
@@ -3993,6 +4137,7 @@ function printBoardText(
     rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     queueWarnings?: BoardQueueWarning[];
     workerSlotUsage?: { used: number; limit: number };
+    includeDetails?: boolean;
   },
 ): void {
   if (board.length === 0) {
@@ -4000,12 +4145,14 @@ function printBoardText(
     return;
   }
 
-  // Build a set of active quest IDs on the board (for resolving wait-for status)
-  const { allBoardRows, resolvedSessionDeps, rowSessionStatuses, queueWarnings, workerSlotUsage } = opts ?? {};
-  const activeQuestIds = new Set((allBoardRows || board).map((r) => r.questId));
-  const dispatchableQuestIds = new Set(
-    (queueWarnings ?? []).filter((warning) => warning.kind === "dispatchable").map((warning) => warning.questId),
-  );
+  const { allBoardRows, resolvedSessionDeps, rowSessionStatuses, queueWarnings, workerSlotUsage, includeDetails } =
+    opts ?? {};
+  const decisionContext = buildBoardRowDecisionContext(board, {
+    allBoardRows,
+    resolvedSessionDeps,
+    queueWarnings,
+    workerSlotUsage,
+  });
 
   console.log("");
   const qCol = 8;
@@ -4027,44 +4174,12 @@ function printBoardText(
     const ownerStr = formatBoardWorkerReviewerSummary(row, rowStatus);
     const owner = ownerStr.slice(0, ownerCol - 1).padEnd(ownerCol);
     const state = (row.status || "--").padEnd(sCol);
-    const isQueuedRow = (row.status || "").trim().toUpperCase() === "QUEUED";
-
-    // Wait-for column: distinguish input waits, queue deps, and ready states
-    const linkedInputWaits = row.waitForInput || [];
-    const allDeps = row.waitFor || [];
-    const blockedDeps = allDeps.filter((wf) => {
-      const kind = getWaitForRefKind(wf);
-      if (kind === "session") return !resolvedSessionDeps?.has(wf);
-      if (kind === "quest") return activeQuestIds.has(wf);
-      if (kind === "free-worker")
-        return (workerSlotUsage?.used ?? workerSlotUsage?.limit ?? 0) >= (workerSlotUsage?.limit ?? 0);
-      return true;
-    });
-    let waitForStr: string;
-    if (!isQueuedRow && linkedInputWaits.length > 0) {
-      waitForStr = `input ${formatBoardWaitForInputNotificationList(linkedInputWaits)}`;
-    } else if (isQueuedRow && dispatchableQuestIds.has(row.questId)) {
-      waitForStr = "ready";
-    } else if (isQueuedRow && blockedDeps.length > 0) {
-      waitForStr = `wait ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
-    } else {
-      waitForStr = "--";
-    }
+    const waitForStr = formatBoardRowWaitForState(row, decisionContext);
     const waitForDisplay = waitForStr.slice(0, waitCol - 1).padEnd(waitCol);
-
-    // Next action hint: if blocked, show "blocked"; otherwise show state hint
-    let nextAction: string;
-    if (!isQueuedRow && linkedInputWaits.length > 0) {
-      nextAction = `wait for user input (${formatBoardWaitForInputNotificationList(linkedInputWaits)})`;
-    } else if (isQueuedRow && dispatchableQuestIds.has(row.questId)) {
-      nextAction = "dispatch now";
-    } else if (isQueuedRow && blockedDeps.length > 0) {
-      nextAction = `wait for ${blockedDeps.map((dep) => formatWaitForRefLabel(dep)).join(", ")}`;
-    } else {
-      nextAction = row.journey?.nextLeaderAction ?? (QUEST_JOURNEY_HINTS[row.status || ""] || "--");
-    }
+    const nextAction = formatBoardRowNextAction(row, decisionContext);
 
     console.log(`${quest} ${title} ${owner} ${state} ${waitForDisplay} ${nextAction}`);
+    if (!includeDetails) continue;
     const journeyPathLine = formatBoardJourneyPathLine(row);
     if (journeyPathLine) {
       console.log(
@@ -4094,6 +4209,8 @@ function outputBoard(
     phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
     proposalReview?: BoardProposalReviewPayload;
     workerSlotUsage?: { used: number; limit: number };
+    includeDetails?: boolean;
+    includeCompletedSummary?: boolean;
   },
 ): void {
   const {
@@ -4106,6 +4223,8 @@ function outputBoard(
     phaseNoteRebaseWarnings,
     proposalReview,
     workerSlotUsage,
+    includeDetails,
+    includeCompletedSummary,
   } = opts ?? {};
   if (jsonMode) {
     console.log(
@@ -4129,20 +4248,72 @@ function outputBoard(
     rowSessionStatuses,
     queueWarnings,
     workerSlotUsage,
+    includeDetails,
   });
   // Print completed items table when --all flag includes them
   if (completedBoard && completedBoard.length > 0) {
     console.log("── Completed ──────────────────────────────────────────");
-    printBoardText(completedBoard, { rowSessionStatuses, queueWarnings, workerSlotUsage });
+    printBoardText(completedBoard, { rowSessionStatuses, queueWarnings, workerSlotUsage, includeDetails });
   }
-  // Always show a footer count when completed items exist
-  if (completedCount && completedCount > 0 && !completedBoard) {
+  if (includeCompletedSummary !== false && completedCount && completedCount > 0 && !completedBoard) {
     console.log(`${completedCount} quest${completedCount === 1 ? "" : "s"} completed`);
   }
   for (const line of formatBoardPhaseNoteRebaseWarnings(phaseNoteRebaseWarnings)) {
     console.log(line);
   }
   for (const line of formatBoardQueueWarnings(queueWarnings)) {
+    console.log(line);
+  }
+}
+
+function outputBoardMutation(
+  board: BoardRow[],
+  jsonMode: boolean,
+  opts: {
+    affectedQuestIds: string[];
+    operation: string;
+    fullOutput?: boolean;
+    resolvedSessionDeps?: Set<string>;
+    completedCount?: number;
+    rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+    queueWarnings?: BoardQueueWarning[];
+    phaseNoteRebaseWarnings?: QuestJourneyPhaseNoteRebaseWarning[];
+    workerSlotUsage?: { used: number; limit: number };
+  },
+): void {
+  if (jsonMode || opts.fullOutput) {
+    outputBoard(board, jsonMode, {
+      operation: opts.operation,
+      resolvedSessionDeps: opts.resolvedSessionDeps,
+      completedCount: opts.completedCount,
+      rowSessionStatuses: opts.rowSessionStatuses,
+      queueWarnings: opts.queueWarnings,
+      phaseNoteRebaseWarnings: opts.phaseNoteRebaseWarnings,
+      workerSlotUsage: opts.workerSlotUsage,
+      includeDetails: true,
+    });
+    return;
+  }
+
+  console.log(opts.operation);
+  const affected = new Set(opts.affectedQuestIds.map((questId) => questId.toLowerCase()));
+  const affectedRows = board.filter((row) => affected.has(row.questId.toLowerCase()));
+  if (affectedRows.length > 0) {
+    printBoardText(affectedRows, {
+      allBoardRows: board,
+      resolvedSessionDeps: opts.resolvedSessionDeps,
+      rowSessionStatuses: opts.rowSessionStatuses,
+      queueWarnings: opts.queueWarnings,
+      workerSlotUsage: opts.workerSlotUsage,
+      includeDetails: false,
+    });
+  } else if (opts.affectedQuestIds.length > 0) {
+    console.log(`changed: ${opts.affectedQuestIds.join(", ")} (not on active board)`);
+  }
+  for (const line of formatBoardPhaseNoteRebaseWarnings(opts.phaseNoteRebaseWarnings)) {
+    console.log(line);
+  }
+  for (const line of formatBoardQueueWarnings(opts.queueWarnings)) {
     console.log(line);
   }
 }
@@ -4155,6 +4326,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
   if (!sub || sub === "show" || sub.startsWith("--")) {
     const flags = parseFlags(sub === "show" ? args.slice(1) : args);
     const includeCompleted = flags.all === true;
+    const fullOutput = wantsFullBoardOutput(flags);
     const queryParams = `resolve=true${includeCompleted ? "&include_completed=true" : ""}`;
     const result = (await apiGet(base, `/sessions/${encodeURIComponent(selfId)}/board?${queryParams}`)) as {
       board: BoardRow[];
@@ -4173,6 +4345,53 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       rowSessionStatuses: result.rowSessionStatuses,
       queueWarnings: result.queueWarnings,
       workerSlotUsage: result.workerSlotUsage,
+      includeDetails: fullOutput,
+      includeCompletedSummary: fullOutput || includeCompleted,
+    });
+    return;
+  }
+
+  if (sub === "detail") {
+    const questId = args[1];
+    const usage = "Usage: takode board detail <quest-id> [--json]";
+    if (!questId) err(usage);
+    if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
+    const flags = parseFlags(args.slice(2));
+    const result = (await apiGet(
+      base,
+      `/sessions/${encodeURIComponent(selfId)}/board?resolve=true&include_completed=true`,
+    )) as {
+      board: BoardRow[];
+      completedBoard?: BoardRow[];
+      resolvedSessionDeps?: string[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+      queueWarnings?: BoardQueueWarning[];
+      workerSlotUsage?: { used: number; limit: number };
+    };
+    const allRows = [...result.board, ...(result.completedBoard ?? [])];
+    const row = allRows.find((candidate) => candidate.questId.toLowerCase() === questId.toLowerCase());
+    if (!row) err(`No active or completed board row found for ${questId}.`);
+    if (flags.json === true) {
+      console.log(
+        JSON.stringify(
+          {
+            __takode_board_detail__: true,
+            row,
+            rowSessionStatus: result.rowSessionStatuses?.[row.questId],
+            queueWarnings: result.queueWarnings?.filter((warning) => warning.questId === row.questId),
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+    printBoardDetailText(row, {
+      allBoardRows: allRows,
+      resolvedSessionDeps: new Set(result.resolvedSessionDeps ?? []),
+      rowSessionStatuses: result.rowSessionStatuses,
+      queueWarnings: result.queueWarnings?.filter((warning) => warning.questId === row.questId),
+      workerSlotUsage: result.workerSlotUsage,
     });
     return;
   }
@@ -4181,10 +4400,10 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     const questId = args[1];
     const usageBySub =
       sub === "propose"
-        ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids> | --spec-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]`
+        ? `Usage: takode board propose <quest-id> [--title "..."] [--phases <ids> | --spec-file <path|->] [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
         : sub === "promote"
-          ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]`
-          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--json]`;
+          ? `Usage: takode board promote <quest-id> [--worker <session>] [--status <state>] [--active-phase-position <n>] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]`
+          : `Usage: takode board ${sub} <quest-id> [--worker <session>] [--status "..."] [--active-phase-position <n>] [--title "..."] [--wait-for q-X,#Y,${FREE_WORKER_WAIT_FOR_TOKEN}] [--wait-for-input <id,id...> | --clear-wait-for-input] [--phases <ids>] [--preset <id>] [--full|--verbose] [--json]`;
     if (!questId) err(usageBySub);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
@@ -4358,8 +4577,10 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       workerSlotUsage?: { used: number; limit: number };
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
-    outputBoard(result.board, flags.json === true, {
-      operation: `${sub} ${questId}`,
+    outputBoardMutation(result.board, flags.json === true, {
+      affectedQuestIds: [questId],
+      operation: `${sub} ${questId}: updated`,
+      fullOutput: wantsFullBoardOutput(flags),
       resolvedSessionDeps: resolved,
       rowSessionStatuses: result.rowSessionStatuses,
       queueWarnings: result.queueWarnings,
@@ -4430,7 +4651,8 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
 
   if (sub === "note") {
     const questId = args[1];
-    const usage = "Usage: takode board note <quest-id> <phase-position> [--text <text> | --clear] [--json]";
+    const usage =
+      "Usage: takode board note <quest-id> <phase-position> [--text <text> | --clear] [--full|--verbose] [--json]";
     if (!questId) err(usage);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const phasePositionRaw = args[2];
@@ -4463,8 +4685,10 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       workerSlotUsage?: { used: number; limit: number };
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
-    outputBoard(result.board, flags.json === true, {
-      operation: `note ${questId}`,
+    outputBoardMutation(result.board, flags.json === true, {
+      affectedQuestIds: [questId],
+      operation: `note ${questId}: updated`,
+      fullOutput: wantsFullBoardOutput(flags),
       resolvedSessionDeps: resolved,
       rowSessionStatuses: result.rowSessionStatuses,
       queueWarnings: result.queueWarnings,
@@ -4482,7 +4706,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
 
   if (sub === "advance") {
     const questId = args[1];
-    const usage = "Usage: takode board advance <quest-id> [--json]";
+    const usage = "Usage: takode board advance <quest-id> [--full|--verbose] [--json]";
     if (!questId) err(usage);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
@@ -4505,17 +4729,17 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
 
     let operation: string;
     if (result.removed) {
-      console.log(`${questId}: completed (moved to history)`);
-      operation = `completed ${questId}`;
+      operation = `${questId}: completed (moved to history)`;
     } else if (result.previousState && result.newState) {
-      console.log(`${questId}: ${result.previousState} -> ${result.newState}`);
-      operation = `advanced ${questId} to ${result.newState}`;
+      operation = `${questId}: ${result.previousState} -> ${result.newState}`;
     } else {
       operation = `advanced ${questId}`;
     }
     const resolved = new Set(result.resolvedSessionDeps ?? []);
-    outputBoard(result.board, flags.json === true, {
+    outputBoardMutation(result.board, flags.json === true, {
+      affectedQuestIds: [questId],
       operation,
+      fullOutput: wantsFullBoardOutput(flags),
       resolvedSessionDeps: resolved,
       completedCount: result.completedCount,
       rowSessionStatuses: result.rowSessionStatuses,
@@ -4527,7 +4751,7 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
 
   if (sub === "rm") {
     const questIds = args.slice(1).filter((a) => !a.startsWith("--"));
-    if (questIds.length === 0) err("Usage: takode board rm <quest-id> [<quest-id> ...] [--json]");
+    if (questIds.length === 0) err("Usage: takode board rm <quest-id> [<quest-id> ...] [--full|--verbose] [--json]");
     const invalid = questIds.filter((id) => !isValidQuestId(id));
     if (invalid.length > 0)
       err(`Invalid quest ID(s): ${invalid.join(", ")} -- must match q-NNN format (e.g., q-1, q-42)`);
@@ -4542,8 +4766,10 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
       workerSlotUsage?: { used: number; limit: number };
     };
     const resolved = new Set(result.resolvedSessionDeps ?? []);
-    outputBoard(result.board, flags.json === true, {
+    outputBoardMutation(result.board, flags.json === true, {
+      affectedQuestIds: questIds,
       operation: `removed ${questIds.join(", ")}`,
+      fullOutput: wantsFullBoardOutput(flags),
       resolvedSessionDeps: resolved,
       completedCount: result.completedCount,
       rowSessionStatuses: result.rowSessionStatuses,
@@ -4553,7 +4779,9 @@ async function handleBoard(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  err(`Unknown board subcommand: ${sub}\nUsage: takode board [show|set|propose|present|promote|note|advance|rm] ...`);
+  err(
+    `Unknown board subcommand: ${sub}\nUsage: takode board [show|detail|set|propose|present|promote|note|advance|rm] ...`,
+  );
 }
 
 async function handleRefreshBranch(base: string, args: string[]): Promise<void> {

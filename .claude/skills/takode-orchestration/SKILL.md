@@ -395,12 +395,14 @@ takode answer 2 --target req_abc reject "add error handling" # target an exact p
 
 Use this when a worker or reviewer asked a clarification question through `takode notify needs-input` and is waiting on you. If you can resolve the question from existing context, answer it directly. If the question reveals genuine ambiguity you cannot resolve, ask the user in a marked leader response, then call `takode notify needs-input` with a short summary, optionally using one to three short `--suggest <answer>` choices for obvious answers, and do not advance that quest until the ambiguity is resolved.
 
-### `takode board [show|set|advance|rm]`
+### `takode board [show|detail|set|advance|rm]`
 
 Quest Journey work board. See [board-usage.md](board-usage.md) for full usage and coordination patterns.
 
 ```bash
 takode board show
+takode board show --full
+takode board detail q-12
 takode board set <quest-id> [--worker N] [--status STATE] [--wait-for q-X,#Y,free-worker]
 takode board advance <quest-id>
 takode board rm <quest-id> [<quest-id> ...]
