@@ -631,6 +631,69 @@ describe("status_change: running on user_message", () => {
     expect(statusChange.activeTurnRoute).toEqual({ threadKey: "q-975", questId: "q-975" });
   });
 
+  it("moves active turn route from Main to routed leader assistant output during a running turn", async () => {
+    const session = bridge.getSession("s1");
+    expect(session).toBeDefined();
+    session!.state.isOrchestrator = true;
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "Start from Main",
+      }),
+    );
+
+    const initialCalls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const initialStatus = initialCalls.find((m: any) => m.type === "status_change" && m.status === "running");
+    expect(initialStatus?.activeTurnRoute).toEqual({ threadKey: "main" });
+    browser.send.mockClear();
+
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "assistant",
+        uuid: "assistant-route-q975",
+        parent_tool_use_id: null,
+        message: {
+          id: "assistant-route-q975",
+          role: "assistant",
+          content: [{ type: "text", text: "[thread:q-975]\nStreaming in the quest thread" }],
+          model: "claude-sonnet-4-5-20250929",
+          stop_reason: null,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+      }),
+    );
+
+    const routedCalls = browser.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    expect(routedCalls).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "assistant",
+          threadKey: "q-975",
+          questId: "q-975",
+        }),
+        expect.objectContaining({
+          type: "status_change",
+          status: "running",
+          activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+        }),
+      ]),
+    );
+
+    const browser2 = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser2, "s1");
+    bridge.handleBrowserMessage(browser2, JSON.stringify({ type: "session_subscribe", last_seq: 0 }));
+    await flushAsync();
+
+    const reconnectCalls = browser2.send.mock.calls.map((c: unknown[]) => JSON.parse(c[0] as string));
+    const snapshot = reconnectCalls.find((m: any) => m.type === "state_snapshot");
+    expect(snapshot).toBeDefined();
+    expect(snapshot.sessionStatus).toBe("running");
+    expect(snapshot.activeTurnRoute).toEqual({ threadKey: "q-975", questId: "q-975" });
+  });
+
   it("does not rebroadcast status_change: running when already generating", () => {
     bridge.handleBrowserMessage(
       browser,

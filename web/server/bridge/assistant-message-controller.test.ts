@@ -233,6 +233,32 @@ describe("assistant-message-controller", () => {
     expect(session.messageHistory[0]).toMatchObject(msg);
   });
 
+  it("updates the active running route when leader assistant output is routed to a quest thread", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.isGenerating = true;
+    session.activeTurnRoute = { threadKey: "main" };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941]\nRouted update" }]), {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+      persistSession: () => {},
+    });
+
+    expect(session.activeTurnRoute).toEqual({ threadKey: "q-941", questId: "q-941" });
+    expect(broadcasts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "assistant", threadKey: "q-941", questId: "q-941" }),
+        expect.objectContaining({
+          type: "status_change",
+          status: "running",
+          activeTurnRoute: { threadKey: "q-941", questId: "q-941" },
+        }),
+      ]),
+    );
+  });
+
   it("persists source-thread transition markers before routed quest handoffs", () => {
     // When a leader thread moves from one quest to another, the source thread
     // needs a durable handoff marker so the UI does not look like it stopped.

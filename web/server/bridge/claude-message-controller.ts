@@ -125,6 +125,7 @@ export interface AssistantMessageSessionLike {
   cliResuming: boolean;
   dropReplayHistoryAfterRevert?: boolean;
   isGenerating: boolean;
+  activeTurnRoute?: ActiveTurnRoute | null;
   messageHistory: BrowserIncomingMessage[];
   questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
   assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
@@ -180,6 +181,36 @@ function routeFromLeaderAssistantResult(routed: {
     ...(routed.questId ? { questId: routed.questId } : {}),
     ...(routed.threadRefs?.length ? { threadRefs: routed.threadRefs } : {}),
   };
+}
+
+function activeTurnRouteFromThreadRoute(route: ThreadRouteMetadata): ActiveTurnRoute {
+  return {
+    threadKey: route.threadKey,
+    ...(route.questId ? { questId: route.questId } : {}),
+  };
+}
+
+function sameActiveTurnRoute(
+  current: ActiveTurnRoute | null | undefined,
+  next: ActiveTurnRoute | null | undefined,
+): boolean {
+  return (current?.threadKey ?? "main") === (next?.threadKey ?? "main") && current?.questId === next?.questId;
+}
+
+function updateActiveTurnRouteFromLeaderAssistant(
+  session: AssistantMessageSessionLike,
+  route: ThreadRouteMetadata | undefined,
+  deps: Pick<HandleAssistantMessageDeps, "broadcastToBrowsers">,
+): void {
+  if (!route || !session.isGenerating) return;
+  const nextRoute = activeTurnRouteFromThreadRoute(route);
+  if (sameActiveTurnRoute(session.activeTurnRoute, nextRoute)) return;
+  session.activeTurnRoute = nextRoute;
+  deps.broadcastToBrowsers(session, {
+    type: "status_change",
+    status: "running",
+    activeTurnRoute: nextRoute,
+  });
 }
 
 function queueQuestThreadRemindersFromLeaderAssistant(
@@ -425,6 +456,7 @@ export function handleAssistantMessage(
     if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
+    updateActiveTurnRouteFromLeaderAssistant(session, routeFromLeaderAssistantResult(routed), deps);
     maybeUpdateContextUsedPercentFromAssistantUsage(
       session,
       msg.message.usage,
@@ -489,6 +521,7 @@ export function handleAssistantMessage(
     if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
+    updateActiveTurnRouteFromLeaderAssistant(session, routeFromLeaderAssistantResult(routed), deps);
   } else {
     const historyEntry = session.messageHistory.findLast(
       (entry) => entry.type === "assistant" && (entry as { message?: { id?: string } }).message?.id === msgId,
@@ -548,6 +581,11 @@ export function handleAssistantMessage(
         ...(Object.keys(allToolStartTimes).length > 0 ? { tool_start_times: allToolStartTimes } : {}),
       },
       { skipBuffer: true },
+    );
+    updateActiveTurnRouteFromLeaderAssistant(
+      session,
+      routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined,
+      deps,
     );
   }
 

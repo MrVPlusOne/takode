@@ -706,6 +706,9 @@ export function deriveSessionStatus(
 
 export function deriveActiveTurnRoute(session: BrowserTransportSessionLike): ActiveTurnRoute | null {
   if (!session.isGenerating) return null;
+  if (session.activeTurnRoute) {
+    return session.activeTurnRoute;
+  }
   const userMessageIdsThisTurn = session.userMessageIdsThisTurn ?? [];
   for (let i = userMessageIdsThisTurn.length - 1; i >= 0; i--) {
     const historyIndex = userMessageIdsThisTurn[i];
@@ -715,9 +718,6 @@ export function deriveActiveTurnRoute(session: BrowserTransportSessionLike): Act
       threadKey: route.threadKey,
       ...(route.questId ? { questId: route.questId } : {}),
     };
-  }
-  if (session.activeTurnRoute) {
-    return session.activeTurnRoute;
   }
   return { threadKey: "main" };
 }
