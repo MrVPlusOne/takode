@@ -10,6 +10,7 @@
 import { describe, it, expect, vi } from "vitest";
 import {
   broadcastToBrowsers,
+  handleBrowserProtocolMessage,
   injectUserMessage,
   sendLeaderProjectionSnapshot,
   sendHistoryWindowSync,
@@ -205,6 +206,94 @@ describe("quest_list_updated replay-buffer exclusion", () => {
     expect(sent.seq).toBeDefined();
     expect(session.eventBuffer).toHaveLength(0);
     expect(deps.persistSession).not.toHaveBeenCalled();
+  });
+});
+
+describe("leader_thread_tabs_update", () => {
+  it("persists and broadcasts authoritative leader tab updates", () => {
+    const session = makeSession({
+      state: {
+        permissionMode: "default",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1"],
+          closedThreadTombstones: [],
+          updatedAt: 1,
+        },
+      } as any,
+    });
+    const deps = makeInjectDeps();
+
+    const handled = handleBrowserProtocolMessage(
+      session,
+      {
+        type: "leader_thread_tabs_update",
+        operation: { type: "open", threadKey: "q-2", placement: "first", source: "user" },
+        client_msg_id: "tabs-1",
+      },
+      undefined,
+      deps,
+    );
+
+    expect(handled).toBe(true);
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-2", "q-1"]);
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "session_update",
+      session: { leaderOpenThreadTabs: session.state.leaderOpenThreadTabs },
+    });
+  });
+
+  it("keeps migrated browser localStorage from overriding existing server state", () => {
+    const serverState = {
+      version: 1 as const,
+      orderedOpenThreadKeys: ["q-server"],
+      closedThreadTombstones: [],
+      updatedAt: 1,
+    };
+    const session = makeSession({
+      state: {
+        permissionMode: "default",
+        isOrchestrator: true,
+        leaderOpenThreadTabs: serverState,
+      } as any,
+    });
+    const deps = makeInjectDeps();
+
+    const handled = handleBrowserProtocolMessage(
+      session,
+      {
+        type: "leader_thread_tabs_update",
+        operation: { type: "migrate", orderedOpenThreadKeys: ["q-local"], migratedAt: 100 },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(handled).toBe(true);
+    expect(session.state.leaderOpenThreadTabs).toEqual(serverState);
+    expect(deps.persistSession).not.toHaveBeenCalled();
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalled();
+  });
+
+  it("deduplicates repeated tab update client messages", () => {
+    const session = makeSession({
+      state: { permissionMode: "default", isOrchestrator: true } as any,
+    });
+    const deps = makeInjectDeps();
+    const msg = {
+      type: "leader_thread_tabs_update" as const,
+      operation: { type: "open" as const, threadKey: "q-1", placement: "first" as const, source: "user" as const },
+      client_msg_id: "tabs-1",
+    };
+
+    expect(handleBrowserProtocolMessage(session, msg, undefined, deps)).toBe(true);
+    expect(handleBrowserProtocolMessage(session, msg, undefined, deps)).toBe(true);
+
+    expect(session.state.leaderOpenThreadTabs?.orderedOpenThreadKeys).toEqual(["q-1"]);
+    expect(deps.persistSession).toHaveBeenCalledTimes(2);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledTimes(1);
   });
 });
 

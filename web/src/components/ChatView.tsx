@@ -13,6 +13,7 @@ import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
+import { sendToSession } from "../ws.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
 import {
@@ -59,11 +60,17 @@ import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 import { buildAttentionRecords } from "../utils/attention-records.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import {
-  persistOpenThreadTabKeys,
   placeOpenThreadTabKey,
   readOpenThreadTabKeys,
+  clearOpenThreadTabKeys,
   shouldPersistOpenThreadTab,
 } from "../utils/leader-open-thread-tabs.js";
+import {
+  canServerCandidateOpenThread,
+  normalizeLeaderOpenThreadTabsState,
+  type LeaderOpenThreadTabsState,
+  type LeaderThreadTabUpdate,
+} from "../../shared/leader-open-thread-tabs.js";
 import type {
   BoardRowSessionStatus,
   ChatMessage,
@@ -686,6 +693,17 @@ export function QuestThreadBanner({
   );
 }
 
+function initialOpenThreadTabKeys(
+  sessionId: string,
+  leaderOpenThreadTabs: LeaderOpenThreadTabsState | undefined,
+): string[] {
+  return leaderOpenThreadTabs?.orderedOpenThreadKeys ?? readOpenThreadTabKeys(sessionId);
+}
+
+function stringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
 export function ChatView({
   sessionId,
   preview = false,
@@ -714,6 +732,7 @@ export function ChatView({
     claimedQuestStatus,
     claimedQuestLeaderSessionId,
     herdedBy,
+    leaderOpenThreadTabs,
   } = useStore(
     useShallow((s) => {
       const sessionState = s.sessions.get(sessionId);
@@ -740,11 +759,18 @@ export function ChatView({
         claimedQuestLeaderSessionId:
           sessionState?.claimedQuestLeaderSessionId ?? sdkSession?.claimedQuestLeaderSessionId,
         herdedBy: sdkSession?.herdedBy,
+        leaderOpenThreadTabs: sessionState?.leaderOpenThreadTabs,
       };
     }),
   );
+  const authoritativeLeaderOpenThreadTabs = useMemo(
+    () => normalizeLeaderOpenThreadTabsState(leaderOpenThreadTabs),
+    [leaderOpenThreadTabs],
+  );
   const [selectedThreadKey, setSelectedThreadKey] = useState("main");
-  const [openThreadTabKeys, setOpenThreadTabKeys] = useState(() => readOpenThreadTabKeys(sessionId));
+  const [openThreadTabKeys, setOpenThreadTabKeys] = useState(() =>
+    isLeaderSession ? initialOpenThreadTabKeys(sessionId, authoritativeLeaderOpenThreadTabs) : [],
+  );
   const openThreadTabKeysRef = useRef(openThreadTabKeys);
   const recordedThreadOpenEventKeysRef = useRef<Set<string>>(new Set());
   const [threadOpenEventRecords, setThreadOpenEventRecords] = useState<SessionAttentionRecord[]>([]);
@@ -863,17 +889,40 @@ export function ChatView({
     },
     [navigationThreadRows, sessionId],
   );
+  const sendLeaderThreadTabUpdate = useCallback(
+    (operation: LeaderThreadTabUpdate) => {
+      sendToSession(sessionId, { type: "leader_thread_tabs_update", operation });
+    },
+    [sessionId],
+  );
   const openThreadTab = useCallback(
-    (threadKey: string) => {
+    (
+      threadKey: string,
+      options: { source?: "user" | "server_candidate"; eventAt?: number; placement?: "first" | "last" } = {},
+    ) => {
       const normalized = normalizeThreadKey(threadKey);
       if (!shouldPersistOpenThreadTab(normalized)) return;
+      if (
+        options.source === "server_candidate" &&
+        !canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, normalized, options.eventAt)
+      ) {
+        return;
+      }
       if (openThreadTabKeysRef.current.includes(normalized)) return;
-      const nextOpenThreadTabKeys = placeOpenThreadTabKey(openThreadTabKeysRef.current, normalized, "first");
+      const placement = options.placement ?? "first";
+      const nextOpenThreadTabKeys = placeOpenThreadTabKey(openThreadTabKeysRef.current, normalized, placement);
       openThreadTabKeysRef.current = nextOpenThreadTabKeys;
       setOpenThreadTabKeys(nextOpenThreadTabKeys);
+      sendLeaderThreadTabUpdate({
+        type: "open",
+        threadKey: normalized,
+        placement,
+        source: options.source ?? "user",
+        ...(options.eventAt !== undefined ? { eventAt: options.eventAt } : {}),
+      });
       recordThreadOpenEvent(normalized);
     },
-    [recordThreadOpenEvent],
+    [authoritativeLeaderOpenThreadTabs, recordThreadOpenEvent, sendLeaderThreadTabUpdate],
   );
   const previousActiveBoardThreadKeysRef = useRef<Set<string> | null>(null);
   const recentlyInactiveBoardThreadKeysRef = useRef<Set<string>>(new Set());
@@ -901,11 +950,12 @@ export function ChatView({
       const nextOpenThreadTabKeys = openThreadTabKeysRef.current.filter((key) => key !== normalized);
       openThreadTabKeysRef.current = nextOpenThreadTabKeys;
       setOpenThreadTabKeys(nextOpenThreadTabKeys);
+      sendLeaderThreadTabUpdate({ type: "close", threadKey: normalized, closedAt: Date.now() });
       if (normalizeThreadKey(selectedThreadKey) === normalized) {
         handleSelectThread(nextThreadKey);
       }
     },
-    [handleSelectThread, selectedThreadKey],
+    [handleSelectThread, selectedThreadKey, sendLeaderThreadTabUpdate],
   );
 
   useEffect(() => {
@@ -925,14 +975,43 @@ export function ChatView({
   }, [routeSyncEnabled, sessionId]);
 
   useEffect(() => {
-    const restoredOpenThreadTabs = readOpenThreadTabKeys(sessionId);
-    openThreadTabKeysRef.current = restoredOpenThreadTabs;
-    setOpenThreadTabKeys(restoredOpenThreadTabs);
-  }, [sessionId]);
+    if (!isLeaderSession) {
+      if (openThreadTabKeysRef.current.length > 0) {
+        openThreadTabKeysRef.current = [];
+        setOpenThreadTabKeys([]);
+      }
+      return;
+    }
+    const authoritativeKeys = authoritativeLeaderOpenThreadTabs?.orderedOpenThreadKeys;
+    if (authoritativeKeys) {
+      if (!stringArraysEqual(openThreadTabKeysRef.current, authoritativeKeys)) {
+        openThreadTabKeysRef.current = authoritativeKeys;
+        setOpenThreadTabKeys(authoritativeKeys);
+      }
+      clearOpenThreadTabKeys(sessionId);
+      return;
+    }
 
+    const restoredOpenThreadTabs = readOpenThreadTabKeys(sessionId);
+    if (!stringArraysEqual(openThreadTabKeysRef.current, restoredOpenThreadTabs)) {
+      openThreadTabKeysRef.current = restoredOpenThreadTabs;
+      setOpenThreadTabKeys(restoredOpenThreadTabs);
+    }
+  }, [authoritativeLeaderOpenThreadTabs, isLeaderSession, sessionId]);
+
+  const migratedOpenThreadTabsSessionsRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    persistOpenThreadTabKeys(sessionId, openThreadTabKeys);
-  }, [openThreadTabKeys, sessionId]);
+    if (!isLeaderSession || preview || authoritativeLeaderOpenThreadTabs) return;
+    if (migratedOpenThreadTabsSessionsRef.current.has(sessionId)) return;
+    migratedOpenThreadTabsSessionsRef.current.add(sessionId);
+    const restoredOpenThreadTabs = readOpenThreadTabKeys(sessionId);
+    if (restoredOpenThreadTabs.length === 0) return;
+    sendLeaderThreadTabUpdate({
+      type: "migrate",
+      orderedOpenThreadKeys: restoredOpenThreadTabs,
+      migratedAt: Date.now(),
+    });
+  }, [authoritativeLeaderOpenThreadTabs, isLeaderSession, preview, sendLeaderThreadTabUpdate, sessionId]);
 
   useEffect(() => {
     if (!isLeaderSession || preview) return;
@@ -963,7 +1042,8 @@ export function ChatView({
     const nextOpenThreadTabKeys = openThreadTabKeysRef.current.filter((key) => !newlyCompleted.has(key));
     openThreadTabKeysRef.current = nextOpenThreadTabKeys;
     setOpenThreadTabKeys(nextOpenThreadTabKeys);
-  }, [activeBoard, completedBoard, isLeaderSession, preview, selectedThreadKey]);
+    sendLeaderThreadTabUpdate({ type: "auto_close", threadKeys: newlyCompletedKeys });
+  }, [activeBoard, completedBoard, isLeaderSession, preview, selectedThreadKey, sendLeaderThreadTabUpdate]);
 
   useEffect(() => {
     if (!routeSyncEnabled || preview) return;
@@ -1072,8 +1152,13 @@ export function ChatView({
       if (!shouldPersistOpenThreadTab(targetThreadKey)) continue;
 
       const wasOpen = openThreadTabKeys.includes(targetThreadKey);
-      if (!wasOpen) {
-        openThreadTab(targetThreadKey);
+      const canOpenCandidate = canServerCandidateOpenThread(
+        authoritativeLeaderOpenThreadTabs,
+        targetThreadKey,
+        marker.attachedAt,
+      );
+      if (!wasOpen && canOpenCandidate) {
+        openThreadTab(targetThreadKey, { source: "server_candidate", eventAt: marker.attachedAt });
       }
 
       const manualNavigationAfterAttachment = lastManualThreadSelectionAtRef.current > marker.attachedAt;
@@ -1085,6 +1170,7 @@ export function ChatView({
         !nextSelectedThreadKey &&
         sourceStillSelected &&
         routeAllowsAutoSelect &&
+        canOpenCandidate &&
         !manualNavigationAfterAttachment &&
         markerMovesNewestUserMessage(marker, allMessages)
       ) {
@@ -1103,6 +1189,7 @@ export function ChatView({
     }
   }, [
     allMessages,
+    authoritativeLeaderOpenThreadTabs,
     hasThreadRoute,
     historyLoading,
     isLeaderSession,

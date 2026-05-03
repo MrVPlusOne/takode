@@ -1,31 +1,31 @@
 import { scopedGetItem, scopedRemoveItem, scopedSetItem } from "./scoped-storage.js";
-import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
+import {
+  MAX_LEADER_OPEN_THREAD_TABS,
+  normalizeLeaderOpenThreadKeys,
+  placeLeaderOpenThreadTabKey,
+  shouldPersistLeaderThreadTab,
+} from "../../shared/leader-open-thread-tabs.js";
 
-export const MAX_OPEN_THREAD_TAB_KEYS = 20;
+export const MAX_OPEN_THREAD_TAB_KEYS = MAX_LEADER_OPEN_THREAD_TABS;
 export const MAX_OPEN_THREAD_TAB_STORAGE_CHARS = 16 * 1024;
 
+/**
+ * Legacy browser-storage migration helper for leader thread tabs.
+ *
+ * Leader open-tab set/order is server-owned workflow state. This module only
+ * reads older localStorage state for one-time migration and keeps the previous
+ * non-throwing write helpers for compatibility tests/recovery paths.
+ */
 export function openThreadTabsKey(sessionId: string): string {
   return `cc-leader-open-thread-tabs:${sessionId}`;
 }
 
 export function shouldPersistOpenThreadTab(threadKey: string): boolean {
-  const normalized = normalizeThreadKey(threadKey);
-  return normalized !== "" && normalized !== MAIN_THREAD_KEY && normalized !== ALL_THREADS_KEY;
+  return shouldPersistLeaderThreadTab(threadKey);
 }
 
 export function normalizeOpenThreadTabKeys(threadKeys: ReadonlyArray<unknown>): string[] {
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of threadKeys) {
-    const rawKey = threadKeyFromLegacyValue(value);
-    if (!rawKey) continue;
-    const key = normalizeThreadKey(rawKey);
-    if (!shouldPersistOpenThreadTab(key) || seen.has(key)) continue;
-    seen.add(key);
-    result.push(key);
-    if (result.length >= MAX_OPEN_THREAD_TAB_KEYS) break;
-  }
-  return result;
+  return normalizeLeaderOpenThreadKeys(threadKeys);
 }
 
 export function placeOpenThreadTabKey(
@@ -33,11 +33,7 @@ export function placeOpenThreadTabKey(
   threadKey: string,
   placement: "first" | "last",
 ): string[] {
-  const normalized = normalizeThreadKey(threadKey);
-  if (!shouldPersistOpenThreadTab(normalized)) return normalizeOpenThreadTabKeys(existingThreadKeys);
-  const withoutTarget = normalizeOpenThreadTabKeys(existingThreadKeys).filter((key) => key !== normalized);
-  const nextKeys = placement === "first" ? [normalized, ...withoutTarget] : [...withoutTarget, normalized];
-  return normalizeOpenThreadTabKeys(nextKeys);
+  return placeLeaderOpenThreadTabKey(existingThreadKeys, threadKey, placement);
 }
 
 export function readOpenThreadTabKeys(sessionId: string): string[] {
@@ -80,6 +76,15 @@ export function persistOpenThreadTabKeys(sessionId: string, threadKeys: Readonly
   }
 }
 
+export function clearOpenThreadTabKeys(sessionId: string): void {
+  if (typeof window === "undefined") return;
+  try {
+    scopedRemoveItem(openThreadTabsKey(sessionId));
+  } catch (error) {
+    warnOpenThreadTabStorage("Could not clear migrated leader open thread tabs storage.", error);
+  }
+}
+
 function readStoredOpenThreadTabs(sessionId: string): string | null {
   try {
     return scopedGetItem(openThreadTabsKey(sessionId));
@@ -98,17 +103,6 @@ function openThreadTabValuesFromParsed(parsed: unknown): ReadonlyArray<unknown> 
     if (Array.isArray(value)) return value;
   }
   return [];
-}
-
-function threadKeyFromLegacyValue(value: unknown): string | null {
-  if (typeof value === "string") return value;
-  if (!value || typeof value !== "object") return null;
-  const record = value as Record<string, unknown>;
-  for (const key of ["threadKey", "questId"]) {
-    const candidate = record[key];
-    if (typeof candidate === "string") return candidate;
-  }
-  return null;
 }
 
 function warnOpenThreadTabStorage(message: string, error: unknown): void {

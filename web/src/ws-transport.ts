@@ -20,6 +20,7 @@ const IDEMPOTENT_OUTGOING_TYPES = new Set<BrowserOutgoingMessage["type"]>([
   "set_model",
   "set_codex_reasoning_effort",
   "set_permission_mode",
+  "leader_thread_tabs_update",
   "mcp_get_status",
   "mcp_toggle",
   "mcp_reconnect",

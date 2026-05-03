@@ -1,5 +1,6 @@
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { FeedWindowSync } from "../shared/feed-window-sync.js";
+import type { LeaderOpenThreadTabsState, LeaderThreadTabUpdate } from "../shared/leader-open-thread-tabs.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -528,6 +529,11 @@ export type BrowserOutgoingMessage =
       feed_window_sync_version?: number;
     }
   | {
+      type: "leader_thread_tabs_update";
+      operation: LeaderThreadTabUpdate;
+      client_msg_id?: string;
+    }
+  | {
       type: "history_sync_mismatch";
       frozen_count: number;
       expected_frozen_hash: string;
@@ -1007,6 +1013,8 @@ export interface SessionState {
   treeGroupId?: string;
   /** Whether this session is an orchestrator/leader session. */
   isOrchestrator?: boolean;
+  /** Server-owned leader quest/thread tab state. Browsers must treat this as authoritative. */
+  leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
   backend_type?: BackendType;
   /** Server-authored backend lifecycle state. */
   backend_state?: "initializing" | "resuming" | "recovering" | "connected" | "disconnected" | "broken";

@@ -7,6 +7,10 @@ import {
   type FeedWindowSync,
 } from "../../shared/feed-window-sync.js";
 import {
+  applyLeaderThreadTabUpdate,
+  normalizeLeaderOpenThreadTabsState,
+} from "../../shared/leader-open-thread-tabs.js";
+import {
   computeHistoryMessagesSyncHash,
   computeHistoryPayloadSyncHash,
   computeHistoryPrefixSyncHash,
@@ -170,7 +174,10 @@ const BROWSER_ACTIVITY_TYPES: ReadonlySet<string> = new Set([
   "set_model",
   "set_permission_mode",
   "set_codex_reasoning_effort",
+  "leader_thread_tabs_update",
 ]);
+
+const LOCAL_IDEMPOTENT_BROWSER_MESSAGE_TYPES: ReadonlySet<string> = new Set(["leader_thread_tabs_update"]);
 
 const queuedCodexHerdRouteKeys = new WeakMap<BrowserTransportSessionLike, Set<string>>();
 
@@ -428,7 +435,7 @@ export function handleBrowserProtocolMessage(
     return true;
   }
 
-  if (deps.idempotentMessageTypes.has(msg.type) && "client_msg_id" in msg && msg.client_msg_id) {
+  if (isIdempotentBrowserMessage(msg.type, deps) && "client_msg_id" in msg && msg.client_msg_id) {
     if (session.processedClientMessageIdSet.has(msg.client_msg_id)) return true;
     session.processedClientMessageIds.push(msg.client_msg_id);
     session.processedClientMessageIdSet.add(msg.client_msg_id);
@@ -442,6 +449,12 @@ export function handleBrowserProtocolMessage(
     deps.persistSession(session);
   }
 
+  if (msg.type === "leader_thread_tabs_update") {
+    deps.touchActivity?.(session.id);
+    handleLeaderThreadTabsUpdate(session, msg.operation, deps);
+    return true;
+  }
+
   if (BROWSER_ACTIVITY_TYPES.has(msg.type)) {
     deps.touchActivity?.(session.id);
   }
@@ -453,6 +466,51 @@ export function handleBrowserProtocolMessage(
 
   if ((msg as { type: string }).type === "ping") return true;
   return false;
+}
+
+function handleLeaderThreadTabsUpdate(
+  session: BrowserTransportSessionLike,
+  operation: Extract<BrowserOutgoingMessage, { type: "leader_thread_tabs_update" }>["operation"],
+  deps: BrowserTransportDeps,
+): void {
+  const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
+  if (operation.type === "migrate" && existingState) return;
+
+  const nextState = applyLeaderThreadTabUpdate(existingState, operation);
+  if (statesEqual(existingState, nextState)) return;
+
+  session.state.leaderOpenThreadTabs = nextState;
+  deps.persistSession(session);
+  deps.broadcastToBrowsers(session, {
+    type: "session_update",
+    session: { leaderOpenThreadTabs: nextState },
+  });
+}
+
+function statesEqual(
+  left: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
+  right: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
+): boolean {
+  if (!left || !right) return left === right;
+  return (
+    left.updatedAt === right.updatedAt &&
+    left.migratedFromLocalStorageAt === right.migratedFromLocalStorageAt &&
+    arraysEqual(left.orderedOpenThreadKeys, right.orderedOpenThreadKeys) &&
+    left.closedThreadTombstones.length === right.closedThreadTombstones.length &&
+    left.closedThreadTombstones.every(
+      (entry, index) =>
+        entry.threadKey === right.closedThreadTombstones[index]?.threadKey &&
+        entry.closedAt === right.closedThreadTombstones[index]?.closedAt,
+    )
+  );
+}
+
+function arraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isIdempotentBrowserMessage(type: BrowserOutgoingMessage["type"], deps: BrowserTransportDeps): boolean {
+  return deps.idempotentMessageTypes.has(type) || LOCAL_IDEMPOTENT_BROWSER_MESSAGE_TYPES.has(type);
 }
 
 export function injectUserMessage(

@@ -116,7 +116,7 @@ describe("leader open thread tabs storage", () => {
 
     expect(next).toHaveLength(MAX_OPEN_THREAD_TAB_KEYS);
     expect(next[0]).toBe("q-1000");
-    expect(next).not.toContain("q-20");
+    expect(next).not.toContain(`q-${MAX_OPEN_THREAD_TAB_KEYS}`);
   });
 
   it("normalizes direct arrays without accepting main, all, empty, or duplicate keys", () => {
