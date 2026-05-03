@@ -105,11 +105,8 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
   const visibleBaseMessages = removeMergedThreadAttachmentMarkers(baseMessages, mergedThreadAttachmentKeys);
   const baseMessageIds = new Set(visibleBaseMessages.map((message) => message.id));
   const isWindowedMainFeed = input.selectedFeedWindowEnabled && isMainThreadKey(normalizedThreadKey);
-  const mainWindowTimestampMessages =
-    input.selectedFeedWindow && input.selectedFeedWindowMessages.length > 0
-      ? input.selectedFeedWindowMessages
-      : visibleBaseMessages;
-  const mainWindowTimestampRange = isWindowedMainFeed ? messageTimestampRange(mainWindowTimestampMessages) : null;
+  const mainWindowTimestampRange =
+    isWindowedMainFeed && input.selectedFeedWindow ? messageTimestampRange(input.selectedFeedWindowMessages) : null;
   const attentionLedgerMessages = buildAttentionLedgerMessages(
     attentionRecordsWithThreadMovement,
     normalizedThreadKey,

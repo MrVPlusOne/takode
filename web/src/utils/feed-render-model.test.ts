@@ -276,6 +276,55 @@ describe("feed render model builders", () => {
     ]);
   });
 
+  it("does not derive cold Main ledger bounds from retained or live visible messages", () => {
+    const retainedSource = makeMessage({
+      id: "a-retained-main-source",
+      role: "assistant",
+      content: "Retained Main source.",
+      timestamp: 100,
+      historyIndex: -1,
+    });
+    const liveMessage = makeMessage({
+      id: "a-live-main-message",
+      role: "assistant",
+      content: "Live Main output.",
+      timestamp: 300,
+      historyIndex: -1,
+    });
+
+    const model = buildMessageModel({
+      allMessages: [retainedSource, liveMessage],
+      selectedFeedWindow: null,
+      selectedFeedWindowMessages: [],
+      sessionNotifications: [],
+      sessionAttentionRecords: [
+        makeAttentionRecord({
+          id: "cold-start-active",
+          state: "unresolved",
+          createdAt: 50,
+          updatedAt: 50,
+          title: "Cold start active item",
+        }),
+        makeAttentionRecord({
+          id: "pseudo-window-inactive",
+          state: "resolved",
+          createdAt: 150,
+          updatedAt: 150,
+          title: "Pseudo-window inactive item",
+        }),
+      ],
+    });
+
+    expect(model.attentionLedgerMessages.map((message) => message.metadata?.attentionRecord?.id)).toEqual([
+      "cold-start-active",
+    ]);
+    expect(model.messages.map((message) => message.id)).toEqual([
+      "attention-ledger:cold-start-active",
+      "a-retained-main-source",
+      "a-live-main-message",
+    ]);
+  });
+
   it("does not leak routed quest notification sources into the Main feed model", () => {
     const questSource = makeMessage({
       id: "a-q983-plan",
