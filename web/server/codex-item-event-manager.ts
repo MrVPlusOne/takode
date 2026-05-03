@@ -683,10 +683,16 @@ export class CodexItemEventManager {
     this.markMessageFinished(completedAt);
   }
 
-  handleToolRouterError(message: string, targetToolName?: RouterFailureToolName): boolean {
+  handleToolRouterError(message: string, targetToolName?: RouterFailureToolName, duplicateScope?: string): boolean {
     if (targetToolName === "write_stdin") {
       if (this.handleWriteStdinRouterError(message)) return true;
-      return this.handleActiveToolRouterError(message, "write_stdin");
+      if (this.handleActiveToolRouterError(message, "write_stdin")) return true;
+      return this.emitFailedWriteStdinRouterDiagnosticResult({
+        message,
+        duplicateKey: `diagnostic:${duplicateScope ?? "session"}\n${message}`,
+        processId: this.extractWriteStdinFailureProcessId(message) ?? "",
+        stdin: "",
+      });
     }
     return this.handleActiveToolRouterError(message);
   }
@@ -765,6 +771,25 @@ export class CodexItemEventManager {
       { parentToolUseId },
     );
     this.emitToolResult(failedToolUseId, message, true, parentToolUseId);
+    return true;
+  }
+
+  private emitFailedWriteStdinRouterDiagnosticResult(args: {
+    message: string;
+    duplicateKey: string;
+    processId: string;
+    stdin: string;
+  }): boolean {
+    const { message, duplicateKey, processId, stdin } = args;
+    if (this.failedTerminalRouterErrorKeys.has(duplicateKey)) return true;
+    this.failedTerminalRouterErrorKeys.add(duplicateKey);
+
+    const failedToolUseId = `codex-write-stdin-router-error:${++this.terminalInteractionToolUseSeq}`;
+    this.emitToolUseTracked(failedToolUseId, "write_stdin", {
+      session_id: processId,
+      chars: stdin,
+    });
+    this.emitToolResult(failedToolUseId, message, true);
     return true;
   }
 

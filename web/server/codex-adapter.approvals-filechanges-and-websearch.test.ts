@@ -912,18 +912,30 @@ describe("CodexAdapter", () => {
 
     const results = messages.filter((m) => m.type === "result");
     expect(results).toHaveLength(1);
-    const result = results[0] as { data: { is_error: boolean; result: string; codex_turn_id?: string } };
-    expect(result.data.is_error).toBe(true);
-    expect(result.data.result).toContain("write_stdin failed");
+    const result = results[0] as { data: { is_error: boolean; result?: string; codex_turn_id?: string } };
+    expect(result.data.is_error).toBe(false);
+    expect(result.data.result).toBeUndefined();
     expect(result.data.codex_turn_id).toBe("turn_write_stdin_router_error");
     expect(adapter.getCurrentTurnId()).toBeNull();
+
+    stdout.push(
+      JSON.stringify({
+        method: "turn/completed",
+        params: {
+          turn: { id: "turn_write_stdin_router_error", status: "failed", error: { message: errorMessage } },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    expect(messages.filter((m) => m.type === "result")).toHaveLength(1);
   });
 
-  it("does not attach write_stdin router errors to Bash without a matching terminal interaction", async () => {
+  it("renders unmatched write_stdin router errors as non-disruptive diagnostic tool results", async () => {
     // A write_stdin router failure is only specific enough to close a
     // write_stdin tool when the adapter has seen a terminal interaction for
-    // that process id. Otherwise keep it visible and let turn-level fallback
-    // clear generation state.
+    // that process id. Otherwise keep it visible as an unparented write_stdin
+    // diagnostic without failing the parent Bash command or the whole turn.
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -960,10 +972,24 @@ describe("CodexAdapter", () => {
       }) + "\n",
     );
     await tick();
+    stdout.push(
+      JSON.stringify({
+        method: "codex/event/error",
+        params: { msg: { message: errorMessage } },
+      }) + "\n",
+    );
+    await tick();
 
     expect(getToolResultBlocks(messages, "cmd_without_terminal_poll")).toHaveLength(0);
-    expect(getToolUseBlocks(messages, "write_stdin")).toHaveLength(0);
-    expect(messages).toContainEqual(expect.objectContaining({ type: "error", message: errorMessage }));
+    const failedWriteStdinResults = getToolResultBlocks(messages).filter(
+      (block) => block.is_error === true && typeof block.content === "string" && block.content.includes(errorMessage),
+    );
+    expect(failedWriteStdinResults).toHaveLength(1);
+    const failedWriteStdinUse = getToolUseBlocks(messages, "write_stdin").find(
+      (block) => block.id === failedWriteStdinResults[0]?.tool_use_id,
+    );
+    expect(failedWriteStdinUse?.input).toMatchObject({ session_id: "24680", chars: "" });
+    expect(messages.some((msg) => msg.type === "error" && msg.message === errorMessage)).toBe(false);
 
     stdout.push(
       JSON.stringify({
@@ -975,16 +1001,23 @@ describe("CodexAdapter", () => {
 
     const results = messages.filter((m) => m.type === "result");
     expect(results).toHaveLength(1);
-    const result = results[0] as { data: { is_error: boolean; result: string; codex_turn_id?: string } };
-    expect(result.data.is_error).toBe(true);
-    expect(result.data.result).toContain("write_stdin failed");
+    const result = results[0] as { data: { is_error: boolean; result?: string; codex_turn_id?: string } };
+    expect(result.data.is_error).toBe(false);
+    expect(result.data.result).toBeUndefined();
     expect(result.data.codex_turn_id).toBe("turn_unmatched_write_stdin_error");
+    expect(adapter.getCurrentTurnId()).toBeNull();
+
+    const turnStartsBefore = parseWrittenJsonLines(stdin.chunks).filter((line) => line.method === "turn/start").length;
+    adapter.sendBrowserMessage({ type: "user_message", content: "recover after diagnostic" });
+    await tick();
+    const turnStartsAfter = parseWrittenJsonLines(stdin.chunks).filter((line) => line.method === "turn/start").length;
+    expect(turnStartsAfter).toBe(turnStartsBefore + 1);
   });
 
   it("does not attach stale write_stdin router errors after the command completed", async () => {
     // Once the parent command is complete, a later Unknown process id message
     // is stale context. It should not reopen or fail the earlier write_stdin UI
-    // entry.
+    // entry, but it should still render as non-disruptive write_stdin output.
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -1053,8 +1086,29 @@ describe("CodexAdapter", () => {
     const failedWriteStdinResults = getToolResultBlocks(messages).filter(
       (block) => block.is_error === true && typeof block.content === "string" && block.content.includes(errorMessage),
     );
-    expect(failedWriteStdinResults).toHaveLength(0);
-    expect(messages).toContainEqual(expect.objectContaining({ type: "error", message: errorMessage }));
+    expect(failedWriteStdinResults).toHaveLength(1);
+    const failedWriteStdinUse = getToolUseBlocks(messages, "write_stdin").find(
+      (block) => block.id === failedWriteStdinResults[0]?.tool_use_id,
+    );
+    expect(failedWriteStdinUse?.input).toMatchObject({ session_id: "13506", chars: "" });
+    expect(messages.some((msg) => msg.type === "error" && msg.message === errorMessage)).toBe(false);
+
+    stdout.push(
+      JSON.stringify({
+        method: "turn/completed",
+        params: {
+          turn: { id: "turn_stale_write_stdin_error", status: "failed", error: { message: errorMessage } },
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const results = messages.filter((m) => m.type === "result");
+    expect(results).toHaveLength(1);
+    const result = results[0] as { data: { is_error: boolean; result?: string; codex_turn_id?: string } };
+    expect(result.data.is_error).toBe(false);
+    expect(result.data.result).toBeUndefined();
+    expect(result.data.codex_turn_id).toBe("turn_stale_write_stdin_error");
   });
 
   it("renders stderr-only closed-stdin router failures as failed write_stdin results", async () => {
@@ -1111,17 +1165,19 @@ describe("CodexAdapter", () => {
 
     stdout.push(
       JSON.stringify({
-        method: "thread/status/changed",
-        params: { threadId: "thr_123", status: { type: "idle" } },
+        method: "turn/completed",
+        params: {
+          turn: { id: "turn_closed_stdin_stderr", status: "failed", error: { message: errorMessage } },
+        },
       }) + "\n",
     );
     await tick();
 
     const results = messages.filter((m) => m.type === "result");
     expect(results).toHaveLength(1);
-    const result = results[0] as { data: { is_error: boolean; result: string; codex_turn_id?: string } };
-    expect(result.data.is_error).toBe(true);
-    expect(result.data.result).toContain("stdin is closed for this session");
+    const result = results[0] as { data: { is_error: boolean; result?: string; codex_turn_id?: string } };
+    expect(result.data.is_error).toBe(false);
+    expect(result.data.result).toBeUndefined();
     expect(result.data.codex_turn_id).toBe("turn_closed_stdin_stderr");
     expect(adapter.getCurrentTurnId()).toBeNull();
   });
@@ -1214,7 +1270,8 @@ describe("CodexAdapter", () => {
   it("does not attach closed-stdin stderr router failures when multiple real tools are active", async () => {
     // Without a process id, the closed-stdin stderr fallback is intentionally
     // narrower than the generic router-error path: if more than one real tool
-    // is active, keep the error visible without guessing a write_stdin parent.
+    // is active, keep the error visible as an unparented diagnostic without
+    // guessing a write_stdin parent.
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -1262,8 +1319,30 @@ describe("CodexAdapter", () => {
     await tick();
 
     expect(getToolResultBlocks(messages, "cmd_closed_stdin_overlap")).toHaveLength(0);
-    expect(getToolUseBlocks(messages, "write_stdin")).toHaveLength(0);
-    expect(messages).toContainEqual(expect.objectContaining({ type: "error", message: errorMessage }));
+    const failedWriteStdinResults = getToolResultBlocks(messages).filter(
+      (block) => block.is_error === true && typeof block.content === "string" && block.content.includes(errorMessage),
+    );
+    expect(failedWriteStdinResults).toHaveLength(1);
+    const failedWriteStdinUse = getToolUseBlocks(messages, "write_stdin").find(
+      (block) => block.id === failedWriteStdinResults[0]?.tool_use_id,
+    );
+    expect(failedWriteStdinUse?.input).toMatchObject({ session_id: "", chars: "" });
+    expect(messages.some((msg) => msg.type === "error" && msg.message === errorMessage)).toBe(false);
+
+    stdout.push(
+      JSON.stringify({
+        method: "thread/status/changed",
+        params: { threadId: "thr_123", status: { type: "idle" } },
+      }) + "\n",
+    );
+    await tick();
+
+    const results = messages.filter((m) => m.type === "result");
+    expect(results).toHaveLength(1);
+    const result = results[0] as { data: { is_error: boolean; result?: string; codex_turn_id?: string } };
+    expect(result.data.is_error).toBe(false);
+    expect(result.data.result).toBeUndefined();
+    expect(result.data.codex_turn_id).toBe("turn_closed_stdin_multi_tool");
   });
 
   it("ignores non-write_stdin Codex stderr router failures", async () => {

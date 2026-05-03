@@ -122,6 +122,7 @@ export class CodexAdapter
   private currentTurnId: string | null = null;
   private suppressedTurnResultIds = new Set<string>();
   private toolRouterErrorByTurnId = new Map<string, string>();
+  private handledWriteStdinRouterErrorByTurnId = new Map<string, string>();
   private connected = false;
   private initialized = false;
   private initFailed = false;
@@ -887,6 +888,10 @@ export class CodexAdapter
       );
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+      if (this.emitCompletedResultForHandledWriteStdinRouterError(expectedTurnId)) {
+        this.suppressedTurnResultIds.add(expectedTurnId);
+        return true;
+      }
       const routerError = this.toolRouterErrorByTurnId.get(expectedTurnId);
       if (routerError) {
         this.toolRouterErrorByTurnId.delete(expectedTurnId);
@@ -1147,6 +1152,10 @@ export class CodexAdapter
       );
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+      if (this.emitCompletedResultForHandledWriteStdinRouterError(staleTurnId)) {
+        this.suppressedTurnResultIds.add(staleTurnId);
+        return;
+      }
       const routerError = this.toolRouterErrorByTurnId.get(staleTurnId);
       if (routerError) {
         this.toolRouterErrorByTurnId.delete(staleTurnId);
@@ -1168,14 +1177,32 @@ export class CodexAdapter
     }
 
     this.currentTurnId = null;
-    if (typeof turn?.id === "string") {
-      this.toolRouterErrorByTurnId.delete(turn.id);
+    const turnId = typeof turn?.id === "string" ? turn.id : null;
+    if (turnId) {
+      this.toolRouterErrorByTurnId.delete(turnId);
     }
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
 
-    if (typeof turn?.id === "string" && this.suppressedTurnResultIds.delete(turn.id)) {
+    if (turnId && this.suppressedTurnResultIds.delete(turnId)) {
+      this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
       return;
+    }
+
+    if (turnId) {
+      const handledWriteStdinRouterError = this.handledWriteStdinRouterErrorByTurnId.get(turnId);
+      if (
+        handledWriteStdinRouterError &&
+        this.isSameWriteStdinRouterFailure(turn?.error?.message, handledWriteStdinRouterError)
+      ) {
+        this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
+        this.emitTurnResult({
+          turnId,
+          status: "completed",
+        });
+        return;
+      }
+      this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
     }
 
     // Always emit a result — even for interrupted turns — so the server
@@ -1183,10 +1210,28 @@ export class CodexAdapter
     // was active), the next turn/start will immediately set generating=true
     // again, so the brief idle flash is imperceptible.
     this.emitTurnResult({
-      turnId: typeof turn?.id === "string" ? turn.id : null,
+      turnId,
       status: turn?.status || "end_turn",
       errorMessage: turn?.error?.message,
     });
+  }
+
+  private emitCompletedResultForHandledWriteStdinRouterError(turnId: string): boolean {
+    if (!this.handledWriteStdinRouterErrorByTurnId.has(turnId)) return false;
+    this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
+    this.toolRouterErrorByTurnId.delete(turnId);
+    this.emitTurnResult({
+      turnId,
+      status: "completed",
+    });
+    return true;
+  }
+
+  private isSameWriteStdinRouterFailure(errorMessage: string | undefined, handledMessage: string): boolean {
+    if (!errorMessage) return false;
+    const normalizedError = errorMessage.trim();
+    const normalizedHandled = handledMessage.trim();
+    return normalizedError === normalizedHandled || normalizedError.includes(normalizedHandled);
   }
 
   private emitTurnResult(args: { turnId?: string | null; status: string; errorMessage?: string }): void {
@@ -1225,11 +1270,22 @@ export class CodexAdapter
 
   private handleToolRouterFailureMessage(message: string): void {
     const isToolRouterFailure = this.isToolRouterFailureMessage(message);
+    const routerFailureToolName = this.getRouterFailureToolName(message);
     const renderedAsToolResult = isToolRouterFailure
-      ? this.itemEventManager.handleToolRouterError(message, this.getRouterFailureToolName(message) ?? undefined)
+      ? this.itemEventManager.handleToolRouterError(
+          message,
+          routerFailureToolName ?? undefined,
+          this.currentTurnId ?? undefined,
+        )
       : false;
     if (this.currentTurnId && isToolRouterFailure) {
-      this.toolRouterErrorByTurnId.set(this.currentTurnId, message);
+      if (renderedAsToolResult && routerFailureToolName === "write_stdin") {
+        this.handledWriteStdinRouterErrorByTurnId.set(this.currentTurnId, message);
+        this.toolRouterErrorByTurnId.delete(this.currentTurnId);
+      } else {
+        this.handledWriteStdinRouterErrorByTurnId.delete(this.currentTurnId);
+        this.toolRouterErrorByTurnId.set(this.currentTurnId, message);
+      }
     }
     if (!renderedAsToolResult) {
       this.emit({ type: "error", message });
