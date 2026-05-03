@@ -339,10 +339,14 @@ const ToolBlockInner = memo(function ToolBlockInner({
   // takode board: render board card instead of terminal block.
   // Tool result previews are truncated to 300 chars by the server, which breaks
   // JSON parsing for boards with several rows. We fetch the full result if needed.
-  const isBoardCommand =
-    !disableInlineSpecialCases && name === "Bash" && isTakodeBoardCommand(String(input.command || ""));
-  const parsedBoard = useBoardData(isBoardCommand, sessionId, toolUseId);
-  if (isBoardCommand && parsedBoard) {
+  const boardCommand = !disableInlineSpecialCases && name === "Bash" ? parseTakodeBoardCommand(input.command) : null;
+  const parsedBoard = useBoardData(
+    boardCommand != null,
+    boardCommand?.canUseLiveBoardFallback === true,
+    sessionId,
+    toolUseId,
+  );
+  if (boardCommand && parsedBoard) {
     return (
       <BoardBlock
         board={parsedBoard.board}
@@ -444,9 +448,48 @@ const ToolBlockInner = memo(function ToolBlockInner({
   );
 });
 
-/** Detect `takode board` commands (display, add, set, rm). */
-function isTakodeBoardCommand(command: string): boolean {
-  return /\btakode\s+board\b/.test(command);
+const INLINE_BOARD_FALLBACK_SUBCOMMANDS = new Set(["", "show", "display", "set", "add", "rm", "advance"]);
+
+interface TakodeBoardCommandMatch {
+  canUseLiveBoardFallback: boolean;
+}
+
+/** Detect `takode board` commands while keeping non-table subcommands as plain terminal rows. */
+export function parseTakodeBoardCommand(rawCommand: unknown): TakodeBoardCommandMatch | null {
+  const command = stripLeadingEnvAssignments(String(rawCommand || ""));
+  const commandMatcher = /(?:^|[\s;&|()])takode\s+board(?:\s+([^\s;&|()]+))?/g;
+  let match: RegExpExecArray | null;
+  while ((match = commandMatcher.exec(command)) !== null) {
+    const segmentStart = command.indexOf("takode", match.index);
+    const segment = command.slice(segmentStart).split(/[;&|\n\r]/, 1)[0] ?? "";
+    const subcommand = (match[1] ?? "").toLowerCase();
+    const isHelp = subcommand === "help" || subcommand === "--help" || /\s--help(?:\s|$)/.test(segment);
+    if (isHelp) return { canUseLiveBoardFallback: false };
+    return { canUseLiveBoardFallback: INLINE_BOARD_FALLBACK_SUBCOMMANDS.has(subcommand) };
+  }
+  return null;
+}
+
+function looksLikeTakodeBoardTableOutput(content: string | undefined): boolean {
+  if (!content) return false;
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const headerIndex = lines.findIndex(
+    (line) => /\bQUEST\b/i.test(line) && /\bTITLE\b/i.test(line) && /\b(STATE|WORKER|WAIT-FOR)\b/i.test(line),
+  );
+  if (headerIndex < 0) return false;
+  return lines.slice(headerIndex + 1, headerIndex + 8).some((line) => /\bq-\d+\b/i.test(line));
+}
+
+function liveBoardFallback(
+  canUseLiveBoardFallback: boolean,
+  content: string | undefined,
+  liveBoard: BoardRowData[] | undefined,
+): ParsedBoardResult | null {
+  if (!canUseLiveBoardFallback || !liveBoard || !looksLikeTakodeBoardTableOutput(content)) return null;
+  return { board: liveBoard };
 }
 
 /** Strip leading shell-style env assignments from a Bash command preview. */
@@ -478,6 +521,7 @@ function parseTakodeNotifyCommand(command: string): { category: "needs-input" | 
  */
 function useBoardData(
   isBoardCommand: boolean,
+  canUseLiveBoardFallback: boolean,
   sessionId: string | null | undefined,
   toolUseId: string,
 ): ParsedBoardResult | null {
@@ -510,12 +554,12 @@ function useBoardData(
       return;
     }
     if (previewContent === undefined) {
-      setBoardData(liveBoard !== undefined ? { board: liveBoard } : null);
+      setBoardData(null);
       return;
     }
     if (!isTruncated) {
       const parsed = parseBoardFromResult(previewContent);
-      setBoardData(parsed ?? (liveBoard !== undefined ? { board: liveBoard } : null));
+      setBoardData(parsed ?? liveBoardFallback(canUseLiveBoardFallback, previewContent, liveBoard));
       return;
     }
     // Server truncated the preview -- fetch full result to get complete JSON
@@ -529,15 +573,28 @@ function useBoardData(
           return;
         }
         const parsed = parseBoardFromResult(full?.content);
-        setBoardData(parsed ?? (liveBoard !== undefined ? { board: liveBoard } : null));
+        setBoardData(
+          parsed ??
+            liveBoardFallback(canUseLiveBoardFallback, full?.content, liveBoard) ??
+            liveBoardFallback(canUseLiveBoardFallback, previewContent, liveBoard),
+        );
       })
       .catch(() => {
-        if (!cancelled) setBoardData(liveBoard !== undefined ? { board: liveBoard } : null);
+        if (!cancelled) setBoardData(liveBoardFallback(canUseLiveBoardFallback, previewContent, liveBoard));
       });
     return () => {
       cancelled = true;
     };
-  }, [isBoardCommand, sessionId, toolUseId, previewContent, previewIsError, isTruncated, liveBoard]);
+  }, [
+    canUseLiveBoardFallback,
+    isBoardCommand,
+    sessionId,
+    toolUseId,
+    previewContent,
+    previewIsError,
+    isTruncated,
+    liveBoard,
+  ]);
 
   return boardData;
 }

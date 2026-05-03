@@ -9,6 +9,7 @@ import {
   formatDuration,
   EDIT_BLOCKS_EXPANDED_KEY,
   extractFirstJsonObject,
+  parseTakodeBoardCommand,
   parseBoardFromResult,
 } from "./ToolBlock.js";
 import { useStore } from "../store.js";
@@ -389,7 +390,7 @@ describe("ToolBlock", () => {
 
   it("falls back to authoritative session board state for plain-text board output", async () => {
     const boardOutput = [
-      "QUEST    TITLE                    WORKER",
+      "QUEST    TITLE                    WORKER / REVIEWER              STATE              WAIT-FOR",
       "q-412    Inspect original boa…   #5 idle",
       "",
       "BOARD OUTPUT MARKER",
@@ -427,6 +428,42 @@ describe("ToolBlock", () => {
     expect(screen.queryByText(/BOARD OUTPUT MARKER/)).toBeNull();
     expect(screen.getByText("Work Board")).toBeTruthy();
     expect(screen.getByText("Inspect original board command")).toBeTruthy();
+  });
+
+  it("keeps non-table board subcommands as terminal rows", async () => {
+    const output = "q-412 -- Inspect original board command\nstatus: PLANNING\nworker: #5";
+    const sessionResults = new Map();
+    sessionResults.set("tool-board-detail", {
+      content: output,
+      is_error: false,
+      is_truncated: false,
+      total_size: output.length,
+    });
+    const toolResults = new Map();
+    toolResults.set("board-session-detail", sessionResults);
+    const sessionBoards = new Map();
+    sessionBoards.set("board-session-detail", [
+      { questId: "q-412", title: "Should not render as Work Board", status: "PLANNING", updatedAt: 100 },
+    ]);
+    useStore.setState({ toolResults, sessionBoards, latestBoardToolUseId: new Map() });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "takode board detail q-412" }}
+        toolUseId="tool-board-detail"
+        sessionId="board-session-detail"
+        defaultOpen
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByText("Work Board")).toBeNull());
+    expect(screen.getByText(/q-412 -- Inspect original board command/)).toBeTruthy();
+    expect(parseTakodeBoardCommand("takode board detail q-412")?.canUseLiveBoardFallback).toBe(false);
+    expect(parseTakodeBoardCommand("takode board advance --help")?.canUseLiveBoardFallback).toBe(false);
+    expect(parseTakodeBoardCommand("quest transition q-412 && takode board set q-412")?.canUseLiveBoardFallback).toBe(
+      true,
+    );
   });
 
   it("does not render a board card for failed plain-text board commands", async () => {
