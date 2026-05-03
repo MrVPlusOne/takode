@@ -72,7 +72,7 @@ describe("Playground", () => {
     expect(screen.queryByText(/@to\(user\)/)).toBeNull();
   });
 
-  it("documents thread movement markers without Thread opened ledger rows", () => {
+  it("documents additive source projection without source attachment markers", () => {
     render(<Playground />);
 
     expect(screen.queryByText("Thread opened")).toBeNull();
@@ -82,12 +82,12 @@ describe("Playground", () => {
         .some((row) => row.getAttribute("data-attention-type") === "quest_thread_created"),
     ).toBe(false);
 
+    expect(screen.getByText("Earlier context attached to the implementation quest.")).toBeTruthy();
+
     const marker = screen.getAllByTestId("thread-system-marker-cluster")[0];
-    expect(marker).toHaveTextContent("1 message moved to thread:q-961");
     expect(marker).toHaveTextContent("Work continued from Main to thread:q-962");
     expect(marker).not.toHaveTextContent("activities in thread:");
     expect(within(marker).queryByText("Jump")).toBeNull();
-    expect(within(marker).getByRole("button", { name: "thread:q-961" })).toBeTruthy();
     expect(within(marker).getByRole("button", { name: "thread:q-962" })).toBeTruthy();
   });
 

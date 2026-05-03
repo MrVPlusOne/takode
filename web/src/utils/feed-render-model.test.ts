@@ -35,6 +35,28 @@ function makeWindow(overrides: Partial<ThreadWindowState> = {}): ThreadWindowSta
   };
 }
 
+function makeAttachmentMarker(
+  overrides: Partial<NonNullable<NonNullable<ChatMessage["metadata"]>["threadAttachmentMarker"]>> = {},
+) {
+  return {
+    type: "thread_attachment_marker" as const,
+    id: "marker-q941",
+    timestamp: 300,
+    markerKey: "thread-attachment:q-941:m-attached",
+    threadKey: "q-941",
+    questId: "q-941",
+    attachedAt: 300,
+    attachedBy: "leader-1",
+    messageIds: ["m-attached"],
+    messageIndices: [1],
+    ranges: ["1"],
+    count: 1,
+    firstMessageId: "m-attached",
+    firstMessageIndex: 1,
+    ...overrides,
+  };
+}
+
 function buildMessageModel(
   input: Partial<Parameters<typeof buildFeedMessageModel>[0]> &
     Pick<Parameters<typeof buildFeedMessageModel>[0], "allMessages" | "sessionNotifications">,
@@ -196,6 +218,82 @@ describe("feed render model builders", () => {
 
     expect(model.messages.map((message) => message.id)).toEqual(["a-main-live"]);
     expect(model.attentionLedgerMessages).toHaveLength(0);
+  });
+
+  it("keeps backfilled source messages visible in Main without rendering attachment markers", () => {
+    const mainSetup = makeMessage({
+      id: "m-main",
+      role: "user",
+      content: "Main setup",
+      timestamp: 100,
+      historyIndex: 0,
+    });
+    const attached = makeMessage({
+      id: "m-attached",
+      role: "assistant",
+      content: "Main context attached to q-941",
+      timestamp: 200,
+      historyIndex: 1,
+      metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "backfill" }] },
+    });
+    const marker = makeMessage({
+      id: "marker-q941",
+      role: "system",
+      content: "1 message moved to q-941",
+      timestamp: 300,
+      historyIndex: 2,
+      metadata: { threadAttachmentMarker: makeAttachmentMarker() },
+    });
+
+    const model = buildMessageModel({
+      selectedFeedWindowEnabled: false,
+      allMessages: [mainSetup, attached, marker],
+      sessionNotifications: [],
+    });
+
+    expect(model.messages.map((message) => message.id)).toEqual(["m-main", "m-attached"]);
+  });
+
+  it("keeps source and destination quest membership without rendering source attachment markers", () => {
+    const sourceMessage = makeMessage({
+      id: "m-attached",
+      role: "assistant",
+      content: "Source quest context attached to q-941",
+      timestamp: 200,
+      historyIndex: 1,
+      metadata: {
+        threadRefs: [
+          { threadKey: "q-940", questId: "q-940", source: "explicit" },
+          { threadKey: "q-941", questId: "q-941", source: "backfill" },
+        ],
+      },
+    });
+    const marker = makeMessage({
+      id: "marker-q941",
+      role: "system",
+      content: "1 message moved to q-941",
+      timestamp: 300,
+      historyIndex: 2,
+      metadata: {
+        threadAttachmentMarker: makeAttachmentMarker({ sourceThreadKey: "q-940", sourceQuestId: "q-940" }),
+      },
+    });
+
+    const sourceModel = buildMessageModel({
+      threadKey: "q-940",
+      selectedFeedWindowEnabled: false,
+      allMessages: [sourceMessage, marker],
+      sessionNotifications: [],
+    });
+    const destinationModel = buildMessageModel({
+      threadKey: "q-941",
+      selectedFeedWindowEnabled: false,
+      allMessages: [sourceMessage, marker],
+      sessionNotifications: [],
+    });
+
+    expect(sourceModel.messages.map((message) => message.id)).toEqual(["m-attached"]);
+    expect(destinationModel.messages.map((message) => message.id)).toEqual(["m-attached"]);
   });
 
   it("recovers routed notification sources for the owner quest thread without adding a fallback ledger row", () => {

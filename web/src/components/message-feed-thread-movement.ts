@@ -2,6 +2,7 @@ import type { ChatMessage, SessionAttentionRecord } from "../types.js";
 import {
   isMainThreadKey,
   isThreadAttachmentMarkerMessage,
+  summarizeThreadAttachmentMarkersForThread,
   threadAttachmentMarkerTargetKey,
 } from "../utils/thread-projection.js";
 
@@ -9,13 +10,27 @@ export function enrichThreadOpenedRecordsWithMovement(
   records: SessionAttentionRecord[],
   messages: ReadonlyArray<ChatMessage>,
 ): SessionAttentionRecord[] {
-  void messages;
-  return records;
+  let changed = false;
+  const enriched = records.map((record) => {
+    if (record.type !== "quest_thread_created") return record;
+
+    const summary = summarizeThreadAttachmentMarkersForThread(messages, record.threadKey);
+    if (!summary) return record;
+    changed = true;
+    return { ...record, threadAttachmentSummary: summary };
+  });
+
+  return changed ? enriched : records;
 }
 
 export function collectMergedThreadAttachmentKeys(records: ReadonlyArray<SessionAttentionRecord>): Set<string> {
-  void records;
-  return new Set();
+  const keys = new Set<string>();
+  for (const record of records) {
+    const summary = record.threadAttachmentSummary;
+    if (!summary) continue;
+    keys.add(summary.threadKey);
+  }
+  return keys;
 }
 
 export function collectMergedThreadAttachmentKeysForThread(

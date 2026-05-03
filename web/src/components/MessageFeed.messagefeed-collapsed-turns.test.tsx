@@ -718,7 +718,7 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.getByText("#1323")).toBeTruthy();
   });
 
-  it("infers legacy moved-message source visibility from covered source-routed messages", () => {
+  it("keeps legacy source-routed messages visible without source attachment markers", () => {
     const sid = "test-source-thread-legacy-marker-inference";
     const marker = movedMarker({
       id: "marker-q-941",
@@ -747,7 +747,7 @@ describe("MessageFeed - collapsed turns", () => {
     render(<MessageFeed sessionId={sid} threadKey="q-940" />);
 
     expect(screen.getByText("Legacy source-routed context")).toBeTruthy();
-    expectTextContent(screen.getByTestId("thread-attachment-marker"), "1 message moved to thread:q-941");
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
   });
 
   it("shows pure route-switch handoffs in the source quest thread without moved-message counts", () => {
@@ -1336,11 +1336,10 @@ describe("MessageFeed - collapsed turns", () => {
     expect(onSelectThread).toHaveBeenCalledWith("side-b");
   });
 
-  it("keeps screenshot-style moved-message clusters while suppressing quest activity rows", () => {
-    // Attachment markers are explicit Main actions and remain visible; hidden
-    // quest activity around them does not produce compact Main activity rows.
+  it("suppresses source attachment markers and quest activity rows in Main", () => {
+    // Option A keeps original source messages visible after attachment, so
+    // marker-only source rows no longer render in Main.
     const sid = "test-main-thread-marker-mixed-cluster";
-    const onSelectThread = vi.fn();
     const markerA = movedMarker({
       id: "marker-q-1006-a",
       threadKey: "q-1006",
@@ -1381,22 +1380,11 @@ describe("MessageFeed - collapsed turns", () => {
       ...hiddenThreadMessages("q-1003", 4, "q1003-after"),
     ]);
 
-    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
-    const marker = screen.getByTestId("thread-attachment-marker");
-    expect(screen.queryByText("Jump")).toBeNull();
-    expectTextContent(marker, "15 messages moved to thread:q-1006");
-    expect(marker.textContent).not.toContain("activities in thread:");
-    expect(screen.getAllByRole("button", { name: "thread:q-1006" }).length).toBeGreaterThan(0);
-
-    fireEvent.click(screen.getAllByRole("button", { name: "thread:q-1006" })[0]);
-    expect(onSelectThread).toHaveBeenCalledWith("q-1006");
-
-    fireEvent.click(screen.getByRole("button", { name: "Details" }));
-    const details = screen.getByTestId("thread-marker-cluster-details");
-    expectTextContent(details, "6 messages moved to thread:q-1006");
-    expectTextContent(details, "9 messages moved to thread:q-1006");
-    expect(details.textContent).not.toContain("activities in thread:");
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    expect(screen.queryByText("q-1006 hidden update 0")).toBeNull();
   });
 
   it("stops thread-system marker clusters at ordinary visible content", () => {
@@ -1451,7 +1439,7 @@ describe("MessageFeed - collapsed turns", () => {
     expect(screen.queryByTestId("thread-system-marker-cluster")).toBeNull();
     expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
     expect(screen.getByText("Visible Main boundary")).toBeTruthy();
-    expectTextContent(screen.getByTestId("thread-attachment-marker"), "1 message moved to thread:q-972");
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
     expect(screen.queryByText("Hidden q-968 update")).toBeNull();
     expect(screen.queryByText("Hidden q-976 update")).toBeNull();
     expect(screen.queryByText("Hidden q-980 update")).toBeNull();
@@ -1485,7 +1473,7 @@ describe("MessageFeed - collapsed turns", () => {
       }),
     ]);
 
-    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+    render(<MessageFeed sessionId={sid} projectThreadRoutes={false} onSelectThread={onSelectThread} />);
     fireEvent.click(screen.getByRole("button", { name: "thread:q-941" }));
 
     expect(onSelectThread).toHaveBeenCalledWith("q-941");
@@ -1513,7 +1501,7 @@ describe("MessageFeed - collapsed turns", () => {
       }),
     ]);
 
-    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+    render(<MessageFeed sessionId={sid} projectThreadRoutes={false} onSelectThread={vi.fn()} />);
 
     const cluster = screen.getByTestId("thread-attachment-marker");
     expectTextContent(cluster, "15 messages moved to thread:q-1006, 4 to thread:q-1008");
@@ -1582,7 +1570,7 @@ describe("MessageFeed - collapsed turns", () => {
       }),
     ]);
 
-    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+    render(<MessageFeed sessionId={sid} projectThreadRoutes={false} onSelectThread={vi.fn()} />);
 
     expect(screen.getAllByTestId("thread-attachment-marker")).toHaveLength(1);
     expectTextContent(screen.getByTestId("thread-attachment-marker"), "3 messages moved to thread:q-972");

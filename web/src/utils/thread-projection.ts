@@ -236,74 +236,6 @@ export function collectMessageToolUseIds(messages: ChatMessage[]): Set<string> {
   return ids;
 }
 
-function collectMarkerBackfillTargets(messages: ChatMessage[]): {
-  ids: Set<string>;
-  indices: Set<number>;
-} {
-  const ids = new Set<string>();
-  const indices = new Set<number>();
-  for (const message of messages) {
-    const marker = message.metadata?.threadAttachmentMarker;
-    if (!marker) continue;
-    marker.messageIds.forEach((id) => ids.add(id));
-    marker.messageIndices.forEach((index) => indices.add(index));
-  }
-  return { ids, indices };
-}
-
-function hasBackfillThreadRef(message: ChatMessage): boolean {
-  return (message.metadata?.threadRefs ?? []).some((ref) => ref.source === "backfill");
-}
-
-function isCoveredBackfillMessage(message: ChatMessage, targets: { ids: Set<string>; indices: Set<number> }): boolean {
-  if (!hasBackfillThreadRef(message)) return false;
-  if (targets.ids.has(message.id)) return true;
-  return typeof message.historyIndex === "number" && targets.indices.has(message.historyIndex);
-}
-
-function nonBackfillRouteKeys(message: ChatMessage): Set<string> {
-  const keys = new Set<string>();
-  const add = (value: string | undefined) => {
-    if (!value) return;
-    const normalized = normalizeThreadKey(value);
-    if (!normalized || normalized === MAIN_THREAD_KEY) return;
-    keys.add(normalized);
-  };
-
-  const metadata = message.metadata;
-  add(metadata?.threadKey);
-  add(metadata?.questId);
-  for (const ref of metadata?.threadRefs ?? []) {
-    if (ref.source === "backfill") continue;
-    add(ref.threadKey);
-    add(ref.questId);
-  }
-  const inferred = inferredHerdEventRoute(message);
-  add(inferred?.threadKey);
-  add(inferred?.questId);
-  return keys;
-}
-
-function markerCoversMessage(marker: ThreadAttachmentMarker, message: ChatMessage): boolean {
-  if (marker.messageIds.includes(message.id)) return true;
-  return typeof message.historyIndex === "number" && marker.messageIndices.includes(message.historyIndex);
-}
-
-function attachmentMarkerSourceMatchesThread(
-  marker: ThreadAttachmentMarker,
-  messages: ChatMessage[],
-  threadKey: string,
-): boolean {
-  const target = normalizeThreadKey(threadKey);
-  if (normalizeThreadKey(marker.sourceThreadKey ?? "") === target) return true;
-  if (normalizeThreadKey(marker.sourceQuestId ?? "") === target) return true;
-
-  return messages.some((message) => {
-    if (!markerCoversMessage(marker, message)) return false;
-    return nonBackfillRouteKeys(message).has(target);
-  });
-}
-
 function transitionMarkerSourceMatchesThread(marker: ThreadTransitionMarker, threadKey: string): boolean {
   const target = normalizeThreadKey(threadKey);
   return (
@@ -317,7 +249,7 @@ function threadSystemMarkerVisibleInQuestThread(
   threadKey: string,
 ): boolean {
   const attachment = message.metadata?.threadAttachmentMarker;
-  if (attachment) return attachmentMarkerSourceMatchesThread(attachment, messages, threadKey);
+  if (attachment) return false;
   const transition = message.metadata?.threadTransitionMarker;
   if (transition) return transitionMarkerSourceMatchesThread(transition, threadKey);
   return false;
@@ -408,7 +340,6 @@ function buildCrossThreadActivityMarker(
 }
 
 function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
-  const markerTargets = collectMarkerBackfillTargets(messages);
   const projected: ChatMessage[] = [];
   let hiddenRun: ChatMessage[] = [];
   let hiddenRunRoute: { threadKey: string; questId?: string } | null = null;
@@ -430,7 +361,6 @@ function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
     }
     if (isThreadAttachmentMarkerMessage(message)) {
       flushHiddenRun();
-      projected.push(message);
       continue;
     }
     if (isThreadTransitionMarkerMessage(message)) {
@@ -438,9 +368,6 @@ function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
       if (isMainThreadKey(message.metadata?.threadTransitionMarker?.sourceThreadKey ?? "")) {
         projected.push(message);
       }
-      continue;
-    }
-    if (isCoveredBackfillMessage(message, markerTargets)) {
       continue;
     }
     if (!hasExplicitNonMainRoute(message)) {

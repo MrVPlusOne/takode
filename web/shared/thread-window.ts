@@ -1,8 +1,6 @@
 import type {
   BrowserIncomingMessage,
   ContentBlock,
-  ThreadAttachmentMarker,
-  ThreadRef,
   ThreadWindowEntry,
   ThreadWindowState,
   ThreadTransitionMarker,
@@ -128,7 +126,6 @@ function buildFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>, threadK
 }
 
 function buildMainFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>): FeedItem[] {
-  const markerTargets = collectMarkerBackfillTargets(messages);
   const items: FeedItem[] = [];
   let hiddenRun: Array<{ message: BrowserIncomingMessage; index: number }> = [];
   let hiddenRunRoute: RouteTarget | null = null;
@@ -145,7 +142,6 @@ function buildMainFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>): Fe
   messages.forEach((message, index) => {
     if (message.type === "thread_attachment_marker") {
       flushHiddenRun();
-      items.push({ order: index, entry: { message, history_index: index } });
       return;
     }
     if (message.type === "thread_transition_marker") {
@@ -155,7 +151,6 @@ function buildMainFeedItems(messages: ReadonlyArray<BrowserIncomingMessage>): Fe
       }
       return;
     }
-    if (isCoveredBackfillMessage(message, index, markerTargets)) return;
     if (!hasExplicitNonMainRoute(message)) {
       flushHiddenRun();
       items.push({ order: index, entry: { message, history_index: index } });
@@ -389,54 +384,6 @@ function inferredHerdEventRoute(message: BrowserIncomingMessage): RouteTarget | 
   };
 }
 
-function collectMarkerBackfillTargets(messages: ReadonlyArray<BrowserIncomingMessage>): {
-  ids: Set<string>;
-  indices: Set<number>;
-} {
-  const ids = new Set<string>();
-  const indices = new Set<number>();
-  for (const message of messages) {
-    if (message.type !== "thread_attachment_marker") continue;
-    message.messageIds.forEach((id) => ids.add(id));
-    message.messageIndices.forEach((index) => indices.add(index));
-  }
-  return { ids, indices };
-}
-
-function hasBackfillThreadRef(message: BrowserIncomingMessage): boolean {
-  return (message.threadRefs ?? []).some((ref: ThreadRef) => ref.source === "backfill");
-}
-
-function isCoveredBackfillMessage(
-  message: BrowserIncomingMessage,
-  historyIndex: number,
-  targets: { ids: Set<string>; indices: Set<number> },
-): boolean {
-  if (!hasBackfillThreadRef(message)) return false;
-  if (targets.ids.has(rawMessageId(message, historyIndex))) return true;
-  return targets.indices.has(historyIndex);
-}
-
-function markerCoversMessage(marker: ThreadAttachmentMarker, message: BrowserIncomingMessage, index: number): boolean {
-  if (marker.messageIds.includes(rawMessageId(message, index))) return true;
-  return marker.messageIndices.includes(index);
-}
-
-function attachmentMarkerSourceMatchesThread(
-  marker: ThreadAttachmentMarker,
-  messages: ReadonlyArray<BrowserIncomingMessage>,
-  threadKey: string,
-): boolean {
-  const target = normalizeSelectedFeedThreadKey(threadKey);
-  if (normalizeSelectedFeedThreadKey(marker.sourceThreadKey ?? "") === target) return true;
-  if (normalizeSelectedFeedThreadKey(marker.sourceQuestId ?? "") === target) return true;
-
-  return messages.some((message, index) => {
-    if (!markerCoversMessage(marker, message, index)) return false;
-    return normalizedRouteKeys(message, false).has(target);
-  });
-}
-
 function transitionMarkerSourceMatchesThread(marker: ThreadTransitionMarker, threadKey: string): boolean {
   const target = normalizeSelectedFeedThreadKey(threadKey);
   return (
@@ -450,8 +397,8 @@ function threadSystemMarkerVisibleInQuestThread(
   messages: ReadonlyArray<BrowserIncomingMessage>,
   threadKey: string,
 ): boolean {
-  if (message.type === "thread_attachment_marker")
-    return attachmentMarkerSourceMatchesThread(message, messages, threadKey);
+  void messages;
+  if (message.type === "thread_attachment_marker") return false;
   if (message.type === "thread_transition_marker") return transitionMarkerSourceMatchesThread(message, threadKey);
   return false;
 }

@@ -43,6 +43,26 @@ function assistant(
   };
 }
 
+function attachmentMarker(overrides: Partial<BrowserIncomingMessage> = {}): BrowserIncomingMessage {
+  return {
+    type: "thread_attachment_marker",
+    id: "marker-q1",
+    timestamp: 3,
+    markerKey: "thread-attachment:q-1:u2",
+    threadKey: "q-1",
+    questId: "q-1",
+    attachedAt: 3,
+    attachedBy: "leader-1",
+    messageIds: ["u2"],
+    messageIndices: [1],
+    ranges: ["1"],
+    count: 1,
+    firstMessageId: "u2",
+    firstMessageIndex: 1,
+    ...overrides,
+  };
+}
+
 describe("thread window hydration", () => {
   it("returns bounded selected quest feed items with tool closure context", () => {
     const history = [
@@ -148,6 +168,61 @@ describe("thread window hydration", () => {
     expect(
       sync.entries.map((entry) => (entry.message.type === "assistant" ? entry.message.message.id : entry.message.id)),
     ).toEqual(["u1", "u4"]);
+  });
+
+  it("keeps backfilled source messages visible in Main without rendering attachment markers", () => {
+    const attachedMain = {
+      ...user("u2", "main context attached to q-1"),
+      threadRefs: [{ threadKey: "q-1", questId: "q-1", source: "backfill" as const }],
+    };
+    const history = [user("u1", "main request"), attachedMain, attachmentMarker(), user("u4", "main follow-up")];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+
+    expect(sync.entries.map((entry) => entry.history_index)).toEqual([0, 1, 3]);
+    expect(sync.entries.map((entry) => entry.message.type)).toEqual(["user_message", "user_message", "user_message"]);
+  });
+
+  it("keeps source quest messages visible without rendering source attachment markers", () => {
+    const sourceMessage = {
+      ...user("u2", "source quest context", "q-2"),
+      threadRefs: [
+        { threadKey: "q-2", questId: "q-2", source: "explicit" as const },
+        { threadKey: "q-1", questId: "q-1", source: "backfill" as const },
+      ],
+    };
+    const history = [
+      user("u1", "main request"),
+      sourceMessage,
+      attachmentMarker({ sourceThreadKey: "q-2", sourceQuestId: "q-2" }),
+    ];
+
+    const sourceSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-2",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+    const destinationSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-1",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+
+    expect(sourceSync.entries.map((entry) => entry.history_index)).toEqual([1]);
+    expect(destinationSync.entries.map((entry) => entry.history_index)).toEqual([1]);
   });
 
   it("uses Main cross-thread markers for non-quest hidden activity", () => {

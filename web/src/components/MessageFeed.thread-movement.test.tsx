@@ -27,7 +27,7 @@ beforeAll(() => {
   });
 });
 
-import { fireEvent, render, screen, within } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import type { ChatMessage, ThreadAttachmentMarker } from "../types.js";
 
 vi.mock("react-markdown", () => ({
@@ -165,10 +165,6 @@ function movedMarker(overrides: Partial<ThreadAttachmentMarker> & { id: string; 
   };
 }
 
-function expectTextContent(element: Element, text: string) {
-  expect(element.textContent).toContain(text);
-}
-
 function setStoreMessages(sessionId: string, msgs: ChatMessage[]) {
   const map = new Map();
   map.set(sessionId, msgs);
@@ -239,7 +235,7 @@ beforeEach(() => {
 });
 
 describe("MessageFeed - thread movement rows", () => {
-  it("shows marker-backed attachment summaries in Main and hides the covered backfill messages", () => {
+  it("keeps attached Main messages visible without source-visible attachment markers", () => {
     const sid = "test-main-marker-backed-backfill";
     const marker = movedMarker({
       id: "marker-q-941",
@@ -275,14 +271,12 @@ describe("MessageFeed - thread movement rows", () => {
     render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
 
     expect(screen.getByText("Main setup")).toBeTruthy();
-    const markerRow = screen.getByTestId("thread-attachment-marker");
-    expect(markerRow.getAttribute("data-thread-key")).toBe("q-941");
-    expectTextContent(markerRow, "1 message moved to thread:q-941");
-    expect(screen.getByRole("button", { name: "thread:q-941" })).toBeTruthy();
-    expect(screen.queryByText("Attached historical context")).toBeNull();
+    expect(screen.getByText("Attached historical context")).toBeTruthy();
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
+    expect(screen.queryByRole("button", { name: "thread:q-941" })).toBeNull();
   });
 
-  it("shows moved-message attachment summaries in the source quest thread", () => {
+  it("keeps source quest messages visible without source-visible attachment markers", () => {
     const sid = "test-source-thread-marker-backed-handoff";
     const marker = movedMarker({
       id: "marker-q-941",
@@ -301,14 +295,24 @@ describe("MessageFeed - thread movement rows", () => {
         role: "assistant",
         content: "Source quest setup",
         historyIndex: 1,
-        metadata: { threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }] },
+        metadata: {
+          threadRefs: [
+            { threadKey: "q-940", questId: "q-940", source: "explicit" },
+            { threadKey: "q-941", questId: "q-941", source: "backfill" },
+          ],
+        },
       }),
       makeMessage({
         id: "m-source-2",
         role: "assistant",
         content: "Source quest approval",
         historyIndex: 2,
-        metadata: { threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }] },
+        metadata: {
+          threadRefs: [
+            { threadKey: "q-940", questId: "q-940", source: "explicit" },
+            { threadKey: "q-941", questId: "q-941", source: "backfill" },
+          ],
+        },
       }),
       makeMessage({
         id: marker.id,
@@ -327,14 +331,13 @@ describe("MessageFeed - thread movement rows", () => {
     render(<MessageFeed sessionId={sid} threadKey="q-940" onSelectThread={onSelectThread} />);
 
     expect(screen.getByText("Source quest setup")).toBeTruthy();
+    expect(screen.getByText("Source quest approval")).toBeTruthy();
     expect(screen.queryByText("Destination quest work")).toBeNull();
-    const markerRow = screen.getByTestId("thread-attachment-marker");
-    expectTextContent(markerRow, "2 messages moved to thread:q-941");
-    fireEvent.click(screen.getByRole("button", { name: "thread:q-941" }));
-    expect(onSelectThread).toHaveBeenCalledWith("q-941");
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
+    expect(onSelectThread).not.toHaveBeenCalled();
   });
 
-  it("keeps moved-message summaries as markers when thread-created ledger rows are hidden", () => {
+  it("suppresses source-visible attachment markers even when thread-created ledger rows are hidden", () => {
     const sid = "test-thread-created-movement-summary";
     const onSelectThread = vi.fn();
     const markerA = movedMarker({
@@ -399,10 +402,8 @@ describe("MessageFeed - thread movement rows", () => {
 
     expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
     expect(screen.queryByText("Thread opened")).toBeNull();
-    const marker = screen.getByTestId("thread-attachment-marker");
-    expectTextContent(marker, "3 messages moved to thread:q-972");
-    fireEvent.click(within(marker).getByRole("button", { name: "thread:q-972" }));
-    expect(onSelectThread).toHaveBeenCalledWith("q-972");
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
+    expect(onSelectThread).not.toHaveBeenCalled();
   });
 
   it("keeps Main-routed messages visible when quest-routed messages have no movement marker", () => {
