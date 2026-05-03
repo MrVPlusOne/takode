@@ -1336,8 +1336,9 @@ export function MessageFeed({
     const restoreKey = getSavedViewportRestoreKey(viewportKey, pos);
     if (restoredViewportKeyRef.current === restoreKey) return;
     if (messages.length === 0 && pos?.anchorTurnId) return;
-    const desiredSectionWindowStart = pos?.anchorTurnId ? getSectionWindowStartForTurnId(pos.anchorTurnId) : null;
-    if (desiredSectionWindowStart !== sectionWindowStart) {
+    const desiredSectionWindowStart =
+      !isWindowedFeed && pos?.anchorTurnId ? getSectionWindowStartForTurnId(pos.anchorTurnId) : null;
+    if (!isWindowedFeed && desiredSectionWindowStart !== sectionWindowStart) {
       setSectionWindowStart(desiredSectionWindowStart);
       return;
     }
@@ -1377,6 +1378,7 @@ export function MessageFeed({
     getSectionWindowStartForTurnId,
     hasNewerSections,
     isLeaderSession,
+    isWindowedFeed,
     messages.length,
     normalizedThreadKey,
     restoreSavedScrollPosition,

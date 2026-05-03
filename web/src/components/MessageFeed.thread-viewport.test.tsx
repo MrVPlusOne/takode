@@ -505,6 +505,99 @@ describe("MessageFeed thread viewport restoration", () => {
     }
   });
 
+  it("restores selected-thread anchors without local section-window resets", async () => {
+    // Server-backed selected-thread windows already provide the visible
+    // conversation range. Local section-window state is ignored for those
+    // windows, and touching it during restore can schedule auto-follow work
+    // that loses the restored scroll before the final feed settles.
+    const sid = "test-windowed-thread-anchor-no-section-reset";
+    const windowMessages = Array.from({ length: 12 }, (_, index) =>
+      makeMessage({
+        id: `u-${index + 1}`,
+        role: index % 2 === 0 ? "user" : "assistant",
+        content: index === 6 ? "Saved anchor request" : `Thread item ${index + 1}`,
+        historyIndex: index + 1,
+      }),
+    );
+    setStoreMessages(sid, []);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([
+      [
+        sid,
+        new Map([
+          [
+            "q-941",
+            makeThreadWindow({
+              item_count: 12,
+              total_items: 12,
+              visible_item_count: 12,
+              section_item_count: 2,
+            }),
+          ],
+        ]),
+      ],
+    ]);
+    mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["q-941", windowMessages]])]]);
+    persistLeaderViewportPosition(sid, "q-941", {
+      scrollTop: 1600,
+      scrollHeight: 5226,
+      isAtBottom: false,
+      anchorTurnId: "u-7",
+      anchorOffsetTop: -120,
+    });
+
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "clientHeight");
+    const originalRect = HTMLElement.prototype.getBoundingClientRect;
+    let scrollTopValue = 0;
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 5226 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 846 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollTopValue : 0;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+    HTMLElement.prototype.getBoundingClientRect = function () {
+      if (this instanceof HTMLElement && this.dataset.turnId === "u-7") {
+        return DOMRect.fromRect({ x: 0, y: 1450, width: 600, height: 100 });
+      }
+      if (this instanceof HTMLDivElement && this.classList.contains("overflow-y-auto")) {
+        return DOMRect.fromRect({ x: 0, y: 0, width: 600, height: 846 });
+      }
+      return originalRect.call(this);
+    };
+
+    try {
+      render(<MessageFeed sessionId={sid} threadKey="q-941" sectionTurnCount={2} />);
+
+      await waitFor(() => expect(scrollTopValue).toBe(1570));
+      expect(screen.getByText("Saved anchor request")).toBeTruthy();
+    } finally {
+      HTMLElement.prototype.getBoundingClientRect = originalRect;
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+      if (originalClientHeight) Object.defineProperty(HTMLDivElement.prototype, "clientHeight", originalClientHeight);
+      else delete (HTMLDivElement.prototype as { clientHeight?: unknown }).clientHeight;
+    }
+  });
+
   it("restores Main independently after visiting a short quest thread", () => {
     // Regression for q-976: a short quest projection must not leave Main at
     // the oldest messages when returning to the Main projection.
