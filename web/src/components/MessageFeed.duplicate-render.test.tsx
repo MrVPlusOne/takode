@@ -384,6 +384,60 @@ describe("MessageFeed duplicate rendering regression", () => {
     expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
   });
 
+  it("keeps a Main needs-input source visible when Main opens before its selected window arrives", () => {
+    // Opening Main directly can briefly have no installed Main thread window
+    // even though raw history and active notifications are already in store.
+    // Explicit notification source retention must still win on this cold path
+    // so visiting All Threads is not required to reveal the prompt.
+    const sid = "test-cold-main-needs-input-source-message";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-checkpoint",
+        role: "assistant",
+        content: "Self-improvement checkpoint question: should I apply this skill update?",
+        timestamp: 100,
+        historyIndex: 4,
+      }),
+      makeMessage({
+        id: "a-raw-tail",
+        role: "assistant",
+        content: "Raw historical Main tail waiting for selected-window hydration.",
+        timestamp: 200,
+        historyIndex: 25,
+      }),
+      makeMessage({
+        id: "a-live-marker",
+        role: "assistant",
+        content: "Live reconnect marker in Main.",
+        timestamp: 300,
+        historyIndex: -1,
+      }),
+    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([[sid, new Map()]]);
+    mockStoreValues.threadWindowMessages = new Map([[sid, new Map()]]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-main-cold",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: "a-checkpoint",
+        summary: "Approve self-improvement update for User Checkpoint notification gate",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Self-improvement checkpoint question: should I apply this skill update?")).toBeTruthy();
+    expect(screen.getByText("Live reconnect marker in Main.")).toBeTruthy();
+    expect(screen.queryByText("Raw historical Main tail waiting for selected-window hydration.")).toBeNull();
+    expect(screen.getAllByText("Approve self-improvement update for User Checkpoint notification gate")).toHaveLength(
+      1,
+    );
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+  });
+
   it("does not retain quest-thread needs-input source messages in the Main selected window", () => {
     const sid = "test-windowed-main-excludes-routed-needs-input-source-message";
     setStoreMessages(sid, [

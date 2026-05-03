@@ -38,6 +38,23 @@ describe("composeSelectedFeedMessages", () => {
     expect(messages.map((item) => item.id)).toEqual(["live-marker", "local-message"]);
   });
 
+  it("keeps retained notification sources during cold selected-feed startup", () => {
+    const messages = composeSelectedFeedMessages({
+      allMessages: [
+        message("historical-overlap", 1, 42),
+        message("retained-needs-input-source", 2, 43),
+        message("live-marker", 3, -1),
+      ],
+      historyLoading: false,
+      selectedFeedWindowEnabled: true,
+      selectedFeedWindow: null,
+      selectedFeedWindowMessages: [],
+      retainedMessageIds: new Set(["retained-needs-input-source"]),
+    });
+
+    expect(messages.map((item) => item.id)).toEqual(["retained-needs-input-source", "live-marker"]);
+  });
+
   it("merges installed thread windows with post-window live messages without replaying raw overlap", () => {
     const messages = composeSelectedFeedMessages({
       allMessages: [

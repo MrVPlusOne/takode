@@ -10,7 +10,10 @@ export function composeSelectedFeedMessages(input: {
 }): ChatMessage[] {
   if (!input.selectedFeedWindowEnabled) return input.historyLoading ? [] : input.allMessages;
   if (!input.selectedFeedWindow) {
-    return input.allMessages.filter((message) => typeof message.historyIndex !== "number" || message.historyIndex < 0);
+    return input.allMessages.filter((message) => {
+      if (input.retainedMessageIds?.has(message.id)) return true;
+      return typeof message.historyIndex !== "number" || message.historyIndex < 0;
+    });
   }
 
   const seen = new Set<string>();

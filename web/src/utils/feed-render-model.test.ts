@@ -97,6 +97,40 @@ describe("feed render model builders", () => {
     expect(model.attentionLedgerMessages).toHaveLength(0);
   });
 
+  it("keeps an active Main notification source visible when Main opens before its selected window arrives", () => {
+    const proposal = makeMessage({
+      id: "a-main-checkpoint",
+      role: "assistant",
+      content: "Main checkpoint question that needs approval.",
+      timestamp: 100,
+      historyIndex: 4,
+    });
+    const rawTail = makeMessage({
+      id: "a-raw-tail",
+      role: "assistant",
+      content: "Raw historical tail that still waits for the Main thread window.",
+      timestamp: 200,
+      historyIndex: 25,
+    });
+    const liveMarker = makeMessage({
+      id: "a-live-marker",
+      role: "assistant",
+      content: "Live marker after reconnect.",
+      timestamp: 300,
+      historyIndex: -1,
+    });
+
+    const model = buildMessageModel({
+      allMessages: [proposal, rawTail, liveMarker],
+      selectedFeedWindow: null,
+      selectedFeedWindowMessages: [],
+      sessionNotifications: [makeNotification({ id: "n-main", messageId: proposal.id })],
+    });
+
+    expect(model.messages.map((message) => message.id)).toEqual(["a-main-checkpoint", "a-live-marker"]);
+    expect(model.attentionLedgerMessages).toHaveLength(0);
+  });
+
   it("does not leak routed quest notification sources into the Main feed model", () => {
     const questSource = makeMessage({
       id: "a-q983-plan",
@@ -127,6 +161,40 @@ describe("feed render model builders", () => {
     });
 
     expect(model.messages.map((message) => message.id)).toEqual(["a-main-tail"]);
+    expect(model.attentionLedgerMessages).toHaveLength(0);
+  });
+
+  it("does not leak routed quest notification sources during cold Main selected-feed startup", () => {
+    const questSource = makeMessage({
+      id: "a-q983-plan",
+      role: "assistant",
+      content: "Plan for q-983.",
+      timestamp: 100,
+      historyIndex: 4,
+    });
+    const liveMain = makeMessage({
+      id: "a-main-live",
+      role: "assistant",
+      content: "Main live marker.",
+      timestamp: 200,
+      historyIndex: -1,
+    });
+
+    const model = buildMessageModel({
+      allMessages: [questSource, liveMain],
+      selectedFeedWindow: null,
+      selectedFeedWindowMessages: [],
+      sessionNotifications: [
+        makeNotification({
+          id: "n-q983",
+          messageId: questSource.id,
+          threadKey: "q-983",
+          questId: "q-983",
+        }),
+      ],
+    });
+
+    expect(model.messages.map((message) => message.id)).toEqual(["a-main-live"]);
     expect(model.attentionLedgerMessages).toHaveLength(0);
   });
 
