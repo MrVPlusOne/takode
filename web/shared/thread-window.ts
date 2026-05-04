@@ -598,11 +598,13 @@ function inferredHerdEventRoute(message: BrowserIncomingMessage): RouteTarget | 
   };
 }
 
-function transitionMarkerSourceMatchesThread(marker: ThreadTransitionMarker, threadKey: string): boolean {
+function transitionMarkerInvolvesThread(marker: ThreadTransitionMarker, threadKey: string): boolean {
   const target = normalizeSelectedFeedThreadKey(threadKey);
   return (
     normalizeSelectedFeedThreadKey(marker.sourceThreadKey) === target ||
-    normalizeSelectedFeedThreadKey(marker.sourceQuestId ?? "") === target
+    normalizeSelectedFeedThreadKey(marker.sourceQuestId ?? "") === target ||
+    normalizeSelectedFeedThreadKey(marker.threadKey) === target ||
+    normalizeSelectedFeedThreadKey(marker.questId ?? "") === target
   );
 }
 
@@ -613,7 +615,7 @@ function threadSystemMarkerVisibleInQuestThread(
 ): boolean {
   void messages;
   if (message.type === "thread_attachment_marker") return false;
-  if (message.type === "thread_transition_marker") return transitionMarkerSourceMatchesThread(message, threadKey);
+  if (message.type === "thread_transition_marker") return transitionMarkerInvolvesThread(message, threadKey);
   return false;
 }
 

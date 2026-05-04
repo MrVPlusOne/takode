@@ -26,7 +26,10 @@ import {
   collectRetainedNotificationSourceMessageIds,
   filterMessagesForThread,
   isAllThreadsKey,
+  isCrossThreadActivityMarkerMessage,
   isMainThreadKey,
+  isThreadAttachmentMarkerMessage,
+  isThreadTransitionMarkerMessage,
   normalizeThreadKey,
   recoverRoutedNotificationSourceMessages,
 } from "./thread-projection.js";
@@ -161,13 +164,23 @@ function filterProjectedMessagesForThread(
   const liveMessages: ChatMessage[] = [];
   for (const message of messages) {
     if (typeof message.historyIndex === "number" && message.historyIndex < selectedFeedWindow.source_history_length) {
-      threadLocalMessages.push(message);
+      if (!isThreadSystemMarkerMessage(message) || filterMessagesForThread([message], threadKey).length > 0) {
+        threadLocalMessages.push(message);
+      }
       continue;
     }
     liveMessages.push(message);
   }
 
   return [...threadLocalMessages, ...filterMessagesForThread(liveMessages, threadKey)];
+}
+
+function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
+  return (
+    isThreadAttachmentMarkerMessage(message) ||
+    isThreadTransitionMarkerMessage(message) ||
+    isCrossThreadActivityMarkerMessage(message)
+  );
 }
 
 export interface BuildFeedWindowModelInput {

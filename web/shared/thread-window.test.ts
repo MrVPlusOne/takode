@@ -63,6 +63,25 @@ function attachmentMarker(overrides: Partial<BrowserIncomingMessage> = {}): Brow
   };
 }
 
+function transitionMarker(overrides: {
+  id: string;
+  sourceThreadKey: string;
+  threadKey: string;
+}): BrowserIncomingMessage {
+  return {
+    type: "thread_transition_marker",
+    id: overrides.id,
+    timestamp: 3,
+    markerKey: `thread-transition:${overrides.sourceThreadKey}->${overrides.threadKey}:0`,
+    sourceThreadKey: overrides.sourceThreadKey,
+    sourceQuestId: overrides.sourceThreadKey,
+    threadKey: overrides.threadKey,
+    questId: overrides.threadKey,
+    transitionedAt: 3,
+    reason: "route_switch",
+  };
+}
+
 function toolResultPreview(toolUseId: string, content = "preview"): BrowserIncomingMessage {
   return {
     type: "tool_result_preview",
@@ -445,6 +464,61 @@ describe("thread window hydration", () => {
 
     expect(sourceSync.entries.map((entry) => entry.history_index)).toEqual([1]);
     expect(destinationSync.entries.map((entry) => entry.history_index)).toEqual([1]);
+  });
+
+  it("scopes quest route-switch handoffs to affected thread windows", () => {
+    const sourceToDestination = transitionMarker({
+      id: "transition-q1139-q1141",
+      sourceThreadKey: "q-1139",
+      threadKey: "q-1141",
+    });
+    const unrelatedPair = transitionMarker({
+      id: "transition-q1141-q1135",
+      sourceThreadKey: "q-1141",
+      threadKey: "q-1135",
+    });
+    const history = [
+      user("u1", "source quest visible before handoff", "q-1139"),
+      sourceToDestination,
+      unrelatedPair,
+      user("u4", "destination quest receives work", "q-1141"),
+    ];
+
+    const sourceSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-1139",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+    const destinationSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-1141",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+    const thirdThreadSync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-1140",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 5,
+      visibleItemCount: 2,
+    });
+
+    // Thread-window payloads are server-owned. This regression keeps route
+    // transition rows local to the source/destination pair instead of letting
+    // sibling quest transitions accumulate in unrelated selected feeds.
+    expect(sourceSync.entries.map((entry) => entry.message)).toEqual([history[0], sourceToDestination]);
+    expect(destinationSync.entries.map((entry) => entry.message)).toEqual([
+      sourceToDestination,
+      unrelatedPair,
+      history[3],
+    ]);
+    expect(thirdThreadSync.entries).toEqual([]);
   });
 
   it("uses Main cross-thread markers for non-quest hidden activity", () => {

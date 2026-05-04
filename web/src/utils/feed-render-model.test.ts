@@ -9,6 +9,7 @@ import type {
 import type { Turn } from "../hooks/use-feed-model.js";
 import { buildFeedMessageModel, buildFeedWindowModel } from "./feed-render-model.js";
 import { buildThreadFeedWindowSync } from "../../shared/feed-window-sync.js";
+import { normalizeHistoryMessageToChatMessages } from "./history-message-normalization.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { id: string; role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -82,6 +83,25 @@ function makeAttachmentMarker(
     firstMessageId: "m-attached",
     firstMessageIndex: 1,
     ...overrides,
+  };
+}
+
+function makeTransitionMarker(overrides: {
+  id: string;
+  sourceThreadKey: string;
+  threadKey: string;
+}): Extract<BrowserIncomingMessage, { type: "thread_transition_marker" }> {
+  return {
+    type: "thread_transition_marker",
+    id: overrides.id,
+    timestamp: 300,
+    markerKey: `thread-transition:${overrides.sourceThreadKey}->${overrides.threadKey}:0`,
+    sourceThreadKey: overrides.sourceThreadKey,
+    sourceQuestId: overrides.sourceThreadKey,
+    threadKey: overrides.threadKey,
+    questId: overrides.threadKey,
+    transitionedAt: 300,
+    reason: "route_switch",
   };
 }
 
@@ -772,5 +792,48 @@ describe("feed render model builders", () => {
     });
 
     expect(model.messages.map((message) => message.id)).toEqual(["u-q1080", "hist-result-2"]);
+  });
+
+  it("defensively scopes selected-thread window transition markers to affected threads", () => {
+    const sourceMarker = makeTransitionMarker({
+      id: "transition-q1139-q1141",
+      sourceThreadKey: "q-1139",
+      threadKey: "q-1141",
+    });
+    const unrelatedMarker = makeTransitionMarker({
+      id: "transition-q1141-q1135",
+      sourceThreadKey: "q-1141",
+      threadKey: "q-1135",
+    });
+    const selectedFeedWindowMessages = [
+      ...normalizeHistoryMessageToChatMessages(sourceMarker, 1),
+      ...normalizeHistoryMessageToChatMessages(unrelatedMarker, 2),
+    ];
+    const threadWindow = makeWindow({
+      thread_key: "q-1139",
+      from_item: 0,
+      item_count: 2,
+      total_items: 2,
+      source_history_length: 4,
+    });
+    const feedSync = buildThreadFeedWindowSync({
+      threadKey: "q-1139",
+      entries: [
+        { message: sourceMarker, history_index: 1 },
+        { message: unrelatedMarker, history_index: 2 },
+      ],
+      window: threadWindow,
+    });
+
+    const model = buildMessageModel({
+      threadKey: "q-1139",
+      allMessages: [],
+      selectedFeedWindow: threadWindow,
+      selectedFeedWindowMessages,
+      sessionNotifications: [],
+    });
+
+    expect(feedSync.items.map((item) => item.messageId)).toEqual(["transition-q1139-q1141", "transition-q1141-q1135"]);
+    expect(model.messages.map((message) => message.id)).toEqual(["transition-q1139-q1141"]);
   });
 });

@@ -830,9 +830,17 @@ describe("MessageFeed - collapsed turns", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-941");
     sourceView.unmount();
 
-    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+    const destinationView = render(<MessageFeed sessionId={sid} threadKey="q-941" />);
     expect(screen.getByText("Destination quest dispatch")).toBeTruthy();
-    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
+    expectTextContent(
+      screen.getByTestId("thread-transition-marker"),
+      "Work continued from thread:q-940 to thread:q-941",
+    );
+    destinationView.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="q-942" />);
+    expect(screen.queryByText(/Work continued from/)).toBeNull();
+    expect(screen.queryByText("Destination quest dispatch")).toBeNull();
   });
 
   it("does not surface quest-to-quest route-switch handoffs as Main noise", () => {
