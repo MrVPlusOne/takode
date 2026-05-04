@@ -450,17 +450,7 @@ function getEntryId(entry: FeedEntry): string {
 }
 
 export function isUserBoundaryEntry(entry: FeedEntry | null): boolean {
-  const sourceId =
-    entry?.kind === "message" && entry.msg.role === "user" ? entry.msg.agentSource?.sessionId : undefined;
-  return !!(
-    entry &&
-    entry.kind === "message" &&
-    entry.msg.role === "user" &&
-    sourceId !== "herd-events" &&
-    sourceId !== "system" &&
-    !sourceId?.startsWith("system:") &&
-    !sourceId?.startsWith("timer:")
-  );
+  return !!(entry && entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource == null);
 }
 
 /** Check if a FeedEntry is a herd event message (user message injected by herd dispatcher). */
@@ -651,9 +641,8 @@ function makeTurn(
 }
 
 /** Group flat feed entries into turns.
- *  Leader mode splits only on real user boundaries. Herd events, timers, and
- *  notification-style injected updates remain inside the current agent turn
- *  until an explicit human or agent-authored user message starts a new one. */
+ *  Leader mode splits only on real human user boundaries. Injected user-shaped
+ *  updates carry agentSource and remain inside the current agent turn. */
 export function groupIntoTurns(
   entries: FeedEntry[],
   leaderMode = false,

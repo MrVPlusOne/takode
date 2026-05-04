@@ -612,7 +612,6 @@ export function MessageFeed({
   const { turnStates, toggleTurn } = useCollapsePolicy({
     sessionId,
     turns: visibleTurns,
-    leaderMode: collapseLeaderThreadActivity,
   });
   const collapseLayoutSignature = useMemo(
     () => turnStates.map((state) => `${state.turnId}:${state.isActivityExpanded ? "1" : "0"}`).join("|"),

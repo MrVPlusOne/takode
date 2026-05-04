@@ -252,9 +252,8 @@ describe("sub-conclusions in collapsed turns", () => {
 
   it("keeps delayed herd events in the same Claude leader turn after a completed response", () => {
     // q-358: Claude leaders should now keep all herd/timer/notification-style
-    // updates inside the same agent turn until a real user or agent-authored
-    // user message arrives. Delayed herd activity no longer starts a synthetic
-    // extra turn on its own.
+    // updates inside the same agent turn until a real human user message
+    // arrives. Delayed herd activity no longer starts a synthetic extra turn.
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "what is the prompt limit?", timestamp: 1_000 }),
       makeMessage({ id: "a1", role: "assistant", content: "It's 56K tokens.", timestamp: 10_000 }),
@@ -590,21 +589,29 @@ describe("useFeedModel", () => {
     expect(result.current.turns[0].stats.toolCount).toBe(1);
   });
 
-  it("does not create extra turns for herd or timer pseudo-user messages between real user turns", () => {
+  it("does not create extra turns for generated user-shaped messages between real user turns", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "real user request", timestamp: 1_000 }),
       makeMessage({ id: "a1", role: "assistant", content: "working on it", timestamp: 2_000 }),
       makeHerdEvent("h1", "#490 | turn_end | ✓ 5s", 3_000),
       makeInjectedUserMessage("t1", "[⏰ Timer tm-1] check progress", 4_000, "timer:tm-1", "Timer tm-1"),
+      makeInjectedUserMessage(
+        "s1",
+        "[System reminder] tag your response",
+        4_500,
+        "system:leader-tag-enforcer",
+        "System",
+      ),
+      makeInjectedUserMessage("w1", "Worker status update", 4_750, "worker-1", "#2 worker"),
       makeMessage({ id: "a2", role: "assistant", content: "still same agent turn", timestamp: 5_000 }),
-      makeInjectedUserMessage("u2", "follow-up from leader", 6_000, "leader-1", "#1 leader"),
+      makeMessage({ id: "u2", role: "user", content: "human follow-up", timestamp: 6_000 }),
       makeMessage({ id: "a3", role: "assistant", content: "new turn response", timestamp: 7_000 }),
     ];
 
     const model = buildFeedModel(messages, true);
     expect(model.turns).toHaveLength(2);
     expect((model.turns[0].userEntry as { msg: ChatMessage }).msg.id).toBe("u1");
-    expect(entryIds(model.turns[0].allEntries)).toEqual(["a1", "h1", "t1", "a2"]);
+    expect(entryIds(model.turns[0].allEntries)).toEqual(["a1", "h1", "t1", "s1", "w1", "a2"]);
     expect((model.turns[1].userEntry as { msg: ChatMessage }).msg.id).toBe("u2");
     expect(entryIds(model.turns[1].allEntries)).toEqual(["a3"]);
   });

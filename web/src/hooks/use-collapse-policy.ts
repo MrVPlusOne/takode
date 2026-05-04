@@ -8,15 +8,7 @@ export interface TurnCollapseState {
   isActivityExpanded: boolean;
 }
 
-export function useCollapsePolicy({
-  sessionId,
-  turns,
-  leaderMode,
-}: {
-  sessionId: string;
-  turns: Turn[];
-  leaderMode: boolean;
-}): {
+export function useCollapsePolicy({ sessionId, turns }: { sessionId: string; turns: Turn[] }): {
   turnStates: TurnCollapseState[];
   toggleTurn: (turnId: string) => void;
 } {
@@ -26,7 +18,7 @@ export function useCollapsePolicy({
   const turnStates = useMemo(() => {
     return turns.map((turn, index) => {
       const isLastTurn = index === turns.length - 1;
-      const defaultExpanded = leaderMode ? false : isLastTurn;
+      const defaultExpanded = isLastTurn;
       const override = overrides?.get(turn.id);
       const isActivityExpanded = override !== undefined ? override : defaultExpanded;
 
@@ -36,7 +28,7 @@ export function useCollapsePolicy({
         isActivityExpanded,
       };
     });
-  }, [leaderMode, overrides, turns]);
+  }, [overrides, turns]);
 
   const turnStateById = useMemo(() => new Map(turnStates.map((state) => [state.turnId, state])), [turnStates]);
 
