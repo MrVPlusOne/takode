@@ -1346,7 +1346,45 @@ describe("WorkBoardBar", () => {
     expect(onCloseThreadTab).toHaveBeenCalledWith("q-99", "main");
   });
 
-  it("only exposes drag handles for server-open quest/thread tabs", () => {
+  it("keeps select and close buttons usable when the tab surface is sortable", () => {
+    const onSelectThread = vi.fn();
+    const onCloseThreadTab = vi.fn();
+    const onReorderThreadTabs = vi.fn();
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", []]]),
+    });
+
+    const { getAllByTestId, getByLabelText } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        openThreadKeys={["q-99"]}
+        onSelectThread={onSelectThread}
+        onCloseThreadTab={onCloseThreadTab}
+        onReorderThreadTabs={onReorderThreadTabs}
+        threadRows={[{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }]}
+      />,
+    );
+
+    const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-99")!;
+    const selectButton = within(tab).getByTestId("thread-tab-select");
+    const closeButton = getByLabelText("Close q-99");
+
+    expect(within(tab).queryByTestId("thread-tab-drag-handle")).toBeNull();
+    expect(selectButton).toHaveAttribute("aria-roledescription", "sortable");
+    expect(closeButton).not.toHaveAttribute("aria-roledescription", "sortable");
+
+    fireEvent.click(selectButton);
+    expect(onSelectThread).toHaveBeenCalledWith("q-99");
+    expect(onReorderThreadTabs).not.toHaveBeenCalled();
+
+    fireEvent.click(closeButton);
+    expect(onCloseThreadTab).toHaveBeenCalledWith("q-99", "main");
+    expect(onSelectThread).toHaveBeenCalledTimes(1);
+    expect(onReorderThreadTabs).not.toHaveBeenCalled();
+  });
+
+  it("only makes server-open quest/thread tab surfaces reorderable", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([
@@ -1374,9 +1412,14 @@ describe("WorkBoardBar", () => {
     const openTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     const surfacedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
     expect(openTab).toHaveAttribute("data-reorderable", "true");
-    expect(within(openTab).getByTestId("thread-tab-drag-handle")).toHaveAccessibleName("Reorder q-1");
+    expect(within(openTab).queryByTestId("thread-tab-drag-handle")).toBeNull();
+    expect(within(openTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-roledescription", "sortable");
     expect(surfacedTab).toHaveAttribute("data-reorderable", "false");
     expect(within(surfacedTab).queryByTestId("thread-tab-drag-handle")).toBeNull();
+    expect(within(surfacedTab).getByTestId("thread-tab-select")).not.toHaveAttribute(
+      "aria-roledescription",
+      "sortable",
+    );
   });
 
   it("passes the right-hand visible tab as the active close fallback for persisted tabs", () => {

@@ -326,7 +326,7 @@ function SortableThreadTabContainer({
   hoverQuest?: QuestmasterTask;
   onMouseEnter?: (event: ReactMouseEvent<HTMLDivElement>) => void;
   onMouseLeave?: () => void;
-  children: (dragHandleProps: {
+  children: (dragSurfaceProps: {
     attributes: DraggableAttributes;
     listeners: ReturnType<typeof useSortable>["listeners"];
     isDragging: boolean;
@@ -898,7 +898,7 @@ function ThreadTabRail({
               const className = `group relative inline-flex min-w-[6.25rem] max-w-[18rem] flex-[1_1_11rem] items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${tone}`;
               const mouseEnter = (event: ReactMouseEvent<HTMLDivElement>) =>
                 showQuestHover(hoverQuest, event.currentTarget.getBoundingClientRect());
-              const children = (dragHandleProps?: {
+              const children = (dragSurfaceProps?: {
                 attributes: DraggableAttributes;
                 listeners: ReturnType<typeof useSortable>["listeners"];
                 isDragging: boolean;
@@ -910,32 +910,14 @@ function ThreadTabRail({
                       bellCenterOffset={tab.needsInput ? "12px" : undefined}
                     />
                   )}
-                  {dragHandleProps && (
-                    <button
-                      type="button"
-                      aria-label={`Reorder ${displayQuestId ?? displayTitle}`}
-                      className="inline-flex w-4 shrink-0 cursor-grab items-center justify-center border-r border-current/10 text-cc-muted/70 transition-colors hover:bg-cc-hover hover:text-cc-fg active:cursor-grabbing focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset"
-                      data-testid="thread-tab-drag-handle"
-                      data-dragging={dragHandleProps.isDragging ? "true" : "false"}
-                      onClick={(event) => event.stopPropagation()}
-                      {...dragHandleProps.attributes}
-                      {...dragHandleProps.listeners}
-                    >
-                      <svg viewBox="0 0 8 14" fill="currentColor" className="h-3 w-2" aria-hidden="true">
-                        <circle cx="2" cy="3" r="1" />
-                        <circle cx="6" cy="3" r="1" />
-                        <circle cx="2" cy="7" r="1" />
-                        <circle cx="6" cy="7" r="1" />
-                        <circle cx="2" cy="11" r="1" />
-                        <circle cx="6" cy="11" r="1" />
-                      </svg>
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={() => openThread(tab.threadKey, tab.route)}
                     className="inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-t-[inherit] px-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset"
                     data-testid="thread-tab-select"
+                    data-dragging={dragSurfaceProps?.isDragging ? "true" : "false"}
+                    {...(dragSurfaceProps?.attributes ?? {})}
+                    {...(dragSurfaceProps?.listeners ?? {})}
                     aria-pressed={selected}
                   >
                     {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
