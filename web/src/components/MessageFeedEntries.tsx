@@ -832,7 +832,10 @@ export const FeedEntries = memo(function FeedEntries({
           />,
         );
       } else if (isTimedChatMessage(entry.msg)) {
-        if (isEmptyAssistantMessage(entry.msg)) continue;
+        if (isEmptyAssistantMessage(entry.msg)) {
+          i++;
+          continue;
+        }
         const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
         const showTimestamp = entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number";
         result.push(

@@ -515,6 +515,22 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByText("The answer is 4.")).toBeTruthy();
   });
 
+  it("skips empty assistant messages without blocking later feed entries", () => {
+    const sid = "test-empty-assistant-skip";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Before empty row" }),
+      // Some Codex retained histories contain assistant rows with no text,
+      // blocks, or notification. FeedEntries must advance past them.
+      makeMessage({ id: "empty-a1", role: "assistant", content: "" }),
+      makeMessage({ id: "a2", role: "assistant", content: "After empty row" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Before empty row")).toBeTruthy();
+    expect(screen.getByText("After empty row")).toBeTruthy();
+  });
+
   it("renders system messages in the feed", () => {
     const sid = "test-system-msg";
     setStoreMessages(sid, [
