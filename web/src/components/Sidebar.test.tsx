@@ -1094,13 +1094,42 @@ describe("Sidebar", { timeout: 10000 }, () => {
     fireEvent.click(within(row).getByTitle("Archive session"));
 
     expect(mockApi.archiveSession).not.toHaveBeenCalled();
-    expect(screen.getByText(/detach 1 active worker session/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 active herd member session/i)).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Archive Leader Only" })).toBeInTheDocument();
+    expect(within(row).getByRole("button", { name: "Archive Leader + Herd" })).toBeInTheDocument();
 
-    fireEvent.click(within(row).getByRole("button", { name: "Archive" }));
+    fireEvent.click(within(row).getByRole("button", { name: "Archive Leader Only" }));
 
     await waitFor(() => {
       expect(mockApi.archiveSession).toHaveBeenCalledWith("leader-1", { force: true });
     });
+    expect(mockApi.archiveGroup).not.toHaveBeenCalled();
+  });
+
+  it("leader archive confirmation can archive the leader and herd members", async () => {
+    const leader = makeSession("leader-1", { model: "leader-session" });
+    const worker = makeSession("worker-1", { model: "worker-session" });
+    const leaderSdk = makeSdkSession("leader-1", { model: "leader-session", isOrchestrator: true, createdAt: 2_000 });
+    const workerSdk = makeSdkSession("worker-1", { model: "worker-session", herdedBy: "leader-1", createdAt: 1_000 });
+    mockState = createMockState({
+      sessions: new Map([
+        ["leader-1", leader],
+        ["worker-1", worker],
+      ]),
+      sdkSessions: [leaderSdk, workerSdk],
+    });
+
+    render(<Sidebar />);
+    const leaderButton = screen.getByText("leader-session").closest("button")!;
+    const row = leaderButton.parentElement as HTMLElement;
+
+    fireEvent.click(within(row).getByTitle("Archive session"));
+    fireEvent.click(within(row).getByRole("button", { name: "Archive Leader + Herd" }));
+
+    await waitFor(() => {
+      expect(mockApi.archiveGroup).toHaveBeenCalledWith("leader-1");
+    });
+    expect(mockApi.archiveSession).not.toHaveBeenCalled();
   });
 
   it("leader swipe archive requires confirmation instead of archiving immediately", () => {
@@ -1124,7 +1153,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     fireEvent.touchEnd(leaderButton);
 
     expect(mockApi.archiveSession).not.toHaveBeenCalled();
-    expect(screen.getByText(/detach 1 active worker session/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 active herd member session/i)).toBeInTheDocument();
   });
 
   it("context-menu archive uses the same leader confirmation safeguard", () => {
@@ -1148,7 +1177,38 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
     expect(mockApi.archiveSession).not.toHaveBeenCalled();
     expect(screen.queryByText("Delete Session")).not.toBeInTheDocument();
-    expect(screen.getByText(/detach 1 active worker session/i)).toBeInTheDocument();
+    expect(screen.getByText(/1 active herd member session/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive Leader Only" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive Leader + Herd" })).toBeInTheDocument();
+  });
+
+  it("renames the group archive menu action and keeps the existing group archive endpoint", async () => {
+    const leader = makeSession("leader-1", { model: "leader-session" });
+    const worker = makeSession("worker-1", { model: "worker-session" });
+    const leaderSdk = makeSdkSession("leader-1", { model: "leader-session", isOrchestrator: true, createdAt: 2_000 });
+    const workerSdk = makeSdkSession("worker-1", { model: "worker-session", herdedBy: "leader-1", createdAt: 1_000 });
+    mockState = createMockState({
+      sessions: new Map([
+        ["leader-1", leader],
+        ["worker-1", worker],
+      ]),
+      sdkSessions: [leaderSdk, workerSdk],
+    });
+
+    render(<Sidebar />);
+    const leaderButton = screen.getByText("leader-session").closest("button")!;
+
+    fireEvent.contextMenu(leaderButton, { clientX: 100, clientY: 120 });
+
+    expect(screen.queryByRole("button", { name: "Archive Group" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Archive Leader + Herd" }));
+    expect(screen.getByText("Archive leader and herd?")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive Leader + Herd" }));
+
+    await waitFor(() => {
+      expect(mockApi.archiveGroup).toHaveBeenCalledWith("leader-1");
+    });
   });
 
   it("permission badge uses mobile-friendly positioning and hover behavior", () => {

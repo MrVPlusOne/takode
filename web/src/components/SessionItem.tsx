@@ -198,6 +198,7 @@ interface SessionItemProps {
   editInputRef: RefObject<HTMLInputElement | null>;
   archiveConfirmation?: ArchiveConfirmationState | null;
   onConfirmArchive?: () => void;
+  onConfirmArchiveHerdMembers?: () => void;
   onCancelArchive?: () => void;
   attention?: "action" | "error" | "review" | null;
   hasUnread?: boolean;
@@ -251,6 +252,7 @@ export function SessionItem({
   editInputRef,
   archiveConfirmation,
   onConfirmArchive,
+  onConfirmArchiveHerdMembers,
   onCancelArchive,
   attention,
   hasUnread,
@@ -915,12 +917,12 @@ export function SessionItem({
                   </>
                 ) : archiveConfirmation.kind === "leader" ? (
                   <>
-                    Archiving this leader will{" "}
+                    Choose whether to archive only this leader or archive it with{" "}
                     <strong>
-                      detach {archiveConfirmation.activeWorkerCount ?? 0} active worker session
+                      {archiveConfirmation.activeWorkerCount ?? 0} active herd member session
                       {archiveConfirmation.activeWorkerCount === 1 ? "" : "s"}
-                    </strong>{" "}
-                    and leave them running without a leader.
+                    </strong>
+                    .
                   </>
                 ) : (
                   <>
@@ -928,7 +930,7 @@ export function SessionItem({
                   </>
                 )}
               </p>
-              <div className="flex gap-2 mt-1.5">
+              <div className="flex flex-wrap gap-2 mt-1.5">
                 <button
                   onClick={(e) => {
                     e.stopPropagation();
@@ -938,15 +940,40 @@ export function SessionItem({
                 >
                   Cancel
                 </button>
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onConfirmArchive();
-                  }}
-                  className="px-2 py-0.5 text-[10px] font-medium rounded-md bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors cursor-pointer"
-                >
-                  Archive
-                </button>
+                {archiveConfirmation.kind === "leader" ? (
+                  <>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        onConfirmArchive();
+                      }}
+                      className="px-2 py-0.5 text-[10px] font-medium rounded-md bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors cursor-pointer"
+                    >
+                      Archive Leader Only
+                    </button>
+                    {onConfirmArchiveHerdMembers && (
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          onConfirmArchiveHerdMembers();
+                        }}
+                        className="px-2 py-0.5 text-[10px] font-medium rounded-md bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors cursor-pointer"
+                      >
+                        Archive Leader + Herd
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onConfirmArchive();
+                    }}
+                    className="px-2 py-0.5 text-[10px] font-medium rounded-md bg-red-500/10 text-red-500 hover:bg-red-500/20 transition-colors cursor-pointer"
+                  >
+                    Archive
+                  </button>
+                )}
               </div>
             </div>
           </div>

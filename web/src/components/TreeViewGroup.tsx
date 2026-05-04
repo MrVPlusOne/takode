@@ -42,6 +42,7 @@ interface TreeViewGroupProps {
   editInputRef: RefObject<HTMLInputElement | null>;
   archiveConfirmation?: ArchiveConfirmationState | null;
   onConfirmArchive?: () => void;
+  onConfirmArchiveHerdMembers?: () => void;
   onCancelArchive?: () => void;
   isFirst: boolean;
   sessionAttention?: Map<string, "action" | "error" | "review" | null>;
@@ -128,6 +129,7 @@ export function TreeViewGroup({
   editInputRef,
   archiveConfirmation,
   onConfirmArchive,
+  onConfirmArchiveHerdMembers,
   onCancelArchive,
   isFirst,
   sessionAttention,
@@ -238,6 +240,7 @@ export function TreeViewGroup({
     editInputRef,
     archiveConfirmation,
     onConfirmArchive,
+    onConfirmArchiveHerdMembers,
     onCancelArchive,
     reorderMode,
     isDraggable,

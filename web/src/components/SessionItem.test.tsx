@@ -210,8 +210,27 @@ describe("SessionItem archive confirmation copy", () => {
       onCancelArchive: vi.fn(),
     });
 
-    expect(screen.getByText(/detach 2 active worker sessions/i)).toBeInTheDocument();
-    expect(screen.getByText(/leave them running without a leader/i)).toBeInTheDocument();
+    expect(screen.getByText(/archive only this leader/i)).toBeInTheDocument();
+    expect(screen.getByText(/2 active herd member sessions/i)).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Archive Leader Only" })).toBeInTheDocument();
+  });
+
+  it("offers a leader plus herd archive action when the caller provides one", () => {
+    const onConfirmArchive = vi.fn();
+    const onConfirmArchiveHerdMembers = vi.fn();
+    renderSessionItem({
+      session: makeSession({ isOrchestrator: true }),
+      archiveConfirmation: { sessionId: "s1", kind: "leader", activeWorkerCount: 2 },
+      onConfirmArchive,
+      onConfirmArchiveHerdMembers,
+      onCancelArchive: vi.fn(),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Archive Leader Only" }));
+    fireEvent.click(screen.getByRole("button", { name: "Archive Leader + Herd" }));
+
+    expect(onConfirmArchive).toHaveBeenCalledTimes(1);
+    expect(onConfirmArchiveHerdMembers).toHaveBeenCalledTimes(1);
   });
 });
 

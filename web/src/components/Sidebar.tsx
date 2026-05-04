@@ -720,6 +720,13 @@ export function Sidebar() {
     [sdkSessions],
   );
 
+  const confirmArchiveHerdMembers = useCallback(() => {
+    if (archiveConfirmation?.kind === "leader") {
+      void doArchiveGroup(archiveConfirmation.sessionId);
+      setArchiveConfirmation(null);
+    }
+  }, [archiveConfirmation, doArchiveGroup]);
+
   const doHerdToCurrentSession = useCallback(async (workerId: string, force = false) => {
     const leaderId = useStore.getState().currentSessionId;
     if (!leaderId) return;
@@ -1004,6 +1011,7 @@ export function Sidebar() {
     editInputRef,
     archiveConfirmation,
     onConfirmArchive: confirmArchive,
+    onConfirmArchiveHerdMembers: confirmArchiveHerdMembers,
     onCancelArchive: cancelArchive,
     sessionAttention,
     herdHoverHighlights,
@@ -1631,7 +1639,7 @@ export function Sidebar() {
             sdk?.isOrchestrator !== true;
           const needsForceHerd = canHerdToCurrentSession && !!sdk?.herdedBy && sdk.herdedBy !== currentSessionId;
 
-          // Count non-archived herded workers for "Archive Group" option
+          // Count non-archived herded workers for the leader+herd archive option.
           const herdedWorkers =
             !isArchived && sdk?.isOrchestrator
               ? sdkSessions.filter((s) => s.herdedBy === contextMenu.sessionId && !s.archived)
@@ -1755,18 +1763,18 @@ export function Sidebar() {
                     handleArchiveSession(syntheticEvent, contextMenu.sessionId);
                   },
                 },
-            // "Archive Group" — archives leader + all herded workers in one action
+            // Archives the leader and all active herded workers in one action.
             ...(herdedWorkers.length > 0
               ? [
                   {
-                    label: "Archive Group",
+                    label: "Archive Leader + Herd",
                     onClick: () => {
                       doArchiveGroup(contextMenu.sessionId);
                     },
                     confirm: {
-                      title: "Archive entire group?",
+                      title: "Archive leader and herd?",
                       description: `This will archive the leader and ${herdedWorkers.length} worker session${herdedWorkers.length === 1 ? "" : "s"}.`,
-                      confirmLabel: "Archive All",
+                      confirmLabel: "Archive Leader + Herd",
                       destructive: true,
                     },
                   },
