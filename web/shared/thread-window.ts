@@ -392,6 +392,10 @@ function collectSelectedMainAttachmentMarkers(
     const previousItemOrder = allItems[itemIndex - 1]?.order ?? -1;
     return { afterOrder: previousItemOrder, throughOrder: allItems[itemIndex]!.order };
   });
+  const latestSelectedItemIndex = selectedItemIndexes[selectedItemIndexes.length - 1];
+  if (latestSelectedItemIndex === allItems.length - 1) {
+    selectedSpans.push({ afterOrder: allItems[latestSelectedItemIndex]!.order, throughOrder: messages.length - 1 });
+  }
 
   return messages.filter((message, index) => {
     if (message.type !== "thread_attachment_marker") return false;
