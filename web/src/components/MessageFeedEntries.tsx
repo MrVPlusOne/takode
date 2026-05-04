@@ -735,6 +735,8 @@ export const FeedEntries = memo(function FeedEntries({
   const rendered = useMemo(() => {
     const result: React.ReactNode[] = [];
     let i = 0;
+    // Keep every branch in this manual renderer loop advancing `i`, assigning
+    // `i` to a larger cursor, or returning. A skipped row must not spin render.
     while (i < entries.length) {
       const entry = entries[i];
       if (isApprovalEntry(entry)) {

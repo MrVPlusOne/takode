@@ -108,6 +108,7 @@ cd web && bun run format:check
 - If a full run is infeasible, document the exception explicitly in your quest summary, review handoff, or other acceptance notes before asking for merge or final acceptance.
 - **Never remove or delete existing tests.** If a test is failing, fix the code or the test. If you believe a test should be removed, you must first explain to the user why and get explicit approval before removing it.
 - When creating test, make sure to document what the test is validating, and any important context or edge cases in comments within the test code.
+- For chat feed, thread-window, notification, or selected-thread rendering changes, apply the [Feed and Thread Debugging Guardrails](docs/feed-thread-debugging.md). In particular, manual render/model loops must have an explicit progress invariant, and tests should use producer-shaped thread/window payloads instead of frontend-invented shapes.
 
 ## File Size Guardrail
 
