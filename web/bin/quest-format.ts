@@ -1,5 +1,13 @@
 import type { QuestmasterTask } from "../server/quest-types.js";
+import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/quest-types.js";
 import type { SessionMetadata } from "./quest-session-metadata.js";
+import { normalizeTldr } from "../server/quest-tldr.js";
+import {
+  phaseDocumentationPreview,
+  summarizeQuestPhaseDocumentation,
+  type IndexedQuestFeedbackEntry,
+} from "../shared/quest-phase-documentation-summary.js";
+import { formatQuestRelationships } from "./quest-relationship-format.js";
 export type { SessionMetadata } from "./quest-session-metadata.js";
 
 type FormatSessionOptions = {
@@ -14,7 +22,6 @@ const STATUS_ICONS: Record<string, string> = {
   idea: "○",
   refined: "●",
   in_progress: "◐",
-  needs_verification: "◑",
   done: "✓",
 };
 
@@ -22,7 +29,6 @@ const STATUS_LABELS: Record<string, string> = {
   idea: "idea",
   refined: "refined",
   in_progress: "in_progress",
-  needs_verification: "verification",
   done: "done",
 };
 
@@ -38,7 +44,17 @@ function timeAgo(ts: number): string {
 }
 
 function isVerificationInboxUnreadQuest(q: QuestmasterTask): boolean {
-  return q.status === "needs_verification" && !!(q as { verificationInboxUnread?: boolean }).verificationInboxUnread;
+  return isQuestReviewInboxUnread(q);
+}
+
+function questRecencyTs(q: QuestmasterTask): number {
+  return Math.max(q.createdAt, (q as { updatedAt?: number }).updatedAt ?? 0, q.statusChangedAt ?? 0);
+}
+
+function compactPreview(text: string, maxLen = 180): string {
+  const singleLine = text.trim().replace(/\s+/g, " ");
+  if (singleLine.length <= maxLen) return singleLine;
+  return `${singleLine.slice(0, Math.max(0, maxLen - 3)).trimEnd()}...`;
 }
 
 export function formatSessionLabel(
@@ -79,13 +95,19 @@ export function formatQuestLine(
     if (!previous?.length) return "";
     return `  [prev:${previous.length}]`;
   })();
+  const leader = (() => {
+    const sid = (q as { leaderSessionId?: string }).leaderSessionId;
+    if (!sid) return "";
+    return `  [leader:${formatSessionLabel(sid, sessionMetadata, options)}]`;
+  })();
   const statusLabel = (() => {
     if (cancelled) return "cancelled";
-    if (isVerificationInboxUnreadQuest(q)) return "verification_inbox";
+    if (isVerificationInboxUnreadQuest(q)) return "review_inbox";
+    if (hasQuestReviewMetadata(q)) return "under_review";
     return STATUS_LABELS[q.status] ?? q.status;
   })();
   const pad = (s: string, len: number) => s.padEnd(len);
-  return `${icon} ${pad(q.questId, 6)} ${pad(q.title, 36)}${tags}${ownership}  (${statusLabel}${session})`;
+  return `${icon} ${pad(q.questId, 6)} ${pad(q.title, 36)}${tags}${ownership}${leader}  (${statusLabel}${session})`;
 }
 
 export function formatQuestDetail(
@@ -94,10 +116,24 @@ export function formatQuestDetail(
   options?: FormatQuestOptions,
 ): string {
   const lines: string[] = [];
-  lines.push(`Quest ${q.questId} (v${q.version}, ${STATUS_LABELS[q.status] ?? q.status})`);
+  lines.push(`Quest ${q.questId} (rev ${q.version}, ${STATUS_LABELS[q.status] ?? q.status})`);
   lines.push(`Title:       ${q.title}`);
+  const tldr = normalizeTldr((q as { tldr?: unknown }).tldr);
+  if (tldr) {
+    lines.push(`TLDR:        ${tldr}`);
+  }
   if ("description" in q && q.description) {
     lines.push(`Description: ${q.description}`);
+  }
+  const isCancelled = "cancelled" in q && (q as { cancelled?: boolean }).cancelled;
+  const debrief = q.status === "done" && !isCancelled ? (q as { debrief?: string }).debrief?.trim() : undefined;
+  const debriefTldr =
+    q.status === "done" && !isCancelled ? normalizeTldr((q as { debriefTldr?: unknown }).debriefTldr) : undefined;
+  if (debriefTldr) {
+    lines.push(`Debrief TLDR: ${debriefTldr}`);
+  }
+  if (debrief) {
+    lines.push(`Debrief:     ${debrief}`);
   }
   if (q.tags?.length) {
     lines.push(`Tags:        ${q.tags.join(", ")}`);
@@ -105,6 +141,12 @@ export function formatQuestDetail(
   if ("sessionId" in q) {
     const sid = (q as { sessionId: string }).sessionId;
     lines.push(`Session:     ${formatSessionLabel(sid, sessionMetadata, { ...options, preferSessionNum: true })}`);
+  }
+  const leaderSessionId = (q as { leaderSessionId?: string }).leaderSessionId;
+  if (leaderSessionId) {
+    lines.push(
+      `Leader:      ${formatSessionLabel(leaderSessionId, sessionMetadata, { ...options, preferSessionNum: true })}`,
+    );
   }
   const previousOwners = (q as { previousOwnerSessionIds?: string[] }).previousOwnerSessionIds;
   if (previousOwners?.length) {
@@ -122,7 +164,7 @@ export function formatQuestDetail(
     const checked = items.filter((i) => i.checked).length;
     lines.push(`Verification: ${checked}/${items.length}`);
     lines.push(
-      `Inbox:        ${isVerificationInboxUnreadQuest(q) ? "unread (Verification Inbox)" : "acknowledged (Verification)"}`,
+      `Inbox:        ${hasQuestReviewMetadata(q) ? (isVerificationInboxUnreadQuest(q) ? "unread (Review Inbox)" : "acknowledged (under review)") : "n/a"}`,
     );
     for (let i = 0; i < items.length; i++) {
       lines.push(`  [${items[i].checked ? "x" : " "}] ${i}: ${items[i].text}`);
@@ -134,21 +176,38 @@ export function formatQuestDetail(
       lines.push(`  ${sha}`);
     }
   }
-  if ("feedback" in q) {
-    const entries = (
-      q as {
-        feedback?: {
-          author: string;
-          text: string;
-          ts: number;
-          addressed?: boolean;
-          authorSessionId?: string;
-          images?: { filename: string; path: string }[];
-        }[];
+  lines.push(...formatQuestRelationships(q));
+  const phaseDocumentation = summarizeQuestPhaseDocumentation(q);
+  const documentedGroups = phaseDocumentation.groups.filter((group) => group.entries.length > 0);
+  if (documentedGroups.length > 0) {
+    lines.push(`Phase Documentation:`);
+    for (const group of documentedGroups) {
+      const meta = group.metaLabel ? ` [${group.metaLabel}]` : "";
+      lines.push(`  ${group.displayLabel}${meta}`);
+      for (const entry of group.entries) {
+        const authorLabel = entry.authorSessionId
+          ? `${entry.author}:${formatSessionLabel(entry.authorSessionId, sessionMetadata, {
+              ...options,
+              preferSessionNum: true,
+            })}`
+          : entry.author;
+        const kind = entry.kind ? `, ${entry.kind}` : "";
+        const preview = normalizeTldr(entry.tldr)
+          ? `TLDR: ${normalizeTldr(entry.tldr)}`
+          : compactPreview(phaseDocumentationPreview(entry));
+        lines.push(`    #${entry.index} [${authorLabel}${kind}, ${timeAgo(entry.ts)}] ${preview}`);
+        lines.push(`      Full: quest feedback show ${q.questId} ${entry.index}`);
       }
-    ).feedback;
+    }
+  }
+  if ("feedback" in q) {
+    const rawEntries = ((q as { feedback?: IndexedQuestFeedbackEntry[] }).feedback ?? []).map((entry, index) => ({
+      ...entry,
+      index,
+    }));
+    const entries = phaseDocumentation.hasPhaseDocumentation ? phaseDocumentation.unscopedFeedback : rawEntries;
     if (entries?.length) {
-      lines.push(`Feedback:`);
+      lines.push(phaseDocumentation.hasPhaseDocumentation ? `Unscoped Feedback:` : `Feedback:`);
       for (const entry of entries) {
         const authorLabel = entry.authorSessionId
           ? `${entry.author}:${formatSessionLabel(entry.authorSessionId, sessionMetadata, {
@@ -159,7 +218,14 @@ export function formatQuestDetail(
         const tag = entry.addressed
           ? `${authorLabel}, addressed, ${timeAgo(entry.ts)}`
           : `${authorLabel}, ${timeAgo(entry.ts)}`;
-        lines.push(`  [${tag}] ${entry.text}`);
+        const phaseLabel = entry.phaseId
+          ? ` (${entry.phaseId}${entry.phasePosition ? `@${entry.phasePosition}` : ""})`
+          : "";
+        const entryTldr = normalizeTldr(entry.tldr);
+        lines.push(`  #${entry.index} [${tag}]${phaseLabel} ${entryTldr ? `TLDR: ${entryTldr}` : entry.text}`);
+        if (entryTldr) {
+          lines.push(`    Full: ${entry.text}`);
+        }
         if (entry.images?.length) {
           for (const img of entry.images) {
             lines.push(`    ${img.filename} → ${img.path}`);
@@ -174,7 +240,7 @@ export function formatQuestDetail(
       lines.push(`  ${img.filename} → ${img.path}`);
     }
   }
-  if ("cancelled" in q && (q as { cancelled?: boolean }).cancelled) {
+  if (isCancelled) {
     lines.push(`Cancelled:   yes`);
   }
   if ("notes" in q && (q as { notes?: string }).notes) {
@@ -183,9 +249,10 @@ export function formatQuestDetail(
   if ("completedAt" in q) {
     lines.push(`Completed:   ${timeAgo((q as { completedAt: number }).completedAt)}`);
   }
+  lines.push(`Last Active: ${timeAgo(questRecencyTs(q))}`);
   lines.push(`Created:     ${timeAgo(q.createdAt)}`);
-  if (q.prevId) {
-    lines.push(`Previous:    ${q.prevId}`);
+  if (q.statusChangedAt && q.statusChangedAt !== q.createdAt) {
+    lines.push(`Status:      ${timeAgo(q.statusChangedAt)}`);
   }
   return lines.join("\n");
 }

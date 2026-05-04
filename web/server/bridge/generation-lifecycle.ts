@@ -1,4 +1,5 @@
 import { sessionTag } from "../session-tag.js";
+import type { ActiveTurnRoute } from "../session-types.js";
 
 /** Reasons that indicate the turn ended due to recovery/error, not a normal result.
  *  Queued turns should be drained (not promoted) for these reasons because the CLI
@@ -21,12 +22,17 @@ export interface GenerationLifecycleSession {
   messageCountAtTurnStart: number;
   interruptedDuringTurn: boolean;
   interruptSourceDuringTurn: InterruptSource | null;
+  restartPrepInterruptOperationId?: string | null;
+  restartPrepInterruptOrigin?: "restart_prep" | null;
   compactedDuringTurn: boolean;
   userMessageIdsThisTurn: number[];
+  questThreadRemindersThisTurn?: unknown[];
+  activeTurnRoute?: ActiveTurnRoute | null;
   queuedTurnStarts: number;
   queuedTurnReasons: string[];
   queuedTurnUserMessageIds: number[][];
   queuedTurnInterruptSources: (InterruptSource | null)[];
+  queuedTurnActiveRoutes?: (ActiveTurnRoute | null)[];
   optimisticRunningTimer: ReturnType<typeof setTimeout> | null;
   lastUserMessage?: string;
   state: {
@@ -46,7 +52,7 @@ export interface GenerationLifecycleDeps<S extends GenerationLifecycleSession> {
   recordGenerationStarted?: (session: S, reason: string) => void;
   recordGenerationEnded?: (session: S, reason: string, elapsedMs: number) => void;
   onGenerationStopped?: (session: S, reason: string) => void;
-  onOrchestratorTurnEnd?: (sessionId: string) => void;
+  onOrchestratorTurnEnd?: (sessionId: string, reason?: string) => void;
   /** Returns who triggered the current turn on a given session. */
   getCurrentTurnTriggerSource?: (session: S) => "user" | "leader" | "system" | "unknown";
   /** Returns true if the session is a herded worker (owned by an orchestrator). */
@@ -74,11 +80,14 @@ export interface StuckWatchdogDeps<S extends StuckWatchdogSession> {
   requestCodexAutoRecovery: (session: S, reason: string) => void;
   broadcastMessage: (session: S, msg: Record<string, unknown>) => void;
   recordServerEvent?: (session: S, reason: string, payload: Record<string, unknown>) => void;
-  getLauncherSessionInfo?: (sessionId: string) => { isOrchestrator?: boolean } | null | undefined;
+  getLauncherSessionInfo?: (
+    sessionId: string,
+  ) => { isOrchestrator?: boolean; archived?: boolean; killedByIdleManager?: boolean } | null | undefined;
   forceFlushPendingEvents?: (sessionId: string) => number;
   backendConnected: (session: S) => boolean;
   markTurnInterrupted: (session: S, source: InterruptSource) => void;
   setGenerating: (session: S, generating: boolean, reason: string) => void;
+  pokeStaleCodexPendingDelivery?: (session: S, reason: string) => boolean;
 }
 
 export type UserDispatchTurnTarget = "current" | "queued";
@@ -86,6 +95,7 @@ export interface QueuedTurnLifecycleEntry {
   reason: string;
   userMessageIds: number[];
   interruptSource: InterruptSource | null;
+  activeTurnRoute: ActiveTurnRoute | null;
 }
 
 function interruptSourcePriority(source: InterruptSource | null): number {
@@ -152,6 +162,8 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
   session: S,
   reason: string,
   queuedInterruptSource: InterruptSource | null = null,
+  userMessageHistoryIndex?: number,
+  activeTurnRoute?: ActiveTurnRoute | null,
 ): UserDispatchTurnTarget {
   const wasGenerating = session.isGenerating;
   // Skip the optimistic 30s timeout for herded workers — their turns are
@@ -160,14 +172,24 @@ export function markRunningFromUserDispatch<S extends GenerationLifecycleSession
     restartOptimisticRunningTimer(deps, session, reason);
   }
   if (wasGenerating) {
+    const queuedTurnActiveRoutes = session.queuedTurnActiveRoutes ?? [];
+    while (queuedTurnActiveRoutes.length < session.queuedTurnStarts) {
+      queuedTurnActiveRoutes.push(null);
+    }
     session.queuedTurnStarts += 1;
     session.queuedTurnReasons.push(reason);
-    session.queuedTurnUserMessageIds.push([]);
+    session.queuedTurnUserMessageIds.push(userMessageHistoryIndex === undefined ? [] : [userMessageHistoryIndex]);
     session.queuedTurnInterruptSources.push(queuedInterruptSource);
+    queuedTurnActiveRoutes.push(activeTurnRoute ?? null);
+    session.queuedTurnActiveRoutes = queuedTurnActiveRoutes;
     deps.persistSession(session);
     return "queued";
   }
   setGenerating(deps, session, true, reason);
+  if (userMessageHistoryIndex !== undefined) {
+    session.userMessageIdsThisTurn = [userMessageHistoryIndex];
+  }
+  session.activeTurnRoute = activeTurnRoute ?? null;
   if (!wasGenerating) {
     deps.broadcastStatus(session, "running");
   }
@@ -198,11 +220,13 @@ export function getQueuedTurnLifecycleEntries<S extends GenerationLifecycleSessi
     session.queuedTurnReasons.length,
     session.queuedTurnUserMessageIds.length,
     session.queuedTurnInterruptSources.length,
+    session.queuedTurnActiveRoutes?.length ?? 0,
   );
   return Array.from({ length: count }, (_, idx) => ({
     reason: session.queuedTurnReasons[idx] ?? "queued_user_message",
     userMessageIds: [...(session.queuedTurnUserMessageIds[idx] ?? [])],
     interruptSource: session.queuedTurnInterruptSources[idx] ?? null,
+    activeTurnRoute: session.queuedTurnActiveRoutes?.[idx] ?? null,
   }));
 }
 
@@ -214,6 +238,7 @@ export function replaceQueuedTurnLifecycleEntries<S extends GenerationLifecycleS
   session.queuedTurnReasons = entries.map((entry) => entry.reason);
   session.queuedTurnUserMessageIds = entries.map((entry) => [...entry.userMessageIds]);
   session.queuedTurnInterruptSources = entries.map((entry) => entry.interruptSource);
+  session.queuedTurnActiveRoutes = entries.map((entry) => entry.activeTurnRoute);
 }
 
 function startQueuedTurn<S extends GenerationLifecycleSession>(
@@ -230,8 +255,11 @@ function startQueuedTurn<S extends GenerationLifecycleSession>(
   session.messageCountAtTurnStart = session.messageHistory.length;
   session.interruptedDuringTurn = false;
   session.interruptSourceDuringTurn = null;
+  session.restartPrepInterruptOperationId = null;
+  session.restartPrepInterruptOrigin = null;
   session.compactedDuringTurn = false;
   session.userMessageIdsThisTurn = [...entry.userMessageIds];
+  session.activeTurnRoute = entry.activeTurnRoute;
   console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${turnReason})`);
   deps.recordGenerationStarted?.(session, turnReason);
   deps.emitTakodeEvent(session.id, "turn_start", {
@@ -290,6 +318,7 @@ export function reconcileTerminalResultState<S extends GenerationLifecycleSessio
   session.interruptSourceDuringTurn = null;
   session.compactedDuringTurn = false;
   session.userMessageIdsThisTurn = [];
+  session.questThreadRemindersThisTurn = [];
   deps.onSessionActivityStateChanged(session.id, `generating:${reason}:reconciled`);
   return { endedTurn: false, clearedResidualState: true };
 }
@@ -309,8 +338,12 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.messageCountAtTurnStart = session.messageHistory.length;
     session.interruptedDuringTurn = false;
     session.interruptSourceDuringTurn = null;
+    session.restartPrepInterruptOperationId = null;
+    session.restartPrepInterruptOrigin = null;
     session.compactedDuringTurn = false;
     session.userMessageIdsThisTurn = [];
+    session.questThreadRemindersThisTurn = [];
+    session.activeTurnRoute = null;
     console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
     deps.recordGenerationStarted?.(session, reason);
 
@@ -331,21 +364,31 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     const toolSummary = deps.buildTurnToolSummary(session);
     const interrupted = session.interruptedDuringTurn;
     const interruptSource = interrupted ? session.interruptSourceDuringTurn || "system" : null;
+    const interruptOrigin = interrupted ? session.restartPrepInterruptOrigin || null : null;
+    const restartPrepOperationId = interrupted ? session.restartPrepInterruptOperationId || null : null;
     const compacted = session.compactedDuringTurn;
     const turnSource = deps.getCurrentTurnTriggerSource?.(session) ?? "unknown";
+    const activeTurnRoute = session.activeTurnRoute;
     session.interruptedDuringTurn = false;
     session.interruptSourceDuringTurn = null;
+    session.restartPrepInterruptOperationId = null;
+    session.restartPrepInterruptOrigin = null;
     session.compactedDuringTurn = false;
+    session.activeTurnRoute = null;
     deps.emitTakodeEvent(session.id, "turn_end", {
       reason,
       duration_ms: elapsed,
       ...(interrupted ? { interrupted: true, interrupt_source: interruptSource } : {}),
+      ...(interruptOrigin ? { interrupt_origin: interruptOrigin } : {}),
+      ...(restartPrepOperationId ? { restart_prep_operation_id: restartPrepOperationId } : {}),
       ...(compacted ? { compacted: true } : {}),
       ...toolSummary,
       turn_source: turnSource,
+      ...(activeTurnRoute?.threadKey ? { threadKey: activeTurnRoute.threadKey } : {}),
+      ...(activeTurnRoute?.questId ? { questId: activeTurnRoute.questId } : {}),
     });
 
-    deps.onOrchestratorTurnEnd?.(session.id);
+    deps.onOrchestratorTurnEnd?.(session.id, reason);
 
     // On normal result: promote the next queued turn (the CLI is ready for more).
     // On recovery/error: drain ALL queued turns -- the CLI that would process them
@@ -375,12 +418,15 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
   deps: StuckWatchdogDeps<S>,
 ): void {
   for (const session of sessions) {
+    const launcherInfo = deps.getLauncherSessionInfo?.(session.id);
     if (
       session.backendType === "codex" &&
       session.pendingCodexInputs.length > 0 &&
       !session.codexAdapter &&
       session.state.backend_state !== "broken" &&
-      session.state.backend_state !== "recovering"
+      session.state.backend_state !== "recovering" &&
+      launcherInfo?.archived !== true &&
+      launcherInfo?.killedByIdleManager !== true
     ) {
       const oldestPending = session.pendingCodexInputs[0];
       const pendingAge = now - oldestPending.timestamp;
@@ -391,6 +437,22 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
             `backend_state=${session.state.backend_state})`,
         );
         deps.requestCodexAutoRecovery(session, "stuck_pending_delivery_watchdog");
+      }
+    }
+    if (
+      session.backendType === "codex" &&
+      session.pendingCodexInputs.length > 0 &&
+      session.codexAdapter &&
+      !session.isGenerating &&
+      session.state.backend_state !== "broken" &&
+      session.state.backend_state !== "recovering" &&
+      launcherInfo?.archived !== true &&
+      launcherInfo?.killedByIdleManager !== true
+    ) {
+      const oldestPending = session.pendingCodexInputs[0];
+      const pendingAge = now - oldestPending.timestamp;
+      if (pendingAge > deps.stuckPendingDeliveryMs) {
+        deps.pokeStaleCodexPendingDelivery?.(session, "stuck_pending_delivery_connected_watchdog");
       }
     }
 
@@ -433,7 +495,6 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
       deps.recordServerEvent?.(session, "stuck_detected", { elapsed, sinceLastActivity });
       deps.broadcastMessage(session, { type: "session_stuck" });
 
-      const launcherInfo = deps.getLauncherSessionInfo?.(session.id);
       if (launcherInfo?.isOrchestrator && deps.forceFlushPendingEvents) {
         const flushed = deps.forceFlushPendingEvents(session.id);
         if (flushed > 0) {
@@ -444,7 +505,6 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
       }
     }
 
-    const launcherInfo = deps.getLauncherSessionInfo?.(session.id);
     const isOrchestrator = !!launcherInfo?.isOrchestrator;
     const cliConnected = deps.backendConnected(session);
     const recoverThreshold = isOrchestrator ? deps.autoRecoverOrchestratorMs : deps.autoRecoverMs;

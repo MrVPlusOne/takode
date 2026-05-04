@@ -12,6 +12,7 @@ export const PLAYGROUND_STARTING_SESSION_ID = "playground-chat-starting";
 export const PLAYGROUND_RESUMING_SESSION_ID = "playground-chat-resuming";
 export const PLAYGROUND_RECOVERING_SESSION_ID = "playground-chat-recovering";
 export const PLAYGROUND_BROKEN_SESSION_ID = "playground-chat-broken";
+export const PLAYGROUND_THREAD_PANEL_SESSION_ID = "playground-thread-panel-wait-for";
 export const PLAYGROUND_SESSION_ROWS: Array<{ session: SidebarSessionItem; sessionName: string; preview: string }> = [
   {
     session: {
@@ -604,8 +605,9 @@ export const MSG_ASSISTANT: ChatMessage = {
 export const MSG_ASSISTANT_LEADER_USER: ChatMessage = {
   id: "msg-leader-user",
   role: "assistant",
-  content: "Worker #7 finished q-126 and opened a PR. Please review the leader chat behavior. @to(user)",
+  content: "Worker #7 finished q-126 and opened a PR. Please review the leader chat behavior.",
   timestamp: Date.now() - 48000,
+  metadata: { leaderUserMessage: true },
 };
 
 export const MSG_ASSISTANT_TOOLS: ChatMessage = {
@@ -842,6 +844,7 @@ export const MSG_QUEST_CLAIMED: ChatMessage = {
         "Add a toggle switch in the settings page that lets users switch between light and dark mode. The preference should persist in localStorage and apply immediately without a page reload.",
       status: "in_progress",
       tags: ["ui", "settings", "theme"],
+      leaderSessionId: "leader-alpha",
       verificationItems: [
         { text: "Toggle is visible in Settings page", checked: false },
         { text: "Mode persists across page reloads", checked: false },

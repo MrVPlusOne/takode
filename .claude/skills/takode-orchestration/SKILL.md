@@ -21,7 +21,7 @@ Read these files or invoke these skills when performing the corresponding operat
 | Workflow | When to use | Source |
 |----------|------------|--------|
 | **Dispatching work** | Before choosing a worker and sending a quest | Invoke `/leader-dispatch` |
-| **Quest Journey** | Advancing a quest through its lifecycle, including reviewer-owned groom review | [quest-journey.md](quest-journey.md) |
+| **Quest Journey** | Advancing a quest through its phase-based lifecycle, including Journey revision and purpose-specific review phases | [quest-journey.md](quest-journey.md) |
 | **Work board** | Managing the quest board | [board-usage.md](board-usage.md) |
 
 ## Key Principles
@@ -29,18 +29,25 @@ Read these files or invoke these skills when performing the corresponding operat
 - **Quests are the unit of work.** Create a quest for any non-trivial task before dispatching.
 - **Never implement non-trivial changes yourself.** Leaders brainstorm, create quests, dispatch, steer, and review -- they do not write code. Investigation and research are also work to delegate.
 - **Never run `quest claim` yourself.** Workers claim quests when dispatched. Leaders coordinate, workers claim.
-- **Leaders do not become the quest owner for implementation work.** The worker doing the job claims and completes the quest; the leader only dispatches, reviews, and coordinates later stages.
-- **Use `/quest-design` before quest creation/refinement.** Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction. A user-approved plan that explicitly covers the quest text counts as this confirmation. Routine feedback, claims, completion, verification checks, board updates, and already-approved lifecycle transitions do not need another round.
-- **Before dispatching any quest, *ALWAYS* invoke `/leader-dispatch`.** The dispatch message to the worker must use the standardized template. Do not add extra context, file paths, or investigation instructions -- add any extra information into the quest itself before dispatching.
+- **Leaders do not become the quest owner for implementation work.** The worker doing the job claims and completes the quest; the leader only dispatches, reviews, and coordinates later phase boundaries.
+- **Use `/quest-design` before quest creation/refinement.** Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction. When the user clearly wants a quest created and dispatched, combine quest-design with `/leader-dispatch`: describe the proposed quest draft plus Journey/scheduling draft naturally in prose so one confirmation can approve quest text, Journey, and dispatch plan. Routine feedback, claims, completion, verification checks, board updates, and already-approved lifecycle transitions do not need another round.
+- **Before dispatching any quest, *ALWAYS* invoke `/leader-dispatch`.** It owns worker selection, the initial Journey proposal, durable board recording, and the alignment-only dispatch template. The user-facing pre-dispatch approval there must cover both the initial Journey phases and the scheduling/orchestration plan, including the simple immediate-dispatch case such as "spawn fresh and dispatch immediately if approved." If clarification was needed first, the next response after the user clarifies should normally include both the drafted quest and drafted Journey/scheduling plan instead of another restated-understanding-only round. Get approval for that combined proposal before spawning a worker, then write the approved Journey to the board before or with dispatch. Do not add extra context, file paths, or investigation instructions to the dispatch message -- add any extra information into the quest itself before dispatching.
+- **Persist true follow-up relationships.** When creating or refining a quest that is a true follow-up, bug fix, successor, redesign, or user-approved next quest from prior findings, include `Relationship: follow-up of [q-N](quest:q-N)` in the approval surface and persist it with `quest create ... --follow-up-of q-N` or `quest edit q-M --follow-up-of q-N`. Leave incidental mentions to auto-detected backlinks.
 - **Events are push-based.** Herd events arrive as `[Herd]` user messages when idle. No polling.
 - **Reference, don't relay.** Point to source messages instead of paraphrasing.
 - **Workers have the same tools you do.** Give them the quest ID; they run `quest show` themselves.
 - **One task at a time per worker.** Mid-task steering is fine; unrelated new tasks queue.
-- **User feedback triggers full rework.** When a user reports issues with a completed quest, record feedback, set the quest back to `refined`, and dispatch for a full quest journey. Never skip review steps for "small" fixes. New human feedback becomes the source of truth for that quest: reset the board to the earliest valid stage for the fresh cycle and do not let stale in-flight review/port completions from the older scope keep advancing it. See [quest-journey.md](quest-journey.md).
+- **User feedback triggers full rework.** When a user reports issues with a completed quest, record feedback, set the quest back to `refined`, and dispatch for a full quest journey. Never skip review steps for "small" fixes. New human feedback becomes the source of truth for that quest: reset the board to the earliest valid phase for the fresh cycle and do not let stale in-flight review/port completions from the older scope keep advancing it. See [quest-journey.md](quest-journey.md).
+- **Same-thread feedback usually belongs, but verify exceptions.** Treat the current quest thread as strong context, not absolute proof of scope. If a user message in a quest thread appears to describe a separate feature, cross-cutting redesign, or unrelated issue, propose a new quest/Journey and attach the relevant discussion there instead of mutating the current quest until the user confirms. If that separate quest is a true successor to the current quest, propose it as an explicit follow-up and persist the relationship after approval.
 - **Don't echo board state as prose.** `takode board` commands display the board in the terminal with a special UI, and the user already sees the live board state in the Takode Chat UI. Never repeat current board rows as markdown tables or summaries -- just run the command and move on unless the user explicitly asks for a text summary.
-- **Do not skip quest journey stages for git-tracked changes.** The normal lifecycle is PLANNING → IMPLEMENTING → SKEPTIC_REVIEWING → GROOM_REVIEWING → PORTING for code changes and for git-tracked docs, skills, prompts, templates, or other text-only edits. These tracked-file changes require normal review, porting, and `quest complete ... --commit/--commits` metadata after sync. The only explicit exception is a true zero-code quest with zero git-tracked changes that has passed skeptic review and was explicitly marked with `takode board set <quest-id> --no-code`; only then may leaders use `takode board advance-no-groom <quest-id>` to skip reviewer-groom and porting.
-- **Never use `AskUserQuestion` or `EnterPlanMode`.** These block your turn and prevent herd event processing. Ask clarifying questions in plain text output instead. Every time you ask the user a question, also call `takode notify needs-input` so the user never misses the leader's question.
-- **Use `takode notify` at these moments:** `needs-input` every time you ask the user a question or need a decision before work can continue, because that keeps the user from missing the leader's question; `review` only for significant non-quest deliverables that are ready for the user's eyes, not for quest completion.
+- **Use quest threads as shared state.** Main is the staging area for unthreaded/global work. Quest-backed threads carry quest-specific activity, and All Threads/global inspection preserves the append-only audit stream.
+- **Remind at quest setup points.** After successful quest creation, refinement, or dispatch, include a non-blocking reminder to attach clearly quest-specific prior Main discussion to `[q-N](quest:q-N)` with `takode thread attach`.
+- **Use explicit phase plans for every quest.** The recommended tracked-change Quest Journey is alignment -> implement -> code-review -> port, represented on the board as PLANNING -> IMPLEMENTING -> CODE_REVIEWING -> PORTING, but user overrides win and standard phases are not mandatory. Omit notes for standard phases unless the user or quest adds unusual phase-specific work. Make every extra phase earn its keep: ask what it contributes over merging the work into a later phase. `implement` includes the normal investigation, root-cause analysis, code/design reading, and test planning needed to complete approved fixes, docs changes, config changes, prompt changes, and artifact changes. Do not insert routine `explore -> implement` just so a worker can look around. Choose richer built-in phases such as `explore`, `user-checkpoint`, `mental-simulation`, `execute`, `outcome-review`, or `bookkeeping` when the quest needs them, and explain each non-standard phase concisely: why it is needed and what evidence, user decision, scenario, outcome, or durable state it covers. Use `user-checkpoint` when findings, options, tradeoffs, and a recommendation must be presented to the user before the Journey continues. Repeated phases are allowed, and progress is tracked by phase occurrence. Zero-tracked-change work is not a separate board workflow: assemble a Journey that omits `port` when nothing will be synced, but still settle final debrief ownership before completion. Legacy no-code board flags and shortcut commands are removed, and the older phase ID `planning` remains only as a compatibility alias for `alignment`. While a quest is on the board, its current planned Journey is board-owned draft-or-active state rather than quest-creation metadata. After approval, use `takode board set --worker ... --phases ...` or `takode board promote` to make the approved Journey durable before or with dispatch.
+- **Final debrief metadata is mandatory.** Every completed non-cancelled quest must have both a final debrief and a debrief TLDR. Completion without both is incomplete. Port workers should submit or draft them during Port; when Port is omitted or leader-owned completion follows Outcome Review, the leader must draft them from accepted evidence, require `Final debrief draft:` plus `Debrief TLDR draft:` from the final phase actor, or route focused Bookkeeping.
+- **Route leader messages explicitly.** Every leader text response starts with a first-line thread marker: `[thread:main]` for general conversation or `[thread:q-N]` for a quest thread. The marker is stripped from rendering and used as thread metadata. Shell/terminal commands that belong to a thread should start with `# thread:main` or `# thread:q-N` as their first non-empty line.
+- **Do not use `takode user-message` as the new publishing path.** It remains deprecated compatibility only. Use ordinary leader responses with mandatory thread markers, plus `takode notify` when notification state or suggested answers are needed.
+- **Never use `AskUserQuestion` or `EnterPlanMode`.** These block your turn and prevent herd event processing. Ask clarifying questions in a normal leader response with the right `[thread:...]` marker, then call `takode notify needs-input` so the user never misses it. For obvious short choices, add one to three `--suggest <answer>` flags.
+- **Use `takode notify` at these moments:** `needs-input` every time you ask the user a question or need a decision before work can continue; first send the detailed question or decision text as a marked leader response, then call `takode notify needs-input` with a short summary. A pending `needs-input` decision blocks only the thread, quest, or board row it concerns; continue unrelated quests and herd events normally. Treat a prompt as global only when the visible question explicitly concerns global orchestration, worker-slot scheduling, shared resource safety, or another cross-quest dependency. Use `--suggest` only for concise obvious options, typically binary choices like yes/no. Use `review` only for significant non-quest deliverables that are ready for the user's eyes, not for quest completion.
 - **Prefer plain-text inspection by default.** When using `takode info`, `takode peek`, `takode scan`, or `quest show` to read for judgment, scanability, or general situational awareness, use the normal plain-text output first. It is usually more token-efficient and easier to reason about than `--json`.
 - **Use `--json` only when exact machine fields matter.** Reach for JSON when you need precise structured data such as feedback `addressed` flags, `commitShas`, version-local quest metadata from `quest history`, exact IDs, or machine-oriented filtering/branching.
 
@@ -58,7 +65,7 @@ Events from herded sessions are delivered automatically as `[Herd]` user message
 
 | Event | Meaning | Action |
 |-------|---------|--------|
-| `turn_end (✓)` | Worker completed successfully | Peek at output, send follow-up or mark done. In `PLANNING`, this may contain a plain-text plan that should be reviewed and answered with normal `takode send` rather than `takode answer` |
+| `turn_end (✓)` | Worker completed successfully | Peek at output, send follow-up or mark done. In `PLANNING`, this may contain a plain-text alignment read-in that should be reviewed and answered with normal `takode send` rather than `takode answer` |
 | `turn_end (✗)` | Worker hit an error | Diagnose the issue, send recovery instructions |
 | `turn_end (⊘)` | User interrupted the worker | Check if it needs redirection |
 | `permission_request` | Worker needs approval | For `AskUserQuestion`/`ExitPlanMode`, answer with `takode answer`. **Tool permissions are human-only.** If `(user-initiated)`, don't answer -- the user is handling it |
@@ -80,14 +87,14 @@ Three distinct operations -- never confuse them:
 
 ## Maintaining Focus
 
-- **Don't let herd events override your decision to wait for the user.** If you asked the user a question, keep waiting even if herd events arrive. Acknowledge events briefly, but don't proceed until the user responds.
+- **Don't let herd events override scoped waits.** If you asked the user a question, keep the affected thread, quest, or board row waiting even if herd events arrive. Acknowledge events briefly, continue unrelated orchestration normally, and treat the wait as global only when the prompt explicitly concerns global orchestration, worker-slot scheduling, shared resource safety, or another cross-quest dependency.
 - **When the user is directly steering a herded worker**: stay out of it. Resume normal coordination once the user stops interacting.
 - **After context compaction, refresh state.** Run `takode list` to see your herd with each worker's recent task history before making dispatch decisions.
 
 ## User Notifications
 
-Tie `takode notify` calls to Quest Journey events:
-- **`takode notify needs-input "need decision on auth approach for q-42"`**: every time you ask the user a question or need a decision before work can continue. Always pair the question with `takode notify needs-input` so the user never misses the leader's question.
+Tie `takode notify` calls to Quest Journey phase events:
+- **`takode notify needs-input "need decision on auth approach for q-42" --suggest yes --suggest no`**: every time you ask the user a question or need a decision before work can continue. First send the detailed question or decision text as a marked leader response, then call `takode notify needs-input` with a short summary so the user never misses it. The wait is scoped to the affected thread, quest, or board row unless the visible question explicitly says it is global for orchestration, worker-slot scheduling, shared resource safety, or a cross-quest dependency. Suggested answers are optional and only for short, obvious choices.
 - **Do not call `takode notify review` for quest completion**: when a work board item is completed, Takode already fires the review notification automatically. Sending another one creates duplicate quest-completion notifications.
 
 Do not notify for routine progress or intermediate steps.
@@ -254,15 +261,39 @@ Export a session's full conversation history to a text file. The exported file i
 takode export 1 /tmp/session-1.txt
 ```
 
-### `takode notify <category> <summary>`
+### `takode thread attach <quest-id> --message <index> | --range <start-end>`
 
-Alert the user when they need to take action. Available to all sessions (not orchestrator-only). The notification anchors to your most recent assistant message. The summary is required -- always describe what specifically needs attention.
+Associate existing Main-thread history with a quest thread without moving or duplicating persisted messages. Use this when a quest thread is created after useful context already appeared in Main.
+
+```bash
+takode thread attach q-941 --range 120-135
+takode thread attach q-941 --message 140
+```
+
+### `takode user-message --text-file <path|-> [--json]` (deprecated)
+
+Deprecated compatibility publisher for older leader sessions. New leader workflow uses ordinary marked responses with `[thread:main]` or `[thread:q-N]`; do not use `takode user-message` as the core thread publishing path.
+
+### `takode notify <category> <summary> [--suggest <answer>]...`
+
+Alert the user when they need to take action. Available to all sessions (not orchestrator-only). For leader sessions, send the detailed question or decision text as a normal marked leader response first, then use `takode notify needs-input` for attention state and optional suggested answers. Pending leader decisions are scoped to their affected thread, quest, or board row by default; continue unrelated orchestration unless the prompt explicitly creates a global or cross-quest blocker. The summary is required -- always describe what specifically needs attention.
 
 Categories: `needs-input`, `review`
 
+Suggested answers are supported only for `needs-input`. Use one to three short choices when the answer set is obvious; do not use them as a substitute for detailed question text in chat.
+
 ```bash
-takode notify needs-input "need decision on auth approach for q-42"
+takode notify needs-input "need decision on auth approach for q-42" --suggest yes --suggest no
 takode notify review "landing page copy draft is ready for review"
+```
+
+### `takode phases [--json]`
+
+List the read-only Quest Journey phase catalog. Available to all sessions. Use this when you need phase descriptions, source metadata, aliases, board states, assignee roles, or the exact `~/.companion/quest-journey-phases/<phase-id>/assignee.md` path to include in a phase dispatch.
+
+```bash
+takode phases
+takode phases --json
 ```
 
 ### `takode pending <session>`
@@ -363,18 +394,22 @@ takode answer 2 --message 52 approve                   # approve the plan shown 
 takode answer 2 --target req_abc reject "add error handling" # target an exact pending id
 ```
 
-Use this when a worker or reviewer asked a clarification question through `takode notify needs-input` and is waiting on you. If you can resolve the question from existing context, answer it directly. If the question reveals genuine ambiguity you cannot resolve, ask the user in plain text, pair it with `takode notify needs-input`, and do not advance that quest until the ambiguity is resolved.
+Use this when a worker or reviewer asked a clarification question through `takode notify needs-input` and is waiting on you. If you can resolve the question from existing context, answer it directly. If the question reveals genuine ambiguity you cannot resolve, ask the user in a marked leader response, then call `takode notify needs-input` with a short summary, optionally using one to three short `--suggest <answer>` choices for obvious answers, and do not advance that quest until the ambiguity is resolved.
 
-### `takode board [show|set|advance|rm]`
+### `takode board [show|detail|set|advance|rm]`
 
 Quest Journey work board. See [board-usage.md](board-usage.md) for full usage and coordination patterns.
 
 ```bash
 takode board show
+takode board show --full
+takode board detail q-12
 takode board set <quest-id> [--worker N] [--status STATE] [--wait-for q-X,#Y,free-worker]
 takode board advance <quest-id>
 takode board rm <quest-id> [<quest-id> ...]
 ```
+
+For queued rows, `--wait-for` accepts one comma-separated value containing multiple blockers, such as `--wait-for q-1143,q-1139` or `--wait-for q-1143,#12,free-worker`. Use that directly when multiple quest, session, or capacity blockers apply.
 
 ## Session Identification
 
@@ -395,7 +430,7 @@ When referencing sessions, use session numbers (`#107`) which are stable -- name
 
 A `✗ disconnected` session just means its CLI process was killed (usually by the idle manager). The session history, worktree, and quest claim are fully intact. **Do not avoid disconnected sessions** -- if one is the right fit for a task, use it. `takode send` auto-relaunches the CLI before delivering the message, so no extra reconnect step is needed.
 
-If a quest is still active on the board and its worker or reviewer is `idle` or `disconnected`, treat that as a potential stall signal rather than an automatic wait state. Check the quest stage and send the next legal instruction if progress has stalled; `takode send` will auto-relaunch disconnected sessions. Idle or disconnected sessions with active timers may still be healthy, so use timer visibility in `takode` outputs as part of that judgment rather than assuming every idle/disconnected row is stalled.
+If a quest is still active on the board and its worker or reviewer is `idle` or `disconnected`, treat that as a potential stall signal rather than an automatic wait state. Check the quest phase and send the next legal instruction if progress has stalled; `takode send` will auto-relaunch disconnected sessions. Idle or disconnected sessions with active timers may still be healthy, so use timer visibility in `takode` outputs as part of that judgment rather than assuming every idle/disconnected row is stalled.
 
 ## Archiving Sessions
 
@@ -409,7 +444,8 @@ Maintain at most **5 worker slots** in your herd. Reviewers can be herded for ro
 - **Mixed backends work seamlessly.** The `takode` CLI talks to the Companion server, not to any backend directly. You can orchestrate both Claude Code and Codex sessions from either backend.
 - **Coordinate with quests.** Use the `quest` CLI alongside `takode` for task tracking. Always create a quest for non-trivial work before dispatching.
 - **Board immediately.** When you intend to manage a quest (dispatch, review, port), put it on the work board right away (`takode board set`), even if it's QUEUED with `--wait-for`. The board is the tracking mechanism -- never rely on memory for follow-up dispatch. Exception: if the user only asked you to create/file the quest without dispatching, just create it and wait for their go-ahead.
-- **Reconcile active rows after restarts/context reloads.** After a server restart, context compaction, or any manual state refresh, immediately compare `takode board show` and `takode list`. If an active board row has an `idle` or `disconnected` worker/reviewer, decide whether the quest is genuinely waiting or whether you need to send the next-stage instruction now.
+- **Human-input pauses are quest-scoped board decisions.** If one quest is waiting on user clarification or confirmation, keep that pause explicit in the board handling for that quest and continue unrelated board work. Do not treat `/confirm` or another confirmation round as an implicit herd-wide pause.
+- **Reconcile active rows after restarts/context reloads.** After a server restart, context compaction, or any manual state refresh, immediately compare `takode board show` and `takode list`. If an active board row has an `idle` or `disconnected` worker/reviewer, decide whether the quest is genuinely waiting or whether you need to send the next-phase instruction now.
 - **Batch related messages.** If you need to send context + instructions to a worker, send it as one message rather than multiple.
 - **Don't interrupt idle workers.** `takode interrupt` halts the worker's current turn. Only use it to redirect active work. Workers that finished a quest are already idle -- don't interrupt them unnecessarily.
 - **Say "interrupt", not "stop".** When communicating with the user, prefer "interrupt" over "stop" to avoid confusion with archiving. "Interrupted #5" is unambiguous; "stopped #5" could imply the session was shut down.

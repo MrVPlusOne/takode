@@ -7,6 +7,7 @@ import {
   useCallback,
   memo,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
   type ReactNode,
 } from "react";
 import { useStore } from "../store.js";
@@ -17,8 +18,14 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { api } from "../api.js";
 import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
-import { FeedFooter, TurnEntries, findPreviousSectionStartIndex } from "./MessageFeedEntries.js";
-import { SAVE_THREAD_VIEWPORT_EVENT } from "../utils/thread-viewport.js";
+import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
+import {
+  SAVE_THREAD_VIEWPORT_EVENT,
+  type FeedViewportPosition,
+  getFeedViewportKey,
+  persistLeaderViewportPosition,
+  readLeaderViewportPosition,
+} from "../utils/thread-viewport.js";
 import {
   CodexTerminalInspector,
   LiveCodexTerminalStub,
@@ -34,12 +41,8 @@ import {
 import {
   DEFAULT_VISIBLE_SECTION_COUNT,
   FEED_SECTION_TURN_COUNT,
-  buildFeedSections,
   findActiveTaskTurnIdForScroll,
   findSectionWindowStartIndexForTarget,
-  findVisibleSectionEndIndex,
-  findVisibleSectionStartIndex,
-  type FeedSection,
   type TurnOffsetIndex,
 } from "./message-feed-sections.js";
 import {
@@ -59,8 +62,9 @@ import {
   appendTimedMessagesFromEntries,
   isTimedChatMessage,
 } from "./message-feed-utils.js";
-import type { ChatMessage, ContentBlock } from "../types.js";
 import { isSubagentToolName } from "../types.js";
+import { isAllThreadsKey, isMainThreadKey, normalizeThreadKey } from "../utils/thread-projection.js";
+import type { SessionAttentionRecord } from "../types.js";
 import { YarnBallDot, YarnBallSpinner, SleepingCat } from "./CatIcons.js";
 import { PawTrailAvatar, PawCounterContext, PawScrollProvider, HidePawContext } from "./PawTrail.js";
 import { isTouchDevice } from "../utils/mobile.js";
@@ -69,7 +73,11 @@ import { useCollapsePolicy } from "../hooks/use-collapse-policy.js";
 import { useTextSelection } from "../hooks/useTextSelection.js";
 import { SelectionContextMenu } from "./SelectionContextMenu.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
+import { getThreadWindowItemCount } from "../../shared/thread-window.js";
+import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 import { collectAnchoredNotificationMessageIds } from "../utils/anchored-notifications.js";
+import { getCachedHistoryWindowHash, getCachedThreadWindowHash } from "../utils/history-window-cache.js";
+import { buildFeedMessageModel, buildFeedWindowModel } from "../utils/feed-render-model.js";
 import {
   isUserBoundaryEntry,
   useFeedModel,
@@ -88,7 +96,7 @@ export {
   findSectionWindowStartIndexForTarget,
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
-};
+} from "./message-feed-sections.js";
 
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
@@ -96,80 +104,12 @@ const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
 const FLOATING_STATUS_MOBILE_BOTTOM_PX = 8;
 const MOBILE_NAV_BASE_BOTTOM_PX = 12;
 const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
-const CODEX_TERMINAL_INSPECTOR_MARGIN_PX = 16;
-const CODEX_TERMINAL_INSPECTOR_MIN_WIDTH_PX = 320;
-const CODEX_TERMINAL_INSPECTOR_MIN_HEIGHT_PX = 240;
-const CODEX_TERMINAL_INSPECTOR_DEFAULT_WIDTH_PX = 512;
-const CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX = 360;
+const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
+const SECTION_WINDOW_TRIGGER_PX = 96;
+const BOUNDARY_CONTEXT_SECTION_COUNT = 5;
 
-type CodexTerminalInspectorViewport = {
-  width: number;
-  height: number;
-};
-
-type CodexTerminalInspectorLayout = {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
-};
-
-type CodexTerminalInspectorInteraction = {
-  mode: "drag" | "resize";
-  pointerId: number;
-  startClientX: number;
-  startClientY: number;
-  startLayout: CodexTerminalInspectorLayout;
-};
-
-function clampNumber(value: number, min: number, max: number): number {
-  if (max < min) return min;
-  return Math.min(Math.max(value, min), max);
-}
-
-function getCodexTerminalInspectorViewport(element: HTMLElement | null): CodexTerminalInspectorViewport | null {
-  if (!element) return null;
-  const width = Math.round(element.clientWidth || element.getBoundingClientRect().width);
-  const height = Math.round(element.clientHeight || element.getBoundingClientRect().height);
-  if (width <= 0 || height <= 0) return null;
-  return { width, height };
-}
-
-function clampCodexTerminalInspectorLayout(
-  layout: CodexTerminalInspectorLayout,
-  viewport: CodexTerminalInspectorViewport,
-): CodexTerminalInspectorLayout {
-  const maxWidth = Math.max(180, viewport.width - CODEX_TERMINAL_INSPECTOR_MARGIN_PX * 2);
-  const maxHeight = Math.max(180, viewport.height - CODEX_TERMINAL_INSPECTOR_MARGIN_PX * 2);
-  const minWidth = Math.min(CODEX_TERMINAL_INSPECTOR_MIN_WIDTH_PX, maxWidth);
-  const minHeight = Math.min(CODEX_TERMINAL_INSPECTOR_MIN_HEIGHT_PX, maxHeight);
-  const width = clampNumber(layout.width, minWidth, maxWidth);
-  const height = clampNumber(layout.height, minHeight, maxHeight);
-  const x = clampNumber(
-    layout.x,
-    CODEX_TERMINAL_INSPECTOR_MARGIN_PX,
-    viewport.width - CODEX_TERMINAL_INSPECTOR_MARGIN_PX - width,
-  );
-  const y = clampNumber(
-    layout.y,
-    CODEX_TERMINAL_INSPECTOR_MARGIN_PX,
-    viewport.height - CODEX_TERMINAL_INSPECTOR_MARGIN_PX - height,
-  );
-  return { x, y, width, height };
-}
-
-function createDefaultCodexTerminalInspectorLayout(
-  viewport: CodexTerminalInspectorViewport,
-): CodexTerminalInspectorLayout {
-  return clampCodexTerminalInspectorLayout(
-    {
-      x: CODEX_TERMINAL_INSPECTOR_MARGIN_PX,
-      y: viewport.height - CODEX_TERMINAL_INSPECTOR_MARGIN_PX - CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX,
-      width: CODEX_TERMINAL_INSPECTOR_DEFAULT_WIDTH_PX,
-      height: CODEX_TERMINAL_INSPECTOR_DEFAULT_HEIGHT_PX,
-    },
-    viewport,
-  );
+function getBoundaryContextSectionCount(visibleSectionCount: number): number {
+  return Math.max(BOUNDARY_CONTEXT_SECTION_COUNT, Math.max(1, Math.floor(visibleSectionCount)) + 2);
 }
 
 // ─── Expand-on-scroll-target hook ───────────────────────────────────────────
@@ -184,27 +124,126 @@ interface FeedViewportAnchor {
   offsetTop: number;
 }
 
+function getSavedViewportRestoreKey(viewportKey: string, pos: FeedViewportPosition | null): string {
+  if (!pos) return `${viewportKey}:latest`;
+  return [
+    viewportKey,
+    pos.isAtBottom ? "bottom" : "position",
+    pos.scrollTop,
+    pos.scrollHeight,
+    pos.anchorTurnId ?? "",
+    pos.anchorOffsetTop ?? "",
+    pos.lastSeenContentBottom ?? "",
+  ].join(":");
+}
+
+function readSavedViewportPosition({
+  sessionId,
+  viewportKey,
+  normalizedThreadKey,
+  isLeaderSession,
+}: {
+  sessionId: string;
+  viewportKey: string;
+  normalizedThreadKey: string;
+  isLeaderSession: boolean;
+}): FeedViewportPosition | null {
+  const memoryPosition = useStore.getState().feedScrollPosition.get(viewportKey) ?? null;
+  if (!isLeaderSession) return memoryPosition;
+  return readLeaderViewportPosition(sessionId, normalizedThreadKey) ?? memoryPosition;
+}
+
 // ─── Main Feed ───────────────────────────────────────────────────────────────
 
 export function MessageFeed({
   sessionId,
+  threadKey = "main",
+  projectThreadRoutes = true,
   sectionTurnCount = FEED_SECTION_TURN_COUNT,
   latestIndicatorMode = "overlay",
   onLatestIndicatorVisibleChange,
   onJumpToLatestReady,
+  onSelectThread,
+  additionalAttentionRecords = EMPTY_ATTENTION_RECORDS,
 }: {
   sessionId: string;
+  threadKey?: string;
+  projectThreadRoutes?: boolean;
   sectionTurnCount?: number;
   latestIndicatorMode?: "overlay" | "external";
   onLatestIndicatorVisibleChange?: (visible: boolean) => void;
   onJumpToLatestReady?: ((scrollToLatest: (() => void) | null) => void) | undefined;
+  onSelectThread?: (threadKey: string) => void;
+  additionalAttentionRecords?: ReadonlyArray<SessionAttentionRecord>;
 }) {
-  const messages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
+  const allMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_MESSAGES);
+  const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
+  const normalizedThreadKey = useMemo(() => normalizeThreadKey(threadKey || "main"), [threadKey]);
+  const isLeaderSession = useStore(
+    (s) =>
+      s.sessions?.get(sessionId)?.isOrchestrator === true ||
+      s.sdkSessions?.some((sdk) => sdk.sessionId === sessionId && sdk.isOrchestrator === true) === true,
+  );
+  const selectedFeedWindowEnabled = useMemo(() => {
+    if (isAllThreadsKey(normalizedThreadKey)) return false;
+    return isLeaderSession;
+  }, [isLeaderSession, normalizedThreadKey]);
+  const collapseLeaderThreadActivity =
+    isLeaderSession && !isMainThreadKey(normalizedThreadKey) && !isAllThreadsKey(normalizedThreadKey);
+  const viewportKey = useMemo(() => getFeedViewportKey(sessionId, threadKey), [sessionId, threadKey]);
+  const savedScrollPos = readSavedViewportPosition({
+    sessionId,
+    viewportKey,
+    normalizedThreadKey,
+    isLeaderSession,
+  });
+  const savedViewportRestoreKey = getSavedViewportRestoreKey(viewportKey, savedScrollPos);
+  const selectedFeedWindow = useStore((s) => s.threadWindows?.get(sessionId)?.get(normalizedThreadKey) ?? null);
+  const selectedFeedWindowMessages = useStore(
+    (s) => s.threadWindowMessages?.get(sessionId)?.get(normalizedThreadKey) ?? EMPTY_MESSAGES,
+  );
+  const sessionNotifications = useStore((s) => s.sessionNotifications?.get(sessionId));
+  const sessionAttentionRecords = useStore((s) => s.sessionAttentionRecords?.get(sessionId));
+  const sessionBoard = useStore((s) => s.sessionBoards?.get(sessionId));
+  const sessionCompletedBoard = useStore((s) => s.sessionCompletedBoards?.get(sessionId));
+  const feedMessageModel = useMemo(
+    () =>
+      buildFeedMessageModel({
+        leaderSessionId: sessionId,
+        threadKey,
+        projectThreadRoutes,
+        allMessages,
+        historyLoading,
+        selectedFeedWindow,
+        selectedFeedWindowEnabled,
+        selectedFeedWindowMessages,
+        sessionNotifications,
+        sessionAttentionRecords,
+        additionalAttentionRecords,
+        sessionBoard,
+        sessionCompletedBoard,
+      }),
+    [
+      additionalAttentionRecords,
+      allMessages,
+      historyLoading,
+      projectThreadRoutes,
+      selectedFeedWindow,
+      selectedFeedWindowEnabled,
+      selectedFeedWindowMessages,
+      sessionAttentionRecords,
+      sessionBoard,
+      sessionCompletedBoard,
+      sessionId,
+      sessionNotifications,
+      threadKey,
+    ],
+  );
+  const { messages, visibleToolUseIds } = feedMessageModel;
   const pendingUserUploads = useStore((s) => s.pendingUserUploads.get(sessionId) ?? EMPTY_PENDING_USER_UPLOADS);
   const pendingCodexInputs = useStore((s) => s.pendingCodexInputs.get(sessionId) ?? EMPTY_PENDING_CODEX_INPUTS);
   const frozenCount = useStore((s) => s.messageFrozenCounts.get(sessionId) ?? 0);
   const frozenRevision = useStore((s) => s.messageFrozenRevisions.get(sessionId) ?? 0);
-  const historyLoading = useStore((s) => s.historyLoading.get(sessionId) ?? false);
   const historyWindow = useStore((s) => s.historyWindows.get(sessionId) ?? null);
   const streamingText = useStore((s) => s.streaming.get(sessionId));
   const isCodexSession = useStore((s) => s.sessions.get(sessionId)?.backend_type === "codex");
@@ -212,12 +251,8 @@ export function MessageFeed({
   const toolResults = useStore((s) => s.toolResults.get(sessionId));
   const toolStartTimestamps = useStore((s) => s.toolStartTimestamps.get(sessionId));
   const backgroundAgentNotifs = useStore((s) => s.backgroundAgentNotifs.get(sessionId));
-  const sessionNotifications = useStore((s) => s.sessionNotifications.get(sessionId));
   const currentSessionStatus = useStore((s) => s.sessionStatus.get(sessionId) ?? null);
   const parentStreamingByToolUseId = useStore((s) => s.streamingByParentToolUseId.get(sessionId));
-  const isLeaderSession = useStore((s) =>
-    s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true),
-  );
   const shouldBottomAlignNextUserMessage = useStore((s) => s.bottomAlignNextUserMessage.has(sessionId));
   const pawCounter = useRef<import("./PawTrail.js").PawCounterState>({ next: 0, cache: new Map() });
   const containerRef = useRef<HTMLDivElement>(null);
@@ -225,7 +260,6 @@ export function MessageFeed({
   const contentRootRef = useRef<HTMLDivElement>(null);
   // Initialize isNearBottom from saved scroll position — if the user was scrolled
   // up when they left this session, don't auto-scroll to bottom on re-mount.
-  const savedScrollPos = useStore.getState().feedScrollPosition.get(sessionId);
   const autoFollowEnabledRef = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
   const isNearBottom = useRef(savedScrollPos ? savedScrollPos.isAtBottom : true);
   const lastScrollTopRef = useRef(savedScrollPos?.scrollTop ?? 0);
@@ -243,19 +277,22 @@ export function MessageFeed({
   const [isScrolling, setIsScrolling] = useState(false);
   const [floatingStatusHeight, setFloatingStatusHeight] = useState(0);
   const [sectionWindowStart, setSectionWindowStart] = useState<number | null>(null);
+  const [pendingSectionLoadDirection, setPendingSectionLoadDirection] = useState<"older" | "newer" | null>(null);
   const [selectedCodexTerminalId, setSelectedCodexTerminalId] = useState<string | null>(null);
   const [dismissedSubagentChips, setDismissedSubagentChips] = useState<Map<string, string>>(new Map());
   const [liveActivityRailVersion, setLiveActivityRailVersion] = useState(0);
   const scrollTimeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined);
   const isTouch = useMemo(() => isTouchDevice(), []);
   const taskTurnOffsetsRef = useRef<TurnOffsetIndex[]>([]);
-  const restoredSessionIdRef = useRef<string | null>(null);
+  const restoredViewportRef = useRef<{ key: string; container: HTMLDivElement | null } | null>(null);
   const overlayViewportRef = useRef<HTMLDivElement>(null);
   const lastViewportAnchorRef = useRef<{
+    viewportKey: string;
     signature: string;
     wasAutoFollowing: boolean;
     anchor: FeedViewportAnchor | null;
   } | null>(null);
+  const pendingSectionLoadKeyRef = useRef<string | null>(null);
 
   const codexTerminalEntries = useMemo(
     () => (isCodexSession ? collectCodexTerminalEntries(messages, toolResults, toolProgress, toolStartTimestamps) : []),
@@ -266,10 +303,11 @@ export function MessageFeed({
     [sessionNotifications],
   );
   const { turns } = useFeedModel(messages, {
-    leaderMode: isLeaderSession,
+    leaderMode: false,
     frozenCount,
     frozenRevision,
     anchoredNotificationMessageIds,
+    perf: { sessionId, threadKey: normalizedThreadKey },
   });
   const activeLiveSubagentEntries = useMemo(
     () =>
@@ -493,15 +531,19 @@ export function MessageFeed({
     const container = containerRef.current;
     if (!container) return;
     const anchor = findVisibleTurnAnchor(container);
-    useStore.getState().setFeedScrollPosition(sessionId, {
+    const position = {
       scrollTop: container.scrollTop,
       scrollHeight: container.scrollHeight,
       isAtBottom: autoFollowEnabledRef.current && isNearBottom.current,
       anchorTurnId: anchor?.turnId ?? null,
       anchorOffsetTop: anchor?.offsetTop,
       lastSeenContentBottom: lastSeenContentBottomRef.current ?? getRealContentBottom(),
-    });
-  }, [findVisibleTurnAnchor, getRealContentBottom, sessionId]);
+    };
+    useStore.getState().setFeedScrollPosition(viewportKey, position);
+    if (isLeaderSession) {
+      persistLeaderViewportPosition(sessionId, normalizedThreadKey, position);
+    }
+  }, [findVisibleTurnAnchor, getRealContentBottom, isLeaderSession, normalizedThreadKey, sessionId, viewportKey]);
 
   // Save scroll position on unmount. Uses useLayoutEffect so the cleanup runs
   // in the layout phase — BEFORE the new component's effects try to restore,
@@ -522,48 +564,109 @@ export function MessageFeed({
     return () => window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshotRequest as EventListener);
   }, [persistFeedViewport, sessionId]);
 
-  const sections = useMemo(() => buildFeedSections(turns, sectionTurnCount), [sectionTurnCount, turns]);
-  const isWindowedHistory = historyWindow !== null;
-  const totalSections = sections.length;
-  const latestVisibleSectionStartIndex = useMemo(
-    () => findVisibleSectionStartIndex(sections, DEFAULT_VISIBLE_SECTION_COUNT),
-    [sections],
-  );
-  const visibleSectionStartIndex = isWindowedHistory ? 0 : (sectionWindowStart ?? latestVisibleSectionStartIndex);
-  const visibleSectionEndIndex = useMemo(
+  const feedWindowModel = useMemo(
     () =>
-      isWindowedHistory
-        ? sections.length
-        : findVisibleSectionEndIndex(sections, visibleSectionStartIndex, DEFAULT_VISIBLE_SECTION_COUNT),
-    [isWindowedHistory, sections, visibleSectionStartIndex],
+      buildFeedWindowModel({
+        turns,
+        sectionTurnCount,
+        sectionWindowStart,
+        selectedFeedWindowEnabled,
+        historyWindow,
+        selectedFeedWindow,
+        streamingText,
+        historyLoading,
+        messageCount: messages.length,
+      }),
+    [
+      historyLoading,
+      historyWindow,
+      messages.length,
+      sectionTurnCount,
+      sectionWindowStart,
+      selectedFeedWindow,
+      selectedFeedWindowEnabled,
+      streamingText,
+      turns,
+    ],
   );
-  const visibleSections = useMemo(
-    () => (isWindowedHistory ? sections : sections.slice(visibleSectionStartIndex, visibleSectionEndIndex)),
-    [isWindowedHistory, sections, visibleSectionEndIndex, visibleSectionStartIndex],
-  );
-  const visibleTurns = useMemo(() => visibleSections.flatMap((section) => section.turns), [visibleSections]);
+  const {
+    sections,
+    activeHistoryWindow,
+    activeThreadWindow,
+    isWindowedFeed,
+    totalSections,
+    latestVisibleSectionStartIndex,
+    visibleSectionStartIndex,
+    visibleSections,
+    visibleWindowSignature,
+    visibleTurns,
+    showConversationLoading,
+    previousSectionStartIndex,
+    nextSectionStartIndex,
+    hasOlderSections,
+    hasNewerSections,
+  } = feedWindowModel;
+  const isLoadingOlderSection = pendingSectionLoadDirection === "older";
+  const isLoadingNewerSection = pendingSectionLoadDirection === "newer";
+  const latestPillLabel = hasNewerSections ? "Latest section below" : "New content below";
   const { turnStates, toggleTurn } = useCollapsePolicy({
     sessionId,
     turns: visibleTurns,
-    leaderMode: isLeaderSession,
+    leaderMode: collapseLeaderThreadActivity,
   });
   const collapseLayoutSignature = useMemo(
     () => turnStates.map((state) => `${state.turnId}:${state.isActivityExpanded ? "1" : "0"}`).join("|"),
     [turnStates],
   );
-  const showConversationLoading = historyLoading && messages.length === 0 && !streamingText;
-  const previousSectionStartIndex = useMemo(
-    () => (isWindowedHistory ? null : findPreviousSectionStartIndex(sections, visibleSectionStartIndex)),
-    [isWindowedHistory, sections, visibleSectionStartIndex],
+  const viewportLayoutSignature = `${visibleWindowSignature}::${collapseLayoutSignature}`;
+
+  const markSectionLoadPending = useCallback((direction: "older" | "newer", key: string) => {
+    if (pendingSectionLoadKeyRef.current === key) return false;
+    pendingSectionLoadKeyRef.current = key;
+    setPendingSectionLoadDirection(direction);
+    return true;
+  }, []);
+
+  const requestThreadWindow = useCallback(
+    (fromItem: number, requestedItemCount?: number) => {
+      const itemCount = activeThreadWindow
+        ? requestedItemCount ||
+          activeThreadWindow.item_count ||
+          getThreadWindowItemCount(activeThreadWindow.visible_item_count, activeThreadWindow.section_item_count)
+        : getThreadWindowItemCount(DEFAULT_VISIBLE_SECTION_COUNT, sectionTurnCount);
+      const sectionItemCount = activeThreadWindow?.section_item_count ?? sectionTurnCount;
+      const visibleItemCount = activeThreadWindow?.visible_item_count ?? DEFAULT_VISIBLE_SECTION_COUNT;
+      const cachedWindowHash = getCachedThreadWindowHash(sessionId, {
+        threadKey: normalizedThreadKey,
+        fromItem,
+        itemCount,
+        sectionItemCount,
+        visibleItemCount,
+      });
+      sendToSession(sessionId, {
+        type: "thread_window_request",
+        thread_key: normalizedThreadKey,
+        from_item: fromItem,
+        item_count: itemCount,
+        section_item_count: sectionItemCount,
+        visible_item_count: visibleItemCount,
+        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+        ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
+      });
+    },
+    [activeThreadWindow, normalizedThreadKey, sectionTurnCount, sessionId],
   );
-  const nextSectionStartIndex = useMemo(() => {
-    if (isWindowedHistory) return null;
-    return visibleSectionStartIndex + 1 < sections.length ? visibleSectionStartIndex + 1 : null;
-  }, [isWindowedHistory, sections, visibleSectionStartIndex]);
-  const hasOlderSections = historyWindow ? historyWindow.from_turn > 0 : previousSectionStartIndex !== null;
-  const hasNewerSections = historyWindow
-    ? historyWindow.from_turn + historyWindow.turn_count < historyWindow.total_turns
-    : sectionWindowStart !== null && nextSectionStartIndex !== null;
+
+  useEffect(() => {
+    if (!selectedFeedWindowEnabled) return;
+    if (activeThreadWindow) return;
+    requestThreadWindow(-1);
+  }, [activeThreadWindow, requestThreadWindow, selectedFeedWindowEnabled]);
+
+  useEffect(() => {
+    pendingSectionLoadKeyRef.current = null;
+    setPendingSectionLoadDirection(null);
+  }, [activeHistoryWindow, activeThreadWindow, sectionWindowStart]);
   // Collapsible turn IDs: all turns with agent content are collapsible (including the last).
   // Stats and text preview recompute as new messages stream in.
   const collapsibleTurnIds = useMemo(
@@ -577,7 +680,7 @@ export function MessageFeed({
   }, [sessionId, collapsibleTurnIds]);
 
   useEffect(() => {
-    if (isWindowedHistory) {
+    if (isWindowedFeed) {
       setSectionWindowStart(null);
       return;
     }
@@ -588,7 +691,7 @@ export function MessageFeed({
       const next = findSectionWindowStartIndexForTarget(sections, normalizedCurrent, DEFAULT_VISIBLE_SECTION_COUNT);
       return next === latestVisibleSectionStartIndex ? null : next;
     });
-  }, [isWindowedHistory, latestVisibleSectionStartIndex, sections]);
+  }, [isWindowedFeed, latestVisibleSectionStartIndex, sections]);
 
   const getSectionWindowStartForTurnId = useCallback(
     (turnId: string): number | null => {
@@ -618,6 +721,25 @@ export function MessageFeed({
       markProgrammaticScroll(nextTop);
       container.scrollTop = nextTop;
       lastScrollTopRef.current = container.scrollTop;
+      return true;
+    },
+    [markProgrammaticScroll],
+  );
+
+  const restoreSavedScrollPosition = useCallback(
+    (pos: FeedViewportPosition) => {
+      const el = containerRef.current;
+      if (!el) return false;
+      const nextTop =
+        el.scrollHeight === pos.scrollHeight
+          ? pos.scrollTop
+          : pos.scrollHeight > 0
+            ? pos.scrollTop * (el.scrollHeight / pos.scrollHeight)
+            : null;
+      if (nextTop == null || !Number.isFinite(nextTop)) return false;
+      markProgrammaticScroll(nextTop);
+      el.scrollTop = nextTop;
+      lastScrollTopRef.current = el.scrollTop;
       return true;
     },
     [markProgrammaticScroll],
@@ -656,12 +778,13 @@ export function MessageFeed({
   const snapshotViewportAnchor = useCallback(
     (container: HTMLDivElement) => {
       lastViewportAnchorRef.current = {
-        signature: collapseLayoutSignature,
+        viewportKey,
+        signature: viewportLayoutSignature,
         wasAutoFollowing: autoFollowEnabledRef.current,
         anchor: findVisibleFeedAnchor(container),
       };
     },
-    [collapseLayoutSignature, findVisibleFeedAnchor],
+    [findVisibleFeedAnchor, viewportKey, viewportLayoutSignature],
   );
 
   const moveSectionWindow = useCallback(
@@ -716,67 +839,172 @@ export function MessageFeed({
     [ensureSectionForTurnVisible],
   );
 
-  const handleLoadOlderSection = useCallback(() => {
-    if (historyWindow) {
-      const turnCount =
-        historyWindow.turn_count ||
-        getHistoryWindowTurnCount(historyWindow.visible_section_count, historyWindow.section_turn_count);
-      const nextFromTurn = Math.max(0, historyWindow.from_turn - historyWindow.section_turn_count);
-      autoFollowEnabledRef.current = false;
-      setShowScrollButton(true);
+  const requestHistoryWindow = useCallback(
+    (fromTurn: number, turnCount: number, sectionTurnCount: number, visibleSectionCount: number) => {
+      const cachedWindowHash = getCachedHistoryWindowHash(sessionId, {
+        fromTurn,
+        turnCount,
+        sectionTurnCount,
+        visibleSectionCount,
+      });
       sendToSession(sessionId, {
         type: "history_window_request",
-        from_turn: nextFromTurn,
+        from_turn: fromTurn,
         turn_count: turnCount,
-        section_turn_count: historyWindow.section_turn_count,
-        visible_section_count: historyWindow.visible_section_count,
+        section_turn_count: sectionTurnCount,
+        visible_section_count: visibleSectionCount,
+        feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+        ...(cachedWindowHash ? { cached_window_hash: cachedWindowHash } : {}),
       });
+    },
+    [sessionId],
+  );
+
+  const handleLoadOlderSection = useCallback(() => {
+    if (activeThreadWindow) {
+      const itemCount = Math.max(
+        activeThreadWindow.item_count,
+        getThreadWindowItemCount(
+          getBoundaryContextSectionCount(activeThreadWindow.visible_item_count),
+          activeThreadWindow.section_item_count,
+        ),
+      );
+      const nextFromItem = Math.max(0, activeThreadWindow.from_item - activeThreadWindow.section_item_count);
+      const requestKey = `thread:${normalizedThreadKey}:${nextFromItem}:${itemCount}`;
+      if (!markSectionLoadPending("older", requestKey)) return;
+      autoFollowEnabledRef.current = false;
+      setShowScrollButton(true);
+      requestThreadWindow(nextFromItem, itemCount);
+      return;
+    }
+    if (activeHistoryWindow) {
+      const turnCount = Math.max(
+        activeHistoryWindow.turn_count,
+        getHistoryWindowTurnCount(
+          getBoundaryContextSectionCount(activeHistoryWindow.visible_section_count),
+          activeHistoryWindow.section_turn_count,
+        ),
+      );
+      const nextFromTurn = Math.max(0, activeHistoryWindow.from_turn - activeHistoryWindow.section_turn_count);
+      const requestKey = `history:${nextFromTurn}:${turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
+      if (!markSectionLoadPending("older", requestKey)) return;
+      autoFollowEnabledRef.current = false;
+      setShowScrollButton(true);
+      requestHistoryWindow(
+        nextFromTurn,
+        turnCount,
+        activeHistoryWindow.section_turn_count,
+        activeHistoryWindow.visible_section_count,
+      );
       return;
     }
     if (previousSectionStartIndex == null) return;
     autoFollowEnabledRef.current = false;
     setShowScrollButton(true);
     moveSectionWindow(previousSectionStartIndex);
-  }, [historyWindow, moveSectionWindow, previousSectionStartIndex, sessionId]);
+  }, [
+    activeThreadWindow,
+    activeHistoryWindow,
+    markSectionLoadPending,
+    moveSectionWindow,
+    normalizedThreadKey,
+    previousSectionStartIndex,
+    requestHistoryWindow,
+    requestThreadWindow,
+  ]);
 
   const handleLoadNewerSection = useCallback(() => {
-    if (historyWindow) {
-      const turnCount =
-        historyWindow.turn_count ||
-        getHistoryWindowTurnCount(historyWindow.visible_section_count, historyWindow.section_turn_count);
-      const maxFromTurn = Math.max(0, historyWindow.total_turns - turnCount);
-      const nextFromTurn = Math.min(maxFromTurn, historyWindow.from_turn + historyWindow.section_turn_count);
-      if (nextFromTurn === historyWindow.from_turn) return;
+    if (activeThreadWindow) {
+      const itemCount = Math.max(
+        activeThreadWindow.item_count,
+        getThreadWindowItemCount(
+          getBoundaryContextSectionCount(activeThreadWindow.visible_item_count),
+          activeThreadWindow.section_item_count,
+        ),
+      );
+      const maxFromItem = Math.max(0, activeThreadWindow.total_items - itemCount);
+      const nextFromItem = Math.min(maxFromItem, activeThreadWindow.from_item + activeThreadWindow.section_item_count);
+      if (nextFromItem === activeThreadWindow.from_item) return;
+      const requestKey = `thread:${normalizedThreadKey}:${nextFromItem}:${itemCount}`;
+      if (!markSectionLoadPending("newer", requestKey)) return;
       autoFollowEnabledRef.current = false;
-      sendToSession(sessionId, {
-        type: "history_window_request",
-        from_turn: nextFromTurn,
-        turn_count: turnCount,
-        section_turn_count: historyWindow.section_turn_count,
-        visible_section_count: historyWindow.visible_section_count,
-      });
+      requestThreadWindow(nextFromItem, itemCount);
+      return;
+    }
+    if (activeHistoryWindow) {
+      const turnCount = Math.max(
+        activeHistoryWindow.turn_count,
+        getHistoryWindowTurnCount(
+          getBoundaryContextSectionCount(activeHistoryWindow.visible_section_count),
+          activeHistoryWindow.section_turn_count,
+        ),
+      );
+      const maxFromTurn = Math.max(0, activeHistoryWindow.total_turns - turnCount);
+      const nextFromTurn = Math.min(
+        maxFromTurn,
+        activeHistoryWindow.from_turn + activeHistoryWindow.section_turn_count,
+      );
+      if (nextFromTurn === activeHistoryWindow.from_turn) return;
+      const requestKey = `history:${nextFromTurn}:${turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
+      if (!markSectionLoadPending("newer", requestKey)) return;
+      autoFollowEnabledRef.current = false;
+      requestHistoryWindow(
+        nextFromTurn,
+        turnCount,
+        activeHistoryWindow.section_turn_count,
+        activeHistoryWindow.visible_section_count,
+      );
       return;
     }
     if (nextSectionStartIndex == null) return;
     autoFollowEnabledRef.current = false;
     moveSectionWindow(nextSectionStartIndex === latestVisibleSectionStartIndex ? null : nextSectionStartIndex);
-  }, [historyWindow, latestVisibleSectionStartIndex, moveSectionWindow, nextSectionStartIndex, sessionId]);
+  }, [
+    activeThreadWindow,
+    activeHistoryWindow,
+    latestVisibleSectionStartIndex,
+    markSectionLoadPending,
+    moveSectionWindow,
+    nextSectionStartIndex,
+    normalizedThreadKey,
+    requestHistoryWindow,
+    requestThreadWindow,
+  ]);
+
+  const triggerSectionLoadNearBoundary = useCallback(
+    (direction: "older" | "newer") => {
+      if (pendingSectionLoadKeyRef.current) return;
+      if (direction === "older") {
+        if (!hasOlderSections) return;
+        handleLoadOlderSection();
+        return;
+      }
+      if (!hasNewerSections) return;
+      handleLoadNewerSection();
+    },
+    [handleLoadNewerSection, handleLoadOlderSection, hasNewerSections, hasOlderSections],
+  );
 
   const scrollToBottom = useCallback(
     (behavior: ScrollBehavior = "smooth") => {
-      if (historyWindow && hasNewerSections) {
-        const turnCount =
-          historyWindow.turn_count ||
-          getHistoryWindowTurnCount(historyWindow.visible_section_count, historyWindow.section_turn_count);
-        const latestFromTurn = Math.max(0, historyWindow.total_turns - turnCount);
+      if (activeThreadWindow && hasNewerSections) {
+        const latestFromItem = Math.max(0, activeThreadWindow.total_items - activeThreadWindow.item_count);
         autoFollowEnabledRef.current = true;
-        sendToSession(sessionId, {
-          type: "history_window_request",
-          from_turn: latestFromTurn,
-          turn_count: turnCount,
-          section_turn_count: historyWindow.section_turn_count,
-          visible_section_count: historyWindow.visible_section_count,
-        });
+        requestThreadWindow(latestFromItem);
+        return;
+      }
+      if (activeHistoryWindow && hasNewerSections) {
+        const turnCount =
+          activeHistoryWindow.turn_count ||
+          getHistoryWindowTurnCount(activeHistoryWindow.visible_section_count, activeHistoryWindow.section_turn_count);
+        const latestFromTurn = Math.max(0, activeHistoryWindow.total_turns - turnCount);
+        autoFollowEnabledRef.current = true;
+        requestHistoryWindow(
+          latestFromTurn,
+          turnCount,
+          activeHistoryWindow.section_turn_count,
+          activeHistoryWindow.visible_section_count,
+        );
         return;
       }
       const performScroll = () => {
@@ -802,11 +1030,13 @@ export function MessageFeed({
     },
     [
       getRealContentBottom,
+      activeThreadWindow,
       hasNewerSections,
-      historyWindow,
+      activeHistoryWindow,
+      requestThreadWindow,
+      requestHistoryWindow,
       scrollContainerTo,
       sectionWindowStart,
-      sessionId,
       totalSections,
     ],
   );
@@ -860,19 +1090,24 @@ export function MessageFeed({
 
   const resetVisibleSectionsToLatest = useCallback(
     (behavior: ScrollBehavior = "auto") => {
-      if (historyWindow && hasNewerSections) {
-        const turnCount =
-          historyWindow.turn_count ||
-          getHistoryWindowTurnCount(historyWindow.visible_section_count, historyWindow.section_turn_count);
-        const latestFromTurn = Math.max(0, historyWindow.total_turns - turnCount);
+      if (activeThreadWindow && hasNewerSections) {
+        const latestFromItem = Math.max(0, activeThreadWindow.total_items - activeThreadWindow.item_count);
         autoFollowEnabledRef.current = true;
-        sendToSession(sessionId, {
-          type: "history_window_request",
-          from_turn: latestFromTurn,
-          turn_count: turnCount,
-          section_turn_count: historyWindow.section_turn_count,
-          visible_section_count: historyWindow.visible_section_count,
-        });
+        requestThreadWindow(latestFromItem);
+        return;
+      }
+      if (activeHistoryWindow && hasNewerSections) {
+        const turnCount =
+          activeHistoryWindow.turn_count ||
+          getHistoryWindowTurnCount(activeHistoryWindow.visible_section_count, activeHistoryWindow.section_turn_count);
+        const latestFromTurn = Math.max(0, activeHistoryWindow.total_turns - turnCount);
+        autoFollowEnabledRef.current = true;
+        requestHistoryWindow(
+          latestFromTurn,
+          turnCount,
+          activeHistoryWindow.section_turn_count,
+          activeHistoryWindow.visible_section_count,
+        );
         return;
       }
       if (sectionWindowStart == null || totalSections <= DEFAULT_VISIBLE_SECTION_COUNT) return;
@@ -888,12 +1123,14 @@ export function MessageFeed({
       });
     },
     [
+      activeThreadWindow,
       getRealContentBottom,
       hasNewerSections,
-      historyWindow,
+      activeHistoryWindow,
+      requestThreadWindow,
+      requestHistoryWindow,
       scrollContainerTo,
       sectionWindowStart,
-      sessionId,
       totalSections,
     ],
   );
@@ -1031,6 +1268,8 @@ export function MessageFeed({
     const currentScrollTop = el.scrollTop;
     const realContentBottom = getRealContentBottom() ?? el.scrollHeight;
     const nearBottom = realContentBottom - currentScrollTop - el.clientHeight < 120;
+    const nearOlderBoundary = currentScrollTop <= SECTION_WINDOW_TRIGGER_PX;
+    const nearNewerBoundary = realContentBottom - currentScrollTop - el.clientHeight <= SECTION_WINDOW_TRIGGER_PX;
     const isProgrammaticScroll =
       programmaticScrollTargetRef.current != null &&
       Math.abs(currentScrollTop - programmaticScrollTargetRef.current) <= 2;
@@ -1038,21 +1277,28 @@ export function MessageFeed({
       programmaticScrollTargetRef.current = null;
     }
     const scrollingUp = currentScrollTop < lastScrollTopRef.current - 4;
+    const scrollingDown = currentScrollTop > lastScrollTopRef.current + 4;
     if (!isProgrammaticScroll) {
       if (scrollingUp) {
         autoFollowEnabledRef.current = false;
       } else if (!nearBottom) {
         autoFollowEnabledRef.current = false;
-      } else if (nearBottom) {
+      } else if (nearBottom && !hasNewerSections) {
         autoFollowEnabledRef.current = true;
+      } else if (hasNewerSections) {
+        autoFollowEnabledRef.current = false;
       }
     }
     isNearBottom.current = nearBottom;
-    if (autoFollowEnabledRef.current && nearBottom) {
+    if (autoFollowEnabledRef.current && nearBottom && !hasNewerSections) {
       lastSeenContentBottomRef.current = realContentBottom;
       lastObservedContentBottomRef.current = lastSeenContentBottomRef.current;
       setShowLatestPill(false);
       resetVisibleSectionsToLatest("auto");
+    } else if (!isProgrammaticScroll && scrollingUp && nearOlderBoundary) {
+      triggerSectionLoadNearBoundary("older");
+    } else if (!isProgrammaticScroll && scrollingDown && nearNewerBoundary) {
+      triggerSectionLoadNearBoundary("newer");
     }
     // Only trigger a re-render when the button state actually changes
     const shouldShow = !nearBottom || !autoFollowEnabledRef.current;
@@ -1065,21 +1311,48 @@ export function MessageFeed({
     snapshotViewportAnchor(el);
   }
 
+  function handleWheel(event: ReactWheelEvent<HTMLDivElement>) {
+    const el = containerRef.current;
+    if (!el) return;
+    if (event.deltaY < 0 && el.scrollTop <= SECTION_WINDOW_TRIGGER_PX) {
+      triggerSectionLoadNearBoundary("older");
+      return;
+    }
+    const realContentBottom = getRealContentBottom() ?? el.scrollHeight;
+    if (event.deltaY > 0 && realContentBottom - el.scrollTop - el.clientHeight <= SECTION_WINDOW_TRIGGER_PX) {
+      triggerSectionLoadNearBoundary("newer");
+    }
+  }
+
   // Restore scroll position synchronously before the first paint.
   // useLayoutEffect runs before the browser paints, preventing the flash
   // where the feed appears at scrollTop=0 for one frame before jumping.
   useLayoutEffect(() => {
-    if (restoredSessionIdRef.current === sessionId) return;
     if (showConversationLoading) return;
-    const pos = useStore.getState().feedScrollPosition.get(sessionId);
+    const pos = readSavedViewportPosition({
+      sessionId,
+      viewportKey,
+      normalizedThreadKey,
+      isLeaderSession,
+    });
+    const restoreKey = getSavedViewportRestoreKey(viewportKey, pos);
+    const restoredViewport = restoredViewportRef.current;
+    const container = containerRef.current;
+    if (restoredViewport?.key === restoreKey && restoredViewport.container === container) return;
     if (messages.length === 0 && pos?.anchorTurnId) return;
-    const desiredSectionWindowStart = pos?.anchorTurnId ? getSectionWindowStartForTurnId(pos.anchorTurnId) : null;
-    if (desiredSectionWindowStart !== sectionWindowStart) {
+    const desiredSectionWindowStart =
+      !isWindowedFeed && pos?.anchorTurnId ? getSectionWindowStartForTurnId(pos.anchorTurnId) : null;
+    if (!isWindowedFeed && desiredSectionWindowStart !== sectionWindowStart) {
       setSectionWindowStart(desiredSectionWindowStart);
       return;
     }
     if (pos && !pos.isAtBottom && pos.anchorTurnId) {
+      if (selectedFeedWindowEnabled && !activeThreadWindow) return;
       if (restoreTurnAnchor(pos.anchorTurnId!, pos.anchorOffsetTop ?? 0)) {
+        autoFollowEnabledRef.current = false;
+        isNearBottom.current = false;
+        setShowScrollButton(true);
+      } else if (restoreSavedScrollPosition(pos)) {
         autoFollowEnabledRef.current = false;
         isNearBottom.current = false;
         setShowScrollButton(true);
@@ -1087,30 +1360,40 @@ export function MessageFeed({
         scrollToBottom("auto");
       }
     } else if (pos && !pos.isAtBottom) {
-      const el = containerRef.current;
-      if (el) {
-        if (el.scrollHeight === pos.scrollHeight) {
-          el.scrollTop = pos.scrollTop;
-        } else if (pos.scrollHeight > 0) {
-          el.scrollTop = pos.scrollTop * (el.scrollHeight / pos.scrollHeight);
-        }
+      if (restoreSavedScrollPosition(pos)) {
         autoFollowEnabledRef.current = false;
         isNearBottom.current = false;
         setShowScrollButton(true);
+      }
+    } else if (activeThreadWindow && hasNewerSections) {
+      const el = containerRef.current;
+      autoFollowEnabledRef.current = false;
+      isNearBottom.current = false;
+      setShowScrollButton(true);
+      if (el) {
         lastScrollTopRef.current = el.scrollTop;
       }
     } else {
       scrollToBottom("auto");
     }
-    restoredSessionIdRef.current = sessionId;
+    restoredViewportRef.current = { key: restoreKey, container: containerRef.current };
   }, [
+    activeThreadWindow,
     getSectionWindowStartForTurnId,
+    hasNewerSections,
+    isLeaderSession,
+    isWindowedFeed,
     messages.length,
+    normalizedThreadKey,
+    restoreSavedScrollPosition,
     restoreTurnAnchor,
+    savedViewportRestoreKey,
     scrollToBottom,
     sectionWindowStart,
+    selectedFeedWindowEnabled,
     sessionId,
     showConversationLoading,
+    viewportKey,
   ]);
 
   useEffect(() => {
@@ -1120,7 +1403,7 @@ export function MessageFeed({
     lastObservedContentBottomRef.current = savedScrollPos?.lastSeenContentBottom ?? null;
     suppressLatestPillOnRestoreRef.current = savedScrollPos?.lastSeenContentBottom != null;
     setShowLatestPill(false);
-  }, [savedScrollPos?.lastSeenContentBottom, sessionId, showConversationLoading]);
+  }, [savedScrollPos?.lastSeenContentBottom, sessionId, showConversationLoading, viewportKey]);
 
   useEffect(() => {
     if (showConversationLoading) return;
@@ -1254,7 +1537,7 @@ export function MessageFeed({
     if (!container) return;
 
     const previous = lastViewportAnchorRef.current;
-    if (previous && previous.signature !== collapseLayoutSignature) {
+    if (previous && previous.viewportKey === viewportKey && previous.signature !== viewportLayoutSignature) {
       if (previous.wasAutoFollowing) {
         const realContentBottom = getRealContentBottom() ?? container.scrollHeight;
         const maxScrollTop = Math.max(0, container.scrollHeight - container.clientHeight);
@@ -1272,7 +1555,14 @@ export function MessageFeed({
       }
     }
     snapshotViewportAnchor(container);
-  }, [collapseLayoutSignature, getRealContentBottom, restoreFeedAnchor, setContainerScrollTop, snapshotViewportAnchor]);
+  }, [
+    getRealContentBottom,
+    restoreFeedAnchor,
+    setContainerScrollTop,
+    snapshotViewportAnchor,
+    viewportKey,
+    viewportLayoutSignature,
+  ]);
 
   // Scroll-to-turn: triggered from the Session Tasks panel
   const scrollToTurnId = useStore((s) => s.scrollToTurnId.get(sessionId));
@@ -1503,6 +1793,8 @@ export function MessageFeed({
         <div
           ref={containerRef}
           onScroll={handleScroll}
+          onWheel={handleWheel}
+          data-testid="message-feed-scroll-container"
           className="h-full overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 sm:py-6"
           style={{ overscrollBehavior: "contain" }}
         >
@@ -1510,37 +1802,39 @@ export function MessageFeed({
             <PawCounterContext.Provider value={pawCounter}>
               <div ref={contentRootRef} className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
                 {hasOlderSections && (
-                  <div className="flex justify-center pb-2">
-                    <button
-                      type="button"
-                      onClick={handleLoadOlderSection}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card px-3 py-1.5 text-xs text-cc-muted transition-colors hover:bg-cc-hover cursor-pointer"
-                    >
-                      <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                      Load older section
-                    </button>
+                  <div className="flex justify-center pb-2" aria-live="polite">
+                    <div className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted">
+                      {isLoadingOlderSection ? (
+                        <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+                      ) : (
+                        <YarnBallDot className="text-cc-muted/70" />
+                      )}
+                      {isLoadingOlderSection ? "Loading older section..." : "Scroll up for older section"}
+                    </div>
                   </div>
                 )}
                 <TurnEntries
                   sections={visibleSections}
                   sessionId={sessionId}
-                  leaderMode={isLeaderSession}
+                  currentThreadKey={threadKey}
+                  leaderMode={collapseLeaderThreadActivity}
                   isCodexSession={isCodexSession}
                   activeCodexTerminalIds={activeCodexTerminalIds}
                   onOpenCodexTerminal={setSelectedCodexTerminalId}
+                  onSelectThread={onSelectThread}
                   turnStates={turnStates}
                   toggleTurn={toggleTurn}
                 />
                 {hasNewerSections && (
-                  <div className="flex justify-center pt-1">
-                    <button
-                      type="button"
-                      onClick={handleLoadNewerSection}
-                      className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card px-3 py-1.5 text-xs text-cc-muted transition-colors hover:bg-cc-hover cursor-pointer"
-                    >
-                      <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                      Load newer section
-                    </button>
+                  <div className="flex justify-center pt-1" aria-live="polite">
+                    <div className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted">
+                      {isLoadingNewerSection ? (
+                        <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
+                      ) : (
+                        <YarnBallDot className="text-cc-muted/70" />
+                      )}
+                      {isLoadingNewerSection ? "Loading newer section..." : "Scroll down for newer section"}
+                    </div>
                   </div>
                 )}
                 {pendingUserUploads.length > 0 && (
@@ -1549,7 +1843,7 @@ export function MessageFeed({
                 {isCodexSession && pendingCodexInputs.length > 0 && (
                   <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
                 )}
-                <FeedFooter sessionId={sessionId} />
+                <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} />
                 <div
                   aria-hidden="true"
                   className="pointer-events-none"
@@ -1561,7 +1855,12 @@ export function MessageFeed({
           </PawScrollProvider>
         </div>
 
-        <FeedStatusPill sessionId={sessionId} onVisibleHeightChange={setFloatingStatusHeight} />
+        <FeedStatusPill
+          sessionId={sessionId}
+          onVisibleHeightChange={setFloatingStatusHeight}
+          currentThreadKey={threadKey}
+          onSelectThread={onSelectThread}
+        />
 
         {(visibleCodexTerminalRailEntries.length > 0 || visibleLiveSubagentEntries.length > 0) && (
           <LiveActivityRail
@@ -1600,8 +1899,12 @@ export function MessageFeed({
               title="Jump to latest"
               aria-label="Jump to latest"
             >
-              <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-primary animate-pulse" />
-              <span className="truncate">New content below</span>
+              <span
+                className={`inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-primary ${
+                  hasNewerSections ? "" : "animate-pulse"
+                }`}
+              />
+              <span className="truncate">{latestPillLabel}</span>
             </button>
           </div>
         )}
@@ -1665,7 +1968,7 @@ export function MessageFeed({
         )}
 
         {/* Floating context menu for text selection within assistant messages */}
-        <SelectionContextMenu selection={textSelection} sessionId={sessionId} onClose={textSelection.clear} />
+        <SelectionContextMenu selection={textSelection} sessionId={sessionId} onClose={textSelection.dismiss} />
       </div>
     </div>
   );

@@ -1,5 +1,6 @@
 import { useEffect } from "react";
 import { useStore } from "../store.js";
+import { getTreeGroupNewSessionDefaultsKey } from "../utils/new-session-defaults.js";
 import { navigateToMostRecentSession } from "../utils/routing.js";
 import { SleepingCat } from "./CatIcons.js";
 
@@ -21,13 +22,18 @@ export function EmptyState() {
       <h1 className="text-lg font-semibold text-cc-fg mb-1">{serverName || "Takode"}</h1>
       <p className="text-sm text-cc-muted mb-6">No active sessions</p>
       <button
-        onClick={() => useStore.getState().openNewSessionModal()}
+        onClick={() =>
+          useStore.getState().openNewSessionModal({
+            treeGroupId: "default",
+            newSessionDefaultsKey: getTreeGroupNewSessionDefaultsKey("default"),
+          })
+        }
         className="px-4 py-2.5 text-sm font-medium rounded-xl bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors cursor-pointer flex items-center gap-2"
       >
         <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
           <path d="M8 3v10M3 8h10" />
         </svg>
-        New Session
+        New Session in Default Session Space
       </button>
     </div>
   );

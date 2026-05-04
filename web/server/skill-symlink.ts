@@ -1,4 +1,14 @@
-import { existsSync, mkdirSync, symlinkSync, lstatSync, readlinkSync, unlinkSync, rmSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  symlinkSync,
+  lstatSync,
+  readlinkSync,
+  readdirSync,
+  unlinkSync,
+  rmSync,
+  type Dirent,
+} from "node:fs";
 import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { fileURLToPath } from "node:url";
@@ -21,44 +31,91 @@ function resolveMainRepoRoot(): Promise<string> {
 
 const HOME = homedir();
 const CLAUDE_SKILLS_HOME = join(HOME, ".claude", "skills");
-const CODEX_SKILLS_HOME = join(getLegacyCodexHome(), "skills");
 const AGENTS_SKILLS_HOME = join(HOME, ".agents", "skills");
+const LEGACY_CODEX_SKILLS_HOME = join(getLegacyCodexHome(), "skills");
 
 /**
- * Symlink repo skills into the global Claude, Codex, and agent skill homes so
- * all sessions discover the same project-defined skills regardless of working
- * directory or backend.
+ * Symlink repo skills into the global Claude and agent skill homes so all
+ * sessions discover the same project-defined skills regardless of working
+ * directory. `.agents` is the non-Claude source used by Codex/new agents;
+ * legacy `.codex/skills` content is compatibility-only migration input.
  *
- * Call once at startup with the list of skill directory names (slugs) that
- * live under `.claude/skills/` in the repo.
+ * Call once at startup with the core skill directory names (slugs). Startup
+ * also discovers repo skill slugs from `.claude/skills` and `.agents/skills`
+ * so agent-only project skills are installed without touching Claude's root.
  */
 export async function ensureSkillSymlinks(slugs: string[]): Promise<void> {
   const mainRepoRoot = await resolveMainRepoRoot();
   const repoClaudeSkillsHome = join(mainRepoRoot, ".claude", "skills");
-  const repoCodexSkillsHome = join(mainRepoRoot, ".codex", "skills");
   const repoAgentsSkillsHome = join(mainRepoRoot, ".agents", "skills");
 
-  for (const slug of slugs) {
-    const repoDir = join(repoClaudeSkillsHome, slug);
-    if (!existsSync(repoDir)) {
-      // sync-ok: startup cold path
-      console.warn(`[skill-symlink] Skipping missing repo skill source: ${repoDir}`);
+  migrateLegacyCodexSkillsToAgents();
+
+  const allSlugs = discoverRepoSkillSlugs(slugs, repoClaudeSkillsHome, repoAgentsSkillsHome);
+  for (const slug of allSlugs) {
+    const repoClaudeDir = join(repoClaudeSkillsHome, slug);
+    const repoAgentsDir = join(repoAgentsSkillsHome, slug);
+    const hasClaudeSource = existsSync(repoClaudeDir); // sync-ok: startup cold path
+    const hasAgentsSource = existsSync(repoAgentsDir); // sync-ok: startup cold path
+    if (!hasClaudeSource && !hasAgentsSource) {
+      console.warn(`[skill-symlink] Skipping missing repo skill source: ${repoClaudeDir} or ${repoAgentsDir}`);
       continue;
     }
-    ensureSymlink(repoDir, join(CLAUDE_SKILLS_HOME, slug));
-    ensureSymlink(resolveRepoSkillDir(slug, repoCodexSkillsHome, repoClaudeSkillsHome), join(CODEX_SKILLS_HOME, slug));
-    ensureSymlink(
-      resolveRepoSkillDir(slug, repoAgentsSkillsHome, repoClaudeSkillsHome),
-      join(AGENTS_SKILLS_HOME, slug),
-    );
+
+    if (hasClaudeSource) {
+      ensureSymlink(repoClaudeDir, join(CLAUDE_SKILLS_HOME, slug));
+    }
+    ensureSymlink(hasAgentsSource ? repoAgentsDir : repoClaudeDir, join(AGENTS_SKILLS_HOME, slug));
   }
-  console.log(`[skill-symlink] ${slugs.join(", ")} symlinked for Claude, Codex, and agents`);
+  console.log(`[skill-symlink] ${allSlugs.join(", ")} symlinked for Claude and agents`);
 }
 
-function resolveRepoSkillDir(slug: string, preferredRepoHome: string, fallbackRepoHome: string): string {
-  const preferredDir = join(preferredRepoHome, slug);
-  if (existsSync(preferredDir)) return preferredDir; // sync-ok: startup cold path
-  return join(fallbackRepoHome, slug);
+function discoverRepoSkillSlugs(
+  requiredSlugs: string[],
+  repoClaudeSkillsHome: string,
+  repoAgentsSkillsHome: string,
+): string[] {
+  return [
+    ...new Set([
+      ...requiredSlugs,
+      ...readRepoSkillSlugs(repoClaudeSkillsHome),
+      ...readRepoSkillSlugs(repoAgentsSkillsHome),
+    ]),
+  ];
+}
+
+function migrateLegacyCodexSkillsToAgents(): void {
+  if (!existsSync(LEGACY_CODEX_SKILLS_HOME)) return; // sync-ok: startup cold path
+
+  let entries: Dirent[];
+  try {
+    entries = readdirSync(LEGACY_CODEX_SKILLS_HOME, { withFileTypes: true }); // sync-ok: startup cold path
+  } catch (error) {
+    console.warn(`[skill-symlink] Failed to inspect legacy Codex skills:`, error);
+    return;
+  }
+
+  for (const entry of entries) {
+    if (entry.name.startsWith(".")) continue;
+    const legacyDir = join(LEGACY_CODEX_SKILLS_HOME, entry.name);
+    const agentsDir = join(AGENTS_SKILLS_HOME, entry.name);
+    if (existsSync(agentsDir)) continue; // sync-ok: startup cold path
+    ensureSymlink(legacyDir, agentsDir);
+  }
+}
+
+function readRepoSkillSlugs(repoSkillsHome: string): string[] {
+  if (!existsSync(repoSkillsHome)) return []; // sync-ok: startup cold path
+
+  try {
+    return readdirSync(repoSkillsHome, { withFileTypes: true }) // sync-ok: startup cold path
+      .filter((entry) => !entry.name.startsWith("."))
+      .filter((entry) => entry.isDirectory() || entry.isSymbolicLink())
+      .map((entry) => entry.name);
+  } catch (error) {
+    console.warn(`[skill-symlink] Failed to inspect repo skills: ${repoSkillsHome}`, error);
+    return [];
+  }
 }
 
 /**

@@ -30,6 +30,13 @@ import type {
   TakodeHerdBatchSnapshot,
 } from "./session-types.js";
 import { formatActivitySummaryDetailed } from "./herd-activity-formatter.js";
+import {
+  inferRouteFromHistoryEntryContent,
+  routeFromHistoryEntry,
+  routeKey,
+  threadRouteForTarget,
+  type ThreadRouteMetadata,
+} from "./thread-routing-metadata.js";
 import { wakeIdleKilledSession as wakeIdleKilledSessionController } from "./idle-manager.js";
 import {
   onSessionActivityStateChanged as onSessionActivityStateChangedController,
@@ -117,13 +124,16 @@ export interface WsBridgeHandle {
     content: string,
     agentSource?: { sessionId: string; sessionLabel?: string },
     takodeHerdBatch?: TakodeHerdBatchSnapshot,
+    threadRoute?: ThreadRouteMetadata,
   ): "sent" | "queued" | "dropped" | "no_session";
   isSessionIdle?(sessionId: string): boolean;
   /** Test-only escape hatch while production callers move to the shared idle helper. */
   wakeIdleKilledSession?(sessionId: string): boolean;
+  wakeUnavailableOrchestratorForPendingEvents?(sessionId: string, reason: string): boolean;
   getSession(sessionId: string):
     | {
         messageHistory: BrowserIncomingMessage[];
+        state?: { claimedQuestId?: string };
         backendSocket?: unknown;
         codexAdapter?: unknown;
         claudeSdkAdapter?: unknown;
@@ -141,7 +151,48 @@ export interface WsBridgeHandle {
 
 export interface LauncherHandle {
   getHerdedSessions(orchId: string): Array<{ sessionId: string }>;
-  getSession?(sessionId: string): { state?: string; killedByIdleManager?: boolean } | undefined;
+  getSession?(
+    sessionId: string,
+  ): { state?: string; killedByIdleManager?: boolean; claimedQuestId?: string } | undefined;
+}
+
+export type RestartPrepMode = "standalone" | "restart";
+
+export interface RestartPrepSessionSummary {
+  sessionId: string;
+  label: string;
+}
+
+export interface RestartPrepOperationSnapshot {
+  operationId: string;
+  mode: RestartPrepMode;
+  startedAt: number;
+  timeoutMs: number;
+  suppressionTtlMs: number;
+  targetedSessions: RestartPrepSessionSummary[];
+  protectedLeaders: RestartPrepSessionSummary[];
+  suppressedHerdEvents: number;
+  heldHerdEvents: number;
+  unresolvedBlockers: RestartPrepSessionSummary[];
+}
+
+interface RestartPrepOperation {
+  operationId: string;
+  mode: RestartPrepMode;
+  startedAt: number;
+  timeoutMs: number;
+  suppressionTtlMs: number;
+  targetSessionIds: Set<string>;
+  protectedLeaderIds: Set<string>;
+  targetSummaries: RestartPrepSessionSummary[];
+  protectedLeaderSummaries: RestartPrepSessionSummary[];
+  suppressedHerdEvents: number;
+  heldHerdEvents: number;
+  unresolvedBlockers: RestartPrepSessionSummary[];
+  holdUntil: number;
+  suppressUntil: number;
+  releaseTimer: ReturnType<typeof setTimeout>;
+  cleanupTimer: ReturnType<typeof setTimeout>;
 }
 
 export function isSessionIdleRuntime(
@@ -174,6 +225,7 @@ export function isSessionIdleRuntime(
  *  onWorkerEvent filters out injected agent/system messages before delivery. */
 const ACTIONABLE_EVENTS = new Set<TakodeEventType>([
   "turn_end",
+  "worker_stream",
   "user_message",
   "permission_request",
   "permission_resolved",
@@ -196,6 +248,7 @@ const DEBOUNCE_MS = 500;
 const RETRY_MS = 2000;
 const INBOX_CAP = 200;
 const HISTORY_CAP = 50;
+const RECENT_EVENT_DEDUPE_CAP = 500;
 
 /** agentSource used to tag herd event messages */
 const HERD_AGENT_SOURCE = { sessionId: "herd-events", sessionLabel: "Herd Events" } as const;
@@ -220,6 +273,8 @@ interface InboxEntry {
   event: TakodeEvent;
   /** Monotonic sequence number within this inbox */
   seq: number;
+  threadRoute: ThreadRouteMetadata;
+  heldByRestartPrepOperationId?: string;
 }
 
 interface DeliveryRecord {
@@ -227,7 +282,7 @@ interface DeliveryRecord {
   sessionName: string;
   ts: number;
   deliveredAt: number | null;
-  status: "pending" | "in_flight" | "confirmed" | "redelivered";
+  status: "pending" | "held" | "in_flight" | "confirmed" | "redelivered" | "suppressed";
 }
 
 interface HerdInbox {
@@ -244,6 +299,8 @@ interface HerdInbox {
   workerIds: Set<string>;
   /** Persistent delivery history for diagnostics (last N entries) */
   deliveryHistory: DeliveryRecord[];
+  /** Stable identities for recently accepted events, used to suppress stale replay duplicates. */
+  recentEventKeys: Map<string, number>;
   /** Per-worker: highest msgRange.to from the last delivered batch.
    *  Prevents re-injecting the same activity in consecutive turn_end events. */
   lastEmittedMsgTo: Map<string, number>;
@@ -258,6 +315,7 @@ export class HerdEventDispatcher {
   private takodeEventNextId = 0;
   private static readonly TAKODE_EVENT_LOG_LIMIT = 1000;
   private leaderGroupIdleStates: LeaderIdleStateLike["leaderGroupIdleStates"] = new Map();
+  private restartPrepOperations = new Map<string, RestartPrepOperation>();
 
   constructor(
     private wsBridge: WsBridgeHandle,
@@ -314,6 +372,55 @@ export class HerdEventDispatcher {
     );
   }
 
+  beginRestartPrepOperation(options: {
+    operationId: string;
+    mode: RestartPrepMode;
+    targetSessions: RestartPrepSessionSummary[];
+    protectedLeaders: RestartPrepSessionSummary[];
+    timeoutMs: number;
+    suppressionTtlMs?: number;
+  }): RestartPrepOperationSnapshot {
+    const startedAt = Date.now();
+    const suppressionTtlMs = options.suppressionTtlMs ?? Math.max(options.timeoutMs * 6, 60_000);
+    const releaseTimer = setTimeout(() => {
+      this.releaseHeldRestartPrepEvents(options.operationId);
+    }, options.timeoutMs);
+    const cleanupTimer = setTimeout(() => {
+      this.restartPrepOperations.delete(options.operationId);
+    }, suppressionTtlMs);
+    const operation: RestartPrepOperation = {
+      operationId: options.operationId,
+      mode: options.mode,
+      startedAt,
+      timeoutMs: options.timeoutMs,
+      suppressionTtlMs,
+      targetSessionIds: new Set(options.targetSessions.map((session) => session.sessionId)),
+      protectedLeaderIds: new Set(options.protectedLeaders.map((session) => session.sessionId)),
+      targetSummaries: options.targetSessions,
+      protectedLeaderSummaries: options.protectedLeaders,
+      suppressedHerdEvents: 0,
+      heldHerdEvents: 0,
+      unresolvedBlockers: [],
+      holdUntil: startedAt + options.timeoutMs,
+      suppressUntil: startedAt + suppressionTtlMs,
+      releaseTimer,
+      cleanupTimer,
+    };
+    this.restartPrepOperations.set(operation.operationId, operation);
+    return this.snapshotRestartPrepOperation(operation);
+  }
+
+  updateRestartPrepUnresolvedBlockers(operationId: string, blockers: RestartPrepSessionSummary[]): void {
+    const operation = this.restartPrepOperations.get(operationId);
+    if (!operation) return;
+    operation.unresolvedBlockers = blockers;
+  }
+
+  getRestartPrepOperationSnapshot(operationId: string): RestartPrepOperationSnapshot | null {
+    const operation = this.restartPrepOperations.get(operationId);
+    return operation ? this.snapshotRestartPrepOperation(operation) : null;
+  }
+
   onSessionActivityStateChanged(sessionId: string, reason: string): void {
     const state = this.getLeaderIdleState();
     const deps = this.runtime?.getLeaderIdleDeps?.();
@@ -357,6 +464,7 @@ export class HerdEventDispatcher {
         debounceTimer: null,
         workerIds,
         deliveryHistory: [],
+        recentEventKeys: new Map(),
         lastEmittedMsgTo: new Map(),
       };
       inbox.unsubscribe = this.wsBridge.subscribeTakodeEvents(workerIds, (evt) => this.onWorkerEvent(orchId, evt));
@@ -398,9 +506,30 @@ export class HerdEventDispatcher {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
 
+    const policy = this.getRestartPrepDeliveryPolicy(orchId, event);
+    if (policy.kind === "suppress") {
+      this.recordRestartPrepSuppressed(policy.operation, event);
+      return;
+    }
+
+    const eventKey = getStableHerdEventKey(event);
+    if (eventKey && (inbox.recentEventKeys.has(eventKey) || inboxHasEventKey(inbox, eventKey))) {
+      return;
+    }
+    if (eventKey && this.hasCommittedHerdEventKey(orchId, eventKey)) {
+      inbox.recentEventKeys.set(eventKey, Date.now());
+      trimRecentEventKeys(inbox);
+      return;
+    }
+
     // Append to inbox (pure in-memory, never fails)
     const seq = inbox.nextSeq++;
-    inbox.entries.push({ event, seq });
+    const entry: InboxEntry = { event, seq, threadRoute: this.resolveEventThreadRoute(event) };
+    if (policy.kind === "hold") {
+      entry.heldByRestartPrepOperationId = policy.operation.operationId;
+      policy.operation.heldHerdEvents += 1;
+    }
+    inbox.entries.push(entry);
 
     // Track in delivery history
     inbox.deliveryHistory.push({
@@ -408,7 +537,7 @@ export class HerdEventDispatcher {
       sessionName: event.sessionName,
       ts: event.ts,
       deliveredAt: null,
-      status: "pending",
+      status: policy.kind === "hold" ? "held" : "pending",
     });
     if (inbox.deliveryHistory.length > HISTORY_CAP) {
       inbox.deliveryHistory.splice(0, inbox.deliveryHistory.length - HISTORY_CAP);
@@ -448,6 +577,8 @@ export class HerdEventDispatcher {
       }
     }
 
+    if (policy.kind === "hold") return;
+
     // If orchestrator is idle, schedule delivery
     if (this.isSessionIdle(orchId)) {
       this.scheduleDelivery(orchId);
@@ -459,6 +590,14 @@ export class HerdEventDispatcher {
       console.log(
         `[herd-dispatcher] Woke idle-killed leader ${orchId} to deliver ${this.pendingCount(inbox)} pending herd event(s)`,
       );
+    } else if (this.wakeUnavailableOrchestratorForPendingEvents(orchId, "pending_herd_event_dead_backend")) {
+      console.log(
+        `[herd-dispatcher] Requested unavailable leader recovery for ${orchId} to deliver ${this.pendingCount(inbox)} pending herd event(s)`,
+      );
+    } else {
+      // If recovery is already in flight or the leader is merely busy, keep
+      // rechecking so a later cleared recovery guard cannot strand this event.
+      this.scheduleRetry(orchId);
     }
     // If generating, events accumulate — delivered on next onOrchestratorTurnEnd
   }
@@ -466,28 +605,37 @@ export class HerdEventDispatcher {
   // ─── Event Delivery (step 2: inject when CLI is ready) ────────────────────
 
   /** Called from ws-bridge when an orchestrator finishes a turn. */
-  onOrchestratorTurnEnd(orchId: string): void {
+  onOrchestratorTurnEnd(orchId: string, reason = "result"): void {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return;
 
-    // Confirm in-flight events: the turn completed, so the CLI consumed them
+    // Confirm in-flight events only for normal completed turns. Recovery turn
+    // endings clear stale local state; they do not prove the CLI consumed the
+    // injected herd batch.
     if (inbox.inFlightUpTo !== null) {
-      const confirmedEntries = inbox.entries.filter(
-        (entry) => entry.seq >= inbox.confirmedUpTo && entry.seq <= inbox.inFlightUpTo!,
-      );
-      for (const entry of confirmedEntries) {
-        if (entry.event.event !== "notification_needs_input") continue;
-        const notifId = entry.event.data.notificationId;
-        if (typeof notifId !== "string" || notifId.length === 0) continue;
-        this.runtime?.markNotificationDone?.(entry.event.sessionId, notifId, true);
-      }
-      inbox.confirmedUpTo = inbox.inFlightUpTo + 1;
-      inbox.inFlightUpTo = null;
-      // Trim confirmed entries from the inbox
-      while (inbox.entries.length > 0 && inbox.entries[0].seq < inbox.confirmedUpTo) {
-        inbox.entries.shift();
+      if (reason === "result") {
+        const confirmedEntries = inbox.entries.filter(
+          (entry) => entry.seq >= inbox.confirmedUpTo && entry.seq <= inbox.inFlightUpTo!,
+        );
+        for (const entry of confirmedEntries) {
+          this.markDeliveryHistoryStatus(inbox, entry, "confirmed");
+          this.confirmNotificationIfNeeded(entry);
+        }
+        inbox.confirmedUpTo = inbox.inFlightUpTo + 1;
+        inbox.inFlightUpTo = null;
+        // Trim confirmed entries from the inbox
+        while (inbox.entries.length > 0 && inbox.entries[0].seq < inbox.confirmedUpTo) {
+          inbox.entries.shift();
+        }
+      } else {
+        for (const h of inbox.deliveryHistory) {
+          if (h.status === "in_flight") h.status = "redelivered";
+        }
+        inbox.inFlightUpTo = null;
       }
     }
+
+    this.confirmCommittedHerdHistory(orchId, inbox);
 
     // If there are new pending events, flush synchronously. The orchestrator is
     // idle RIGHT NOW (isGenerating was set to false before this call). Using
@@ -546,49 +694,17 @@ export class HerdEventDispatcher {
     const inbox = this.inboxes.get(orchId);
     if (!inbox) return 0;
     this.pruneStaleBoardStallEntries(orchId, inbox);
-    const pending = this.getPendingEntries(inbox);
+    const pending = this.getDeliverablePendingEntries(orchId, inbox);
     if (pending.length === 0) return 0;
 
-    const events = pending.map((e) => e.event);
-    const renderedBatch = renderHerdEventBatch(events, {
-      getMessages: (sid, from, to) => getSessionMessageSlice(this.wsBridge, sid, from, to),
-      lastEmittedMsgTo: inbox.lastEmittedMsgTo,
-    });
-    const delivery = this.wsBridge.injectUserMessage(
-      orchId,
-      renderedBatch.content,
-      HERD_AGENT_SOURCE,
-      snapshotHerdBatch(events, renderedBatch.renderedLines),
-    );
-    if (delivery !== "sent") {
-      if (delivery === "dropped") {
-        this.pruneStaleBoardStallEntries(orchId, inbox);
-        this.maybeRetireInbox(orchId, inbox);
-        return 0;
-      }
-      if (delivery === "queued") {
-        this.scheduleRetry(orchId);
-      }
+    const result = this.deliverPendingEntries(orchId, inbox, pending);
+    if (result.status === "dropped") {
+      this.pruneStaleBoardStallEntries(orchId, inbox);
+      this.maybeRetireInbox(orchId, inbox);
       return 0;
     }
-
-    // Update deduplication watermarks from the events we just delivered
-    updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);
-
-    const lastSeq = pending[pending.length - 1].seq;
-    inbox.inFlightUpTo = lastSeq;
-
-    const now = Date.now();
-    let histIdx = inbox.deliveryHistory.length - pending.length;
-    if (histIdx < 0) histIdx = 0;
-    for (let i = histIdx; i < inbox.deliveryHistory.length; i++) {
-      if (inbox.deliveryHistory[i].status === "pending" || inbox.deliveryHistory[i].status === "redelivered") {
-        inbox.deliveryHistory[i].deliveredAt = now;
-        inbox.deliveryHistory[i].status = "in_flight";
-      }
-    }
-
-    return events.length;
+    if (result.status === "retry") this.scheduleRetry(orchId);
+    return result.status === "sent" ? result.deliveredCount : 0;
   }
 
   /** Schedule a debounced flush. Multiple calls within DEBOUNCE_MS batch together. */
@@ -618,7 +734,7 @@ export class HerdEventDispatcher {
     if (!inbox) return;
     this.pruneStaleBoardStallEntries(orchId, inbox);
 
-    const pending = this.getPendingEntries(inbox);
+    const pending = this.getDeliverablePendingEntries(orchId, inbox);
     if (pending.length === 0) {
       this.maybeRetireInbox(orchId, inbox);
       return;
@@ -631,53 +747,21 @@ export class HerdEventDispatcher {
       // when its turn ends (onOrchestratorTurnEnd) or on the next retry.
       if (this.wakeIdleKilledSession(orchId)) {
         console.log(`[herd-dispatcher] Woke idle-killed leader ${orchId} during flush retry`);
+      } else if (this.wakeUnavailableOrchestratorForPendingEvents(orchId, "pending_herd_event_flush_retry")) {
+        console.log(`[herd-dispatcher] Requested unavailable leader recovery for ${orchId} during flush retry`);
       } else {
         this.scheduleRetry(orchId);
       }
       return;
     }
 
-    // Format and inject
-    const events = pending.map((e) => e.event);
-    const renderedBatch = renderHerdEventBatch(events, {
-      getMessages: (sid, from, to) => getSessionMessageSlice(this.wsBridge, sid, from, to),
-      lastEmittedMsgTo: inbox.lastEmittedMsgTo,
-    });
-    const delivery = this.wsBridge.injectUserMessage(
-      orchId,
-      renderedBatch.content,
-      HERD_AGENT_SOURCE,
-      snapshotHerdBatch(events, renderedBatch.renderedLines),
-    );
-    if (delivery !== "sent") {
-      if (delivery === "dropped") {
-        this.pruneStaleBoardStallEntries(orchId, inbox);
-        this.maybeRetireInbox(orchId, inbox);
-        return;
-      }
-      if (delivery === "queued") {
-        this.scheduleRetry(orchId);
-      }
+    const result = this.deliverPendingEntries(orchId, inbox, pending);
+    if (result.status === "dropped") {
+      this.pruneStaleBoardStallEntries(orchId, inbox);
+      this.maybeRetireInbox(orchId, inbox);
       return;
     }
-
-    // Update deduplication watermarks from the events we just delivered
-    updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, events);
-
-    // Mark as in-flight (NOT confirmed yet — that happens on turn end)
-    const lastSeq = pending[pending.length - 1].seq;
-    inbox.inFlightUpTo = lastSeq;
-
-    // Update delivery history
-    const now = Date.now();
-    let histIdx = inbox.deliveryHistory.length - pending.length;
-    if (histIdx < 0) histIdx = 0;
-    for (let i = histIdx; i < inbox.deliveryHistory.length; i++) {
-      if (inbox.deliveryHistory[i].status === "pending" || inbox.deliveryHistory[i].status === "redelivered") {
-        inbox.deliveryHistory[i].deliveredAt = now;
-        inbox.deliveryHistory[i].status = "in_flight";
-      }
-    }
+    if (result.status === "retry") this.scheduleRetry(orchId);
   }
 
   // ─── Helpers ──────────────────────────────────────────────────────────────
@@ -692,9 +776,222 @@ export class HerdEventDispatcher {
     return inbox.entries.filter((e) => e.seq >= startSeq);
   }
 
+  private getDeliverablePendingEntries(orchId: string, inbox: HerdInbox): InboxEntry[] {
+    const deliverable: InboxEntry[] = [];
+    for (const entry of this.getPendingEntries(inbox)) {
+      const policy = this.getRestartPrepDeliveryPolicy(orchId, entry.event);
+      if (policy.kind === "deliver") {
+        if (entry.heldByRestartPrepOperationId) {
+          entry.heldByRestartPrepOperationId = undefined;
+        }
+        deliverable.push(entry);
+        continue;
+      }
+      if (policy.kind === "hold") {
+        if (!entry.heldByRestartPrepOperationId) {
+          entry.heldByRestartPrepOperationId = policy.operation.operationId;
+          policy.operation.heldHerdEvents += 1;
+          this.markDeliveryHistoryStatus(inbox, entry, "held");
+        }
+        continue;
+      }
+      this.recordRestartPrepSuppressed(policy.operation, entry.event);
+      this.markDeliveryHistoryStatus(inbox, entry, "suppressed");
+      inbox.entries = inbox.entries.filter((candidate) => candidate !== entry);
+    }
+    return deliverable;
+  }
+
+  private deliverPendingEntries(
+    orchId: string,
+    inbox: HerdInbox,
+    pending: InboxEntry[],
+  ): { status: "sent" | "retry" | "dropped"; deliveredCount: number } {
+    const groups = groupPendingEntriesByThread(pending);
+    const deliveredEvents: TakodeEvent[] = [];
+    for (const group of groups) {
+      const events = group.entries.map((entry) => entry.event);
+      const renderedBatch = renderHerdEventBatch(events, {
+        getMessages: (sid, from, to) => getSessionMessageSlice(this.wsBridge, sid, from, to),
+        lastEmittedMsgTo: inbox.lastEmittedMsgTo,
+        leaderSessionId: orchId,
+      });
+      const delivery = this.wsBridge.injectUserMessage(
+        orchId,
+        renderedBatch.content,
+        HERD_AGENT_SOURCE,
+        snapshotHerdBatch(events, renderedBatch.renderedLines),
+        group.route,
+      );
+      if (delivery === "dropped") return { status: "dropped", deliveredCount: deliveredEvents.length };
+      if (delivery !== "sent") return { status: "retry", deliveredCount: deliveredEvents.length };
+      deliveredEvents.push(...events);
+    }
+
+    updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, deliveredEvents);
+    this.rememberDeliveredEventKeys(inbox, deliveredEvents);
+    inbox.inFlightUpTo = pending[pending.length - 1].seq;
+    this.markPendingEntriesInFlight(inbox, pending.length);
+    return { status: "sent", deliveredCount: deliveredEvents.length };
+  }
+
+  private markPendingEntriesInFlight(inbox: HerdInbox, count: number): void {
+    const now = Date.now();
+    let histIdx = inbox.deliveryHistory.length - count;
+    if (histIdx < 0) histIdx = 0;
+    for (let i = histIdx; i < inbox.deliveryHistory.length; i++) {
+      if (inbox.deliveryHistory[i].status === "pending" || inbox.deliveryHistory[i].status === "redelivered") {
+        inbox.deliveryHistory[i].deliveredAt = now;
+        inbox.deliveryHistory[i].status = "in_flight";
+      }
+    }
+  }
+
   /** Count of events waiting to be delivered. */
   private pendingCount(inbox: HerdInbox): number {
     return this.getPendingEntries(inbox).length;
+  }
+
+  private getRestartPrepDeliveryPolicy(
+    orchId: string,
+    event: TakodeEvent,
+  ): { kind: "deliver" } | { kind: "hold" | "suppress"; operation: RestartPrepOperation } {
+    const now = Date.now();
+    for (const operation of this.restartPrepOperations.values()) {
+      if (!operation.protectedLeaderIds.has(orchId)) continue;
+      if (operation.targetSessionIds.has(event.sessionId) && now <= operation.suppressUntil) {
+        return { kind: "suppress", operation };
+      }
+      if (now <= operation.holdUntil) {
+        return { kind: "hold", operation };
+      }
+    }
+    return { kind: "deliver" };
+  }
+
+  private resolveEventThreadRoute(event: TakodeEvent): ThreadRouteMetadata {
+    const eventRoute =
+      threadRouteFromEvent(event) ??
+      inferActivityEventRouteFromHistory(event, this.wsBridge.getSession(event.sessionId)?.messageHistory);
+    if (eventRoute && eventRoute.threadKey !== "main") return eventRoute;
+
+    const questId =
+      this.launcher.getSession?.(event.sessionId)?.claimedQuestId ??
+      this.wsBridge.getSession(event.sessionId)?.state?.claimedQuestId;
+    return questId && /^q-\d+$/i.test(questId)
+      ? threadRouteForTarget(questId.toLowerCase(), "inferred")
+      : { threadKey: "main" };
+  }
+
+  private recordRestartPrepSuppressed(operation: RestartPrepOperation, event: TakodeEvent): void {
+    operation.suppressedHerdEvents += 1;
+    if (event.event === "turn_end" || event.event === "session_disconnected") {
+      operation.targetSessionIds.delete(event.sessionId);
+    }
+  }
+
+  private markDeliveryHistoryStatus(inbox: HerdInbox, entry: InboxEntry, status: DeliveryRecord["status"]): void {
+    const record = inbox.deliveryHistory.findLast(
+      (item) =>
+        item.event === entry.event.event && item.sessionName === entry.event.sessionName && item.ts === entry.event.ts,
+    );
+    if (record) record.status = status;
+  }
+
+  private rememberDeliveredEventKeys(inbox: HerdInbox, events: TakodeEvent[]): void {
+    for (const event of events) {
+      const key = getStableHerdEventKey(event);
+      if (!key) continue;
+      inbox.recentEventKeys.set(key, Date.now());
+      trimRecentEventKeys(inbox);
+    }
+  }
+
+  private hasCommittedHerdEventKey(orchId: string, key: string): boolean {
+    return getCommittedHerdEventKeys(this.wsBridge.getSession(orchId)?.messageHistory).has(key);
+  }
+
+  private confirmCommittedHerdHistory(orchId: string, inbox: HerdInbox): void {
+    if (inbox.inFlightUpTo !== null || inbox.entries.length === 0) return;
+    const committedKeys = getCommittedHerdEventKeys(this.wsBridge.getSession(orchId)?.messageHistory);
+    if (committedKeys.size === 0) return;
+
+    const confirmedSeqs = new Set<number>();
+    const confirmedEvents: TakodeEvent[] = [];
+    const keptEntries: InboxEntry[] = [];
+    for (const entry of inbox.entries) {
+      const key = getStableHerdEventKey(entry.event);
+      if (key && committedKeys.has(key)) {
+        confirmedSeqs.add(entry.seq);
+        confirmedEvents.push(entry.event);
+        this.markDeliveryHistoryStatus(inbox, entry, "confirmed");
+        this.confirmNotificationIfNeeded(entry);
+        continue;
+      }
+      keptEntries.push(entry);
+    }
+    if (confirmedSeqs.size === 0) return;
+
+    inbox.entries = keptEntries;
+    while (confirmedSeqs.has(inbox.confirmedUpTo)) {
+      inbox.confirmedUpTo += 1;
+    }
+    if (this.pendingCount(inbox) === 0 && inbox.debounceTimer) {
+      clearTimeout(inbox.debounceTimer);
+      inbox.debounceTimer = null;
+    }
+    this.rememberDeliveredEventKeys(inbox, confirmedEvents);
+  }
+
+  private confirmNotificationIfNeeded(entry: InboxEntry): void {
+    if (entry.event.event !== "notification_needs_input") return;
+    const notifId = entry.event.data.notificationId;
+    if (typeof notifId !== "string" || notifId.length === 0) return;
+    this.runtime?.markNotificationDone?.(entry.event.sessionId, notifId, true);
+  }
+
+  private releaseHeldRestartPrepEvents(operationId: string): void {
+    const operation = this.restartPrepOperations.get(operationId);
+    if (!operation) return;
+    operation.holdUntil = 0;
+    for (const leaderId of operation.protectedLeaderIds) {
+      const inbox = this.inboxes.get(leaderId);
+      if (!inbox) continue;
+      for (const entry of inbox.entries) {
+        if (entry.heldByRestartPrepOperationId !== operationId) continue;
+        entry.heldByRestartPrepOperationId = undefined;
+        this.markDeliveryHistoryStatus(inbox, entry, "pending");
+      }
+      if (this.pendingCount(inbox) === 0) continue;
+      if (this.isSessionIdle(leaderId)) {
+        this.scheduleDelivery(leaderId);
+      } else if (this.wakeIdleKilledSession(leaderId)) {
+        console.log(`[herd-dispatcher] Woke idle-killed leader ${leaderId} after restart-prep hold expired`);
+      } else if (
+        this.wakeUnavailableOrchestratorForPendingEvents(leaderId, "pending_herd_event_restart_prep_release")
+      ) {
+        console.log(
+          `[herd-dispatcher] Requested unavailable leader recovery for ${leaderId} after restart-prep hold expired`,
+        );
+      } else {
+        this.scheduleRetry(leaderId);
+      }
+    }
+  }
+
+  private snapshotRestartPrepOperation(operation: RestartPrepOperation): RestartPrepOperationSnapshot {
+    return {
+      operationId: operation.operationId,
+      mode: operation.mode,
+      startedAt: operation.startedAt,
+      timeoutMs: operation.timeoutMs,
+      suppressionTtlMs: operation.suppressionTtlMs,
+      targetedSessions: operation.targetSummaries,
+      protectedLeaders: operation.protectedLeaderSummaries,
+      suppressedHerdEvents: operation.suppressedHerdEvents,
+      heldHerdEvents: operation.heldHerdEvents,
+      unresolvedBlockers: operation.unresolvedBlockers,
+    };
   }
 
   private isSessionIdle(sessionId: string): boolean {
@@ -715,6 +1012,10 @@ export class HerdEventDispatcher {
           this.runtime?.requestCliRelaunch,
         )
       : false;
+  }
+
+  private wakeUnavailableOrchestratorForPendingEvents(sessionId: string, reason: string): boolean {
+    return this.wsBridge.wakeUnavailableOrchestratorForPendingEvents?.(sessionId, reason) ?? false;
   }
 
   private getLeaderIdleState(): LeaderIdleStateLike | null {
@@ -765,6 +1066,11 @@ export class HerdEventDispatcher {
       if (idleState.timer) clearTimeout(idleState.timer);
     }
     this.leaderGroupIdleStates.clear();
+    for (const operation of this.restartPrepOperations.values()) {
+      clearTimeout(operation.releaseTimer);
+      clearTimeout(operation.cleanupTimer);
+    }
+    this.restartPrepOperations.clear();
   }
 
   /** Get diagnostic info about an orchestrator's herd event state. */
@@ -824,6 +1130,8 @@ export interface FormatBatchOptions {
   /** Per-worker deduplication watermark: highest msgRange.to already delivered.
    *  Prevents re-injecting overlapping activity across consecutive batches. */
   lastEmittedMsgTo?: Map<string, number>;
+  /** Current leader session id, used to compact echoed leader instructions in activity. */
+  leaderSessionId?: string;
 }
 
 export interface RenderedHerdEventBatch {
@@ -838,7 +1146,13 @@ export function formatHerdEventBatch(events: TakodeEvent[], options?: FormatBatc
 
 export function renderHerdEventBatch(events: TakodeEvent[], options?: FormatBatchOptions): RenderedHerdEventBatch {
   const nowTs = options?.nowTs ?? Date.now();
-  const renderedLines = events.map((event) => formatSingleEvent(event, nowTs, options));
+  const renderWatermarks = options?.lastEmittedMsgTo ? new Map(options.lastEmittedMsgTo) : undefined;
+  const renderedLines = events.map((event) => {
+    const renderOptions = renderWatermarks ? { ...options, lastEmittedMsgTo: renderWatermarks } : options;
+    const rendered = formatSingleEvent(event, nowTs, renderOptions);
+    if (renderWatermarks) updateLastEmittedMsgTo(renderWatermarks, [event]);
+    return rendered;
+  });
   return {
     content: formatRenderedHerdEventBatch(events, renderedLines),
     renderedLines,
@@ -883,6 +1197,25 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
       const statusLine = `${label} | turn_end | ${success} ${duration}${compacted}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
 
       // Auto-inject peek-style activity summary between events
+      const activity = buildActivityForEvent(evt, options);
+      if (activity) {
+        return `${statusLine}\n${activity}`;
+      }
+      return statusLine;
+    }
+    case "worker_stream": {
+      const duration = formatDuration(evt.data.duration_ms);
+      const tools = formatToolCounts(evt.data.tools);
+      const resultPreview =
+        typeof evt.data.resultPreview === "string" ? ` | "${truncate(evt.data.resultPreview, 60)}"` : "";
+      const userInitiated = evt.data.turn_source === "user" ? " (user-initiated)" : "";
+      const range = evt.data.msgRange;
+      const rangeStr = range ? ` | [${range.from}]-[${range.to}]` : "";
+      const um = evt.data.userMsgs;
+      const userMsgStr = um ? ` | ${um.count} user msg${um.count === 1 ? "" : "s"} [${um.ids.join(", ")}]` : "";
+      const qc = evt.data.questChange;
+      const questStr = qc ? ` | ${qc.questId}: ${qc.from} → ${qc.to}` : "";
+      const statusLine = `${label} | worker_stream | checkpoint ${duration}${userInitiated}${tools}${rangeStr}${userMsgStr}${questStr}${resultPreview}${ageSuffix}`;
       const activity = buildActivityForEvent(evt, options);
       if (activity) {
         return `${statusLine}\n${activity}`;
@@ -979,6 +1312,9 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
           ? ` | turn ${evt.data.turn_target}`
           : "";
       const turnId = typeof evt.data.turn_id === "string" && evt.data.turn_id ? ` ${evt.data.turn_id}` : "";
+      if (!agentSource?.sessionId) {
+        return `${label} | user_message | user sent to ${formatSessionLink(evt)}${msgRef}${messageId}${turnTarget}${turnId}: "${content}"${ageSuffix}\n---\nThe worker should be reacting to this user message now.`;
+      }
       return `${label} | user_message [${sender}]${msgRef}${messageId}${turnTarget}${turnId} | "${content}"${ageSuffix}`;
     }
     case "notification_needs_input": {
@@ -992,7 +1328,11 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
           : typeof evt.data.notificationId === "string" && evt.data.notificationId
             ? ` --target ${evt.data.notificationId}`
             : "";
-      const actions = [`Answer: takode answer ${evt.sessionNum}${answerTarget} <response>`];
+      const actions =
+        Array.isArray(evt.data.suggestedAnswers) && evt.data.suggestedAnswers.length > 0
+          ? [`Suggestions: ${evt.data.suggestedAnswers.map((answer) => truncate(answer, 32)).join(", ")}`]
+          : [];
+      actions.push(`Answer: takode answer ${evt.sessionNum}${answerTarget} <response>`);
       if (typeof evt.data.msg_index === "number") {
         actions.push(`Read: takode read ${evt.sessionNum} ${evt.data.msg_index}`);
       }
@@ -1021,11 +1361,9 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
  *  Uses the event's msgRange to fetch the relevant message history slice,
  *  with deduplication to avoid re-injecting overlapping content. */
 function buildActivityForEvent(evt: TakodeEvent, options?: FormatBatchOptions): string | null {
-  if (evt.event !== "turn_end") return null;
-  if (!options?.getMessages) return null;
-
-  const range = evt.data.msgRange;
+  const range = getActivityEventRange(evt);
   if (!range) return null;
+  if (!options?.getMessages) return null;
 
   // Deduplication: start after the last-emitted message for this worker
   const lastEmitted = options.lastEmittedMsgTo?.get(evt.sessionId) ?? -1;
@@ -1036,6 +1374,7 @@ function buildActivityForEvent(evt: TakodeEvent, options?: FormatBatchOptions): 
   const activity = formatActivitySummaryDetailed(messages, {
     startIdx: range.from,
     deduplicatedFrom,
+    leaderSessionId: options.leaderSessionId,
   });
   return activity.text || null;
 }
@@ -1043,8 +1382,7 @@ function buildActivityForEvent(evt: TakodeEvent, options?: FormatBatchOptions): 
 /** Update per-worker deduplication watermarks after delivering a batch. */
 function updateLastEmittedMsgTo(watermarks: Map<string, number>, events: TakodeEvent[]): void {
   for (const evt of events) {
-    if (evt.event !== "turn_end") continue;
-    const range = evt.data.msgRange;
+    const range = getActivityEventRange(evt);
     if (!range) continue;
     const current = watermarks.get(evt.sessionId) ?? -1;
     if (range.to > current) {
@@ -1053,9 +1391,219 @@ function updateLastEmittedMsgTo(watermarks: Map<string, number>, events: TakodeE
   }
 }
 
+function getActivityEventRange(evt: TakodeEvent): { from: number; to: number } | undefined {
+  if (evt.event === "turn_end" || evt.event === "worker_stream") return evt.data.msgRange;
+  return undefined;
+}
+
+function threadRouteFromEvent(event: TakodeEvent): ThreadRouteMetadata | null {
+  const questId = questIdFromEvent(event);
+  if (questId && /^q-\d+$/i.test(questId)) return threadRouteForTarget(questId.toLowerCase(), "inferred");
+  if (
+    (event.event === "turn_end" || event.event === "worker_stream") &&
+    event.data.threadKey &&
+    /^q-\d+$/i.test(event.data.threadKey)
+  ) {
+    return threadRouteForTarget(event.data.threadKey.toLowerCase(), "inferred");
+  }
+  return null;
+}
+
+function questIdFromEvent(event: TakodeEvent): string | undefined {
+  switch (event.event) {
+    case "turn_end":
+    case "worker_stream":
+      return event.data.questId ?? event.data.questChange?.questId;
+    case "board_stalled":
+    case "board_dispatchable":
+      return event.data.questId;
+    case "permission_request":
+    case "notification_needs_input":
+    case "user_message":
+      return event.data.questId;
+    default:
+      return undefined;
+  }
+}
+
+function inferActivityEventRouteFromHistory(
+  event: TakodeEvent,
+  history: BrowserIncomingMessage[] | undefined,
+): ThreadRouteMetadata | null {
+  if ((event.event !== "turn_end" && event.event !== "worker_stream") || !history?.length) return null;
+  const candidates = new Set<number>();
+  for (const index of event.data.userMsgs?.ids ?? []) {
+    if (Number.isInteger(index)) candidates.add(index);
+  }
+  const range = event.data.msgRange;
+  if (range) {
+    for (let index = range.to; index >= range.from; index--) {
+      candidates.add(index);
+    }
+  }
+
+  for (const index of candidates) {
+    const entry = history[index];
+    const route = routeFromHistoryEntry(entry);
+    if (route && route.threadKey !== "main") return threadRouteForTarget(route.threadKey, "inferred");
+    if (entry?.type === "user_message" && entry.agentSource?.sessionId) {
+      const inferredRoute = inferRouteFromHistoryEntryContent(entry);
+      if (inferredRoute && inferredRoute.threadKey !== "main") return inferredRoute;
+    }
+  }
+  return null;
+}
+
+function getStableHerdEventKey(event: TakodeEvent): string | null {
+  if (event.event === "turn_end") {
+    const range = event.data.msgRange;
+    if (!range) return null;
+    return [
+      "turn_end",
+      event.sessionId,
+      event.data.reason,
+      event.data.duration_ms,
+      event.data.is_error,
+      event.data.interrupted,
+      event.data.interrupt_source,
+      event.data.interrupt_origin,
+      event.data.restart_prep_operation_id,
+      event.data.compacted,
+      event.data.threadKey,
+      event.data.questId,
+      stableToolCountsPart(event.data.tools),
+      truncate(typeof event.data.resultPreview === "string" ? event.data.resultPreview : "", 60),
+      range.from,
+      range.to,
+      event.data.questChange?.questId,
+      event.data.questChange?.from,
+      event.data.questChange?.to,
+      event.data.userMsgs?.count,
+      stableNumberListPart(event.data.userMsgs?.ids),
+      event.data.turn_source,
+    ]
+      .map(stableKeyPart)
+      .join("|");
+  }
+  if (event.event === "worker_stream") {
+    const range = event.data.msgRange;
+    if (!range) return null;
+    return [
+      "worker_stream",
+      event.sessionId,
+      event.data.reason,
+      event.data.duration_ms,
+      event.data.threadKey,
+      event.data.questId,
+      stableToolCountsPart(event.data.tools),
+      truncate(typeof event.data.resultPreview === "string" ? event.data.resultPreview : "", 60),
+      range.from,
+      range.to,
+      event.data.questChange?.questId,
+      event.data.questChange?.from,
+      event.data.questChange?.to,
+      event.data.userMsgs?.count,
+      stableNumberListPart(event.data.userMsgs?.ids),
+      event.data.turn_source,
+    ]
+      .map(stableKeyPart)
+      .join("|");
+  }
+  if (event.event === "board_stalled") {
+    return [
+      "board_stalled",
+      event.sessionId,
+      event.data.questId,
+      event.data.stage,
+      event.data.signature,
+      event.data.workerStatus,
+      event.data.reviewerStatus,
+      event.data.reason,
+      event.data.action,
+    ]
+      .map(stableKeyPart)
+      .join("|");
+  }
+  if (event.event === "board_dispatchable") {
+    return [
+      "board_dispatchable",
+      event.sessionId,
+      event.data.questId,
+      event.data.signature,
+      event.data.summary,
+      event.data.action,
+    ]
+      .map(stableKeyPart)
+      .join("|");
+  }
+  return null;
+}
+
+function inboxHasEventKey(inbox: HerdInbox, key: string): boolean {
+  return inbox.entries.some((entry) => getStableHerdEventKey(entry.event) === key);
+}
+
+function getCommittedHerdEventKeys(history: BrowserIncomingMessage[] | undefined): Set<string> {
+  const keys = new Set<string>();
+  for (const msg of history ?? []) {
+    if (msg.type !== "user_message" || msg.agentSource?.sessionId !== HERD_AGENT_SOURCE.sessionId) continue;
+    for (const key of msg.takodeHerdEventKeys ?? []) {
+      if (typeof key === "string" && key.length > 0) keys.add(key);
+    }
+  }
+  return keys;
+}
+
+function trimRecentEventKeys(inbox: HerdInbox): void {
+  if (inbox.recentEventKeys.size <= RECENT_EVENT_DEDUPE_CAP) return;
+  const excess = inbox.recentEventKeys.size - RECENT_EVENT_DEDUPE_CAP;
+  let removed = 0;
+  for (const oldKey of inbox.recentEventKeys.keys()) {
+    inbox.recentEventKeys.delete(oldKey);
+    removed += 1;
+    if (removed >= excess) break;
+  }
+}
+
+function stableToolCountsPart(tools: Record<string, number> | undefined): string {
+  if (!tools) return "";
+  return Object.entries(tools)
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([tool, count]) => `${tool}:${count}`)
+    .join(",");
+}
+
+function stableNumberListPart(values: number[] | undefined): string {
+  return values?.join(",") ?? "";
+}
+
+function stableKeyPart(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase();
+}
+
 function snapshotHerdBatch(events: TakodeEvent[], renderedLines: string[]): TakodeHerdBatchSnapshot | undefined {
-  if (!events.some((event) => event.event === "board_stalled")) return undefined;
-  return { events, renderedLines };
+  const eventKeys = events.map((event) => getStableHerdEventKey(event) ?? "");
+  const hasBoardStalledEvent = events.some((event) => event.event === "board_stalled");
+  if (!hasBoardStalledEvent && !eventKeys.some(Boolean)) return undefined;
+  return { events, renderedLines, ...(eventKeys.some(Boolean) ? { eventKeys } : {}) };
+}
+
+function groupPendingEntriesByThread(
+  entries: InboxEntry[],
+): Array<{ route: ThreadRouteMetadata; entries: InboxEntry[] }> {
+  const groups = new Map<string, { route: ThreadRouteMetadata; entries: InboxEntry[] }>();
+  for (const entry of entries) {
+    const key = routeKey(entry.threadRoute);
+    let group = groups.get(key);
+    if (!group) {
+      group = { route: entry.threadRoute, entries: [] };
+      groups.set(key, group);
+    }
+    group.entries.push(entry);
+  }
+  return [...groups.values()];
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────────────────
@@ -1064,6 +1612,12 @@ function formatDuration(ms: number): string {
   if (ms < 1000) return `${ms}ms`;
   const s = ms / 1000;
   return s < 60 ? `${s.toFixed(1)}s` : `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
+}
+
+function formatSessionLink(evt: TakodeEvent): string {
+  return typeof evt.sessionNum === "number" && evt.sessionNum > 0
+    ? `[#${evt.sessionNum}](session:${evt.sessionNum})`
+    : evt.sessionName;
 }
 
 function formatToolCounts(tools: Record<string, number> | undefined): string {

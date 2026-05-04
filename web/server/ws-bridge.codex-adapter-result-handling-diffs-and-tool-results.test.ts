@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -617,7 +628,7 @@ describe("Codex adapter result handling", () => {
         skill_metadata: [
           {
             name: "review",
-            path: "/Users/test/.codex/skills/review/SKILL.md",
+            path: "/Users/test/.agents/skills/review/SKILL.md",
             description: "Review code changes",
           },
         ],
@@ -638,7 +649,7 @@ describe("Codex adapter result handling", () => {
     expect(state.skill_metadata).toEqual([
       {
         name: "review",
-        path: "/Users/test/.codex/skills/review/SKILL.md",
+        path: "/Users/test/.agents/skills/review/SKILL.md",
         description: "Review code changes",
       },
     ]);

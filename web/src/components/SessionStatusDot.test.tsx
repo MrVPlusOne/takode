@@ -10,10 +10,10 @@ import { deriveSessionStatus, SessionStatusDot, type SessionStatusDotProps } fro
  * The status priority (highest to lowest) is:
  *   1. archived       -> gray dot, no glow
  *   2. permission      -> amber dot, breathing glow
- *   3. disconnected    -> red dot, no glow
+ *   3. disconnected    -> plug icon, no glow
  *   4. running         -> green dot, breathing glow
- *   5. compacting      -> amber dot, breathing glow
- *   6. idle            -> dim green dot, no glow
+ *   5. compacting      -> green dot, breathing glow
+ *   6. idle            -> gray dot, no glow
  */
 
 function makeProps(overrides: Partial<SessionStatusDotProps> = {}): SessionStatusDotProps {
@@ -213,7 +213,7 @@ describe("SessionStatusDot component", () => {
   });
 
   it("applies breathing glow animation for running status", () => {
-    // Running status should have yarn-glow-breathe animation (drop-shadow based)
+    // Running status should have the shared glow animation.
     render(<SessionStatusDot {...makeProps({ status: "running" })} />);
     const dot = screen.getByTestId("session-status-dot");
     expect(dot.style.animation).toBe("yarn-glow-breathe 2s ease-in-out infinite");
@@ -221,7 +221,7 @@ describe("SessionStatusDot component", () => {
   });
 
   it("applies breathing glow animation for permission status", () => {
-    // Permission status should have yarn-glow-breathe animation and amber --glow-color
+    // Permission status should have the shared glow animation and amber glow color.
     render(<SessionStatusDot {...makeProps({ permCount: 1 })} />);
     const dot = screen.getByTestId("session-status-dot");
     expect(dot.style.animation).toBe("yarn-glow-breathe 2s ease-in-out infinite");
@@ -229,8 +229,7 @@ describe("SessionStatusDot component", () => {
   });
 
   it("applies breathing glow animation for compacting status", () => {
-    // Compacting status should have yarn-glow-breathe animation and green --glow-color
-    // (same as running — amber is reserved for "needs user action")
+    // Compacting uses the same green activity glow as running.
     render(<SessionStatusDot {...makeProps({ status: "compacting" })} />);
     const dot = screen.getByTestId("session-status-dot");
     expect(dot.style.animation).toBe("yarn-glow-breathe 2s ease-in-out infinite");
@@ -284,61 +283,44 @@ describe("SessionStatusDot component", () => {
     expect(screen.getByTitle("Compacting context")).toBeInTheDocument();
   });
 
-  it("applies the correct CSS color class for disconnected state (gray power plug)", () => {
+  it("preserves the unplug icon for disconnected state", () => {
     render(<SessionStatusDot {...makeProps({ isConnected: false, sdkState: "exited" })} />);
     const dot = screen.getByTestId("session-status-dot");
-    // Disconnected uses PowerPlugDot instead of YarnBallDot, still an SVG child
     const plugSvg = dot.querySelector("svg")!;
-    expect(plugSvg.className.baseVal).toContain("text-cc-muted/50");
+    expect(plugSvg.className.baseVal).toContain("text-cc-muted/60");
   });
 
-  it("applies the correct CSS color class for running state (green)", () => {
+  it("renders a simple green rounded dot for running state", () => {
     render(<SessionStatusDot {...makeProps({ status: "running" })} />);
     const dot = screen.getByTestId("session-status-dot");
-    const yarnBall = dot.querySelector("svg")!;
-    expect(yarnBall.className.baseVal).toContain("text-cc-success");
-    // Should be solid green, not the dim variant
-    expect(yarnBall.className.baseVal).not.toContain("text-cc-success/60");
+    expect(dot.querySelector("svg")).toBeNull();
+    const statusDot = dot.querySelector("span")!;
+    expect(statusDot).toHaveClass("rounded-full", "bg-emerald-500");
   });
 
-  it("renders yarn ball indicator for completed_unread state with correct title", () => {
+  it("renders a blue rounded dot for completed_unread state with correct title", () => {
     render(<SessionStatusDot {...makeProps({ hasUnread: true })} />);
     const dot = screen.getByTestId("session-status-dot");
     expect(dot).toHaveAttribute("data-status", "completed_unread");
-    const yarnBall = dot.querySelector("svg")!;
-    expect(yarnBall.className.baseVal).toContain("text-blue-500");
+    const statusDot = dot.querySelector("span")!;
+    expect(statusDot).toHaveClass("rounded-full", "bg-blue-500");
     expect(dot.style.animation).toBe(""); // no glow
     expect(screen.getByTitle("Completed — needs review")).toBeInTheDocument();
   });
 
-  it("applies yarn-ball-roll CSS class for running status", () => {
-    // Running sessions should have the rolling animation class on the yarn ball SVG.
-    render(<SessionStatusDot {...makeProps({ status: "running" })} />);
-    const dot = screen.getByTestId("session-status-dot");
-    const svg = dot.querySelector("svg")!;
-    expect(svg.className.baseVal).toContain("yarn-ball-roll");
-  });
-
-  it("applies yarn-ball-roll CSS class for compacting status", () => {
-    // Compacting also shows rolling since the agent is actively working.
-    render(<SessionStatusDot {...makeProps({ status: "compacting" })} />);
-    const dot = screen.getByTestId("session-status-dot");
-    const svg = dot.querySelector("svg")!;
-    expect(svg.className.baseVal).toContain("yarn-ball-roll");
-  });
-
-  it("does NOT apply yarn-ball-roll for idle status", () => {
+  it("renders a simple gray rounded dot for idle status", () => {
     render(<SessionStatusDot {...makeProps()} />);
     const dot = screen.getByTestId("session-status-dot");
-    const svg = dot.querySelector("svg")!;
-    expect(svg.className.baseVal).not.toContain("yarn-ball-roll");
+    expect(dot.querySelector("svg")).toBeNull();
+    const statusDot = dot.querySelector("span")!;
+    expect(statusDot).toHaveClass("rounded-full", "bg-cc-muted/50");
   });
 
-  it("does NOT apply yarn-ball-roll for disconnected status", () => {
+  it("does not render a rounded dot for disconnected status", () => {
     render(<SessionStatusDot {...makeProps({ isConnected: false, sdkState: "exited" })} />);
     const dot = screen.getByTestId("session-status-dot");
-    const svg = dot.querySelector("svg")!;
-    expect(svg.className.baseVal).not.toContain("yarn-ball-roll");
+    expect(dot.querySelector("svg")).toBeInTheDocument();
+    expect(dot.querySelector("span")).toBeNull();
   });
 
   it("shows idle-killed sessions as idle (gray) with 'Idle' title", () => {
@@ -348,7 +330,8 @@ describe("SessionStatusDot component", () => {
     const dot = screen.getByTestId("session-status-dot");
     expect(dot).toHaveAttribute("data-status", "idle");
     expect(screen.getByTitle("Idle")).toBeInTheDocument();
-    const yarnBall = dot.querySelector("svg")!;
-    expect(yarnBall.className.baseVal).not.toContain("text-cc-error");
+    expect(dot.querySelector("svg")).toBeNull();
+    const statusDot = dot.querySelector("span")!;
+    expect(statusDot).toHaveClass("bg-cc-muted/50");
   });
 });

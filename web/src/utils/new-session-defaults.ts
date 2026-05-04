@@ -93,7 +93,7 @@ function buildDefaults(candidate: Partial<NewSessionDefaults>): NewSessionDefaul
     model: normalizeModel(backend, candidate.model),
     mode,
     askPermission,
-    sessionRole: candidate.sessionRole === "leader" ? "leader" : "worker",
+    sessionRole: "worker",
     envSlug: candidate.envSlug ?? "",
     cwd: candidate.cwd?.trim() ?? "",
     useWorktree: candidate.useWorktree ?? true,
@@ -152,6 +152,15 @@ export function getGroupNewSessionDefaults(groupKey: string): NewSessionDefaults
   const stored = parseGroupDefaultsMap()[key];
   if (!stored) return globalDefaults;
   return buildDefaults({ ...globalDefaults, ...stored });
+}
+
+export function getCachedGroupNewSessionDefaults(groupKey: string): NewSessionDefaults | null {
+  const key = groupKey.trim();
+  if (!key) return null;
+
+  const stored = parseGroupDefaultsMap()[key];
+  if (!stored) return null;
+  return buildDefaults({ ...getGlobalNewSessionDefaults(), ...stored });
 }
 
 export function saveGroupNewSessionDefaults(groupKey: string, defaults: NewSessionDefaults): void {

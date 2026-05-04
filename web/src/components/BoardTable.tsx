@@ -5,18 +5,28 @@
  * Extracted so the table layout, QuestLink hover cards, and WorkerLink hover
  * cards are defined once and reused.
  */
-import { useState, useRef, useCallback, useMemo, useEffect, memo, type MouseEvent } from "react";
-import { useStore, countUserPermissions } from "../store.js";
-import { navigateToSession } from "../utils/routing.js";
+import { useState, useRef, useMemo, useEffect, useCallback, useLayoutEffect, memo, type MouseEvent } from "react";
+import { createPortal } from "react-dom";
+import { useStore } from "../store.js";
 import {
   QUEST_JOURNEY_STATES,
   formatWaitForRefLabel,
   getQuestJourneyPresentation,
+  getQuestJourneyPhaseForState,
   getWaitForRefKind,
+  type QuestJourneyPlanState,
 } from "../../shared/quest-journey.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
-import { SessionHoverCard } from "./SessionHoverCard.js";
-import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
+import { SessionInlineLink } from "./SessionInlineLink.js";
+import { SessionStatusDot } from "./SessionStatusDot.js";
+import { useParticipantSessionStatusDotProps } from "./session-participant-status.js";
+import {
+  isCompletedJourneyPresentationStatus,
+  QuestJourneyPreviewCard,
+  QuestJourneyTimeline,
+} from "./QuestJourneyTimeline.js";
+import type { BoardParticipantStatus, BoardRowSessionStatus } from "../types.js";
+import type { QuestmasterTask } from "../types.js";
 
 /** A row in the leader's work board (matches server BoardRow). */
 export interface BoardRowData {
@@ -24,14 +34,19 @@ export interface BoardRowData {
   title?: string;
   worker?: string;
   workerNum?: number;
+  journey?: QuestJourneyPlanState;
   status?: string;
   waitFor?: string[];
+  waitForInput?: string[];
   createdAt?: number;
   updatedAt: number;
   completedAt?: number;
 }
 
 export type BoardTableMode = "active" | "completed";
+
+const SESSION_LINK_CLASSNAME =
+  "font-mono-code text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2";
 
 const JOURNEY_STATUS_PRIORITY = new Map([...QUEST_JOURNEY_STATES].reverse().map((status, index) => [status, index]));
 
@@ -42,6 +57,10 @@ function statusPriority(status?: string): number {
 
 function compareByRecencyDesc(a: BoardRowData, b: BoardRowData): number {
   return b.updatedAt - a.updatedAt || a.questId.localeCompare(b.questId);
+}
+
+function isQueuedRowStatus(status?: string): boolean {
+  return (status || "").trim().toUpperCase() === "QUEUED";
 }
 
 function topologicallySortStatusGroup(rows: BoardRowData[]): BoardRowData[] {
@@ -111,7 +130,9 @@ export function orderBoardRows(board: BoardRowData[], mode: BoardTableMode = "ac
       if (byPriority !== 0) return byPriority;
       return statusA.localeCompare(statusB);
     })
-    .flatMap(([, rows]) => topologicallySortStatusGroup(rows));
+    .flatMap(([status, rows]) =>
+      isQueuedRowStatus(status) ? topologicallySortStatusGroup(rows) : rows.sort(compareByRecencyDesc),
+    );
 }
 
 export function formatCompletedTime(timestamp?: number): string {
@@ -184,135 +205,55 @@ export function QuestLink({ questId }: { questId: string }) {
   );
 }
 
-/** Clickable worker session link with hover preview card -- navigates to the worker session. */
+/** Clickable session link with the shared orange inline-session styling. */
 export function WorkerLink({ sessionId, sessionNum }: { sessionId: string; sessionNum?: number }) {
-  const sessions = useStore((s) => s.sessions);
-  const sdkSessions = useStore((s) => s.sdkSessions);
-  const sessionNames = useStore((s) => s.sessionNames);
-  const sessionPreviews = useStore((s) => s.sessionPreviews);
-  const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
-  const pendingPermissions = useStore((s) => s.pendingPermissions);
-  const cliConnected = useStore((s) => s.cliConnected);
-  const sessionStatus = useStore((s) => s.sessionStatus);
-  const askPermission = useStore((s) => s.askPermission);
-  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason);
-
-  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
-  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  useEffect(
-    () => () => {
-      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    },
-    [],
+  return (
+    <SessionInlineLink sessionId={sessionId} sessionNum={sessionNum} className={SESSION_LINK_CLASSNAME}>
+      {`#${sessionNum ?? "?"}`}
+    </SessionInlineLink>
   );
+}
 
-  // Resolve SDK session info for this worker
-  const sdkInfo = useMemo(() => sdkSessions.find((s) => s.sessionId === sessionId), [sdkSessions, sessionId]);
-
-  // Assemble the full SessionItem for the hover card
-  const sessionItem = useMemo<SessionItemType | null>(() => {
-    const bridgeState = sessions.get(sessionId);
-    if (!bridgeState && !sdkInfo) return null;
-
-    const sdkGitAhead = sdkInfo?.gitAhead ?? 0;
-    const sdkGitBehind = sdkInfo?.gitBehind ?? 0;
-    const gitAhead =
-      bridgeState?.git_ahead === 0 && sdkGitAhead > 0 ? sdkGitAhead : (bridgeState?.git_ahead ?? sdkGitAhead);
-    const gitBehind =
-      bridgeState?.git_behind === 0 && sdkGitBehind > 0 ? sdkGitBehind : (bridgeState?.git_behind ?? sdkGitBehind);
-
-    return {
-      id: sessionId,
-      model: bridgeState?.model || sdkInfo?.model || "",
-      cwd: bridgeState?.cwd || sdkInfo?.cwd || "",
-      gitBranch: bridgeState?.git_branch || sdkInfo?.gitBranch || "",
-      isContainerized: bridgeState?.is_containerized || !!sdkInfo?.containerId || false,
-      gitAhead,
-      gitBehind,
-      linesAdded: bridgeState?.total_lines_added ?? sdkInfo?.totalLinesAdded ?? 0,
-      linesRemoved: bridgeState?.total_lines_removed ?? sdkInfo?.totalLinesRemoved ?? 0,
-      isConnected: cliConnected.get(sessionId) ?? sdkInfo?.cliConnected ?? false,
-      status: sessionStatus.get(sessionId) ?? null,
-      sdkState: sdkInfo?.state ?? null,
-      createdAt: sdkInfo?.createdAt ?? 0,
-      archived: sdkInfo?.archived ?? false,
-      archivedAt: sdkInfo?.archivedAt,
-      backendType: bridgeState?.backend_type || sdkInfo?.backendType || "claude",
-      repoRoot: bridgeState?.repo_root || sdkInfo?.repoRoot || "",
-      permCount: countUserPermissions(pendingPermissions.get(sessionId)),
-      cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
-      cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
-      isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
-      worktreeExists: sdkInfo?.worktreeExists,
-      worktreeDirty: sdkInfo?.worktreeDirty,
-      worktreeCleanupStatus: sdkInfo?.worktreeCleanupStatus,
-      worktreeCleanupError: sdkInfo?.worktreeCleanupError,
-      askPermission: askPermission.get(sessionId),
-      idleKilled: cliDisconnectReason.get(sessionId) === "idle_limit",
-      lastActivityAt: sdkInfo?.lastActivityAt,
-      isOrchestrator: sdkInfo?.isOrchestrator || false,
-      herdedBy: sdkInfo?.herdedBy,
-      sessionNum: sdkInfo?.sessionNum ?? sessionNum ?? null,
-    };
-  }, [
-    askPermission,
-    cliConnected,
-    cliDisconnectReason,
-    pendingPermissions,
-    sdkInfo,
-    sessionId,
-    sessionNum,
-    sessionStatus,
-    sessions,
-  ]);
-
-  const handleClick = useCallback(
-    (e: MouseEvent<HTMLButtonElement>) => {
-      e.stopPropagation();
-      navigateToSession(sessionId);
-    },
-    [sessionId],
-  );
-
-  function handleMouseEnter(e: MouseEvent<HTMLButtonElement>) {
-    if (!sessionItem) return;
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    setHoverRect(e.currentTarget.getBoundingClientRect());
-  }
-
-  function handleMouseLeave() {
-    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-    hideTimerRef.current = setTimeout(() => setHoverRect(null), 100);
-  }
+function BoardSessionEntry({
+  participant,
+  sessionId,
+  sessionNum,
+}: {
+  participant?: BoardParticipantStatus | null;
+  sessionId?: string;
+  sessionNum?: number;
+}) {
+  const resolvedSessionId = participant?.sessionId ?? sessionId ?? null;
+  const resolvedSessionNum = participant?.sessionNum ?? sessionNum ?? undefined;
+  const dotProps = useParticipantSessionStatusDotProps(resolvedSessionId, participant?.status);
+  if (!resolvedSessionId) return null;
 
   return (
-    <>
-      <button
-        type="button"
-        onClick={handleClick}
-        onMouseEnter={handleMouseEnter}
-        onMouseLeave={handleMouseLeave}
-        className="font-mono-code text-green-400 hover:text-green-300 hover:underline cursor-pointer transition-colors"
+    <span className="inline-flex min-w-0 items-center gap-1.5">
+      {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
+      <SessionInlineLink
+        sessionId={resolvedSessionId}
+        sessionNum={resolvedSessionNum}
+        className={SESSION_LINK_CLASSNAME}
       >
-        #{sessionNum ?? "?"}
-      </button>
-      {sessionItem && hoverRect && (
-        <SessionHoverCard
-          session={sessionItem}
-          sessionName={sessionNames.get(sessionId)}
-          sessionPreview={sessionPreviews.get(sessionId)}
-          taskHistory={sessionTaskHistory.get(sessionId)}
-          sessionState={sessions.get(sessionId)}
-          cliSessionId={sdkInfo?.cliSessionId}
-          anchorRect={hoverRect}
-          onMouseEnter={() => {
-            if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
-          }}
-          onMouseLeave={() => setHoverRect(null)}
-        />
+        {`#${resolvedSessionNum ?? "?"}`}
+      </SessionInlineLink>
+    </span>
+  );
+}
+
+function SessionCell({ row, rowStatus }: { row: BoardRowData; rowStatus?: BoardRowSessionStatus }) {
+  const hasWorker = !!row.worker || !!rowStatus?.worker;
+  const hasReviewer = !!rowStatus?.reviewer;
+  if (!hasWorker && !hasReviewer) return <span className="text-cc-muted">{"\u2014"}</span>;
+
+  return (
+    <div className="flex min-w-0 flex-row flex-wrap items-center gap-x-3 gap-y-1">
+      {hasWorker && (
+        <BoardSessionEntry participant={rowStatus?.worker} sessionId={row.worker} sessionNum={row.workerNum} />
       )}
-    </>
+      {hasReviewer && <BoardSessionEntry participant={rowStatus?.reviewer} />}
+    </div>
   );
 }
 
@@ -335,40 +276,181 @@ function WaitForRef({ depRef }: { depRef: string }) {
   return <span className="text-cc-muted">{formatWaitForRefLabel(depRef)}</span>;
 }
 
-function StatusCell({ status }: { status?: string }) {
+function WaitForInputRef({ notificationId }: { notificationId: string }) {
+  const match = /^n-(\d+)$/i.exec(notificationId.trim());
+  return <span className="text-amber-200/90">{`input ${match ? match[1] : notificationId}`}</span>;
+}
+
+function JourneyHoverCard({
+  row,
+  journeyStatus,
+  quest,
+  anchorRect,
+  onMouseEnter,
+  onMouseLeave,
+}: {
+  row: BoardRowData;
+  journeyStatus?: string;
+  quest?: QuestmasterTask;
+  anchorRect: DOMRect;
+  onMouseEnter: () => void;
+  onMouseLeave: () => void;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
+  const cardWidth = 380;
+  const gap = 6;
+  const left = anchorRect.left;
+  const top = anchorRect.bottom + gap;
+
+  useLayoutEffect(() => {
+    if (!cardRef.current) return;
+    const rect = cardRef.current.getBoundingClientRect();
+    const el = cardRef.current;
+    if (rect.right > window.innerWidth - 8) {
+      el.style.left = `${Math.max(8, window.innerWidth - cardWidth - 8)}px`;
+    }
+    if (rect.bottom > window.innerHeight - 8) {
+      el.style.top = `${Math.max(8, anchorRect.top - rect.height - gap)}px`;
+    }
+    if (rect.top < 8) {
+      el.style.top = "8px";
+    }
+  }, [anchorRect]);
+
+  if (!row.journey) return null;
+
+  return createPortal(
+    <div
+      ref={cardRef}
+      className="fixed z-50 pointer-events-auto hidden-on-touch"
+      style={{ left, top, width: cardWidth, transform: `scale(${zoomLevel})`, transformOrigin: "top left" }}
+      onMouseEnter={onMouseEnter}
+      onMouseLeave={onMouseLeave}
+      data-testid="board-journey-hover-card"
+    >
+      <div className="rounded-lg border border-cc-border bg-cc-card p-2.5 shadow-xl">
+        <QuestJourneyPreviewCard
+          journey={row.journey}
+          status={journeyStatus}
+          quest={{ questId: row.questId, title: quest?.title ?? row.title }}
+          onQuestClick={() => useStore.getState().openQuestOverlay(row.questId)}
+        />
+      </div>
+    </div>,
+    document.body,
+  );
+}
+
+function StatusCell({ row, mode }: { row: BoardRowData; mode: BoardTableMode }) {
+  const status = row.status;
+  const quests = useStore((s) => s.quests);
+  const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
+  const hideTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  useEffect(
+    () => () => {
+      if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    },
+    [],
+  );
+
+  const quest = useMemo(
+    () => quests.find((candidate) => candidate.questId.toLowerCase() === row.questId.toLowerCase()),
+    [quests, row.questId],
+  );
+  const journeyStatus =
+    mode === "completed" ||
+    isCompletedJourneyPresentationStatus(quest?.status) ||
+    isCompletedJourneyPresentationStatus(row.status)
+      ? "done"
+      : row.status;
+
+  function handleJourneyMouseEnter(e: MouseEvent<HTMLDivElement>) {
+    if (!row.journey?.phaseIds?.length) return;
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    setHoverRect(e.currentTarget.getBoundingClientRect());
+  }
+
+  function handleJourneyMouseLeave() {
+    if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+    hideTimerRef.current = setTimeout(() => setHoverRect(null), 100);
+  }
+
   if (!status) return <span className="text-cc-muted">{"\u2014"}</span>;
 
+  if (row.journey?.phaseIds?.length) {
+    return (
+      <>
+        <div
+          className="max-w-full"
+          onMouseEnter={handleJourneyMouseEnter}
+          onMouseLeave={handleJourneyMouseLeave}
+          data-testid="board-journey-hover-target"
+        >
+          <QuestJourneyTimeline journey={row.journey} status={journeyStatus} compact />
+        </div>
+        {hoverRect && (
+          <JourneyHoverCard
+            row={row}
+            journeyStatus={journeyStatus}
+            quest={quest}
+            anchorRect={hoverRect}
+            onMouseEnter={() => {
+              if (hideTimerRef.current) clearTimeout(hideTimerRef.current);
+            }}
+            onMouseLeave={() => setHoverRect(null)}
+          />
+        )}
+      </>
+    );
+  }
+
+  const phase = getQuestJourneyPhaseForState(status);
+  if (phase) {
+    return (
+      <span className="block max-w-full truncate text-cc-fg" style={{ color: phase.color.accent }}>
+        {phase.label}
+      </span>
+    );
+  }
+
   const presentation = getQuestJourneyPresentation(status);
-  return (
-    <span className={`block max-w-full truncate ${presentation?.textClassName ?? "text-cc-muted"}`}>
-      {presentation?.label ?? status}
-    </span>
-  );
+  return <span className="block max-w-full truncate text-cc-muted">{presentation?.label ?? status}</span>;
 }
 
 /** Shared board table -- renders the rows without any card chrome or collapse logic. */
 export const BoardTable = memo(function BoardTable({
   board,
   mode = "active",
+  rowSessionStatuses,
+  selectedThreadKey,
+  onSelectQuestThread,
 }: {
   board: BoardRowData[];
   mode?: BoardTableMode;
+  rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+  selectedThreadKey?: string;
+  onSelectQuestThread?: (questId: string) => void;
 }) {
   if (board.length === 0) {
     return <div className="px-3 py-3 text-xs text-cc-muted italic">Board is empty</div>;
   }
 
   const isCompleted = mode === "completed";
+  const showThreadAction = !!onSelectQuestThread;
+  const normalizedSelectedThread = selectedThreadKey?.toLowerCase();
   const orderedBoard = useMemo(() => orderBoardRows(board, mode), [board, mode]);
 
   return (
     <div className="overflow-x-auto">
-      <table className="w-full text-xs">
+      <table className="w-full text-xs" data-testid="board-table">
         <thead>
           <tr className="text-cc-muted border-b border-cc-border">
+            {showThreadAction && <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Thread</th>}
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Quest</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Worker</th>
-            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Status</th>
+            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap min-w-[8rem]">Sessions</th>
+            <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Journey</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">Title</th>
             <th className="text-left font-medium px-3 py-1.5 whitespace-nowrap">
               {isCompleted ? "Completed Time" : "Wait For"}
@@ -376,46 +458,81 @@ export const BoardTable = memo(function BoardTable({
           </tr>
         </thead>
         <tbody>
-          {orderedBoard.map((row) => (
-            <tr key={row.questId} className="border-b border-cc-border last:border-0 hover:bg-cc-hover/30">
-              <td className="px-3 py-1.5 whitespace-nowrap">
-                <QuestLink questId={row.questId} />
-              </td>
-              <td className="px-3 py-1.5 whitespace-nowrap">
-                {row.worker ? (
-                  <WorkerLink sessionId={row.worker} sessionNum={row.workerNum} />
-                ) : (
-                  <span className="text-cc-muted">{"\u2014"}</span>
+          {orderedBoard.map((row) => {
+            const threadKey = row.questId.toLowerCase();
+            const selected = normalizedSelectedThread === threadKey;
+            return (
+              <tr
+                key={row.questId}
+                className={`border-b border-cc-border last:border-0 hover:bg-cc-hover/30 ${
+                  selected ? "bg-cc-hover/45" : ""
+                }`}
+                data-testid={showThreadAction ? "board-thread-row" : undefined}
+                data-thread-key={showThreadAction ? threadKey : undefined}
+              >
+                {showThreadAction && (
+                  <td className="px-3 py-1.5 text-left whitespace-nowrap">
+                    <button
+                      type="button"
+                      onClick={() => onSelectQuestThread?.(threadKey)}
+                      className={`inline-flex items-center gap-1 rounded border px-2 py-1 text-[11px] font-medium transition-colors ${
+                        selected
+                          ? "border-cc-primary/45 bg-cc-primary/15 text-cc-primary"
+                          : "border-cc-border/70 bg-cc-hover/40 text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+                      }`}
+                      data-testid="board-thread-action"
+                      aria-pressed={selected}
+                    >
+                      <svg className="h-3 w-3 shrink-0" viewBox="0 0 16 16" fill="none" aria-hidden="true">
+                        <path
+                          d="M3 4.5h10M3 8h7M3 11.5h5"
+                          stroke="currentColor"
+                          strokeWidth="1.4"
+                          strokeLinecap="round"
+                        />
+                      </svg>
+                      <span>{selected ? "Current" : "Jump"}</span>
+                    </button>
+                  </td>
                 )}
-              </td>
-              <td className="px-3 py-1.5 max-w-[250px]">
-                <StatusCell status={row.status} />
-              </td>
-              <td className="px-3 py-1.5 text-cc-fg max-w-[200px] truncate">{row.title || "\u2014"}</td>
-              <td className="px-3 py-1.5 whitespace-nowrap">
-                {isCompleted ? (
-                  <span
-                    className="text-cc-muted"
-                    title={row.completedAt ? new Date(row.completedAt).toLocaleString() : ""}
-                  >
-                    {formatCompletedTime(row.completedAt)}
-                  </span>
-                ) : (
-                  <>
-                    {row.waitFor && row.waitFor.length > 0 ? (
-                      <span className="flex gap-1.5 flex-wrap">
-                        {row.waitFor.map((dep) => (
-                          <WaitForRef key={dep} depRef={dep} />
-                        ))}
-                      </span>
-                    ) : (
-                      <span className="text-cc-muted">{"\u2014"}</span>
-                    )}
-                  </>
-                )}
-              </td>
-            </tr>
-          ))}
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  <QuestLink questId={row.questId} />
+                </td>
+                <td className="px-3 py-1.5 min-w-[8rem] whitespace-normal">
+                  <SessionCell row={row} rowStatus={rowSessionStatuses?.[row.questId]} />
+                </td>
+                <td className="px-3 py-1.5 max-w-[360px]">
+                  <StatusCell row={row} mode={mode} />
+                </td>
+                <td className="px-3 py-1.5 text-cc-fg max-w-[200px] truncate">{row.title || "\u2014"}</td>
+                <td className="px-3 py-1.5 whitespace-nowrap">
+                  {isCompleted ? (
+                    <span
+                      className="text-cc-muted"
+                      title={row.completedAt ? new Date(row.completedAt).toLocaleString() : ""}
+                    >
+                      {formatCompletedTime(row.completedAt)}
+                    </span>
+                  ) : (
+                    <>
+                      {(isQueuedRowStatus(row.status) && row.waitFor && row.waitFor.length > 0) ||
+                      (!isQueuedRowStatus(row.status) && row.waitForInput && row.waitForInput.length > 0) ? (
+                        <span className="flex gap-1.5 flex-wrap">
+                          {isQueuedRowStatus(row.status)
+                            ? row.waitFor?.map((dep) => <WaitForRef key={dep} depRef={dep} />)
+                            : row.waitForInput?.map((notificationId) => (
+                                <WaitForInputRef key={notificationId} notificationId={notificationId} />
+                              ))}
+                        </span>
+                      ) : (
+                        <span className="text-cc-muted">{"\u2014"}</span>
+                      )}
+                    </>
+                  )}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>

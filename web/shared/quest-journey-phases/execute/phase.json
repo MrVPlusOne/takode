@@ -1,0 +1,10 @@
+{
+  "id": "execute",
+  "label": "Execute",
+  "color": { "name": "orange", "accent": "#fb923c" },
+  "boardState": "EXECUTING",
+  "assigneeRole": "worker",
+  "contract": "Run approved expensive, risky, long-running, externally consequential, or approval-gated operations.",
+  "nextLeaderAction": "read the execute leader brief, track monitor and stop conditions, then wait for the execution report and decide whether outcome review, more execute work, or a Journey revision is needed",
+  "aliases": []
+}

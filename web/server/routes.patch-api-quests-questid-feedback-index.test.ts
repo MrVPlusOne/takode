@@ -545,7 +545,7 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -561,7 +561,7 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -579,8 +579,9 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(patchSpy).toHaveBeenCalledWith(
-      "q-1",
+    const [questId, patchArg, optionsArg] = patchSpy.mock.calls[0] ?? [];
+    expect(questId).toBe("q-1");
+    expect(patchArg).toEqual(
       expect.objectContaining({
         feedback: [
           expect.objectContaining({ author: "human", text: "Please verify spacing" }),
@@ -594,6 +595,11 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
         ],
       }),
     );
+    expect(optionsArg).toEqual(
+      expect.objectContaining({
+        current: expect.objectContaining({ questId: "q-1", id: "q-1-v3" }),
+      }),
+    );
   });
 
   it("clears agent feedback images when edit explicitly sends an empty image list", async () => {
@@ -604,7 +610,7 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -626,7 +632,7 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -644,8 +650,9 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(patchSpy).toHaveBeenCalledWith(
-      "q-1",
+    const [questId, patchArg, optionsArg] = patchSpy.mock.calls[0] ?? [];
+    expect(questId).toBe("q-1");
+    expect(patchArg).toEqual(
       expect.objectContaining({
         feedback: [
           expect.objectContaining({ author: "human", text: "Please verify spacing" }),
@@ -653,24 +660,40 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
         ],
       }),
     );
+    expect(optionsArg).toEqual(
+      expect.objectContaining({
+        current: expect.objectContaining({ questId: "q-1", id: "q-1-v3" }),
+      }),
+    );
   });
 
-  it("rejects edits to human feedback entries", async () => {
-    // Human review comments should remain immutable from the agent-feedback edit endpoint.
+  it("allows edits to human feedback entries", async () => {
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v3",
       questId: "q-1",
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
       verificationItems: [],
       feedback: [{ author: "human", text: "Please verify spacing", ts: Date.now(), addressed: false }],
     } as any);
-    const patchSpy = vi.spyOn(questStore, "patchQuest");
+    const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [{ author: "human", text: "Overwritten", ts: Date.now(), addressed: false }],
+    } as any);
 
     const res = await app.request("/api/quests/q-1/feedback/0", {
       method: "PATCH",
@@ -678,8 +701,16 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
       body: JSON.stringify({ text: "Overwritten" }),
     });
 
-    expect(res.status).toBe(400);
-    expect(patchSpy).not.toHaveBeenCalled();
+    expect(res.status).toBe(200);
+    expect(patchSpy).toHaveBeenCalledWith(
+      "q-1",
+      expect.objectContaining({
+        feedback: [expect.objectContaining({ author: "human", text: "Overwritten" })],
+      }),
+      expect.objectContaining({
+        current: expect.objectContaining({ questId: "q-1", id: "q-1-v3" }),
+      }),
+    );
   });
 
   it("returns 400 for an out-of-range feedback index", async () => {
@@ -690,7 +721,7 @@ describe("PATCH /api/quests/:questId/feedback/:index", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),

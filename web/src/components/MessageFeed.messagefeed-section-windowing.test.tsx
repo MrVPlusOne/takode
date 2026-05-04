@@ -29,8 +29,9 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import type { ChatMessage } from "../types.js";
+import type { BrowserIncomingMessage, ChatMessage } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
+import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 
 // Mock react-markdown to avoid ESM issues in tests
 vi.mock("react-markdown", () => ({
@@ -83,6 +84,8 @@ vi.mock("../store.js", () => {
       toolResults: mockStoreValues.toolResults ?? new Map(),
       toolStartTimestamps: mockStoreValues.toolStartTimestamps ?? new Map(),
       sdkSessions: mockStoreValues.sdkSessions ?? [],
+      threadWindows: mockStoreValues.threadWindows ?? new Map(),
+      threadWindowMessages: mockStoreValues.threadWindowMessages ?? new Map(),
       feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
       turnActivityOverrides: mockStoreValues.turnActivityOverrides ?? new Map(),
       autoExpandedTurnIds: mockStoreValues.autoExpandedTurnIds ?? new Map(),
@@ -101,6 +104,7 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
     };
     return selector(state);
@@ -138,6 +142,8 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
+import { HISTORY_WINDOW_SECTION_TURN_COUNT } from "../../shared/history-window.js";
+import { cacheHistoryWindow } from "../utils/history-window-cache.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -277,6 +283,7 @@ function setStoreFeedScrollPosition(
 ) {
   const map = new Map();
   map.set(sessionId, pos);
+  map.set(`${sessionId}:thread:main`, pos);
   mockStoreValues.feedScrollPosition = map;
 }
 
@@ -411,6 +418,8 @@ function resetStore() {
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
   mockStoreValues.sessions = new Map();
+  mockStoreValues.threadWindows = new Map();
+  mockStoreValues.threadWindowMessages = new Map();
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.toolResults = new Map();
   mockStoreValues.toolStartTimestamps = new Map();
@@ -425,6 +434,7 @@ function resetStore() {
   mockStoreValues.pendingCodexInputs = new Map();
   mockStoreValues.activeTaskTurnId = new Map();
   mockStoreValues.sdkSessions = [];
+  localStorage.clear();
 }
 
 /** Set explicit overrides for turn activity expansion per session.
@@ -439,6 +449,53 @@ function setStoreAutoExpandedTurns(sessionId: string, turnIds: string[]) {
   const map = new Map();
   map.set(sessionId, new Set(turnIds));
   mockStoreValues.autoExpandedTurnIds = map;
+}
+
+function setStoreSelectedThreadWindow({
+  sessionId,
+  threadKey,
+  fromItem,
+  itemCount,
+  totalItems,
+  sectionItemCount,
+  visibleItemCount,
+  hasOlderItems,
+  hasNewerItems,
+  messages,
+}: {
+  sessionId: string;
+  threadKey: string;
+  fromItem: number;
+  itemCount: number;
+  totalItems: number;
+  sectionItemCount: number;
+  visibleItemCount: number;
+  hasOlderItems?: boolean;
+  hasNewerItems?: boolean;
+  messages: ChatMessage[];
+}) {
+  mockStoreValues.threadWindows = new Map([
+    [
+      sessionId,
+      new Map([
+        [
+          threadKey,
+          {
+            thread_key: threadKey,
+            from_item: fromItem,
+            item_count: itemCount,
+            total_items: totalItems,
+            ...(hasOlderItems === undefined ? {} : { has_older_items: hasOlderItems }),
+            ...(hasNewerItems === undefined ? {} : { has_newer_items: hasNewerItems }),
+            source_history_length: totalItems,
+            section_item_count: sectionItemCount,
+            visible_item_count: visibleItemCount,
+          },
+        ],
+      ]),
+    ],
+  ]);
+  mockStoreValues.threadWindowMessages = new Map([[sessionId, new Map([[threadKey, messages]])]]);
 }
 
 async function flushFeedObservers() {
@@ -478,6 +535,28 @@ function setElementClientSize(element: HTMLElement, width: number, height: numbe
   });
 }
 
+function setElementScrollMetrics(element: HTMLElement, scrollHeight: number, clientHeight: number, scrollTop: number) {
+  Object.defineProperty(element, "scrollHeight", {
+    configurable: true,
+    get() {
+      return scrollHeight;
+    },
+  });
+  Object.defineProperty(element, "clientHeight", {
+    configurable: true,
+    get() {
+      return clientHeight;
+    },
+  });
+  element.scrollTop = scrollTop;
+}
+
+function getScrollContainer(container: HTMLElement): HTMLElement {
+  const scrollContainer = container.querySelector<HTMLElement>('[data-testid="message-feed-scroll-container"]');
+  if (!scrollContainer) throw new Error("Message feed scroll container missing");
+  return scrollContainer;
+}
+
 beforeEach(() => {
   resetStore();
   mockScrollIntoView.mockClear();
@@ -500,15 +579,23 @@ function makeDomRect(height: number, width = 0): DOMRect {
 }
 
 describe("MessageFeed section windowing", () => {
-  it("chunks turns into fixed-size 50-turn sections", () => {
-    const sections = buildFeedSections(makeSectionTurns(120));
+  it("chunks turns into fixed-size default sections", () => {
+    const turns = makeSectionTurns(120);
+    const sections = buildFeedSections(turns);
+    const expectedSectionCount = Math.ceil(turns.length / HISTORY_WINDOW_SECTION_TURN_COUNT);
 
-    expect(sections).toHaveLength(3);
-    expect(sections.map((section) => section.turns.length)).toEqual([50, 50, 20]);
-    expect(findVisibleSectionStartIndex(sections, 3)).toBe(0);
-    expect(findVisibleSectionEndIndex(sections, 0, 3)).toBe(3);
-    expect(findVisibleSectionStartIndex(sections, 2)).toBe(1);
-    expect(findVisibleSectionEndIndex(sections, 1, 2)).toBe(3);
+    expect(sections).toHaveLength(expectedSectionCount);
+    expect(sections.map((section) => section.turns.length)).toEqual(
+      Array.from({ length: expectedSectionCount }, (_, index) =>
+        index === expectedSectionCount - 1
+          ? turns.length - HISTORY_WINDOW_SECTION_TURN_COUNT * index
+          : HISTORY_WINDOW_SECTION_TURN_COUNT,
+      ),
+    );
+    expect(findVisibleSectionStartIndex(sections, 3)).toBe(Math.max(0, expectedSectionCount - 3));
+    expect(findVisibleSectionEndIndex(sections, 0, 3)).toBe(Math.min(expectedSectionCount, 3));
+    expect(findVisibleSectionStartIndex(sections, 2)).toBe(Math.max(0, expectedSectionCount - 2));
+    expect(findVisibleSectionEndIndex(sections, 1, 2)).toBe(Math.min(expectedSectionCount, 3));
   });
 
   it("clamps target window selection for section-aware jumps", () => {
@@ -520,24 +607,29 @@ describe("MessageFeed section windowing", () => {
     expect(findSectionWindowStartIndexForTarget(sections, 3, 3)).toBe(1);
   });
 
-  it("slides a bounded three-section window when the user loads older and then loads newer", () => {
+  it("slides a bounded three-section window when the user scrolls older and then newer", () => {
     const sid = "test-section-window";
     setStoreMessages(sid, makeSectionedMessages(4, 2));
     const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+    const scrollContainer = getScrollContainer(container);
 
     expect(screen.queryByText("Section 1 marker")).toBeNull();
     expect(screen.getByText("Section 2 marker")).toBeTruthy();
     expect(screen.getByText("Section 4 marker")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Load older section" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Load older section" })).toBeNull();
+    expect(screen.getByText("Scroll up for older section")).toBeTruthy();
+    expect(screen.queryByText("Loading older section...")).toBeNull();
     expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(3);
 
-    fireEvent.click(screen.getByRole("button", { name: "Load older section" }));
+    setElementScrollMetrics(scrollContainer, 1000, 300, 0);
+    fireEvent.wheel(scrollContainer, { deltaY: -80 });
 
     expect(screen.getByText("Section 1 marker")).toBeTruthy();
     expect(screen.queryByText("Section 4 marker")).toBeNull();
     expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(3);
 
-    fireEvent.click(screen.getByRole("button", { name: "Load newer section" }));
+    setElementScrollMetrics(scrollContainer, 1000, 300, 700);
+    fireEvent.wheel(scrollContainer, { deltaY: 80 });
 
     expect(screen.queryByText("Section 1 marker")).toBeNull();
     expect(screen.getByText("Section 2 marker")).toBeTruthy();
@@ -545,15 +637,20 @@ describe("MessageFeed section windowing", () => {
     expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(3);
   });
 
-  it("shows the newer-section control after loading older history", () => {
+  it("shows newer-section boundary text after loading older history", () => {
     const sid = "test-section-newer-control";
     setStoreMessages(sid, makeSectionedMessages(4, 2));
 
     const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
-    fireEvent.click(screen.getByRole("button", { name: "Load older section" }));
+    const scrollContainer = getScrollContainer(container);
+    setElementScrollMetrics(scrollContainer, 1000, 300, 0);
+    fireEvent.wheel(scrollContainer, { deltaY: -80 });
 
-    expect(screen.getByRole("button", { name: "Load newer section" })).toBeTruthy();
-    fireEvent.click(screen.getByRole("button", { name: "Load newer section" }));
+    expect(screen.queryByRole("button", { name: "Load newer section" })).toBeNull();
+    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
+    expect(screen.queryByText("Loading newer section...")).toBeNull();
+    setElementScrollMetrics(scrollContainer, 1000, 300, 700);
+    fireEvent.wheel(scrollContainer, { deltaY: 80 });
     expect(screen.queryByText("Section 1 marker")).toBeNull();
     expect(screen.getByText("Section 2 marker")).toBeTruthy();
     expect(screen.getByText("Section 4 marker")).toBeTruthy();
@@ -573,17 +670,279 @@ describe("MessageFeed section windowing", () => {
     });
     mockStoreValues.historyWindows = windows;
 
-    render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+    const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+    const scrollContainer = getScrollContainer(container);
 
-    fireEvent.click(screen.getByRole("button", { name: "Load older section" }));
+    setElementScrollMetrics(scrollContainer, 1000, 300, 0);
+    fireEvent.wheel(scrollContainer, { deltaY: -80 });
 
     expect(mockSendToSession).toHaveBeenCalledWith(sid, {
       type: "history_window_request",
       from_turn: 0,
+      turn_count: 10,
+      section_turn_count: 2,
+      visible_section_count: 3,
+      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+    });
+  });
+
+  it("sends a cached history window hash with scroll-triggered server window requests", () => {
+    const sid = "test-windowed-history-cached-request";
+    setStoreMessages(sid, makeSectionedMessages(3, 2));
+    cacheHistoryWindow(
+      sid,
+      {
+        from_turn: 0,
+        turn_count: 10,
+        total_turns: 10,
+        section_turn_count: 2,
+        visible_section_count: 3,
+        window_hash: "cached-history-window",
+      },
+      [{ type: "user_message", id: "cached-u1", content: "cached", timestamp: 1 } as BrowserIncomingMessage],
+    );
+    const windows = new Map();
+    windows.set(sid, {
+      from_turn: 2,
       turn_count: 6,
+      total_turns: 10,
       section_turn_count: 2,
       visible_section_count: 3,
     });
+    mockStoreValues.historyWindows = windows;
+
+    const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+    const scrollContainer = getScrollContainer(container);
+    setElementScrollMetrics(scrollContainer, 1000, 300, 0);
+    fireEvent.wheel(scrollContainer, { deltaY: -80 });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, {
+      type: "history_window_request",
+      from_turn: 0,
+      turn_count: 10,
+      section_turn_count: 2,
+      visible_section_count: 3,
+      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+      cached_window_hash: "cached-history-window",
+    });
+  });
+
+  it("requests a newer history window with adjacent context for smooth reverse scrolling", () => {
+    const sid = "test-windowed-history-newer-context-request";
+    setStoreMessages(sid, makeSectionedMessages(3, 2));
+    const windows = new Map();
+    windows.set(sid, {
+      from_turn: 0,
+      turn_count: 6,
+      total_turns: 12,
+      section_turn_count: 2,
+      visible_section_count: 3,
+    });
+    mockStoreValues.historyWindows = windows;
+
+    const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+    const scrollContainer = getScrollContainer(container);
+
+    setElementScrollMetrics(scrollContainer, 1000, 300, 700);
+    fireEvent.wheel(scrollContainer, { deltaY: 80 });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(sid, {
+      type: "history_window_request",
+      from_turn: 2,
+      turn_count: 10,
+      section_turn_count: 2,
+      visible_section_count: 3,
+      feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+    });
+    expect(screen.getByText("Loading newer section...")).toBeTruthy();
+  });
+
+  it("renders a temporary five-section history window without showing an unavailable older boundary", () => {
+    const sid = "test-windowed-history-expanded-context-render";
+    setStoreMessages(sid, makeSectionedMessages(5, 2));
+    const windows = new Map();
+    windows.set(sid, {
+      from_turn: 0,
+      turn_count: 10,
+      total_turns: 12,
+      section_turn_count: 2,
+      visible_section_count: 3,
+    });
+    mockStoreValues.historyWindows = windows;
+
+    const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+
+    expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(5);
+    expect(screen.queryByText("Scroll up for older section")).toBeNull();
+    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
+  });
+
+  it("does not auto-load newer selected-thread content on stationary mobile top overscroll", () => {
+    // q-1050 follow-up: on mobile, pulling upward at the top of a short completed
+    // selected-thread window can produce scroll events without changing scrollTop.
+    // That must not be treated as a downward/newer boundary scroll, or the feed
+    // snaps back toward latest while showing "Loading older section...".
+    mediaState.touchDevice = true;
+    const sid = "test-selected-thread-mobile-top-overscroll";
+    const threadKey = "q-1027";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    const selectedThreadMessages = [
+      makeMessage({ id: "u3", role: "user", content: "Completed q-1027 turn 3", timestamp: 3 }),
+      makeMessage({ id: "a3", role: "assistant", content: "Completed q-1027 reply 3", timestamp: 4 }),
+      makeMessage({ id: "u4", role: "user", content: "Completed q-1027 turn 4", timestamp: 5 }),
+      makeMessage({ id: "a4", role: "assistant", content: "Completed q-1027 reply 4", timestamp: 6 }),
+    ];
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 2,
+      itemCount: 6,
+      totalItems: 10,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      messages: selectedThreadMessages,
+    });
+
+    const { container } = render(
+      <MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />,
+    );
+    const scrollContainer = getScrollContainer(container);
+    setElementScrollMetrics(scrollContainer, 380, 340, 0);
+
+    fireEvent.scroll(scrollContainer);
+
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        from_item: 4,
+      }),
+    );
+    expect(screen.getByText("Scroll up for older section")).toBeTruthy();
+    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
+  });
+
+  it("auto-loads older selected-thread content on an upward boundary scroll", () => {
+    const sid = "test-selected-thread-upward-boundary-scroll";
+    const threadKey = "q-1027";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 2,
+      itemCount: 6,
+      totalItems: 10,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      messages: [
+        makeMessage({ id: "u3", role: "user", content: "Completed q-1027 turn 3", timestamp: 3 }),
+        makeMessage({ id: "a3", role: "assistant", content: "Completed q-1027 reply 3", timestamp: 4 }),
+        makeMessage({ id: "u4", role: "user", content: "Completed q-1027 turn 4", timestamp: 5 }),
+        makeMessage({ id: "a4", role: "assistant", content: "Completed q-1027 reply 4", timestamp: 6 }),
+      ],
+    });
+
+    const { container } = render(
+      <MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />,
+    );
+    const scrollContainer = getScrollContainer(container);
+    setElementScrollMetrics(scrollContainer, 1000, 340, 120);
+    fireEvent.scroll(scrollContainer);
+    mockSendToSession.mockClear();
+
+    setElementScrollMetrics(scrollContainer, 1000, 340, 0);
+    fireEvent.scroll(scrollContainer);
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        from_item: 0,
+        item_count: 10,
+      }),
+    );
+    expect(screen.getByText("Loading older section...")).toBeTruthy();
+  });
+
+  it("hides selected-thread boundary affordances when explicit server availability is false", () => {
+    const sid = "test-selected-thread-explicit-unavailable";
+    const threadKey = "q-1027";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 2,
+      itemCount: 6,
+      totalItems: 10,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      hasOlderItems: false,
+      hasNewerItems: false,
+      messages: [
+        makeMessage({ id: "u3", role: "user", content: "Completed q-1027 turn 3", timestamp: 3 }),
+        makeMessage({ id: "a3", role: "assistant", content: "Completed q-1027 reply 3", timestamp: 4 }),
+      ],
+    });
+
+    const { container } = render(
+      <MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />,
+    );
+    const scrollContainer = getScrollContainer(container);
+    setElementScrollMetrics(scrollContainer, 1000, 340, 660);
+    fireEvent.wheel(scrollContainer, { deltaY: 80 });
+
+    expect(screen.queryByText("Scroll up for older section")).toBeNull();
+    expect(screen.queryByText("Scroll down for newer section")).toBeNull();
+    expect(screen.queryByText("Latest section below")).toBeNull();
+    expect(mockSendToSession).not.toHaveBeenCalledWith(sid, expect.objectContaining({ type: "thread_window_request" }));
+  });
+
+  it("clears pending selected-thread loading after an authoritative no-op sync rerender", () => {
+    const sid = "test-selected-thread-noop-sync-clears-pending";
+    const threadKey = "q-1027";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    const messages = [
+      makeMessage({ id: "u3", role: "user", content: "Completed q-1027 turn 3", timestamp: 3 }),
+      makeMessage({ id: "a3", role: "assistant", content: "Completed q-1027 reply 3", timestamp: 4 }),
+    ];
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 0,
+      itemCount: 6,
+      totalItems: 12,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      hasOlderItems: false,
+      hasNewerItems: true,
+      messages,
+    });
+
+    const { container, rerender } = render(
+      <MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />,
+    );
+    const scrollContainer = getScrollContainer(container);
+    setElementScrollMetrics(scrollContainer, 1000, 340, 660);
+    fireEvent.wheel(scrollContainer, { deltaY: 80 });
+
+    expect(screen.getByText("Loading newer section...")).toBeTruthy();
+
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 0,
+      itemCount: 6,
+      totalItems: 12,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      hasOlderItems: false,
+      hasNewerItems: true,
+      messages,
+    });
+    rerender(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />);
+
+    expect(screen.queryByText("Loading newer section...")).toBeNull();
+    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
   });
 
   it("remounts the correct section window before scrolling to an older turn", async () => {
@@ -705,6 +1064,6 @@ describe("MessageFeed section windowing", () => {
 
     expect(await screen.findByText("Section 1 marker")).toBeTruthy();
     expect(screen.getByLabelText("Jump to latest")).toBeTruthy();
-    expect(screen.getByText("New content below")).toBeTruthy();
+    expect(screen.getByText("Latest section below")).toBeTruthy();
   });
 });

@@ -6,9 +6,10 @@ import { navigateToSession } from "../utils/routing.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { questLabel, questOwnsSessionName } from "../utils/quest-helpers.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
-import { getHighestNotificationUrgency } from "../utils/notification-urgency.js";
+import { getHighestNotificationUrgency, type NotificationUrgency } from "../utils/notification-urgency.js";
+import { isClearedNotificationStatus } from "../notification-status.js";
 
-type SearchMatchedField = "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message";
+type SearchMatchedField = "session_number" | "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message";
 
 export interface ArchiveConfirmationState {
   sessionId: string;
@@ -49,6 +50,7 @@ export function StatusCountDots({ counts }: { counts: StatusCounts }) {
 }
 
 const SEARCH_MATCH_LABELS: Record<SearchMatchedField, string> = {
+  session_number: "session",
   name: "name",
   task: "task",
   keyword: "keyword",
@@ -98,17 +100,42 @@ function timeAgo(epochMs: number): string {
 }
 
 /** Derives a notification marker from the session's notification inbox.
- *  needs-input (amber) takes precedence over review (blue). Only shows for unaddressed (not done) notifications. */
-function useNotificationUrgency(sessionId: string) {
+ *  Falls back to the lightweight /api/sessions summary before a session WebSocket is opened. */
+function useNotificationUrgency(sessionId: string, fallbackUrgency: NotificationUrgency = null) {
   return useStore((s) => {
     const notifications = s.sessionNotifications?.get(sessionId);
+    if (!notifications) return fallbackUrgency;
+    const snapshot = s.sdkSessions?.find((session) => session.sessionId === sessionId);
+    if (isClearedNotificationStatus(snapshot ?? {})) return null;
     const activeNotifications = notifications?.filter((n) => !n.done);
-    return getHighestNotificationUrgency(activeNotifications);
+    const liveUrgency = getHighestNotificationUrgency(activeNotifications);
+    const snapshotUrgency = snapshot?.notificationUrgency ?? null;
+    const snapshotActiveCount = snapshot?.activeNotificationCount;
+    const hasFreshSnapshot =
+      snapshot?.notificationStatusVersion !== undefined || snapshot?.notificationStatusUpdatedAt !== undefined;
+    if (
+      hasFreshSnapshot &&
+      snapshotUrgency &&
+      snapshotActiveCount !== undefined &&
+      snapshotActiveCount > 0 &&
+      (liveUrgency !== snapshotUrgency || activeNotifications.length !== snapshotActiveCount)
+    ) {
+      return snapshotUrgency;
+    }
+    if (liveUrgency) return liveUrgency;
+    if (snapshotActiveCount === 0 || (hasFreshSnapshot && snapshotUrgency === null)) return null;
+    return s.currentSessionId === sessionId ? null : fallbackUrgency;
   });
 }
 
-function NotificationMarker({ sessionId }: { sessionId: string }) {
-  const urgency = useNotificationUrgency(sessionId);
+function NotificationMarker({
+  sessionId,
+  fallbackUrgency,
+}: {
+  sessionId: string;
+  fallbackUrgency?: NotificationUrgency;
+}) {
+  const urgency = useNotificationUrgency(sessionId, fallbackUrgency);
 
   if (urgency === "needs-input") {
     return (
@@ -242,7 +269,7 @@ export function SessionItem({
   compact,
   useStatusBar,
 }: SessionItemProps) {
-  const buttonRef = useRef<HTMLButtonElement>(null);
+  const rowRef = useRef<HTMLElement | null>(null);
   const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const swipeStart = useRef<{ x: number; y: number } | null>(null);
   const touchStartedOnDragHandle = useRef(false);
@@ -254,15 +281,25 @@ export function SessionItem({
   const isEditing = editingSessionId === s.id;
   const storeQuestNamed = useStore((st) => st.questNamedSessions.has(s.id));
   const bridgeQuestStatus = useStore((st) => st.sessions.get(s.id)?.claimedQuestStatus);
+  const bridgeQuestReviewInboxUnread = useStore((st) => st.sessions.get(s.id)?.claimedQuestVerificationInboxUnread);
   const questStatus = s.claimedQuestStatus ?? bridgeQuestStatus;
-  const isQuestNamed = !s.isOrchestrator && (storeQuestNamed || questOwnsSessionName(questStatus));
+  const questReviewInboxUnread = s.claimedQuestVerificationInboxUnread ?? bridgeQuestReviewInboxUnread;
+  const isQuestNamed =
+    !s.isOrchestrator && (storeQuestNamed || questOwnsSessionName(questStatus, questReviewInboxUnread));
   const reviewerAttention = useStore((st) =>
     reviewerSession ? st.sessionAttention.get(reviewerSession.id) : undefined,
   );
-  const inboxUrgency = useNotificationUrgency(s.id);
+  const inboxUrgency = useNotificationUrgency(s.id, s.notificationUrgency ?? null);
   const currentSessionId = useStore((st) => st.currentSessionId);
   const liveTimerCount = useStore((st) => st.sessionTimers?.get(s.id)?.length ?? 0);
   const canSwipeToArchive = !archived && !reorderMode;
+  const suppressStaleActionAttention =
+    attention === "action" &&
+    permCount === 0 &&
+    s.notificationStatusVersion !== undefined &&
+    s.activeNotificationCount === 0;
+  const effectiveAttention = suppressStaleActionAttention ? null : attention;
+  const effectiveHasUnread = suppressStaleActionAttention ? false : hasUnread;
 
   // Long-press to open context menu on touch devices
   const handleTouchStart = useCallback(
@@ -398,7 +435,12 @@ export function SessionItem({
         const snippet = (prefixMatch?.[2] ?? raw).trim();
         const fieldLabel = matchedField ? SEARCH_MATCH_LABELS[matchedField] : null;
         const finalFieldLabel = fieldLabel || (prefixMatch?.[1] ? prefixMatch[1].toLowerCase() : null);
-        const fallbackSnippet = matchedField === "name" ? label : "";
+        const fallbackSnippet =
+          matchedField === "name"
+            ? label
+            : matchedField === "session_number" && s.sessionNum != null
+              ? `#${s.sessionNum}`
+              : "";
         const finalSnippet = snippet || fallbackSnippet;
         if (!finalFieldLabel || !finalSnippet) return null;
         return { fieldLabel: `${finalFieldLabel}:`, snippet: finalSnippet };
@@ -410,7 +452,7 @@ export function SessionItem({
     isConnected: s.isConnected,
     sdkState: s.sdkState,
     status: s.status,
-    hasUnread,
+    hasUnread: effectiveHasUnread,
     idleKilled: s.idleKilled,
   });
   const timerCount = s.id === currentSessionId ? liveTimerCount : (s.pendingTimerCount ?? 0);
@@ -418,7 +460,7 @@ export function SessionItem({
     !archived &&
     visualStatus === "idle" &&
     permCount === 0 &&
-    !attention &&
+    !effectiveAttention &&
     timerCount > 0 &&
     inboxUrgency !== "needs-input";
   const statusColorClass = showScheduledTimerIcon ? "bg-emerald-500" : STATUS_DOT_CLASS[visualStatus];
@@ -466,10 +508,322 @@ export function SessionItem({
   };
 
   const showParentHoverCard = useCallback(() => {
-    if (onHoverStart && buttonRef.current) {
-      onHoverStart(s.id, buttonRef.current.getBoundingClientRect());
+    if (onHoverStart && rowRef.current) {
+      onHoverStart(s.id, rowRef.current.getBoundingClientRect());
     }
   }, [onHoverStart, s.id]);
+
+  const rowClassName = `w-full text-left rounded-xl sm:rounded-lg border sm:border-transparent ${
+    compact
+      ? "pl-3.5 pr-12 py-1.5 sm:pl-3.5 sm:pr-3 sm:py-1"
+      : archived
+        ? "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-14 sm:py-2"
+        : "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-3 sm:py-2"
+  } transition-all duration-100 select-none ${
+    isDraggable ? "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing" : "cursor-pointer"
+  } ${
+    isActive || isSearchSelected
+      ? "bg-cc-active border-cc-primary/25"
+      : reorderMode
+        ? "bg-cc-hover/50 border-cc-border/80"
+        : "bg-cc-hover/20 border-cc-border/80 hover:bg-cc-hover/35 sm:bg-transparent sm:hover:bg-cc-hover"
+  } ${herdHighlightClass}`;
+
+  const rowStyle = {
+    transform: swipeOffsetPx !== 0 ? `translateX(${swipeOffsetPx}px)` : undefined,
+    transition: swipeActive.current ? "none" : "transform 180ms ease-out",
+  };
+
+  const rowContent = (
+    <>
+      {/* Left-edge status stripe for status-bar row variants. */}
+      {useStatusBar && (
+        <span
+          className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-full block ${statusColorClass} ${
+            isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
+          } transition-opacity`}
+          data-testid="session-status-stripe"
+          data-status={visualStatus}
+          style={glowStyle}
+        />
+      )}
+
+      <div className="flex items-start gap-2">
+        {/* Drag handle -- mobile reorder mode only (iOS Edit pattern) */}
+        {reorderMode && (
+          <span
+            data-session-drag-handle="true"
+            data-testid={`session-drag-handle-${s.id}`}
+            onClick={(e) => e.stopPropagation()}
+            onPointerDown={() => onMobileReorderHandleActiveChange?.(true)}
+            onTouchStart={() => onMobileReorderHandleActiveChange?.(true)}
+            className="text-cc-muted/40 sm:hidden shrink-0 pt-[1px] cursor-grab active:cursor-grabbing touch-none"
+            {...(dragHandleProps?.listeners ?? {})}
+            {...(dragHandleProps?.attributes ?? {})}
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+              <circle cx="6" cy="4" r="1.2" />
+              <circle cx="10" cy="4" r="1.2" />
+              <circle cx="6" cy="8" r="1.2" />
+              <circle cx="10" cy="8" r="1.2" />
+              <circle cx="6" cy="12" r="1.2" />
+              <circle cx="10" cy="12" r="1.2" />
+            </svg>
+          </span>
+        )}
+
+        {/* Content */}
+        <div className="flex-1 min-w-0">
+          {/* Row 1: Leader/herd/reviewer tag (inline) + title */}
+          <div className="flex items-center gap-1.5">
+            {/* Status marker for sidebar rows. Scheduled timers replace the idle dot. */}
+            {showScheduledTimerIcon ? (
+              <ScheduledTimerStatusIcon timerCount={timerCount} />
+            ) : (
+              !useStatusBar && (
+                <span
+                  className={`shrink-0 w-1.5 h-1.5 rounded-full ${statusColorClass} ${
+                    isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
+                  } transition-opacity`}
+                  data-testid="session-status-dot"
+                  data-status={visualStatus}
+                  style={glowStyle}
+                />
+              )
+            )}
+            {!isEditing && s.isOrchestrator && useStatusBar && (
+              <span
+                className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
+                title="Leader session"
+                data-testid="session-role-badge"
+                data-herd-group-tone={herdGroupBadgeTheme?.token}
+                style={roleBadgeStyle}
+              >
+                leader
+              </span>
+            )}
+            {!isEditing && !s.isOrchestrator && s.reviewerOf !== undefined && (
+              <span
+                className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
+                title={`Reviewer of #${s.reviewerOf}`}
+                data-testid="session-role-badge"
+                data-herd-group-tone={herdGroupBadgeTheme?.token}
+                style={roleBadgeStyle}
+              >
+                reviewer
+              </span>
+            )}
+            {!compact && !isEditing && !s.isOrchestrator && s.reviewerOf === undefined && !!s.herdedBy && (
+              <span
+                className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
+                title="Herded by a leader"
+                data-testid="session-role-badge"
+                data-herd-group-tone={herdGroupBadgeTheme?.token}
+                style={roleBadgeStyle}
+              >
+                herd
+              </span>
+            )}
+            {isEditing ? (
+              <input
+                ref={editInputRef}
+                value={editingName}
+                onChange={(e) => setEditingName(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    onConfirmRename();
+                  } else if (e.key === "Escape") {
+                    e.preventDefault();
+                    onCancelRename();
+                  }
+                  e.stopPropagation();
+                }}
+                onBlur={onConfirmRename}
+                onClick={(e) => e.stopPropagation()}
+                onDoubleClick={(e) => e.stopPropagation()}
+                className="text-[13px] font-medium flex-1 min-w-0 text-cc-fg bg-transparent border border-cc-border rounded px-1 py-0 outline-none focus:border-cc-primary/50"
+              />
+            ) : (
+              <span
+                className={`text-[13px] truncate leading-snug text-cc-fg ${effectiveAttention || (s.isOrchestrator && !useStatusBar) ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
+                onAnimationEnd={() => onClearRecentlyRenamed(s.id)}
+              >
+                {questLabel(label, isQuestNamed, questStatus, questReviewInboxUnread)}
+              </span>
+            )}
+            {archived && s.archivedAt && (
+              <span className="text-[10px] text-cc-muted/60 shrink-0 ml-auto">{timeAgo(s.archivedAt)}</span>
+            )}
+          </div>
+
+          {/* Row 2: Preview -- match context during search, or active task / last message */}
+          {!compact &&
+            !isEditing &&
+            (displayMatch ? (
+              <div className="mt-0.5 text-[10.5px] text-cc-muted/80 leading-tight truncate">
+                <span className="text-cc-primary/70 mr-1">{displayMatch.fieldLabel}</span>
+                {renderHighlightedSnippet(displayMatch.snippet)}
+              </div>
+            ) : (
+              <SessionPreviewRow sessionId={s.id} userPreview={sessionPreview} />
+            ))}
+
+          {/* Row 3: Metadata — backend, permissions, badges, #N, wt, git stats (all compact, one line) */}
+          {!isEditing && (
+            <div className="flex items-center gap-1 mt-0.5 text-[10.5px] text-cc-muted leading-tight">
+              {s.sessionNum != null && (
+                <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
+              )}
+              <img src={backendLogo} alt={backendAlt} className="w-3 h-3 shrink-0 object-contain opacity-60" />
+              {/* Shield icon: ask permission status (Claude only, hidden in compact/linear modes) */}
+              {!compact && !useStatusBar && s.backendType !== "codex" && s.askPermission === true && (
+                <span title="Permissions: asking before tool use">
+                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 text-cc-primary">
+                    <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
+                    <path
+                      d="M6.5 8.5L7.5 9.5L10 7"
+                      stroke="white"
+                      strokeWidth="1.5"
+                      fill="none"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                </span>
+              )}
+              {!compact && !useStatusBar && s.backendType !== "codex" && s.askPermission === false && (
+                <span title="Permissions: auto-approving tool use">
+                  <svg
+                    viewBox="0 0 16 16"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="1.2"
+                    className="w-2.5 h-2.5 shrink-0 text-cc-muted/50"
+                  >
+                    <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
+                  </svg>
+                </span>
+              )}
+              {s.isContainerized && (
+                <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-blue-400 bg-blue-500/10">
+                  Docker
+                </span>
+              )}
+              {s.cronJobId && (
+                <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-violet-500 bg-violet-500/10">
+                  Cron
+                </span>
+              )}
+              {s.isWorktree && (
+                <span
+                  className={`text-[9px] px-1 rounded shrink-0 ${
+                    archived && s.worktreeCleanupStatus === "failed"
+                      ? "bg-red-500/10 text-red-400"
+                      : archived && s.worktreeCleanupStatus === "pending"
+                        ? "bg-amber-500/10 text-amber-400"
+                        : archived && s.worktreeExists === false
+                          ? "bg-cc-muted/10 text-cc-muted"
+                          : "bg-cc-primary/10 text-cc-primary"
+                  }`}
+                  title={
+                    archived && s.worktreeCleanupStatus === "pending"
+                      ? "Worktree cleanup is still running"
+                      : archived && s.worktreeCleanupStatus === "failed"
+                        ? s.worktreeCleanupError || "Worktree cleanup failed"
+                        : archived && s.worktreeExists !== undefined
+                          ? s.worktreeExists
+                            ? s.worktreeDirty
+                              ? "Worktree preserved (uncommitted changes)"
+                              : "Worktree preserved"
+                            : "Worktree deleted"
+                          : undefined
+                  }
+                >
+                  wt
+                </span>
+              )}
+              {reviewerSession &&
+                (() => {
+                  const rvStatus = deriveSessionStatus({
+                    archived: reviewerSession.archived,
+                    permCount: reviewerSession.permCount,
+                    isConnected: reviewerSession.isConnected,
+                    sdkState: reviewerSession.sdkState,
+                    status: reviewerSession.status,
+                    hasUnread: !!reviewerAttention,
+                    idleKilled: reviewerSession.idleKilled,
+                  });
+                  const rvTheme = REVIEWER_BADGE_THEME[rvStatus];
+                  return (
+                    <div
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        navigateToSession(reviewerSession.id);
+                      }}
+                      onKeyDown={(e) => {
+                        if (e.key === "Enter" || e.key === " ") {
+                          e.preventDefault();
+                          e.stopPropagation();
+                          navigateToSession(reviewerSession.id);
+                        }
+                      }}
+                      onMouseDown={(e) => e.stopPropagation()}
+                      onMouseEnter={(e) => {
+                        e.stopPropagation();
+                        if (onHoverStart) {
+                          onHoverStart(reviewerSession.id, e.currentTarget.getBoundingClientRect());
+                        }
+                      }}
+                      onMouseLeave={(e) => {
+                        e.stopPropagation();
+                        const nextTarget = e.relatedTarget;
+                        if (nextTarget instanceof Node && rowRef.current?.contains(nextTarget)) {
+                          showParentHoverCard();
+                          return;
+                        }
+                        if (onHoverEnd) onHoverEnd();
+                      }}
+                      title={`Reviewer${reviewerSession.sessionNum != null ? ` #${reviewerSession.sessionNum}` : ""} — click to open`}
+                      className={`inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 ${rvTheme.text} bg-cc-muted/10 hover:bg-cc-muted/20 transition-colors cursor-pointer border ${rvTheme.border}`}
+                      style={
+                        rvTheme.glow
+                          ? {
+                              ["--glow-color" as string]: rvTheme.glow,
+                              animation: "reviewer-badge-glow 2s ease-in-out infinite",
+                            }
+                          : undefined
+                      }
+                      data-testid="session-reviewer-badge"
+                      data-reviewer-status={rvStatus}
+                    >
+                      <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5">
+                        <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85a1.007 1.007 0 00-.115-.1zM12 6.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z" />
+                      </svg>
+                      review
+                    </div>
+                  );
+                })()}
+              {hasBranchDivergence && (
+                <span className="flex items-center gap-0.5 text-[10px] shrink-0">
+                  {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}
+                  {s.gitBehind > 0 && <span className="text-cc-warning">{s.gitBehind}&#8595;</span>}
+                </span>
+              )}
+              {hasLineDiff && (
+                <span className="flex items-center gap-0.5 text-[10px] shrink-0">
+                  <span className="text-green-500">+{s.linesAdded}</span>
+                  <span className="text-red-400">-{s.linesRemoved}</span>
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </>
+  );
 
   return (
     <div
@@ -488,338 +842,63 @@ export function SessionItem({
           </div>
         </div>
       )}
-      <button
-        ref={buttonRef}
-        data-session-id={s.id}
-        data-active-session={isActive ? "true" : undefined}
-        aria-selected={isSearchSelected ? "true" : undefined}
-        data-search-selected={isSearchSelected ? "true" : undefined}
-        onClick={handleSelect}
-        onDoubleClick={(e) => {
-          e.preventDefault();
-          onStartRename(s.id, label);
-        }}
-        onContextMenu={(e) => {
-          if (onCtxMenu) {
-            e.preventDefault();
-            onCtxMenu(e, s.id);
-          }
-        }}
-        onMouseEnter={showParentHoverCard}
-        onMouseLeave={() => {
-          if (onHoverEnd) onHoverEnd();
-        }}
-        onTouchStart={handleTouchStart}
-        onTouchMove={handleTouchMove}
-        onTouchEnd={handleTouchEnd}
-        onTouchCancel={handleTouchCancel}
-        style={{
-          transform: swipeOffsetPx !== 0 ? `translateX(${swipeOffsetPx}px)` : undefined,
-          transition: swipeActive.current ? "none" : "transform 180ms ease-out",
-        }}
-        className={`w-full text-left rounded-xl sm:rounded-lg border sm:border-transparent ${
-          compact
-            ? "pl-3.5 pr-12 py-1.5 sm:pl-3.5 sm:pr-3 sm:py-1"
-            : archived
-              ? "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-14 sm:py-2"
-              : "pl-3.5 pr-12 py-2.5 sm:pl-3.5 sm:pr-3 sm:py-2"
-        } transition-all duration-100 select-none ${
-          isDraggable ? "cursor-pointer sm:cursor-grab sm:active:cursor-grabbing" : "cursor-pointer"
-        } ${
-          isActive || isSearchSelected
-            ? "bg-cc-active border-cc-primary/25"
-            : reorderMode
-              ? "bg-cc-hover/50 border-cc-border/80"
-              : "bg-cc-hover/20 border-cc-border/80 hover:bg-cc-hover/35 sm:bg-transparent sm:hover:bg-cc-hover"
-        } ${herdHighlightClass}`}
-      >
-        {/* Left-edge status stripe for status-bar row variants. */}
-        {useStatusBar && (
-          <span
-            className={`absolute left-0 top-2 bottom-2 w-[3px] rounded-full block ${statusColorClass} ${
-              isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
-            } transition-opacity`}
-            data-testid="session-status-stripe"
-            data-status={visualStatus}
-            style={glowStyle}
-          />
-        )}
-
-        <div className="flex items-start gap-2">
-          {/* Drag handle -- mobile reorder mode only (iOS Edit pattern) */}
-          {reorderMode && (
-            <span
-              data-session-drag-handle="true"
-              data-testid={`session-drag-handle-${s.id}`}
-              onClick={(e) => e.stopPropagation()}
-              onPointerDown={() => onMobileReorderHandleActiveChange?.(true)}
-              onTouchStart={() => onMobileReorderHandleActiveChange?.(true)}
-              className="text-cc-muted/40 sm:hidden shrink-0 pt-[1px] cursor-grab active:cursor-grabbing touch-none"
-              {...(dragHandleProps?.listeners ?? {})}
-              {...(dragHandleProps?.attributes ?? {})}
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-                <circle cx="6" cy="4" r="1.2" />
-                <circle cx="10" cy="4" r="1.2" />
-                <circle cx="6" cy="8" r="1.2" />
-                <circle cx="10" cy="8" r="1.2" />
-                <circle cx="6" cy="12" r="1.2" />
-                <circle cx="10" cy="12" r="1.2" />
-              </svg>
-            </span>
-          )}
-
-          {/* Content */}
-          <div className="flex-1 min-w-0">
-            {/* Row 1: Leader/herd/reviewer tag (inline) + title */}
-            <div className="flex items-center gap-1.5">
-              {/* Status marker for sidebar rows. Scheduled timers replace the idle dot. */}
-              {showScheduledTimerIcon ? (
-                <ScheduledTimerStatusIcon timerCount={timerCount} />
-              ) : (
-                !useStatusBar && (
-                  <span
-                    className={`shrink-0 w-1.5 h-1.5 rounded-full ${statusColorClass} ${
-                      isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"
-                    } transition-opacity`}
-                    data-testid="session-status-dot"
-                    data-status={visualStatus}
-                    style={glowStyle}
-                  />
-                )
-              )}
-              {!isEditing && s.isOrchestrator && useStatusBar && (
-                <span
-                  className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
-                  title="Leader session"
-                  data-testid="session-role-badge"
-                  data-herd-group-tone={herdGroupBadgeTheme?.token}
-                  style={roleBadgeStyle}
-                >
-                  leader
-                </span>
-              )}
-              {!isEditing && !s.isOrchestrator && s.reviewerOf !== undefined && (
-                <span
-                  className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
-                  title={`Reviewer of #${s.reviewerOf}`}
-                  data-testid="session-role-badge"
-                  data-herd-group-tone={herdGroupBadgeTheme?.token}
-                  style={roleBadgeStyle}
-                >
-                  reviewer
-                </span>
-              )}
-              {!compact && !isEditing && !s.isOrchestrator && s.reviewerOf === undefined && !!s.herdedBy && (
-                <span
-                  className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 border"
-                  title="Herded by a leader"
-                  data-testid="session-role-badge"
-                  data-herd-group-tone={herdGroupBadgeTheme?.token}
-                  style={roleBadgeStyle}
-                >
-                  herd
-                </span>
-              )}
-              {isEditing ? (
-                <input
-                  ref={editInputRef}
-                  value={editingName}
-                  onChange={(e) => setEditingName(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      onConfirmRename();
-                    } else if (e.key === "Escape") {
-                      e.preventDefault();
-                      onCancelRename();
-                    }
-                    e.stopPropagation();
-                  }}
-                  onBlur={onConfirmRename}
-                  onClick={(e) => e.stopPropagation()}
-                  onDoubleClick={(e) => e.stopPropagation()}
-                  className="text-[13px] font-medium flex-1 min-w-0 text-cc-fg bg-transparent border border-cc-border rounded px-1 py-0 outline-none focus:border-cc-primary/50"
-                />
-              ) : (
-                <span
-                  className={`text-[13px] truncate leading-snug text-cc-fg ${attention || (s.isOrchestrator && !useStatusBar) ? "font-semibold" : "font-medium"} ${isRecentlyRenamed ? "animate-name-appear" : ""}`}
-                  onAnimationEnd={() => onClearRecentlyRenamed(s.id)}
-                >
-                  {questLabel(label, isQuestNamed, questStatus)}
-                </span>
-              )}
-              {archived && s.archivedAt && (
-                <span className="text-[10px] text-cc-muted/60 shrink-0 ml-auto">{timeAgo(s.archivedAt)}</span>
-              )}
-            </div>
-
-            {/* Row 2: Preview -- match context during search, or active task / last message */}
-            {!compact &&
-              !isEditing &&
-              (displayMatch ? (
-                <div className="mt-0.5 text-[10.5px] text-cc-muted/80 leading-tight truncate">
-                  <span className="text-cc-primary/70 mr-1">{displayMatch.fieldLabel}</span>
-                  {renderHighlightedSnippet(displayMatch.snippet)}
-                </div>
-              ) : (
-                <SessionPreviewRow sessionId={s.id} userPreview={sessionPreview} />
-              ))}
-
-            {/* Row 3: Metadata — backend, permissions, badges, #N, wt, git stats (all compact, one line) */}
-            {!isEditing && (
-              <div className="flex items-center gap-1 mt-0.5 text-[10.5px] text-cc-muted leading-tight">
-                {s.sessionNum != null && (
-                  <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
-                )}
-                <img src={backendLogo} alt={backendAlt} className="w-3 h-3 shrink-0 object-contain opacity-60" />
-                {/* Shield icon: ask permission status (Claude only, hidden in compact/linear modes) */}
-                {!compact && !useStatusBar && s.backendType !== "codex" && s.askPermission === true && (
-                  <span title="Permissions: asking before tool use">
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 text-cc-primary">
-                      <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                      <path
-                        d="M6.5 8.5L7.5 9.5L10 7"
-                        stroke="white"
-                        strokeWidth="1.5"
-                        fill="none"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                      />
-                    </svg>
-                  </span>
-                )}
-                {!compact && !useStatusBar && s.backendType !== "codex" && s.askPermission === false && (
-                  <span title="Permissions: auto-approving tool use">
-                    <svg
-                      viewBox="0 0 16 16"
-                      fill="none"
-                      stroke="currentColor"
-                      strokeWidth="1.2"
-                      className="w-2.5 h-2.5 shrink-0 text-cc-muted/50"
-                    >
-                      <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                    </svg>
-                  </span>
-                )}
-                {s.isContainerized && (
-                  <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-blue-400 bg-blue-500/10">
-                    Docker
-                  </span>
-                )}
-                {s.cronJobId && (
-                  <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-violet-500 bg-violet-500/10">
-                    Cron
-                  </span>
-                )}
-                {s.isWorktree && (
-                  <span
-                    className={`text-[9px] px-1 rounded shrink-0 ${
-                      archived && s.worktreeCleanupStatus === "failed"
-                        ? "bg-red-500/10 text-red-400"
-                        : archived && s.worktreeCleanupStatus === "pending"
-                          ? "bg-amber-500/10 text-amber-400"
-                          : archived && s.worktreeExists === false
-                            ? "bg-cc-muted/10 text-cc-muted"
-                            : "bg-cc-primary/10 text-cc-primary"
-                    }`}
-                    title={
-                      archived && s.worktreeCleanupStatus === "pending"
-                        ? "Worktree cleanup is still running"
-                        : archived && s.worktreeCleanupStatus === "failed"
-                          ? s.worktreeCleanupError || "Worktree cleanup failed"
-                          : archived && s.worktreeExists !== undefined
-                            ? s.worktreeExists
-                              ? s.worktreeDirty
-                                ? "Worktree preserved (uncommitted changes)"
-                                : "Worktree preserved"
-                              : "Worktree deleted"
-                            : undefined
-                    }
-                  >
-                    wt
-                  </span>
-                )}
-                {reviewerSession &&
-                  (() => {
-                    const rvStatus = deriveSessionStatus({
-                      archived: reviewerSession.archived,
-                      permCount: reviewerSession.permCount,
-                      isConnected: reviewerSession.isConnected,
-                      sdkState: reviewerSession.sdkState,
-                      status: reviewerSession.status,
-                      hasUnread: !!reviewerAttention,
-                      idleKilled: reviewerSession.idleKilled,
-                    });
-                    const rvTheme = REVIEWER_BADGE_THEME[rvStatus];
-                    return (
-                      <div
-                        role="button"
-                        tabIndex={0}
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          navigateToSession(reviewerSession.id);
-                        }}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter" || e.key === " ") {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            navigateToSession(reviewerSession.id);
-                          }
-                        }}
-                        onMouseDown={(e) => e.stopPropagation()}
-                        onMouseEnter={(e) => {
-                          e.stopPropagation();
-                          if (onHoverStart) {
-                            onHoverStart(reviewerSession.id, e.currentTarget.getBoundingClientRect());
-                          }
-                        }}
-                        onMouseLeave={(e) => {
-                          e.stopPropagation();
-                          const nextTarget = e.relatedTarget;
-                          if (nextTarget instanceof Node && buttonRef.current?.contains(nextTarget)) {
-                            showParentHoverCard();
-                            return;
-                          }
-                          if (onHoverEnd) onHoverEnd();
-                        }}
-                        title={`Reviewer${reviewerSession.sessionNum != null ? ` #${reviewerSession.sessionNum}` : ""} — click to open`}
-                        className={`inline-flex items-center gap-0.5 text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 ${rvTheme.text} bg-cc-muted/10 hover:bg-cc-muted/20 transition-colors cursor-pointer border ${rvTheme.border}`}
-                        style={
-                          rvTheme.glow
-                            ? {
-                                ["--glow-color" as string]: rvTheme.glow,
-                                animation: "reviewer-badge-glow 2s ease-in-out infinite",
-                              }
-                            : undefined
-                        }
-                        data-testid="session-reviewer-badge"
-                        data-reviewer-status={rvStatus}
-                      >
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5">
-                          <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001c.03.04.062.078.098.115l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85a1.007 1.007 0 00-.115-.1zM12 6.5a5.5 5.5 0 11-11 0 5.5 5.5 0 0111 0z" />
-                        </svg>
-                        review
-                      </div>
-                    );
-                  })()}
-                {hasBranchDivergence && (
-                  <span className="flex items-center gap-0.5 text-[10px] shrink-0">
-                    {s.gitAhead > 0 && <span className="text-green-500">{s.gitAhead}&#8593;</span>}
-                    {s.gitBehind > 0 && <span className="text-cc-warning">{s.gitBehind}&#8595;</span>}
-                  </span>
-                )}
-                {hasLineDiff && (
-                  <span className="flex items-center gap-0.5 text-[10px] shrink-0">
-                    <span className="text-green-500">+{s.linesAdded}</span>
-                    <span className="text-red-400">-{s.linesRemoved}</span>
-                  </span>
-                )}
-              </div>
-            )}
-          </div>
+      {isEditing ? (
+        <div
+          ref={(element) => {
+            rowRef.current = element;
+          }}
+          data-session-id={s.id}
+          data-active-session={isActive ? "true" : undefined}
+          aria-selected={isSearchSelected ? "true" : undefined}
+          data-search-selected={isSearchSelected ? "true" : undefined}
+          onMouseEnter={showParentHoverCard}
+          onMouseLeave={() => {
+            if (onHoverEnd) onHoverEnd();
+          }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchCancel}
+          style={rowStyle}
+          className={rowClassName}
+        >
+          {rowContent}
         </div>
-      </button>
+      ) : (
+        <button
+          ref={(element) => {
+            rowRef.current = element;
+          }}
+          type="button"
+          data-session-id={s.id}
+          data-active-session={isActive ? "true" : undefined}
+          aria-selected={isSearchSelected ? "true" : undefined}
+          data-search-selected={isSearchSelected ? "true" : undefined}
+          onClick={handleSelect}
+          onDoubleClick={(e) => {
+            e.preventDefault();
+            onStartRename(s.id, label);
+          }}
+          onContextMenu={(e) => {
+            if (onCtxMenu) {
+              e.preventDefault();
+              onCtxMenu(e, s.id);
+            }
+          }}
+          onMouseEnter={showParentHoverCard}
+          onMouseLeave={() => {
+            if (onHoverEnd) onHoverEnd();
+          }}
+          onTouchStart={handleTouchStart}
+          onTouchMove={handleTouchMove}
+          onTouchEnd={handleTouchEnd}
+          onTouchCancel={handleTouchCancel}
+          style={rowStyle}
+          className={rowClassName}
+        >
+          {rowContent}
+        </button>
+      )}
 
       {/* Inline archive confirmation */}
       {archiveConfirmation?.sessionId === s.id && onConfirmArchive && onCancelArchive && (
@@ -882,19 +961,20 @@ export function SessionItem({
       )}
 
       {/* Action attention badge (needs-input via takode notify, no pending permissions) */}
-      {!archived && attention === "action" && permCount === 0 && (
+      {!archived && effectiveAttention === "action" && permCount === 0 && (
         <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[8px] h-[8px] rounded-full bg-amber-400 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
       )}
 
       {/* Review attention badge (shown when session needs review and no higher-priority badge) */}
-      {!archived && attention === "review" && permCount === 0 && (
+      {!archived && effectiveAttention === "review" && permCount === 0 && (
         <span className="absolute right-11 sm:right-2 top-1/2 -translate-y-1/2 min-w-[6px] h-[6px] rounded-full bg-blue-500 sm:group-hover:opacity-0 transition-opacity pointer-events-none" />
       )}
 
       {/* Notification inbox markers (shown when no server attention, permission, or timer-status icon is active).
-          Derived from the per-session notification inbox -- surfaces unaddressed notifications
-          on sidebar chips so the user can see which sessions need attention at a glance. */}
-      {!archived && !attention && permCount === 0 && !showScheduledTimerIcon && <NotificationMarker sessionId={s.id} />}
+          Uses the live inbox when loaded, otherwise the lightweight /api/sessions snapshot for restored sessions. */}
+      {!archived && !effectiveAttention && permCount === 0 && !showScheduledTimerIcon && (
+        <NotificationMarker sessionId={s.id} fallbackUrgency={s.notificationUrgency ?? null} />
+      )}
 
       {/* Action buttons */}
       {archived ? (

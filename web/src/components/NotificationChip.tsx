@@ -1,18 +1,96 @@
-import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, type CSSProperties } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { SessionNotification } from "../types.js";
+import { isClearedNotificationStatus, type NotificationStatusSnapshot } from "../notification-status.js";
+import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
+import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
+import {
+  resolveNotificationOwnerThreadKey,
+  runAfterNotificationOwnerThreadSelected,
+} from "../utils/notification-thread.js";
 
 const EMPTY: SessionNotification[] = [];
 type NotificationCategory = SessionNotification["category"];
+const NOTIFICATION_POPOVER_MIN_BOTTOM_PX = 56;
+const NOTIFICATION_POPOVER_ANCHOR_GAP_PX = 8;
+const NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX = 12;
+
+function getNotificationPopoverBottomPx(anchor: HTMLElement | null): number {
+  if (typeof window === "undefined" || !anchor) return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
+  const anchorRect = anchor.getBoundingClientRect();
+  if (anchorRect.top === 0 && anchorRect.bottom === 0 && anchorRect.width === 0 && anchorRect.height === 0) {
+    return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
+  }
+  const anchorTop = anchorRect.top;
+  const viewportHeight = window.innerHeight || document.documentElement.clientHeight || 0;
+  if (!Number.isFinite(anchorTop) || viewportHeight <= 0) return NOTIFICATION_POPOVER_MIN_BOTTOM_PX;
+  return Math.max(
+    NOTIFICATION_POPOVER_MIN_BOTTOM_PX,
+    Math.ceil(viewportHeight - anchorTop + NOTIFICATION_POPOVER_ANCHOR_GAP_PX),
+  );
+}
+
+function useNotificationPopoverLayout(anchor: HTMLElement | null) {
+  const [bottomPx, setBottomPx] = useState(NOTIFICATION_POPOVER_MIN_BOTTOM_PX);
+
+  useLayoutEffect(() => {
+    const update = () => setBottomPx(getNotificationPopoverBottomPx(anchor));
+    update();
+
+    window.addEventListener("resize", update);
+    window.visualViewport?.addEventListener("resize", update);
+
+    let observer: ResizeObserver | null = null;
+    if (typeof ResizeObserver !== "undefined" && anchor) {
+      observer = new ResizeObserver(update);
+      observer.observe(anchor);
+    }
+
+    return () => {
+      window.removeEventListener("resize", update);
+      window.visualViewport?.removeEventListener("resize", update);
+      observer?.disconnect();
+    };
+  }, [anchor]);
+
+  return {
+    "--notification-popover-bottom": `${bottomPx}px`,
+    "--notification-popover-available-height": `calc(100dvh - ${bottomPx}px - ${NOTIFICATION_POPOVER_VIEWPORT_GUTTER_PX}px)`,
+  } as CSSProperties;
+}
 
 function useNotifications(sessionId: string) {
   const all = useStore((s) => s.sessionNotifications?.get(sessionId)) ?? EMPTY;
   const active = useMemo(() => all.filter((n) => !n.done), [all]);
   const done = useMemo(() => all.filter((n) => n.done), [all]);
   return { all, active, done };
+}
+
+function useNotificationSummary(sessionId: string): NotificationStatusSnapshot {
+  const notificationUrgency = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.notificationUrgency,
+  );
+  const activeNotificationCount = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.activeNotificationCount,
+  );
+  const notificationStatusVersion = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.notificationStatusVersion,
+  );
+  const notificationStatusUpdatedAt = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.notificationStatusUpdatedAt,
+  );
+  return useMemo(
+    () => ({
+      notificationUrgency,
+      activeNotificationCount,
+      notificationStatusVersion,
+      notificationStatusUpdatedAt,
+    }),
+    [notificationUrgency, activeNotificationCount, notificationStatusVersion, notificationStatusUpdatedAt],
+  );
 }
 
 function formatRelativeTime(ts: number): string {
@@ -31,6 +109,35 @@ function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotif
     else if (notification.category === "review") review += 1;
   }
   return { needsInput, review };
+}
+
+function getSummaryBreakdown(summary: NotificationStatusSnapshot) {
+  const count = summary.activeNotificationCount ?? 0;
+  if (count <= 0) return { needsInput: 0, review: 0 };
+  if (summary.notificationUrgency === "needs-input") return { needsInput: count, review: 0 };
+  if (summary.notificationUrgency === "review") return { needsInput: 0, review: count };
+  return { needsInput: 0, review: 0 };
+}
+
+function getEffectiveNotificationBreakdown(
+  notifications: ReadonlyArray<Pick<SessionNotification, "category">>,
+  summary: NotificationStatusSnapshot,
+) {
+  if (isClearedNotificationStatus(summary)) return { needsInput: 0, review: 0 };
+  const live = getNotificationBreakdown(notifications);
+  const liveTotal = live.needsInput + live.review;
+  const summaryCount = summary.activeNotificationCount ?? 0;
+  const hasFreshSummary =
+    summary.notificationStatusVersion !== undefined || summary.notificationStatusUpdatedAt !== undefined;
+  const summaryUrgency = summary.notificationUrgency;
+  if (hasFreshSummary && summaryCount > 0 && summaryUrgency) {
+    const liveDisagreesWithSummary =
+      liveTotal !== summaryCount ||
+      (summaryUrgency === "needs-input" && live.needsInput === 0) ||
+      (summaryUrgency === "review" && (live.needsInput > 0 || live.review === 0));
+    if (liveDisagreesWithSummary) return getSummaryBreakdown(summary);
+  }
+  return live;
 }
 
 function formatChipAriaLabel({ needsInput, review }: { needsInput: number; review: number }): string {
@@ -115,20 +222,70 @@ function getCompactReviewSummary(
 
 // ─── Notification Item ───────────────────────────────────────────────────────
 
-function NotificationItem({ notif, sessionId }: { notif: SessionNotification; sessionId: string }) {
+function NotificationItem({
+  notif,
+  sessionId,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  notif: SessionNotification;
+  sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
   const toggleDone = useCallback(() => {
     api.markNotificationDone(sessionId, notif.id, !notif.done).catch(() => {});
   }, [sessionId, notif.id, notif.done]);
 
+  const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
+  const fallbackChipMessageId =
+    notif.category === "needs-input" && !notif.messageId && ownerThreadKey !== MAIN_THREAD_KEY
+      ? attentionLedgerMessageIdForNotificationId(notif.id)
+      : null;
+  const jumpTargetMessageId = notif.messageId ?? fallbackChipMessageId;
+
   const jumpToMessage = useCallback(() => {
-    if (!notif.messageId) return;
-    const store = useStore.getState();
-    store.requestScrollToMessage(sessionId, notif.messageId);
-    store.setExpandAllInTurn(sessionId, notif.messageId);
+    if (!jumpTargetMessageId) return;
+    runAfterNotificationOwnerThreadSelected({
+      notification: notif,
+      currentThreadKey,
+      onSelectThread,
+      action: () => {
+        const store = useStore.getState();
+        store.requestScrollToMessage(sessionId, jumpTargetMessageId);
+        store.setExpandAllInTurn(sessionId, jumpTargetMessageId);
+      },
+    });
     // Don't close panel -- user may want to click multiple notifications
-  }, [sessionId, notif.messageId]);
+  }, [sessionId, notif, currentThreadKey, onSelectThread, jumpTargetMessageId]);
+
+  const startReply = useCallback(
+    (answer?: string) => (e: React.MouseEvent) => {
+      e.stopPropagation();
+      runAfterNotificationOwnerThreadSelected({
+        notification: notif,
+        currentThreadKey,
+        onSelectThread,
+        action: () => {
+          const store = useStore.getState();
+          const current = store.composerDrafts.get(sessionId);
+          store.setReplyContext(sessionId, {
+            ...(notif.messageId ? { messageId: notif.messageId } : {}),
+            notificationId: notif.id,
+            previewText: notif.summary || "Needs your input",
+          });
+          if (answer !== undefined) {
+            store.setComposerDraft(sessionId, { text: answer, images: current?.images ?? [] });
+          }
+          store.focusComposer();
+        },
+      });
+    },
+    [sessionId, notif, currentThreadKey, onSelectThread],
+  );
 
   const isNeedsInput = notif.category === "needs-input";
+  const suggestedAnswers = isNeedsInput && !notif.done ? (notif.suggestedAnswers ?? []) : [];
   const compactReviewSummary = !isNeedsInput ? getCompactReviewSummary(notif.summary) : null;
   const label = compactReviewSummary?.text || notif.summary || (isNeedsInput ? "Needs your input" : "Ready for review");
   const questSummary = compactReviewSummary?.questSummary ?? null;
@@ -189,7 +346,7 @@ function NotificationItem({ notif, sessionId }: { notif: SessionNotification; se
           <span
             className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isNeedsInput ? "bg-amber-400" : "bg-emerald-400"}`}
           />
-          {notif.messageId ? (
+          {jumpTargetMessageId ? (
             <div
               role="button"
               tabIndex={0}
@@ -204,6 +361,28 @@ function NotificationItem({ notif, sessionId }: { notif: SessionNotification; se
           )}
         </div>
         <div className="text-[10px] text-cc-muted/60 mt-0.5 pl-3">{formatRelativeTime(notif.timestamp)}</div>
+        {isNeedsInput && !notif.done && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-3" data-testid="notification-answer-actions">
+            {suggestedAnswers.map((answer) => (
+              <button
+                key={answer}
+                type="button"
+                onClick={startReply(answer)}
+                className="max-w-full truncate rounded border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200 transition-colors hover:bg-amber-400/20 cursor-pointer"
+                title={`Use suggested answer: ${answer}`}
+              >
+                {answer}
+              </button>
+            ))}
+            <button
+              type="button"
+              onClick={startReply()}
+              className="rounded border border-cc-border/60 px-2 py-0.5 text-[11px] text-cc-muted transition-colors hover:border-cc-primary/40 hover:text-cc-fg cursor-pointer"
+            >
+              {suggestedAnswers.length > 0 ? "Custom answer" : "Reply"}
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );
@@ -211,11 +390,24 @@ function NotificationItem({ notif, sessionId }: { notif: SessionNotification; se
 
 // ─── Notification Popover ────────────────────────────────────────────────────
 
-function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+function NotificationPopover({
+  sessionId,
+  onClose,
+  anchor,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  sessionId: string;
+  onClose: () => void;
+  anchor: HTMLElement | null;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
   const { active, done } = useNotifications(sessionId);
   const questOverlayId = useStore((s) => s.questOverlayId);
   const [showDone, setShowDone] = useState(false);
   const popoverRef = useRef<HTMLDivElement>(null);
+  const popoverLayoutStyle = useNotificationPopoverLayout(anchor);
   const markAllRead = useCallback(() => {
     api.markAllNotificationsDone(sessionId).catch(() => {});
   }, [sessionId]);
@@ -252,7 +444,8 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed inset-x-3 bottom-14 z-50 flex max-h-[min(60vh,28rem)] flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:inset-x-auto sm:right-3 sm:w-80 sm:max-w-[calc(100vw-1.5rem)] sm:max-h-[50vh]"
+      className="fixed inset-x-3 bottom-[var(--notification-popover-bottom)] z-50 flex max-h-[min(60vh,28rem,var(--notification-popover-available-height))] flex-col overflow-hidden rounded-2xl border border-cc-border bg-cc-card/95 shadow-[0_25px_60px_rgba(0,0,0,0.5)] backdrop-blur-xl sm:inset-x-auto sm:right-3 sm:w-80 sm:max-w-[calc(100vw-1.5rem)] sm:max-h-[min(50vh,var(--notification-popover-available-height))]"
+      style={popoverLayoutStyle}
       role="dialog"
       aria-label="Notification inbox"
     >
@@ -299,7 +492,13 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
             {active.length > 0 && (
               <div className="divide-y divide-cc-border/20">
                 {[...active].reverse().map((n) => (
-                  <NotificationItem key={n.id} notif={n} sessionId={sessionId} />
+                  <NotificationItem
+                    key={n.id}
+                    notif={n}
+                    sessionId={sessionId}
+                    currentThreadKey={currentThreadKey}
+                    onSelectThread={onSelectThread}
+                  />
                 ))}
               </div>
             )}
@@ -322,7 +521,13 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
                 {showDone && (
                   <div className="divide-y divide-cc-border/10 opacity-60">
                     {[...done].reverse().map((n) => (
-                      <NotificationItem key={n.id} notif={n} sessionId={sessionId} />
+                      <NotificationItem
+                        key={n.id}
+                        notif={n}
+                        sessionId={sessionId}
+                        currentThreadKey={currentThreadKey}
+                        onSelectThread={onSelectThread}
+                      />
                     ))}
                   </div>
                 )}
@@ -339,10 +544,20 @@ function NotificationPopover({ sessionId, onClose }: { sessionId: string; onClos
 // ─── Notification Chip (floating pill) ───────────────────────────────────────
 
 /** Glassmorphic floating pill for notification inbox. Renders nothing when no active notifications exist. */
-export function NotificationChip({ sessionId }: { sessionId: string }) {
+export function NotificationChip({
+  sessionId,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
   const { active } = useNotifications(sessionId);
+  const summary = useNotificationSummary(sessionId);
   const [open, setOpen] = useState(false);
-  const { needsInput, review } = useMemo(() => getNotificationBreakdown(active), [active]);
+  const chipRef = useRef<HTMLButtonElement>(null);
+  const { needsInput, review } = useMemo(() => getEffectiveNotificationBreakdown(active, summary), [active, summary]);
   const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review }), [needsInput, review]);
   const visibleSegments = useMemo(
     () =>
@@ -356,11 +571,12 @@ export function NotificationChip({ sessionId }: { sessionId: string }) {
   const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
 
-  if (active.length === 0) return null;
+  if (needsInput + review === 0) return null;
 
   return (
     <>
       <button
+        ref={chipRef}
         onClick={toggle}
         aria-label={ariaLabel}
         className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1 overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md cursor-pointer hover:border-white/15 transition-colors"
@@ -377,7 +593,15 @@ export function NotificationChip({ sessionId }: { sessionId: string }) {
         </span>
       </button>
 
-      {open && <NotificationPopover sessionId={sessionId} onClose={close} />}
+      {open && (
+        <NotificationPopover
+          sessionId={sessionId}
+          onClose={close}
+          anchor={chipRef.current}
+          currentThreadKey={currentThreadKey}
+          onSelectThread={onSelectThread}
+        />
+      )}
     </>
   );
 }

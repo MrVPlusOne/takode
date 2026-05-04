@@ -1,10 +1,128 @@
+import type { InterruptRestartBlockersResponse, ServerInterruptResultItem } from "../api.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import type { SettingsSearchResults, SettingsSectionId } from "./settings-search.js";
+
+function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; emptyText: string }) {
+  if (items.length === 0) {
+    return <p className="text-xs text-cc-muted">{emptyText}</p>;
+  }
+
+  return (
+    <ul className="space-y-2 text-xs text-cc-fg">
+      {items.map((item) => (
+        <li key={item.sessionId} className="rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2">
+          <div className="font-medium">{item.label}</div>
+          <div className="mt-0.5 text-cc-muted">{item.reasons.join(", ")}</div>
+          {item.detail && <div className="mt-1 text-cc-muted">{item.detail}</div>}
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function SessionSummaryList({
+  items,
+  emptyText,
+}: {
+  items: Array<{ sessionId: string; label: string }>;
+  emptyText: string;
+}) {
+  if (items.length === 0) {
+    return <p className="text-xs text-cc-muted">{emptyText}</p>;
+  }
+
+  return (
+    <ul className="space-y-2 text-xs text-cc-fg">
+      {items.map((item) => (
+        <li key={item.sessionId} className="rounded-lg border border-cc-border bg-cc-hover/40 px-3 py-2">
+          <div className="font-medium">{item.label}</div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function HerdDeliverySummary({ result }: { result: InterruptRestartBlockersResponse }) {
+  const delivery = result.herdDelivery;
+  if (!delivery.countsFinal) {
+    return (
+      <div className="space-y-1 text-xs text-cc-muted">
+        <p>{delivery.detail ?? "Restart-prep herd delivery tracking is active."}</p>
+        <p>
+          Current suppressed prep events: {delivery.suppressed}. Current held unrelated events: {delivery.held}.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <p className="text-xs text-cc-muted">
+      Suppressed prep events: {delivery.suppressed}. Held unrelated events: {delivery.held}.
+    </p>
+  );
+}
+
+function RestartPrepResultPanel({ result, title }: { result: InterruptRestartBlockersResponse; title: string }) {
+  return (
+    <div className="space-y-3 rounded-lg border border-cc-border bg-cc-hover/30 px-3 py-3">
+      <div>
+        <p className="text-sm font-medium text-cc-fg">{title}</p>
+        <p className="mt-0.5 text-xs text-cc-muted">
+          {result.interrupted.length === 0 && result.skipped.length === 0 && result.failures.length === 0
+            ? "No restart-blocking sessions were active."
+            : result.restartRequested
+              ? "Restart was requested after blockers cleared."
+              : result.unresolvedBlockers.length > 0
+                ? "Restart prep ran, but some blockers are still unresolved."
+                : "Restart prep ran and no restart request was sent."}
+        </p>
+        <p className="mt-1 text-xs text-cc-muted">
+          Mode: {result.mode}. Restart requested: {result.restartRequested ? "yes" : "no"}.
+          {result.timedOut ? " Blocker wait timed out." : ""}
+        </p>
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Interrupted</p>
+        <ResultList items={result.interrupted} emptyText="No sessions needed interruption." />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Skipped</p>
+        <ResultList items={result.skipped} emptyText="No sessions were skipped." />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Unresolved Blockers</p>
+        <ResultList items={result.unresolvedBlockers} emptyText="No blockers remain reported." />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Protected Leaders</p>
+        <SessionSummaryList
+          items={result.protectedLeaders}
+          emptyText="No idle leaders needed herd-delivery protection."
+        />
+      </div>
+
+      <div className="space-y-1">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Herd Delivery</p>
+        <HerdDeliverySummary result={result} />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Failures</p>
+        <ResultList items={result.failures} emptyText="No interrupt failures." />
+      </div>
+    </div>
+  );
+}
 
 export function SettingsServerDiagnosticsSection({
   logFile,
   restartSupported,
   restartError,
+  restartPrepResult,
   restarting,
   onRestartServer,
   sectionSearch,
@@ -12,6 +130,7 @@ export function SettingsServerDiagnosticsSection({
   logFile: string;
   restartSupported: boolean;
   restartError: string;
+  restartPrepResult?: InterruptRestartBlockersResponse | null;
   restarting: boolean;
   onRestartServer: () => void;
   sectionSearch?: {
@@ -19,6 +138,8 @@ export function SettingsServerDiagnosticsSection({
     id: SettingsSectionId;
   };
 }) {
+  const visibleRestartPrepResult = restartPrepResult ?? null;
+
   return (
     <CollapsibleSection
       id="server"
@@ -57,7 +178,9 @@ export function SettingsServerDiagnosticsSection({
 
         <div className="border-t border-cc-border pt-3 space-y-3">
           <p className="text-xs text-cc-muted">
-            Restart the server process. Useful after pulling new code. Sessions will reconnect automatically.
+            Restart the server process. Useful after pulling new code. Sessions will reconnect automatically. If restart
+            readiness is blocked by active turns or pending permission dialogs, restart prep interrupts active blockers
+            first and reports anything still unresolved.
           </p>
 
           {!restartSupported && (
@@ -74,18 +197,24 @@ export function SettingsServerDiagnosticsSection({
             </div>
           )}
 
-          <button
-            type="button"
-            onClick={onRestartServer}
-            disabled={restarting || !restartSupported}
-            className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-              restarting || !restartSupported
-                ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-            }`}
-          >
-            {restarting ? "Restarting..." : "Restart Server"}
-          </button>
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={onRestartServer}
+              disabled={restarting || !restartSupported}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                restarting || !restartSupported
+                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                  : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
+              }`}
+            >
+              {restarting ? "Restarting..." : "Restart Server"}
+            </button>
+          </div>
+
+          {visibleRestartPrepResult && (
+            <RestartPrepResultPanel result={visibleRestartPrepResult} title="Restart Prep Result" />
+          )}
         </div>
       </div>
     </CollapsibleSection>

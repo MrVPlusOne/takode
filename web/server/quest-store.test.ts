@@ -1,8 +1,7 @@
 import { mkdtempSync, rmSync, readFileSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { tmpdir } from "node:os";
-import sharp from "sharp";
 
 let tempDir: string;
 let questStore: typeof import("./quest-store.js");
@@ -38,6 +37,57 @@ afterEach(() => {
 
 function questDir(): string {
   return join(tempDir, ".companion", "questmaster");
+}
+
+function latestSnapshotPath(): string {
+  return join(questDir(), "_latest_snapshot.json");
+}
+
+function liveStoreDir(): string {
+  return join(tempDir, ".companion", "questmaster-live");
+}
+
+function liveStorePath(): string {
+  return join(liveStoreDir(), "store.json");
+}
+
+function legacyCoLocatedLiveStorePath(): string {
+  return join(questDir(), "store.json");
+}
+
+function writeLiveStoreFixture(store: unknown): void {
+  mkdirSync(liveStoreDir(), { recursive: true });
+  writeFileSync(liveStorePath(), JSON.stringify(store, null, 2), "utf-8");
+}
+
+function writeLegacyCoLocatedLiveStoreFixture(store: unknown): void {
+  mkdirSync(questDir(), { recursive: true });
+  writeFileSync(legacyCoLocatedLiveStorePath(), JSON.stringify(store, null, 2), "utf-8");
+}
+
+function questFileReads(reads: string[]): string[] {
+  return reads
+    .filter((path) => path.endsWith(".json"))
+    .map((path) => basename(path))
+    .filter((name) => name.startsWith("q-"));
+}
+
+async function importQuestStoreWithReadSpy(reads: string[]): Promise<typeof import("./quest-store.js")> {
+  vi.resetModules();
+  mockHomedir.set(tempDir);
+  vi.doMock("node:fs/promises", async (importOriginal) => {
+    const actual = await importOriginal<typeof import("node:fs/promises")>();
+    return {
+      ...actual,
+      readFile: vi.fn(async (...args: Parameters<typeof actual.readFile>) => {
+        reads.push(String(args[0]));
+        return actual.readFile(...args);
+      }),
+    };
+  });
+  const module = await import("./quest-store.js");
+  vi.doUnmock("node:fs/promises");
+  return module;
 }
 
 // ===========================================================================
@@ -177,6 +227,512 @@ describe("listQuests", () => {
     expect(quests[0].title).toBe("Newer");
     expect(quests[1].title).toBe("Older");
   });
+
+  it("reads the derived latest snapshot instead of individual quest version files on repeated list calls", async () => {
+    const reads: string[] = [];
+    const instrumentedStore = await importQuestStoreWithReadSpy(reads);
+
+    await instrumentedStore.createQuest({ title: "Primary" });
+    await instrumentedStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Details",
+    });
+    await instrumentedStore.createQuest({ title: "Unrelated" });
+
+    reads.length = 0;
+    const quests = await instrumentedStore.listQuests();
+    expect(quests.map((quest) => quest.id)).toEqual(["q-2-v1", "q-1-v2"]);
+    expect(questFileReads(reads)).toEqual([]);
+    expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
+  });
+
+  it("rebuilds the latest snapshot from only the latest quest version files when the snapshot is missing", async () => {
+    const initialReads: string[] = [];
+    const instrumentedStore = await importQuestStoreWithReadSpy(initialReads);
+
+    await instrumentedStore.createQuest({ title: "Primary" });
+    await instrumentedStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Details",
+    });
+    await instrumentedStore.createQuest({ title: "Secondary" });
+    await writeFile(latestSnapshotPath(), "", "utf-8");
+
+    const rebuildReads: string[] = [];
+    const rebuiltStore = await importQuestStoreWithReadSpy(rebuildReads);
+    const quests = await rebuiltStore.listQuests();
+    expect(quests.map((quest) => quest.id)).toEqual(["q-2-v1", "q-1-v2"]);
+    expect(questFileReads(rebuildReads).sort()).toEqual(["q-1-v2.json", "q-2-v1.json"]);
+  });
+
+  it("falls back to the latest readable version during snapshot rebuild when the newest file is unreadable", async () => {
+    const reads: string[] = [];
+    const instrumentedStore = await importQuestStoreWithReadSpy(reads);
+
+    await instrumentedStore.createQuest({ title: "Stable" });
+    await writeFile(join(questDir(), "q-1-v2.json"), "{not json", "utf-8");
+    await writeFile(latestSnapshotPath(), "", "utf-8");
+
+    reads.length = 0;
+    const quests = await instrumentedStore.listQuests();
+    expect(quests).toHaveLength(1);
+    expect(quests[0]?.id).toBe("q-1-v1");
+    expect(quests[0]?.title).toBe("Stable");
+    expect(questFileReads(reads).sort()).toEqual(["q-1-v1.json", "q-1-v2.json"]);
+  });
+});
+
+describe("live quest store", () => {
+  it("reads and writes mutable current quest records when store.json is present", async () => {
+    writeLiveStoreFixture({
+      format: "mutable_current_record",
+      version: 1,
+      nextQuestNumber: 2,
+      updatedAt: 0,
+      quests: [
+        {
+          id: "q-1",
+          questId: "q-1",
+          version: 2,
+          title: "Existing",
+          status: "refined",
+          description: "Current live record",
+          createdAt: 100,
+          statusChangedAt: 200,
+        },
+      ],
+    });
+
+    const initial = await questStore.listQuests();
+    expect(initial).toHaveLength(1);
+    expect(initial[0]?.id).toBe("q-1");
+
+    const transitioned = await questStore.transitionQuest("q-1", {
+      status: "in_progress",
+      sessionId: "session-1",
+    });
+    expect(transitioned).toMatchObject({
+      id: "q-1",
+      questId: "q-1",
+      version: 3,
+      status: "in_progress",
+      createdAt: 100,
+      statusChangedAt: expect.any(Number),
+    });
+
+    const created = await questStore.createQuest({ title: "New live quest" });
+    expect(created).toMatchObject({
+      id: "q-2",
+      questId: "q-2",
+      version: 1,
+      status: "idea",
+    });
+
+    const persisted = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
+    expect(persisted.quests).toHaveLength(2);
+    expect(persisted.quests.map((quest: { id: string }) => quest.id).sort()).toEqual(["q-1", "q-2"]);
+  });
+
+  it("bootstrap prefers the separate live store when it already exists", async () => {
+    writeLiveStoreFixture({
+      format: "mutable_current_record",
+      version: 1,
+      nextQuestNumber: 2,
+      updatedAt: 0,
+      legacyBackupDir: questDir(),
+      quests: [
+        {
+          id: "q-1",
+          questId: "q-1",
+          version: 2,
+          title: "Preferred live quest",
+          status: "refined",
+          description: "Use me",
+          createdAt: 100,
+          statusChangedAt: 200,
+        },
+      ],
+    });
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy quest",
+          status: "idea",
+          createdAt: 50,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const bootstrap = await questStore.bootstrapQuestStore();
+
+    expect(bootstrap).toMatchObject({
+      mode: "preferred_live",
+      liveStoreFile: liveStorePath(),
+      legacyBackupDir: questDir(),
+    });
+    expect((await questStore.listQuests()).map((quest) => quest.title)).toEqual(["Preferred live quest"]);
+  });
+
+  it("bootstrap migrates the old co-located live store into the preferred live location", async () => {
+    writeLegacyCoLocatedLiveStoreFixture({
+      format: "mutable_current_record",
+      version: 1,
+      nextQuestNumber: 2,
+      updatedAt: 0,
+      legacyBackupDir: join(tempDir, ".companion", "questmaster-legacy-cutover-old"),
+      quests: [
+        {
+          id: "q-1",
+          questId: "q-1",
+          version: 3,
+          title: "Co-located live quest",
+          status: "refined",
+          description: "Move me forward",
+          createdAt: 100,
+          statusChangedAt: 200,
+        },
+      ],
+    });
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy quest",
+          status: "idea",
+          createdAt: 50,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const bootstrap = await questStore.bootstrapQuestStore();
+    const migrated = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
+    const original = JSON.parse(readFileSync(legacyCoLocatedLiveStorePath(), "utf-8"));
+
+    expect(bootstrap).toMatchObject({
+      mode: "migrated_existing_live",
+      liveStoreFile: liveStorePath(),
+      legacyBackupDir: questDir(),
+    });
+    expect(migrated.legacyBackupDir).toBe(questDir());
+    expect(migrated.quests.map((quest: { title: string }) => quest.title)).toEqual(["Co-located live quest"]);
+    expect(original.legacyBackupDir).toBe(join(tempDir, ".companion", "questmaster-legacy-cutover-old"));
+  });
+
+  it("bootstrap best-effort migrates readable legacy quests into the preferred live location", async () => {
+    mkdirSync(questDir(), { recursive: true });
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Readable legacy quest",
+          status: "idea",
+          createdAt: 100,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(join(questDir(), "q-2-v1.json"), "{broken json", "utf-8");
+    writeFileSync(
+      latestSnapshotPath(),
+      JSON.stringify(
+        {
+          version: 3,
+          quests: [{ questId: "q-1" }],
+          latestVersionByQuestId: { "q-1": 1 },
+          latestFileStateByQuestId: {},
+          updatedAt: 0,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const bootstrap = await questStore.bootstrapQuestStore();
+    const migrated = JSON.parse(readFileSync(liveStorePath(), "utf-8"));
+
+    expect(bootstrap).toMatchObject({
+      mode: "migrated_legacy",
+      liveStoreFile: liveStorePath(),
+      legacyBackupDir: questDir(),
+      report: {
+        legacyQuestCount: 2,
+        migratedQuestCount: 1,
+        blockedQuests: [expect.objectContaining({ questId: "q-2" })],
+      },
+    });
+    expect(migrated.legacyBackupDir).toBe(questDir());
+    expect(migrated.quests.map((quest: { questId: string }) => quest.questId)).toEqual(["q-1"]);
+    expect(readFileSync(join(questDir(), "q-1-v1.json"), "utf-8")).toContain("Readable legacy quest");
+    expect(readFileSync(join(questDir(), "q-2-v1.json"), "utf-8")).toBe("{broken json");
+  });
+
+  it("bootstrap fails loudly when the preferred live store is unreadable", async () => {
+    mkdirSync(liveStoreDir(), { recursive: true });
+    writeFileSync(liveStorePath(), "{broken json", "utf-8");
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy quest",
+          status: "idea",
+          createdAt: 100,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    await expect(questStore.bootstrapQuestStore()).rejects.toThrow();
+  });
+
+  it("prepares live-store migration from legacy version files and reports unreadable quests explicitly", async () => {
+    mkdirSync(questDir(), { recursive: true });
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy quest",
+          status: "idea",
+          createdAt: 100,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      join(questDir(), "q-1-v2.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v2",
+          questId: "q-1",
+          version: 2,
+          prevId: "q-1-v1",
+          title: "Legacy quest",
+          status: "refined",
+          description: "Ready to build",
+          createdAt: 250,
+          updatedAt: 300,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(join(questDir(), "q-2-v1.json"), "{broken json", "utf-8");
+    writeFileSync(
+      latestSnapshotPath(),
+      JSON.stringify(
+        {
+          version: 3,
+          quests: [{ questId: "q-1" }],
+          latestVersionByQuestId: { "q-1": 2 },
+          latestFileStateByQuestId: {},
+          updatedAt: 0,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const prepared = await questStore.prepareLiveQuestStoreMigration();
+
+    expect(prepared.canActivate).toBe(false);
+    expect(prepared.report).toMatchObject({
+      legacyQuestCount: 2,
+      migratedQuestCount: 1,
+      snapshotQuestCount: 1,
+      snapshotStatus: "readable",
+      snapshotMismatchQuestIds: ["q-2"],
+      blockedQuests: [
+        expect.objectContaining({
+          questId: "q-2",
+          files: ["q-2-v1.json"],
+        }),
+      ],
+      unreadableFiles: [
+        expect.objectContaining({
+          file: "q-2-v1.json",
+          questId: "q-2",
+        }),
+      ],
+    });
+    expect(prepared.store.nextQuestNumber).toBe(3);
+    expect(prepared.store.quests).toEqual([
+      expect.objectContaining({
+        id: "q-1",
+        questId: "q-1",
+        version: 2,
+        createdAt: 100,
+        updatedAt: 300,
+        statusChangedAt: 250,
+      }),
+    ]);
+    expect(prepared.backupDir).toContain("legacy-backup-");
+  });
+
+  it("reports a snapshot mismatch when an existing quest ID has a stale snapshot version", async () => {
+    mkdirSync(questDir(), { recursive: true });
+    writeFileSync(
+      join(questDir(), "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy quest",
+          status: "idea",
+          createdAt: 100,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      join(questDir(), "q-1-v2.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v2",
+          questId: "q-1",
+          version: 2,
+          prevId: "q-1-v1",
+          title: "Legacy quest",
+          status: "refined",
+          description: "Ready to build",
+          createdAt: 250,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      latestSnapshotPath(),
+      JSON.stringify(
+        {
+          version: 3,
+          quests: [
+            {
+              id: "q-1-v1",
+              questId: "q-1",
+              version: 1,
+              title: "Legacy quest",
+              status: "idea",
+              createdAt: 100,
+            },
+          ],
+          latestVersionByQuestId: { "q-1": 1 },
+          latestFileStateByQuestId: {},
+          updatedAt: 0,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const prepared = await questStore.prepareLiveQuestStoreMigration();
+
+    expect(prepared.canActivate).toBe(true);
+    expect(prepared.report.snapshotMismatchQuestIds).toEqual(["q-1"]);
+    expect(prepared.report.blockedQuests).toEqual([]);
+  });
+
+  it("reads history and versions from the preserved legacy backup when the live store is active", async () => {
+    const backupDir = join(questDir(), "legacy-backup-manual");
+    mkdirSync(backupDir, { recursive: true });
+    writeFileSync(
+      join(backupDir, "q-1-v1.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Legacy v1",
+          status: "idea",
+          createdAt: 100,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeFileSync(
+      join(backupDir, "q-1-v2.json"),
+      JSON.stringify(
+        {
+          id: "q-1-v2",
+          questId: "q-1",
+          version: 2,
+          prevId: "q-1-v1",
+          title: "Legacy v2",
+          status: "refined",
+          description: "Refined",
+          createdAt: 200,
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+    writeLiveStoreFixture({
+      format: "mutable_current_record",
+      version: 1,
+      nextQuestNumber: 2,
+      updatedAt: 0,
+      legacyBackupDir: backupDir,
+      quests: [
+        {
+          id: "q-1",
+          questId: "q-1",
+          version: 3,
+          title: "Live current",
+          status: "refined",
+          description: "Current live record",
+          createdAt: 100,
+          statusChangedAt: 250,
+        },
+      ],
+    });
+
+    const history = await questStore.getQuestHistoryView("q-1");
+    expect(history).toMatchObject({
+      mode: "legacy_backup",
+      backupDir,
+    });
+    expect(history.entries.map((entry) => entry.id)).toEqual(["q-1-v1", "q-1-v2"]);
+
+    const version = await questStore.getQuestVersion("q-1-v2");
+    expect(version).toMatchObject({ id: "q-1-v2", title: "Legacy v2" });
+  });
 });
 
 // ===========================================================================
@@ -199,6 +755,34 @@ describe("getQuest", () => {
     expect(await questStore.getQuest("q-999")).toBeNull();
   });
 
+  it("falls back to the latest readable version when a newer matching file is corrupt", async () => {
+    await questStore.createQuest({ title: "Stable" });
+    await writeFile(join(questDir(), "q-1-v2.json"), "{not json", "utf-8");
+
+    const q = await questStore.getQuest("q-1");
+    expect(q?.id).toBe("q-1-v1");
+    expect(q?.title).toBe("Stable");
+  });
+
+  it("uses the latest snapshot for relationship-enriched single-quest lookups", async () => {
+    const reads: string[] = [];
+    const instrumentedStore = await importQuestStoreWithReadSpy(reads);
+
+    await instrumentedStore.createQuest({ title: "Primary" });
+    await instrumentedStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Details",
+    });
+    await instrumentedStore.createQuest({ title: "Unrelated" });
+
+    reads.length = 0;
+    const q = await instrumentedStore.getQuest("q-1");
+    expect(q?.id).toBe("q-1-v2");
+
+    expect(questFileReads(reads)).toEqual([]);
+    expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
+  });
+
   it("normalizes legacy done ownership (sessionId -> previousOwnerSessionIds)", async () => {
     const legacy = {
       id: "q-1-v1",
@@ -219,6 +803,34 @@ describe("getQuest", () => {
     if (q?.status === "done") {
       expect(q.sessionId).toBeUndefined();
       expect(q.previousOwnerSessionIds).toEqual(["sess-legacy"]);
+    }
+  });
+
+  it("normalizes legacy needs_verification records to done review metadata", async () => {
+    const legacy = {
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Legacy review",
+      createdAt: 100,
+      statusChangedAt: 300,
+      status: "needs_verification",
+      description: "Old review state",
+      sessionId: "sess-review",
+      claimedAt: 200,
+      verificationItems: [{ text: "verify legacy", checked: false }],
+      verificationInboxUnread: true,
+    };
+    await writeFile(join(questDir(), "q-1-v3.json"), JSON.stringify(legacy), "utf-8");
+
+    const q = await questStore.getQuest("q-1");
+    expect(q?.status).toBe("done");
+    if (q?.status === "done") {
+      expect(q.completedAt).toBe(300);
+      expect(q.verificationItems).toEqual([{ text: "verify legacy", checked: false }]);
+      expect(q.verificationInboxUnread).toBe(true);
+      expect(q.sessionId).toBeUndefined();
+      expect(q.previousOwnerSessionIds).toEqual(["sess-review"]);
     }
   });
 });
@@ -269,13 +881,58 @@ describe("getQuestHistory", () => {
   it("returns empty array for non-existent questId", async () => {
     expect(await questStore.getQuestHistory("q-999")).toEqual([]);
   });
+
+  it("reads only matching version files when loading one quest history", async () => {
+    const reads: string[] = [];
+    const instrumentedStore = await importQuestStoreWithReadSpy(reads);
+
+    await instrumentedStore.createQuest({ title: "Primary" });
+    await instrumentedStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Step 1",
+    });
+    await instrumentedStore.claimQuest("q-1", "session-abc");
+    await instrumentedStore.createQuest({ title: "Unrelated" });
+
+    reads.length = 0;
+    const history = await instrumentedStore.getQuestHistory("q-1");
+    expect(history.map((quest) => quest.id)).toEqual(["q-1-v1", "q-1-v2", "q-1-v3"]);
+
+    const questReads = reads
+      .filter((path) => path.endsWith(".json"))
+      .map((path) => basename(path))
+      .filter((name) => name.startsWith("q-"))
+      .sort();
+    expect(questReads).toEqual(["q-1-v1.json", "q-1-v2.json", "q-1-v3.json"]);
+  });
+});
+
+describe("getActiveQuestForSession", () => {
+  it("uses the derived latest snapshot instead of scanning individual quest files", async () => {
+    const reads: string[] = [];
+    const instrumentedStore = await importQuestStoreWithReadSpy(reads);
+
+    await instrumentedStore.createQuest({ title: "Primary" });
+    await instrumentedStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Details",
+    });
+    await instrumentedStore.claimQuest("q-1", "session-abc");
+    await instrumentedStore.createQuest({ title: "Unrelated" });
+
+    reads.length = 0;
+    const active = await instrumentedStore.getActiveQuestForSession("session-abc");
+    expect(active?.questId).toBe("q-1");
+    expect(questFileReads(reads)).toEqual([]);
+    expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
+  });
 });
 
 // ===========================================================================
 // Forward transitions
 // ===========================================================================
 describe("forward transitions", () => {
-  it("idea → refined → in_progress → needs_verification → done", async () => {
+  it("idea → refined → in_progress → done review handoff → done closure", async () => {
     // Create idea
     const idea = await questStore.createQuest({ title: "Full lifecycle" });
     expect(idea.status).toBe("idea");
@@ -305,23 +962,25 @@ describe("forward transitions", () => {
       expect(inProgress.description).toBe("Full description"); // carried forward
     }
 
-    // → needs_verification
-    const needsVerification = await questStore.transitionQuest("q-1", {
-      status: "needs_verification",
+    // → done review handoff
+    const reviewHandoff = await questStore.transitionQuest("q-1", {
+      status: "done",
       verificationItems: [
         { text: "Check mobile", checked: false },
         { text: "Run e2e", checked: false },
       ],
+      verificationInboxUnread: true,
     });
-    expect(needsVerification?.status).toBe("needs_verification");
-    expect(needsVerification?.version).toBe(4);
-    if (needsVerification?.status === "needs_verification") {
-      expect(needsVerification.verificationItems).toHaveLength(2);
-      expect(needsVerification.sessionId).toBe("sess-1"); // carried forward
-      expect(needsVerification.verificationInboxUnread).toBe(true);
+    expect(reviewHandoff?.status).toBe("done");
+    expect(reviewHandoff?.version).toBe(4);
+    if (reviewHandoff?.status === "done") {
+      expect(reviewHandoff.verificationItems).toHaveLength(2);
+      expect(reviewHandoff.sessionId).toBeUndefined();
+      expect(reviewHandoff.previousOwnerSessionIds).toContain("sess-1");
+      expect(reviewHandoff.verificationInboxUnread).toBe(true);
     }
 
-    // → done
+    // → done closure after review metadata is cleared
     const done = await questStore.transitionQuest("q-1", { status: "done" });
     expect(done?.status).toBe("done");
     expect(done?.version).toBe(5);
@@ -353,8 +1012,8 @@ describe("forward transitions", () => {
 // Backward transitions (the linked-list feature)
 // ===========================================================================
 describe("backward transitions", () => {
-  it("needs_verification → in_progress creates a new version preserving history", async () => {
-    // Build up to needs_verification
+  it("done → in_progress creates a new version preserving history", async () => {
+    // Build up to done
     await questStore.createQuest({ title: "Rework test" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
@@ -370,7 +1029,7 @@ describe("backward transitions", () => {
     });
 
     expect(rework?.status).toBe("in_progress");
-    expect(rework?.version).toBe(5); // v1=idea, v2=refined, v3=in_progress, v4=needs_verification, v5=rework
+    expect(rework?.version).toBe(5); // v1=idea, v2=refined, v3=in_progress, v4=done, v5=rework
     expect(rework?.prevId).toBe("q-1-v4");
     if (rework?.status === "in_progress") {
       expect(rework.sessionId).toBe("sess-2");
@@ -384,7 +1043,7 @@ describe("backward transitions", () => {
       "idea",
       "refined",
       "in_progress",
-      "needs_verification",
+      "done",
       "in_progress", // rework
     ]);
   });
@@ -447,7 +1106,38 @@ describe("claimQuest", () => {
     expect(claimed?.status).toBe("in_progress");
     if (claimed?.status === "in_progress") {
       expect(claimed.sessionId).toBe("sess-abc");
+      expect(claimed.leaderSessionId).toBeUndefined();
     }
+  });
+
+  it("records and preserves the orchestrating leader session when provided at claim time", async () => {
+    await questStore.createQuest({ title: "Orchestrated claim" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Ready",
+    });
+
+    const claimed = await questStore.claimQuest("q-1", "worker-1", { leaderSessionId: " leader-1 " });
+    expect(claimed?.status).toBe("in_progress");
+    expect(claimed?.leaderSessionId).toBe("leader-1");
+
+    const completed = await questStore.completeQuest("q-1", [{ text: "Verify handoff", checked: false }]);
+    expect(completed?.status).toBe("done");
+    expect(completed?.leaderSessionId).toBe("leader-1");
+  });
+
+  it("updates leader attribution when the same worker re-claims under a different leader", async () => {
+    await questStore.createQuest({ title: "Leader changed" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Ready",
+    });
+
+    await questStore.claimQuest("q-1", "worker-1", { leaderSessionId: "leader-1" });
+    const reClaimed = await questStore.claimQuest("q-1", "worker-1", { leaderSessionId: "leader-2" });
+
+    expect(reClaimed?.status).toBe("in_progress");
+    expect(reClaimed?.leaderSessionId).toBe("leader-2");
   });
 
   it("fails when already claimed by a different session", async () => {
@@ -497,10 +1187,92 @@ describe("claimQuest", () => {
   it("returns null for non-existent quest", async () => {
     expect(await questStore.claimQuest("q-999", "sess-1")).toBeNull();
   });
+
+  it("checks existing active ownership via the latest snapshot without scanning unrelated quest files", async () => {
+    const reads: string[] = [];
+    const instrumentedStore = await importQuestStoreWithReadSpy(reads);
+
+    await instrumentedStore.createQuest({ title: "Already active" });
+    await instrumentedStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Primary details",
+    });
+    await instrumentedStore.claimQuest("q-1", "sess-1");
+    await instrumentedStore.createQuest({ title: "Second quest" });
+    await instrumentedStore.transitionQuest("q-2", {
+      status: "refined",
+      description: "Secondary details",
+    });
+
+    reads.length = 0;
+    await expect(instrumentedStore.claimQuest("q-2", "sess-1")).rejects.toThrow(
+      'Session already has an active quest: q-1 "Already active".',
+    );
+    expect(questFileReads(reads)).toEqual([]);
+    expect(reads.map((path) => basename(path))).toContain(basename(latestSnapshotPath()));
+  });
+
+  it("reconciles a parseable stale snapshot before enforcing active quest ownership", async () => {
+    await questStore.createQuest({ title: "Already active" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Primary details",
+    });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.createQuest({ title: "Second quest" });
+    await questStore.transitionQuest("q-2", {
+      status: "refined",
+      description: "Secondary details",
+    });
+
+    await writeFile(
+      latestSnapshotPath(),
+      JSON.stringify(
+        {
+          version: 3,
+          quests: [],
+          activeQuestBySessionId: {},
+          latestFileStateByQuestId: {},
+          latestVersionByQuestId: {},
+          updatedAt: Date.now(),
+        },
+        null,
+        2,
+      ),
+      "utf-8",
+    );
+
+    const active = await questStore.getActiveQuestForSession("sess-1");
+    expect(active?.questId).toBe("q-1");
+
+    const listed = await questStore.listQuests();
+    expect(listed.map((quest) => quest.id).sort()).toEqual(["q-1-v3", "q-2-v2"]);
+
+    await expect(questStore.claimQuest("q-2", "sess-1")).rejects.toThrow(
+      'Session already has an active quest: q-1 "Already active".',
+    );
+  });
+
+  it("reconciles a parseable stale snapshot after a same-version patchQuest rewrite", async () => {
+    await questStore.createQuest({ title: "Before title" });
+    const staleSnapshot = await readFile(latestSnapshotPath(), "utf-8");
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+    await questStore.patchQuest("q-1", { title: "After rewritten title" });
+
+    await writeFile(latestSnapshotPath(), staleSnapshot, "utf-8");
+
+    const listed = await questStore.listQuests();
+    expect(listed).toHaveLength(1);
+    expect(listed[0]?.title).toBe("After rewritten title");
+
+    const quest = await questStore.getQuest("q-1");
+    expect(quest?.title).toBe("After rewritten title");
+  });
 });
 
 describe("completeQuest", () => {
-  it("transitions to needs_verification with items", async () => {
+  it("transitions to done with items", async () => {
     await questStore.createQuest({ title: "Complete me" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
@@ -513,8 +1285,8 @@ describe("completeQuest", () => {
       { text: "Check dark mode", checked: false },
     ]);
 
-    expect(completed?.status).toBe("needs_verification");
-    if (completed?.status === "needs_verification") {
+    expect(completed?.status).toBe("done");
+    if (completed?.status === "done") {
       expect(completed.verificationItems).toHaveLength(2);
       expect(completed.verificationInboxUnread).toBe(true);
     }
@@ -532,8 +1304,30 @@ describe("completeQuest", () => {
       commitShas: ["BEEF1234", "beef1234", "deadbeefcafebabe"],
     });
 
-    expect(completed?.status).toBe("needs_verification");
+    expect(completed?.status).toBe("done");
     expect(completed?.commitShas).toEqual(["beef1234", "deadbeefcafebabe"]);
+  });
+
+  it("uses an explicit worker session when a leader completes a refined quest", async () => {
+    // Leader sessions can submit a worker-owned quest after removing it from the board.
+    // The handoff must still persist the worker session so the quest is reviewable.
+    await questStore.createQuest({ title: "Leader handoff" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Ready",
+    });
+
+    const completed = await questStore.completeQuest("q-1", [{ text: "Verify handoff", checked: false }], {
+      sessionId: "worker-1",
+    });
+
+    expect(completed?.status).toBe("done");
+    if (completed?.status === "done") {
+      expect(completed.sessionId).toBeUndefined();
+      expect(completed.previousOwnerSessionIds).toContain("worker-1");
+      expect(completed.verificationItems).toEqual([{ text: "Verify handoff", checked: false }]);
+      expect(completed.verificationInboxUnread).toBe(true);
+    }
   });
 });
 
@@ -613,8 +1407,8 @@ describe("cancelQuest", () => {
     }
   });
 
-  it("cancels a needs_verification quest, carrying forward verificationItems", async () => {
-    // Build up to needs_verification
+  it("cancels a done quest, carrying forward verificationItems", async () => {
+    // Build up to done
     await questStore.createQuest({ title: "Cancel needs verification" });
     await questStore.transitionQuest("q-1", {
       status: "refined",
@@ -687,7 +1481,7 @@ describe("checkVerificationItem", () => {
     ]);
 
     const toggled = await questStore.checkVerificationItem("q-1", 0, true);
-    if (toggled?.status === "needs_verification") {
+    if (toggled?.status === "done") {
       expect(toggled.verificationItems[0].checked).toBe(true);
       expect(toggled.verificationItems[1].checked).toBe(false);
     }
@@ -761,8 +1555,8 @@ describe("transition validation", () => {
     await expect(questStore.transitionQuest("q-1", { status: "in_progress" })).rejects.toThrow("sessionId is required");
   });
 
-  it("allows needs_verification with empty verificationItems (auto-pass)", async () => {
-    // When no --items are provided, the quest transitions to needs_verification
+  it("allows done with empty verificationItems (auto-pass)", async () => {
+    // When no --items are provided, the quest transitions to done
     // with an empty items array. quest done will auto-pass since there's nothing to verify.
     await questStore.createQuest({ title: "No items" });
     await questStore.transitionQuest("q-1", {
@@ -770,10 +1564,10 @@ describe("transition validation", () => {
       description: "Ready",
     });
     await questStore.claimQuest("q-1", "sess-1");
-    const quest = await questStore.transitionQuest("q-1", { status: "needs_verification" });
+    const quest = await questStore.transitionQuest("q-1", { status: "done" });
     expect(quest).not.toBeNull();
-    expect(quest?.status).toBe("needs_verification");
-    if (quest?.status === "needs_verification") {
+    expect(quest?.status).toBe("done");
+    if (quest?.status === "done") {
       expect(quest.verificationItems).toEqual([]);
     }
   });
@@ -791,7 +1585,7 @@ describe("transition validation", () => {
         sessionId: "sess-1",
         commitShas: ["abc1234"],
       }),
-    ).rejects.toThrow("commitShas can only be set when transitioning to needs_verification");
+    ).rejects.toThrow("commitShas can only be set when completing a quest");
   });
 
   it("preserves and appends commit SHAs on a re-submitted verification handoff", async () => {
@@ -811,13 +1605,13 @@ describe("transition validation", () => {
     });
 
     const resubmitted = await questStore.transitionQuest("q-1", {
-      status: "needs_verification",
+      status: "done",
       sessionId: "sess-1",
       verificationItems: [{ text: "Verify v2", checked: false }],
       commitShas: ["DEADBEEF", "cafebabe"],
     });
 
-    expect(resubmitted?.status).toBe("needs_verification");
+    expect(resubmitted?.status).toBe("done");
     expect(resubmitted?.commitShas).toEqual(["abc1234", "deadbeef", "cafebabe"]);
   });
 
@@ -842,12 +1636,12 @@ describe("transition validation", () => {
   });
 
   it("allows done transition with empty verification items (auto-pass)", async () => {
-    // When a quest reaches needs_verification with no items, quest done should
+    // When a quest reaches done with no items, quest done should
     // succeed immediately — there's nothing to verify.
     await questStore.createQuest({ title: "Auto-pass done" });
     await questStore.transitionQuest("q-1", { status: "refined", description: "Ready" });
     await questStore.claimQuest("q-1", "sess-1");
-    await questStore.transitionQuest("q-1", { status: "needs_verification" });
+    await questStore.transitionQuest("q-1", { status: "done" });
     const done = await questStore.markDone("q-1", { notes: "No items to verify" });
     expect(done).not.toBeNull();
     expect(done?.status).toBe("done");
@@ -866,7 +1660,7 @@ describe("transition validation", () => {
 // Feedback thread
 // ===========================================================================
 describe("feedback", () => {
-  /** Helper: create a quest in needs_verification state */
+  /** Helper: create a quest in done state */
   async function setupVerificationQuest() {
     await questStore.createQuest({ title: "Feedback test" });
     await questStore.transitionQuest("q-1", { status: "refined", description: "Ready" });
@@ -879,7 +1673,11 @@ describe("feedback", () => {
 
   it("sets feedback via patchQuest", async () => {
     await setupVerificationQuest();
-    const entry = { author: "human" as const, text: "Layout off on mobile", ts: Date.now() };
+    const entry = {
+      author: "human" as const,
+      text: "Layout off on mobile",
+      ts: Date.now(),
+    };
     const result = await questStore.patchQuest("q-1", { feedback: [entry] });
     expect(result).not.toBeNull();
     const fb = (result as { feedback?: { author: string; text: string }[] }).feedback;
@@ -897,7 +1695,7 @@ describe("feedback", () => {
     expect((result as { feedback?: unknown[] }).feedback).toBeUndefined();
   });
 
-  it("carries forward feedback on needs_verification → in_progress transition", async () => {
+  it("carries forward feedback on done → in_progress transition", async () => {
     await setupVerificationQuest();
     const entry = { author: "human" as const, text: "Fix this", ts: Date.now() };
     await questStore.patchQuest("q-1", { feedback: [entry] });
@@ -911,7 +1709,7 @@ describe("feedback", () => {
     expect(fb![0].text).toBe("Fix this");
   });
 
-  it("carries forward feedback on needs_verification → refined transition", async () => {
+  it("carries forward feedback on done → refined transition", async () => {
     await setupVerificationQuest();
     const entries = [
       { author: "human" as const, text: "Please reopen this for rework", ts: Date.now() },
@@ -929,7 +1727,7 @@ describe("feedback", () => {
     expect(result?.feedback).toEqual(entries);
   });
 
-  it("carries forward feedback on in_progress → needs_verification transition", async () => {
+  it("carries forward feedback on in_progress → done transition", async () => {
     await setupVerificationQuest();
     const entry = { author: "human" as const, text: "Fix this", ts: Date.now() };
     await questStore.patchQuest("q-1", { feedback: [entry] });
@@ -938,7 +1736,7 @@ describe("feedback", () => {
     await questStore.transitionQuest("q-1", { status: "in_progress", sessionId: "sess-1" });
     // Agent submits again with new verification items — feedback thread persists
     const result = await questStore.transitionQuest("q-1", {
-      status: "needs_verification",
+      status: "done",
       verificationItems: [{ text: "New check", checked: false }],
     });
     expect(result).not.toBeNull();
@@ -1011,8 +1809,8 @@ describe("feedback", () => {
     });
 
     const result = await questStore.getQuest("q-1");
-    expect(result?.status).toBe("needs_verification");
-    if (result?.status === "needs_verification") {
+    expect(result?.status).toBe("done");
+    if (result?.status === "done") {
       expect(result.verificationInboxUnread).toBe(true);
     }
   });
@@ -1030,8 +1828,8 @@ describe("feedback", () => {
     });
 
     const result = await questStore.getQuest("q-1");
-    expect(result?.status).toBe("needs_verification");
-    if (result?.status === "needs_verification") {
+    expect(result?.status).toBe("done");
+    if (result?.status === "done") {
       expect(result.verificationInboxUnread).toBe(true);
     }
   });
@@ -1047,8 +1845,8 @@ describe("feedback", () => {
     await questStore.patchQuest("q-1", { feedback: [] });
 
     const result = await questStore.getQuest("q-1");
-    expect(result?.status).toBe("needs_verification");
-    if (result?.status === "needs_verification") {
+    expect(result?.status).toBe("done");
+    if (result?.status === "done") {
       expect(result.verificationInboxUnread).toBe(true);
     }
   });
@@ -1066,8 +1864,8 @@ describe("feedback", () => {
     });
 
     const result = await questStore.getQuest("q-1");
-    expect(result?.status).toBe("needs_verification");
-    if (result?.status === "needs_verification") {
+    expect(result?.status).toBe("done");
+    if (result?.status === "done") {
       expect(result.verificationInboxUnread).toBeFalsy();
     }
   });
@@ -1083,12 +1881,12 @@ describe("verification inbox", () => {
     await questStore.completeQuest("q-1", [{ text: "Verify", checked: false }]);
 
     const before = await questStore.getQuest("q-1");
-    expect(before?.status).toBe("needs_verification");
-    if (before?.status === "needs_verification") {
+    expect(before?.status).toBe("done");
+    if (before?.status === "done") {
       expect(before.verificationInboxUnread).toBe(true);
       const readQuest = await questStore.markQuestVerificationRead("q-1");
-      expect(readQuest?.status).toBe("needs_verification");
-      if (readQuest?.status === "needs_verification") {
+      expect(readQuest?.status).toBe("done");
+      if (readQuest?.status === "done") {
         expect(readQuest.version).toBe(before.version);
         expect(readQuest.verificationInboxUnread).toBe(false);
       }
@@ -1105,12 +1903,12 @@ describe("verification inbox", () => {
     await questStore.markQuestVerificationRead("q-1");
 
     const before = await questStore.getQuest("q-1");
-    expect(before?.status).toBe("needs_verification");
-    if (before?.status === "needs_verification") {
+    expect(before?.status).toBe("done");
+    if (before?.status === "done") {
       expect(before.verificationInboxUnread).toBe(false);
       const inboxQuest = await questStore.markQuestVerificationInboxUnread("q-1");
-      expect(inboxQuest?.status).toBe("needs_verification");
-      if (inboxQuest?.status === "needs_verification") {
+      expect(inboxQuest?.status).toBe("done");
+      if (inboxQuest?.status === "done") {
         expect(inboxQuest.version).toBe(before.version);
         expect(inboxQuest.verificationInboxUnread).toBe(true);
       }
@@ -1176,55 +1974,5 @@ describe("counter reconciliation", () => {
     // should bump it past q-10
     const q = await questStore.createQuest({ title: "After gap" });
     expect(q.questId).toBe("q-11");
-  });
-});
-
-// ===========================================================================
-// saveQuestImage — auto-resize for Read tool compatibility
-// ===========================================================================
-describe("saveQuestImage", () => {
-  it("resizes images exceeding 1920px to fit within the limit", async () => {
-    // Claude Code's Read tool rejects images >2000x2000px. saveQuestImage
-    // should downscale at upload time so workers can read quest screenshots.
-    const bigImage = await sharp({
-      create: { width: 2500, height: 2000, channels: 4, background: { r: 255, g: 0, b: 0, alpha: 1 } },
-    })
-      .png()
-      .toBuffer();
-
-    const result = await questStore.saveQuestImage("big.png", bigImage, "image/png");
-    const saved = await readFile(result.path);
-    const meta = await sharp(saved).metadata();
-    expect(meta.width).toBeLessThanOrEqual(1920);
-    expect(meta.height).toBeLessThanOrEqual(1920);
-    // Aspect ratio preserved: 2500x2000 → 1920x1536
-    expect(meta.width).toBe(1920);
-    expect(meta.height).toBe(1536);
-  });
-
-  it("preserves small images without resizing", async () => {
-    // Images already within the limit should pass through unchanged.
-    const smallImage = await sharp({
-      create: { width: 800, height: 600, channels: 4, background: { r: 0, g: 255, b: 0, alpha: 1 } },
-    })
-      .png()
-      .toBuffer();
-
-    const result = await questStore.saveQuestImage("small.png", smallImage, "image/png");
-    const saved = await readFile(result.path);
-    const meta = await sharp(saved).metadata();
-    expect(meta.width).toBe(800);
-    expect(meta.height).toBe(600);
-  });
-
-  it("skips resize for SVG images", async () => {
-    // SVG is vector -- no pixel dimensions to resize.
-    const svgData = Buffer.from(
-      '<svg xmlns="http://www.w3.org/2000/svg" width="3000" height="3000"><rect fill="red" width="3000" height="3000"/></svg>',
-    );
-    const result = await questStore.saveQuestImage("icon.svg", svgData, "image/svg+xml");
-    const saved = await readFile(result.path);
-    // SVG should be stored verbatim
-    expect(saved.toString()).toContain("3000");
   });
 });

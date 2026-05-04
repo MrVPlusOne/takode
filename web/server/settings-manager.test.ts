@@ -44,6 +44,9 @@ describe("settings-manager", () => {
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexNonLeaderAutoCompactThresholdPercent: 90,
+      codexLeaderRecycleThresholdTokens: 260_000,
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       autoApprovalEnabled: false,
@@ -66,7 +69,9 @@ describe("settings-manager", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
+      questmasterCompactSort: { column: "updated", direction: "desc" },
       updatedAt: 0,
+      codexLeaderRecycleThresholdTokensByModel: {},
     });
   });
 
@@ -173,6 +178,28 @@ describe("settings-manager", () => {
     });
   });
 
+  it("persists custom STT models across reloads", async () => {
+    // Custom OpenAI-compatible transcription providers can expose model names outside the built-in list.
+    updateSettings({
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+        sttModel: "whisper-large-v3",
+      },
+    });
+
+    await _flushForTest();
+
+    const savedSettings = JSON.parse(await readFile(settingsPath, "utf-8"));
+    expect(savedSettings.transcriptionConfig.sttModel).toBe("whisper-large-v3");
+
+    _resetForTest(settingsPath);
+
+    expect(getSettings().transcriptionConfig.sttModel).toBe("whisper-large-v3");
+  });
+
   it("persists voiceCaptureMode preference across reloads", async () => {
     // Save a voice capture mode preference (e.g. user switched to "append" during recording)
     updateSettings({
@@ -208,6 +235,31 @@ describe("settings-manager", () => {
     _resetForTest(settingsPath);
 
     expect(getSettings().questmasterViewMode).toBe("compact");
+  });
+
+  it("persists Questmaster compact sort across reloads", async () => {
+    // Compact-table sort is server-owned so browser reloads and tabs converge.
+    updateSettings({ questmasterCompactSort: { column: "feedback", direction: "desc" } });
+
+    await _flushForTest();
+
+    const savedSettings = JSON.parse(await readFile(settingsPath, "utf-8"));
+    expect(savedSettings.questmasterCompactSort).toEqual({ column: "feedback", direction: "desc" });
+
+    _resetForTest(settingsPath);
+
+    expect(getSettings().questmasterCompactSort).toEqual({ column: "feedback", direction: "desc" });
+  });
+
+  it("normalizes invalid Questmaster compact sort to Updated descending", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({ questmasterCompactSort: { column: "unknown", direction: "sideways" } }),
+      "utf-8",
+    );
+    _resetForTest(settingsPath);
+
+    expect(getSettings().questmasterCompactSort).toEqual({ column: "updated", direction: "desc" });
   });
 
   it("loads existing settings from disk", () => {
@@ -320,6 +372,9 @@ describe("settings-manager", () => {
       pushoverBaseUrl: "",
       claudeBinary: "",
       codexBinary: "",
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexNonLeaderAutoCompactThresholdPercent: 90,
+      codexLeaderRecycleThresholdTokens: 260_000,
       maxKeepAlive: 0,
       heavyRepoModeEnabled: false,
       autoApprovalEnabled: false,
@@ -342,7 +397,30 @@ describe("settings-manager", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
+      questmasterCompactSort: { column: "updated", direction: "desc" },
       updatedAt: 0,
+      codexLeaderRecycleThresholdTokensByModel: {},
+    });
+  });
+
+  it("normalizes per-model Codex leader recycle thresholds from disk", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        codexLeaderRecycleThresholdTokensByModel: {
+          " gpt-5.5 ": 320_000,
+          "": 111,
+          "gpt-5.4": 430_000.9,
+          "gpt-5.3-codex": 0,
+        },
+      }),
+      "utf-8",
+    );
+    _resetForTest(settingsPath);
+
+    expect(getSettings().codexLeaderRecycleThresholdTokensByModel).toEqual({
+      "gpt-5.4": 430_000,
+      "gpt-5.5": 320_000,
     });
   });
 

@@ -17,8 +17,20 @@ import { TimerModal } from "../TimerWidget.js";
 import { ToolBlock, getToolIcon, getToolLabel, getPreview, ToolIcon, formatDuration } from "../ToolBlock.js";
 import { PLAYGROUND_SESSION_ROWS } from "./fixtures.js";
 import { getPlaygroundSectionId, type PlaygroundSectionGroupId } from "./navigation.js";
+import {
+  THREAD_ROUTING_REMINDER_SOURCE_ID,
+  THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+} from "../../../shared/thread-routing-reminder.js";
+import {
+  QUEST_THREAD_REMINDER_SOURCE_ID,
+  QUEST_THREAD_REMINDER_SOURCE_LABEL,
+} from "../../../shared/quest-thread-reminder.js";
 
 const PlaygroundSectionGroupContext = createContext<PlaygroundSectionGroupId | null>(null);
+const NEEDS_INPUT_REMINDER_SOURCE = {
+  sessionId: "system:needs-input-reminder",
+  sessionLabel: "Needs Input Reminder",
+};
 
 export function PlaygroundSectionGroup({
   groupId,
@@ -621,6 +633,78 @@ export function PlaygroundReviewNotificationMarker({ summary }: { summary?: stri
   );
 }
 
+export function PlaygroundSuggestedAnswerNotificationMarker() {
+  useEffect(() => {
+    const previous = useStore.getState().sessionNotifications;
+    const next = new Map(previous);
+    next.set("playground-suggested-notify", [
+      {
+        id: "n-suggested-1",
+        category: "needs-input",
+        timestamp: Date.now() - 30_000,
+        messageId: "playground-suggested-notify-msg",
+        summary: "Approve the rollout?",
+        suggestedAnswers: [
+          "Continue the rollout now; the canary looks healthy and the current error budget is acceptable.",
+          "Hold the rollout until the manual smoke checks finish and the on-call engineer confirms.",
+        ],
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: next });
+
+    return () => {
+      useStore.setState({ sessionNotifications: previous });
+    };
+  }, []);
+
+  return (
+    <NotificationMarker
+      category="needs-input"
+      summary="Approve the rollout?"
+      sessionId="playground-suggested-notify"
+      messageId="playground-suggested-notify-msg"
+      notificationId="n-suggested-1"
+    />
+  );
+}
+
+export function PlaygroundAddressedSuggestedAnswerNotificationMarker() {
+  useEffect(() => {
+    const previous = useStore.getState().sessionNotifications;
+    const next = new Map(previous);
+    next.set("playground-addressed-suggested-notify", [
+      {
+        id: "n-addressed-suggested-1",
+        category: "needs-input",
+        timestamp: Date.now() - 30_000,
+        messageId: "playground-addressed-suggested-notify-msg",
+        summary: "Approve the rollout?",
+        suggestedAnswers: [
+          "Continue the rollout now; the canary looks healthy and the current error budget is acceptable.",
+          "Hold the rollout until the manual smoke checks finish and the on-call engineer confirms.",
+        ],
+        done: true,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: next });
+
+    return () => {
+      useStore.setState({ sessionNotifications: previous });
+    };
+  }, []);
+
+  return (
+    <NotificationMarker
+      category="needs-input"
+      summary="Approve the rollout?"
+      sessionId="playground-addressed-suggested-notify"
+      messageId="playground-addressed-suggested-notify-msg"
+      notificationId="n-addressed-suggested-1"
+    />
+  );
+}
+
 export function PlaygroundDedupedNotificationMessage() {
   useEffect(() => {
     const previous = useStore.getState().sessionNotifications;
@@ -670,6 +754,154 @@ export function PlaygroundDedupedNotificationMessage() {
       <MessageBubble message={message} sessionId="playground-dedup-notify" showTimestamp={false} />
     </div>
   );
+}
+
+export function PlaygroundAddressedNotifyToolBlock() {
+  useEffect(() => {
+    const previous = useStore.getState().sessionNotifications;
+    const next = new Map(previous);
+    next.set("playground-addressed-notify", [
+      {
+        id: "playground-addressed-notif-1",
+        category: "needs-input",
+        timestamp: Date.now() - 20_000,
+        messageId: "playground-addressed-msg",
+        summary: "Confirm scope before continuing",
+        done: true,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: next });
+
+    return () => {
+      useStore.setState({ sessionNotifications: previous });
+    };
+  }, []);
+
+  return (
+    <ToolBlock
+      name="Bash"
+      input={{ command: 'takode notify needs-input "Confirm scope before continuing"' }}
+      toolUseId="playground-addressed-notify-tool"
+      sessionId="playground-addressed-notify"
+      parentMessageId="playground-addressed-msg"
+    />
+  );
+}
+
+export function PlaygroundNeedsInputReminderMessage({ variant }: { variant: "resolved" | "active" | "partial" }) {
+  const sessionId = `playground-needs-input-reminder-${variant}`;
+  const isPartial = variant === "partial";
+  const message: ChatMessage = {
+    id: `playground-needs-input-reminder-${variant}-msg`,
+    role: "user",
+    content: isPartial
+      ? [
+          "[Needs-input reminder]",
+          "Unresolved same-session needs-input notifications: 4. Showing newest 3.",
+          "  6. Newest pending question",
+          "  5. Second newest pending question",
+          "  3. Third newest pending question",
+          "Review or resolve these before assuming the user's latest message answered them.",
+        ].join("\n")
+      : [
+          "[Needs-input reminder]",
+          "Unresolved same-session needs-input notifications: 1.",
+          "  17. Confirm rollout scope",
+          "Review or resolve these before assuming the user's latest message answered them.",
+        ].join("\n"),
+    timestamp: Date.now() - 30_000,
+    agentSource: NEEDS_INPUT_REMINDER_SOURCE,
+  };
+
+  useEffect(() => {
+    const previous = useStore.getState().sessionNotifications;
+    const next = new Map(previous);
+    next.set(
+      sessionId,
+      isPartial
+        ? [
+            {
+              id: "n-6",
+              category: "needs-input",
+              timestamp: Date.now() - 60_000,
+              messageId: null,
+              summary: "Newest pending question",
+              done: true,
+            },
+            {
+              id: "n-5",
+              category: "needs-input",
+              timestamp: Date.now() - 70_000,
+              messageId: null,
+              summary: "Second newest pending question",
+              done: true,
+            },
+            {
+              id: "n-3",
+              category: "needs-input",
+              timestamp: Date.now() - 80_000,
+              messageId: null,
+              summary: "Third newest pending question",
+              done: true,
+            },
+          ]
+        : [
+            {
+              id: "n-17",
+              category: "needs-input",
+              timestamp: Date.now() - 45_000,
+              messageId: null,
+              summary: "Confirm rollout scope",
+              done: variant === "resolved",
+            },
+          ],
+    );
+    useStore.setState({ sessionNotifications: next });
+
+    return () => {
+      useStore.setState({ sessionNotifications: previous });
+    };
+  }, [isPartial, sessionId, variant]);
+
+  return <MessageBubble message={message} sessionId={sessionId} showTimestamp={false} />;
+}
+
+export function PlaygroundThreadRoutingReminderMessage() {
+  const message: ChatMessage = {
+    id: "playground-thread-routing-reminder-msg",
+    role: "user",
+    content: [
+      "[Thread routing reminder]",
+      "Missing thread marker. Your previous leader response was not assigned to a thread.",
+      "Resend user-visible leader text with `[thread:main]` or `[thread:q-N]` as the first line.",
+      "For leader shell commands, put `# thread:main` or `# thread:q-N` as the first non-empty command line.",
+    ].join("\n"),
+    timestamp: Date.now() - 20_000,
+    agentSource: {
+      sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,
+      sessionLabel: THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+    },
+    metadata: { threadKey: "q-970", questId: "q-970" },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-thread-routing-reminder" showTimestamp={false} />;
+}
+
+export function PlaygroundQuestThreadReminderMessage() {
+  const message: ChatMessage = {
+    id: "playground-quest-thread-reminder-msg",
+    role: "user",
+    content:
+      "Thread reminder: attach any prior messages that clearly belong to [q-1025](quest:q-1025) with `takode thread attach`.",
+    timestamp: Date.now() - 18_000,
+    agentSource: {
+      sessionId: QUEST_THREAD_REMINDER_SOURCE_ID,
+      sessionLabel: QUEST_THREAD_REMINDER_SOURCE_LABEL,
+    },
+    metadata: { threadKey: "q-1025", questId: "q-1025" },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-quest-thread-reminder" showTimestamp={false} />;
 }
 
 // ─── Inline MCP Server Row (static preview, no WebSocket) ──────────────────
@@ -749,6 +981,20 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
   useEffect(() => {
     useStore.setState((state) => {
       const nextSdkSessions = [...state.sdkSessions];
+      if (!nextSdkSessions.some((session) => session.sessionId === "playground-hover-leader")) {
+        nextSdkSessions.push({
+          sessionId: "playground-hover-leader",
+          state: "running",
+          cwd: "/Users/stan/Dev/takode",
+          createdAt: Date.now() - 180000,
+          sessionNum: 565,
+          cliConnected: true,
+          backendType: "codex",
+          model: "gpt-5.4",
+          repoRoot: "/Users/stan/Dev/takode",
+          isOrchestrator: true,
+        });
+      }
       if (!nextSdkSessions.some((session) => session.sessionId === "playground-hover-worker")) {
         nextSdkSessions.push({
           sessionId: "playground-hover-worker",
@@ -760,42 +1006,101 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
           backendType: "codex",
           model: "gpt-5.4-mini",
           repoRoot: "/Users/stan/Dev/takode",
+          herdedBy: "playground-hover-leader",
+        });
+      }
+      if (!nextSdkSessions.some((session) => session.sessionId === "playground-hover-reviewer")) {
+        nextSdkSessions.push({
+          sessionId: "playground-hover-reviewer",
+          state: "connected",
+          cwd: "/Users/stan/Dev/takode",
+          createdAt: Date.now() - 90000,
+          sessionNum: 567,
+          cliConnected: true,
+          backendType: "codex",
+          model: "gpt-5.4",
+          repoRoot: "/Users/stan/Dev/takode",
         });
       }
 
       const nextSessionNames = new Map(state.sessionNames);
+      nextSessionNames.set("playground-hover-leader", "Leader Hover Demo");
       nextSessionNames.set("playground-hover-worker", "Worker Hover Demo");
+      nextSessionNames.set("playground-hover-reviewer", "Reviewer Hover Demo");
 
       const nextQuests = [...state.quests];
-      if (!nextQuests.some((quest) => quest.questId === "q-418")) {
-        nextQuests.push({
-          id: "q-418-v2",
-          questId: "q-418",
-          version: 2,
-          title: "Prefer plain-text Takode inspection",
-          status: "in_progress",
-          description: "Keep Takode inspection flows plain-text first.",
-          createdAt: Date.now() - 240000,
-          sessionId: "playground-hover-worker",
-          claimedAt: Date.now() - 180000,
-          tags: ["leader", "workflow", "documentation", "takode-cli", "improvement"],
-        });
+      const hoverQuest = {
+        id: "q-418-v2",
+        questId: "q-418",
+        version: 2,
+        title: "Improve quest link preview layout and orchestration details",
+        status: "in_progress" as const,
+        description: "Keep quest hover previews spacious while surfacing orchestration context.",
+        createdAt: Date.now() - 240000,
+        sessionId: "playground-hover-worker",
+        claimedAt: Date.now() - 180000,
+        leaderSessionId: "playground-hover-leader",
+        tags: ["ui", "quests", "links", "journey"],
+      };
+      const existingQuestIndex = nextQuests.findIndex((quest) => quest.questId === "q-418");
+      if (existingQuestIndex >= 0) {
+        nextQuests[existingQuestIndex] = { ...nextQuests[existingQuestIndex], ...hoverQuest };
+      } else {
+        nextQuests.push(hoverQuest);
       }
+
+      const nextSessionBoards = new Map(state.sessionBoards);
+      const leaderBoard = (nextSessionBoards.get("playground-hover-leader") ?? []).filter(
+        (row) => row.questId !== "q-418",
+      );
+      nextSessionBoards.set("playground-hover-leader", [
+        {
+          questId: "q-418",
+          title: hoverQuest.title,
+          worker: "playground-hover-worker",
+          workerNum: 566,
+          status: "IMPLEMENTING",
+          updatedAt: Date.now() - 60000,
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review"],
+            currentPhaseId: "implement",
+          },
+        },
+        ...leaderBoard,
+      ]);
+      const nextSessionBoardRowStatuses = new Map(state.sessionBoardRowStatuses);
+      nextSessionBoardRowStatuses.set("playground-hover-leader", {
+        ...(nextSessionBoardRowStatuses.get("playground-hover-leader") ?? {}),
+        "q-418": {
+          worker: {
+            sessionId: "playground-hover-worker",
+            sessionNum: 566,
+            name: "Worker Hover Demo",
+            status: "running",
+          },
+          reviewer: {
+            sessionId: "playground-hover-reviewer",
+            sessionNum: 567,
+            name: "Reviewer Hover Demo",
+            status: "idle",
+          },
+        },
+      });
 
       return {
         ...state,
         sdkSessions: nextSdkSessions,
         sessionNames: nextSessionNames,
         quests: nextQuests,
+        sessionBoards: nextSessionBoards,
+        sessionBoardRowStatuses: nextSessionBoardRowStatuses,
       };
     });
   }, []);
 
   return (
     <div className="space-y-2 p-3">
-      <div className="text-xs text-cc-muted">
-        Uses the [q-419](quest:q-419) corrected screenshot behavior: compact cross-link chips inside the hover preview.
-      </div>
       <div className="rounded-xl border border-cc-border bg-cc-card/40 px-3 py-2.5">
         <MarkdownContent text={text} />
       </div>

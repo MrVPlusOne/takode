@@ -8,18 +8,22 @@ import { MessageBubble } from "./MessageBubble.js";
 import { NotificationChip } from "./NotificationChip.js";
 import { TimerChip } from "./TimerWidget.js";
 import { formatElapsed, formatTokens, getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
+import { formatReplyContentForPreview } from "../utils/reply-context.js";
+import { normalizeThreadKey } from "../utils/thread-projection.js";
 
 export function ElapsedTimer({
   sessionId,
   latestIndicatorVisible = false,
   onJumpToLatest,
   variant = "bar",
+  currentThreadKey = "main",
   onVisibleHeightChange,
 }: {
   sessionId: string;
   latestIndicatorVisible?: boolean;
   onJumpToLatest?: () => void;
   variant?: "bar" | "floating";
+  currentThreadKey?: string;
   onVisibleHeightChange?: (height: number) => void;
 }) {
   const streamingStartedAt = useStore((s) => s.streamingStartedAt.get(sessionId));
@@ -27,6 +31,7 @@ export function ElapsedTimer({
   const streamingPausedDuration = useStore((s) => s.streamingPausedDuration.get(sessionId) ?? 0);
   const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
+  const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId));
   const isStuck = useStore((s) => s.sessionStuck.get(sessionId) ?? false);
   const [elapsed, setElapsed] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -73,7 +78,11 @@ export function ElapsedTimer({
     api.relaunchSession(sessionId).catch(() => {});
   };
 
-  const label = isStuck ? "Session may be stuck" : streamingPauseStartedAt ? "Napping..." : "Purring...";
+  const label = isStuck
+    ? "Session may be stuck"
+    : streamingPauseStartedAt
+      ? "Napping..."
+      : formatActiveTurnLabel(activeTurnRoute, currentThreadKey);
   const dotColor = isStuck
     ? "text-amber-400"
     : streamingPauseStartedAt
@@ -146,10 +155,14 @@ export function ElapsedTimer({
 
 export function FeedStatusPill({
   sessionId,
+  currentThreadKey = "main",
   onVisibleHeightChange,
+  onSelectThread,
 }: {
   sessionId: string;
+  currentThreadKey?: string;
   onVisibleHeightChange?: (height: number) => void;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const leftStackRef = useRef<HTMLDivElement>(null);
   const rightStackRef = useRef<HTMLDivElement>(null);
@@ -180,7 +193,7 @@ export function FeedStatusPill({
         data-testid="feed-status-pill-left"
         className="pointer-events-none absolute bottom-2 left-2 z-10 sm:bottom-3 sm:left-3"
       >
-        <ElapsedTimer sessionId={sessionId} variant="floating" />
+        <ElapsedTimer sessionId={sessionId} variant="floating" currentThreadKey={currentThreadKey} />
       </div>
       <div
         ref={rightStackRef}
@@ -188,10 +201,19 @@ export function FeedStatusPill({
         className="pointer-events-none absolute bottom-2 right-2 z-10 flex flex-row items-end gap-1.5 sm:bottom-3 sm:right-3"
       >
         <TimerChip sessionId={sessionId} />
-        <NotificationChip sessionId={sessionId} />
+        <NotificationChip sessionId={sessionId} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
       </div>
     </>
   );
+}
+
+function formatActiveTurnLabel(
+  activeTurnRoute: { threadKey: string; questId?: string } | null | undefined,
+  currentThreadKey: string,
+): string {
+  if (!activeTurnRoute) return "Purring...";
+  if (normalizeThreadKey(activeTurnRoute.threadKey) === normalizeThreadKey(currentThreadKey)) return "Active here";
+  return `Active in ${activeTurnRoute.questId ?? activeTurnRoute.threadKey}`;
 }
 
 export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string; inputs: PendingCodexInput[] }) {
@@ -204,7 +226,7 @@ export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string
       </div>
       <div className="flex flex-col gap-2">
         {inputs.map((input) => {
-          const preview = input.content.trim().replace(/\s+/g, " ");
+          const preview = formatReplyContentForPreview(input.content, input.replyContext).trim().replace(/\s+/g, " ");
           const truncated = preview.length > 120 ? `${preview.slice(0, 120)}...` : preview;
           return (
             <div
@@ -262,7 +284,16 @@ export function PendingUserUploadList({ sessionId, uploads }: { sessionId: strin
               mediaType,
             })),
             timestamp: upload.timestamp,
-            ...(upload.vscodeSelection ? { metadata: { vscodeSelection: upload.vscodeSelection } } : {}),
+            ...(upload.vscodeSelection || upload.replyContext || upload.threadKey || upload.questId
+              ? {
+                  metadata: {
+                    ...(upload.replyContext ? { replyContext: upload.replyContext } : {}),
+                    ...(upload.vscodeSelection ? { vscodeSelection: upload.vscodeSelection } : {}),
+                    ...(upload.threadKey ? { threadKey: upload.threadKey } : {}),
+                    ...(upload.questId ? { questId: upload.questId } : {}),
+                  },
+                }
+              : {}),
             ephemeral: true,
             pendingState: upload.stage === "delivering" ? "delivering" : "failed",
             pendingError: upload.error,
@@ -273,6 +304,7 @@ export function PendingUserUploadList({ sessionId, uploads }: { sessionId: strin
             const store = useStore.getState();
             store.removePendingUserUpload(sessionId, upload.id);
             store.setComposerDraft(sessionId, { text: upload.content, images: upload.images });
+            store.setReplyContext(sessionId, upload.replyContext ?? null);
             store.focusComposer();
           };
 
@@ -283,7 +315,10 @@ export function PendingUserUploadList({ sessionId, uploads }: { sessionId: strin
               content: upload.content,
               deliveryContent: upload.prepared.deliveryContent,
               imageRefs: upload.prepared.imageRefs,
+              ...(upload.replyContext ? { replyContext: upload.replyContext } : {}),
               ...(upload.vscodeSelection ? { vscodeSelection: upload.vscodeSelection } : {}),
+              ...(upload.threadKey ? { threadKey: upload.threadKey } : {}),
+              ...(upload.questId ? { questId: upload.questId } : {}),
               session_id: sessionId,
               client_msg_id: upload.id,
             });

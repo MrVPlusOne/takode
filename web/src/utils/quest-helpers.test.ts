@@ -13,8 +13,8 @@ describe("questLabel", () => {
     expect(questLabel("Fix auth bug", true, "in_progress")).toBe("☐ Fix auth bug");
   });
 
-  it("returns ☑ prefix for needs_verification quests", () => {
-    expect(questLabel("Fix auth bug", true, "needs_verification")).toBe("☑ Fix auth bug");
+  it("returns ☑ prefix for done quests under review", () => {
+    expect(questLabel("Fix auth bug", true, "done", true)).toBe("☑ Fix auth bug");
   });
 
   it("returns ☐ prefix when quest status is undefined", () => {
@@ -22,8 +22,8 @@ describe("questLabel", () => {
     expect(questLabel("Mystery quest", true, undefined)).toBe("☐ Mystery quest");
   });
 
-  it("returns ☐ prefix for non-verification statuses like 'done'", () => {
-    // Only "needs_verification" gets the checked box; everything else gets unchecked
+  it("returns ☐ prefix for final done quests without review metadata", () => {
+    // Only done quests still in the review workflow get the checked box.
     expect(questLabel("Done quest", true, "done")).toBe("☐ Done quest");
     expect(questLabel("Idea quest", true, "idea")).toBe("☐ Idea quest");
   });

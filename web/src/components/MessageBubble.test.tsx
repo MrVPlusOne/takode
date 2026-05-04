@@ -34,7 +34,7 @@ vi.mock("remark-gfm", () => ({
   default: {},
 }));
 
-import { MessageBubble, NotificationMarker, HerdEventMessage } from "./MessageBubble.js";
+import { MessageBubble, HerdEventMessage } from "./MessageBubble.js";
 import { parseHerdEvents } from "../utils/herd-event-parser.js";
 import { useStore } from "../store.js";
 
@@ -171,6 +171,18 @@ describe("MessageBubble - user messages", () => {
     const time = screen.getByTestId("message-timestamp");
     expect(time.getAttribute("dateTime")).toBe(new Date(ts).toISOString());
     expect((time.textContent || "").length).toBeGreaterThan(0);
+  });
+
+  it("renders the stable thread source badge for user messages", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: "Quest-thread reply",
+      metadata: { threadKey: "q-941", questId: "q-941" },
+    });
+
+    render(<MessageBubble message={msg} />);
+
+    expect(screen.getByTestId("thread-source-badge").textContent).toBe("[thread:q-941]");
   });
 
   it("renders a VS Code selection attachment above the user message content", () => {
@@ -327,6 +339,7 @@ describe("MessageBubble - user messages", () => {
 
   it("copies a stable message link for user messages", async () => {
     const prevSdkSessions = useStore.getState().sdkSessions;
+    const prevMessages = new Map(useStore.getState().messages);
     useStore.setState({
       sdkSessions: [
         { sessionId: "session-abc", state: "connected", cwd: "/repo", createdAt: 1, sessionNum: 123 } as any,
@@ -334,17 +347,20 @@ describe("MessageBubble - user messages", () => {
     });
 
     try {
-      const msg = makeMessage({ id: "user-msg-42", role: "user", content: "Link me" });
+      const msg = makeMessage({ id: "user-msg-42", role: "user", content: "Link me", historyIndex: 4 });
+      useStore
+        .getState()
+        .setMessages("session-abc", [makeMessage({ id: "previous-msg", role: "assistant", content: "Previous" }), msg]);
       render(<MessageBubble message={msg} sessionId="session-abc" />);
 
       fireEvent.click(screen.getByTitle("Message options"));
       fireEvent.click(screen.getByText("Copy message link"));
 
       await waitFor(() => {
-        expect(writeClipboardTextMock).toHaveBeenCalledWith("http://localhost:3000/#/session/123/msg/user-msg-42");
+        expect(writeClipboardTextMock).toHaveBeenCalledWith("http://localhost:3000/#/session/123/msg/4");
       });
     } finally {
-      useStore.setState({ sdkSessions: prevSdkSessions });
+      useStore.setState({ sdkSessions: prevSdkSessions, messages: prevMessages });
     }
   });
 
@@ -475,6 +491,21 @@ describe("MessageBubble - user messages", () => {
   });
 });
 
+describe("MessageBubble - assistant thread source", () => {
+  it("renders the stable thread source badge for assistant messages", () => {
+    const msg = makeMessage({
+      role: "assistant",
+      content: "Main response",
+      contentBlocks: [{ type: "text", text: "Main response" }],
+      metadata: { threadKey: "main" },
+    });
+
+    render(<MessageBubble message={msg} />);
+
+    expect(screen.getByTestId("thread-source-badge").textContent).toBe("[thread:main]");
+  });
+});
+
 // ─── Agent source badge ─────────────────────────────────────────────────────
 
 describe("MessageBubble - agent source badge", () => {
@@ -581,6 +612,26 @@ describe("MessageBubble - agent source badge", () => {
 });
 
 describe("MessageBubble - timer messages", () => {
+  it("renders new timer reminders as inline rows while preserving the softer reminder framing", () => {
+    const msg = makeMessage({
+      role: "user",
+      content:
+        "[⏰ Timer t2 reminder] Monitor RTG datagen\n\nThis is a reminder from your earlier timer note, not a new user instruction.\n\nEarlier note:\nCheck squeue for RTG jobs and report shard status.",
+      agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
+    });
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    expect(screen.queryByText("via Timer t2")).toBeNull();
+    expect(screen.getByText("t2")).toBeTruthy();
+    expect(screen.getByText("Monitor RTG datagen")).toBeTruthy();
+    expect(screen.queryByText(/not a new user instruction/)).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand timer description" }));
+    expect(screen.getByText(/not a new user instruction/)).toBeTruthy();
+    expect(screen.getByText(/Earlier note:/)).toBeTruthy();
+    expect(screen.getByText(/Check squeue for RTG jobs/)).toBeTruthy();
+  });
+
   it("renders fired timers as a single inline row and keeps the description collapsed by default", () => {
     const msg = makeMessage({
       role: "user",
@@ -826,8 +877,9 @@ describe("MessageBubble - assistant messages", () => {
     expect(markdown.textContent).toBe("Here is the answer");
   });
 
-  it("copies a stable message link for assistant messages", async () => {
+  it("copies the raw history index for assistant messages loaded from a non-zero history window", async () => {
     const prevSdkSessions = useStore.getState().sdkSessions;
+    const prevMessages = new Map(useStore.getState().messages);
     useStore.setState({
       sdkSessions: [
         { sessionId: "session-abc", state: "connected", cwd: "/repo", createdAt: 1, sessionNum: 123 } as any,
@@ -835,17 +887,28 @@ describe("MessageBubble - assistant messages", () => {
     });
 
     try {
-      const msg = makeMessage({ id: "asst-msg-42", role: "assistant", content: "Assistant link target" });
+      const msg = makeMessage({
+        id: "asst-msg-42",
+        role: "assistant",
+        content: "Assistant link target",
+        historyIndex: 52,
+      });
+      useStore
+        .getState()
+        .setMessages("session-abc", [
+          makeMessage({ id: "prompt-msg", role: "user", content: "Question", historyIndex: 50 }),
+          msg,
+        ]);
       render(<MessageBubble message={msg} sessionId="session-abc" />);
 
       fireEvent.click(screen.getByTitle("Copy message"));
       fireEvent.click(screen.getByText("Copy message link"));
 
       await waitFor(() => {
-        expect(writeClipboardTextMock).toHaveBeenCalledWith("http://localhost:3000/#/session/123/msg/asst-msg-42");
+        expect(writeClipboardTextMock).toHaveBeenCalledWith("http://localhost:3000/#/session/123/msg/52");
       });
     } finally {
-      useStore.setState({ sdkSessions: prevSdkSessions });
+      useStore.setState({ sdkSessions: prevSdkSessions, messages: prevMessages });
     }
   });
 
@@ -1138,28 +1201,6 @@ describe("MessageBubble - assistant messages", () => {
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }
-  });
-
-  it("uses the local toggle override for preview markers instead of the notification API", () => {
-    // Playground previews should be able to demonstrate the review checkbox
-    // locally without routing clicks through the real session notification API.
-    const onToggleDone = vi.fn();
-
-    render(
-      <NotificationMarker
-        category="review"
-        summary="Ready for review"
-        doneOverride={false}
-        onToggleDone={onToggleDone}
-        showReplyAction={false}
-      />,
-    );
-
-    fireEvent.click(screen.getByRole("button", { name: "Mark as reviewed" }));
-
-    expect(onToggleDone).toHaveBeenCalledTimes(1);
-    expect(markNotificationDoneMock).not.toHaveBeenCalled();
-    expect(screen.queryByTitle("Reply to this notification")).toBeNull();
   });
 
   it("does not render Task tool_use blocks (they render as SubagentContainers in MessageFeed)", () => {

@@ -16,12 +16,21 @@ import { api } from "../api.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import { QuestClaimBlock } from "./QuestClaimBlock.js";
 import { generateReplyPreview } from "../utils/reply-preview.js";
-import { parseReplyContext } from "../utils/reply-context.js";
+import { getDisplayReplyContext } from "../utils/reply-context.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
+import { buildNeedsInputReminderViewModel } from "../utils/needs-input-reminder.js";
+import { buildThreadRoutingReminderViewModel } from "../utils/thread-routing-reminder.js";
+import { buildQuestThreadReminderViewModel } from "../utils/quest-thread-reminder.js";
+import { NeedsInputReminderView, QuestThreadReminderView, ThreadRoutingReminderView } from "./MessageReminderViews.js";
 import { FILE_TOOL_NAMES, isToolHiddenFromChat } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { createComposerDraftImage } from "./composer-image-utils.js";
+import { NotificationMarker } from "./NotificationMarker.js";
+import { formatThreadMarker } from "../../shared/thread-routing.js";
+import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
+
+export { NotificationMarker } from "./NotificationMarker.js";
 
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
@@ -73,10 +82,18 @@ function formatTurnDuration(ms: number): string {
   return `${mins}m ${secs}s`;
 }
 
-function buildCopyMessageLink(sessionId: string | undefined, messageId: string, sdkSessions: SdkSessionInfo[]) {
+function buildCopyMessageLink(sessionId: string | undefined, message: ChatMessage, sdkSessions: SdkSessionInfo[]) {
   if (!sessionId) return null;
+  const messageIndex =
+    message.historyIndex ??
+    useStore
+      .getState()
+      .messages.get(sessionId)
+      ?.findIndex((msg) => msg.id === message.id) ??
+    -1;
+  if (messageIndex < 0) return null;
   const sessionRef = routeSessionRefForId(sessionId, sdkSessions);
-  return absoluteUrlForHash(sessionMessageHash(sessionRef, messageId));
+  return absoluteUrlForHash(sessionMessageHash(sessionRef, messageIndex));
 }
 
 function buildDraftImageName(mediaType: string, index: number): string {
@@ -134,10 +151,14 @@ export const MessageBubble = memo(function MessageBubble({
   message,
   sessionId,
   showTimestamp = true,
+  currentThreadKey,
+  onSelectThread,
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp?: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
   const searchHighlight = useMessageSearchHighlight(sessionId, message.id, message.role);
@@ -270,6 +291,7 @@ export const MessageBubble = memo(function MessageBubble({
         sessionId={sessionId}
         showTimestamp={showTimestamp}
         searchHighlight={searchHighlight}
+        currentThreadKey={currentThreadKey}
       />
     );
   }
@@ -290,6 +312,8 @@ export const MessageBubble = memo(function MessageBubble({
         sessionId={sessionId}
         showTimestamp={showTimestamp}
         searchHighlight={searchHighlight}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
       />
     </div>
   );
@@ -402,6 +426,56 @@ function AgentSourceBadge({ source }: { source: { sessionId: string; sessionLabe
   );
 }
 
+type MessageThreadBadgeCandidate = {
+  threadKey: string;
+  source?: NonNullable<NonNullable<ChatMessage["metadata"]>["threadRefs"]>[number]["source"];
+};
+
+function getMessageThreadBadgeCandidates(message: ChatMessage): MessageThreadBadgeCandidate[] {
+  const metadata = message.metadata;
+  if (!metadata) return [];
+  const candidates: MessageThreadBadgeCandidate[] = [];
+  const add = (threadKey: string | undefined, source?: MessageThreadBadgeCandidate["source"]) => {
+    const normalized = threadKey?.trim();
+    if (!normalized) return;
+    candidates.push(source ? { threadKey: normalized, source } : { threadKey: normalized });
+  };
+  add(metadata.threadKey);
+  add(metadata.questId);
+  for (const ref of metadata.threadRefs ?? []) {
+    add(ref.threadKey, ref.source);
+  }
+  return candidates;
+}
+
+function getMessageThreadBadgeKey(message: ChatMessage, currentThreadKey?: string): string | null {
+  const candidates = getMessageThreadBadgeCandidates(message);
+  const fallback = candidates[0]?.threadKey ?? null;
+  if (!currentThreadKey || isAllThreadsKey(currentThreadKey)) return fallback;
+
+  const normalizedCurrentThread = normalizeThreadKey(currentThreadKey);
+  const crossThreadCandidate = candidates.find(
+    (candidate) => normalizeThreadKey(candidate.threadKey) !== normalizedCurrentThread,
+  );
+  if (crossThreadCandidate) return crossThreadCandidate.threadKey;
+
+  const backfillCandidate = candidates.find((candidate) => candidate.source === "backfill");
+  return backfillCandidate?.threadKey ?? null;
+}
+
+function ThreadSourceBadge({ threadKey }: { threadKey: string }) {
+  return (
+    <div className="mb-1.5">
+      <span
+        className="inline-flex max-w-full items-center rounded-md border border-cc-border/40 bg-cc-hover/35 px-1.5 py-0.5 font-mono-code text-[10px] leading-none text-cc-muted/80"
+        data-testid="thread-source-badge"
+      >
+        {formatThreadMarker(threadKey)}
+      </span>
+    </div>
+  );
+}
+
 type ParsedTimerMessage = {
   kind: "fired" | "cancelled" | "unknown";
   title: string;
@@ -430,6 +504,16 @@ function parseTimerMessageContent(content: string): ParsedTimerMessage {
       kind: "fired",
       timerId: firedMatch[1],
       title: (firedMatch[2] || header).trim(),
+      description,
+    };
+  }
+
+  const reminderMatch = header.match(/^\[⏰ Timer ([^\]\s]+) reminder\]\s*(.*)$/);
+  if (reminderMatch) {
+    return {
+      kind: "fired",
+      timerId: reminderMatch[1],
+      title: (reminderMatch[2] || header).trim(),
       description,
     };
   }
@@ -816,131 +900,6 @@ export { EVENT_HEADER_RE, parseHerdEvents } from "../utils/herd-event-parser.js"
 
 type SearchHighlightInfo = { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
 
-/** Compact marker rendered inline for notification tool calls.
- *  When sessionId and messageId are provided, shows the checkbox affordance immediately
- *  and resolves the backing notification lazily for done-state toggles. */
-export function NotificationMarker({
-  category,
-  summary,
-  sessionId,
-  messageId,
-  doneOverride,
-  onToggleDone,
-  showReplyAction = true,
-}: {
-  category: "needs-input" | "review";
-  summary?: string;
-  sessionId?: string;
-  messageId?: string;
-  doneOverride?: boolean;
-  onToggleDone?: () => void;
-  showReplyAction?: boolean;
-}) {
-  const isAction = category === "needs-input";
-  const label = summary || (isAction ? "Needs input" : "Ready for review");
-
-  // Find the matching notification in the store to enable interactive controls
-  const notif = useStore((s) => {
-    if (!sessionId) return null;
-    const notifications = s.sessionNotifications?.get(sessionId);
-    if (!notifications || !messageId) return null;
-    return notifications.find((n) => n.messageId === messageId && n.category === category) ?? null;
-  });
-
-  const canToggleDone = !!onToggleDone || (!!sessionId && !!messageId);
-  const isDone = doneOverride ?? notif?.done ?? false;
-  const isToggleReady = !!onToggleDone || !!notif;
-  const toggleLabel =
-    category === "review"
-      ? isDone
-        ? "Mark as not reviewed"
-        : "Mark as reviewed"
-      : isDone
-        ? "Mark unhandled"
-        : "Mark handled";
-
-  const toggleDone = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (onToggleDone) {
-        onToggleDone();
-        return;
-      }
-      if (!sessionId || !messageId) return;
-      const liveNotif =
-        useStore
-          .getState()
-          .sessionNotifications.get(sessionId)
-          ?.find((n) => n.messageId === messageId && n.category === category) ?? null;
-      if (!liveNotif) return;
-      api.markNotificationDone(sessionId, liveNotif.id, !liveNotif.done).catch(() => {});
-    },
-    [sessionId, messageId, category, onToggleDone],
-  );
-
-  const handleReply = useCallback(
-    (e: React.MouseEvent) => {
-      e.stopPropagation();
-      if (!sessionId || !messageId) return;
-      const previewText = label;
-      useStore.getState().setReplyContext(sessionId, { messageId, previewText });
-    },
-    [sessionId, messageId, label],
-  );
-
-  return (
-    <div
-      className={`inline-flex items-center gap-1.5 mt-2 px-2 py-0.5 rounded-full text-[11px] font-medium border transition-opacity ${
-        isDone
-          ? "border-cc-border bg-cc-hover/30 text-cc-muted opacity-60"
-          : isAction
-            ? "border-amber-500/20 bg-amber-500/5 text-amber-400"
-            : "border-emerald-500/20 bg-emerald-500/5 text-cc-muted"
-      }`}
-    >
-      {/* Checkbox (shown as soon as the marker has a message anchor) */}
-      {canToggleDone && (
-        <button
-          onClick={toggleDone}
-          className="shrink-0 cursor-pointer hover:opacity-80 transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
-          title={isToggleReady ? toggleLabel : "Waiting for notification sync"}
-          aria-label={toggleLabel}
-          disabled={!isToggleReady}
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-            {isDone ? (
-              <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm11.354-1.646a.5.5 0 00-.708-.708L7 9.293 5.354 7.646a.5.5 0 10-.708.708l2 2a.5.5 0 00.708 0l4-4z" />
-            ) : (
-              <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8z" />
-            )}
-          </svg>
-        </button>
-      )}
-
-      {/* Bell icon (used for both categories) */}
-      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0">
-        <path d="M8 1.5A3.5 3.5 0 004.5 5v2.5c0 .78-.26 1.54-.73 2.16L3 10.66V11.5h10v-.84l-.77-1A3.49 3.49 0 0111.5 7.5V5A3.5 3.5 0 008 1.5zM6.5 13a1.5 1.5 0 003 0h-3z" />
-      </svg>
-
-      {/* Label */}
-      <span className={isDone ? "line-through" : ""}>{label}</span>
-
-      {/* Reply button (only when interactive) */}
-      {showReplyAction && notif && sessionId && messageId && (
-        <button
-          onClick={handleReply}
-          className="shrink-0 ml-0.5 cursor-pointer hover:opacity-80 transition-opacity"
-          title="Reply to this notification"
-        >
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-            <path d="M6.78 1.97a.75.75 0 010 1.06L3.81 6h6.44A4.75 4.75 0 0115 10.75v1.5a.75.75 0 01-1.5 0v-1.5a3.25 3.25 0 00-3.25-3.25H3.81l2.97 2.97a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0z" />
-          </svg>
-        </button>
-      )}
-    </div>
-  );
-}
-
 /** Read-only reply chip shown above user message bubbles when the user replied to a specific assistant message. */
 export function UserReplyChip({ previewText, messageId }: { previewText: string; messageId?: string }) {
   const handleClick = useCallback(() => {
@@ -980,11 +939,13 @@ function UserMessage({
   sessionId,
   showTimestamp,
   searchHighlight,
+  currentThreadKey,
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
+  currentThreadKey?: string;
 }) {
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
 
@@ -1004,11 +965,21 @@ function UserMessage({
     return true;
   }, [sessionId, isCodex, sessionMessages, message.id]);
 
-  // Parse reply-to context from message content (display only -- raw text still goes to assistant)
-  const replyContext = useMemo(() => parseReplyContext(message.content), [message.content]);
+  const replyContext = useMemo(
+    () => getDisplayReplyContext(message.content, message.metadata?.replyContext),
+    [message.content, message.metadata?.replyContext],
+  );
   const displayContent = replyContext ? replyContext.userMessage : message.content;
+  const sessionNotifications = useStore((s) => (sessionId ? s.sessionNotifications.get(sessionId) : undefined));
+  const needsInputReminder = useMemo(
+    () => buildNeedsInputReminderViewModel(message, sessionNotifications),
+    [message, sessionNotifications],
+  );
+  const threadRoutingReminder = useMemo(() => buildThreadRoutingReminderViewModel(message), [message]);
+  const questThreadReminder = useMemo(() => buildQuestThreadReminderViewModel(message), [message]);
   const localImageEntries = message.localImages ?? [];
   const remoteImageEntries = message.images ?? [];
+  const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
   const pendingLabel =
     message.pendingState === "uploading"
       ? "Uploading image…"
@@ -1021,6 +992,7 @@ function UserMessage({
   return (
     <div className="flex justify-end items-start gap-1 group/msg animate-[fadeSlideIn_0.2s_ease-out]">
       <div className="max-w-[85%] sm:max-w-[80%] sm:min-w-[200px] px-3 sm:px-4 py-2.5 rounded-[14px] rounded-br-[4px] bg-cc-user-bubble text-cc-fg">
+        {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {message.agentSource && <AgentSourceBadge source={message.agentSource} />}
         {replyContext && <UserReplyChip previewText={replyContext.previewText} messageId={replyContext.messageId} />}
         {message.metadata?.vscodeSelection && (
@@ -1079,14 +1051,22 @@ function UserMessage({
           </div>
         )}
         {pendingLabel && <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">{pendingLabel}</div>}
-        <CollapsibleContent>
-          <MarkdownContent
-            text={displayContent}
-            variant="conservative"
-            sessionId={sessionId}
-            searchHighlight={searchHighlight}
-          />
-        </CollapsibleContent>
+        {threadRoutingReminder ? (
+          <ThreadRoutingReminderView reminder={threadRoutingReminder} />
+        ) : questThreadReminder ? (
+          <QuestThreadReminderView reminder={questThreadReminder} />
+        ) : needsInputReminder ? (
+          <NeedsInputReminderView reminder={needsInputReminder} />
+        ) : (
+          <CollapsibleContent>
+            <MarkdownContent
+              text={displayContent}
+              variant="conservative"
+              sessionId={sessionId}
+              searchHighlight={searchHighlight}
+            />
+          </CollapsibleContent>
+        )}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
       </div>
       {!message.pendingState && (
@@ -1126,10 +1106,10 @@ function UserMessageMenu({
   }, [message.content, showCopied]);
 
   const handleCopyLink = useCallback(() => {
-    const link = buildCopyMessageLink(sessionId, message.id, sdkSessions);
+    const link = buildCopyMessageLink(sessionId, message, sdkSessions);
     if (!link) return;
     writeClipboardText(link).then(showCopied).catch(console.error);
-  }, [message.id, sdkSessions, sessionId, showCopied]);
+  }, [message, sdkSessions, sessionId, showCopied]);
 
   const handleRevert = useCallback(async () => {
     if (!sessionId || !message.id) return;
@@ -1259,11 +1239,15 @@ function AssistantMessage({
   sessionId,
   showTimestamp,
   searchHighlight,
+  currentThreadKey,
+  onSelectThread,
 }: {
   message: ChatMessage;
   sessionId?: string;
   showTimestamp: boolean;
   searchHighlight?: SearchHighlightInfo;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const contentRef = useRef<HTMLDivElement>(null);
   const hidePaw = useContext(HidePawContext);
@@ -1281,6 +1265,7 @@ function AssistantMessage({
   });
   const resolvedNotification = message.notification ?? inboxAnchoredNotification;
   const suppressToolNotificationMarker = !!resolvedNotification;
+  const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
 
   // Only show copy-message button when there's actual text content to copy
   const hasTextContent = message.content || blocks.some((b) => b.type === "text" || b.type === "thinking");
@@ -1294,13 +1279,22 @@ function AssistantMessage({
       <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
         {!hidePaw && <PawTrailAvatar />}
         <div ref={contentRef} className="flex-1 min-w-0 pr-6">
-          <MarkdownContent text={message.content} sessionId={sessionId} searchHighlight={searchHighlight} />
+          {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
+          <MarkdownContent
+            text={message.content}
+            sessionId={sessionId}
+            searchHighlight={searchHighlight}
+            enableChatSelectionMenu
+          />
           {resolvedNotification && (
             <NotificationMarker
               category={resolvedNotification.category}
               summary={resolvedNotification.summary}
+              notificationId={resolvedNotification.id}
               sessionId={sessionId}
               messageId={message.id}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
             />
           )}
           {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
@@ -1314,8 +1308,14 @@ function AssistantMessage({
     <div className={`group/msg relative flex items-start ${hidePaw ? "" : "gap-3"}`}>
       {!hidePaw && <PawTrailAvatar />}
       <div ref={contentRef} className="flex-1 min-w-0 space-y-3 pr-6">
+        {threadKey && <ThreadSourceBadge threadKey={threadKey} />}
         {shouldRenderContentFallback && (
-          <MarkdownContent text={message.content} sessionId={sessionId} searchHighlight={searchHighlight} />
+          <MarkdownContent
+            text={message.content}
+            sessionId={sessionId}
+            searchHighlight={searchHighlight}
+            enableChatSelectionMenu
+          />
         )}
         {grouped.map((group, i) => {
           if (group.kind === "content") {
@@ -1326,6 +1326,8 @@ function AssistantMessage({
                 sessionId={sessionId}
                 searchHighlight={searchHighlight}
                 suppressNotificationMarker={suppressToolNotificationMarker}
+                currentThreadKey={currentThreadKey}
+                onSelectThread={onSelectThread}
               />
             );
           }
@@ -1341,6 +1343,8 @@ function AssistantMessage({
                 sessionId={sessionId}
                 parentMessageId={message.id}
                 suppressNotificationMarker={suppressToolNotificationMarker}
+                currentThreadKey={currentThreadKey}
+                onSelectThread={onSelectThread}
               />
             );
           }
@@ -1353,6 +1357,8 @@ function AssistantMessage({
               sessionId={sessionId}
               parentMessageId={message.id}
               suppressNotificationMarker={suppressToolNotificationMarker}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
             />
           );
         })}
@@ -1360,8 +1366,11 @@ function AssistantMessage({
           <NotificationMarker
             category={resolvedNotification.category}
             summary={resolvedNotification.summary}
+            notificationId={resolvedNotification.id}
             sessionId={sessionId}
             messageId={message.id}
+            currentThreadKey={currentThreadKey}
+            onSelectThread={onSelectThread}
           />
         )}
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} turnDurationMs={message.turnDurationMs} />}
@@ -1466,12 +1475,12 @@ function CopyMessageButton({
   }, [message, contentRef, showFeedback]);
 
   const handleCopyLink = useCallback(() => {
-    const link = buildCopyMessageLink(sessionId, message.id, sdkSessions);
+    const link = buildCopyMessageLink(sessionId, message, sdkSessions);
     if (!link) return;
     writeClipboardText(link)
       .then(() => showFeedback("Link"))
       .catch(console.error);
-  }, [message.id, sdkSessions, sessionId, showFeedback]);
+  }, [message, sdkSessions, sessionId, showFeedback]);
 
   const toggle = useCallback(() => {
     if (menuPos) {
@@ -1598,7 +1607,7 @@ function CompactMarker({ message, sessionId }: { message: ChatMessage; sessionId
       </div>
       {expanded && hasSummary && (
         <div className="mt-2 mx-4 max-h-96 overflow-y-auto rounded-lg border border-cc-border bg-cc-card p-3">
-          <MarkdownContent text={message.content} sessionId={sessionId} />
+          <MarkdownContent text={message.content} sessionId={sessionId} enableChatSelectionMenu />
         </div>
       )}
     </div>
@@ -1610,16 +1619,27 @@ function ContentBlockRenderer({
   sessionId,
   searchHighlight,
   suppressNotificationMarker = false,
+  currentThreadKey,
+  onSelectThread,
 }: {
   block: ContentBlock;
   sessionId?: string;
   searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
   suppressNotificationMarker?: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const isCodex = useStore((s) => (sessionId ? s.sessions.get(sessionId)?.backend_type === "codex" : false));
 
   if (block.type === "text") {
-    return <MarkdownContent text={block.text} sessionId={sessionId} searchHighlight={searchHighlight} />;
+    return (
+      <MarkdownContent
+        text={block.text}
+        sessionId={sessionId}
+        searchHighlight={searchHighlight}
+        enableChatSelectionMenu
+      />
+    );
   }
 
   if (block.type === "thinking") {
@@ -1633,6 +1653,8 @@ function ContentBlockRenderer({
         input={block.input}
         toolUseId={block.id}
         suppressNotificationMarker={suppressNotificationMarker}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
       />
     );
   }
@@ -1660,12 +1682,16 @@ function ToolGroupBlock({
   sessionId,
   parentMessageId,
   suppressNotificationMarker = false,
+  currentThreadKey,
+  onSelectThread,
 }: {
   name: string;
   items: ToolGroupItem[];
   sessionId?: string;
   parentMessageId?: string;
   suppressNotificationMarker?: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const [open, setOpen] = useState(true);
   const headerRef = useRef<HTMLButtonElement>(null);
@@ -1686,6 +1712,8 @@ function ToolGroupBlock({
             sessionId={sessionId}
             parentMessageId={parentMessageId}
             suppressNotificationMarker={suppressNotificationMarker}
+            currentThreadKey={currentThreadKey}
+            onSelectThread={onSelectThread}
           />
         ))}
       </div>
@@ -1725,6 +1753,8 @@ function ToolGroupBlock({
               parentMessageId={parentMessageId}
               hideLabel={name === "Bash"}
               suppressNotificationMarker={suppressNotificationMarker}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
             />
           ))}
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />

@@ -5,6 +5,7 @@ import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attach
 import type { ImageRef } from "../image-store.js";
 import { inferContextWindowFromModel } from "./context-usage.js";
 import {
+  appendLocalSlashCommandHistory,
   handleCliSlashCommand,
   handleCodexStatusCommand,
   handleForceCompact,
@@ -18,6 +19,7 @@ import {
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
+  ActiveTurnRoute,
   CLIControlRequestMessage,
   CodexOutboundTurn,
   McpServerConfig,
@@ -26,13 +28,23 @@ import type {
   PermissionRequest,
   SessionNotification,
   SessionState,
+  ThreadRef,
 } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import type { BrowserTransportSessionLike, BrowserTransportSocketLike } from "./browser-transport-controller.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 import { extractAskUserAnswers } from "./compaction-recovery.js";
 import { LONG_SLEEP_REMINDER_TEXT } from "./bash-sleep-policy.js";
+import { formatReplyContentForPreview } from "../../shared/reply-context.js";
+import { formatThreadMarker, normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { emitStoredUserMessageTakodeEvent, type UserMessageTakodeTurnTarget } from "./user-message-takode-event.js";
+import {
+  browserMessageRoute,
+  enrichPermissionWithThreadRoute,
+  sameThreadRoute,
+  type ThreadRouteMetadata,
+} from "../thread-routing-metadata.js";
+import { isActualHumanUserMessage } from "../user-message-classification.js";
 export {
   hasPendingForceCompact,
   isCliSlashCommand,
@@ -135,6 +147,7 @@ export interface AdapterBrowserRoutingDeps {
     opts?: {
       deferUntilCliReady?: boolean;
       skipUserDispatchLifecycle?: boolean;
+      userMessageHistoryIndex?: number;
     },
   ) => UserDispatchTurnTarget | null;
   broadcastToBrowsers: (session: AdapterBrowserRoutingSessionLike, msg: BrowserIncomingMessage) => void;
@@ -145,7 +158,7 @@ export interface AdapterBrowserRoutingDeps {
   getCurrentTurnTriggerSource: (session: AdapterBrowserRoutingSessionLike) => "user" | "leader" | "system" | "unknown";
   abortAutoApproval: (session: AdapterBrowserRoutingSessionLike, requestId: string) => void;
   preInterrupt: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
-  touchUserMessage: (sessionId: string) => void;
+  touchUserMessage: (sessionId: string, timestamp?: number) => void;
   formatVsCodeSelectionPrompt: (selection: NonNullable<BrowserUserMessage["vscodeSelection"]>) => string;
   getCliSessionId: (session: AdapterBrowserRoutingSessionLike) => string;
   nextUserMessageId: (ts: number) => string;
@@ -159,6 +172,8 @@ export interface AdapterBrowserRoutingDeps {
     session: AdapterBrowserRoutingSessionLike,
     reason: string,
     interruptSource?: InterruptSource | null,
+    userMessageHistoryIndex?: number,
+    activeTurnRoute?: ActiveTurnRoute | null,
   ) => UserDispatchTurnTarget | null;
   trackUserMessageForTurn: (
     session: AdapterBrowserRoutingSessionLike,
@@ -186,6 +201,11 @@ export interface AdapterBrowserRoutingDeps {
   removePendingCodexInput: (session: AdapterBrowserRoutingSessionLike, id: string) => PendingCodexInput | null;
   clearQueuedTurnLifecycleEntries: (session: AdapterBrowserRoutingSessionLike) => void;
   queueCodexPendingStartBatch: (session: AdapterBrowserRoutingSessionLike, reason: string) => void;
+  pokeStaleCodexPendingDelivery: (
+    session: AdapterBrowserRoutingSessionLike,
+    reason: string,
+    options?: { triggeringInputId?: string },
+  ) => boolean;
   rebuildQueuedCodexPendingStartBatch: (session: AdapterBrowserRoutingSessionLike) => void;
   trySteerPendingCodexInputs: (session: AdapterBrowserRoutingSessionLike, reason: string) => boolean;
   sendToBrowser: (ws: unknown, msg: BrowserIncomingMessage) => void;
@@ -216,6 +236,10 @@ export interface AdapterBrowserRoutingDeps {
     onResponse?: ControlResponseHandler,
   ) => void;
   requestCodexAutoRecovery: (session: AdapterBrowserRoutingSessionLike, reason: string) => boolean;
+  requestCodexLeaderRecycle: (
+    session: AdapterBrowserRoutingSessionLike,
+    trigger: "manual_compact" | "threshold",
+  ) => Promise<{ ok: boolean; error?: string }>;
   requestCliRelaunch?: (sessionId: string) => void;
   injectUserMessage: (
     sessionId: string,
@@ -236,25 +260,65 @@ function isSystemSourceTag(agentSource: BrowserUserMessage["agentSource"]): bool
   return agentSource.sessionId === "system" || agentSource.sessionId.startsWith("system:");
 }
 
+function isTimerSourceTag(agentSource: BrowserUserMessage["agentSource"]): boolean {
+  return agentSource?.sessionId.startsWith("timer:") ?? false;
+}
+
+function isTimerReminderContent(content: string | undefined): boolean {
+  return /^\[⏰ Timer [^\]\s]+ reminder\]/.test(content ?? "");
+}
+
 function getInterruptSourceFromActorSessionId(actorSessionId: string | undefined): InterruptSource {
   if (!actorSessionId) return "user";
   return isSystemSourceTag({ sessionId: actorSessionId }) ? "system" : "leader";
 }
 
-function findPendingExitPlanPermission(session: AdapterBrowserRoutingSessionLike): PermissionRequest | undefined {
-  for (const perm of session.pendingPermissions.values()) {
-    if (perm.tool_name === "ExitPlanMode") return perm;
-  }
-  return undefined;
+function findPendingExitPlanPermission(
+  session: AdapterBrowserRoutingSessionLike,
+  route: ThreadRouteMetadata | null,
+): PermissionRequest | undefined {
+  const pending = [...session.pendingPermissions.values()].filter((perm) => perm.tool_name === "ExitPlanMode");
+  if (pending.length === 0) return undefined;
+  const sameThread = route ? pending.filter((perm) => sameThreadRoute(perm, route)) : [];
+  return sameThread.length === 1 ? sameThread[0] : undefined;
 }
 
 function findPendingAskUserQuestionPermission(
   session: AdapterBrowserRoutingSessionLike,
+  route: ThreadRouteMetadata | null,
+  content: string,
 ): PermissionRequest | undefined {
-  for (const perm of session.pendingPermissions.values()) {
-    if (perm.tool_name === "AskUserQuestion") return perm;
+  const pending = [...session.pendingPermissions.values()].filter((perm) => perm.tool_name === "AskUserQuestion");
+  if (pending.length === 0) return undefined;
+  const sameThread = route ? pending.filter((perm) => sameThreadRoute(perm, route)) : [];
+  if (sameThread.length === 1) return sameThread[0];
+  return findExplicitlyTargetedAskUserQuestion(pending, content);
+}
+
+function findExplicitlyTargetedAskUserQuestion(
+  pending: PermissionRequest[],
+  content: string,
+): PermissionRequest | undefined {
+  const matches = pending.filter((perm) => contentReferencesExactTarget(content, perm));
+  return matches.length === 1 ? matches[0] : undefined;
+}
+
+function contentReferencesExactTarget(content: string, perm: PermissionRequest): boolean {
+  const tokens = new Set<string>([perm.request_id, `target:${perm.request_id}`]);
+  if (perm.threadKey) {
+    tokens.add(`thread:${perm.threadKey}`);
+    tokens.add(`[thread:${perm.threadKey}]`);
   }
-  return undefined;
+  if (perm.questId) tokens.add(perm.questId);
+  for (const token of tokens) {
+    if (hasExactToken(content, token)) return true;
+  }
+  return false;
+}
+
+function hasExactToken(content: string, token: string): boolean {
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  return new RegExp(`(^|[^A-Za-z0-9_-])${escaped}([^A-Za-z0-9_-]|$)`, "i").test(content);
 }
 
 function buildAskUserQuestionAnswers(
@@ -312,10 +376,11 @@ function maybeAutoRejectPendingPlanForUserMessage(
   msg: BrowserUserMessage,
   deps: AdapterBrowserRoutingDeps,
 ): void {
-  const pending = findPendingExitPlanPermission(session);
-  if (!pending) return;
   if (msg.agentSource?.sessionId === "herd-events") return;
   if (isSystemSourceTag(msg.agentSource)) return;
+  const route = browserMessageRoute(msg) ?? { threadKey: "main" };
+  const pending = findPendingExitPlanPermission(session, route);
+  if (!pending) return;
 
   const actorSessionId = msg.agentSource?.sessionId;
   const denial: PermissionResponseMessage = {
@@ -342,11 +407,12 @@ function maybeAutoAnswerPendingQuestionForUserMessage(
   msg: BrowserUserMessage,
   deps: AdapterBrowserRoutingDeps,
 ): boolean {
-  const pending = findPendingAskUserQuestionPermission(session);
-  if (!pending) return false;
   if (msg.agentSource?.sessionId === "herd-events") return false;
   if (isSystemSourceTag(msg.agentSource)) return false;
   if (typeof msg.content !== "string") return false;
+  const route = browserMessageRoute(msg) ?? { threadKey: "main" };
+  const pending = findPendingAskUserQuestionPermission(session, route, msg.content);
+  if (!pending) return false;
 
   const answers = buildAskUserQuestionAnswers(pending.input, msg.content);
   if (!answers) return false;
@@ -382,6 +448,8 @@ function buildTimestampTag(
   ts: number,
   getLauncherSessionInfo: AdapterBrowserRoutingDeps["getLauncherSessionInfo"],
   agentSource?: BrowserUserMessage["agentSource"],
+  content?: string,
+  sourceThreadKey?: string,
 ): string {
   const d = new Date(ts);
   const time = d.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
@@ -393,14 +461,20 @@ function buildTimestampTag(
     : "";
   const timeWithDate = dateStr + time;
   const sessionInfo = getLauncherSessionInfo(session.id);
+  const threadTag = sessionInfo?.isOrchestrator && sourceThreadKey ? `${formatThreadMarker(sourceThreadKey)} ` : "";
+  if (isTimerSourceTag(agentSource)) {
+    return isTimerReminderContent(content)
+      ? `[Timer reminder ${timeWithDate}] ${threadTag}`
+      : `[Timer event ${timeWithDate}] ${threadTag}`;
+  }
   if (sessionInfo?.isOrchestrator) {
-    if (isSystemSourceTag(agentSource)) return `[System ${timeWithDate}] `;
-    if (agentSource?.sessionId === "herd-events") return `[Herd ${timeWithDate}] `;
+    if (isSystemSourceTag(agentSource)) return `[System ${timeWithDate}] ${threadTag}`;
+    if (agentSource?.sessionId === "herd-events") return `[Herd ${timeWithDate}] ${threadTag}`;
     if (agentSource) {
       const label = agentSource.sessionLabel || agentSource.sessionId.slice(0, 8);
-      return `[Agent ${label} ${timeWithDate}] `;
+      return `[Agent ${label} ${timeWithDate}] ${threadTag}`;
     }
-    return `[User ${timeWithDate}] `;
+    return `[User ${timeWithDate}] ${threadTag}`;
   }
   if (sessionInfo?.herdedBy && agentSource) {
     const label = agentSource.sessionLabel || agentSource.sessionId.slice(0, 8);
@@ -452,6 +526,8 @@ function emitTakodePermissionRequest(
     ...buildPermissionPreview(request),
     turn_source: deps.getCurrentTurnTriggerSource(session),
     msg_index: findLastAssistantMessageIndex(session),
+    threadKey: request.threadKey ?? "main",
+    ...(request.questId ? { questId: request.questId } : {}),
   });
 }
 
@@ -625,11 +701,26 @@ export async function routeBrowserMessage(
     msg.type === "user_message" &&
     typeof msg.content === "string" &&
     msg.content.trim().toLowerCase() === "/compact" &&
-    !msg.imageRefs?.length &&
-    session.backendType !== "codex"
+    !msg.imageRefs?.length
   ) {
-    handleForceCompact(session, deps);
-    return;
+    if (session.backendType === "codex") {
+      const launcherInfo = deps.getLauncherSessionInfo(session.id);
+      if (launcherInfo?.isOrchestrator) {
+        appendLocalSlashCommandHistory(session, "/compact", deps);
+        const recycle = await deps.requestCodexLeaderRecycle(session, "manual_compact");
+        if (!recycle.ok) {
+          deps.broadcastToBrowsers(session, {
+            type: "error",
+            message: recycle.error || "Failed to recycle Codex leader session",
+          });
+        }
+        deps.persistSession(session);
+        return;
+      }
+    } else {
+      handleForceCompact(session, deps);
+      return;
+    }
   }
 
   if (
@@ -740,15 +831,19 @@ export function handleControlRequest(
   };
   const resultOrPromise = handlePermissionRequestPipeline(
     session as never,
-    {
-      request_id: msg.request_id,
-      tool_name: toolName,
-      input: msg.request.input,
-      permission_suggestions: msg.request.permission_suggestions,
-      description: msg.request.description,
-      tool_use_id: msg.request.tool_use_id,
-      agent_id: msg.request.agent_id,
-    },
+    enrichPermissionWithThreadRoute(
+      {
+        request_id: msg.request_id,
+        tool_name: toolName,
+        input: msg.request.input,
+        permission_suggestions: msg.request.permission_suggestions,
+        description: msg.request.description,
+        tool_use_id: msg.request.tool_use_id,
+        agent_id: msg.request.agent_id,
+        timestamp: Date.now(),
+      },
+      session.messageHistory,
+    ),
     "claude-ws",
     {
       onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
@@ -803,7 +898,7 @@ export function handleSdkPermissionRequest(
   };
   const resultOrPromise = handlePermissionRequestPipeline(
     session as never,
-    perm,
+    enrichPermissionWithThreadRoute(perm, session.messageHistory),
     "claude-sdk",
     {
       onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
@@ -857,7 +952,7 @@ export function handleCodexPermissionRequest(
 
   const resultOrPromise = handlePermissionRequestPipeline(
     session as never,
-    perm,
+    enrichPermissionWithThreadRoute(perm, session.messageHistory),
     "codex",
     {
       onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
@@ -1431,7 +1526,27 @@ export function ingestUserMessage(
 ): IngestedUserMessage | Promise<IngestedUserMessage> {
   const ts = Date.now();
   const commit = options?.commit !== false;
+  const parsedTarget =
+    typeof msg.threadKey === "string"
+      ? normalizeThreadTarget(msg.threadKey)
+      : typeof msg.questId === "string"
+        ? normalizeThreadTarget(msg.questId)
+        : null;
+  const isLeaderSession = deps.getLauncherSessionInfo(session.id)?.isOrchestrator === true;
+  const explicitTarget = parsedTarget ?? (isLeaderSession ? { threadKey: "main" } : null);
+  const reminderThreadRoute =
+    browserMessageRoute(msg) ??
+    (explicitTarget ? { threadKey: explicitTarget.threadKey, questId: explicitTarget.questId } : undefined);
   const needsInputReminderText = buildNeedsInputReminderTextForDirectUserMessage(session, msg, deps);
+  const explicitThreadRef: ThreadRef | undefined =
+    explicitTarget && explicitTarget.threadKey !== "main"
+      ? {
+          threadKey: explicitTarget.threadKey,
+          ...(explicitTarget.questId ? { questId: explicitTarget.questId } : {}),
+          source: "explicit",
+          attachedAt: ts,
+        }
+      : undefined;
   const finalize = (imageRefs?: ImageRef[]): IngestedUserMessage => {
     const wasGenerating = session.isGenerating;
     const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
@@ -1440,21 +1555,32 @@ export function ingestUserMessage(
       timestamp: ts,
       id: deps.nextUserMessageId(ts),
       ...(imageRefs?.length ? { images: imageRefs } : {}),
+      ...(msg.replyContext ? { replyContext: msg.replyContext } : {}),
       ...(msg.client_msg_id ? { client_msg_id: msg.client_msg_id } : {}),
       ...(msg.vscodeSelection ? { vscodeSelection: msg.vscodeSelection } : {}),
       ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
+      ...(explicitTarget ? { threadKey: explicitTarget.threadKey } : {}),
+      ...(explicitTarget?.questId ? { questId: explicitTarget.questId } : {}),
+      ...(explicitThreadRef ? { threadRefs: [explicitThreadRef] } : {}),
     };
     let userMsgHistoryIdx = -1;
     if (commit) {
       if (needsInputReminderText) {
-        const reminderHistoryEntry = buildNeedsInputReminderHistoryEntry(needsInputReminderText, ts);
+        const reminderHistoryEntry = buildNeedsInputReminderHistoryEntry(
+          needsInputReminderText,
+          ts,
+          ts,
+          reminderThreadRoute,
+        );
         session.messageHistory.push(reminderHistoryEntry);
         deps.broadcastToBrowsers(session, reminderHistoryEntry);
       }
       session.messageHistory.push(userHistoryEntry);
       userMsgHistoryIdx = session.messageHistory.length - 1;
-      session.lastUserMessage = (msg.content || "").slice(0, 80);
-      deps.touchUserMessage(session.id);
+      session.lastUserMessage = formatReplyContentForPreview(msg.content || "", msg.replyContext).slice(0, 80);
+      if (isActualHumanUserMessage(userHistoryEntry)) {
+        deps.touchUserMessage(session.id, ts);
+      }
       deps.broadcastToBrowsers(session, userHistoryEntry);
       emitStoredUserMessageTakodeEvent(deps, session.id, userHistoryEntry, {
         historyIndex: userMsgHistoryIdx,
@@ -1474,6 +1600,40 @@ export function ingestUserMessage(
     return finalize(msg.imageRefs);
   }
   return finalize();
+}
+
+function applyUserMessageDeliveryPrefix(content: string | unknown[], prefix: string): string | unknown[] {
+  if (!prefix) return content;
+  if (typeof content === "string") return prefix + content;
+  const firstTextIndex = content.findIndex(
+    (block): block is { type: "text"; text: string } =>
+      !!block &&
+      typeof block === "object" &&
+      (block as { type?: unknown }).type === "text" &&
+      typeof (block as { text?: unknown }).text === "string",
+  );
+  if (firstTextIndex < 0) return [{ type: "text", text: prefix.trimEnd() }, ...content];
+  const next = content.slice();
+  const firstText = next[firstTextIndex] as { type: "text"; text: string };
+  next[firstTextIndex] = { ...firstText, text: prefix + firstText.text };
+  return next;
+}
+
+function buildUserMessageDeliveryPrefix(
+  session: AdapterBrowserRoutingSessionLike,
+  ingested: IngestedUserMessage,
+  msg: BrowserUserMessage,
+  contentPreview: string | undefined,
+  deps: Pick<AdapterBrowserRoutingDeps, "getLauncherSessionInfo">,
+): string {
+  return buildTimestampTag(
+    session,
+    ingested.timestamp,
+    deps.getLauncherSessionInfo,
+    msg.agentSource,
+    contentPreview,
+    ingested.historyEntry.threadKey,
+  );
 }
 
 function emitUserMessageTakodeEvent(
@@ -1523,10 +1683,14 @@ export async function handleUserMessage(
       : msg.content;
   }
   if (typeof content === "string") {
-    content = prependNeedsInputReminderToContent(content, ingested.needsInputReminderText);
-    content = buildTimestampTag(session, ingested.timestamp, deps.getLauncherSessionInfo, msg.agentSource) + content;
+    const contentWithReminder = prependNeedsInputReminderToContent(content, ingested.needsInputReminderText) as string;
+    content = buildUserMessageDeliveryPrefix(session, ingested, msg, contentWithReminder, deps) + contentWithReminder;
   } else {
     content = prependNeedsInputReminderToContent(content, ingested.needsInputReminderText);
+    content = applyUserMessageDeliveryPrefix(
+      content,
+      buildUserMessageDeliveryPrefix(session, ingested, msg, undefined, deps),
+    );
   }
   const ndjson = JSON.stringify({
     type: "user",
@@ -1536,8 +1700,11 @@ export async function handleUserMessage(
   });
   const turnTarget = deps.sendToCLI(session, ndjson, {
     deferUntilCliReady: deps.isHerdEventSource(msg.agentSource),
+    userMessageHistoryIndex: ingested.historyIndex,
   });
-  deps.trackUserMessageForTurn(session, ingested.historyIndex, turnTarget ?? "current");
+  if (turnTarget === null && ingested.historyIndex >= 0) {
+    deps.trackUserMessageForTurn(session, ingested.historyIndex, turnTarget ?? "current");
+  }
   session.lastOutboundUserNdjson = ndjson;
   deps.onUserMessage?.(session.id, [...session.messageHistory], session.state.cwd, ingested.wasGenerating);
 }
@@ -1743,6 +1910,15 @@ function maybeRequestAdapterRelaunchForUserMessage(
     deps.requestCliRelaunch?.(session.id);
   }
 }
+
+function activeTurnRouteFromIngestedUserMessage(ingested: IngestedUserMessage): ActiveTurnRoute {
+  const threadKey = ingested.historyEntry.threadKey ?? "main";
+  return {
+    threadKey,
+    ...(ingested.historyEntry.questId ? { questId: ingested.historyEntry.questId } : {}),
+  };
+}
+
 export function routeAdapterBrowserMessage(
   session: AdapterBrowserRoutingSessionLike,
   msg: BrowserOutgoingMessage,
@@ -1831,8 +2007,8 @@ export function routeAdapterBrowserMessage(
     if (
       msg.type === "user_message" &&
       ingested &&
-      session.state.backend_state !== "broken" &&
-      !(session.backendType === "codex" && deps.isHerdEventSource(msg.agentSource))
+      session.backendType !== "codex" &&
+      session.state.backend_state !== "broken"
     ) {
       const interruptSource = ingested.wasGenerating
         ? msg.agentSource
@@ -1841,17 +2017,28 @@ export function routeAdapterBrowserMessage(
             : "leader"
           : "user"
         : undefined;
-      pendingTurnTarget = deps.markRunningFromUserDispatch(session, "user_message", interruptSource ?? null);
-      if (ingested.historyIndex >= 0) {
-        deps.trackUserMessageForTurn(session, ingested.historyIndex, pendingTurnTarget ?? "current");
-      }
+      pendingTurnTarget = deps.markRunningFromUserDispatch(
+        session,
+        "user_message",
+        interruptSource ?? null,
+        ingested.historyIndex >= 0 ? ingested.historyIndex : undefined,
+        activeTurnRouteFromIngestedUserMessage(ingested),
+      );
     }
     if (session.backendType === "codex" && msg.type === "user_message" && ingested) {
       if (ingested.historyEntry.id) {
-        const deliveryContent =
-          adapterMsg.type === "user_message" && typeof adapterMsg.content === "string"
-            ? (prependNeedsInputReminderToContent(adapterMsg.content, ingested.needsInputReminderText) as string)
-            : undefined;
+        let deliveryContent: string | undefined;
+        if (adapterMsg.type === "user_message" && typeof adapterMsg.content === "string") {
+          const contentWithReminder = prependNeedsInputReminderToContent(
+            adapterMsg.content,
+            ingested.needsInputReminderText,
+          ) as string;
+          const sourcePrefix =
+            deps.getLauncherSessionInfo(session.id)?.isOrchestrator === true
+              ? buildUserMessageDeliveryPrefix(session, ingested, msg, contentWithReminder, deps)
+              : "";
+          deliveryContent = sourcePrefix + contentWithReminder;
+        }
         deps.addPendingCodexInput(session, {
           id: ingested.historyEntry.id,
           ...(msg.client_msg_id ? { clientMsgId: msg.client_msg_id } : {}),
@@ -1860,11 +2047,41 @@ export function routeAdapterBrowserMessage(
           cancelable: true,
           ...(userImageRefs?.length ? { imageRefs: userImageRefs } : {}),
           ...(deliveryContent ? { deliveryContent } : {}),
+          ...(msg.replyContext ? { replyContext: msg.replyContext } : {}),
           ...(ingested.needsInputReminderText ? { needsInputReminderText: ingested.needsInputReminderText } : {}),
           ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
           ...(msg.takodeHerdBatch ? { takodeHerdBatch: msg.takodeHerdBatch } : {}),
           ...(msg.vscodeSelection ? { vscodeSelection: msg.vscodeSelection } : {}),
+          ...(ingested.historyEntry.threadKey ? { threadKey: ingested.historyEntry.threadKey } : {}),
+          ...(ingested.historyEntry.questId ? { questId: ingested.historyEntry.questId } : {}),
+          ...(ingested.historyEntry.threadRefs ? { threadRefs: ingested.historyEntry.threadRefs } : {}),
         });
+      }
+      const currentTurnId = session.codexAdapter?.getCurrentTurnId() ?? null;
+      const isHerdEvent = deps.isHerdEventSource(msg.agentSource);
+      const deliveryReason = isHerdEvent ? "herd_event_message" : "browser_user_message";
+      if (!isHerdEvent && ingested.historyEntry.id) {
+        deps.pokeStaleCodexPendingDelivery(session, deliveryReason, {
+          triggeringInputId: ingested.historyEntry.id,
+        });
+      }
+      if (!isHerdEvent && session.state.backend_state !== "broken") {
+        const interruptSource = ingested.wasGenerating
+          ? msg.agentSource
+            ? isSystemSourceTag(msg.agentSource)
+              ? "system"
+              : "leader"
+            : "user"
+          : undefined;
+        pendingTurnTarget = deps.markRunningFromUserDispatch(
+          session,
+          "user_message",
+          interruptSource ?? null,
+          ingested.historyIndex >= 0 ? ingested.historyIndex : undefined,
+          activeTurnRouteFromIngestedUserMessage(ingested),
+        );
+      }
+      if (ingested.historyEntry.id) {
         emitUserMessageTakodeEvent(
           session,
           ingested,
@@ -1873,18 +2090,17 @@ export function routeAdapterBrowserMessage(
           session.codexAdapter?.getCurrentTurnId() ?? null,
         );
       }
-      const currentTurnId = session.codexAdapter?.getCurrentTurnId() ?? null;
-      if (currentTurnId) {
-        const steeredPending = deps.trySteerPendingCodexInputs(session, "browser_user_message");
+      if (currentTurnId && !isHerdEvent) {
+        const steeredPending = deps.trySteerPendingCodexInputs(session, deliveryReason);
         if (!steeredPending) {
           deps.rebuildQueuedCodexPendingStartBatch(session);
         }
       } else {
-        if (session.codexAdapter && !!ingested.wasGenerating && session.isGenerating) {
+        if (!isHerdEvent && session.codexAdapter && pendingTurnTarget === "queued" && session.isGenerating) {
           deps.rebuildQueuedCodexPendingStartBatch(session);
           deps.persistSession(session);
         } else {
-          deps.queueCodexPendingStartBatch(session, "browser_user_message");
+          deps.queueCodexPendingStartBatch(session, deliveryReason);
         }
       }
       if (session.state.backend_state === "broken") {
@@ -1922,9 +2138,20 @@ export function routeAdapterBrowserMessage(
         typed.content,
         ingested?.needsInputReminderText,
       ) as string;
+      const sourceThreadKey =
+        ingested?.historyEntry.threadKey ??
+        (deps.getLauncherSessionInfo(session.id)?.isOrchestrator === true ? "main" : undefined);
       adapterMsg = {
         ...adapterMsg,
-        content: buildTimestampTag(session, msgTs, deps.getLauncherSessionInfo, msg.agentSource) + contentWithReminder,
+        content:
+          buildTimestampTag(
+            session,
+            msgTs,
+            deps.getLauncherSessionInfo,
+            msg.agentSource,
+            contentWithReminder,
+            sourceThreadKey,
+          ) + contentWithReminder,
       } as BrowserOutgoingMessage;
     }
     const adapter = session.codexAdapter || session.claudeSdkAdapter;

@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -576,7 +587,7 @@ describe("board stall warnings", () => {
 
   function setupBoardStallHarness(opts?: {
     reviewer?: boolean;
-    reviewStage?: "SKEPTIC_REVIEWING" | "GROOM_REVIEWING";
+    reviewStage?: "CODE_REVIEWING" | "MENTAL_SIMULATING" | "OUTCOME_REVIEWING";
     workerHasTimer?: boolean;
     blocked?: boolean;
     workerLiveState?: "idle" | "running";
@@ -671,11 +682,11 @@ describe("board stall warnings", () => {
       title: "Investigate stall warning",
       worker: workerId,
       workerNum: 2,
-      status: opts?.reviewer ? (opts.reviewStage ?? "SKEPTIC_REVIEWING") : "IMPLEMENTING",
+      status: opts?.blocked ? "QUEUED" : opts?.reviewer ? (opts.reviewStage ?? "CODE_REVIEWING") : "IMPLEMENTING",
       ...(opts?.blocked ? { waitFor: ["#9"] } : {}),
       updatedAt: now - 5 * 60_000,
     });
-    return { leaderId, dispatcher, launcherSessions };
+    return { leaderId, workerId, reviewerId, dispatcher, launcherSessions, leaderCli };
   }
 
   function setupCodexLeaderBoardStallHarness() {
@@ -937,9 +948,214 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
-  it("does not warn for blocked rows even when the worker is disconnected", async () => {
+  it("drops same-batch worker board_stalled events when turn_end supersedes them", async () => {
+    const { leaderId, dispatcher } = setupCodexLeaderBoardStallHarness();
+    const now = Date.now();
+    const boardStalled = {
+      id: 1,
+      event: "board_stalled",
+      sessionId: "worker-board-stall-codex",
+      sessionNum: 12,
+      sessionName: "worker-board-stall-codex",
+      ts: now,
+      data: {
+        questId: "q-1",
+        title: "Investigate delayed stall drop",
+        stage: "IMPLEMENTING",
+        signature: "q-1|IMPLEMENTING|disconnected",
+        workerStatus: "disconnected",
+        reviewerStatus: "missing",
+        stalledForMs: 240_000,
+        reason: "worker disconnected",
+        action: "inspect worker; resume or re-dispatch before review",
+      },
+    } as any;
+    const turnEnd = {
+      id: 2,
+      event: "turn_end",
+      sessionId: "worker-board-stall-codex",
+      sessionNum: 12,
+      sessionName: "worker-board-stall-codex",
+      ts: now + 1,
+      data: { duration_ms: 1000, reason: "result" },
+    } as any;
+    const rendered = renderHerdEventBatch([boardStalled, turnEnd]);
+    const expected = renderHerdEventBatch([turnEnd]);
+
+    const delivery = bridge.injectUserMessage(
+      leaderId,
+      rendered.content,
+      {
+        sessionId: "herd-events",
+        sessionLabel: "Herd Events",
+      },
+      {
+        events: [boardStalled, turnEnd],
+        renderedLines: rendered.renderedLines,
+      },
+    );
+    await Promise.resolve();
+
+    expect(delivery).toBe("queued");
+    const sessionAfterInject = bridge.getSession(leaderId)!;
+    expect(sessionAfterInject.pendingCodexInputs).toHaveLength(1);
+    expect(sessionAfterInject.pendingCodexInputs[0]?.content).toBe(expected.content);
+    expect(sessionAfterInject.pendingCodexInputs[0]?.content).toContain("1 event from 1 session\n\n");
+    expect(sessionAfterInject.pendingCodexInputs[0]?.content).toContain("turn_end");
+    expect(sessionAfterInject.pendingCodexInputs[0]?.content).not.toContain("board_stalled");
+
+    dispatcher.destroy();
+  });
+
+  it("drops same-batch reviewer board_stalled events even when attributed to the worker", async () => {
+    const { leaderId, workerId, reviewerId, dispatcher, leaderCli } = setupBoardStallHarness({ reviewer: true });
+    const now = Date.now();
+    leaderCli.send.mockClear();
+    const boardStalled = {
+      id: 1,
+      event: "board_stalled",
+      sessionId: workerId,
+      sessionNum: 2,
+      sessionName: workerId,
+      ts: now,
+      data: {
+        questId: "q-1",
+        title: "Investigate stall warning",
+        stage: "CODE_REVIEWING",
+        signature: "q-1|CODE_REVIEWING|reviewer|disconnected",
+        workerStatus: "disconnected",
+        reviewerStatus: "disconnected",
+        stalledForMs: 240_000,
+        reason: "reviewer disconnected",
+        action: "inspect reviewer; re-dispatch code review if needed",
+      },
+    } as any;
+    const turnEnd = {
+      id: 2,
+      event: "turn_end",
+      sessionId: reviewerId,
+      sessionNum: 3,
+      sessionName: reviewerId,
+      ts: now + 1,
+      data: { duration_ms: 1000, reason: "result" },
+    } as any;
+    const rendered = renderHerdEventBatch([boardStalled, turnEnd]);
+
+    const delivery = bridge.injectUserMessage(
+      leaderId,
+      rendered.content,
+      {
+        sessionId: "herd-events",
+        sessionLabel: "Herd Events",
+      },
+      {
+        events: [boardStalled, turnEnd],
+        renderedLines: rendered.renderedLines,
+      },
+    );
+
+    expect(delivery).toBe("sent");
+    const sentPayload = leaderCli.send.mock.calls.map((call: unknown[]) => String(call[0])).join("\n");
+    expect(sentPayload).toContain("1 event from 1 session");
+    expect(sentPayload).toContain("turn_end");
+    expect(sentPayload).not.toContain("board_stalled");
+
+    dispatcher.destroy();
+  });
+
+  it("keeps same-batch board_stalled events when turn_end is older than the stall event", async () => {
+    const { leaderId, dispatcher } = setupCodexLeaderBoardStallHarness();
+    const now = Date.now();
+    const turnEnd = {
+      id: 1,
+      event: "turn_end",
+      sessionId: "worker-board-stall-codex",
+      sessionNum: 12,
+      sessionName: "worker-board-stall-codex",
+      ts: now - 1,
+      data: { duration_ms: 1000, reason: "result" },
+    } as any;
+    const boardStalled = {
+      id: 2,
+      event: "board_stalled",
+      sessionId: "worker-board-stall-codex",
+      sessionNum: 12,
+      sessionName: "worker-board-stall-codex",
+      ts: now,
+      data: {
+        questId: "q-1",
+        title: "Investigate delayed stall drop",
+        stage: "IMPLEMENTING",
+        signature: "q-1|IMPLEMENTING|disconnected",
+        workerStatus: "disconnected",
+        reviewerStatus: "missing",
+        stalledForMs: 240_000,
+        reason: "worker disconnected",
+        action: "inspect worker; resume or re-dispatch before review",
+      },
+    } as any;
+    const rendered = renderHerdEventBatch([turnEnd, boardStalled]);
+
+    const delivery = bridge.injectUserMessage(
+      leaderId,
+      rendered.content,
+      {
+        sessionId: "herd-events",
+        sessionLabel: "Herd Events",
+      },
+      {
+        events: [turnEnd, boardStalled],
+        renderedLines: rendered.renderedLines,
+      },
+    );
+    await Promise.resolve();
+
+    expect(delivery).toBe("queued");
+    const sessionAfterInject = bridge.getSession(leaderId)!;
+    expect(sessionAfterInject.pendingCodexInputs).toHaveLength(1);
+    expect(sessionAfterInject.pendingCodexInputs[0]?.content).toContain("2 events from 1 session");
+    expect(sessionAfterInject.pendingCodexInputs[0]?.content).toContain("turn_end");
+    expect(sessionAfterInject.pendingCodexInputs[0]?.content).toContain("board_stalled");
+
+    dispatcher.destroy();
+  });
+
+  it("does not warn for queued rows with unresolved wait-for dependencies", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness({ blocked: true });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(181_000);
+    await Promise.resolve();
+
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
+    );
+    expect(herdCalls).toHaveLength(0);
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
+  it("does not warn for rows intentionally waiting on linked user input", async () => {
+    const { leaderId, dispatcher } = setupBoardStallHarness();
+    const injectSpy = vi.spyOn(bridge, "injectUserMessage");
+    const leaderSession = (bridge as any).sessions.get(leaderId);
+
+    leaderSession.notifications.push({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Need human answer",
+      timestamp: Date.now(),
+      messageId: null,
+      done: false,
+    });
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-1",
+      waitForInput: ["n-1"],
+      status: "IMPLEMENTING",
+      updatedAt: Date.now() - 5 * 60_000,
+    });
 
     bridge.startStuckSessionWatchdog();
     vi.advanceTimersByTime(181_000);
@@ -1219,16 +1435,16 @@ describe("board stall warnings", () => {
     );
     expect(herdCalls).toHaveLength(1);
     expect(herdCalls[0][1]).toContain("reviewer disconnected");
-    expect(herdCalls[0][1]).toContain("re-dispatch skeptic review");
+    expect(herdCalls[0][1]).toContain("re-dispatch code review");
 
     injectSpy.mockRestore();
     dispatcher.destroy();
   });
 
-  it("classifies a live groom reviewer as idle instead of disconnected", async () => {
+  it("classifies a live outcome reviewer as idle instead of disconnected", async () => {
     const { leaderId, dispatcher } = setupBoardStallHarness({
       reviewer: true,
-      reviewStage: "GROOM_REVIEWING",
+      reviewStage: "OUTCOME_REVIEWING",
       reviewerLiveState: "idle",
     });
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
@@ -1254,7 +1470,7 @@ describe("board stall warnings", () => {
 
     const leaderSession = bridge.getSession(leaderId)!;
     const row = leaderSession.board.get("q-1")!;
-    row.status = "SKEPTIC_REVIEWING";
+    row.status = "CODE_REVIEWING";
     row.updatedAt = Date.now() - 5 * 60_000;
     leaderSession.board.set("q-1", row);
 
@@ -1267,7 +1483,7 @@ describe("board stall warnings", () => {
     );
     expect(herdCalls).toHaveLength(1);
     expect(herdCalls[0][1]).toContain("reviewer missing");
-    expect(herdCalls[0][1]).toContain("attach skeptic reviewer");
+    expect(herdCalls[0][1]).toContain("attach code reviewer");
 
     injectSpy.mockRestore();
     dispatcher.destroy();

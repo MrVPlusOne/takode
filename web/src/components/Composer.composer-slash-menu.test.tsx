@@ -636,6 +636,26 @@ describe("Composer slash menu", () => {
     expect(screen.getByText("/status")).toBeTruthy();
   });
 
+  it("keeps built-in slash commands ahead of skills even when the draft mentions a recent skill", () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        slash_commands: [],
+        skills: ["review"],
+      },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const value = "Reuse /review and then /";
+
+    fireEvent.change(textarea, { target: { value, selectionStart: value.length } });
+
+    const suggestions = Array.from(container.querySelectorAll("[data-cmd-index]"));
+    expect(suggestions.length).toBeGreaterThan(1);
+    expect(within(suggestions[0] as HTMLElement).getByText("/plan")).toBeTruthy();
+    expect(suggestions.some((item) => within(item as HTMLElement).queryByText("/review"))).toBe(true);
+  });
+
   it("sends /status as a normal Codex user message", () => {
     setupMockStore({
       session: {
@@ -793,5 +813,59 @@ describe("Composer slash menu", () => {
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
 
     expect(textarea.value).toBe("/confirm later");
+  });
+
+  it("treats the current input as fresher than prior skill mentions", () => {
+    setupMockStore({
+      session: {
+        slash_commands: [],
+        skills: ["review", "recap"],
+      },
+      messages: [makeMessage({ id: "m1", content: "Earlier run /review after the tests." })],
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const value = "Reuse /recap and then /r";
+
+    fireEvent.change(textarea, {
+      target: { value, selectionStart: value.length },
+    });
+
+    const suggestions = Array.from(container.querySelectorAll("[data-cmd-index]"));
+    expect(suggestions).toHaveLength(2);
+    expect(within(suggestions[0] as HTMLElement).getByText("/recap")).toBeTruthy();
+  });
+
+  it("ranks quest autocomplete from bounded recent context for the current thread", async () => {
+    const quests = [
+      { id: "q-2-v1", questId: "q-2", title: "Main recent quest" } as QuestmasterTask,
+      { id: "q-999-v1", questId: "q-999", title: "Thread recent quest" } as QuestmasterTask,
+      { id: "q-1000-v1", questId: "q-1000", title: "Newest numeric quest" } as QuestmasterTask,
+    ];
+    const messages = [
+      makeMessage({ id: "m1", content: "Earlier main q-2" }),
+      makeMessage({
+        id: "m2",
+        content: "Thread-specific q-999",
+        metadata: { threadRefs: [{ threadKey: "q-999", questId: "q-999", source: "explicit" }] },
+      }),
+    ];
+
+    setupMockStore({ quests, messages });
+    const { container, rerender } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "approve q-", selectionStart: 10 } });
+    await waitFor(() => expect(container.querySelectorAll("[data-reference-index]").length).toBeGreaterThan(0));
+
+    let suggestions = Array.from(container.querySelectorAll("[data-reference-index]"));
+    expect(within(suggestions[0] as HTMLElement).getByText("q-2")).toBeTruthy();
+
+    rerender(<Composer sessionId="s1" threadKey="q-999" />);
+    fireEvent.change(textarea, { target: { value: "approve q-", selectionStart: 10 } });
+    await waitFor(() => expect(container.querySelectorAll("[data-reference-index]").length).toBeGreaterThan(0));
+
+    suggestions = Array.from(container.querySelectorAll("[data-reference-index]"));
+    expect(within(suggestions[0] as HTMLElement).getByText("q-999")).toBeTruthy();
   });
 });

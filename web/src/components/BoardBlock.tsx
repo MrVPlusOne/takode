@@ -4,6 +4,9 @@ import { useStore } from "../store.js";
 import { BoardTable } from "./BoardTable.js";
 import { ToolBlock } from "./ToolBlock.js";
 import { formatQuestJourneyText, type BoardQueueWarning } from "../../shared/quest-journey.js";
+import { QuestJourneyProposalReview } from "./QuestJourneyTimeline.js";
+import type { BoardRowSessionStatus } from "../types.js";
+import type { QuestJourneyPlanState } from "../../shared/quest-journey.js";
 
 // Re-export for backward compatibility (ToolBlock imports BoardRowData from here)
 export type { BoardRowData } from "./BoardTable.js";
@@ -11,8 +14,10 @@ import type { BoardRowData } from "./BoardTable.js";
 
 interface BoardBlockProps {
   board: BoardRowData[];
+  rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
   operation?: string;
   queueWarnings?: BoardQueueWarning[];
+  proposalReview?: BoardProposalReviewPayload;
   toolUseId?: string;
   sessionId?: string;
   originalCommand?: string;
@@ -21,18 +26,56 @@ interface BoardBlockProps {
   defaultShowOriginalCommand?: boolean;
 }
 
+export interface BoardProposalReviewPayload {
+  questId: string;
+  title?: string;
+  status: string;
+  journey: QuestJourneyPlanState;
+  presentedAt: number;
+  summary?: string;
+  scheduling?: Record<string, unknown>;
+}
+
+type SetLatestBoardToolUseId = (sessionId: string, toolUseId: string) => void;
+
+const pendingLatestBoardRegistrations = new Map<string, { toolUseId: string; setLatest: SetLatestBoardToolUseId }>();
+let latestBoardRegistrationScheduled = false;
+
+function scheduleLatestBoardRegistration(
+  sessionId: string,
+  toolUseId: string,
+  setLatest: SetLatestBoardToolUseId,
+): void {
+  pendingLatestBoardRegistrations.set(sessionId, { toolUseId, setLatest });
+  if (latestBoardRegistrationScheduled) return;
+  latestBoardRegistrationScheduled = true;
+  const flush = () => {
+    latestBoardRegistrationScheduled = false;
+    const registrations = Array.from(pendingLatestBoardRegistrations.entries());
+    pendingLatestBoardRegistrations.clear();
+    for (const [nextSessionId, registration] of registrations) {
+      registration.setLatest(nextSessionId, registration.toolUseId);
+    }
+  };
+  if (typeof queueMicrotask === "function") queueMicrotask(flush);
+  else Promise.resolve().then(flush);
+}
+
 /**
  * Collapsible card that renders the leader's work board inline in the chat feed.
  * Displayed when a `takode board` CLI command yields explicit board JSON or
  * when ToolBlock can fall back to the live server-authoritative board state.
  *
- * Auto-collapse: when a new board renders, it registers as the latest via Zustand.
- * All BoardBlock instances subscribe to the latest ID -- non-latest boards collapse.
+ * Auto-collapse: when boards render, the latest one registers via Zustand.
+ * Registrations are batched so a dense historical feed does not make every
+ * mounted BoardBlock walk the global latest pointer through every old board.
  */
 export const BoardBlock = memo(function BoardBlock({
   board,
+  rowSessionStatuses,
   operation,
   queueWarnings,
+  proposalReview,
   toolUseId,
   sessionId,
   originalCommand,
@@ -42,7 +85,9 @@ export const BoardBlock = memo(function BoardBlock({
 }: BoardBlockProps) {
   // Subscribe to the latest board ID for this session via Zustand (reactive)
   const latestId = useStore((s) => (sessionId ? s.latestBoardToolUseId.get(sessionId) : undefined));
+  const liveRowSessionStatuses = useStore((s) => (sessionId ? s.sessionBoardRowStatuses.get(sessionId) : undefined));
   const setLatest = useStore((s) => s.setLatestBoardToolUseId);
+  const effectiveRowSessionStatuses = rowSessionStatuses ?? liveRowSessionStatuses;
 
   // Determine if this board is the latest (should be expanded)
   const isLatest = !toolUseId || !latestId || toolUseId === latestId;
@@ -56,7 +101,7 @@ export const BoardBlock = memo(function BoardBlock({
   // Register as the latest board on mount
   useEffect(() => {
     if (toolUseId && sessionId) {
-      setLatest(sessionId, toolUseId);
+      scheduleLatestBoardRegistration(sessionId, toolUseId, setLatest);
     }
   }, [toolUseId, sessionId, setLatest]);
 
@@ -164,7 +209,13 @@ export const BoardBlock = memo(function BoardBlock({
               />
             </div>
           )}
-          <BoardTable board={board} />
+          {proposalReview && (
+            <QuestJourneyProposalReview
+              proposal={proposalReview}
+              onQuestClick={() => useStore.getState().openQuestOverlay(proposalReview.questId)}
+            />
+          )}
+          <BoardTable board={board} rowSessionStatuses={effectiveRowSessionStatuses} />
           <CollapseFooter headerRef={headerRef} onCollapse={() => setOpen(false)} />
         </div>
       )}

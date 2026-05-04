@@ -305,13 +305,21 @@ function createMockProc(pid = 12345) {
 
 function createMockCodexProc(pid = 12345) {
   let resolve: (code: number) => void;
+  let exited = false;
   const exitedPromise = new Promise<number>((r) => {
     resolve = r;
   });
-  exitResolve = resolve!;
+  const resolveExit = (code: number) => {
+    if (exited) return;
+    exited = true;
+    resolve(code);
+  };
+  exitResolve = resolveExit;
   return {
     pid,
-    kill: vi.fn(),
+    kill: vi.fn((signal?: string) => {
+      resolveExit(signal === "SIGKILL" ? 137 : 0);
+    }),
     exited: exitedPromise,
     stdin: new WritableStream<Uint8Array>(),
     stdout: new ReadableStream<Uint8Array>(),
@@ -472,6 +480,9 @@ describe("relaunch", () => {
     // Simulate container being removed
     mockIsContainerAlive.mockReturnValueOnce("missing");
 
+    // Resolve the tracked launcher proc so relaunch can fail on the missing
+    // container check instead of waiting through the generic SIGTERM timeout.
+    exitResolve(0);
     const result = await launcher.relaunch("test-session-id");
     expect(result.ok).toBe(false);
     expect(result.error).toContain("companion-gone");
@@ -533,6 +544,9 @@ describe("relaunch", () => {
       throw new Error("container start failed");
     });
 
+    // This test is about the container restart failure, not launcher process
+    // termination latency.
+    exitResolve(0);
     const result = await launcher.relaunch("test-session-id");
     expect(result.ok).toBe(false);
     expect(result.error).toContain("companion-dead");
@@ -550,6 +564,8 @@ describe("relaunch", () => {
     mockIsContainerAlive.mockReturnValueOnce("running");
     mockHasBinaryInContainer.mockReturnValueOnce(false);
 
+    // Resolve the old proc so this assertion measures binary validation only.
+    exitResolve(0);
     const result = await launcher.relaunch("test-session-id");
     expect(result.ok).toBe(false);
     expect(result.error).toContain("claude");
@@ -780,12 +796,19 @@ describe("relaunch", () => {
     mockSpawn.mockReturnValueOnce(createMockCodexProc(55555));
     await launcher.restoreFromDisk();
 
-    const result = await launcher.relaunch("stubborn-codex");
-    expect(result).toEqual({ ok: true });
-    expect(killSpy).toHaveBeenCalledWith(44444, "SIGTERM");
-    expect(killSpy).not.toHaveBeenCalledWith(44444, "SIGKILL");
+    vi.useFakeTimers();
+    try {
+      const relaunchPromise = launcher.relaunch("stubborn-codex");
+      await vi.advanceTimersByTimeAsync(2_100);
 
-    killSpy.mockRestore();
+      const result = await relaunchPromise;
+      expect(result).toEqual({ ok: true });
+      expect(killSpy).toHaveBeenCalledWith(44444, "SIGTERM");
+      expect(killSpy).not.toHaveBeenCalledWith(44444, "SIGKILL");
+    } finally {
+      vi.useRealTimers();
+      killSpy.mockRestore();
+    }
   });
 
   // Regression: q-16 — old Codex process exit handler stomps new process state.
@@ -893,6 +916,52 @@ describe("relaunch", () => {
     expect(firstProc.kill).toHaveBeenCalled();
   });
 
+  it("relaunches host Codex sessions without hot-path shell capture", async () => {
+    mockCaptureUserShellPath.mockImplementation(() => {
+      throw new Error("host Codex relaunch should not re-capture shell PATH");
+    });
+    mockCaptureUserShellEnv.mockReturnValue({ LITELLM_PROXY_URL: "https://shell-proxy.example" });
+    mockGetEnrichedPath.mockReturnValue("/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin");
+    process.env.LITELLM_PROXY_URL = "https://stale-daemon-proxy.example";
+
+    let resolveFirst: (code: number) => void;
+    const firstProc = {
+      pid: 12345,
+      kill: vi.fn(() => {
+        resolveFirst(0);
+      }),
+      exited: new Promise<number>((r) => {
+        resolveFirst = r;
+      }),
+      stdin: new WritableStream<Uint8Array>(),
+      stdout: new ReadableStream<Uint8Array>(),
+      stderr: new ReadableStream<Uint8Array>(),
+    };
+    mockSpawn.mockReturnValueOnce(firstProc);
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      codexSandbox: "workspace-write",
+    });
+
+    const deadline = Date.now() + 2000;
+    while (mockSpawn.mock.calls.length < 1) {
+      if (Date.now() > deadline) throw new Error("Timed out waiting for initial Codex spawn");
+      await new Promise<void>((r) => setTimeout(r, 10));
+    }
+
+    mockSpawn.mockReturnValueOnce(createMockCodexProc(54321));
+    const result = await launcher.relaunch("test-session-id");
+
+    expect(result).toEqual({ ok: true });
+    const [, relaunchOptions] = mockSpawn.mock.calls[1];
+    expect(relaunchOptions.env.LITELLM_PROXY_URL).toBe("https://shell-proxy.example");
+    expect(mockCaptureUserShellEnv).toHaveBeenCalledWith(["LITELLM_API_KEY", "LITELLM_PROXY_URL", "LITELLM_BASE_URL"], {
+      allowShellSpawn: false,
+    });
+    expect(mockCaptureUserShellPath).not.toHaveBeenCalled();
+  });
+
   // Regression: q-110 — without orchestrator guardrails, relaunched leaders
   // lose Quest Journey stages, worker selection rules, and skeptic review
   // workflows, breaking all orchestration coordination.
@@ -940,7 +1009,7 @@ describe("relaunch", () => {
     const relaunchSysPrompt = relaunchCmd[relaunchSysPromptIdx + 1] as string;
     expect(relaunchSysPrompt).toContain("Takode");
     expect(relaunchSysPrompt).toContain("Quest Journey");
-    expect(relaunchSysPrompt).toContain("Skeptic Review");
+    expect(relaunchSysPrompt).toContain("Code Review");
   });
 
   it("does not inject orchestrator guardrails for non-orchestrator sessions on relaunch", async () => {
@@ -975,6 +1044,6 @@ describe("relaunch", () => {
     expect(sysPromptIdx).toBeGreaterThan(-1);
     const sysPrompt = relaunchCmd[sysPromptIdx + 1] as string;
     expect(sysPrompt).not.toContain("Quest Journey");
-    expect(sysPrompt).not.toContain("Skeptic Review");
+    expect(sysPrompt).not.toContain("Code Review");
   });
 });

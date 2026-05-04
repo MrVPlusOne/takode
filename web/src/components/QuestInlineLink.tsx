@@ -1,7 +1,19 @@
-import { useState, useRef, useMemo, useEffect, type MouseEvent, type ReactNode } from "react";
+import { useState, useRef, useEffect, type MouseEvent, type ReactNode } from "react";
 import { useStore } from "../store.js";
+import type { QuestmasterTask } from "../types.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { withQuestIdInHash } from "../utils/routing.js";
+
+const questIndexCache = new WeakMap<QuestmasterTask[], Map<string, QuestmasterTask>>();
+
+function findQuestById(quests: QuestmasterTask[], questId: string): QuestmasterTask | null {
+  let index = questIndexCache.get(quests);
+  if (!index) {
+    index = new Map(quests.map((quest) => [quest.questId.toLowerCase(), quest]));
+    questIndexCache.set(quests, index);
+  }
+  return index.get(questId.toLowerCase()) ?? null;
+}
 
 export function QuestInlineLink({
   questId,
@@ -14,7 +26,7 @@ export function QuestInlineLink({
   className?: string;
   stopPropagation?: boolean;
 }) {
-  const quests = useStore((s) => s.quests);
+  const quest = useStore((s) => findQuestById(s.quests, questId));
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
   const hideHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -23,11 +35,6 @@ export function QuestInlineLink({
       if (hideHoverTimerRef.current) clearTimeout(hideHoverTimerRef.current);
     },
     [],
-  );
-
-  const quest = useMemo(
-    () => quests.find((item) => item.questId.toLowerCase() === questId.toLowerCase()) ?? null,
-    [questId, quests],
   );
 
   const questHash = withQuestIdInHash(window.location.hash, questId);

@@ -72,7 +72,7 @@ git -C <BASE_REPO> push origin <BASE_BRANCH>
 
 ### 7. Run required post-port verification
 
-After resetting, run the required post-port verification in the worktree to verify nothing broke. For refactor quests, the current full pre-commit-equivalent automated gate is:
+After resetting, run the required post-port verification in the worktree to verify nothing broke. For refactor quests, the current full automated gate is:
 
 - `cd web && bun run typecheck`
 - `cd web && bun run test`
@@ -96,11 +96,14 @@ If you are working on a quest from this worktree session, do **NOT** transition 
 
 If you are also the agent performing the verification handoff, attach the ordered synced SHAs when you submit:
 ```bash
-quest complete q-N --items "..." --commits "sha1,sha2"
+quest complete q-N --items "..." --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md
 ```
+For every completed non-cancelled quest, include structured final debrief metadata in that handoff. The full debrief should summarize the user-facing result, important verification, synced commits when relevant, and residual risks. Write the full debrief first, then write a concise TLDR that gives self-contained quest-journey understanding: issue or need, solution shape, why it works, and key decisions or findings. Keep routine commit hashes, branch names, command lists, and detailed verification mechanics in the body, port notes, or structured metadata unless the exact detail is central to understanding the outcome.
 
-If a leader controls the quest transition, report back with the ordered synced SHAs explicitly so the later handoff can attach them. Put them on a dedicated `Synced SHAs: sha1,sha2` line so the later `quest complete` call can copy them directly. Do **not** rely on `/port-changes` logs being parsed after the fact.
+Every completed non-cancelled quest needs both final debrief metadata and debrief TLDR metadata. If a leader controls the quest transition, report back with the ordered synced SHAs explicitly so the later handoff can attach them. Put them on a dedicated `Synced SHAs: sha1,sha2` line so the later `quest complete` call can copy them directly. Also include a concise `Final debrief draft:` and `Debrief TLDR draft:`. If the port worker cannot or should not draft the final debrief from available evidence, say so and ask the leader to route a focused Bookkeeping phase for final debrief metadata. Do **not** rely on `/port-changes` logs being parsed after the fact.
 
-Documentation, skill, prompt, template, and other text-only tracked-file edits still count as commit-producing work. If they produced commits, they must be ported and attached to the quest with `quest complete ... --commit/--commits`; the zero-code/no-code path is only for quests that produced no git-tracked changes at all.
+Documentation, skill, prompt, template, and other text-only tracked-file edits still count as commit-producing work. If they produced commits, they must be ported and attached to the quest with `quest complete ... --commit/--commits`; zero-tracked-change quests simply omit `port` from their explicit Journey plan when nothing was synced.
 
-The quest should usually keep one substantive prose summary comment for the human reader: what changed, why it matters, and what verification passed. Structured commit metadata should carry routine port information, so do not add a second long port-summary or commit-by-commit timeline unless the porting itself was exceptional and materially worth calling out. The later verification handoff should attach those SHAs with `quest complete ... --commits ...`, not leave them only in feedback comments.
+Do not put port status, synced SHAs, or automated post-port verification results into `quest complete --items`. Verification items are for human-checkable acceptance checks only; port details and automated verification belong in the worker report and, for Quest Journey work, the Port phase documentation entry.
+
+For Quest Journey work, add or refresh the current Port phase documentation before reporting back: ordered synced SHAs, post-port verification, port anomalies, remaining sync risks, and whether final debrief metadata was submitted or drafted for the later handoff. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary` with current-phase inference; use explicit `--phase port` or occurrence flags if inference is unavailable. Structured commit metadata should carry routine port information, so do not add a second long port-summary or commit-by-commit timeline unless the porting itself was exceptional and materially worth calling out. The later verification handoff should attach those SHAs with `quest complete ... --commits ...`, not leave them only in feedback comments.

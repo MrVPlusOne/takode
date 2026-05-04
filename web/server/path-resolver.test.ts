@@ -126,9 +126,10 @@ describe("captureUserShellPath", () => {
     // let timed-out `zsh -lic ...` probes survive as orphaned PID-1 children.
     expect(mockExecFileSync).toHaveBeenCalledWith(
       "/bin/zsh",
-      ["-lic", 'echo "___PATH_START___$PATH___PATH_END___"'],
+      ["-lic", expect.stringContaining('echo "___PATH_START___$PATH___PATH_END___"')],
       expect.objectContaining({ timeout: 10_000, killSignal: "SIGKILL" }),
     );
+    expect(mockExecFileSync.mock.calls.at(-1)?.[1]?.[1]).toContain("___ENV_LITELLM_API_KEY___");
     expect(mockExecSync).not.toHaveBeenCalled();
   });
 });
@@ -150,6 +151,37 @@ describe("captureUserShellEnv", () => {
       ["-lic", 'echo "___ENV_LITELLM_API_KEY___=${LITELLM_API_KEY:-}"'],
       expect.objectContaining({ timeout: 10_000, killSignal: "SIGKILL" }),
     );
+    expect(mockExecSync).not.toHaveBeenCalled();
+  });
+
+  it("warms critical shell env vars for later host Codex launches", () => {
+    process.env.LITELLM_API_KEY = "stale-daemon-key";
+    process.env.LITELLM_PROXY_URL = "https://stale-proxy.example";
+    process.env.LITELLM_BASE_URL = "https://stale-base.example";
+    mockExecFileSync.mockReturnValueOnce(
+      [
+        "___PATH_START___/usr/bin:/opt/homebrew/bin___PATH_END___",
+        "___ENV_LITELLM_API_KEY___=litellm-key",
+        "___ENV_LITELLM_PROXY_URL___=https://proxy.example",
+        "___ENV_LITELLM_BASE_URL___=https://base.example",
+        "",
+      ].join("\n"),
+    );
+
+    expect(captureUserShellPath()).toBe("/usr/bin:/opt/homebrew/bin");
+    expect(process.env.LITELLM_API_KEY).toBe("stale-daemon-key");
+
+    mockExecFileSync.mockClear();
+    expect(
+      captureUserShellEnv(["LITELLM_API_KEY", "LITELLM_PROXY_URL", "LITELLM_BASE_URL"], {
+        allowShellSpawn: false,
+      }),
+    ).toEqual({
+      LITELLM_API_KEY: "litellm-key",
+      LITELLM_PROXY_URL: "https://proxy.example",
+      LITELLM_BASE_URL: "https://base.example",
+    });
+    expect(mockExecFileSync).not.toHaveBeenCalled();
     expect(mockExecSync).not.toHaveBeenCalled();
   });
 });

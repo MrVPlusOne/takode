@@ -211,6 +211,37 @@ describe("CodexAdapter", () => {
     expect(errors[0]).toContain("initialization failed");
   });
 
+  it("notifies all init-error listeners when initialization fails", async () => {
+    // Launcher cleanup and bridge recovery both subscribe to init failures.
+    // A regression here can make one side silently overwrite the other.
+    const consoleErrorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const launcherErrors: string[] = [];
+      const bridgeErrors: string[] = [];
+      const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+      adapter.onInitError(() => {
+        throw new Error("listener failed");
+      });
+      adapter.onInitError((err) => launcherErrors.push(err));
+      adapter.onInitError((err) => bridgeErrors.push(err));
+
+      await tick();
+      stdout.push(
+        JSON.stringify({
+          id: 1,
+          error: { code: -1, message: "server not ready" },
+        }) + "\n",
+      );
+      await tick();
+
+      expect(launcherErrors).toHaveLength(1);
+      expect(bridgeErrors).toEqual(launcherErrors);
+      expect(consoleErrorSpy).toHaveBeenCalledWith("[codex-adapter] init-error listener failed:", expect.any(Error));
+    } finally {
+      consoleErrorSpy.mockRestore();
+    }
+  });
+
   it("includes launcher failure context when init transport closes before initialize completes", async () => {
     const errors: string[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", {
@@ -228,9 +259,11 @@ describe("CodexAdapter", () => {
     expect(errors[0]).toContain("cache write denied");
   });
 
-  it("rejects messages and discards queue after init failure", async () => {
+  it("rejects messages and discards queue after init failure without emitting a terminal browser error", async () => {
     // Verify that after initialization fails, sendBrowserMessage returns false
-    // and any previously queued messages are discarded (no memory leak).
+    // and any previously queued messages are discarded (no memory leak). The
+    // bridge owns terminal browser-visible init errors because it knows whether
+    // restart recovery can retry the failed Codex process.
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -255,8 +288,7 @@ describe("CodexAdapter", () => {
     const rejected = adapter.sendBrowserMessage({ type: "user_message", content: "world" } as any);
     expect(rejected).toBe(false);
 
-    // The error message should have been emitted to the browser
     const errorMsg = messages.find((m) => m.type === "error");
-    expect(errorMsg).toBeDefined();
+    expect(errorMsg).toBeUndefined();
   });
 });

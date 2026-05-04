@@ -1,11 +1,34 @@
 import { useStore } from "./store.js";
 import { api } from "./api.js";
 import { createComposerDraftImage } from "./components/composer-image-utils.js";
-import type { BrowserIncomingMessage, ContentBlock, ChatMessage, TaskItem } from "./types.js";
+import type { BrowserIncomingMessage, BrowserOutgoingMessage, ContentBlock, ChatMessage, TaskItem } from "./types.js";
 import { generateUniqueSessionName } from "./utils/names.js";
 import { playNotificationSound, playReviewSound, playNeedsInputSound } from "./utils/notification-sound.js";
-import { extractTextFromBlocks, normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
+import {
+  extractTextFromBlocks,
+  normalizeHistoryMessageToChatMessages,
+  normalizeLiveAssistantThreadMetadata,
+  normalizeLiveLeaderUserThreadMetadata,
+} from "./utils/history-message-normalization.js";
 import { questOwnsSessionName } from "./utils/quest-helpers.js";
+import { formatReplyContentForPreview } from "./utils/reply-context.js";
+import {
+  applyNotificationStatusUpdate,
+  applySessionNotifications,
+  setSdkSessionsWithNotificationFreshness,
+  shouldApplyAttentionReasonWithNotificationFreshness,
+  summarizeNotificationStatus,
+} from "./notification-status.js";
+import {
+  cacheHistoryWindow,
+  cacheThreadWindow,
+  resolveCachedHistoryWindowMessages,
+  resolveCachedThreadWindowEntries,
+} from "./utils/history-window-cache.js";
+import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
+import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
+import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.js";
+import type { WsIncomingMessageContext } from "./ws-message-context.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -20,8 +43,13 @@ const NOTIFICATION_SOUND_DEBOUNCE_MS = 1000;
 /** Delay transient backend_disconnected flips to avoid sidebar flicker during fast relaunches. */
 const CLI_DISCONNECT_DEBOUNCE_MS = 250;
 
+function perfNow(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+}
+
 export interface WsMessageHandlerDeps {
   disconnectSession: (sessionId: string) => void;
+  sendToSession: (sessionId: string, msg: BrowserOutgoingMessage) => boolean;
 }
 
 function clearPendingCliDisconnect(sessionId: string): void {
@@ -38,6 +66,34 @@ function applyCliDisconnected(sessionId: string, reason: "idle_limit" | "broken"
   store.setSessionStatus(sessionId, null);
   store.clearStreamingState(sessionId);
   store.clearToolProgress(sessionId);
+}
+
+function clearRecoverableCodexInitErrors(sessionId: string): void {
+  const store = useStore.getState();
+  const messages = store.messages.get(sessionId);
+  if (!messages?.some(isRecoverableCodexInitErrorMessage)) return;
+  store.setMessages(
+    sessionId,
+    messages.filter((message) => !isRecoverableCodexInitErrorMessage(message)),
+    { frozenCount: store.messageFrozenCounts.get(sessionId) ?? 0 },
+  );
+}
+
+function isRecoverableCodexInitErrorMessage(message: ChatMessage): boolean {
+  if (!message.ephemeral || message.role !== "system" || message.variant !== "error") return false;
+  if (!/\bCodex initialization failed: Transport closed\b/i.test(message.content)) return false;
+  return ![
+    /error loading default config/i,
+    /no such file or directory/i,
+    /permission denied/i,
+    /\bEACCES\b/i,
+    /authentication token is expired/i,
+    /\btoken_expired\b/i,
+    /\brmcp::transport\b/i,
+    /\bcodex_apps\b/i,
+    /\bTokenRefreshFailed\b/i,
+    /\binvalid_grant\b/i,
+  ].some((pattern) => pattern.test(message.content));
 }
 
 function normalizePath(path: string): string {
@@ -328,6 +384,8 @@ function normalizeHistoryMessages(
           pendingLocalImagesByClientMsgId,
         }),
       );
+    } else if (histMsg.type === "leader_user_message") {
+      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
     } else if (histMsg.type === "tool_result_preview") {
       for (const preview of histMsg.previews) {
         store.setToolResult(sessionId, preview.tool_use_id, preview);
@@ -348,6 +406,8 @@ function normalizeHistoryMessages(
       frozenCount = chatMessages.length;
     } else if (
       histMsg.type === "compact_marker" ||
+      histMsg.type === "thread_attachment_marker" ||
+      histMsg.type === "thread_transition_marker" ||
       histMsg.type === "permission_denied" ||
       histMsg.type === "permission_approved"
     ) {
@@ -356,6 +416,47 @@ function normalizeHistoryMessages(
   }
 
   return { chatMessages, frozenCount };
+}
+
+function normalizeThreadWindowEntries(
+  sessionId: string,
+  entries: Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>["entries"],
+): ChatMessage[] {
+  const store = useStore.getState();
+  const chatMessages: ChatMessage[] = [];
+  for (const entry of entries) {
+    const histMsg = entry.message;
+    const historyIndex = entry.history_index;
+    if (histMsg.type === "assistant") {
+      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+      if (histMsg.message.content?.length) {
+        extractTasksFromBlocks(sessionId, histMsg.message.content);
+        extractChangedFilesFromBlocks(sessionId, histMsg.message.content);
+      }
+      const histToolStartTimes = histMsg.tool_start_times;
+      if (histToolStartTimes) {
+        store.setToolStartTimestamps(sessionId, histToolStartTimes);
+      }
+      continue;
+    }
+    if (histMsg.type === "tool_result_preview") {
+      for (const preview of histMsg.previews) {
+        store.setToolResult(sessionId, preview.tool_use_id, preview);
+      }
+      continue;
+    }
+    if (histMsg.type === "task_notification") {
+      if (histMsg.tool_use_id) {
+        store.setBackgroundAgentNotif(sessionId, histMsg.tool_use_id, {
+          status: histMsg.status,
+          outputFile: histMsg.output_file,
+          summary: histMsg.summary,
+        });
+      }
+    }
+    chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+  }
+  return chatMessages;
 }
 
 function updateSessionPreviewFromHistory(
@@ -368,7 +469,7 @@ function updateSessionPreviewFromHistory(
   for (let i = historyMessages.length - 1; i >= 0; i--) {
     const msg = historyMessages[i];
     if (msg.type === "user_message" && msg.content) {
-      store.setSessionPreview(sessionId, msg.content.slice(0, 80));
+      store.setSessionPreview(sessionId, formatReplyContentForPreview(msg.content, msg.replyContext).slice(0, 80));
       break;
     }
   }
@@ -422,15 +523,59 @@ function resolvePendingMessageScroll(sessionId: string, messages: ChatMessage[])
   // Resolve pending message index scroll (from legacy ?msg=N deep links).
   const pendingIdx = store.pendingScrollToMessageIndex.get(sessionId);
   if (pendingIdx == null) return;
+  const hasRawHistoryIndexes = messages.some((msg) => typeof msg.historyIndex === "number");
+  const targetMsg = hasRawHistoryIndexes
+    ? messages.find((msg) => msg.historyIndex === pendingIdx)
+    : messages[pendingIdx];
+  if (!targetMsg) return;
+
   store.clearPendingScrollToMessageIndex(sessionId);
-  const targetMsg = messages[pendingIdx];
-  if (targetMsg) {
-    store.requestScrollToMessage(sessionId, targetMsg.id);
-    store.setExpandAllInTurn(sessionId, targetMsg.id);
-  }
+  store.requestScrollToMessage(sessionId, targetMsg.id);
+  store.setExpandAllInTurn(sessionId, targetMsg.id);
 }
 
-function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, deps: WsMessageHandlerDeps) {
+function historyWindowStartIndex(data: Extract<BrowserIncomingMessage, { type: "history_window_sync" }>): number {
+  const startIndex = data.window.start_index;
+  return typeof startIndex === "number" && Number.isFinite(startIndex) ? Math.max(0, Math.floor(startIndex)) : 0;
+}
+
+function requestUncachedHistoryWindow(
+  sessionId: string,
+  data: Extract<BrowserIncomingMessage, { type: "history_window_sync" }>,
+  deps: WsMessageHandlerDeps,
+): void {
+  deps.sendToSession(sessionId, {
+    type: "history_window_request",
+    from_turn: data.window.from_turn,
+    turn_count: data.window.turn_count,
+    section_turn_count: data.window.section_turn_count,
+    visible_section_count: data.window.visible_section_count,
+    feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+  });
+}
+
+function requestUncachedThreadWindow(
+  sessionId: string,
+  data: Extract<BrowserIncomingMessage, { type: "thread_window_sync" }>,
+  deps: WsMessageHandlerDeps,
+): void {
+  deps.sendToSession(sessionId, {
+    type: "thread_window_request",
+    thread_key: data.window.thread_key,
+    from_item: data.window.from_item,
+    item_count: data.window.item_count,
+    section_item_count: data.window.section_item_count,
+    visible_item_count: data.window.visible_item_count,
+    feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
+  });
+}
+
+function handleParsedMessage(
+  sessionId: string,
+  data: BrowserIncomingMessage,
+  deps: WsMessageHandlerDeps,
+  context: WsIncomingMessageContext = { source: "live" },
+) {
   const store = useStore.getState();
 
   switch (data.type) {
@@ -458,14 +603,14 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         data.session.claimedQuestId &&
         data.session.claimedQuestTitle &&
         !isOrchestrator &&
-        questOwnsSessionName(data.session.claimedQuestStatus)
+        questOwnsSessionName(data.session.claimedQuestStatus, data.session.claimedQuestVerificationInboxUnread)
       ) {
         store.setSessionName(sessionId, data.session.claimedQuestTitle);
         store.markQuestNamed(sessionId);
       } else if (
         data.session.claimedQuestId &&
         !isOrchestrator &&
-        questOwnsSessionName(data.session.claimedQuestStatus)
+        questOwnsSessionName(data.session.claimedQuestStatus, data.session.claimedQuestVerificationInboxUnread)
       ) {
         store.markQuestNamed(sessionId);
       } else {
@@ -476,6 +621,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "session_update": {
       store.updateSession(sessionId, data.session);
+      if (data.session.backend_state === "connected") {
+        clearRecoverableCodexInitErrors(sessionId);
+      }
       // Sync askPermission if updated
       if (typeof data.session.askPermission === "boolean") {
         store.setAskPermission(sessionId, data.session.askPermission);
@@ -503,8 +651,14 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       const targetSessionId = data.session_id;
       if (!targetSessionId) break;
       const update = data.session ?? {};
+      const shouldApplyAttention =
+        update.attentionReason === undefined
+          ? true
+          : shouldApplyAttentionReasonWithNotificationFreshness(targetSessionId, update.attentionReason, update);
       store.updateSdkSession(targetSessionId, {
-        ...(update.attentionReason !== undefined ? { attentionReason: update.attentionReason } : {}),
+        ...(shouldApplyAttention && update.attentionReason !== undefined
+          ? { attentionReason: update.attentionReason }
+          : {}),
         ...(update.lastReadAt !== undefined ? { lastReadAt: update.lastReadAt } : {}),
         ...(update.pendingPermissionCount !== undefined
           ? { pendingPermissionCount: update.pendingPermissionCount }
@@ -513,10 +667,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           ? { pendingPermissionSummary: update.pendingPermissionSummary }
           : {}),
       });
+      applyNotificationStatusUpdate(targetSessionId, update);
       if (update.status !== undefined) {
         store.setSessionStatus(targetSessionId, update.status === "compacting" ? "compacting" : update.status);
       }
-      if (update.attentionReason !== undefined) {
+      if (update.attentionReason !== undefined && shouldApplyAttention) {
         const isViewing = useStore.getState().currentSessionId === targetSessionId;
         if (isViewing && update.attentionReason) {
           api.markSessionRead?.(targetSessionId).catch(() => {});
@@ -556,6 +711,36 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
+    case "leader_user_message": {
+      const normalized = normalizeLiveLeaderUserThreadMetadata(data);
+      store.appendMessage(sessionId, {
+        id: data.id,
+        role: "assistant",
+        content: normalized.content,
+        timestamp: data.timestamp,
+        metadata: normalized.metadata,
+        ...(data.notification ? { notification: data.notification } : {}),
+      });
+      break;
+    }
+
+    case "thread_attachment_marker": {
+      const [message] = normalizeHistoryMessageToChatMessages(data, -1);
+      if (message) store.appendMessage(sessionId, message);
+      break;
+    }
+
+    case "thread_attachment_update": {
+      applyThreadAttachmentUpdate(sessionId, data, deps, { messageContext: context });
+      break;
+    }
+
+    case "thread_transition_marker": {
+      const [message] = normalizeHistoryMessageToChatMessages(data, -1);
+      if (message) store.appendMessage(sessionId, message);
+      break;
+    }
+
     case "vscode_selection_state": {
       store.setVsCodeSelectionContext(data.state);
       break;
@@ -563,12 +748,14 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "assistant": {
       const msg = data.message;
-      const textContent = extractTextFromBlocks(msg.content);
+      const normalized = normalizeLiveAssistantThreadMetadata(data);
+      const contentBlocks = normalized.content;
+      const textContent = extractTextFromBlocks(contentBlocks);
       const chatMsg: ChatMessage = {
         id: msg.id,
         role: "assistant",
         content: textContent,
-        contentBlocks: msg.content,
+        contentBlocks,
         timestamp: data.timestamp || Date.now(),
         parentToolUseId: data.parent_tool_use_id,
         model: msg.model,
@@ -576,6 +763,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         turnDurationMs: data.turn_duration_ms,
         cliUuid: (data as Record<string, unknown>).uuid as string | undefined,
         ...(data.notification ? { notification: data.notification } : {}),
+        ...(normalized.metadata ? { metadata: normalized.metadata } : {}),
       };
       // Server accumulates content blocks for same-ID messages (parallel tool calls).
       // If this ID already exists, merge content blocks rather than replace — this
@@ -584,13 +772,21 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       const existingMsgs = store.messages.get(sessionId) || [];
       const existing = msg.id ? existingMsgs.find((m) => m.id === msg.id) : undefined;
       if (existing) {
-        const mergedBlocks = mergeContentBlocks(existing.contentBlocks || [], msg.content || []);
+        const mergedBlocks = mergeContentBlocks(existing.contentBlocks || [], contentBlocks || []);
         store.updateMessage(sessionId, msg.id!, {
           content: extractTextFromBlocks(mergedBlocks),
           contentBlocks: mergedBlocks,
           timestamp: data.timestamp || existing.timestamp,
           stopReason: msg.stop_reason || existing.stopReason,
           ...(data.notification ? { notification: data.notification } : {}),
+          ...(normalized.metadata
+            ? {
+                metadata: {
+                  ...existing.metadata,
+                  ...normalized.metadata,
+                },
+              }
+            : {}),
           ...(typeof data.turn_duration_ms === "number" ? { turnDurationMs: data.turn_duration_ms } : {}),
         });
       } else {
@@ -662,6 +858,13 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           const delta = evt.delta as Record<string, unknown> | undefined;
           if (delta?.type === "text_delta" && typeof delta.text === "string") {
             const parentToolUseId = data.parent_tool_use_id;
+            const isTopLevelLeaderText =
+              !parentToolUseId &&
+              (store.sessions.get(sessionId)?.isOrchestrator === true ||
+                store.sdkSessions.some(
+                  (session) => session.sessionId === sessionId && session.isOrchestrator === true,
+                ));
+            if (isTopLevelLeaderText) break;
             const current = parentToolUseId
               ? store.streamingByParentToolUseId.get(sessionId)?.get(parentToolUseId) || ""
               : store.streaming.get(sessionId) || "";
@@ -710,6 +913,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       store.clearStreamingState(sessionId);
       store.clearToolProgress(sessionId);
       store.setSessionStatus(sessionId, "idle");
+      store.setActiveTurnRoute(sessionId, null);
       store.setSessionStuck(sessionId, false);
       store.setTasks(sessionId, []);
       store.setSessionTaskPreview(sessionId, null);
@@ -961,6 +1165,14 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         typeof data.client_msg_id === "string"
           ? useStore.getState().consumePendingUserUpload(sessionId, data.client_msg_id)
           : null;
+      const metadata: ChatMessage["metadata"] = {
+        ...(data.replyContext ? { replyContext: data.replyContext } : {}),
+        ...(data.vscodeSelection ? { vscodeSelection: data.vscodeSelection } : {}),
+        ...(data.threadRefs ? { threadRefs: data.threadRefs } : {}),
+        ...(data.threadKey ? { threadKey: data.threadKey } : {}),
+        ...(data.questId ? { questId: data.questId } : {}),
+        ...(data.threadRoutingError ? { threadRoutingError: data.threadRoutingError } : {}),
+      };
       const userMsg: ChatMessage = {
         id: data.id || nextId(),
         role: "user",
@@ -977,11 +1189,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
             }
           : {}),
         ...(typeof data.client_msg_id === "string" ? { clientMsgId: data.client_msg_id } : {}),
-        ...(data.vscodeSelection ? { metadata: { vscodeSelection: data.vscodeSelection } } : {}),
+        ...(Object.keys(metadata).length > 0 ? { metadata } : {}),
         ...(data.agentSource ? { agentSource: data.agentSource } : {}),
       };
       store.appendMessage(sessionId, userMsg);
-      store.setSessionPreview(sessionId, data.content.slice(0, 80));
+      store.setSessionPreview(sessionId, formatReplyContentForPreview(data.content, data.replyContext).slice(0, 80));
       break;
     }
 
@@ -990,6 +1202,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         store.setSessionStatus(sessionId, "compacting");
       } else {
         store.setSessionStatus(sessionId, data.status);
+      }
+      if ("activeTurnRoute" in data || data.status !== "running") {
+        store.setActiveTurnRoute(sessionId, data.status === "running" ? data.activeTurnRoute : null);
       }
       // Any status change clears stuck flag
       store.setSessionStuck(sessionId, false);
@@ -1027,12 +1242,30 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         if (sessionCreatedTimer) clearTimeout(sessionCreatedTimer);
         sessionCreatedTimer = setTimeout(() => {
           sessionCreatedTimer = null;
+          const startedAt = perfNow();
           api
             .listSessions()
             .then((list) => {
-              store.setSdkSessions(list);
+              setSdkSessionsWithNotificationFreshness(list);
+              recordFrontendPerfEntry({
+                kind: "session_created_refresh",
+                timestamp: Date.now(),
+                sessionId,
+                createdSessionId: createdId,
+                sessionCount: list.length,
+                durationMs: perfNow() - startedAt,
+                ok: true,
+              });
             })
             .catch((err) => {
+              recordFrontendPerfEntry({
+                kind: "session_created_refresh",
+                timestamp: Date.now(),
+                sessionId,
+                createdSessionId: createdId,
+                durationMs: perfNow() - startedAt,
+                ok: false,
+              });
               console.warn("[ws] Failed to refresh sessions after session_created:", err);
             });
         }, 1_000);
@@ -1057,6 +1290,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       // and any future live-updating inline boards stay current.
       store.setSessionBoard(sessionId, data.board ?? []);
       store.setSessionCompletedBoard(sessionId, data.completedBoard ?? []);
+      if (data.rowSessionStatuses) {
+        store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
+      }
       break;
     }
 
@@ -1075,7 +1311,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       const oldIds = new Set(oldNotifications.map((n: { id: string }) => n.id));
       const added = newNotifications.filter((n: { id: string; done: boolean }) => !n.done && !oldIds.has(n.id));
 
-      store.setSessionNotifications(sessionId, newNotifications);
+      const applied = applySessionNotifications(sessionId, newNotifications, {
+        notificationStatusVersion: data.notificationStatusVersion,
+        notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+      });
+      if (!applied) break;
 
       // Play differentiated sounds for new notifications (when tab is not focused).
       // Debounce to prevent overlapping sounds from rapid notification_update messages.
@@ -1097,6 +1337,11 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
+    case "attention_records_update": {
+      store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
+      break;
+    }
+
     case "permissions_cleared": {
       store.clearPermissions(sessionId);
       break;
@@ -1105,6 +1350,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     case "state_snapshot": {
       // Authoritative state from server — overrides any stale transient state
       store.setSessionStatus(sessionId, data.sessionStatus as "idle" | "running" | "compacting" | "reverting" | null);
+      store.setActiveTurnRoute(sessionId, data.sessionStatus === "running" ? data.activeTurnRoute : null);
       store.setCliConnected(sessionId, data.backendConnected);
       // state_snapshot is sent after subscribe replay completes. If no
       // message_history/history_sync arrived, this was an empty-history
@@ -1134,13 +1380,29 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       }
       // Sync server-authoritative attention state
       if (data.attentionReason !== undefined) {
-        const isViewing = useStore.getState().currentSessionId === sessionId;
-        if (isViewing && data.attentionReason) {
-          api.markSessionRead?.(sessionId).catch(() => {});
-        } else {
-          const sessionAttention = new Map(useStore.getState().sessionAttention);
-          sessionAttention.set(sessionId, data.attentionReason ?? null);
-          useStore.setState({ sessionAttention });
+        const snapshotNotificationStatus = data.notifications
+          ? summarizeNotificationStatus(data.notifications, {
+              notificationStatusVersion: data.notificationStatusVersion,
+              notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+            })
+          : {
+              notificationStatusVersion: data.notificationStatusVersion,
+              notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+            };
+        const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(
+          sessionId,
+          data.attentionReason,
+          snapshotNotificationStatus,
+        );
+        if (shouldApplyAttention) {
+          const isViewing = useStore.getState().currentSessionId === sessionId;
+          if (isViewing && data.attentionReason) {
+            api.markSessionRead?.(sessionId).catch(() => {});
+          } else {
+            const sessionAttention = new Map(useStore.getState().sessionAttention);
+            sessionAttention.set(sessionId, data.attentionReason ?? null);
+            useStore.setState({ sessionAttention });
+          }
         }
       }
       // Sync board state from server on connect/reconnect
@@ -1150,10 +1412,17 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       if (data.completedBoard) {
         store.setSessionCompletedBoard(sessionId, data.completedBoard);
       }
+      if (data.rowSessionStatuses) {
+        store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
+      }
       // Sync notification inbox from server on connect/reconnect
       if (data.notifications) {
-        store.setSessionNotifications(sessionId, data.notifications);
+        applySessionNotifications(sessionId, data.notifications, {
+          notificationStatusVersion: data.notificationStatusVersion,
+          notificationStatusUpdatedAt: data.notificationStatusUpdatedAt,
+        });
       }
+      store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
       break;
     }
 
@@ -1196,11 +1465,13 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
 
     case "backend_connected": {
       clearPendingCliDisconnect(sessionId);
+      clearRecoverableCodexInitErrors(sessionId);
       store.setCliConnected(sessionId, true);
       break;
     }
 
     case "tree_groups_update": {
+      const startedAt = perfNow();
       const groups = Array.isArray(data.treeGroups) ? data.treeGroups : [];
       const assignments =
         data.treeAssignments && typeof data.treeAssignments === "object"
@@ -1211,6 +1482,16 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           ? (data.treeNodeOrder as Record<string, string[]>)
           : {};
       store.setTreeGroups(groups, assignments, nodeOrder);
+      recordFrontendPerfEntry({
+        kind: "tree_groups_update_apply",
+        timestamp: Date.now(),
+        sessionId,
+        groupCount: groups.length,
+        assignmentCount: Object.keys(assignments).length,
+        nodeOrderParentCount: Object.keys(nodeOrder).length,
+        nodeOrderChildCount: Object.values(nodeOrder).reduce((count, children) => count + children.length, 0),
+        durationMs: perfNow() - startedAt,
+      });
       break;
     }
 
@@ -1220,6 +1501,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       const claimedQuest = store.sessions.get(sessionId);
       const claimedQuestStatus = claimedQuest?.claimedQuestStatus;
       const claimedQuestTitle = claimedQuest?.claimedQuestTitle;
+      const claimedQuestVerificationInboxUnread = claimedQuest?.claimedQuestVerificationInboxUnread;
       console.log(
         `[ws] session_name_update for ${sessionId}: "${prevName}" → "${data.name}" source=${(data as Record<string, unknown>).source ?? "none"}`,
       );
@@ -1228,7 +1510,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       if (
         store.questNamedSessions.has(sessionId) &&
         data.source !== "quest" &&
-        questOwnsSessionName(claimedQuestStatus) &&
+        questOwnsSessionName(claimedQuestStatus, claimedQuestVerificationInboxUnread) &&
         (!claimedQuestTitle || data.name === claimedQuestTitle)
       ) {
         console.log(`[ws] Ignoring non-quest name update for quest-named session ${sessionId}`);
@@ -1241,7 +1523,9 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       // Track whether this name was set by a quest claim (for amber styling)
       if (
         data.source === "quest" ||
-        (questOwnsSessionName(claimedQuestStatus) && !!claimedQuestTitle && data.name === claimedQuestTitle)
+        (questOwnsSessionName(claimedQuestStatus, claimedQuestVerificationInboxUnread) &&
+          !!claimedQuestTitle &&
+          data.name === claimedQuestTitle)
       ) {
         store.markQuestNamed(sessionId);
       } else {
@@ -1325,11 +1609,18 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
         claimedQuestId: data.quest?.id ?? undefined,
         claimedQuestTitle: data.quest?.title ?? undefined,
         claimedQuestStatus: data.quest?.status ?? undefined,
+        claimedQuestVerificationInboxUnread: data.quest?.verificationInboxUnread,
+        claimedQuestLeaderSessionId: data.quest?.leaderSessionId,
       });
       const isOrchestrator =
         store.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.isOrchestrator === true ||
         store.sessions.get(sessionId)?.isOrchestrator === true;
-      if (data.quest?.id && data.quest?.title && questOwnsSessionName(data.quest?.status) && !isOrchestrator) {
+      if (
+        data.quest?.id &&
+        data.quest?.title &&
+        questOwnsSessionName(data.quest?.status, data.quest?.verificationInboxUnread) &&
+        !isOrchestrator
+      ) {
         // Override session name with quest title and mark as quest-named
         // through review handoff so the checkbox prefix stays stable until
         // the quest claim is actually cleared.
@@ -1349,7 +1640,10 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
           store.updateQuestTitleInMessages(sessionId, questId, data.quest.title);
           break;
         }
-        const isSubmitted = isStatusChange && data.quest.status === "needs_verification";
+        const isSubmitted =
+          isStatusChange &&
+          (data.quest.status === "needs_verification" ||
+            (data.quest.status === "done" && data.quest.verificationInboxUnread !== undefined));
         const variant = isSubmitted ? ("quest_submitted" as const) : ("quest_claimed" as const);
         const label = isSubmitted ? "Quest submitted" : "Quest claimed";
         // Only insert chat message for new claims or submission — skip redundant status updates
@@ -1362,10 +1656,12 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
                   questId: quest.questId,
                   title: quest.title,
                   description: "description" in quest ? quest.description : undefined,
+                  tldr: quest.tldr,
                   status: quest.status,
                   tags: quest.tags,
                   images: quest.images,
                   verificationItems: "verificationItems" in quest ? quest.verificationItems : undefined,
+                  leaderSessionId: quest.leaderSessionId,
                 },
               };
               useStore.getState().appendMessage(sessionId, {
@@ -1390,7 +1686,8 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
                   quest: {
                     questId: questId,
                     title: data.quest!.title,
-                    status: data.quest!.status ?? (isSubmitted ? "needs_verification" : "in_progress"),
+                    status: data.quest!.status ?? (isSubmitted ? "done" : "in_progress"),
+                    leaderSessionId: data.quest!.leaderSessionId,
                   },
                 },
               });
@@ -1401,6 +1698,7 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
     }
 
     case "message_history": {
+      const startedAt = perfNow();
       resetAuthoritativeHistoryState(sessionId);
       const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
       store.setMessages(sessionId, chatMessages, { frozenCount });
@@ -1414,6 +1712,15 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       taskCounters.delete(sessionId);
       updateSessionPreviewFromHistory(sessionId, data.messages);
       resolvePendingMessageScroll(sessionId, chatMessages);
+      recordFrontendPerfEntry({
+        kind: "message_history_apply",
+        timestamp: Date.now(),
+        sessionId,
+        rawMessageCount: data.messages.length,
+        chatMessageCount: chatMessages.length,
+        frozenCount,
+        durationMs: perfNow() - startedAt,
+      });
       break;
     }
 
@@ -1455,11 +1762,26 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       break;
     }
 
+    case "feed_window_sync": {
+      store.setFeedWindowSync(sessionId, data.sync);
+      break;
+    }
+
     case "history_window_sync": {
+      const sourceMessages =
+        data.cache_hit === true ? resolveCachedHistoryWindowMessages(sessionId, data.window) : data.messages;
+      if (!sourceMessages) {
+        requestUncachedHistoryWindow(sessionId, data, deps);
+        break;
+      }
       resetAuthoritativeHistoryState(sessionId);
-      const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
+      const { chatMessages, frozenCount } = normalizeHistoryMessages(
+        sessionId,
+        sourceMessages,
+        historyWindowStartIndex(data),
+      );
       store.setMessages(sessionId, chatMessages, { frozenCount });
-      clearPendingUploadsCoveredByHistory(sessionId, data.messages);
+      clearPendingUploadsCoveredByHistory(sessionId, sourceMessages);
       store.setHistoryWindow(sessionId, data.window);
       store.setHistoryLoading(sessionId, false);
       if (chatMessages.length > 0) {
@@ -1467,17 +1789,44 @@ function handleParsedMessage(sessionId: string, data: BrowserIncomingMessage, de
       }
       processedToolUseIds.delete(sessionId);
       taskCounters.delete(sessionId);
-      updateSessionPreviewFromHistory(sessionId, data.messages, {
+      updateSessionPreviewFromHistory(sessionId, sourceMessages, {
         allowOlderHistory: data.window.from_turn + data.window.turn_count >= data.window.total_turns,
       });
       resolvePendingMessageScroll(sessionId, chatMessages);
+      if (data.cache_hit !== true) {
+        cacheHistoryWindow(sessionId, data.window, data.messages);
+      }
+      break;
+    }
+
+    case "thread_window_sync": {
+      const sourceEntries =
+        data.cache_hit === true ? resolveCachedThreadWindowEntries(sessionId, data.window) : data.entries;
+      if (!sourceEntries) {
+        requestUncachedThreadWindow(sessionId, data, deps);
+        break;
+      }
+      const chatMessages = normalizeThreadWindowEntries(sessionId, sourceEntries);
+      store.setThreadWindow(sessionId, data.thread_key, data.window, chatMessages);
+      clearPendingUploadsCoveredByHistory(
+        sessionId,
+        sourceEntries.map((entry) => entry.message),
+      );
+      if (data.cache_hit !== true) {
+        cacheThreadWindow(sessionId, data.window, data.entries);
+      }
+      break;
+    }
+
+    case "leader_projection_snapshot": {
+      store.setLeaderProjection(sessionId, data.projection);
       break;
     }
   }
 }
 
 export function createWsMessageHandler(deps: WsMessageHandlerDeps) {
-  return (sessionId: string, data: BrowserIncomingMessage) => {
-    handleParsedMessage(sessionId, data, deps);
+  return (sessionId: string, data: BrowserIncomingMessage, context?: WsIncomingMessageContext) => {
+    handleParsedMessage(sessionId, data, deps, context);
   };
 }

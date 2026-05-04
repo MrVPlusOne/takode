@@ -2,8 +2,11 @@
 //
 // Progressive types: each stage extends the previous, strictly adding fields
 // where practical.
-// Linked-list versioning: every status transition creates a new version object
-// linked to the previous. No data is ever lost.
+//
+// Legacy quest storage persisted a full version chain on disk (`q-1-v1.json`,
+// `q-1-v2.json`, ...). The newer live store keeps only one mutable current
+// record per quest on the hot path, but it preserves the latest revision-shaped
+// `id`/`version` fields for compatibility with existing UI and CLI code.
 //
 // ─── Quest ownership model ───────────────────────────────────────────────────
 //
@@ -18,20 +21,46 @@
 //   - getActiveQuestForSession(sessionId) returns the single in_progress quest
 //     for a session, or null. It's used by the auto-namer to include quest
 //     context in naming prompts.
-//   - Quests in other states (done, needs_verification, refined, idea) are
+//   - Quests in other states (done, refined, idea) are
 //     unaffected — a session can have any number of those.
 
-export type QuestStatus = "idea" | "refined" | "in_progress" | "needs_verification" | "done";
+import type { QuestJourneyPhaseId } from "../shared/quest-journey.js";
+
+export type QuestStatus = "idea" | "refined" | "in_progress" | "done";
+export type LegacyQuestStatus = QuestStatus | "needs_verification";
+export type QuestFeedbackKind = "comment" | "phase_summary" | "phase_finding" | "review" | "artifact" | "system";
+export type QuestJourneyRunStatus = "active" | "completed" | "archived" | "manual";
+export type QuestPhaseOccurrenceStatus = "pending" | "active" | "completed" | "skipped" | "manual";
+export type QuestRelatedQuestKind = "follow_up_of" | "has_follow_up" | "references" | "referenced_by";
 
 export interface QuestVerificationItem {
   text: string;
   checked: boolean;
 }
 
+/** Explicit persisted relationships authored by humans or agents. */
+export interface QuestRelationships {
+  /** Earlier quests this quest explicitly follows up on. */
+  followUpOf?: string[];
+}
+
+/** Derived read model combining explicit relationships and detected quest references. */
+export interface QuestRelatedQuest {
+  questId: string;
+  kind: QuestRelatedQuestKind;
+  explicit: boolean;
+}
+
 /** A single entry in the quest feedback thread (PR-review style). */
 export interface QuestFeedbackEntry {
+  /** Stable optional identifier for newer structured feedback/documentation entries. */
+  entryId?: string;
   author: "human" | "agent";
+  /** Entry role. Omitted legacy entries are plain comments. */
+  kind?: QuestFeedbackKind;
   text: string;
+  /** Human-readable scan summary for long feedback/comment text. */
+  tldr?: string;
   ts: number;
   /** Companion session ID that authored this entry (for agent comments). */
   authorSessionId?: string;
@@ -39,6 +68,51 @@ export interface QuestFeedbackEntry {
   images?: QuestImage[];
   /** Whether this feedback has been addressed (only meaningful for human entries) */
   addressed?: boolean;
+  /** Stable Journey run this entry documents, when phase-scoped. */
+  journeyRunId?: string;
+  /** Stable phase occurrence this entry documents, when available. */
+  phaseOccurrenceId?: string;
+  /** Canonical Quest Journey phase id for scoped entries. */
+  phaseId?: QuestJourneyPhaseId;
+  /** Zero-based phase index within the run/board plan. */
+  phaseIndex?: number;
+  /** One-based phase position within the run/board plan. */
+  phasePosition?: number;
+  /** One-based occurrence count for repeated phases of the same phase id. */
+  phaseOccurrence?: number;
+}
+
+export interface QuestPhaseOccurrence {
+  occurrenceId: string;
+  phaseId: QuestJourneyPhaseId;
+  /** Zero-based phase index within this run. */
+  phaseIndex: number;
+  /** One-based phase position within this run. */
+  phasePosition: number;
+  /** One-based occurrence count for repeated phases of the same phase id. */
+  phaseOccurrence: number;
+  status: QuestPhaseOccurrenceStatus;
+  boardState?: string;
+  assigneeSessionId?: string;
+  assigneeSessionNum?: number;
+  startedAt?: number;
+  completedAt?: number;
+}
+
+export interface QuestJourneyRun {
+  runId: string;
+  leaderSessionId?: string;
+  workerSessionId?: string;
+  workerSessionNum?: number;
+  source: "board" | "manual";
+  sourceBoardSessionId?: string;
+  sourceBoardCreatedAt?: number;
+  phaseIds: QuestJourneyPhaseId[];
+  status: QuestJourneyRunStatus;
+  createdAt: number;
+  updatedAt: number;
+  completedAt?: number;
+  phaseOccurrences: QuestPhaseOccurrence[];
 }
 
 /** An image attached to a quest, stored on disk. */
@@ -56,20 +130,24 @@ export interface QuestImage {
 // ─── Base fields shared by all stages ────────────────────────────────────────
 
 interface QuestBase {
-  /** Unique per version: "q-1-v3" */
+  /** Opaque current-record identifier. Legacy backups use ids like "q-1-v3". */
   id: string;
   /** Stable across versions: "q-1" */
   questId: string;
-  /** Monotonically increasing: 1, 2, 3... */
+  /** Monotonic live revision counter for the current quest record. */
   version: number;
-  /** Links to previous version: "q-1-v2" */
+  /** Legacy-only backlink used when reading version-history backups. */
   prevId?: string;
   title: string;
-  /** When this version was created (stable — never mutated after creation) */
+  /** Human-readable scan summary for long quest descriptions. */
+  tldr?: string;
+  /** When the quest was originally created. */
   createdAt: number;
   /** Last in-place modification (checkbox toggle, patch, image change).
    *  Only set by in-place mutations; absent on freshly created versions. */
   updatedAt?: number;
+  /** Last status transition time. Preserves Questmaster recency ordering. */
+  statusChangedAt?: number;
   tags?: string[];
   /** Stable questId of parent task (for subtasks) */
   parentId?: string;
@@ -77,8 +155,16 @@ interface QuestBase {
   images?: QuestImage[];
   /** Past owners in chronological order. Excludes the current active owner. */
   previousOwnerSessionIds?: string[];
+  /** Current/relevant orchestrating leader session for feedback routing, when known. */
+  leaderSessionId?: string;
   /** Ordered synced commit SHAs associated with this quest's verification handoff. */
   commitShas?: string[];
+  /** Explicit quest relationships. Supplemental backlinks are derived at read time. */
+  relationships?: QuestRelationships;
+  /** Read-only summary for CLI/UI inspection. Not persisted. */
+  relatedQuests?: QuestRelatedQuest[];
+  /** Durable Quest Journey run snapshots used by phase-scoped documentation. */
+  journeyRuns?: QuestJourneyRun[];
   /** Threaded feedback conversation that must survive quest version transitions. */
   feedback?: QuestFeedbackEntry[];
 }
@@ -105,40 +191,87 @@ export type QuestInProgress = Omit<QuestRefined, "status"> & {
   claimedAt: number;
 };
 
-/** Needs Verification: agent done, human checks required */
-export type QuestNeedsVerification = Omit<QuestInProgress, "status"> & {
-  status: "needs_verification";
-  verificationItems: QuestVerificationItem[];
-  /** True when this verification quest is in the review inbox and needs a fresh human read. */
-  verificationInboxUnread?: boolean;
-};
-
-/** Done: all verification complete (or cancelled) */
-export type QuestDone = Omit<QuestNeedsVerification, "status" | "sessionId" | "claimedAt"> & {
+/** Done: completed, optionally awaiting human review through separate metadata. */
+export type QuestDone = Omit<QuestInProgress, "status" | "sessionId" | "claimedAt"> & {
   status: "done";
   /** Active owner is cleared when done; sessionId may be present in legacy data. */
   sessionId?: string;
   /** Preserved for compatibility/history display when available. */
   claimedAt?: number;
   completedAt: number;
+  verificationItems: QuestVerificationItem[];
+  /**
+   * Present only while a completed quest is still in the review workflow.
+   * true means fresh review inbox; false means acknowledged/under review.
+   * Undefined means final done, not in review surfaces.
+   */
+  verificationInboxUnread?: boolean;
   /** Free-form closure notes (commit hashes, reasoning, references, etc.) */
   notes?: string;
+  /** Final user-facing outcome debrief for completed quests. */
+  debrief?: string;
+  /** Human-readable scan summary for long final debriefs. */
+  debriefTldr?: string;
   /** If true, this quest was cancelled/aborted rather than completed */
   cancelled?: boolean;
 };
 
 // ─── Union type ──────────────────────────────────────────────────────────────
 
-export type QuestmasterTask = QuestIdea | QuestRefined | QuestInProgress | QuestNeedsVerification | QuestDone;
+export type QuestmasterTask = QuestIdea | QuestRefined | QuestInProgress | QuestDone;
+
+export function hasQuestReviewMetadata(quest: QuestmasterTask | null | undefined): quest is QuestDone {
+  return quest?.status === "done" && quest.cancelled !== true && typeof quest.verificationInboxUnread === "boolean";
+}
+
+export function isQuestReviewInboxUnread(quest: QuestmasterTask | null | undefined): boolean {
+  return hasQuestReviewMetadata(quest) && quest.verificationInboxUnread === true;
+}
+
+export type QuestHistoryMode = "live" | "legacy_backup" | "unavailable";
+
+export interface QuestHistoryView {
+  mode: QuestHistoryMode;
+  entries: QuestmasterTask[];
+  message?: string;
+  backupDir?: string;
+}
+
+export interface QuestMigrationUnreadableFile {
+  file: string;
+  questId: string;
+  error: string;
+}
+
+export interface QuestMigrationBlockedQuest {
+  questId: string;
+  files: string[];
+  errors: string[];
+}
+
+export type QuestMigrationSnapshotStatus = "readable" | "missing" | "unreadable";
+
+export interface QuestStoreMigrationReport {
+  legacyQuestCount: number;
+  migratedQuestCount: number;
+  snapshotQuestCount: number;
+  snapshotStatus: QuestMigrationSnapshotStatus;
+  snapshotError?: string;
+  snapshotMismatchQuestIds: string[];
+  unreadableFiles: QuestMigrationUnreadableFile[];
+  blockedQuests: QuestMigrationBlockedQuest[];
+}
 
 // ─── Input types (for APIs) ──────────────────────────────────────────────────
 
 export interface QuestCreateInput {
   title: string;
   description?: string;
+  tldr?: string;
   status?: QuestStatus;
   tags?: string[];
   parentId?: string;
+  relationships?: QuestRelationships;
   /** Pre-saved images to attach on creation */
   images?: QuestImage[];
 }
@@ -147,9 +280,13 @@ export interface QuestCreateInput {
 export interface QuestPatchInput {
   title?: string;
   description?: string;
+  tldr?: string;
   tags?: string[];
+  relationships?: QuestRelationships;
   /** Replace the feedback thread (used by the append endpoint after adding an entry) */
   feedback?: QuestFeedbackEntry[];
+  /** Replace durable Journey run snapshots used by phase-scoped documentation */
+  journeyRuns?: QuestJourneyRun[];
 }
 
 /** Status transitions. Always creates a new version linked to the previous. */
@@ -157,14 +294,26 @@ export interface QuestTransitionInput {
   status: QuestStatus;
   /** Required for refined+ */
   description?: string;
+  /** Human-readable scan summary for long descriptions. */
+  tldr?: string;
   /** Required for in_progress+ */
   sessionId?: string;
-  /** Required for needs_verification+. Accepts strings (normalized to {text, checked:false}) or full objects. */
+  /** Optional orchestrating leader session to preserve for feedback routing. */
+  leaderSessionId?: string;
+  /** Human-review checklist. Accepts strings (normalized to {text, checked:false}) or full objects. */
   verificationItems?: (QuestVerificationItem | string)[];
   /** Ordered synced commit SHAs to attach at verification handoff. */
   commitShas?: string[];
+  /** Explicit quest relationships to carry into this new status version. */
+  relationships?: QuestRelationships;
+  /** Review inbox state for done quests that are awaiting/under human review. */
+  verificationInboxUnread?: boolean;
   /** Closure notes for done status (commit hashes, reasoning, etc.) */
   notes?: string;
+  /** Final user-facing outcome debrief for completed quests. */
+  debrief?: string;
+  /** Human-readable scan summary for long final debriefs. */
+  debriefTldr?: string;
   /** If true, marks this as cancelled/aborted rather than completed */
   cancelled?: boolean;
 }

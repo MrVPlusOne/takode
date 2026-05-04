@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { useStore } from "../store.js";
 
 const mockGetSettings = vi.fn();
@@ -89,6 +89,26 @@ describe("MarkdownContent line breaks", () => {
     expect(code?.querySelector("br")).toBeNull();
     expect(code?.textContent).toContain("const x = 1;\nconst y = 2;");
   });
+
+  it("can wrap long inline and block code for constrained detail panels", () => {
+    const longSha = "aa743fb345c5af4ac439f737d89e7a48d9da8090";
+    const { container } = render(
+      <MarkdownContent text={`Inline \`${longSha}\`\n\n\`\`\`\n${longSha}\n\`\`\``} wrapLongContent />,
+    );
+
+    const inlineCode = container.querySelector("p code");
+    const codeBlock = container.querySelector("pre");
+
+    expect(container.firstElementChild?.classList.contains("min-w-0")).toBe(true);
+    expect(container.firstElementChild?.classList.contains("max-w-full")).toBe(true);
+    expect(container.firstElementChild?.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
+    expect(inlineCode?.classList.contains("whitespace-normal")).toBe(true);
+    expect(inlineCode?.classList.contains("break-all")).toBe(true);
+    expect(codeBlock?.classList.contains("overflow-x-hidden")).toBe(true);
+    expect(codeBlock?.classList.contains("whitespace-pre-wrap")).toBe(true);
+    expect(codeBlock?.classList.contains("break-words")).toBe(true);
+    expect(codeBlock?.classList.contains("[overflow-wrap:anywhere]")).toBe(true);
+  });
 });
 
 describe("MarkdownContent tables", () => {
@@ -150,6 +170,24 @@ describe("MarkdownContent quest links", () => {
     mockReadFile.mockResolvedValue({ path: "/tmp/file", content: "" });
   });
 
+  function setRepoSession({ isWorktree = false }: { isWorktree?: boolean } = {}) {
+    useStore.setState((state) => ({
+      ...state,
+      currentSessionId: "s1",
+      sessions: new Map([
+        [
+          "s1",
+          {
+            session_id: "s1",
+            cwd: isWorktree ? "/worktrees/repo-branch" : "/repo",
+            repo_root: "/repo",
+            is_worktree: isWorktree,
+          } as never,
+        ],
+      ]),
+    }));
+  }
+
   it("opens quest links as overlay on the current route", () => {
     render(<MarkdownContent text="[q-42](quest:q-42)" />);
 
@@ -172,6 +210,46 @@ describe("MarkdownContent quest links", () => {
     // Click opens the quest overlay instead of changing the hash
     expect(useStore.getState().questOverlayId).toBe("q-77");
     expect(window.location.hash).toBe("#/session/s1");
+  });
+
+  it("auto-links plain quest references with the rich quest link behavior", () => {
+    render(<MarkdownContent text="Please review q-42 before merge." />);
+
+    const link = screen.getByRole("link", { name: "q-42" });
+    expect(link.getAttribute("href")).toBe("#/session/s1?quest=q-42");
+    fireEvent.click(link);
+    expect(useStore.getState().questOverlayId).toBe("q-42");
+  });
+
+  it("auto-links plain session references with the rich session link behavior", () => {
+    useStore.setState((state) => ({
+      ...state,
+      sdkSessions: [
+        {
+          sessionId: "session-abc",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 123,
+        },
+      ],
+    }));
+
+    render(<MarkdownContent text="Ask #123 to verify the UI." />);
+
+    const link = screen.getByRole("link", { name: "#123" });
+    expect(link.getAttribute("href")).toBe("#/session/123");
+    fireEvent.click(link);
+    expect(window.location.hash).toBe("#/session/session-abc");
+  });
+
+  it("does not auto-link plain references inside code or existing Markdown links", () => {
+    render(<MarkdownContent text="Keep `q-77` literal and leave [#123](session:123) explicit." />);
+
+    expect(screen.getByText("q-77").tagName).toBe("CODE");
+    expect(screen.queryByRole("link", { name: "q-77" })).toBeNull();
+    expect(screen.getAllByRole("link")).toHaveLength(1);
+    expect(screen.getByRole("link", { name: "#123" }).getAttribute("href")).toBe("#");
   });
 
   it("shows QuestHoverCard content when hovering a quest link", async () => {
@@ -197,7 +275,11 @@ describe("MarkdownContent quest links", () => {
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-42" }));
 
     expect(await screen.findByText("Fix auth race condition")).toBeTruthy();
+    expect(screen.getByTestId("quest-hover-card").style.width).toBe("560px");
     expect(screen.getByText("In Progress")).toBeTruthy();
+    // The status row is separate so the pill cannot steal horizontal space from the title.
+    expect(within(screen.getByTestId("quest-hover-status-row")).getByText("In Progress")).toBeTruthy();
+    expect(screen.getByTestId("quest-hover-status-row").contains(screen.getByTestId("quest-hover-title"))).toBe(false);
     expect(screen.getByText("ui")).toBeTruthy();
     expect(screen.getByText("bugfix")).toBeTruthy();
   });
@@ -235,8 +317,165 @@ describe("MarkdownContent quest links", () => {
     fireEvent.mouseEnter(screen.getByRole("link", { name: "q-42" }));
 
     expect(await screen.findByTestId("quest-hover-owner-session")).toBeTruthy();
-    expect(screen.getByRole("link", { name: "#123" })).toBeTruthy();
+    expect(screen.getByRole("link", { name: "Owner session #123 Auth Worker" })).toBeTruthy();
     expect(screen.getByText("Auth Worker")).toBeTruthy();
+  });
+
+  it("shows leader attribution and full Journey data when hovering an orchestrated quest link", async () => {
+    useStore.setState((state) => ({
+      ...state,
+      quests: [
+        {
+          id: "q-42-v1",
+          questId: "q-42",
+          version: 1,
+          title: "Fix auth race condition",
+          createdAt: 1,
+          status: "in_progress",
+          description: "Ensure claim state updates atomically.",
+          sessionId: "session-abc",
+          claimedAt: 1,
+          tags: ["ui", "bugfix"],
+        },
+      ],
+      sdkSessions: [
+        {
+          sessionId: "session-abc",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 123,
+          herdedBy: "leader-abc",
+        },
+        {
+          sessionId: "leader-abc",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 7,
+          isOrchestrator: true,
+        },
+        {
+          sessionId: "reviewer-abc",
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          sessionNum: 8,
+        },
+      ],
+      sessionNames: new Map([
+        ["session-abc", "Auth Worker"],
+        ["leader-abc", "Quest Leader"],
+        ["reviewer-abc", "Quest Reviewer"],
+      ]),
+      sessionBoards: new Map([
+        [
+          "leader-abc",
+          [
+            {
+              questId: "q-42",
+              status: "IMPLEMENTING",
+              updatedAt: 2,
+              journey: {
+                mode: "active",
+                phaseIds: ["alignment", "implement", "code-review"],
+                currentPhaseId: "implement",
+              },
+            },
+          ],
+        ],
+      ]),
+      sessionBoardRowStatuses: new Map([
+        [
+          "leader-abc",
+          {
+            "q-42": {
+              worker: { sessionId: "session-abc", sessionNum: 123, name: "Auth Worker", status: "running" },
+              reviewer: { sessionId: "reviewer-abc", sessionNum: 8, name: "Quest Reviewer", status: "idle" },
+            },
+          },
+        ],
+      ]),
+    }));
+
+    render(<MarkdownContent text="[q-42](quest:q-42)" />);
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "q-42" }));
+
+    // Leader can come from live herding metadata even when the quest record itself lacks leaderSessionId.
+    expect(await screen.findByTestId("quest-hover-leader-session")).toBeTruthy();
+    expect(
+      within(screen.getByTestId("quest-hover-leader-session")).getByRole("link", {
+        name: "Leader #7 Quest Leader",
+      }),
+    ).toBeTruthy();
+    expect(screen.getByText("Quest Leader")).toBeTruthy();
+    expect(screen.getByTestId("quest-hover-worker-session").textContent).toContain("Worker");
+    expect(screen.getByTestId("quest-hover-reviewer-session").textContent).toContain("Reviewer");
+    expect(
+      within(screen.getByTestId("quest-hover-worker-session")).getByRole("link", {
+        name: "Worker #123 Auth Worker",
+      }),
+    ).toBeTruthy();
+    expect(
+      within(screen.getByTestId("quest-hover-reviewer-session")).getByRole("link", {
+        name: "Reviewer #8 Quest Reviewer",
+      }),
+    ).toBeTruthy();
+    expect(screen.queryByTestId("quest-hover-owner-session")).toBeNull();
+    expect(screen.getByTestId("quest-journey-preview-card")).toBeTruthy();
+    expect(screen.getByTestId("quest-journey-timeline").getAttribute("data-journey-mode")).toBe("active");
+    expect(screen.getByText("Active Journey")).toBeTruthy();
+    expect(within(screen.getByTestId("quest-hover-status-row")).getByText("Implement")).toBeTruthy();
+    expect(within(screen.getByTestId("quest-journey-timeline")).getByText("Implement")).toBeTruthy();
+  });
+
+  it("shows completed quests with the full completed Journey in the shared hover card", async () => {
+    useStore.setState((state) => ({
+      ...state,
+      quests: [
+        {
+          id: "q-77-v1",
+          questId: "q-77",
+          version: 1,
+          title: "Finish hover Journey",
+          createdAt: 1,
+          status: "done",
+          description: "Completed quest with retained Journey metadata.",
+          completedAt: 4,
+          verificationItems: [],
+        },
+      ],
+      sessionCompletedBoards: new Map([
+        [
+          "leader-abc",
+          [
+            {
+              questId: "q-77",
+              title: "Finish hover Journey",
+              status: "PORTING",
+              updatedAt: 3,
+              completedAt: 4,
+              journey: {
+                mode: "active",
+                phaseIds: ["alignment", "implement", "code-review", "port"],
+                currentPhaseId: "port",
+              },
+            },
+          ],
+        ],
+      ]),
+    }));
+
+    render(<MarkdownContent text="[q-77](quest:q-77)" />);
+    fireEvent.mouseEnter(screen.getByRole("link", { name: "q-77" }));
+
+    const card = await screen.findByTestId("quest-hover-card");
+    const timeline = within(card).getByTestId("quest-journey-timeline");
+    expect(within(card).getByTestId("quest-journey-preview-card")).toBeTruthy();
+    expect(timeline.getAttribute("data-journey-mode")).toBe("completed");
+    expect(within(card).getByText("Completed Journey")).toBeTruthy();
+    expect(within(card).queryByText("Active Journey")).toBeNull();
+    expect(within(card).queryByText("current")).toBeNull();
   });
 
   it("keeps external links as normal web links", () => {
@@ -732,20 +971,7 @@ describe("MarkdownContent quest links", () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
     mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-2" });
 
-    useStore.setState((state) => ({
-      ...state,
-      currentSessionId: "s1",
-      sessions: new Map([
-        [
-          "s1",
-          {
-            session_id: "s1",
-            cwd: "/repo",
-            repo_root: "/repo",
-          } as never,
-        ],
-      ]),
-    }));
+    setRepoSession();
 
     render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162:4)" />);
     fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
@@ -764,21 +990,7 @@ describe("MarkdownContent quest links", () => {
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
     mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-worktree" });
 
-    useStore.setState((state) => ({
-      ...state,
-      currentSessionId: "s1",
-      sessions: new Map([
-        [
-          "s1",
-          {
-            session_id: "s1",
-            cwd: "/worktrees/repo-branch",
-            repo_root: "/repo",
-            is_worktree: true,
-          } as never,
-        ],
-      ]),
-    }));
+    setRepoSession({ isWorktree: true });
 
     render(<MarkdownContent text="[TopBar.tsx](file:web/src/components/TopBar.tsx:162:4)" />);
     fireEvent.click(screen.getByRole("link", { name: "TopBar.tsx" }));
@@ -826,6 +1038,98 @@ describe("MarkdownContent quest links", () => {
         column: 1,
       });
     });
+  });
+
+  it("opens standard Markdown repo file links through the file-link path", async () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-standard" });
+    setRepoSession();
+
+    render(<MarkdownContent text="[Panel](web/src/components/QuestDetailPanel.tsx)" />);
+    fireEvent.click(screen.getByRole("link", { name: "Panel" }));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 1,
+        column: 1,
+      });
+    });
+  });
+
+  it("parses GitHub-style line fragments on standard Markdown repo file links", async () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-fragment" });
+    setRepoSession();
+
+    render(<MarkdownContent text="[Panel](web/src/components/QuestDetailPanel.tsx#L42-L57)" />);
+    fireEvent.click(screen.getByRole("link", { name: "Panel" }));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 42,
+        column: 1,
+        endLine: 57,
+      });
+    });
+  });
+
+  it("parses suffix line, column, and range metadata on standard Markdown repo file links", async () => {
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-suffix" });
+    setRepoSession();
+
+    render(
+      <MarkdownContent
+        text={
+          "[Line](web/src/components/QuestDetailPanel.tsx:42) [Column](web/src/components/QuestDetailPanel.tsx:42:7) [Range](web/src/components/QuestDetailPanel.tsx:42-57)"
+        }
+      />,
+    );
+    fireEvent.click(screen.getByRole("link", { name: "Line" }));
+    fireEvent.click(screen.getByRole("link", { name: "Column" }));
+    fireEvent.click(screen.getByRole("link", { name: "Range" }));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 42,
+        column: 1,
+      });
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 42,
+        column: 7,
+      });
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/components/QuestDetailPanel.tsx",
+        line: 42,
+        column: 1,
+        endLine: 57,
+      });
+    });
+  });
+
+  it("preserves normal external and unsafe standard Markdown links as non-file links", () => {
+    mockGetSettings.mockClear();
+
+    render(
+      <div>
+        <MarkdownContent text="[external](https://example.com/file.ts)" />
+        <MarkdownContent text="[unsafe](../outside.ts)" />
+      </div>,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "external" }));
+    fireEvent.click(screen.getByRole("link", { name: "unsafe" }));
+
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    expect(screen.getByRole("link", { name: "external" }).getAttribute("href")).toBe("https://example.com/file.ts");
+    expect(screen.getByRole("link", { name: "unsafe" }).getAttribute("href")).toBe("../outside.ts");
   });
 
   it("shows the remote VSCode error when the server reports no running VSCode window", async () => {

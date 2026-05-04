@@ -568,6 +568,28 @@ describe("GET /api/sessions/search", () => {
     expect(json.results.some((r: any) => r.sessionId === "s-archived")).toBe(true);
   });
 
+  it("preserves includeArchived default-true semantics for empty and unknown values", async () => {
+    // Before session search was extracted from routes/sessions.ts, any
+    // includeArchived value except 0/false/no kept archived matches visible.
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "s-active", state: "running", cwd: "/active", createdAt: 1, archived: false },
+      { sessionId: "s-archived", state: "exited", cwd: "/archived", createdAt: 2, archived: true },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({
+      "s-active": "Needle active",
+      "s-archived": "Needle archived",
+    });
+
+    for (const includeArchivedValue of ["", "foo"]) {
+      const res = await app.request(`/api/sessions/search?q=needle&includeArchived=${includeArchivedValue}`, {
+        method: "GET",
+      });
+      expect(res.status).toBe(200);
+      const json = await res.json();
+      expect(json.results.map((r: any) => r.sessionId)).toContain("s-archived");
+    }
+  });
+
   it("applies ranking and includeArchived=false filter", async () => {
     launcher.listSessions.mockReturnValue([
       { sessionId: "s-meta", state: "running", cwd: "/meta", createdAt: 1, archived: false, lastActivityAt: 10 },
@@ -613,5 +635,75 @@ describe("GET /api/sessions/search", () => {
       matchedField: "name",
     });
     expect(json.results.some((r: any) => r.sessionId === "s-archived")).toBe(false);
+  });
+
+  it("excludes reviewer sessions by default and includes them when requested", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "s-worker", state: "running", cwd: "/worker", createdAt: 1, archived: false, sessionNum: 42 },
+      {
+        sessionId: "s-reviewer",
+        state: "exited",
+        cwd: "/reviewer",
+        createdAt: 2,
+        archived: true,
+        reviewerOf: 42,
+      },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({
+      "s-worker": "Needle worker",
+      "s-reviewer": "Needle reviewer",
+    });
+
+    // Normal global search keeps reviewer records out of the result set so
+    // historical review trajectories do not dominate ordinary session lookup.
+    const defaultRes = await app.request("/api/sessions/search?q=needle", { method: "GET" });
+    expect(defaultRes.status).toBe(200);
+    const defaultJson = await defaultRes.json();
+    expect(defaultJson.results.map((r: any) => r.sessionId)).toEqual(["s-worker"]);
+
+    const includeRes = await app.request("/api/sessions/search?q=needle&includeReviewers=true", { method: "GET" });
+    expect(includeRes.status).toBe(200);
+    const includeJson = await includeRes.json();
+    expect(includeJson.results.map((r: any) => r.sessionId)).toEqual(["s-reviewer", "s-worker"]);
+  });
+
+  it("boosts exact session-number queries while preserving existing filters", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "s-num", state: "running", cwd: "/num", createdAt: 1, archived: false, sessionNum: 12 },
+      { sessionId: "s-name", state: "running", cwd: "/name", createdAt: 2, archived: false, sessionNum: 87 },
+      {
+        sessionId: "s-reviewer",
+        state: "running",
+        cwd: "/reviewer",
+        createdAt: 3,
+        archived: false,
+        reviewerOf: 12,
+        sessionNum: 12,
+      },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({
+      "s-num": "General session",
+      "s-name": "Session #12 backlog",
+      "s-reviewer": "Reviewer session",
+    });
+    bridge.getAllSessions.mockReturnValue([
+      { session_id: "s-num", cwd: "/num", repo_root: "/repo/num", git_branch: "main" },
+      { session_id: "s-name", cwd: "/name", repo_root: "/repo/name", git_branch: "main" },
+      { session_id: "s-reviewer", cwd: "/reviewer", repo_root: "/repo/reviewer", git_branch: "main" },
+    ]);
+    launcher.getSessionNum.mockImplementation((sessionId: string) => {
+      if (sessionId === "s-num" || sessionId === "s-reviewer") return 12;
+      if (sessionId === "s-name") return 87;
+      return undefined;
+    });
+    bridge.getMessageHistory.mockReturnValue([]);
+
+    const res = await app.request("/api/sessions/search?q=%2312", { method: "GET" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.results.map((r: any) => r.sessionId)).toEqual(["s-num", "s-name"]);
+    expect(json.results[0]).toMatchObject({
+      matchedField: "session_number",
+    });
   });
 });

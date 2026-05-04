@@ -101,6 +101,7 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
     };
     return selector(state);
@@ -138,7 +139,7 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
-import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
+import { getFeedViewportKey, requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -275,9 +276,10 @@ function setStoreFeedScrollPosition(
     anchorOffsetTop?: number;
     lastSeenContentBottom?: number | null;
   },
+  threadKey = "main",
 ) {
   const map = new Map();
-  map.set(sessionId, pos);
+  map.set(getFeedViewportKey(sessionId, threadKey), pos);
   mockStoreValues.feedScrollPosition = map;
 }
 
@@ -632,8 +634,8 @@ describe("MessageFeed - scroll behavior", () => {
       },
     });
 
-    mockSetFeedScrollPosition.mockImplementationOnce((sessionId, pos) => {
-      setStoreFeedScrollPosition(sessionId, pos);
+    mockSetFeedScrollPosition.mockImplementationOnce((viewportKey, pos) => {
+      mockStoreValues.feedScrollPosition = new Map([[viewportKey, pos]]);
     });
 
     try {
@@ -678,8 +680,8 @@ describe("MessageFeed - scroll behavior", () => {
       makeMessage({ id: "a3", role: "assistant", content: "Third result" }),
     ]);
 
-    mockSetFeedScrollPosition.mockImplementation((sessionId, pos) => {
-      setStoreFeedScrollPosition(sessionId, pos);
+    mockSetFeedScrollPosition.mockImplementation((viewportKey, pos) => {
+      mockStoreValues.feedScrollPosition = new Map([[viewportKey, pos]]);
     });
 
     const { container } = render(<MessageFeed sessionId={sid} />);
@@ -753,7 +755,7 @@ describe("MessageFeed - scroll behavior", () => {
       fireEvent.scroll(scrollContainer);
       requestThreadViewportSnapshot(sid);
       expect(mockSetFeedScrollPosition).toHaveBeenCalledWith(
-        sid,
+        getFeedViewportKey(sid),
         expect.objectContaining({
           scrollTop: 720,
           isAtBottom: false,
@@ -1826,6 +1828,22 @@ describe("MessageFeed - scroll behavior", () => {
 
     expect(screen.getByText("Loading conversation...")).toBeTruthy();
     expect(screen.queryByText("Start a conversation")).toBeNull();
+  });
+
+  it("keeps the restore loading screen cheap after history messages arrive but before the loading flag clears", () => {
+    const sid = "test-loading-conversation-with-messages";
+    // message_history updates messages before clearing historyLoading. This
+    // transient state should not render or derive the full feed yet.
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Question" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Loaded answer" }),
+    ]);
+    setStoreHistoryLoading(sid, true);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Loading conversation...")).toBeTruthy();
+    expect(screen.queryByText("Loaded answer")).toBeNull();
   });
 
   it("does not trigger a smooth bottom-follow when initial history lands after showing the loading conversation state", () => {

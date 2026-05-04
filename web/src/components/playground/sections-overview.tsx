@@ -6,8 +6,9 @@ import {
   PlanCollapsedChip,
 } from "../PermissionBanner.js";
 import { MessageBubble } from "../MessageBubble.js";
-import { ChatView } from "../ChatView.js";
+import { ChatView, QuestThreadBanner, type QuestThreadBannerRow } from "../ChatView.js";
 import { MessageFeed } from "../MessageFeed.js";
+import { AttentionLedgerRow } from "../AttentionLedgerRow.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { ToolBlock } from "../ToolBlock.js";
 import { GitHubPRDisplay } from "../TaskPanel.js";
@@ -79,6 +80,7 @@ import {
   PLAYGROUND_SECTIONED_SESSION_ID,
   PLAYGROUND_SESSION_ROWS,
   PLAYGROUND_STARTING_SESSION_ID,
+  PLAYGROUND_THREAD_PANEL_SESSION_ID,
 } from "./fixtures.js";
 import {
   Card,
@@ -89,11 +91,208 @@ import {
   PlaygroundHerdSummaryBar,
   PlaygroundLightboxDemo,
   PlaygroundMcpRow,
+  PlaygroundAddressedNotifyToolBlock,
+  PlaygroundNeedsInputReminderMessage,
+  PlaygroundQuestThreadReminderMessage,
+  PlaygroundThreadRoutingReminderMessage,
   PlaygroundSectionGroup,
   TaskRow,
 } from "./shared.js";
+import type { SessionAttentionRecord } from "../../types.js";
+
+const ATTENTION_LEDGER_RECORDS: SessionAttentionRecord[] = [
+  {
+    id: "playground-attention-unresolved",
+    leaderSessionId: MOCK_SESSION_ID,
+    type: "needs_input",
+    source: { kind: "notification", id: "playground-attention-unresolved" },
+    questId: "q-961",
+    threadKey: "q-961",
+    title: "Approve the implementation direction",
+    summary: "Worker is waiting for a concrete user decision before continuing.",
+    actionLabel: "Answer",
+    priority: "needs_input",
+    state: "unresolved",
+    createdAt: 100,
+    updatedAt: 100,
+    route: { threadKey: "q-961", questId: "q-961", messageId: "playground-thread-q961-assistant" },
+    chipEligible: true,
+    ledgerEligible: true,
+    dedupeKey: "playground-attention-unresolved",
+  },
+  {
+    id: "playground-attention-started",
+    leaderSessionId: MOCK_SESSION_ID,
+    type: "quest_journey_started",
+    source: { kind: "board", id: "q-962", questId: "q-962", signature: "started:180" },
+    questId: "q-962",
+    threadKey: "q-962",
+    title: "Journey started",
+    summary: "Show compact start and finish chips",
+    actionLabel: "Open",
+    priority: "created",
+    state: "resolved",
+    createdAt: 180,
+    updatedAt: 180,
+    resolvedAt: 180,
+    route: { threadKey: "q-962", questId: "q-962" },
+    chipEligible: false,
+    ledgerEligible: true,
+    dedupeKey: "playground-attention-started",
+  },
+  {
+    id: "playground-attention-completed-start",
+    leaderSessionId: MOCK_SESSION_ID,
+    type: "quest_journey_started",
+    source: { kind: "board", id: "q-965", questId: "q-965", signature: "started:200" },
+    questId: "q-965",
+    threadKey: "q-965",
+    title: "Journey started",
+    summary: "Completed Journey start is quiet",
+    actionLabel: "Open",
+    priority: "created",
+    state: "resolved",
+    journeyLifecycleStatus: "completed",
+    createdAt: 200,
+    updatedAt: 200,
+    resolvedAt: 200,
+    route: { threadKey: "q-965", questId: "q-965" },
+    chipEligible: false,
+    ledgerEligible: true,
+    dedupeKey: "playground-attention-completed-start",
+  },
+  {
+    id: "playground-attention-finished",
+    leaderSessionId: MOCK_SESSION_ID,
+    type: "quest_completed_recent",
+    source: { kind: "board", id: "q-965", questId: "q-965", signature: "finished:220" },
+    questId: "q-965",
+    threadKey: "q-965",
+    title: "Journey finished",
+    summary: "Compact notification cards",
+    actionLabel: "Open",
+    priority: "review",
+    state: "unresolved",
+    journeyLifecycleStatus: "completed",
+    createdAt: 220,
+    updatedAt: 220,
+    route: { threadKey: "q-965", questId: "q-965" },
+    chipEligible: false,
+    ledgerEligible: true,
+    dedupeKey: "playground-attention-finished",
+  },
+  {
+    id: "playground-attention-dismissed",
+    leaderSessionId: MOCK_SESSION_ID,
+    type: "blocked_user_resolvable",
+    source: { kind: "manual", id: "playground-attention-dismissed" },
+    questId: "q-963",
+    threadKey: "q-963",
+    title: "External unblock dismissed",
+    summary: "Dismissal hides active attention without claiming the blocker is solved.",
+    actionLabel: "Unblock",
+    priority: "blocked",
+    state: "dismissed",
+    createdAt: 300,
+    updatedAt: 330,
+    dismissedAt: 330,
+    route: { threadKey: "q-963", questId: "q-963" },
+    chipEligible: true,
+    ledgerEligible: true,
+    dedupeKey: "playground-attention-dismissed",
+  },
+  {
+    id: "playground-attention-reopened",
+    leaderSessionId: MOCK_SESSION_ID,
+    type: "quest_reopened_or_rework",
+    source: { kind: "quest", id: "q-964", questId: "q-964" },
+    questId: "q-964",
+    threadKey: "q-964",
+    title: "Fresh feedback reopened q-964",
+    summary: "A previously handled thread is attention-worthy again after new feedback.",
+    actionLabel: "Open",
+    priority: "milestone",
+    state: "reopened",
+    createdAt: 400,
+    updatedAt: 430,
+    reopenedAt: 430,
+    route: { threadKey: "q-964", questId: "q-964" },
+    chipEligible: true,
+    ledgerEligible: true,
+    dedupeKey: "playground-attention-reopened",
+  },
+];
 
 export function PlaygroundOverviewSections() {
+  const compactQuestThreadBannerRows: Array<{ label: string; threadKey: string; row: QuestThreadBannerRow }> = [
+    {
+      label: "Active phase",
+      threadKey: "q-961",
+      row: {
+        threadKey: "q-961",
+        questId: "q-961",
+        title: "Finish data-flow cleanup",
+        boardStatus: "IMPLEMENTING",
+        section: "active" as const,
+        journey: {
+          mode: "active" as const,
+          phaseIds: ["alignment", "implement", "outcome-review", "code-review"],
+          currentPhaseId: "implement",
+          phaseNotes: { "2": "Visual outcome review runs before code review." },
+        },
+        rowStatus: {
+          worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
+          reviewer: { sessionId: "playground-thread-reviewer", sessionNum: 1306, status: "idle" },
+        },
+      },
+    },
+    {
+      label: "Completed Journey",
+      threadKey: "q-964",
+      row: {
+        threadKey: "q-964",
+        questId: "q-964",
+        title: "Finish completed Journey display",
+        boardStatus: "DONE",
+        section: "done" as const,
+        journey: {
+          mode: "active" as const,
+          phaseIds: ["alignment", "implement", "outcome-review", "code-review", "port"],
+          currentPhaseId: "port",
+          phaseNotes: { "2": "Visual outcome review before code review." },
+        },
+        boardRow: { questId: "q-964", title: "Finish completed Journey display", worker: "worker-964", updatedAt: 1 },
+        rowStatus: {
+          worker: { sessionId: "playground-thread-worker-done", sessionNum: 1321, status: "idle" },
+          reviewer: { sessionId: "playground-thread-reviewer-done", sessionNum: 1323, status: "idle" },
+        },
+      },
+    },
+    {
+      label: "Worker session banner",
+      threadKey: "q-966",
+      row: {
+        threadKey: "q-966",
+        questId: "q-966",
+        title: "Polish current quest banner chips",
+        status: "in_progress",
+        boardStatus: "IMPLEMENTING",
+        section: "active" as const,
+        leaderSessionId: "playground-thread-panel-wait-for",
+        leaderSessionNum: 1286,
+        journey: {
+          mode: "active" as const,
+          phaseIds: ["alignment", "implement", "code-review"],
+          currentPhaseId: "implement",
+        },
+        rowStatus: {
+          worker: { sessionId: "playground-worker-banner", sessionNum: 1364, status: "idle" },
+          reviewer: { sessionId: "playground-worker-banner-reviewer", sessionNum: 1365, status: "idle" },
+        },
+      },
+    },
+  ];
+
   return (
     <PlaygroundSectionGroup groupId="overview">
       {/* ─── Permission Banners ──────────────────────────────── */}
@@ -164,6 +363,35 @@ export function PlaygroundOverviewSections() {
           className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]"
         >
           <ChatView sessionId={MOCK_SESSION_ID} />
+        </div>
+      </Section>
+
+      <Section
+        title="Leader Workboard Thread Navigation"
+        description="Leader ChatView with top workboard-owned Main / All Threads / quest navigation, quest-thread banner context, and composer access below the feed."
+      >
+        <div className="grid max-w-5xl gap-3 lg:grid-cols-2">
+          {compactQuestThreadBannerRows.map(({ label, row, threadKey }) => (
+            <div key={threadKey} className="overflow-hidden rounded-lg border border-cc-border bg-cc-card">
+              <div className="border-b border-cc-border/70 px-3 py-1.5 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/70">
+                {label}
+              </div>
+              <QuestThreadBanner
+                row={row}
+                threadKey={threadKey}
+                variant={label === "Worker session banner" ? "session" : "thread"}
+                currentSessionId={label === "Worker session banner" ? "playground-worker-banner" : undefined}
+              />
+            </div>
+          ))}
+        </div>
+        <div className="grid max-w-5xl gap-4 lg:grid-cols-2">
+          <div className="overflow-hidden rounded-xl border border-cc-border bg-cc-card h-[460px]">
+            <ChatView sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} />
+          </div>
+          <div className="overflow-hidden rounded-xl border border-cc-border bg-cc-card h-[460px]">
+            <ChatView sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} />
+          </div>
         </div>
       </Section>
 
@@ -251,8 +479,54 @@ export function PlaygroundOverviewSections() {
       </Section>
 
       <Section
+        title="Thread Projections"
+        description="Main keeps attached source context visible without source attachment markers; All Threads preserves the global view; quest projections keep attached context plus routed notification chips."
+      >
+        <div className="grid gap-4 xl:grid-cols-4">
+          <Card label="Main">
+            <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+              <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="main" />
+            </div>
+          </Card>
+          <Card label="All Threads">
+            <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+              <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="all" />
+            </div>
+          </Card>
+          <Card label="Quest Thread">
+            <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+              <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-961" />
+            </div>
+          </Card>
+          <Card label="Routed Notification">
+            <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+              <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-963" />
+            </div>
+          </Card>
+        </div>
+      </Section>
+
+      <Section
+        title="Attention Ledger Rows"
+        description="Main attention rows keep active, resolved, dismissed, and reopened user-actionable events visible without turning routine hidden activity into a timeline."
+      >
+        <Card label="Main ledger states">
+          <div className="space-y-2">
+            {ATTENTION_LEDGER_RECORDS.map((record) => (
+              <AttentionLedgerRow
+                key={record.id}
+                record={record}
+                sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID}
+                onSelectThread={() => {}}
+              />
+            ))}
+          </div>
+        </Card>
+      </Section>
+
+      <Section
         title="MessageFeed Section Windowing"
-        description="Fixed 50-turn sections with older-history browsing mounted in a bounded window. This mock opens on an older section so the newer-section control is visible."
+        description="Fixed 50-turn sections with bounded older-history browsing. This mock opens on an older section so the passive newer-section affordance is visible."
       >
         <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]">
           <MessageFeed sessionId={PLAYGROUND_SECTIONED_SESSION_ID} />
@@ -392,10 +666,25 @@ export function PlaygroundOverviewSections() {
           <Card label="User message (from agent)">
             <MessageBubble message={MSG_USER_AGENT} />
           </Card>
+          <Card label="Needs-input reminder (resolved, compact by default)">
+            <PlaygroundNeedsInputReminderMessage variant="resolved" />
+          </Card>
+          <Card label="Needs-input reminder (active, details visible)">
+            <PlaygroundNeedsInputReminderMessage variant="active" />
+          </Card>
+          <Card label="Needs-input reminder (partial, details visible)">
+            <PlaygroundNeedsInputReminderMessage variant="partial" />
+          </Card>
+          <Card label="Thread-routing reminder">
+            <PlaygroundThreadRoutingReminderMessage />
+          </Card>
+          <Card label="Quest thread reminder">
+            <PlaygroundQuestThreadReminderMessage />
+          </Card>
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />
           </Card>
-          <Card label="Assistant message (deprecated tag shown raw)">
+          <Card label="Assistant message (explicit leader user-message)">
             <MessageBubble message={MSG_ASSISTANT_LEADER_USER} />
           </Card>
           <Card label="Assistant message (with tool calls)">
@@ -473,7 +762,7 @@ export function PlaygroundOverviewSections() {
           <Card label="Code block in markdown — hover to reveal copy button">
             <MarkdownContent
               text={
-                'Here is some code:\n\n```typescript\nconst greeting = "Hello, world!";\nconsole.log(greeting);\n```\n\nAnd a block without a language tag:\n\n```\nnpm install\nnpm run build\n```\n\nQuest link example: [q-42](quest:q-42)\nSession link example: [#5](session:5)\nSession message link example: [#5 msg 42](session:5:42)\nRelative file link example: [TopBar.tsx:162](file:web/src/components/TopBar.tsx:162)'
+                'Here is some code:\n\n```typescript\nconst greeting = "Hello, world!";\nconsole.log(greeting);\n```\n\nAnd a block without a language tag:\n\n```\nnpm install\nnpm run build\n```\n\nPlain quest/session refs: q-42 and #5\nQuest link example: [q-42](quest:q-42)\nSession link example: [#5](session:5)\nSession message link example: [#5 msg 42](session:5:42)\nRelative file link example: [TopBar.tsx:162](file:web/src/components/TopBar.tsx:162)'
               }
             />
           </Card>
@@ -598,6 +887,7 @@ export function PlaygroundOverviewSections() {
           <ToolBlock
             name="Edit"
             input={{
+              file_path: "src/remote-workflow.ts",
               changes: [
                 {
                   path: "src/remote-workflow.ts",
@@ -648,6 +938,41 @@ export function PlaygroundOverviewSections() {
             }}
             toolUseId="tb-4b"
             sessionId={MOCK_SESSION_ID}
+          />
+          <ToolBlock
+            name="Write"
+            input={{
+              file_path: "/tmp/retry/full_datagen_inner.sh",
+              changes: [
+                {
+                  path: "/tmp/retry/full_datagen_inner.sh",
+                  kind: "add",
+                  diff: [
+                    "#!/usr/bin/env bash",
+                    "set -uo pipefail",
+                    "",
+                    "EXP_ROOT=/mnt/vast/data/example/run",
+                    'DATAGEN_LOG="$EXP_ROOT/logs/datagen.log"',
+                    'exec python user_scripts/datagen/standalone/launch.py >> "$DATAGEN_LOG" 2>&1',
+                  ].join("\n"),
+                },
+                {
+                  path: "/tmp/retry/launch_tmux_retry.sh",
+                  kind: "add",
+                  diff: [
+                    "#!/usr/bin/env bash",
+                    "set -euo pipefail",
+                    "",
+                    "SESSION=baseline_rollout",
+                    "INNER=/tmp/full_datagen_inner.sh",
+                    'tmux new-session -d -s "$SESSION" "bash $INNER"',
+                  ].join("\n"),
+                },
+              ],
+            }}
+            toolUseId="tb-4c"
+            sessionId={MOCK_SESSION_ID}
+            defaultOpen
           />
           <ToolBlock
             name="Glob"
@@ -725,7 +1050,7 @@ export function PlaygroundOverviewSections() {
             toolUseId="tb-10-pending"
             sessionId={MOCK_SESSION_ID}
           />
-          {/* Takode Notify pills */}
+          {/* Takode notify command/fallback states */}
           <ToolBlock
             name="Bash"
             input={{ command: "takode notify needs-input" }}
@@ -738,6 +1063,7 @@ export function PlaygroundOverviewSections() {
             toolUseId="tb-notify-2"
             sessionId={MOCK_SESSION_ID}
           />
+          <PlaygroundAddressedNotifyToolBlock />
           <ToolBlock
             name="Bash"
             input={{ command: 'takode send 17 "If this looks good, later run takode notify review"' }}

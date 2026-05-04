@@ -8,16 +8,21 @@ import {
   extractPastedImages,
   extractHashtags,
   findHashtagTokenAtCursor,
-  isVerificationInboxUnread,
+  isQuestUnderReview,
   getDoneVerificationItems,
   autoResizeTextarea,
   isQuestCancelled,
-  getQuestDescription,
   getQuestNotes,
   getQuestFeedback,
-  getQuestUpdatedAt,
+  getQuestRecencyTs,
 } from "../utils/quest-editor-helpers.js";
-import { timeAgo, verificationProgress, getQuestOwnerSessionId, CopyableQuestId } from "../utils/quest-helpers.js";
+import {
+  timeAgo,
+  verificationProgress,
+  getQuestOwnerSessionId,
+  getQuestLeaderSessionId,
+  CopyableQuestId,
+} from "../utils/quest-helpers.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { Lightbox } from "./Lightbox.js";
@@ -25,21 +30,30 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { PickerSessionChip } from "./QuestPickerSessionChip.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { DiffViewer } from "./DiffViewer.js";
+import { isCompletedJourneyPresentationStatus, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
+import { QuestDetailTextSections } from "./QuestDetailTextSections.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
 import { buildQuestReworkDraft } from "./quest-rework.js";
+import { summarizeQuestPhaseDocumentation } from "../../shared/quest-phase-documentation-summary.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
-import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage } from "../types.js";
+import type { QuestmasterTask, QuestStatus, QuestVerificationItem, QuestImage, QuestHistoryView } from "../types.js";
 import type { QuestCommitLookup } from "../api.js";
 
 type EditorTarget = "editTitle" | "editDescription";
 
 const STATUS_CONFIG = QUEST_STATUS_THEME;
-const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "needs_verification", "done"];
+const ALL_STATUSES: QuestStatus[] = ["idea", "refined", "in_progress", "done"];
+
+function sortQuestsByRecency(quests: QuestmasterTask[]): QuestmasterTask[] {
+  return [...quests].sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a));
+}
 
 export function QuestDetailPanel() {
   const questOverlayId = useStore((s) => s.questOverlayId);
   const searchHighlight = useStore((s) => s.questOverlaySearchHighlight);
   const quests = useStore((s) => s.quests);
+  const sessionBoards = useStore((s) => s.sessionBoards);
+  const sessionCompletedBoards = useStore((s) => s.sessionCompletedBoards);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessions = useStore((s) => s.sessions);
   const sessionNames = useStore((s) => s.sessionNames);
@@ -54,6 +68,15 @@ export function QuestDetailPanel() {
     () => (questOverlayId ? (quests.find((q) => q.questId === questOverlayId) ?? null) : null),
     [quests, questOverlayId],
   );
+  const journeyBoardRow = useMemo(() => {
+    if (!quest) return null;
+    for (const board of [...sessionBoards.values(), ...sessionCompletedBoards.values()]) {
+      const match = board.find((row) => row.questId === quest.questId && row.journey?.phaseIds?.length);
+      if (match) return match;
+    }
+    return null;
+  }, [quest, sessionBoards, sessionCompletedBoards]);
+  const journeyStatus = isCompletedJourneyPresentationStatus(quest?.status) ? "done" : journeyBoardRow?.status;
 
   // Local state
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -386,9 +409,7 @@ export function QuestDetailPanel() {
       useStore
         .getState()
         .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => b.createdAt - a.createdAt),
+          sortQuestsByRecency(currentQuests.map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))),
         );
       setEditingId(null);
     } catch (e: unknown) {
@@ -407,9 +428,7 @@ export function QuestDetailPanel() {
       useStore
         .getState()
         .setQuests(
-          currentQuests
-            .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
-            .sort((a, b) => b.createdAt - a.createdAt),
+          sortQuestsByRecency(currentQuests.map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))),
         );
       closePanel();
     } catch (e: unknown) {
@@ -435,7 +454,7 @@ export function QuestDetailPanel() {
         .setQuests(
           currentQuests
             .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
-            .sort((a, b) => b.createdAt - a.createdAt),
+            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
         );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -452,7 +471,7 @@ export function QuestDetailPanel() {
         .setQuests(
           currentQuests
             .map((x) => (x.questId === updatedQuest.questId ? updatedQuest : x))
-            .sort((a, b) => b.createdAt - a.createdAt),
+            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
         );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -477,42 +496,6 @@ export function QuestDetailPanel() {
     try {
       const updatedQuest = await api.checkQuestVerification(questId, index, checked);
       useStore.getState().replaceQuest(updatedQuest);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }
-
-  async function handleMarkVerificationRead(questId: string): Promise<boolean> {
-    setError("");
-    try {
-      const updatedQuest = await api.markQuestVerificationRead(questId);
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => b.createdAt - a.createdAt),
-        );
-      return true;
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
-      return false;
-    }
-  }
-
-  async function handleMarkVerificationInbox(questId: string) {
-    setError("");
-    try {
-      const updatedQuest = await api.markQuestVerificationInbox(questId);
-      const currentQuests = useStore.getState().quests;
-      useStore
-        .getState()
-        .setQuests(
-          currentQuests
-            .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => b.createdAt - a.createdAt),
-        );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -563,7 +546,7 @@ export function QuestDetailPanel() {
         .setQuests(
           currentQuests
             .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => b.createdAt - a.createdAt),
+            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
         );
       setFeedbackDraft("");
       setFeedbackImages([]);
@@ -593,7 +576,7 @@ export function QuestDetailPanel() {
         .setQuests(
           currentQuests
             .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => b.createdAt - a.createdAt),
+            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
         );
       setEditingFeedback(null);
     } catch (e: unknown) {
@@ -614,7 +597,7 @@ export function QuestDetailPanel() {
         .setQuests(
           currentQuests
             .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => b.createdAt - a.createdAt),
+            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
         );
       setConfirmDeleteFeedback(null);
       setEditingFeedback((prev) => (prev?.questId === questId && prev.index === index ? null : prev));
@@ -635,7 +618,7 @@ export function QuestDetailPanel() {
         .setQuests(
           currentQuests
             .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => b.createdAt - a.createdAt),
+            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
         );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -688,7 +671,7 @@ export function QuestDetailPanel() {
         .setQuests(
           currentQuests
             .map((q) => (q.questId === lastUpdatedQuest.questId ? lastUpdatedQuest : q))
-            .sort((a, b) => b.createdAt - a.createdAt),
+            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
         );
     }
   }
@@ -703,7 +686,7 @@ export function QuestDetailPanel() {
         .setQuests(
           currentQuests
             .map((q) => (q.questId === updatedQuest.questId ? updatedQuest : q))
-            .sort((a, b) => b.createdAt - a.createdAt),
+            .sort((a, b) => getQuestRecencyTs(b) - getQuestRecencyTs(a)),
         );
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
@@ -785,14 +768,18 @@ export function QuestDetailPanel() {
   const isCancelled = isQuestCancelled(quest);
   const cfg = STATUS_CONFIG[quest.status];
   const isEditing = editingId === quest.questId;
-  const isInboxVerification = isVerificationInboxUnread(quest);
   const hasVerification = "verificationItems" in quest && quest.verificationItems?.length > 0;
   const vProgress = hasVerification ? verificationProgress(quest.verificationItems) : null;
-  const description = getQuestDescription(quest);
   const questNotes = getQuestNotes(quest);
   const questSessionId = getQuestOwnerSessionId(quest);
+  const questMarkdownSessionId = questSessionId ?? undefined;
+  const leaderSessionId = getQuestLeaderSessionId(quest);
   const isKnownSession = questSessionId ? sdkSessions.some((s) => s.sessionId === questSessionId) : false;
-  const feedbackEntries = getQuestFeedback(quest);
+  const phaseDocumentationSummary = summarizeQuestPhaseDocumentation(quest);
+  const indexedFeedbackEntries = getQuestFeedback(quest).map((entry, index) => ({ ...entry, index }));
+  const feedbackEntries = phaseDocumentationSummary.hasPhaseDocumentation
+    ? phaseDocumentationSummary.unscopedFeedback
+    : indexedFeedbackEntries;
   const questCommitShas = quest.commitShas ?? [];
   const activeCommitSha = activeCommitIndex !== null ? (questCommitShas[activeCommitIndex] ?? null) : null;
   const activeCommitDetails = activeCommitSha ? commitLookupBySha[activeCommitSha] : undefined;
@@ -801,12 +788,12 @@ export function QuestDetailPanel() {
 
   return createPortal(
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 px-3 py-4"
+      className="fixed inset-0 z-50 flex items-center justify-center overflow-x-hidden bg-black/60 px-3 py-4"
       onClick={closePanel}
       data-testid="quest-detail-panel-backdrop"
     >
       <div
-        className="w-[min(920px,100%)] max-h-[88dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
+        className="w-[min(920px,100%)] min-w-0 max-w-full max-h-[88dvh] bg-cc-card border border-cc-border rounded-xl shadow-2xl flex flex-col overflow-hidden"
         role="dialog"
         aria-modal="true"
         aria-label={`Quest details: ${quest.title}`}
@@ -814,8 +801,8 @@ export function QuestDetailPanel() {
         data-testid="quest-detail-panel"
       >
         {/* Header */}
-        <div className="shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-cc-border">
-          <div className="min-w-0">
+        <div className="min-w-0 shrink-0 flex items-start justify-between gap-3 px-4 py-3 border-b border-cc-border">
+          <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               <span className={`w-2 h-2 rounded-full shrink-0 ${isCancelled ? "bg-red-400" : cfg.dot}`} />
               <span
@@ -834,13 +821,13 @@ export function QuestDetailPanel() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              {isInboxVerification && (
-                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted border border-cc-border flex items-center gap-1">
-                  <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0" />
-                  Inbox
+              {questSessionId && <SessionNumChip sessionId={questSessionId} />}
+              {leaderSessionId && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
+                  <span>Leader</span>
+                  <SessionNumChip sessionId={leaderSessionId} />
                 </span>
               )}
-              {questSessionId && <SessionNumChip sessionId={questSessionId} />}
               {vProgress && (
                 <span className="text-[10px] text-cc-muted flex items-center gap-1">
                   <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
@@ -875,12 +862,15 @@ export function QuestDetailPanel() {
                   )}
                 </span>
               )}
-              <span className="text-[10px] text-cc-muted/50">{timeAgo(getQuestUpdatedAt(quest))}</span>
+              <span className="text-[10px] text-cc-muted/50">{timeAgo(getQuestRecencyTs(quest))}</span>
             </div>
             {quest.tags && quest.tags.length > 0 && (
               <div className="flex flex-wrap items-center gap-1.5 mt-1">
                 {quest.tags.map((tag) => (
-                  <span key={tag} className="text-[10px] px-1.5 py-0.5 rounded-full bg-cc-hover text-cc-muted">
+                  <span
+                    key={tag}
+                    className="min-w-0 max-w-full break-words rounded-full bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted"
+                  >
                     {tag.toLowerCase()}
                   </span>
                 ))}
@@ -931,9 +921,15 @@ export function QuestDetailPanel() {
 
         {/* Scrollable body */}
         <div
-          className="overflow-y-auto px-4 pb-4 pt-3 space-y-3"
+          className="min-w-0 overflow-x-hidden overflow-y-auto px-4 pb-4 pt-3 space-y-3"
           onPaste={isEditing ? (e) => handleEditPaste(quest.questId, e) : undefined}
+          data-testid="quest-detail-scroll-container"
         >
+          {quest.status !== "done" && journeyBoardRow?.journey && !phaseDocumentationSummary.hasPhaseDocumentation && (
+            <div className="max-w-full" data-testid="quest-detail-journey-section">
+              <QuestJourneyTimeline journey={journeyBoardRow.journey} status={journeyStatus} variant="vertical" />
+            </div>
+          )}
           {isEditing ? (
             <>
               <div>
@@ -1096,14 +1092,14 @@ export function QuestDetailPanel() {
             </>
           ) : (
             <>
-              {/* Description */}
-              {description && (
-                <MarkdownContent
-                  text={description}
-                  size="sm"
-                  searchHighlight={searchHighlight ? { query: searchHighlight, mode: "fuzzy", isCurrent: false } : null}
-                />
-              )}
+              <QuestDetailTextSections
+                quest={quest}
+                phaseDocumentationSummary={phaseDocumentationSummary}
+                journey={journeyBoardRow?.journey}
+                journeyStatus={journeyStatus}
+                searchHighlight={searchHighlight}
+                sessionId={questMarkdownSessionId}
+              />
 
               {/* Images (read-only) */}
               {quest.images && quest.images.length > 0 && (
@@ -1152,25 +1148,29 @@ export function QuestDetailPanel() {
                   <div>
                     {hasFeedback && (
                       <>
-                        <label className="block text-xs text-cc-muted mb-1">Feedback</label>
+                        <label className="block text-xs text-cc-muted mb-1">
+                          {phaseDocumentationSummary.hasPhaseDocumentation ? "Unscoped Feedback" : "Feedback"}
+                        </label>
                         <div className="space-y-2 mb-2">
                           {feedbackEntries.map((entry, i) => {
+                            const entryIndex = entry.index;
                             const isEntryEditing =
-                              editingFeedback?.questId === quest.questId && editingFeedback?.index === i;
+                              editingFeedback?.questId === quest.questId && editingFeedback?.index === entryIndex;
                             const isConfirmingDelete =
-                              confirmDeleteFeedback?.questId === quest.questId && confirmDeleteFeedback?.index === i;
+                              confirmDeleteFeedback?.questId === quest.questId &&
+                              confirmDeleteFeedback?.index === entryIndex;
                             const feedbackSessionId = entry.author === "agent" ? entry.authorSessionId : undefined;
                             const feedbackAuthorLabel = entry.author;
                             return (
                               <div
-                                key={i}
+                                key={entryIndex}
                                 className={`px-2.5 py-2 rounded-lg text-sm ${
                                   entry.author === "human"
                                     ? entry.addressed
                                       ? "bg-amber-500/5 border border-amber-500/10 text-amber-300/50"
                                       : "bg-amber-500/8 border border-amber-500/15 text-amber-300/90"
                                     : "bg-cc-input-bg border border-cc-border text-cc-fg/80 ml-4"
-                                }`}
+                                } min-w-0 max-w-full overflow-hidden`}
                               >
                                 <div className="flex items-center gap-1.5 mb-0.5">
                                   {feedbackSessionId ? (
@@ -1194,7 +1194,7 @@ export function QuestDetailPanel() {
                                   <span className="ml-auto flex items-center gap-1">
                                     {entry.author === "human" && (
                                       <button
-                                        onClick={() => handleToggleAddressed(quest.questId, i)}
+                                        onClick={() => handleToggleAddressed(quest.questId, entryIndex)}
                                         className={`px-1 py-0.5 rounded transition-colors cursor-pointer ${
                                           entry.addressed
                                             ? "text-green-500/50 hover:text-green-500/70"
@@ -1207,39 +1207,41 @@ export function QuestDetailPanel() {
                                         </svg>
                                       </button>
                                     )}
-                                    {entry.author === "agent" && !isEntryEditing && !isConfirmingDelete && (
+                                    {!isEntryEditing && !isConfirmingDelete && (
                                       <>
                                         <button
                                           onClick={() => {
                                             setConfirmDeleteFeedback(null);
                                             setEditingFeedback({
                                               questId: quest.questId,
-                                              index: i,
+                                              index: entryIndex,
                                               text: entry.text,
                                               images: entry.images ?? [],
                                             });
                                           }}
                                           className="text-cc-muted/30 hover:text-cc-muted/60 cursor-pointer transition-colors"
-                                          title="Edit agent feedback"
-                                          aria-label={`Edit agent feedback ${i + 1}`}
+                                          title="Edit feedback"
+                                          aria-label={`Edit feedback ${entryIndex + 1}`}
                                         >
                                           <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
                                             <path d="M11.013 1.427a1.75 1.75 0 012.474 0l1.086 1.086a1.75 1.75 0 010 2.474l-8.61 8.61c-.21.21-.47.364-.756.445l-3.251.93a.75.75 0 01-.927-.928l.929-3.25a1.75 1.75 0 01.445-.758l8.61-8.61zm1.414 1.06a.25.25 0 00-.354 0L3.463 11.098a.25.25 0 00-.064.108l-.386 1.35 1.35-.386a.25.25 0 00.108-.064l8.61-8.61a.25.25 0 000-.354L12.427 2.487z" />
                                           </svg>
                                         </button>
-                                        <button
-                                          onClick={() => {
-                                            setEditingFeedback(null);
-                                            setConfirmDeleteFeedback({ questId: quest.questId, index: i });
-                                          }}
-                                          className="text-cc-muted/30 hover:text-red-400 cursor-pointer transition-colors"
-                                          title="Delete agent feedback"
-                                          aria-label={`Delete agent feedback ${i + 1}`}
-                                        >
-                                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                                            <path d="M6.5 1.75A1.75 1.75 0 004.75 3.5v.25H2.5a.75.75 0 000 1.5h.568l.55 7.155A2 2 0 005.612 14.5h4.776a2 2 0 001.994-1.845l.55-7.155h.568a.75.75 0 000-1.5H11.25V3.5A1.75 1.75 0 009.5 1.75h-3zm3.25 2H6.25V3.5a.25.25 0 01.25-.25h3a.25.25 0 01.25.25v.25zm-4.63 1.5l.52 6.766a.5.5 0 00.498.484h4.724a.5.5 0 00.498-.484l.52-6.766H5.12zm2.13 1.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm-2 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm4 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
-                                          </svg>
-                                        </button>
+                                        {entry.author === "agent" && (
+                                          <button
+                                            onClick={() => {
+                                              setEditingFeedback(null);
+                                              setConfirmDeleteFeedback({ questId: quest.questId, index: entryIndex });
+                                            }}
+                                            className="text-cc-muted/30 hover:text-red-400 cursor-pointer transition-colors"
+                                            title="Delete agent feedback"
+                                            aria-label={`Delete agent feedback ${entryIndex + 1}`}
+                                          >
+                                            <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
+                                              <path d="M6.5 1.75A1.75 1.75 0 004.75 3.5v.25H2.5a.75.75 0 000 1.5h.568l.55 7.155A2 2 0 005.612 14.5h4.776a2 2 0 001.994-1.845l.55-7.155h.568a.75.75 0 000-1.5H11.25V3.5A1.75 1.75 0 009.5 1.75h-3zm3.25 2H6.25V3.5a.25.25 0 01.25-.25h3a.25.25 0 01.25.25v.25zm-4.63 1.5l.52 6.766a.5.5 0 00.498.484h4.724a.5.5 0 00.498-.484l.52-6.766H5.12zm2.13 1.25a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm-2 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4zm4 0a.75.75 0 011.5 0v4a.75.75 0 01-1.5 0v-4z" />
+                                            </svg>
+                                          </button>
+                                        )}
                                       </>
                                     )}
                                   </span>
@@ -1310,24 +1312,53 @@ export function QuestDetailPanel() {
                                 ) : isConfirmingDelete ? (
                                   <div className="flex items-center gap-2 mt-2">
                                     <button
-                                      onClick={() => handleDeleteFeedback(quest.questId, i)}
+                                      onClick={() => handleDeleteFeedback(quest.questId, entryIndex)}
                                       disabled={feedbackSubmitting}
                                       className="text-xs px-2.5 py-1 rounded bg-red-500/15 text-red-400 border border-red-500/20 hover:bg-red-500/25 disabled:opacity-40 cursor-pointer"
-                                      aria-label={`Confirm delete agent feedback ${i + 1}`}
+                                      aria-label={`Confirm delete agent feedback ${entryIndex + 1}`}
                                     >
                                       Confirm delete
                                     </button>
                                     <button
                                       onClick={() => setConfirmDeleteFeedback(null)}
                                       className="text-xs px-2.5 py-1 rounded text-cc-muted hover:text-cc-fg cursor-pointer"
-                                      aria-label={`Cancel delete agent feedback ${i + 1}`}
+                                      aria-label={`Cancel delete agent feedback ${entryIndex + 1}`}
                                     >
                                       Cancel
                                     </button>
                                   </div>
                                 ) : (
                                   <>
-                                    <MarkdownContent text={entry.text} size="sm" />
+                                    {entry.tldr ? (
+                                      <div className="space-y-1">
+                                        <div className="font-medium text-cc-fg">
+                                          <MarkdownContent
+                                            text={entry.tldr}
+                                            size="sm"
+                                            sessionId={questMarkdownSessionId}
+                                            wrapLongContent
+                                          />
+                                        </div>
+                                        <details className="min-w-0 max-w-full overflow-hidden text-xs text-cc-muted">
+                                          <summary className="cursor-pointer select-none">Full feedback</summary>
+                                          <div className="mt-1 min-w-0 max-w-full overflow-hidden text-cc-fg">
+                                            <MarkdownContent
+                                              text={entry.text}
+                                              size="sm"
+                                              sessionId={questMarkdownSessionId}
+                                              wrapLongContent
+                                            />
+                                          </div>
+                                        </details>
+                                      </div>
+                                    ) : (
+                                      <MarkdownContent
+                                        text={entry.text}
+                                        size="sm"
+                                        sessionId={questMarkdownSessionId}
+                                        wrapLongContent
+                                      />
+                                    )}
                                     {entry.images && entry.images.length > 0 && (
                                       <div className="flex flex-wrap gap-1 mt-1">
                                         {entry.images.map((img) => (
@@ -1412,24 +1443,21 @@ export function QuestDetailPanel() {
 
               {/* Notes */}
               {questNotes && (
-                <div className="px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg">
-                  <MarkdownContent text={questNotes} size="sm" />
+                <div className="min-w-0 max-w-full overflow-hidden px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg">
+                  <MarkdownContent text={questNotes} size="sm" sessionId={questMarkdownSessionId} wrapLongContent />
                 </div>
               )}
 
               {/* Metadata: quest ID + version history */}
               <div className="flex items-center gap-2 text-[10px] text-cc-muted/50">
                 <CopyableQuestId questId={quest.questId} className="text-[10px] text-cc-muted/50" />
-                {quest.version > 1 ? (
-                  <button
-                    onClick={() => toggleHistory(quest.questId)}
-                    className="px-1.5 py-0.5 rounded bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer text-[10px]"
-                  >
-                    v{quest.version} -- {historyForId === quest.questId ? "hide" : "show"} history
-                  </button>
-                ) : (
-                  <span>v{quest.version}</span>
-                )}
+                <span>rev {quest.version}</span>
+                <button
+                  onClick={() => toggleHistory(quest.questId)}
+                  className="px-1.5 py-0.5 rounded bg-cc-hover text-cc-muted hover:text-cc-fg transition-colors cursor-pointer text-[10px]"
+                >
+                  {historyForId === quest.questId ? "hide" : "show"} history
+                </button>
               </div>
 
               {historyForId === quest.questId && <QuestVersionHistory questId={quest.questId} />}
@@ -1542,28 +1570,6 @@ export function QuestDetailPanel() {
                     </button>
                   )}
                 </div>
-
-                {quest.status === "needs_verification" &&
-                  (isInboxVerification ? (
-                    <button
-                      onClick={async () => {
-                        const marked = await handleMarkVerificationRead(quest.questId);
-                        if (marked) closePanel();
-                      }}
-                      title="Remove from Verification Inbox and keep it in Verification for now."
-                      className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
-                    >
-                      Later
-                    </button>
-                  ) : (
-                    <button
-                      onClick={() => handleMarkVerificationInbox(quest.questId)}
-                      title="Move this quest back to Verification Inbox to prioritize it again."
-                      className="ml-auto px-2.5 py-1.5 text-[11px] font-medium rounded-lg bg-cc-hover text-cc-muted border border-cc-border hover:bg-amber-500/10 hover:text-amber-300 hover:border-amber-500/20 transition-colors cursor-pointer"
-                    >
-                      Inbox
-                    </button>
-                  ))}
               </div>
             </>
           )}
@@ -1583,10 +1589,10 @@ export function QuestDetailPanel() {
             aria-label={`Commit ${activeCommitSha.slice(0, 7)}`}
             data-testid="quest-commit-modal"
           >
-            <div className="flex items-start justify-between gap-3 px-4 py-3 border-b border-cc-border">
-              <div className="min-w-0">
-                <div className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">Synced Commit</div>
-                <div className="mt-1 flex items-center gap-2 flex-wrap">
+            <div className="flex items-start justify-between gap-3 px-3 py-2 border-b border-cc-border">
+              <div className="min-w-0 flex-1">
+                <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">Synced Commit</span>
                   <span className="text-sm font-semibold text-cc-fg font-mono-code">
                     {activeCommitDetails?.shortSha || activeCommitSha.slice(0, 7)}
                   </span>
@@ -1596,17 +1602,19 @@ export function QuestDetailPanel() {
                   {activeCommitDetails?.timestamp && (
                     <span className="text-[10px] text-cc-muted">{timeAgo(activeCommitDetails.timestamp)}</span>
                   )}
+                  {activeCommitDetails?.message && (
+                    <span className="min-w-[12rem] flex-1 truncate text-sm text-cc-fg">
+                      {activeCommitDetails.message}
+                    </span>
+                  )}
+                  {activeCommitDetails?.available && (
+                    <span className="flex items-center gap-3 text-[11px]">
+                      <span className="text-green-500">+{activeCommitDetails.additions ?? 0} additions</span>
+                      <span className="text-red-400">-{activeCommitDetails.deletions ?? 0} deletions</span>
+                    </span>
+                  )}
                 </div>
-                {activeCommitDetails?.message && (
-                  <div className="mt-1 text-sm text-cc-fg truncate">{activeCommitDetails.message}</div>
-                )}
-                {activeCommitDetails?.available && (
-                  <div className="mt-2 flex flex-wrap items-center gap-3 text-[11px]">
-                    <span className="text-green-500">+{activeCommitDetails.additions ?? 0} additions</span>
-                    <span className="text-red-400">-{activeCommitDetails.deletions ?? 0} deletions</span>
-                  </div>
-                )}
-                <div className="mt-2 flex flex-wrap items-center gap-1.5">
+                <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
                   {questCommitShas.map((sha, index) => (
                     <button
                       key={sha}
@@ -1629,7 +1637,7 @@ export function QuestDetailPanel() {
                   type="button"
                   onClick={() => setActiveCommitIndex((prev) => (prev && prev > 0 ? prev - 1 : prev))}
                   disabled={activeCommitIndex === null || activeCommitIndex <= 0}
-                  className="px-2.5 py-1.5 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="px-2 py-1 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   Previous
                 </button>
@@ -1641,7 +1649,7 @@ export function QuestDetailPanel() {
                     )
                   }
                   disabled={activeCommitIndex === null || activeCommitIndex >= questCommitShas.length - 1}
-                  className="px-2.5 py-1.5 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
+                  className="px-2 py-1 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   Next
                 </button>
@@ -1688,6 +1696,8 @@ export function QuestDetailPanel() {
                     fileName={activeCommitDetails.shortSha}
                     mode="full"
                     showLineNumbers
+                    stickyFileHeaders
+                    collapsibleFiles
                   />
                 </div>
               ) : null}
@@ -1760,7 +1770,7 @@ export function QuestDetailPanel() {
 // ─── QuestVersionHistory ───────────────────────────────────────────────────
 
 function QuestVersionHistory({ questId }: { questId: string }) {
-  const [history, setHistory] = useState<QuestmasterTask[] | null>(null);
+  const [historyView, setHistoryView] = useState<QuestHistoryView | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
 
@@ -1770,10 +1780,13 @@ function QuestVersionHistory({ questId }: { questId: string }) {
     setErr("");
     api
       .getQuestHistory(questId)
-      .then((h) => {
+      .then((view) => {
         if (!active) return;
-        const sorted = h.sort((a, b) => a.version - b.version);
-        setHistory(sorted.slice(0, -1));
+        const sorted = [...view.entries].sort((a, b) => a.version - b.version);
+        setHistoryView({
+          ...view,
+          entries: view.mode === "live" ? sorted.slice(0, -1) : sorted,
+        });
         setLoading(false);
       })
       .catch((e) => {
@@ -1790,7 +1803,7 @@ function QuestVersionHistory({ questId }: { questId: string }) {
     const sessionId = "sessionId" in ver && typeof ver.sessionId === "string" ? ver.sessionId : undefined;
     if (!sessionId) return;
 
-    const variant = ver.status === "needs_verification" ? "quest_submitted" : "quest_claimed";
+    const variant = isQuestUnderReview(ver) ? "quest_submitted" : "quest_claimed";
     const prefix = `${variant}-${ver.questId}-`;
 
     const messages = useStore.getState().messages.get(sessionId) ?? [];
@@ -1812,12 +1825,22 @@ function QuestVersionHistory({ questId }: { questId: string }) {
 
   if (loading) return <div className="text-[10px] text-cc-muted py-1">Loading history...</div>;
   if (err) return <div className="text-[10px] text-red-400 py-1">{err}</div>;
-  if (!history || history.length === 0)
-    return <div className="text-[10px] text-cc-muted py-1">No previous versions.</div>;
+  if (!historyView) return <div className="text-[10px] text-cc-muted py-1">No history available.</div>;
+  if (historyView.entries.length === 0) {
+    return (
+      <div className="text-[10px] text-cc-muted py-1">
+        {historyView.message ??
+          (historyView.mode === "legacy_backup" ? "No legacy backup history." : "No previous versions.")}
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-1.5">
-      {history.map((ver) => {
+      {historyView.mode === "legacy_backup" && (
+        <div className="text-[10px] text-cc-muted py-1">Legacy backup history</div>
+      )}
+      {historyView.entries.map((ver) => {
         const verCfg = STATUS_CONFIG[ver.status];
         const verDescription = "description" in ver ? ver.description : undefined;
         const hasSession = "sessionId" in ver && typeof ver.sessionId === "string" && !!ver.sessionId;

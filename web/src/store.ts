@@ -9,6 +9,8 @@ import type {
   ToolResultPreview,
   SessionTaskEntry,
   HistoryWindowState,
+  LeaderProjectionSnapshot,
+  ThreadWindowState,
   PendingCodexInput,
   PendingUserUpload,
   QuestmasterTask,
@@ -50,7 +52,15 @@ import {
   getInitialZoomLevel,
 } from "./store-initial.js";
 import type { AppState, PendingSession } from "./store-types.js";
+import { removeSessionState } from "./store-session-cleanup.js";
+import {
+  clearFeedWindowSyncState,
+  clearHistoryFeedWindowSyncState,
+  clearThreadFeedWindowSyncState,
+  updateFeedWindowSyncState,
+} from "./store-feed-window-sync.js";
 import { isDesktopShellLayout } from "./utils/layout.js";
+import { formatReplyContentForPreview } from "./utils/reply-context.js";
 
 // ─── Color Themes ───────────────────────────────────────────────────────────
 
@@ -82,6 +92,8 @@ export type { SearchMatch, SessionSearchCategory, SessionSearchState };
 export type { PendingSession };
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
+const MAX_SIDE_PANEL_STORAGE_ITEMS = 500;
+const MAX_SIDE_PANEL_STORAGE_CHARS = 20_000;
 
 function getInitialShortcutSettings(): ShortcutSettings {
   if (typeof window === "undefined") return DEFAULT_SHORTCUT_SETTINGS;
@@ -110,8 +122,27 @@ function persistShortcutSettings(settings: ShortcutSettings): void {
   scopedSetItem("cc-shortcuts", JSON.stringify(settings));
 }
 
+function persistSidePanelStringSet(storageKey: string, values: Set<string>): void {
+  if (typeof window === "undefined") return;
+  let boundedValues = Array.from(values).slice(-MAX_SIDE_PANEL_STORAGE_ITEMS);
+  let serialized = JSON.stringify(boundedValues);
+  while (serialized.length > MAX_SIDE_PANEL_STORAGE_CHARS && boundedValues.length > 0) {
+    boundedValues = boundedValues.slice(1);
+    serialized = JSON.stringify(boundedValues);
+  }
+  try {
+    scopedSetItem(storageKey, serialized);
+  } catch (error) {
+    console.warn("[takode] Could not persist side panel state; continuing in memory.", error);
+  }
+}
+
 function shouldPauseQuestBackgroundRefresh(): boolean {
   return typeof document !== "undefined" && document.visibilityState === "hidden";
+}
+
+function questRecencyTs(quest: QuestmasterTask): number {
+  return Math.max(quest.createdAt, (quest as { updatedAt?: number }).updatedAt ?? 0, quest.statusChangedAt ?? 0);
 }
 
 const QUEST_BACKGROUND_REFRESH_MIN_INTERVAL_MS = 2_000;
@@ -133,6 +164,18 @@ export const useStore = create<AppState>((set, get) => ({
   messageFrozenRevisions: new Map(),
   historyLoading: new Map(),
   historyWindows: new Map(),
+  threadWindows: new Map(),
+  threadWindowMessages: new Map(),
+  feedWindowSyncs: new Map(),
+  threadFeedWindowSyncs: new Map(),
+  leaderProjections: new Map(),
+  setLeaderProjection: (sessionId: string, projection: LeaderProjectionSnapshot | null) =>
+    set((s) => {
+      const next = new Map(s.leaderProjections);
+      if (projection) next.set(sessionId, projection);
+      else next.delete(sessionId);
+      return { leaderProjections: next };
+    }),
   streaming: new Map(),
   streamingByParentToolUseId: new Map(),
   streamingThinking: new Map(),
@@ -147,6 +190,7 @@ export const useStore = create<AppState>((set, get) => ({
   cliEverConnected: new Map(),
   cliDisconnectReason: new Map(),
   sessionStatus: new Map(),
+  activeTurnRoutes: new Map(),
   sessionStuck: new Map(),
   previousPermissionMode: new Map(),
   askPermission: new Map(),
@@ -166,6 +210,14 @@ export const useStore = create<AppState>((set, get) => ({
       if (notifications.length === 0) next.delete(sessionId);
       else next.set(sessionId, notifications);
       return { sessionNotifications: next };
+    }),
+  sessionAttentionRecords: new Map(),
+  setSessionAttentionRecords: (sessionId, records) =>
+    set((s) => {
+      const next = new Map(s.sessionAttentionRecords);
+      if (records.length === 0) next.delete(sessionId);
+      else next.set(sessionId, records);
+      return { sessionAttentionRecords: next };
     }),
   changedFiles: new Map(),
   diffFileStats: new Map(),
@@ -193,6 +245,7 @@ export const useStore = create<AppState>((set, get) => ({
   latestBoardToolUseId: new Map(),
   setLatestBoardToolUseId: (sessionId, toolUseId) =>
     set((s) => {
+      if (s.latestBoardToolUseId.get(sessionId) === toolUseId) return s;
       const next = new Map(s.latestBoardToolUseId);
       next.set(sessionId, toolUseId);
       return { latestBoardToolUseId: next };
@@ -203,6 +256,13 @@ export const useStore = create<AppState>((set, get) => ({
       const next = new Map(s.sessionBoards);
       next.set(sessionId, board);
       return { sessionBoards: next };
+    }),
+  sessionBoardRowStatuses: new Map(),
+  setSessionBoardRowStatuses: (sessionId, statuses) =>
+    set((s) => {
+      const next = new Map(s.sessionBoardRowStatuses);
+      next.set(sessionId, statuses);
+      return { sessionBoardRowStatuses: next };
     }),
   sessionCompletedBoards: new Map(),
   setSessionCompletedBoard: (sessionId, board) =>
@@ -231,7 +291,7 @@ export const useStore = create<AppState>((set, get) => ({
     set((state) => {
       const quests = state.quests
         .map((q) => (q.questId === updated.questId ? updated : q))
-        .sort((a, b) => b.createdAt - a.createdAt);
+        .sort((a, b) => questRecencyTs(b) - questRecencyTs(a));
       const nextQuests = reconcileQuestList(state.quests, quests);
       return nextQuests === state.quests ? {} : { quests: nextQuests };
     });
@@ -303,6 +363,7 @@ export const useStore = create<AppState>((set, get) => ({
   questmasterSearchQuery: "",
   questmasterSelectedTags: [],
   questmasterViewMode: null,
+  questmasterCompactSort: null,
   activeTab: "chat",
   diffPanelSelectedFile: new Map(),
   vscodeSelectionContext: null,
@@ -462,6 +523,7 @@ export const useStore = create<AppState>((set, get) => ({
   setQuestmasterSearchQuery: (query) => set({ questmasterSearchQuery: query }),
   setQuestmasterSelectedTags: (tags) => set({ questmasterSelectedTags: tags }),
   setQuestmasterViewMode: (mode) => set({ questmasterViewMode: mode }),
+  setQuestmasterCompactSort: (sort) => set({ questmasterCompactSort: sort }),
   setVsCodeSelectionContext: (context) => set({ vscodeSelectionContext: context }),
   dismissVsCodeSelection: (key) => set({ dismissedVsCodeSelectionKey: key }),
   newSession: () => {
@@ -511,169 +573,7 @@ export const useStore = create<AppState>((set, get) => ({
       return { sdkSessions };
     }),
 
-  removeSession: (sessionId) =>
-    set((s) => {
-      const sessions = new Map(s.sessions);
-      sessions.delete(sessionId);
-      const messages = new Map(s.messages);
-      messages.delete(sessionId);
-      const messageFrozenCounts = new Map(s.messageFrozenCounts);
-      messageFrozenCounts.delete(sessionId);
-      const messageFrozenHashes = new Map(s.messageFrozenHashes);
-      messageFrozenHashes.delete(sessionId);
-      const messageFrozenRevisions = new Map(s.messageFrozenRevisions);
-      messageFrozenRevisions.delete(sessionId);
-      const historyLoading = new Map(s.historyLoading);
-      historyLoading.delete(sessionId);
-      const historyWindows = new Map(s.historyWindows);
-      historyWindows.delete(sessionId);
-      const streaming = new Map(s.streaming);
-      streaming.delete(sessionId);
-      const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
-      streamingByParentToolUseId.delete(sessionId);
-      const streamingThinking = new Map(s.streamingThinking);
-      streamingThinking.delete(sessionId);
-      const streamingThinkingByParentToolUseId = new Map(s.streamingThinkingByParentToolUseId);
-      streamingThinkingByParentToolUseId.delete(sessionId);
-      const streamingStartedAt = new Map(s.streamingStartedAt);
-      streamingStartedAt.delete(sessionId);
-      const streamingOutputTokens = new Map(s.streamingOutputTokens);
-      streamingOutputTokens.delete(sessionId);
-      const streamingPausedDuration = new Map(s.streamingPausedDuration);
-      streamingPausedDuration.delete(sessionId);
-      const streamingPauseStartedAt = new Map(s.streamingPauseStartedAt);
-      streamingPauseStartedAt.delete(sessionId);
-      const connectionStatus = new Map(s.connectionStatus);
-      connectionStatus.delete(sessionId);
-      const cliConnected = new Map(s.cliConnected);
-      cliConnected.delete(sessionId);
-      const cliEverConnected = new Map(s.cliEverConnected);
-      cliEverConnected.delete(sessionId);
-      const cliDisconnectReason = new Map(s.cliDisconnectReason);
-      cliDisconnectReason.delete(sessionId);
-      const sessionStatus = new Map(s.sessionStatus);
-      sessionStatus.delete(sessionId);
-      const sessionStuck = new Map(s.sessionStuck);
-      sessionStuck.delete(sessionId);
-      const previousPermissionMode = new Map(s.previousPermissionMode);
-      previousPermissionMode.delete(sessionId);
-      const askPermission = new Map(s.askPermission);
-      askPermission.delete(sessionId);
-      const pendingPermissions = new Map(s.pendingPermissions);
-      pendingPermissions.delete(sessionId);
-      const sessionTasks = new Map(s.sessionTasks);
-      sessionTasks.delete(sessionId);
-      const sessionTimers = new Map(s.sessionTimers);
-      sessionTimers.delete(sessionId);
-      const sessionNotifications = new Map(s.sessionNotifications);
-      sessionNotifications.delete(sessionId);
-      const changedFiles = new Map(s.changedFiles);
-      changedFiles.delete(sessionId);
-      const diffFileStats = new Map(s.diffFileStats);
-      diffFileStats.delete(sessionId);
-      const sessionNames = new Map(s.sessionNames);
-      sessionNames.delete(sessionId);
-      const recentlyRenamed = new Set(s.recentlyRenamed);
-      recentlyRenamed.delete(sessionId);
-      const sessionPreviews = new Map(s.sessionPreviews);
-      sessionPreviews.delete(sessionId);
-      const sessionTaskHistory = new Map(s.sessionTaskHistory);
-      sessionTaskHistory.delete(sessionId);
-      const pendingCodexInputs = new Map(s.pendingCodexInputs);
-      pendingCodexInputs.delete(sessionId);
-      const sessionKeywords = new Map(s.sessionKeywords);
-      sessionKeywords.delete(sessionId);
-      const scrollToTurnId = new Map(s.scrollToTurnId);
-      scrollToTurnId.delete(sessionId);
-      const diffPanelSelectedFile = new Map(s.diffPanelSelectedFile);
-      diffPanelSelectedFile.delete(sessionId);
-      const mcpServers = new Map(s.mcpServers);
-      mcpServers.delete(sessionId);
-      const toolProgress = new Map(s.toolProgress);
-      toolProgress.delete(sessionId);
-      const toolResults = new Map(s.toolResults);
-      toolResults.delete(sessionId);
-      const backgroundAgentNotifs = new Map(s.backgroundAgentNotifs);
-      backgroundAgentNotifs.delete(sessionId);
-      const toolStartTimestamps = new Map(s.toolStartTimestamps);
-      toolStartTimestamps.delete(sessionId);
-      const prStatus = new Map(s.prStatus);
-      prStatus.delete(sessionId);
-      const feedScrollPosition = new Map(s.feedScrollPosition);
-      feedScrollPosition.delete(sessionId);
-      const composerDrafts = new Map(s.composerDrafts);
-      composerDrafts.delete(sessionId);
-      const replyContexts = new Map(s.replyContexts);
-      replyContexts.delete(sessionId);
-      const turnActivityOverrides = new Map(s.turnActivityOverrides);
-      turnActivityOverrides.delete(sessionId);
-      const autoExpandedTurnIds = new Map(s.autoExpandedTurnIds);
-      autoExpandedTurnIds.delete(sessionId);
-      const collapsibleTurnIds = new Map(s.collapsibleTurnIds);
-      collapsibleTurnIds.delete(sessionId);
-      const sessionAttention = new Map(s.sessionAttention);
-      sessionAttention.delete(sessionId);
-      const sessionInfoOpenSessionId = s.sessionInfoOpenSessionId === sessionId ? null : s.sessionInfoOpenSessionId;
-      scopedSetItem("cc-session-names", JSON.stringify(Array.from(sessionNames.entries())));
-      if (s.currentSessionId === sessionId) {
-        scopedRemoveItem("cc-current-session");
-      }
-      return {
-        sessions,
-        messages,
-        messageFrozenCounts,
-        messageFrozenHashes,
-        messageFrozenRevisions,
-        historyLoading,
-        historyWindows,
-        streaming,
-        streamingByParentToolUseId,
-        streamingThinking,
-        streamingThinkingByParentToolUseId,
-        streamingStartedAt,
-        streamingOutputTokens,
-        streamingPausedDuration,
-        streamingPauseStartedAt,
-        connectionStatus,
-        cliConnected,
-        cliEverConnected,
-        cliDisconnectReason,
-        sessionStatus,
-        sessionStuck,
-        previousPermissionMode,
-        askPermission,
-        pendingPermissions,
-        sessionTasks,
-        sessionTimers,
-        sessionNotifications,
-        changedFiles,
-        diffFileStats,
-        sessionNames,
-        recentlyRenamed,
-        sessionPreviews,
-        sessionTaskHistory,
-        pendingCodexInputs,
-        sessionKeywords,
-        scrollToTurnId,
-        diffPanelSelectedFile,
-        mcpServers,
-        toolProgress,
-        toolResults,
-        backgroundAgentNotifs,
-        toolStartTimestamps,
-        prStatus,
-        feedScrollPosition,
-        composerDrafts,
-        replyContexts,
-        turnActivityOverrides,
-        autoExpandedTurnIds,
-        collapsibleTurnIds,
-        sessionAttention,
-        sessionInfoOpenSessionId,
-        sdkSessions: s.sdkSessions.filter((sdk) => sdk.sessionId !== sessionId),
-        currentSessionId: s.currentSessionId === sessionId ? null : s.currentSessionId,
-      };
-    }),
+  removeSession: (sessionId) => set((s) => removeSessionState(s, sessionId)),
 
   setSdkSessions: (sessions) =>
     set((s) => {
@@ -800,11 +700,40 @@ export const useStore = create<AppState>((set, get) => ({
       const historyWindows = new Map(s.historyWindows);
       if (window) {
         historyWindows.set(sessionId, window);
+        return { historyWindows };
       } else {
         historyWindows.delete(sessionId);
+        return { historyWindows, ...clearHistoryFeedWindowSyncState(s, sessionId) };
       }
-      return { historyWindows };
     }),
+
+  setThreadWindow: (sessionId, threadKey, window, msgs = []) =>
+    set((s) => {
+      const normalizedThreadKey = threadKey.trim().toLowerCase() || "main";
+      const threadWindows = new Map(s.threadWindows);
+      const threadWindowMessages = new Map(s.threadWindowMessages);
+      const nextWindows = new Map(threadWindows.get(sessionId) ?? []);
+      const nextMessages = new Map(threadWindowMessages.get(sessionId) ?? []);
+      if (window) {
+        nextWindows.set(normalizedThreadKey, window);
+        nextMessages.set(normalizedThreadKey, msgs);
+      } else {
+        nextWindows.delete(normalizedThreadKey);
+        nextMessages.delete(normalizedThreadKey);
+      }
+      if (nextWindows.size > 0) threadWindows.set(sessionId, nextWindows);
+      else threadWindows.delete(sessionId);
+      if (nextMessages.size > 0) threadWindowMessages.set(sessionId, nextMessages);
+      else threadWindowMessages.delete(sessionId);
+      if (window) return { threadWindows, threadWindowMessages };
+      return {
+        threadWindows,
+        threadWindowMessages,
+        ...clearThreadFeedWindowSyncState(s, sessionId, normalizedThreadKey),
+      };
+    }),
+
+  setFeedWindowSync: (sessionId, sync) => set((s) => updateFeedWindowSyncState(s, sessionId, sync)),
 
   setPendingCodexInputs: (sessionId, inputs) =>
     set((s) => {
@@ -1011,6 +940,11 @@ export const useStore = create<AppState>((set, get) => ({
       pendingCodexInputs.delete(sessionId);
       const historyWindows = new Map(s.historyWindows);
       historyWindows.delete(sessionId);
+      const threadWindows = new Map(s.threadWindows);
+      threadWindows.delete(sessionId);
+      const threadWindowMessages = new Map(s.threadWindowMessages);
+      threadWindowMessages.delete(sessionId);
+      const feedWindowSyncPatch = clearFeedWindowSyncState(s, sessionId);
       const streaming = new Map(s.streaming);
       streaming.delete(sessionId);
       const streamingByParentToolUseId = new Map(s.streamingByParentToolUseId);
@@ -1070,6 +1004,9 @@ export const useStore = create<AppState>((set, get) => ({
         sessionTaskPreview,
         pendingCodexInputs,
         historyWindows,
+        threadWindows,
+        threadWindowMessages,
+        ...feedWindowSyncPatch,
         streaming,
         streamingByParentToolUseId,
         streamingThinking,
@@ -1314,7 +1251,7 @@ export const useStore = create<AppState>((set, get) => ({
   setSessionPreview: (sessionId, preview) =>
     set((s) => {
       const sessionPreviews = new Map(s.sessionPreviews);
-      sessionPreviews.set(sessionId, preview.slice(0, 80));
+      sessionPreviews.set(sessionId, formatReplyContentForPreview(preview).slice(0, 80));
       const sessionPreviewUpdatedAt = new Map(s.sessionPreviewUpdatedAt);
       sessionPreviewUpdatedAt.set(sessionId, Date.now());
       return { sessionPreviews, sessionPreviewUpdatedAt };
@@ -1657,7 +1594,7 @@ export const useStore = create<AppState>((set, get) => ({
       } else {
         collapsedTreeGroups.add(groupId);
       }
-      scopedSetItem("cc-collapsed-tree-groups", JSON.stringify(Array.from(collapsedTreeGroups)));
+      persistSidePanelStringSet("cc-collapsed-tree-groups", collapsedTreeGroups);
       return { collapsedTreeGroups };
     }),
 
@@ -1669,7 +1606,7 @@ export const useStore = create<AppState>((set, get) => ({
       } else {
         collapsedTreeNodes.add(sessionId);
       }
-      scopedSetItem("cc-collapsed-tree-nodes", JSON.stringify(Array.from(collapsedTreeNodes)));
+      persistSidePanelStringSet("cc-collapsed-tree-nodes", collapsedTreeNodes);
       return { collapsedTreeNodes };
     }),
 
@@ -1681,7 +1618,7 @@ export const useStore = create<AppState>((set, get) => ({
       } else {
         expandedHerdNodes.add(sessionId);
       }
-      scopedSetItem("cc-expanded-herd-nodes", JSON.stringify(Array.from(expandedHerdNodes)));
+      persistSidePanelStringSet("cc-expanded-herd-nodes", expandedHerdNodes);
       return { expandedHerdNodes };
     }),
 
@@ -1740,6 +1677,16 @@ export const useStore = create<AppState>((set, get) => ({
       const sessionStatus = new Map(s.sessionStatus);
       sessionStatus.set(sessionId, status);
       return { sessionStatus };
+    }),
+
+  setActiveTurnRoute: (sessionId, route) =>
+    set((s) => {
+      const activeTurnRoutes = new Map(s.activeTurnRoutes);
+      if (route === undefined) {
+        return s;
+      }
+      activeTurnRoutes.set(sessionId, route);
+      return { activeTurnRoutes };
     }),
 
   setSessionStuck: (sessionId, stuck) =>
@@ -1927,8 +1874,11 @@ export const useStore = create<AppState>((set, get) => ({
 
   setCollapsibleTurnIds: (sessionId, turnIds) =>
     set((s) => {
+      const previous = s.collapsibleTurnIds.get(sessionId);
+      if ((previous === undefined && turnIds.length === 0) || stringArrayEqual(previous, turnIds)) return s;
       const collapsibleTurnIds = new Map(s.collapsibleTurnIds);
-      collapsibleTurnIds.set(sessionId, turnIds);
+      if (turnIds.length === 0) collapsibleTurnIds.delete(sessionId);
+      else collapsibleTurnIds.set(sessionId, turnIds);
       return { collapsibleTurnIds };
     }),
 
@@ -1950,6 +1900,10 @@ export const useStore = create<AppState>((set, get) => ({
       messageFrozenRevisions: new Map(),
       historyLoading: new Map(),
       historyWindows: new Map(),
+      threadWindows: new Map(),
+      threadWindowMessages: new Map(),
+      feedWindowSyncs: new Map(),
+      threadFeedWindowSyncs: new Map(),
       streaming: new Map(),
       streamingByParentToolUseId: new Map(),
       streamingThinking: new Map(),
@@ -1964,9 +1918,12 @@ export const useStore = create<AppState>((set, get) => ({
       cliEverConnected: new Map(),
       cliDisconnectReason: new Map(),
       sessionStatus: new Map(),
+      activeTurnRoutes: new Map(),
       previousPermissionMode: new Map(),
       askPermission: new Map(),
       sessionTasks: new Map(),
+      sessionNotifications: new Map(),
+      sessionAttentionRecords: new Map(),
       changedFiles: new Map(),
       diffFileStats: new Map(),
       sessionNames: new Map(),
@@ -1989,6 +1946,7 @@ export const useStore = create<AppState>((set, get) => ({
       toolResults: new Map(),
       latestBoardToolUseId: new Map(),
       sessionBoards: new Map(),
+      sessionBoardRowStatuses: new Map(),
       sessionCompletedBoards: new Map(),
       backgroundAgentNotifs: new Map(),
       toolStartTimestamps: new Map(),
@@ -2014,6 +1972,7 @@ export const useStore = create<AppState>((set, get) => ({
       questmasterSearchQuery: "",
       questmasterSelectedTags: [],
       questmasterViewMode: null,
+      questmasterCompactSort: null,
       searchPreviewSessionId: null,
       terminalOpen: false,
       terminalCwd: null,

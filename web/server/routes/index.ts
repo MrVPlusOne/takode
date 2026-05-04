@@ -22,6 +22,8 @@ import { createQuestRoutes } from "./quests.js";
 import { createRecordingsRoutes } from "./recordings.js";
 import { createSystemRoutes } from "./system.js";
 import { createTimerRoutes } from "./timers.js";
+import { createResourceLeaseRoutes } from "./resource-leases.js";
+import { createStreamRoutes } from "./streams.js";
 import { createLogsRoutes } from "./logs.js";
 import type { InitialModeState, RouteContext } from "./context.js";
 
@@ -47,20 +49,21 @@ export function buildOrchestratorSystemPrompt(backend: "claude" | "codex" | "cla
   const isCodexLeader = backend === "codex";
 
   return (
-    `[System] You are a leader session. Your job is to coordinate worker sessions through the **Quest Journey** lifecycle. Follow the Quest Journey for all task dispatch.\n\n` +
+    `[System] You are a leader session. Your job is to coordinate worker sessions through the phase-based **Quest Journey** lifecycle. Follow the Quest Journey for all task dispatch.\n\n` +
     (isCodexLeader
       ? `**Role**: Keep your own work to triage, coordination, and short spot checks. Delegate non-trivial implementation, investigation, and verification to worker sessions. ` +
         `Use the orchestration instructions already loaded in this session as your source of truth. Do not assume Claude-specific tools or files exist.\n\n`
       : `**Role**: Keep your own work lightweight and stay responsive to herd events. Delegate larger work to worker sessions. ` +
         `Use the orchestration instructions already loaded in this session as your source of truth, even if repo-local docs still mention deprecated leader reply tags like \`@to(user)\` or \`@to(self)\`.\n\n`) +
-    `**Quest Journey**: Use \`takode board show\` to track each quest's stage (QUEUED -> PLANNING -> IMPLEMENTING -> SKEPTIC_REVIEWING -> GROOM_REVIEWING -> PORTING -> removed). ` +
-    `Use \`takode board advance <quest-id>\` to transition quests through the lifecycle.\n\n` +
+    `**Quest Journey**: Use \`takode board show\` to track each quest's current phase (built-in full-code board states: QUEUED -> PLANNING -> IMPLEMENTING -> CODE_REVIEWING -> PORTING -> removed, with richer phases such as EXPLORING, MENTAL_SIMULATING, EXECUTING, OUTCOME_REVIEWING, USER_CHECKPOINTING, and BOOKKEEPING when the quest needs them). ` +
+    `Use \`takode board advance <quest-id>\` to transition quests through the lifecycle. Use \`takode phases\` for the read-only phase catalog and exact phase brief paths.\n\n` +
     `**Key disciplines**:\n` +
+    `- User-visible leader messages must be explicitly routed: every leader response starts with \`[thread:main]\` or \`[thread:q-N]\`. Shell commands that belong to a thread should start with \`# thread:main\` or \`# thread:q-N\`. \`takode user-message\` is deprecated compatibility only.\n` +
     `- If you asked the user a question, WAIT for their answer. Don't let herd events override your decision to wait.\n` +
     `- Be faithful to user's words. Don't embellish or add details the user didn't say. Ask follow-up questions instead of assuming.\n` +
     `- When workers or reviewers ask clarifying questions, answer from existing context when you can. Use \`takode answer <session> ...\` for pending question/plan prompts and \`needs-input\` herd events, or send a targeted follow-up message.\n` +
-    `- If a worker/reviewer question exposes ambiguity you cannot resolve, ask the user via plain text plus \`takode notify needs-input\` and do not keep advancing that quest until it is resolved.\n` +
-    `- If new human feedback lands for a quest that is already on the board, immediately treat it as the new source of truth: reset the board row to the earliest valid stage for the fresh rework cycle and do not let stale review/port completions from the older scope advance the quest.\n` +
+    `- If a worker/reviewer question exposes ambiguity you cannot resolve, ask the user in a marked leader response, then call \`takode notify needs-input\` after that user-visible text exists, optionally with one to three short \`--suggest <answer>\` choices for obvious answers, and do not keep advancing that quest until it is resolved.\n` +
+    `- If new human feedback lands for a quest that is already on the board, immediately treat it as the new source of truth: reset the board row to the earliest valid phase for the fresh rework cycle and do not let stale review/port completions from the older scope advance the quest.\n` +
     `- Always spawn workers with worktrees (never --no-worktree) unless the user explicitly asks.\n` +
     `- Archiving a worktree worker deletes its worktree and any uncommitted changes. Do not archive until anything worth keeping has been ported, committed, or otherwise synced.\n` +
     `- Don't echo board state as prose. \`takode board\` commands display the board with a special UI, and the user already sees the live board state in the Takode Chat UI -- don't repeat current board rows in markdown tables or summaries unless the user explicitly asks for a text summary.\n` +
@@ -173,6 +176,7 @@ export function createRoutes(
   options?: { requestRestart?: () => void },
   perfTracer?: PerfTracer,
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor,
+  resourceLeaseManager?: import("../resource-lease-manager.js").ResourceLeaseManager,
 ) {
   const api = new Hono();
 
@@ -217,6 +221,7 @@ export function createRoutes(
     recorder,
     cronScheduler,
     timerManager,
+    resourceLeaseManager,
     imageStore,
     pushoverNotifier,
     sleepInhibitor,
@@ -245,6 +250,8 @@ export function createRoutes(
   api.route("/", createGitRoutes(ctx));
   api.route("/", createQuestRoutes(ctx));
   api.route("/", createTimerRoutes(ctx));
+  api.route("/", createResourceLeaseRoutes(ctx));
+  api.route("/", createStreamRoutes(ctx));
 
   return api;
 }

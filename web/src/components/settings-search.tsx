@@ -78,6 +78,24 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     items: [
       { id: "claude", text: "Claude Code binary path command auto-detect" },
       { id: "codex", text: "Codex binary path command auto-detect" },
+      {
+        id: "codex-non-leader-auto-compact-threshold",
+        text: "Codex non-leader auto compact threshold percent worker normal session effective context window 90%",
+        aliases: ["auto compact", "non leader", "worker", "percent", "90%", "gpt-5.4", "gpt-5.5"],
+      },
+      {
+        id: "codex-leader-context-window",
+        text: "Codex leader context window override orchestration recycle compaction tokens 1M",
+      },
+      {
+        id: "codex-leader-recycle-threshold",
+        text: "Codex leader recycle threshold orchestration compaction tokens 260k",
+      },
+      {
+        id: "codex-leader-recycle-threshold-overrides",
+        text: "Codex leader model threshold overrides per-model exact model ids gpt-5.4 gpt-5.5 fallback override",
+        aliases: ["override", "model id", "gpt-5.4", "gpt-5.5"],
+      },
       { id: "default-backend", text: "Default Backend Claude CLI Claude SDK backend" },
       { id: "log-file", text: "Log File server runtime logs" },
       { id: "editor", text: "File Link Editor VSCode local remote Cursor none editor", aliases: ["vscode"] },
@@ -153,7 +171,10 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
     aliases: ["logs", "restart", "diagnostics", "server"],
     items: [
       { id: "logs", text: "Log Viewer structured server runtime logs filtering Takode CLI" },
-      { id: "restart", text: "Restart Server process reconnect sessions" },
+      {
+        id: "restart",
+        text: "Restart Server process reconnect sessions interrupt restart blockers pending permission",
+      },
     ],
   },
 ];

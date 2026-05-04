@@ -13,6 +13,7 @@ import type {
   PendingCodexInput,
   BoardRow,
   SessionNotification,
+  SessionAttentionRecord,
 } from "./session-types.js";
 
 export interface SearchExcerpt {
@@ -108,6 +109,12 @@ export interface PersistedSession {
   completedBoard?: BoardRow[];
   /** Per-session notification inbox entries */
   notifications?: SessionNotification[];
+  /** Server-authoritative attention records for Main ledger rows and top chips */
+  attentionRecords?: SessionAttentionRecord[];
+  /** Monotonic status version for ordering notification summary updates. */
+  notificationStatusVersion?: number;
+  /** Epoch ms for the latest notification status mutation. */
+  notificationStatusUpdatedAt?: number;
 
   /** Lightweight search excerpts extracted at archive time. Only user_message
    *  content and compact_marker summaries — enough for search without loading
@@ -166,6 +173,13 @@ interface EventBufferSanitizeResult {
 interface LauncherRestoreInfo {
   sessionId?: unknown;
   state?: unknown;
+  archived?: unknown;
+  archivedAt?: unknown;
+}
+
+interface LauncherRestoreState {
+  archived: boolean;
+  archivedAt?: number;
 }
 
 function formatBytes(bytes: number): string {
@@ -262,6 +276,7 @@ export class SessionStore {
 
   private sanitizePersistedEventBuffer(
     eventBuffer: PersistedSession["eventBuffer"],
+    context?: { isLeaderSession?: boolean },
     metrics?: SessionRestoreMetrics,
   ): EventBufferSanitizeResult {
     if (!Array.isArray(eventBuffer)) return { eventBuffer, changed: false };
@@ -275,7 +290,7 @@ export class SessionStore {
     for (const event of eventBuffer) {
       const bytes = metrics ? Buffer.byteLength(JSON.stringify(event)) : 0;
       if (metrics) beforeItemBytes += bytes;
-      if (isReplayableBufferedEvent(event)) {
+      if (isReplayableBufferedEvent(event, context)) {
         sanitized.push(event);
       } else {
         if (metrics) droppedBytes += bytes;
@@ -301,14 +316,51 @@ export class SessionStore {
     };
   }
 
-  private async recordLauncherRestoreMetrics(metrics: SessionRestoreMetrics): Promise<void> {
+  private async loadLauncherRestoreState(metrics: SessionRestoreMetrics): Promise<Map<string, LauncherRestoreState>> {
+    const index = new Map<string, LauncherRestoreState>();
     const launcherSessions = await this.loadLauncher<LauncherRestoreInfo[]>();
-    if (!Array.isArray(launcherSessions)) return;
+    if (!Array.isArray(launcherSessions)) return index;
 
     for (const session of launcherSessions) {
       const state = typeof session?.state === "string" ? session.state : "unknown";
       metrics.launcherStateCounts.set(state, (metrics.launcherStateCounts.get(state) ?? 0) + 1);
+      if (typeof session?.sessionId !== "string") continue;
+      index.set(session.sessionId, {
+        archived: session.archived === true,
+        ...(typeof session.archivedAt === "number" ? { archivedAt: session.archivedAt } : {}),
+      });
     }
+    return index;
+  }
+
+  private buildSearchDataOnlySession(hot: PersistedSession, launcherState?: LauncherRestoreState): PersistedSession {
+    const archivedAt = typeof hot.archivedAt === "number" ? hot.archivedAt : launcherState?.archivedAt;
+    return {
+      id: hot.id,
+      state: hot.state,
+      messageHistory: [],
+      pendingMessages: [],
+      pendingPermissions: [],
+      toolResults: [],
+      eventBuffer: [],
+      archived: true,
+      ...(typeof archivedAt === "number" ? { archivedAt } : {}),
+      lastReadAt: hot.lastReadAt,
+      attentionReason: hot.attentionReason,
+      taskHistory: hot.taskHistory,
+      keywords: hot.keywords,
+      board: hot.board,
+      completedBoard: hot.completedBoard,
+      notifications: hot.notifications,
+      attentionRecords: hot.attentionRecords,
+      _searchExcerpts:
+        Array.isArray(hot._searchExcerpts) && hot._searchExcerpts.length > 0
+          ? hot._searchExcerpts
+          : SessionStore.extractSearchExcerpts(hot.messageHistory),
+      _searchDataOnly: true,
+      _frozenCount: 0,
+      _frozenToolResultCount: 0,
+    };
   }
 
   private formatCountMap(counts: Map<string, number>): string {
@@ -739,7 +791,11 @@ export class SessionStore {
       restoreMetrics.activeHotJsonBytes += Buffer.byteLength(raw);
     }
 
-    const sanitizedBuffer = this.sanitizePersistedEventBuffer(hot.eventBuffer, restoreMetrics);
+    const sanitizedBuffer = this.sanitizePersistedEventBuffer(
+      hot.eventBuffer,
+      { isLeaderSession: hot.state.isOrchestrator === true },
+      restoreMetrics,
+    );
     if (sanitizedBuffer.changed) {
       hot = { ...hot, eventBuffer: sanitizedBuffer.eventBuffer };
     }
@@ -846,28 +902,7 @@ export class SessionStore {
       return null;
     }
 
-    return {
-      id: hot.id,
-      state: hot.state,
-      messageHistory: [],
-      pendingMessages: [],
-      pendingPermissions: [],
-      toolResults: [],
-      eventBuffer: [],
-      archived: hot.archived,
-      archivedAt: hot.archivedAt,
-      lastReadAt: hot.lastReadAt,
-      attentionReason: hot.attentionReason,
-      taskHistory: hot.taskHistory,
-      keywords: hot.keywords,
-      board: hot.board,
-      completedBoard: hot.completedBoard,
-      notifications: hot.notifications,
-      _searchExcerpts: hot._searchExcerpts,
-      _searchDataOnly: true,
-      _frozenCount: 0,
-      _frozenToolResultCount: 0,
-    };
+    return this.buildSearchDataOnlySession(hot);
   }
 
   /** Load all sessions from disk. */
@@ -875,7 +910,7 @@ export class SessionStore {
     const sessions: PersistedSession[] = [];
     const metrics = this.createRestoreMetrics();
     try {
-      await this.recordLauncherRestoreMetrics(metrics);
+      const launcherRestoreState = await this.loadLauncherRestoreState(metrics);
       const files = (await readdir(this.dir)).filter((f) => f.endsWith(".json") && f !== "launcher.json");
       for (const file of files) {
         const sessionId = file.replace(/\.json$/, "");
@@ -891,32 +926,12 @@ export class SessionStore {
           const hot = JSON.parse(raw) as PersistedSession;
           metrics.totalSessions++;
 
-          if (hot.archived) {
+          const launcherState = launcherRestoreState.get(hot.id);
+          if (hot.archived || launcherState?.archived) {
             metrics.searchOnlySessions++;
             metrics.searchOnlyHotJsonBytes += Buffer.byteLength(raw);
             // Search-data-only: skip JSONL frozen log entirely
-            sessions.push({
-              id: hot.id,
-              state: hot.state,
-              messageHistory: [],
-              pendingMessages: [],
-              pendingPermissions: [],
-              toolResults: [],
-              eventBuffer: [],
-              archived: hot.archived,
-              archivedAt: hot.archivedAt,
-              lastReadAt: hot.lastReadAt,
-              attentionReason: hot.attentionReason,
-              taskHistory: hot.taskHistory,
-              keywords: hot.keywords,
-              board: hot.board,
-              completedBoard: hot.completedBoard,
-              notifications: hot.notifications,
-              _searchExcerpts: hot._searchExcerpts,
-              _searchDataOnly: true,
-              _frozenCount: 0,
-              _frozenToolResultCount: 0,
-            });
+            sessions.push(this.buildSearchDataOnlySession(hot, launcherState));
           } else {
             const session = await this.load(sessionId, metrics);
             if (session) sessions.push(session);

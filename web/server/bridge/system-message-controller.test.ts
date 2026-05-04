@@ -115,6 +115,7 @@ function makeSdkSession() {
     queuedTurnReasons: [] as string[],
     queuedTurnUserMessageIds: [] as number[][],
     queuedTurnInterruptSources: [] as Array<"user" | "leader" | "system" | null>,
+    userMessageIdsThisTurn: [] as number[],
     state: makeState(),
   };
 }
@@ -133,6 +134,7 @@ function makeSdkDeps() {
     cancelPermissionNotification: vi.fn(),
     onResultAttentionAndNotifications: vi.fn(),
     onTurnCompleted: vi.fn(),
+    injectUserMessage: vi.fn(),
     hasUserPromptReplay: vi.fn(() => false),
     hasToolResultPreviewReplay: vi.fn(() => false),
     nextUserMessageId: vi.fn(() => "msg-1"),
@@ -194,6 +196,7 @@ describe("system-message-controller", () => {
     expect(session.state.is_compacting).toBe(true);
     expect(session.claudeCompactBoundarySeen).toBe(false);
     const marker = session.messageHistory.find((m) => m.type === "compact_marker");
+    const markerId = marker && "id" in marker ? marker.id : undefined;
     expect(marker).toBeDefined();
 
     // 2. SDK compact_boundary — enriches existing marker via early-return path
@@ -202,8 +205,27 @@ describe("system-message-controller", () => {
       subtype: "compact_boundary",
       uuid: "cb-1",
       session_id: "s1",
+      compact_metadata: { trigger: "auto", pre_tokens: 180_000 },
     });
     expect(session.claudeCompactBoundarySeen).toBe(true);
+    expect(session.state.lifecycle_events).toEqual([
+      expect.objectContaining({
+        type: "compaction",
+        id: markerId,
+        trigger: "auto",
+        before: expect.objectContaining({
+          contextTokensUsed: 180_000,
+          source: "compact_boundary",
+        }),
+      }),
+    ]);
+    expect(allDeps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: { lifecycle_events: session.state.lifecycle_events },
+      }),
+    );
 
     // 3. SDK status_change non-compacting — should trigger injection
     handlers.handleSdkBrowserMessage(session, {
@@ -212,6 +234,43 @@ describe("system-message-controller", () => {
     });
     expect(session.state.is_compacting).toBe(false);
     expect(allDeps.injectCompactionRecovery).toHaveBeenCalledWith(session);
+  });
+
+  it("records classic Claude compact_boundary lifecycle events with pre-compaction tokens", () => {
+    // Classic Claude can send compact_boundary directly; that path should also
+    // persist the event model consumed by SessionInfoPopover.
+    const session = makeSession();
+    const deps = makeDeps();
+
+    handleSystemMessage(
+      session,
+      {
+        type: "system",
+        subtype: "compact_boundary",
+        uuid: "cb-classic",
+        session_id: "s1",
+        compact_metadata: { trigger: "manual", pre_tokens: 123_000 },
+      },
+      deps,
+    );
+
+    expect(session.state.lifecycle_events).toEqual([
+      expect.objectContaining({
+        id: session.messageHistory[0]?.type === "compact_marker" ? session.messageHistory[0].id : undefined,
+        trigger: "manual",
+        before: expect.objectContaining({
+          contextTokensUsed: 123_000,
+          source: "compact_boundary",
+        }),
+      }),
+    ]);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: { lifecycle_events: session.state.lifecycle_events },
+      }),
+    );
   });
 
   // Verifies that when no compact_boundary arrives between compacting start and end,

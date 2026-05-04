@@ -3,12 +3,15 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore, getSessionSearchState } from "./store.js";
 import { connectSession, disconnectSession, sendVsCodeSelectionUpdate } from "./ws.js";
 import { api, checkHealth } from "./api.js";
+import type { SdkSessionInfo } from "./types.js";
 
 import {
   parseHash,
   navigateToSession,
   navigateToMostRecentSession,
   messageIndexFromHash,
+  threadRouteFromHash,
+  resolveSessionIdFromRoute,
   scrollToMessageIndex,
 } from "./utils/routing.js";
 import { navigateTo } from "./utils/navigation.js";
@@ -16,6 +19,7 @@ import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { TopBar } from "./components/TopBar.js";
 import { EmptyState } from "./components/EmptyState.js";
+import { setSdkSessionsWithNotificationFreshness } from "./notification-status.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { DiffPanel } from "./components/DiffPanel.js";
 import { Playground } from "./components/Playground.js";
@@ -23,6 +27,7 @@ import { SettingsPage } from "./components/SettingsPage.js";
 import { LogsPage } from "./components/LogsPage.js";
 import { EnvManager } from "./components/EnvManager.js";
 import { ActiveTimersPage } from "./components/ActiveTimersPage.js";
+import { StreamsPage } from "./components/StreamsPage.js";
 import { TerminalPage } from "./components/TerminalPage.js";
 import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
@@ -53,6 +58,11 @@ type TakodeDebugWindow = Window &
     __TAKODE_SET_VSCODE_CONTEXT__?: (payload: VsCodeSelectionContextPayload | null) => void;
     __TAKODE_CLEAR_VSCODE_CONTEXT__?: () => void;
   };
+
+function stripSessionSearchMetadata(session: SdkSessionInfo): SdkSessionInfo {
+  const { taskHistory: _taskHistory, keywords: _keywords, ...rest } = session;
+  return rest;
+}
 
 function useHash() {
   return useSyncExternalStore(
@@ -114,6 +124,7 @@ export default function App() {
     newSessionModalState,
     serverRestarting,
     serverReachable,
+    sdkSessions,
   } = useStore(
     useShallow((s) => ({
       colorTheme: s.colorTheme,
@@ -129,16 +140,22 @@ export default function App() {
       newSessionModalState: s.newSessionModalState,
       serverRestarting: s.serverRestarting,
       serverReachable: s.serverReachable,
+      sdkSessions: s.sdkSessions,
     })),
   );
   const hash = useHash();
   const route = useMemo(() => parseHash(hash), [hash]);
+  const threadRoute = useMemo(
+    () => (route.page === "session" ? threadRouteFromHash(hash) : { hasThreadParam: false, threadKey: null }),
+    [hash, route.page],
+  );
   const isSettingsPage = route.page === "settings";
   const isLogsPage = route.page === "logs";
   const isTerminalPage = route.page === "terminal";
   const isEnvironmentsPage = route.page === "environments";
   const isScheduledPage = route.page === "scheduled";
   const isQuestmasterPage = route.page === "questmaster";
+  const isStreamsPage = route.page === "streams";
   const isSessionView = route.page === "session" || route.page === "home";
   const isDesktopShell = isDesktopShellLayout(zoomLevel);
   const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
@@ -149,7 +166,11 @@ export default function App() {
     !isPendingId(currentSessionId) &&
     currentSessionConnectionStatus === "connected";
   const showServerUnreachableBanner = !serverReachable && !suppressServerUnreachableBanner;
-  const displayedSessionId = searchPreviewSessionId ?? currentSessionId;
+  const routeSessionId = useMemo(
+    () => (route.page === "session" ? resolveSessionIdFromRoute(route.sessionId, sdkSessions) : null),
+    [route, sdkSessions],
+  );
+  const displayedSessionId = searchPreviewSessionId ?? (route.page === "session" ? routeSessionId : currentSessionId);
 
   useEffect(() => {
     const el = document.documentElement;
@@ -217,6 +238,27 @@ export default function App() {
       window.removeEventListener("message", handleParentMessage);
     };
   }, []);
+
+  useEffect(() => {
+    if (route.page !== "session") return;
+    if (!/^\d+$/.test(route.sessionId)) return;
+    if (routeSessionId) return;
+
+    let cancelled = false;
+    api
+      .listSessions()
+      .then((sessions) => {
+        if (cancelled) return;
+        setSdkSessionsWithNotificationFreshness(sessions.map(stripSessionSearchMetadata));
+      })
+      .catch((err) => {
+        console.warn("[app] failed to hydrate sessions for numeric route:", err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [route, routeSessionId]);
 
   useEffect(() => {
     void (async () => {
@@ -342,30 +384,42 @@ export default function App() {
 
     if (route.page === "session") {
       const store = useStore.getState();
-      if (store.currentSessionId !== route.sessionId) {
-        store.setCurrentSession(route.sessionId);
+      const resolvedSessionId = resolveSessionIdFromRoute(route.sessionId, store.sdkSessions);
+      if (!resolvedSessionId) {
+        if (store.currentSessionId !== null) {
+          store.setCurrentSession(null);
+        }
+        if (connectedSessionIdRef.current) {
+          disconnectSession(connectedSessionIdRef.current);
+          connectedSessionIdRef.current = null;
+        }
+        return;
       }
 
-      // Handle ?msg=N query param for message-level deep links (right-click → open in new tab)
+      if (store.currentSessionId !== resolvedSessionId) {
+        store.setCurrentSession(resolvedSessionId);
+      }
+
+      // Handle /msg/N and legacy ?msg=N message-level deep links.
       const msgIdx = messageIndexFromHash(hash);
       if (msgIdx != null) {
-        scrollToMessageIndex(route.sessionId, msgIdx);
+        scrollToMessageIndex(resolvedSessionId, msgIdx);
       }
       // Don't connect WebSocket or fire REST calls for pending sessions
       // (they don't exist on the server yet)
-      if (isPendingId(route.sessionId)) {
+      if (isPendingId(resolvedSessionId)) {
         if (connectedSessionIdRef.current) {
           disconnectSession(connectedSessionIdRef.current);
           connectedSessionIdRef.current = null;
         }
       } else {
-        if (connectedSessionIdRef.current && connectedSessionIdRef.current !== route.sessionId) {
+        if (connectedSessionIdRef.current && connectedSessionIdRef.current !== resolvedSessionId) {
           disconnectSession(connectedSessionIdRef.current);
         }
-        store.markSessionViewed(route.sessionId);
-        api.markSessionRead?.(route.sessionId).catch(() => {});
-        connectSession(route.sessionId);
-        connectedSessionIdRef.current = route.sessionId;
+        store.markSessionViewed(resolvedSessionId);
+        api.markSessionRead?.(resolvedSessionId).catch(() => {});
+        connectSession(resolvedSessionId);
+        connectedSessionIdRef.current = resolvedSessionId;
       }
     } else if (route.page === "home") {
       const store = useStore.getState();
@@ -384,7 +438,7 @@ export default function App() {
         connectedSessionIdRef.current = null;
       }
     }
-  }, [route]);
+  }, [hash, route, sdkSessions]);
 
   useEffect(() => {
     const previewSessionId =
@@ -506,6 +560,12 @@ export default function App() {
             </div>
           )}
 
+          {isStreamsPage && (
+            <div className="absolute inset-0">
+              <StreamsPage embedded />
+            </div>
+          )}
+
           {isSessionView && (
             <>
               {/* Chat tab — visible when activeTab is "chat" or no session */}
@@ -517,6 +577,8 @@ export default function App() {
                     key={displayedSessionId}
                     sessionId={displayedSessionId}
                     preview={searchPreviewSessionId === displayedSessionId}
+                    routeThreadKey={threadRoute.threadKey}
+                    hasThreadRoute={threadRoute.hasThreadParam}
                   />
                 ) : (
                   <EmptyState />

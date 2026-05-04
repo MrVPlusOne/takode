@@ -183,6 +183,7 @@ import * as serverLoggerModule from "./server-logger.js";
 import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
 import * as questStore from "./quest-store.js";
+import { QUEST_TLDR_WARNING_HEADER } from "./quest-tldr.js";
 import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
@@ -534,6 +535,196 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
   return events;
 }
 
+function companionJsonAuthHeaders(sessionId: string, token: string): Record<string, string> {
+  return {
+    "x-companion-session-id": sessionId,
+    "x-companion-auth-token": token,
+    "Content-Type": "application/json",
+  };
+}
+
+function mockValidCompanionAuth(): void {
+  launcher.getSession.mockImplementation((sid: string) =>
+    sid === "session-1" ? { sessionId: "session-1", state: "running", cwd: "/test", archived: false } : undefined,
+  );
+  launcher.verifySessionAuthToken.mockImplementation(
+    (sid: string, token: string) => sid === "session-1" && token === "tok-1",
+  );
+}
+
+describe("REST quest description TLDR warnings", () => {
+  it("sets warning headers for authenticated long description create, patch, and transition writes", async () => {
+    mockValidCompanionAuth();
+    const longDescription = "Long quest description. ".repeat(80).trim();
+    vi.spyOn(questStore, "createQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      status: "idea",
+      description: longDescription,
+      createdAt: Date.now(),
+    } as any);
+
+    const createRes = await app.request("/api/quests", {
+      method: "POST",
+      headers: companionJsonAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({ title: "Quest", description: longDescription }),
+    });
+
+    expect(createRes.status).toBe(201);
+    expect(createRes.headers.get(QUEST_TLDR_WARNING_HEADER)).toContain("quest description is 1200+ characters");
+
+    vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      status: "refined",
+      description: longDescription,
+      createdAt: Date.now(),
+    } as any);
+
+    const patchRes = await app.request("/api/quests/q-1", {
+      method: "PATCH",
+      headers: companionJsonAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({ description: longDescription }),
+    });
+
+    expect(patchRes.status).toBe(200);
+    expect(patchRes.headers.get(QUEST_TLDR_WARNING_HEADER)).toContain("quest description is 1200+ characters");
+
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      status: "idea",
+      createdAt: Date.now(),
+    } as any);
+    vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 2,
+      title: "Quest",
+      status: "refined",
+      description: longDescription,
+      createdAt: Date.now(),
+      statusChangedAt: Date.now(),
+    } as any);
+
+    const transitionRes = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: companionJsonAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({ status: "refined", description: longDescription }),
+    });
+
+    expect(transitionRes.status).toBe(200);
+    expect(transitionRes.headers.get(QUEST_TLDR_WARNING_HEADER)).toContain("quest description is 1200+ characters");
+  });
+
+  it("keeps unauthenticated browser-style description writes quiet", async () => {
+    const longDescription = "Long quest description. ".repeat(80).trim();
+    vi.spyOn(questStore, "createQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      status: "idea",
+      description: longDescription,
+      createdAt: Date.now(),
+    } as any);
+
+    const res = await app.request("/api/quests", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ title: "Quest", description: longDescription }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.headers.get(QUEST_TLDR_WARNING_HEADER)).toBeNull();
+  });
+
+  it("does not warn when authenticated description writes include TLDR metadata", async () => {
+    mockValidCompanionAuth();
+    const longDescription = "Long quest description. ".repeat(80).trim();
+    vi.spyOn(questStore, "createQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      status: "idea",
+      description: longDescription,
+      tldr: "Short quest summary",
+      createdAt: Date.now(),
+    } as any);
+
+    const res = await app.request("/api/quests", {
+      method: "POST",
+      headers: companionJsonAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({ title: "Quest", description: longDescription, tldr: "Short quest summary" }),
+    });
+
+    expect(res.status).toBe(201);
+    expect(res.headers.get(QUEST_TLDR_WARNING_HEADER)).toBeNull();
+  });
+
+  it("warns for authenticated patch and transition description rewrites even when the quest already has TLDR", async () => {
+    mockValidCompanionAuth();
+    const longDescription = "Replacement quest description. ".repeat(80).trim();
+    vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      status: "refined",
+      description: longDescription,
+      tldr: "Existing stale TLDR",
+      createdAt: Date.now(),
+    } as any);
+
+    const patchRes = await app.request("/api/quests/q-1", {
+      method: "PATCH",
+      headers: companionJsonAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({ description: longDescription }),
+    });
+
+    expect(patchRes.status).toBe(200);
+    expect(patchRes.headers.get(QUEST_TLDR_WARNING_HEADER)).toContain("quest description is 1200+ characters");
+
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      status: "refined",
+      description: "Previous description",
+      tldr: "Existing stale TLDR",
+      createdAt: Date.now(),
+    } as any);
+    vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 4,
+      title: "Quest",
+      status: "refined",
+      description: longDescription,
+      tldr: "Existing stale TLDR",
+      createdAt: Date.now(),
+      statusChangedAt: Date.now(),
+    } as any);
+
+    const transitionRes = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: companionJsonAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({ status: "refined", description: longDescription }),
+    });
+
+    expect(transitionRes.status).toBe(200);
+    expect(transitionRes.headers.get(QUEST_TLDR_WARNING_HEADER)).toContain("quest description is 1200+ characters");
+  });
+});
+
 describe("POST /api/quests/:questId/feedback", () => {
   function companionAuthHeaders(sessionId: string, token: string): Record<string, string> {
     return {
@@ -558,13 +749,13 @@ describe("POST /api/quests/:questId/feedback", () => {
     expect(patchSpy).not.toHaveBeenCalled();
   });
 
-  it("accepts authenticated caller identity for agent feedback when sessionId is omitted", async () => {
-    launcher.getSession.mockImplementation((sid: string) =>
-      sid === "session-1" ? { sessionId: "session-1", state: "running", cwd: "/test", archived: false } : undefined,
-    );
-    launcher.verifySessionAuthToken.mockImplementation(
-      (sid: string, token: string) => sid === "session-1" && token === "tok-1",
-    );
+  it("stores feedback TLDR metadata and warns non-blockingly for long agent feedback without TLDR", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "session-1",
+      state: "running",
+      cwd: "/test",
+      archived: false,
+    });
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v3",
       questId: "q-1",
@@ -578,13 +769,106 @@ describe("POST /api/quests/:questId/feedback", () => {
       verificationItems: [],
       feedback: [],
     } as any);
-    const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+    const patchSpy = vi.spyOn(questStore, "patchQuest").mockImplementationOnce(
+      async (_id, patch) =>
+        ({
+          id: "q-1-v3",
+          questId: "q-1",
+          version: 3,
+          title: "Quest",
+          createdAt: Date.now(),
+          status: "needs_verification",
+          description: "Needs verification",
+          sessionId: "session-1",
+          claimedAt: Date.now(),
+          verificationItems: [],
+          feedback: (patch as any).feedback,
+        }) as any,
+    );
+
+    const longText = "Long agent handoff. ".repeat(80).trim();
+    const res = await app.request("/api/quests/q-1/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: longText, author: "agent", sessionId: "session-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get(QUEST_TLDR_WARNING_HEADER)).toContain("quest feedback is 1200+ characters");
+    const feedback = (patchSpy.mock.calls[0]?.[1] as { feedback: Array<{ text: string; tldr?: string }> }).feedback;
+    expect(feedback[0]).toMatchObject({ text: longText });
+    expect(feedback[0].tldr).toBeUndefined();
+
+    vi.mocked(questStore.getQuest).mockResolvedValueOnce({
       id: "q-1-v3",
       questId: "q-1",
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
       status: "needs_verification",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [],
+    } as any);
+    patchSpy.mockImplementationOnce(
+      async (_id, patch) =>
+        ({
+          id: "q-1-v3",
+          questId: "q-1",
+          version: 3,
+          title: "Quest",
+          createdAt: Date.now(),
+          status: "needs_verification",
+          description: "Needs verification",
+          sessionId: "session-1",
+          claimedAt: Date.now(),
+          verificationItems: [],
+          feedback: (patch as any).feedback,
+        }) as any,
+    );
+
+    const withTldr = await app.request("/api/quests/q-1/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: longText, tldr: "Short handoff summary", author: "agent", sessionId: "session-1" }),
+    });
+
+    expect(withTldr.status).toBe(200);
+    expect(withTldr.headers.get(QUEST_TLDR_WARNING_HEADER)).toBeNull();
+    const feedbackWithTldr = (patchSpy.mock.calls.at(-1)?.[1] as { feedback: Array<{ text: string; tldr?: string }> })
+      .feedback;
+    expect(feedbackWithTldr[0]).toMatchObject({ text: longText, tldr: "Short handoff summary" });
+  });
+
+  it("accepts authenticated caller identity for agent feedback when sessionId is omitted", async () => {
+    launcher.getSession.mockImplementation((sid: string) =>
+      sid === "session-1" ? { sessionId: "session-1", state: "running", cwd: "/test", archived: false } : undefined,
+    );
+    launcher.verifySessionAuthToken.mockImplementation(
+      (sid: string, token: string) => sid === "session-1" && token === "tok-1",
+    );
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [],
+    } as any);
+    const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -596,6 +880,52 @@ describe("POST /api/quests/:questId/feedback", () => {
       method: "POST",
       headers: companionAuthHeaders("session-1", "tok-1"),
       body: JSON.stringify({ text: "Addressed", author: "agent" }),
+    });
+
+    expect(res.status).toBe(200);
+    const feedback = (patchSpy.mock.calls[0][1] as { feedback: Array<{ authorSessionId?: string }> }).feedback;
+    expect(feedback[feedback.length - 1]?.authorSessionId).toBe("session-1");
+  });
+
+  it("resolves numeric feedback sessionId before comparing to authenticated caller", async () => {
+    launcher.resolveSessionId.mockImplementation((ref: string) => (ref === "42" ? "session-1" : ref));
+    launcher.getSession.mockImplementation((sid: string) =>
+      sid === "session-1" ? { sessionId: "session-1", state: "running", cwd: "/test", archived: false } : undefined,
+    );
+    launcher.verifySessionAuthToken.mockImplementation(
+      (sid: string, token: string) => sid === "session-1" && token === "tok-1",
+    );
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [],
+    } as any);
+    const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "done",
+      description: "Needs verification",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      feedback: [{ author: "agent", authorSessionId: "session-1", text: "Addressed", ts: Date.now() }],
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/feedback", {
+      method: "POST",
+      headers: companionAuthHeaders("session-1", "tok-1"),
+      body: JSON.stringify({ text: "Addressed", author: "agent", sessionId: "42" }),
     });
 
     expect(res.status).toBe(200);
@@ -650,7 +980,7 @@ describe("POST /api/quests/:questId/feedback", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -663,7 +993,7 @@ describe("POST /api/quests/:questId/feedback", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -688,6 +1018,221 @@ describe("POST /api/quests/:questId/feedback", () => {
     });
   });
 
+  it("infers phase documentation scope from the quest leader board row", async () => {
+    launcher.getSession.mockImplementation((sid: string) =>
+      sid === "worker-1" || sid === "leader-1"
+        ? { sessionId: sid, state: "running", cwd: "/test", archived: false, isOrchestrator: sid === "leader-1" }
+        : undefined,
+    );
+    launcher.listSessions.mockReturnValue([{ sessionId: "leader-1", isOrchestrator: true }]);
+    ensureBridgeSession(bridge, "leader-1", {
+      board: new Map([
+        [
+          "q-1",
+          {
+            questId: "q-1",
+            worker: "worker-1",
+            workerNum: 12,
+            status: "IMPLEMENTING",
+            createdAt: 10,
+            updatedAt: 20,
+            journey: {
+              phaseIds: ["alignment", "explore", "implement", "code-review"],
+              activePhaseIndex: 2,
+              currentPhaseId: "implement",
+              phaseTimings: {
+                "0": { startedAt: 100, endedAt: 200 },
+                "1": { startedAt: 200, endedAt: 500 },
+                "2": { startedAt: 500 },
+              },
+            },
+          },
+        ],
+      ]),
+      completedBoard: new Map(),
+    });
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      createdAt: 1,
+      status: "in_progress",
+      description: "Ready",
+      sessionId: "worker-1",
+      claimedAt: 2,
+      leaderSessionId: "leader-1",
+      feedback: [],
+    } as any);
+    const patchSpy = vi.spyOn(questStore, "patchQuest").mockImplementationOnce(
+      async (_id, patch) =>
+        ({
+          id: "q-1",
+          questId: "q-1",
+          version: 1,
+          title: "Quest",
+          createdAt: 1,
+          status: "in_progress",
+          description: "Ready",
+          sessionId: "worker-1",
+          claimedAt: 2,
+          leaderSessionId: "leader-1",
+          feedback: (patch as any).feedback,
+          journeyRuns: (patch as any).journeyRuns,
+        }) as any,
+    );
+
+    const res = await app.request("/api/quests/q-1/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "Summary: implemented phase docs",
+        tldr: "Implemented phase docs",
+        author: "agent",
+        sessionId: "worker-1",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const patch = patchSpy.mock.calls[0]?.[1] as {
+      feedback: Array<{ phaseId?: string; phasePosition?: number; tldr?: string; kind?: string }>;
+      journeyRuns?: Array<{
+        runId: string;
+        phaseOccurrences: Array<{ occurrenceId: string; startedAt?: number; completedAt?: number }>;
+      }>;
+    };
+    expect(patch.feedback[0]).toMatchObject({
+      kind: "phase_summary",
+      phaseId: "implement",
+      phasePosition: 3,
+      tldr: "Implemented phase docs",
+    });
+    expect(patch.journeyRuns?.[0]?.runId).toBe("board-leader-1-10");
+    expect(patch.journeyRuns?.[0]?.phaseOccurrences[2]?.occurrenceId).toBe("board-leader-1-10:p3");
+    expect(patch.journeyRuns?.[0]?.phaseOccurrences[0]).toMatchObject({ startedAt: 100, completedAt: 200 });
+    expect(patch.journeyRuns?.[0]?.phaseOccurrences[1]).toMatchObject({ startedAt: 200, completedAt: 500 });
+    expect(patch.journeyRuns?.[0]?.phaseOccurrences[2]).toMatchObject({ startedAt: 500 });
+    expect(patch.journeyRuns?.[0]?.phaseOccurrences[2]?.completedAt).toBeUndefined();
+  });
+
+  it("falls back to flat feedback with a warning when inferred board context is missing", async () => {
+    launcher.getSession.mockImplementation((sid: string) =>
+      sid === "worker-1" ? { sessionId: "worker-1", state: "running", cwd: "/test", archived: false } : undefined,
+    );
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      createdAt: 1,
+      status: "in_progress",
+      description: "Ready",
+      sessionId: "worker-1",
+      claimedAt: 2,
+      leaderSessionId: "leader-1",
+      feedback: [],
+    } as any);
+    const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      createdAt: 1,
+      status: "in_progress",
+      description: "Ready",
+      sessionId: "worker-1",
+      claimedAt: 2,
+      feedback: [{ author: "agent", text: "Flat fallback", ts: Date.now(), authorSessionId: "worker-1" }],
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Flat fallback", author: "agent", sessionId: "worker-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-quest-phase-documentation-warning")).toContain("No active leader board row");
+    const feedback = (patchSpy.mock.calls[0]?.[1] as { feedback: Array<{ phaseId?: string }> }).feedback;
+    expect(feedback[0]?.phaseId).toBeUndefined();
+  });
+
+  it("ignores archived leader board rows during phase inference", async () => {
+    launcher.getSession.mockImplementation((sid: string) => {
+      if (sid === "worker-1") return { sessionId: "worker-1", state: "running", cwd: "/test", archived: false };
+      if (sid === "leader-1")
+        return {
+          sessionId: "leader-1",
+          state: "exited",
+          cwd: "/test",
+          archived: true,
+          isOrchestrator: true,
+        };
+      return undefined;
+    });
+    launcher.listSessions.mockReturnValue([{ sessionId: "leader-1", isOrchestrator: true, archived: true }]);
+    ensureBridgeSession(bridge, "leader-1", {
+      board: new Map([
+        [
+          "q-1",
+          {
+            questId: "q-1",
+            worker: "worker-1",
+            status: "IMPLEMENTING",
+            createdAt: 10,
+            updatedAt: 20,
+            journey: {
+              phaseIds: ["alignment", "implement", "code-review"],
+              activePhaseIndex: 1,
+              currentPhaseId: "implement",
+            },
+          },
+        ],
+      ]),
+      completedBoard: new Map(),
+    });
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      createdAt: 1,
+      status: "in_progress",
+      description: "Ready",
+      sessionId: "worker-1",
+      claimedAt: 2,
+      leaderSessionId: "leader-1",
+      feedback: [],
+    } as any);
+    const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      version: 1,
+      title: "Quest",
+      createdAt: 1,
+      status: "in_progress",
+      description: "Ready",
+      sessionId: "worker-1",
+      claimedAt: 2,
+      feedback: [{ author: "agent", text: "Archived fallback", ts: Date.now(), authorSessionId: "worker-1" }],
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ text: "Archived fallback", author: "agent", sessionId: "worker-1" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get("x-quest-phase-documentation-warning")).toContain("No active leader board row");
+    const patch = patchSpy.mock.calls[0]?.[1] as {
+      feedback: Array<{ phaseId?: string }>;
+      journeyRuns?: unknown[];
+    };
+    expect(patch.feedback[0]?.phaseId).toBeUndefined();
+    expect(patch.journeyRuns).toBeUndefined();
+  });
+
   it("upserts the latest agent summary comment instead of appending a near-duplicate summary entry", async () => {
     launcher.getSession.mockReturnValue({
       sessionId: "session-1",
@@ -701,7 +1246,7 @@ describe("POST /api/quests/:questId/feedback", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -709,7 +1254,13 @@ describe("POST /api/quests/:questId/feedback", () => {
       feedback: [
         { author: "human", text: "Please verify spacing", ts: Date.now() - 2000, addressed: false },
         { author: "agent", text: "Addressed: tightened spacing", ts: Date.now() - 1500, authorSessionId: "session-1" },
-        { author: "agent", text: "Summary: initial summary", ts: Date.now() - 1000, authorSessionId: "session-1" },
+        {
+          author: "agent",
+          text: "Summary: initial summary",
+          tldr: "Initial summary TLDR",
+          ts: Date.now() - 1000,
+          authorSessionId: "session-1",
+        },
       ],
     } as any);
     const patchSpy = vi.spyOn(questStore, "patchQuest").mockResolvedValueOnce({
@@ -718,7 +1269,7 @@ describe("POST /api/quests/:questId/feedback", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -737,8 +1288,9 @@ describe("POST /api/quests/:questId/feedback", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(patchSpy).toHaveBeenCalledWith(
-      "q-1",
+    const [questId, patchArg, optionsArg] = patchSpy.mock.calls[0] ?? [];
+    expect(questId).toBe("q-1");
+    expect(patchArg).toEqual(
       expect.objectContaining({
         feedback: [
           expect.objectContaining({ author: "human", text: "Please verify spacing" }),
@@ -751,8 +1303,14 @@ describe("POST /api/quests/:questId/feedback", () => {
         ],
       }),
     );
-    const feedback = (patchSpy.mock.calls[0]?.[1] as { feedback: Array<{ text: string }> }).feedback;
+    expect(optionsArg).toEqual(
+      expect.objectContaining({
+        current: expect.objectContaining({ questId: "q-1", id: "q-1-v3" }),
+      }),
+    );
+    const feedback = (patchSpy.mock.calls[0]?.[1] as { feedback: Array<{ text: string; tldr?: string }> }).feedback;
     expect(feedback).toHaveLength(3);
+    expect(feedback[2]?.tldr).toBeUndefined();
   });
 
   it("upserts the latest refreshed summary comment instead of appending a duplicate refreshed summary entry", async () => {
@@ -768,7 +1326,7 @@ describe("POST /api/quests/:questId/feedback", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),
@@ -789,7 +1347,7 @@ describe("POST /api/quests/:questId/feedback", () => {
       version: 3,
       title: "Quest",
       createdAt: Date.now(),
-      status: "needs_verification",
+      status: "done",
       description: "Needs verification",
       sessionId: "session-1",
       claimedAt: Date.now(),

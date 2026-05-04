@@ -65,6 +65,8 @@ vi.mock("../store.js", () => {
       toolResults: mockStoreValues.toolResults ?? new Map(),
       toolStartTimestamps: mockStoreValues.toolStartTimestamps ?? new Map(),
       sdkSessions: mockStoreValues.sdkSessions ?? [],
+      threadWindows: mockStoreValues.threadWindows ?? new Map(),
+      threadWindowMessages: mockStoreValues.threadWindowMessages ?? new Map(),
       feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
       turnActivityOverrides: mockStoreValues.turnActivityOverrides ?? new Map(),
       autoExpandedTurnIds: mockStoreValues.autoExpandedTurnIds ?? new Map(),
@@ -82,7 +84,9 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: vi.fn(),
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
+      quests: mockStoreValues.quests ?? [],
       toggleTurnActivity: vi.fn(),
     };
     return selector(state);
@@ -214,8 +218,9 @@ describe("MessageFeed duplicate rendering regression", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getAllByText("q-568 single rich chip")).toHaveLength(1);
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
     expect(screen.getAllByRole("button", { name: /Mark as reviewed|Mark as not reviewed/ })).toHaveLength(1);
+    expect(screen.getAllByText("q-568 single rich chip")).toHaveLength(1);
     expect(screen.queryByText("Ready for review")).toBeNull();
   });
 
@@ -254,8 +259,432 @@ describe("MessageFeed duplicate rendering regression", () => {
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getAllByText("q-568 single rich chip")).toHaveLength(1);
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
     expect(screen.getAllByRole("button", { name: /Mark as reviewed|Mark as not reviewed/ })).toHaveLength(1);
+    expect(screen.getAllByText("q-568 single rich chip")).toHaveLength(1);
     expect(screen.queryByText("Ready for review")).toBeNull();
+  });
+
+  it("does not add a Main ledger row for an anchored needs-input notification", () => {
+    const sid = "test-tool-only-needs-input-no-ledger";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Tell me if you need a decision." }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "tu-needs-input",
+            name: "Bash",
+            input: { command: 'takode notify needs-input "Pick the dispatch order"' },
+          },
+        ],
+      }),
+      makeMessage({ id: "u2", role: "user", content: "Thanks" }),
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-needs-input",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: "a1",
+        summary: "Pick the dispatch order",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Mark handled|Mark unhandled/ })).toHaveLength(1);
+    expect(screen.getAllByText("Pick the dispatch order")).toHaveLength(1);
+  });
+
+  it("keeps a Main needs-input source message visible when selected history windows would otherwise omit it", () => {
+    // q-1069: a leader proposal can be older than the bounded Main selected
+    // window while its active needs-input notification remains actionable.
+    // The anchored source message must stay available so the chip has visible
+    // context instead of disappearing with the suppressed Main fallback row.
+    const sid = "test-windowed-main-needs-input-source-message";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-proposal",
+        role: "assistant",
+        content: "Proposed follow-up quest: compact quest lifecycle event chips on mobile without removing content.",
+        timestamp: 100,
+        historyIndex: 4,
+      }),
+      makeMessage({
+        id: "a-visible-tail",
+        role: "assistant",
+        content: "I proposed this as a separate follow-up and sent an approval notification.",
+        timestamp: 200,
+        historyIndex: 25,
+      }),
+    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([
+      [
+        sid,
+        new Map([
+          [
+            "main",
+            {
+              thread_key: "main",
+              from_item: 20,
+              item_count: 1,
+              total_items: 30,
+              source_history_length: 20,
+              section_item_count: 50,
+              visible_item_count: 3,
+            },
+          ],
+        ]),
+      ],
+    ]);
+    mockStoreValues.threadWindowMessages = new Map([
+      [
+        sid,
+        new Map([
+          [
+            "main",
+            [
+              makeMessage({
+                id: "a-visible-tail",
+                role: "assistant",
+                content: "I proposed this as a separate follow-up and sent an approval notification.",
+                timestamp: 200,
+                historyIndex: 25,
+              }),
+            ],
+          ],
+        ]),
+      ],
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "114",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: "a-proposal",
+        summary: "approve compact quest lifecycle event chip follow-up quest",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(
+      screen.getByText(
+        "Proposed follow-up quest: compact quest lifecycle event chips on mobile without removing content.",
+      ),
+    ).toBeTruthy();
+    expect(screen.getByText("I proposed this as a separate follow-up and sent an approval notification.")).toBeTruthy();
+    expect(screen.getAllByText("approve compact quest lifecycle event chip follow-up quest")).toHaveLength(1);
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+  });
+
+  it("keeps a Main needs-input source visible when Main opens before its selected window arrives", () => {
+    // Opening Main directly can briefly have no installed Main thread window
+    // even though raw history and active notifications are already in store.
+    // Explicit notification source retention must still win on this cold path
+    // so visiting All Threads is not required to reveal the prompt.
+    const sid = "test-cold-main-needs-input-source-message";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-checkpoint",
+        role: "assistant",
+        content: "Self-improvement checkpoint question: should I apply this skill update?",
+        timestamp: 100,
+        historyIndex: 4,
+      }),
+      makeMessage({
+        id: "a-raw-tail",
+        role: "assistant",
+        content: "Raw historical Main tail waiting for selected-window hydration.",
+        timestamp: 200,
+        historyIndex: 25,
+      }),
+      makeMessage({
+        id: "a-live-marker",
+        role: "assistant",
+        content: "Live reconnect marker in Main.",
+        timestamp: 300,
+        historyIndex: -1,
+      }),
+    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([[sid, new Map()]]);
+    mockStoreValues.threadWindowMessages = new Map([[sid, new Map()]]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-main-cold",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: "a-checkpoint",
+        summary: "Approve self-improvement update for User Checkpoint notification gate",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Self-improvement checkpoint question: should I apply this skill update?")).toBeTruthy();
+    expect(screen.getByText("Live reconnect marker in Main.")).toBeTruthy();
+    expect(screen.queryByText("Raw historical Main tail waiting for selected-window hydration.")).toBeNull();
+    expect(screen.getAllByText("Approve self-improvement update for User Checkpoint notification gate")).toHaveLength(
+      1,
+    );
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+  });
+
+  it("does not retain quest-thread needs-input source messages in the Main selected window", () => {
+    const sid = "test-windowed-main-excludes-routed-needs-input-source-message";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-q983-plan",
+        role: "assistant",
+        content: "Plan for q-983: dispatch the worker after user approval.",
+        timestamp: 100,
+        historyIndex: 4,
+      }),
+      makeMessage({
+        id: "a-main-tail",
+        role: "assistant",
+        content: "Main feed tail remains visible.",
+        timestamp: 200,
+        historyIndex: 25,
+      }),
+    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([
+      [
+        sid,
+        new Map([
+          [
+            "main",
+            {
+              thread_key: "main",
+              from_item: 20,
+              item_count: 1,
+              total_items: 30,
+              source_history_length: 20,
+              section_item_count: 50,
+              visible_item_count: 3,
+            },
+          ],
+        ]),
+      ],
+    ]);
+    mockStoreValues.threadWindowMessages = new Map([
+      [
+        sid,
+        new Map([
+          [
+            "main",
+            [
+              makeMessage({
+                id: "a-main-tail",
+                role: "assistant",
+                content: "Main feed tail remains visible.",
+                timestamp: 200,
+                historyIndex: 25,
+              }),
+            ],
+          ],
+        ]),
+      ],
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: "a-q983-plan",
+        threadKey: "q-983",
+        questId: "q-983",
+        summary: "Approve q-983 dispatch plan",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Main feed tail remains visible.")).toBeTruthy();
+    expect(screen.queryByText("Plan for q-983: dispatch the worker after user approval.")).toBeNull();
+    expect(screen.queryByText("Approve q-983 dispatch plan")).toBeNull();
+  });
+
+  it("shows a routed needs-input source assistant message in its owner thread", () => {
+    // The notification chip is only the affordance. When a needs-input
+    // notification points at an assistant plan message, the owner thread must
+    // recover and show that source content instead of replacing it with a
+    // synthetic fallback row.
+    const sid = "test-owner-thread-routed-source-message";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Prepare the dispatch plan." }),
+      makeMessage({
+        id: "a-plan",
+        role: "assistant",
+        content: "Plan for q-983: dispatch the worker, then wait for review approval.",
+      }),
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: "a-plan",
+        threadKey: "q-983",
+        questId: "q-983",
+        summary: "Approve q-983 dispatch plan",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    expect(screen.getByText("Plan for q-983: dispatch the worker, then wait for review approval.")).toBeTruthy();
+    expect(screen.getAllByText("Approve q-983 dispatch plan")).toHaveLength(1);
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+  });
+
+  it("recovers a routed needs-input source message from selected thread-window history", () => {
+    // Reloaded leader thread windows can omit historical source messages that
+    // lack ordinary thread refs. Notification messageId routing must keep the
+    // source plan available before projection so the owner thread does not
+    // degrade to a synthetic-only approval row.
+    const sid = "test-windowed-owner-thread-routed-source-message";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-plan",
+        role: "assistant",
+        content: "Windowed q-983 plan: approve the implementation direction before dispatch.",
+        timestamp: 100,
+        historyIndex: 4,
+      }),
+      makeMessage({
+        id: "a-live-tail",
+        role: "assistant",
+        content: "Unrelated live Main tail",
+        timestamp: 200,
+        historyIndex: 25,
+      }),
+    ]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+    mockStoreValues.threadWindows = new Map([
+      [
+        sid,
+        new Map([
+          [
+            "q-983",
+            {
+              thread_key: "q-983",
+              from_item: 0,
+              item_count: 0,
+              total_items: 0,
+              source_history_length: 20,
+              section_item_count: 50,
+              visible_item_count: 3,
+            },
+          ],
+        ]),
+      ],
+    ]);
+    mockStoreValues.threadWindowMessages = new Map([[sid, new Map([["q-983", []]])]]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: "a-plan",
+        threadKey: "q-983",
+        questId: "q-983",
+        summary: "Approve q-983 implementation direction",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    expect(screen.getByText("Windowed q-983 plan: approve the implementation direction before dispatch.")).toBeTruthy();
+    expect(screen.getAllByText("Approve q-983 implementation direction")).toHaveLength(1);
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.queryByText("Unrelated live Main tail")).toBeNull();
+  });
+
+  it("still uses a synthetic owner-thread row for genuinely unanchored needs-input notifications", () => {
+    const sid = "test-owner-thread-unanchored-fallback";
+    setStoreMessages(sid, [makeMessage({ id: "u1", role: "user", content: "Prepare the dispatch plan." })]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: null,
+        threadKey: "q-983",
+        questId: "q-983",
+        summary: "Approve q-983 dispatch plan",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    expect(screen.getByTestId("attention-ledger-row").getAttribute("data-attention-type")).toBe("needs_input");
+    expect(screen.getByText("Approve q-983 dispatch plan")).toBeTruthy();
+  });
+
+  it("renders needs-input notify tool calls as normal commands beside the generated notification chip", () => {
+    // q-1013: the notification can be anchored to the preceding leader message
+    // while a later Bash tool call contains `takode notify needs-input`. The
+    // tool call must not add a second generic amber "Needs input" chip.
+    const sid = "test-needs-input-tool-call-normal-command";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Please ask before queuing the quest." }),
+      makeMessage({
+        id: "a-question",
+        role: "assistant",
+        content: "I need approval before continuing.",
+        notification: {
+          id: "n-needs-input",
+          category: "needs-input",
+          timestamp: Date.now(),
+          summary: "approve Worker Stream follow-up quest",
+        },
+      }),
+      makeMessage({
+        id: "a-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "tu-needs-input",
+            name: "Bash",
+            input: { command: 'takode notify needs-input "approve Worker Stream follow-up quest"' },
+          },
+        ],
+      }),
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-needs-input",
+        category: "needs-input",
+        timestamp: Date.now(),
+        messageId: "a-question",
+        summary: "approve Worker Stream follow-up quest",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByText("approve Worker Stream follow-up quest")).toHaveLength(1);
+    expect(screen.getByText(/takode notify needs-input/)).toBeTruthy();
+    expect(screen.queryByText("Needs input")).toBeNull();
+    expect(screen.getAllByRole("button", { name: /Mark handled|Mark unhandled/ })).toHaveLength(1);
   });
 });

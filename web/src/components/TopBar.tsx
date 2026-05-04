@@ -115,6 +115,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     sessionNum: currentSessionVm?.sessionNum ?? null,
     isQuestNamed: state.questNamedSessions.has(currentSessionId),
     questStatus: currentSessionVm?.claimedQuestStatus,
+    questReviewInboxUnread: currentSessionVm?.claimedQuestVerificationInboxUnread,
     cliSessionId: currentSessionVm?.cliSessionId ?? null,
     idleKilled: state.cliDisconnectReason.get(currentSessionId) === "idle_limit",
     changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
@@ -167,6 +168,7 @@ export function TopBar() {
     sessionNum,
     isQuestNamed,
     questStatus,
+    questReviewInboxUnread,
     cliSessionId,
     idleKilled,
     changedFilesCount,
@@ -333,7 +335,7 @@ export function TopBar() {
               )}
               {sessionName && (
                 <span className="text-[11px] font-medium truncate text-cc-fg" title={sessionName}>
-                  {questLabel(sessionName, isQuestNamed, questStatus)}
+                  {questLabel(sessionName, isQuestNamed, questStatus, questReviewInboxUnread)}
                 </span>
               )}
             </button>

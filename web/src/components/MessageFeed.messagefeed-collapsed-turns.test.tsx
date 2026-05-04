@@ -29,7 +29,7 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import type { ChatMessage } from "../types.js";
+import type { ChatMessage, ThreadAttachmentMarker, ThreadTransitionMarker } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 
 // Mock react-markdown to avoid ESM issues in tests
@@ -54,7 +54,10 @@ const mockSetFeedScrollPosition = vi.fn();
 const mockCollapseAllTurnActivity = vi.fn();
 const mockClearBottomAlignOnNextUserMessage = vi.fn();
 const mockSetComposerDraft = vi.fn();
+const mockRequestScrollToMessage = vi.fn();
+const mockSetExpandAllInTurn = vi.fn();
 const mockSendToSession: any = vi.fn(() => true);
+const mockOpenQuestOverlay = vi.fn();
 
 vi.mock("../ws.js", () => ({
   sendToSession: (sessionId: string, msg: any) => mockSendToSession(sessionId, msg),
@@ -101,7 +104,11 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
+      sessionBoards: mockStoreValues.sessionBoards ?? new Map(),
+      sessionCompletedBoards: mockStoreValues.sessionCompletedBoards ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
+      quests: mockStoreValues.quests ?? [],
     };
     return selector(state);
   };
@@ -117,6 +124,11 @@ vi.mock("../store.js", () => {
     keepTurnExpanded: mockKeepTurnExpanded,
     clearBottomAlignOnNextUserMessage: mockClearBottomAlignOnNextUserMessage,
     setComposerDraft: mockSetComposerDraft,
+    requestScrollToMessage: mockRequestScrollToMessage,
+    setExpandAllInTurn: mockSetExpandAllInTurn,
+    openQuestOverlay: mockOpenQuestOverlay,
+    sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+    sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
     removePendingUserUpload: vi.fn(),
     updatePendingUserUpload: vi.fn(),
     focusComposer: vi.fn(),
@@ -146,6 +158,53 @@ function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role
     timestamp: Date.now(),
     ...overrides,
   };
+}
+
+function movedMarker(overrides: Partial<ThreadAttachmentMarker> & { id: string; threadKey: string; count: number }) {
+  return {
+    type: "thread_attachment_marker" as const,
+    timestamp: 1,
+    markerKey: `thread-attachment:${overrides.threadKey}:${overrides.id}`,
+    questId: overrides.threadKey,
+    attachedAt: 1,
+    attachedBy: "session-1",
+    messageIds: [],
+    messageIndices: [],
+    ranges: [],
+    firstMessageId: overrides.id,
+    firstMessageIndex: 0,
+    ...overrides,
+  };
+}
+
+function transitionMarker(
+  overrides: Partial<ThreadTransitionMarker> & { id: string; sourceThreadKey: string; threadKey: string },
+) {
+  return {
+    type: "thread_transition_marker" as const,
+    timestamp: 1,
+    markerKey: `thread-transition:${overrides.sourceThreadKey}->${overrides.threadKey}:0`,
+    transitionedAt: 1,
+    reason: "route_switch" as const,
+    questId: overrides.threadKey,
+    sourceQuestId: overrides.sourceThreadKey,
+    ...overrides,
+  };
+}
+
+function hiddenThreadMessages(threadKey: string, count: number, idPrefix: string): ChatMessage[] {
+  return Array.from({ length: count }, (_, index) =>
+    makeMessage({
+      id: `${idPrefix}-${index}`,
+      role: "assistant",
+      content: `${threadKey} hidden update ${index}`,
+      metadata: { threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }] },
+    }),
+  );
+}
+
+function expectTextContent(element: Element, text: string) {
+  expect(element.textContent).toContain(text);
 }
 
 function makeFeedEntryMessage(msg: ChatMessage): FeedEntry {
@@ -256,6 +315,18 @@ function setStoreNotifications(sessionId: string, notifications: Array<Record<st
   const map = new Map();
   map.set(sessionId, notifications);
   mockStoreValues.sessionNotifications = map;
+}
+
+function setStoreAttentionRecords(sessionId: string, records: Array<Record<string, unknown>>) {
+  const map = new Map();
+  map.set(sessionId, records);
+  mockStoreValues.sessionAttentionRecords = map;
+}
+
+function setStoreBoard(sessionId: string, board: Array<Record<string, unknown>>) {
+  const map = new Map();
+  map.set(sessionId, board);
+  mockStoreValues.sessionBoards = map;
 }
 
 function setStoreHistoryLoading(sessionId: string, loading: boolean) {
@@ -397,6 +468,9 @@ function resetStore() {
   mockCollapseAllTurnActivity.mockReset();
   mockClearBottomAlignOnNextUserMessage.mockReset();
   mockSetComposerDraft.mockReset();
+  mockRequestScrollToMessage.mockReset();
+  mockSetExpandAllInTurn.mockReset();
+  mockOpenQuestOverlay.mockReset();
   mockSendToSession.mockReset();
   mockSendToSession.mockReturnValue(true);
   mockStoreValues.messages = new Map();
@@ -411,6 +485,10 @@ function resetStore() {
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
   mockStoreValues.sessions = new Map();
+  mockStoreValues.sessionNotifications = new Map();
+  mockStoreValues.sessionAttentionRecords = new Map();
+  mockStoreValues.sessionBoards = new Map();
+  mockStoreValues.sessionCompletedBoards = new Map();
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.toolResults = new Map();
   mockStoreValues.toolStartTimestamps = new Map();
@@ -425,6 +503,7 @@ function resetStore() {
   mockStoreValues.pendingCodexInputs = new Map();
   mockStoreValues.activeTaskTurnId = new Map();
   mockStoreValues.sdkSessions = [];
+  mockStoreValues.quests = [];
 }
 
 /** Set explicit overrides for turn activity expansion per session.
@@ -500,234 +579,1176 @@ function makeDomRect(height: number, width = 0): DOMRect {
 }
 
 describe("MessageFeed - collapsed turns", () => {
-  it("passes defaultExpanded=true when collapsing the latest leader activity row", () => {
-    // Leader turns now always show the last assistant text as the collapsed
-    // response preview. This test needs additional agent activity (internal
-    // messages) so the CollapsedActivityBar still renders with a message count.
-    const sid = "test-leader-latest-toggle";
-    setStoreSdkSessionRole(sid, { isOrchestrator: true });
-    setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "status" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Checking workers..." }),
-      makeMessage({ id: "a2", role: "assistant", content: "Assigned q-400 to #9" }),
-    ]);
-
-    render(<MessageFeed sessionId={sid} />);
-
-    // a2 becomes responseEntry (shown as collapsed preview), a1 stays as 1 internal message
-    fireEvent.click(screen.getByText("1 message"));
-    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", true);
-  });
-
-  it("leader mode leaves deprecated tag text in the collapsed card", () => {
-    const sid = "test-leader-promotion";
-    setStoreSdkSessionRole(sid, { isOrchestrator: true });
-    setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Kick off orchestration" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-600 to #2" }),
-      makeMessage({
-        id: "a2",
-        role: "assistant",
-        content: "First update from the herd. @to(user)",
-      }),
-      makeMessage({ id: "a3", role: "assistant", content: "Nudged #2 about test coverage" }),
-      makeMessage({
-        id: "a4",
-        role: "assistant",
-        content: "Second update with progress. @to(user)",
-      }),
-      makeMessage({ id: "a5", role: "assistant", content: "Internal coordination @to(self)" }),
-      // New user message creates turn boundary
-      makeMessage({ id: "u2", role: "user", content: "Thanks" }),
-    ]);
-
-    render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.getByText("Kick off orchestration")).toBeTruthy();
-    expect(screen.getByText("Internal coordination @to(self)")).toBeTruthy();
-    expect(screen.queryByText("Assigned q-600 to #2")).toBeNull();
-    expect(screen.queryByText("Nudged #2 about test coverage")).toBeNull();
-    expect(screen.queryByText("Second update with progress. @to(user)")).toBeNull();
-    expect(screen.queryByText("First update from the herd. @to(user)")).toBeNull();
-  });
-
-  it("leader mode renders deprecated suffixes raw inside mixed assistant messages", () => {
-    const sid = "test-leader-multi-text-boundary";
-    setStoreSdkSessionRole(sid, { isOrchestrator: true });
-    setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Need a status update" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-777 to #4" }),
-      makeMessage({
-        id: "a2",
-        role: "assistant",
-        content:
-          "I investigated worker logs and reproduced the failure.\nRoot cause confirmed; patch queued. @to(user)",
-        contentBlocks: [
-          { type: "text", text: "I investigated worker logs and reproduced the failure." },
-          { type: "tool_use", id: "tu-200", name: "Bash", input: { command: 'rg -n "leader" web/src/components' } },
-          { type: "text", text: "Root cause confirmed; patch queued. @to(user)" },
-        ],
-      }),
-      makeMessage({ id: "a3", role: "assistant", content: "Queued follow-up validation for #4" }),
-    ]);
-
-    render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.getByText("I investigated worker logs and reproduced the failure.")).toBeTruthy();
-    expect(screen.getByText("Root cause confirmed; patch queued. @to(user)")).toBeTruthy();
-    expect(screen.getByText("Assigned q-777 to #4")).toBeTruthy();
-    expect(screen.getByText("Queued follow-up validation for #4")).toBeTruthy();
-  });
-
-  it("passes defaultExpanded=true when collapsing the latest leader turn with tool activity", () => {
-    // Turns no longer split at @to(user) — all entries stay in one turn.
-    // Add a tool call so there's a collapsible activity bar to click.
-    const sid = "test-leader-last-user-boundary";
-    setStoreSdkSessionRole(sid, { isOrchestrator: true });
-    setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "status" }),
-      makeMessage({
-        id: "a1",
-        role: "assistant",
-        content: "",
-        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "ls" } }],
-      }),
-      makeMessage({
-        id: "a2",
-        role: "assistant",
-        content: "#9 is implementing now. @to(user)",
-      }),
-    ]);
-
-    render(<MessageFeed sessionId={sid} />);
-
-    // The turn has tool activity → click the activity bar
-    const activityRows = screen.getAllByText("1 tool");
-    fireEvent.click(activityRows[activityRows.length - 1]);
-    expect(mockToggleTurnActivity).toHaveBeenCalledWith(sid, "u1", true);
-  });
-
-  it("leader mode shows deprecated tags raw in the response preview", () => {
-    const sid = "test-leader-collapse";
+  it("leader sessions render unthreaded Main activity instead of private collapsed activity", () => {
+    // Main remains a readable staging thread. Unthreaded leader activity is
+    // visible directly instead of being hidden behind a synthetic activity bar.
+    const sid = "test-leader-main-full-stream";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
       makeMessage({ id: "u1", role: "user", content: "Coordinate workers" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-127 to #3" }),
-      makeMessage({ id: "a_self", role: "assistant", content: "internal check @to(self)" }),
-      makeMessage({
-        id: "a2",
-        role: "assistant",
-        content: "I delegated auth + tests. Waiting for your review. @to(user)",
-      }),
-      makeMessage({ id: "u2", role: "user", content: "continue" }),
-      makeMessage({ id: "a3", role: "assistant", content: "peeked #3 and nudged #4" }),
+      makeMessage({ id: "a1", role: "assistant", content: "Private orchestration detail" }),
+      makeMessage({ id: "a2", role: "assistant", content: "Published leader update" }),
     ]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("I delegated auth + tests. Waiting for your review. @to(user)")).toBeTruthy();
-    expect(screen.queryByText("Assigned q-127 to #3")).toBeNull();
-    expect(screen.queryByText("internal check")).toBeNull();
-    expect(screen.getByText("peeked #3 and nudged #4")).toBeTruthy();
+    expect(screen.getByText("Coordinate workers")).toBeTruthy();
+    expect(screen.getByText("Private orchestration detail")).toBeTruthy();
+    expect(screen.getByText("Published leader update")).toBeTruthy();
+    expect(screen.queryByText("Leader activity")).toBeNull();
   });
 
-  it("leader mode keeps the latest turn tool activity expanded by default", () => {
-    // Tool activity a3 is visible since the latest turn is expanded by default.
-    const sid = "test-leader-latest-tools-expanded";
+  it("collapses the latest dense selected quest-thread turn for leader sessions", () => {
+    // Selected leader thread tabs can be one logical conversation item with many
+    // tool rows. Keep those rows unmounted by default until the user expands.
+    const sid = "test-leader-thread-dense-default-collapsed";
     setStoreSdkSessionRole(sid, { isOrchestrator: true });
     setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Status?" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-333 to #6" }),
       makeMessage({
-        id: "a2",
-        role: "assistant",
-        content: "Worker #6 is implementing now. @to(user)",
+        id: "u-q1128",
+        role: "user",
+        content: "Review the new input notification",
+        metadata: { threadRefs: [{ threadKey: "q-1128", questId: "q-1128", source: "explicit" }] },
       }),
       makeMessage({
-        id: "a3",
+        id: "a-q1128-tool-1",
         role: "assistant",
         content: "",
-        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "npm test" } }],
-      }),
-    ]);
-
-    render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.getByText("Assigned q-333 to #6")).toBeTruthy();
-    // Tool activity visible since turn is expanded (last turn)
-    expect(screen.getByText("npm test")).toBeTruthy();
-  });
-
-  it("leader mode keeps the active latest turn expanded while streaming even with a stale collapsed override", () => {
-    const sid = "test-leader-streaming-latest-forces-expanded";
-    setStoreSdkSessionRole(sid, { isOrchestrator: true });
-    setStoreStatus(sid, "running");
-    setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Status?" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-333 to #6" }),
-      makeMessage({
-        id: "a2",
-        role: "assistant",
-        content: "Worker #6 is implementing now. @to(user)",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-q1128-1", name: "Bash", input: { command: "takode board promote q-1128" } },
+        ],
+        metadata: { threadRefs: [{ threadKey: "q-1128", questId: "q-1128", source: "explicit" }] },
       }),
       makeMessage({
-        id: "a3",
+        id: "a-q1128-tool-2",
         role: "assistant",
         content: "",
-        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "npm test" } }],
+        contentBlocks: [
+          { type: "tool_use", id: "tu-q1128-2", name: "Bash", input: { command: "takode board note q-1128" } },
+        ],
+        metadata: { threadRefs: [{ threadKey: "q-1128", questId: "q-1128", source: "explicit" }] },
       }),
     ]);
-    setStoreTurnOverrides(sid, [["u1", false]]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1128" />);
+
+    expect(screen.getByText("Review the new input notification")).toBeTruthy();
+    expect(screen.getByText("Leader activity")).toBeTruthy();
+    expect(screen.queryByText("takode board promote q-1128")).toBeNull();
+    expect(screen.queryByText("takode board note q-1128")).toBeNull();
+  });
+
+  it("keeps explicitly routed quest messages out of Main", () => {
+    // Clean Main excludes messages with explicit non-main route metadata while
+    // avoiding compact quest activity markers that look like Main activity.
+    const sid = "test-main-clean-explicit-route";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "a-q941",
+        role: "assistant",
+        content: "q-941 routed update",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+    ]);
 
     render(<MessageFeed sessionId={sid} />);
 
-    expect(screen.getByText("npm test")).toBeTruthy();
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    expect(screen.queryByText("q-941 routed update")).toBeNull();
   });
 
-  it("leader mode still collapses the older turn when a fresh follow-up arrives", () => {
-    const sid = "test-leader-streaming-penultimate-collapses";
-    setStoreSdkSessionRole(sid, { isOrchestrator: true });
-    setStoreStatus(sid, "running");
+  it("can render an unprojected worker transcript with quest-routed leader dispatch messages", () => {
+    // Worker sessions do not expose leader thread navigation, so their message
+    // feed must show the authoritative chronological history even when the
+    // leader dispatch carries q-thread routing metadata.
+    const sid = "test-worker-unprojected-leader-dispatch";
     setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Status?" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-333 to #6" }),
+      makeMessage({
+        id: "u-dispatch",
+        role: "user",
+        content: "Work on [q-1047](quest:q-1047).",
+        agentSource: { sessionId: "leader-1", sessionLabel: "#1286 Quest Journey UI Leader" },
+        metadata: { threadRefs: [{ threadKey: "q-1047", questId: "q-1047", source: "explicit" }] },
+      }),
+      makeMessage({ id: "a-readin", role: "assistant", content: "Concrete understanding: implement the quest." }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} projectThreadRoutes={false} />);
+
+    expect(screen.getByText("Work on [q-1047](quest:q-1047).")).toBeTruthy();
+    expect(screen.getByText("Concrete understanding: implement the quest.")).toBeTruthy();
+  });
+
+  it("keeps explicitly routed quest messages visible in their quest thread and All Threads", () => {
+    const sid = "test-quest-routed-visibility";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "a-q941",
+        role: "assistant",
+        content: "q-941 routed update",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+    ]);
+
+    const questView = render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+    expect(screen.getByText("q-941 routed update")).toBeTruthy();
+    expect(screen.queryByText("Main-only setup")).toBeNull();
+    questView.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+    expect(screen.getByText("q-941 routed update")).toBeTruthy();
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
+  });
+
+  it("keeps quest-scoped herd event injections out of Main without activity markers", () => {
+    const sid = "test-main-no-herd-thread-markers";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "herd-q998",
+        role: "user",
+        content: "6 activities in q-998",
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+        metadata: { threadRefs: [{ threadKey: "q-998", questId: "q-998", source: "inferred" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    expect(screen.queryByText("6 activities in q-998")).toBeNull();
+  });
+
+  it("recovers legacy Main-routed herd messages from transcript target content", () => {
+    const sid = "test-main-legacy-herd-content-route";
+    const content = [
+      "1 event from 1 session",
+      "",
+      "#1323 | turn_end | ✓ 1m 52s | tools: 29 | [350]-[414] | 1 user msg [350]",
+      '[350] leader: "Review [q-1005](quest:q-1005) in the Outcome Review phase.',
+      '[414] "ACCEPT: screenshots show `q-99` inserted after Main for [q-1005](quest:q-1005)."',
+    ].join("\n");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "herd-q1005",
+        role: "user",
+        content,
+        agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+        metadata: { threadKey: "main" },
+      }),
+    ]);
+
+    const mainView = render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
+    expect(screen.queryByText("Outcome Review phase.")).toBeNull();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    mainView.unmount();
+
+    const questView = render(<MessageFeed sessionId={sid} threadKey="q-1005" />);
+    expect(screen.getByText("#1323")).toBeTruthy();
+    questView.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+    expect(screen.getByText("#1323")).toBeTruthy();
+  });
+
+  it("keeps legacy source-routed messages visible without source attachment markers", () => {
+    const sid = "test-source-thread-legacy-marker-inference";
+    const marker = movedMarker({
+      id: "marker-q-941",
+      threadKey: "q-941",
+      count: 1,
+      messageIds: ["m-source"],
+      messageIndices: [4],
+      ranges: ["4"],
+    });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "m-source",
+        role: "assistant",
+        content: "Legacy source-routed context",
+        historyIndex: 4,
+        metadata: { threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "1 message moved to q-941",
+        metadata: { threadAttachmentMarker: marker },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-940" />);
+
+    expect(screen.getByText("Legacy source-routed context")).toBeTruthy();
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
+  });
+
+  it("shows pure route-switch handoffs in the source quest thread without moved-message counts", () => {
+    const sid = "test-source-thread-route-switch-handoff";
+    const marker = transitionMarker({
+      id: "transition-q940-q941",
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      threadKey: "q-941",
+      questId: "q-941",
+    });
+    const onSelectThread = vi.fn();
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "source-update",
+        role: "assistant",
+        content: "Source quest waits for approval",
+        metadata: { threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "Work continued from thread:q-940 to thread:q-941",
+        metadata: { threadTransitionMarker: marker },
+      }),
+      makeMessage({
+        id: "dest-update",
+        role: "assistant",
+        content: "Destination quest dispatch",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+    ]);
+
+    const sourceView = render(<MessageFeed sessionId={sid} threadKey="q-940" onSelectThread={onSelectThread} />);
+    const transition = screen.getByTestId("thread-transition-marker");
+    expectTextContent(transition, "Work continued from thread:q-940 to thread:q-941");
+    expect(transition.textContent).not.toContain("messages moved");
+    expect(screen.queryByText("Destination quest dispatch")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "thread:q-941" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-941");
+    sourceView.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+    expect(screen.getByText("Destination quest dispatch")).toBeTruthy();
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
+  });
+
+  it("does not surface quest-to-quest route-switch handoffs as Main noise", () => {
+    const sid = "test-main-suppresses-quest-route-switch-handoff";
+    const marker = transitionMarker({
+      id: "transition-q940-q941",
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      threadKey: "q-941",
+      questId: "q-941",
+    });
+    setStoreMessages(sid, [
+      makeMessage({ id: "main-setup", role: "assistant", content: "Main setup" }),
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "Work continued from thread:q-940 to thread:q-941",
+        metadata: { threadTransitionMarker: marker },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Main setup")).toBeTruthy();
+    expect(screen.queryByTestId("thread-transition-marker")).toBeNull();
+    expect(screen.queryByText(/Work continued from/)).toBeNull();
+  });
+
+  it("keeps old unmarked backfill references visible in Main", () => {
+    // Older sessions may have backfill threadRefs without a marker. Without the
+    // marker boundary, Main preserves historical visibility.
+    const sid = "test-main-old-backfill-compat";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "m-old-backfill",
+        role: "assistant",
+        content: "Old backfill still visible",
+        historyIndex: 1,
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "backfill" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Old backfill still visible")).toBeTruthy();
+  });
+
+  it("renders All Threads as the global view", () => {
+    const sid = "test-all-threads-global-view";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "a-q941",
+        role: "assistant",
+        content: "q-941 routed update",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
+    expect(screen.getByText("q-941 routed update")).toBeTruthy();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+  });
+
+  it("keeps same-thread badges hidden in Main while leaving the messages visible", () => {
+    const sid = "test-main-hides-redundant-thread-badges";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u-main",
+        role: "user",
+        content: "Main dispatch",
+        metadata: { threadKey: "main" },
+      }),
+      makeMessage({
+        id: "a-main",
+        role: "assistant",
+        content: "Main response",
+        contentBlocks: [{ type: "text", text: "Main response" }],
+        metadata: { threadKey: "main" },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Main dispatch")).toBeTruthy();
+    expect(screen.getByText("Main response")).toBeTruthy();
+    expect(screen.queryByTestId("thread-source-badge")).toBeNull();
+  });
+
+  it("keeps thread badges visible in All Threads because it has no single selected thread", () => {
+    const sid = "test-all-threads-keeps-thread-badges";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u-main",
+        role: "user",
+        content: "Main dispatch",
+        metadata: { threadKey: "main" },
+      }),
+      makeMessage({
+        id: "a-q941",
+        role: "assistant",
+        content: "q-941 routed update",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+
+    expect(screen.getByText("Main dispatch")).toBeTruthy();
+    expect(screen.getByText("q-941 routed update")).toBeTruthy();
+    expect(screen.getAllByTestId("thread-source-badge").map((badge) => badge.textContent)).toEqual([
+      "[thread:main]",
+      "[thread:q-941]",
+    ]);
+  });
+
+  it("suppresses hidden quest activity markers including the triggering routed user message", () => {
+    const sid = "test-main-hidden-activity-group";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-main", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "u-q975",
+        role: "user",
+        content: "Hidden q-975 user trigger",
+        metadata: { threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-q975",
+        role: "assistant",
+        content: "Hidden q-975 assistant response",
+        metadata: { threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+
+    expect(screen.getByText("Main-only setup")).toBeTruthy();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    expect(screen.queryByText("Hidden q-975 user trigger")).toBeNull();
+    expect(screen.queryByText("Hidden q-975 assistant response")).toBeNull();
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+  });
+
+  it("does not duplicate active needs-input notifications as Main ledger rows", () => {
+    const sid = "test-main-attention-ledger-notification";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests", timestamp: 100 }),
+      makeMessage({
+        id: "a-q983",
+        role: "assistant",
+        content: "Hidden q-983 implementation note",
+        timestamp: 110,
+        metadata: { threadRefs: [{ threadKey: "q-983", questId: "q-983", source: "explicit" }] },
+      }),
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        summary: "Approve the implementation direction",
+        timestamp: 120,
+        messageId: "a-q983",
+        threadKey: "q-983",
+        questId: "q-983",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.queryByText("Approve the implementation direction")).toBeNull();
+    expect(screen.queryByText("Hidden q-983 implementation note")).toBeNull();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+  });
+
+  it("renders routed unanchored needs-input notifications in their owner thread feed", () => {
+    const sid = "test-owner-thread-unanchored-needs-input";
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        summary: "Approve the implementation direction",
+        timestamp: 120,
+        messageId: null,
+        threadKey: "q-983",
+        questId: "q-983",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.getAttribute("data-attention-state")).toBe("unresolved");
+    expect(row.getAttribute("data-attention-type")).toBe("needs_input");
+    expect(screen.getByText("Approve the implementation direction")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Answer" })).toBeTruthy();
+  });
+
+  it("does not duplicate anchored owner-thread needs-input notifications as synthetic ledger rows", () => {
+    const sid = "test-owner-thread-anchored-needs-input-no-ledger";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-q983",
+        role: "assistant",
+        content: "I need approval before continuing.",
+        timestamp: 110,
+        metadata: { threadRefs: [{ threadKey: "q-983", questId: "q-983", source: "explicit" }] },
+      }),
+    ]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-q983",
+        category: "needs-input",
+        summary: "Approve the implementation direction",
+        timestamp: 120,
+        messageId: "a-q983",
+        threadKey: "q-983",
+        questId: "q-983",
+        done: false,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-983" />);
+
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.getAllByText("Approve the implementation direction")).toHaveLength(1);
+  });
+
+  it("keeps resolved attention ledger rows visible with resolved state", () => {
+    const sid = "test-main-attention-ledger-resolved";
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-983 ready for review",
+        timestamp: 120,
+        messageId: null,
+        threadKey: "q-983",
+        questId: "q-983",
+        done: true,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.getAttribute("data-attention-state")).toBe("resolved");
+    expect(screen.getByText("Journey finished")).toBeTruthy();
+    expect(row.className).toContain("bg-emerald-500/10");
+    expect(screen.queryByText(/ready for review/i)).toBeNull();
+    expect(row.textContent).not.toContain("Needs attention");
+    expect(row.textContent).not.toContain("Resolved");
+    expect(screen.getByRole("button", { name: "Open thread:q-983" })).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
+  });
+
+  it("renders review ledger rows with compact finished copy and no duplicate summary", () => {
+    const sid = "test-main-attention-ledger-review-finished";
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreNotifications(sid, [
+      {
+        id: "n-review",
+        category: "review",
+        summary: "q-983 ready for review: Compact notification cards",
+        timestamp: 120,
+        messageId: null,
+        threadKey: "q-983",
+        questId: "q-983",
+        done: false,
+      },
+    ]);
+
+    const onSelectThread = vi.fn();
+    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.textContent).toContain("Journey finished");
+    expect(row.className).toContain("border-emerald-400/30");
+    expect(row.className).toContain("bg-emerald-500/10");
+    expect(row.textContent).toContain("Compact notification cards");
+    const questLink = within(row).getByRole("link", { name: "q-983" });
+    expect(questLink.getAttribute("href")).toBe("#/?quest=q-983");
+    fireEvent.click(questLink);
+    expect(mockOpenQuestOverlay).toHaveBeenCalledWith("q-983");
+    expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+    fireEvent.click(within(row).getByRole("button", { name: "Open thread:q-983" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-983");
+    expect(row.textContent).not.toContain("Needs attention");
+    expect(row.textContent?.match(/Compact notification cards/g)).toHaveLength(1);
+    expect(screen.queryByText(/ready for review/i)).toBeNull();
+    expect(screen.queryByRole("button", { name: "Review" })).toBeNull();
+  });
+
+  it("renders Journey start ledger rows with inline quest and thread navigation", () => {
+    const sid = "test-main-attention-ledger-journey-start";
+    const onSelectThread = vi.fn();
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreAttentionRecords(sid, [
+      {
+        id: "board-journey-start:q-1033:120",
+        leaderSessionId: sid,
+        type: "quest_journey_started",
+        source: { kind: "board", id: "q-1033", questId: "q-1033", signature: "started:120" },
+        questId: "q-1033",
+        threadKey: "q-1033",
+        title: "Journey started",
+        summary: "Show lifecycle chips",
+        actionLabel: "Open",
+        priority: "created",
+        state: "resolved",
+        createdAt: 120,
+        updatedAt: 120,
+        resolvedAt: 120,
+        route: { threadKey: "q-1033", questId: "q-1033" },
+        chipEligible: false,
+        ledgerEligible: true,
+        dedupeKey: "board-journey-start:q-1033:120",
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.getAttribute("data-attention-type")).toBe("quest_journey_started");
+    expect(row.getAttribute("data-attention-event")).toBe("true");
+    expect(row.className).toContain("border-fuchsia-400/25");
+    expect(row.textContent).toContain("Journey started");
+    expect(within(row).getByRole("link", { name: "q-1033" })).toBeTruthy();
+    fireEvent.click(within(row).getByRole("button", { name: "Open thread:q-1033" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-1033");
+    expect(row.textContent).not.toContain("Resolved");
+    expect(screen.queryByRole("button", { name: "Open" })).toBeNull();
+  });
+
+  it("suppresses persisted thread-created ledger rows", () => {
+    const sid = "test-main-attention-ledger-thread-created";
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreAttentionRecords(sid, [
+      {
+        id: "thread-opened:q-1034",
+        leaderSessionId: sid,
+        type: "quest_thread_created",
+        source: { kind: "manual", id: "q-1034", questId: "q-1034", signature: "thread-opened" },
+        questId: "q-1034",
+        threadKey: "q-1034",
+        title: "Thread opened",
+        summary: "q-1034: Thread event chip",
+        actionLabel: "Open",
+        priority: "created",
+        state: "resolved",
+        createdAt: 121,
+        updatedAt: 121,
+        resolvedAt: 121,
+        route: { threadKey: "q-1034", questId: "q-1034" },
+        chipEligible: false,
+        ledgerEligible: true,
+        dedupeKey: "thread-opened:q-1034",
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByTestId("attention-ledger-row")).toBeNull();
+    expect(screen.queryByText("Thread opened")).toBeNull();
+  });
+
+  it("renders server-authoritative attention lifecycle records from the live store", () => {
+    // `seen`, `dismissed`, and `superseded` are not notification states. Main
+    // must render them from the shared server-authoritative record collection.
+    const sid = "test-main-attention-ledger-live-records";
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreAttentionRecords(sid, [
+      {
+        id: "manual-seen",
+        leaderSessionId: sid,
+        type: "needs_input",
+        source: { kind: "manual", id: "manual-seen" },
+        questId: "q-983",
+        threadKey: "q-983",
+        title: "Implementation direction seen",
+        summary: "Still unresolved after being seen",
+        actionLabel: "Answer",
+        priority: "needs_input",
+        state: "seen",
+        createdAt: 120,
+        updatedAt: 140,
+        route: { threadKey: "q-983", questId: "q-983" },
+        chipEligible: true,
+        ledgerEligible: true,
+        dedupeKey: "manual-seen",
+      },
+      {
+        id: "manual-dismissed",
+        leaderSessionId: sid,
+        type: "blocked_user_resolvable",
+        source: { kind: "manual", id: "manual-dismissed" },
+        questId: "q-984",
+        threadKey: "q-984",
+        title: "External unblock dismissed",
+        summary: "Dismissed without resolving",
+        actionLabel: "Open",
+        priority: "blocked",
+        state: "dismissed",
+        createdAt: 130,
+        updatedAt: 150,
+        dismissedAt: 150,
+        route: { threadKey: "q-984", questId: "q-984" },
+        chipEligible: true,
+        ledgerEligible: true,
+        dedupeKey: "manual-dismissed",
+      },
+      {
+        id: "manual-superseded",
+        leaderSessionId: sid,
+        type: "quest_reopened_or_rework",
+        source: { kind: "manual", id: "manual-superseded" },
+        questId: "q-975",
+        threadKey: "q-975",
+        title: "Older rework request",
+        summary: "Superseded by a newer request",
+        actionLabel: "Open",
+        priority: "milestone",
+        state: "superseded",
+        createdAt: 140,
+        updatedAt: 160,
+        route: { threadKey: "q-975", questId: "q-975" },
+        chipEligible: false,
+        ledgerEligible: true,
+        dedupeKey: "manual-superseded",
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const rows = screen.getAllByTestId("attention-ledger-row");
+    expect(rows.map((row) => row.getAttribute("data-attention-state"))).toEqual(["seen", "dismissed", "superseded"]);
+    expect(screen.getByText("Seen")).toBeTruthy();
+    expect(screen.getByText("Dismissed")).toBeTruthy();
+    expect(screen.getByText("Superseded")).toBeTruthy();
+  });
+
+  it("surfaces routed user rework feedback as a low-priority Main ledger milestone", () => {
+    const sid = "test-main-attention-ledger-rework-message";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-main", role: "user", content: "Main coordination", timestamp: 100 }),
+      makeMessage({
+        id: "msg-9248",
+        role: "user",
+        content:
+          "This looks horrible. Please ask the agent to fix this. All consecutive hidden activities should be merged.",
+        timestamp: 120,
+        metadata: { threadRefs: [{ threadKey: "q-975", questId: "q-975", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const row = screen.getByTestId("attention-ledger-row");
+    expect(row.getAttribute("data-attention-type")).toBe("quest_reopened_or_rework");
+    expect(row.getAttribute("data-attention-state")).toBe("reopened");
+    expect(screen.getByText("Reopened")).toBeTruthy();
+    expect(screen.getByText("q-975: rework requested")).toBeTruthy();
+  });
+
+  it("renders board wait-for-input as attention without promoting ordinary wait-for dependencies", () => {
+    const sid = "test-main-attention-ledger-board-wait";
+    setStoreMessages(sid, [makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests" })]);
+    setStoreBoard(sid, [
+      {
+        questId: "q-983",
+        title: "Implement Main attention ledger rows",
+        waitForInput: ["n-missing"],
+        updatedAt: 120,
+      },
+      {
+        questId: "q-984",
+        title: "Implement compact chips",
+        waitFor: ["free-worker"],
+        updatedAt: 140,
+      },
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("attention-ledger-row").getAttribute("data-attention-type")).toBe("needs_input");
+    expect(screen.getByText("q-983: Implement Main attention ledger rows")).toBeTruthy();
+    expect(screen.getByText("Waiting for input: n-missing")).toBeTruthy();
+    expect(screen.queryByText("q-984: Implement compact chips")).toBeNull();
+  });
+
+  it("merges consecutive hidden non-quest Main activity markers across destination threads", () => {
+    // Non-quest routed activity still keeps the sparse awareness marker; quest
+    // activity is suppressed in Main so it cannot look like Main timeline work.
+    const sid = "test-main-hidden-activity-multi-thread-group";
+    const onSelectThread = vi.fn();
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-main", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "a-side-a-1",
+        role: "assistant",
+        content: "Hidden side-a first update",
+        metadata: { threadRefs: [{ threadKey: "side-a", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-side-a-2",
+        role: "assistant",
+        content: "Hidden side-a second update",
+        metadata: { threadRefs: [{ threadKey: "side-a", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-side-b",
+        role: "assistant",
+        content: "Hidden side-b update",
+        metadata: { threadRefs: [{ threadKey: "side-b", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: "a-side-c",
+        role: "assistant",
+        content: "Hidden side-c update",
+        metadata: { threadRefs: [{ threadKey: "side-c", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={onSelectThread} />);
+
+    expect(screen.getAllByTestId("cross-thread-activity-marker")).toHaveLength(1);
+    expect(screen.getByText("4 activities in")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:side-a" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:side-b" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:side-c" })).toBeTruthy();
+    expect(screen.queryByText("Hidden side-a first update")).toBeNull();
+    expect(screen.queryByText("Hidden side-b update")).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "thread:side-b" }));
+    expect(onSelectThread).toHaveBeenCalledWith("side-b");
+  });
+
+  it("suppresses source attachment markers and quest activity rows in Main", () => {
+    // Option A keeps original source messages visible after attachment, so
+    // marker-only source rows no longer render in Main.
+    const sid = "test-main-thread-marker-mixed-cluster";
+    const markerA = movedMarker({
+      id: "marker-q-1006-a",
+      threadKey: "q-1006",
+      timestamp: 11,
+      count: 6,
+      messageIds: ["m1", "m2", "m3", "m4", "m5", "m6"],
+      messageIndices: [1, 2, 3, 4, 5, 6],
+      ranges: ["1-6"],
+    });
+    const markerB = movedMarker({
+      id: "marker-q-1006-b",
+      threadKey: "q-1006",
+      timestamp: 13,
+      count: 9,
+      messageIds: ["m7", "m8", "m9"],
+      messageIndices: [7, 8, 9],
+      ranges: ["7-15"],
+    });
+    setStoreMessages(sid, [
+      ...hiddenThreadMessages("q-1003", 4, "q1003-before"),
+      ...hiddenThreadMessages("q-1004", 6, "q1004-before"),
+      makeMessage({
+        id: markerA.id,
+        role: "system",
+        content: "6 messages moved to q-1006",
+        timestamp: markerA.timestamp,
+        metadata: { threadAttachmentMarker: markerA },
+      }),
+      ...hiddenThreadMessages("q-1006", 1, "q1006-middle"),
+      makeMessage({
+        id: markerB.id,
+        role: "system",
+        content: "9 messages moved to q-1006",
+        timestamp: markerB.timestamp,
+        metadata: { threadAttachmentMarker: markerB },
+      }),
+      ...hiddenThreadMessages("q-1006", 8, "q1006-after"),
+      ...hiddenThreadMessages("q-1003", 4, "q1003-after"),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    expect(screen.queryByText("q-1006 hidden update 0")).toBeNull();
+  });
+
+  it("stops thread-system marker clusters at ordinary visible content", () => {
+    // Ordinary chat content is the visual boundary. Markers on either side
+    // should not merge across it.
+    const sid = "test-main-hidden-activity-boundaries";
+    const marker = {
+      type: "thread_attachment_marker" as const,
+      id: "marker-q-972",
+      timestamp: 2,
+      markerKey: "thread-attachment:q-972:m1",
+      threadKey: "q-972",
+      questId: "q-972",
+      attachedAt: 2,
+      attachedBy: "session-1",
+      messageIds: ["m1"],
+      messageIndices: [1],
+      ranges: ["1"],
+      count: 1,
+    };
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-q968",
+        role: "assistant",
+        content: "Hidden q-968 update",
+        metadata: { threadRefs: [{ threadKey: "q-968", questId: "q-968", source: "explicit" }] },
+      }),
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "1 message moved to q-972",
+        timestamp: marker.timestamp,
+        metadata: { threadAttachmentMarker: marker },
+      }),
+      makeMessage({
+        id: "a-q976",
+        role: "assistant",
+        content: "Hidden q-976 update",
+        metadata: { threadRefs: [{ threadKey: "q-976", questId: "q-976", source: "explicit" }] },
+      }),
+      makeMessage({ id: "u-main-visible", role: "user", content: "Visible Main boundary" }),
+      makeMessage({
+        id: "a-q980",
+        role: "assistant",
+        content: "Hidden q-980 update",
+        metadata: { threadRefs: [{ threadKey: "q-980", questId: "q-980", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+
+    expect(screen.queryByTestId("thread-system-marker-cluster")).toBeNull();
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    expect(screen.getByText("Visible Main boundary")).toBeTruthy();
+    expect(screen.queryByTestId("thread-attachment-marker")).toBeNull();
+    expect(screen.queryByText("Hidden q-968 update")).toBeNull();
+    expect(screen.queryByText("Hidden q-976 update")).toBeNull();
+    expect(screen.queryByText("Hidden q-980 update")).toBeNull();
+  });
+
+  it("uses moved marker destination links to select the destination thread", () => {
+    const sid = "test-marker-selects-thread";
+    const onSelectThread = vi.fn();
+    const marker = {
+      type: "thread_attachment_marker" as const,
+      id: "marker-q-941",
+      timestamp: 1,
+      markerKey: "thread-attachment:q-941:m1",
+      threadKey: "q-941",
+      questId: "q-941",
+      attachedAt: 1,
+      attachedBy: "session-1",
+      messageIds: ["m1"],
+      messageIndices: [1],
+      ranges: ["1"],
+      count: 1,
+    };
+    setStoreMessages(sid, [
+      makeMessage({
+        id: marker.id,
+        role: "system",
+        content: "1 message moved to q-941",
+        timestamp: marker.timestamp,
+        variant: "info",
+        metadata: { threadAttachmentMarker: marker },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} projectThreadRoutes={false} onSelectThread={onSelectThread} />);
+    fireEvent.click(screen.getByRole("button", { name: "thread:q-941" }));
+
+    expect(onSelectThread).toHaveBeenCalledWith("q-941");
+    expect(screen.queryByText("Jump")).toBeNull();
+  });
+
+  it("groups move-only marker clusters across multiple destinations", () => {
+    const sid = "test-grouped-moved-marker-destinations";
+    const markerA = movedMarker({ id: "marker-a", threadKey: "q-1006", count: 15, ranges: ["1-15"] });
+    const markerB = movedMarker({ id: "marker-b", threadKey: "q-1008", count: 4, ranges: ["16-19"] });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: markerA.id,
+        role: "system",
+        content: "15 messages moved to q-1006",
+        timestamp: markerA.timestamp,
+        metadata: { threadAttachmentMarker: markerA },
+      }),
+      makeMessage({
+        id: markerB.id,
+        role: "system",
+        content: "4 messages moved to q-1008",
+        timestamp: markerB.timestamp,
+        metadata: { threadAttachmentMarker: markerB },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} projectThreadRoutes={false} onSelectThread={vi.fn()} />);
+
+    const cluster = screen.getByTestId("thread-attachment-marker");
+    expectTextContent(cluster, "15 messages moved to thread:q-1006, 4 to thread:q-1008");
+    expect(screen.getByRole("button", { name: "thread:q-1006" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: "thread:q-1008" })).toBeTruthy();
+  });
+
+  it("suppresses activity-only marker clusters for quest destinations", () => {
+    const sid = "test-activity-only-marker-cluster";
+    setStoreMessages(sid, [
+      ...hiddenThreadMessages("q-1003", 10, "activity-q1003"),
+      ...hiddenThreadMessages("q-1004", 14, "activity-q1004"),
+    ]);
+
+    render(<MessageFeed sessionId={sid} onSelectThread={vi.fn()} />);
+
+    expect(screen.queryByTestId("cross-thread-activity-marker")).toBeNull();
+    expect(screen.queryByText("q-1003 hidden update 0")).toBeNull();
+    expect(screen.queryByText("q-1004 hidden update 0")).toBeNull();
+  });
+
+  it("groups adjacent moved-message markers and expands chronological details", () => {
+    const sid = "test-grouped-moved-markers";
+    const markerA = {
+      type: "thread_attachment_marker" as const,
+      id: "marker-a",
+      timestamp: 1,
+      markerKey: "thread-attachment:q-972:a",
+      threadKey: "q-972",
+      questId: "q-972",
+      attachedAt: 1,
+      attachedBy: "session-1",
+      messageIds: ["m1", "m2"],
+      messageIndices: [1, 2],
+      ranges: ["1-2"],
+      count: 2,
+    };
+    const markerB = {
+      type: "thread_attachment_marker" as const,
+      id: "marker-b",
+      timestamp: 2,
+      markerKey: "thread-attachment:q-972:b",
+      threadKey: "q-972",
+      questId: "q-972",
+      attachedAt: 2,
+      attachedBy: "session-1",
+      messageIds: ["m3"],
+      messageIndices: [3],
+      ranges: ["3"],
+      count: 1,
+    };
+    setStoreMessages(sid, [
+      makeMessage({
+        id: markerA.id,
+        role: "system",
+        content: "2 messages moved to q-972",
+        timestamp: markerA.timestamp,
+        metadata: { threadAttachmentMarker: markerA },
+      }),
+      makeMessage({
+        id: markerB.id,
+        role: "system",
+        content: "1 message moved to q-972",
+        timestamp: markerB.timestamp,
+        metadata: { threadAttachmentMarker: markerB },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} projectThreadRoutes={false} onSelectThread={vi.fn()} />);
+
+    expect(screen.getAllByTestId("thread-attachment-marker")).toHaveLength(1);
+    expectTextContent(screen.getByTestId("thread-attachment-marker"), "3 messages moved to thread:q-972");
+
+    fireEvent.click(screen.getByRole("button", { name: "Details" }));
+    const details = screen.getByTestId("thread-marker-cluster-details");
+    expect(details.textContent?.indexOf("2 messages moved to thread:q-972")).toBeLessThan(
+      details.textContent?.indexOf("1 message moved to thread:q-972") ?? Number.POSITIVE_INFINITY,
+    );
+    expectTextContent(details, "Ranges: 1-2");
+    expectTextContent(details, "Ranges: 3");
+    expectTextContent(details, "Message ids: m1, m2");
+    expectTextContent(details, "Message ids: m3");
+  });
+
+  it("filters quest-thread views to associated messages while Main stays implicit", () => {
+    // Quest threads are metadata projections over the flat history. Unrelated
+    // Main messages remain out of the selected quest view.
+    const sid = "test-quest-thread-filter";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "a1",
+        role: "assistant",
+        content: "q-941 routed update",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
       makeMessage({
         id: "a2",
         role: "assistant",
-        content: "Worker #6 is implementing now. @to(user)",
+        content: "q-942 routed update",
+        metadata: { threadRefs: [{ threadKey: "q-942", questId: "q-942", source: "explicit" }] },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+
+    expect(screen.getByText("q-941 routed update")).toBeTruthy();
+    expect(screen.queryByText("q-942 routed update")).toBeNull();
+    expect(screen.queryByText("Main-only setup")).toBeNull();
+  });
+
+  it("shows user-composed quest-thread messages and subsequent routed assistant messages", () => {
+    const sid = "test-quest-thread-user-and-assistant";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u-q941",
+        role: "user",
+        content: "User reply from the q-941 thread",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
       }),
       makeMessage({
-        id: "a3",
+        id: "a-q941",
+        role: "assistant",
+        content: "Leader response routed to q-941",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+      }),
+      makeMessage({ id: "a-main", role: "assistant", content: "Unrelated Main update" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+
+    expect(screen.getByText("User reply from the q-941 thread")).toBeTruthy();
+    expect(screen.getByText("Leader response routed to q-941")).toBeTruthy();
+    expect(screen.queryByText("Unrelated Main update")).toBeNull();
+    expect(screen.queryByTestId("thread-source-badge")).toBeNull();
+  });
+
+  it("keeps moved and cross-thread provenance badges in quest-thread views", () => {
+    const sid = "test-quest-thread-keeps-provenance-badges";
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "a-backfill",
+        role: "assistant",
+        content: "Attached historical context",
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "backfill" }] },
+      }),
+      makeMessage({
+        id: "a-cross",
+        role: "assistant",
+        content: "Cross-thread origin context",
+        metadata: {
+          threadKey: "q-942",
+          questId: "q-942",
+          threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+        },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+
+    expect(screen.getByText("Attached historical context")).toBeTruthy();
+    expect(screen.getByText("Cross-thread origin context")).toBeTruthy();
+    expect(screen.getAllByTestId("thread-source-badge").map((badge) => badge.textContent)).toEqual([
+      "[thread:q-941]",
+      "[thread:q-942]",
+    ]);
+  });
+
+  it("projects routed Bash tool groups and filters unrelated live progress in quest-thread views", () => {
+    const sid = "test-quest-thread-tool-group";
+    setStoreSessionBackend(sid, "claude");
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Main-only setup" }),
+      makeMessage({
+        id: "a-tool",
         role: "assistant",
         content: "",
-        contentBlocks: [{ type: "tool_use", id: "tu-1", name: "Bash", input: { command: "npm test" } }],
+        contentBlocks: [{ type: "tool_use", id: "tu-routed", name: "Bash", input: { command: "pwd" } }],
+        metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
       }),
-      makeMessage({ id: "u2", role: "user", content: "Follow-up while streaming" }),
-    ]);
-
-    render(<MessageFeed sessionId={sid} />);
-
-    expect(screen.queryByText("npm test")).toBeNull();
-    expect(screen.getByText(/1 tool/)).toBeTruthy();
-  });
-
-  it("leader mode shows internal messages when the activity row is expanded", () => {
-    const sid = "test-leader-expand";
-    setStoreSdkSessionRole(sid, { isOrchestrator: true });
-    setStoreMessages(sid, [
-      makeMessage({ id: "u1", role: "user", content: "Status?" }),
-      makeMessage({ id: "a1", role: "assistant", content: "Assigned q-200 to #7" }),
       makeMessage({
-        id: "a2",
+        id: "a-result",
         role: "assistant",
-        content: "Worker #7 is implementing the fix now. @to(user)",
+        content: "tool result",
+        contentBlocks: [{ type: "tool_result", tool_use_id: "tu-routed", content: "workspace path" }],
+      }),
+      makeMessage({
+        id: "a-other-tool",
+        role: "assistant",
+        content: "",
+        contentBlocks: [{ type: "tool_use", id: "tu-other", name: "Bash", input: { command: "date" } }],
+        metadata: { threadRefs: [{ threadKey: "q-942", questId: "q-942", source: "explicit" }] },
       }),
     ]);
-    setStoreTurnOverrides(sid, [["u1", true]]);
+    setStoreToolProgress(sid, [
+      { toolUseId: "tu-routed", toolName: "Bash", elapsedSeconds: 12 },
+      { toolUseId: "tu-other", toolName: "Bash", elapsedSeconds: 34 },
+    ]);
 
-    render(<MessageFeed sessionId={sid} />);
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
 
-    expect(screen.getByText("Assigned q-200 to #7")).toBeTruthy();
+    expect(screen.getByText("pwd")).toBeTruthy();
+    expect(screen.getByText("workspace path")).toBeTruthy();
+    expect(screen.getAllByText("12s").length).toBeGreaterThan(0);
+    expect(screen.queryByText("date")).toBeNull();
+    expect(screen.queryByText("34s")).toBeNull();
+    expect(screen.queryByText("Main-only setup")).toBeNull();
   });
 
   it("non-last turns default to collapsed, showing activity bar + response", () => {

@@ -634,6 +634,98 @@ describe("Takode server-authoritative auth", () => {
     ]);
   });
 
+  it("stores normalized suggested answers for needs-input notifications", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "text", text: "Need approval" }] },
+      timestamp: 1000,
+    });
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need deployment approval",
+        suggestedAnswers: ["  yes  ", "not  yet"],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      suggestedAnswers: ["yes", "not yet"],
+    });
+    expect(bridge._sessions["orch-1"].notifications).toMatchObject([
+      {
+        category: "needs-input",
+        summary: "Need deployment approval",
+        suggestedAnswers: ["yes", "not yet"],
+        done: false,
+      },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Need deployment approval",
+      suggestedAnswers: ["yes", "not yet"],
+    });
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
+      "orch-1",
+      expect.objectContaining({
+        type: "notification_anchored",
+        messageId: "asst-1",
+        notification: expect.objectContaining({
+          id: "n-1",
+          suggestedAnswers: ["yes", "not yet"],
+        }),
+      }),
+    );
+  });
+
+  it("rejects suggested answers outside needs-input notifications", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review", summary: "Ready", suggestedAnswers: ["ok"] }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("suggestedAnswers are only supported for needs-input notifications");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("rejects invalid suggested answer sets", async () => {
+    setupTakodeSessions();
+
+    const tooMany = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need approval",
+        suggestedAnswers: ["one", "two", "three", "four"],
+      }),
+    });
+    expect(tooMany.status).toBe(400);
+
+    const duplicate = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need approval",
+        suggestedAnswers: ["yes", "YES"],
+      }),
+    });
+    expect(duplicate.status).toBe(400);
+    expect((await duplicate.json()).error).toBe("suggestedAnswers entries must be unique");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
   it("rejects whitespace-only summary", async () => {
     setupTakodeSessions();
 
@@ -688,7 +780,15 @@ describe("Takode server-authoritative auth", () => {
   it("lists only unresolved same-session needs-input notifications with resolved count", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].notifications = [
-      { id: "n-1", category: "needs-input", summary: "Still open", timestamp: 1000, messageId: "m-1", done: false },
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Still open",
+        suggestedAnswers: ["yes", "no"],
+        timestamp: 1000,
+        messageId: "m-1",
+        done: false,
+      },
       { id: "n-2", category: "needs-input", summary: "Already handled", timestamp: 1001, messageId: "m-2", done: true },
       { id: "n-3", category: "review", summary: "Ignore review", timestamp: 1002, messageId: "m-3", done: false },
     ];
@@ -704,6 +804,7 @@ describe("Takode server-authoritative auth", () => {
           notificationId: 1,
           rawNotificationId: "n-1",
           summary: "Still open",
+          suggestedAnswers: ["yes", "no"],
           timestamp: 1000,
           messageId: "m-1",
         },
@@ -742,6 +843,38 @@ describe("Takode server-authoritative auth", () => {
       changed: true,
     });
     expect(bridge._sessions["orch-1"].notifications[0].done).toBe(true);
+  });
+
+  it("clears linked board wait-for-input state when a needs-input notification is resolved", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      { id: "n-4", category: "needs-input", summary: "Resolve me", timestamp: 1000, messageId: null, done: false },
+      { id: "n-5", category: "needs-input", summary: "Keep me", timestamp: 1001, messageId: null, done: false },
+    ];
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "IMPLEMENTING",
+          waitForInput: ["n-4", "n-5"],
+          createdAt: 1,
+          updatedAt: 1,
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/notifications/needs-input/4/resolve", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["orch-1"].board.get("q-9")).toMatchObject({
+      waitForInput: ["n-5"],
+    });
   });
 
   it("treats resolving an already-resolved notification as a no-op", async () => {
@@ -841,6 +974,7 @@ describe("Takode server-authoritative auth", () => {
           id: "n-1",
           category: "needs-input",
           summary: "Need decision on rollout",
+          suggestedAnswers: ["ship", "hold"],
           timestamp: 1000,
           messageId: "asst-1",
           done: false,
@@ -862,8 +996,10 @@ describe("Takode server-authoritative auth", () => {
           tool_name: "takode.notify",
           timestamp: 1000,
           summary: "Need decision on rollout",
+          suggestedAnswers: ["ship", "hold"],
           msg_index: 0,
           messageId: "asst-1",
+          threadKey: "main",
         },
       ],
     });
@@ -902,10 +1038,16 @@ describe("Takode server-authoritative auth", () => {
       answer: "Use the staged rollout.",
       delivery: "sent",
     });
-    expect(bridge.injectUserMessage).toHaveBeenCalledWith("worker-1", "Use the staged rollout.", {
-      sessionId: "orch-1",
-      sessionLabel: "#7",
-    });
+    expect(bridge.injectUserMessage).toHaveBeenCalledWith(
+      "worker-1",
+      "Use the staged rollout.",
+      {
+        sessionId: "orch-1",
+        sessionLabel: "#7",
+      },
+      undefined,
+      { threadKey: "main" },
+    );
     expect(bridge.getSession("worker-1")?.notifications[0]?.done).toBe(true);
   });
 

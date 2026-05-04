@@ -54,17 +54,46 @@ export interface CompanionSettings {
   sleepInhibitorDurationMinutes: number;
   /** Preferred Questmaster list layout. Optional for backward-compatible tests/mocks. */
   questmasterViewMode?: QuestmasterViewMode;
+  /** Preferred Questmaster compact-table sort. Optional for backward-compatible tests/mocks. */
+  questmasterCompactSort?: QuestmasterCompactSort;
+  /** Codex leader-only effective context window override for Takode-managed sessions. */
+  codexLeaderContextWindowOverrideTokens: number;
+  /** Percent of each non-leader Codex model's effective window to use before auto-compact. */
+  codexNonLeaderAutoCompactThresholdPercent?: number;
+  /** Codex leader-only in-place recycle trigger based on tracked context tokens used. */
+  codexLeaderRecycleThresholdTokens: number;
+  /** Optional exact-model recycle threshold overrides keyed by user-visible Codex model ID. */
+  codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   updatedAt: number;
 }
 
 export type QuestmasterViewMode = "cards" | "compact";
+export const QUESTMASTER_COMPACT_SORT_COLUMNS = [
+  "quest",
+  "title",
+  "owner",
+  "leader",
+  "status",
+  "verify",
+  "feedback",
+  "updated",
+] as const;
+export type QuestmasterCompactSortColumn = (typeof QUESTMASTER_COMPACT_SORT_COLUMNS)[number];
+export type QuestmasterCompactSortDirection = "asc" | "desc";
+export interface QuestmasterCompactSort {
+  column: QuestmasterCompactSortColumn;
+  direction: QuestmasterCompactSortDirection;
+}
+export const DEFAULT_QUESTMASTER_COMPACT_SORT: QuestmasterCompactSort = { column: "updated", direction: "desc" };
 
 /** Enhancement output style: "default" = clean prose paragraphs, "bullet" = structured bullet points. */
 export type EnhancementMode = "default" | "bullet";
 
 /** Available OpenAI STT models. */
 export const STT_MODELS = ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "gpt-4o-mini-transcribe-2025-12-15"] as const;
-export type SttModel = (typeof STT_MODELS)[number];
+const DEFAULT_STT_MODEL = "gpt-4o-mini-transcribe";
+export type BuiltInSttModel = (typeof STT_MODELS)[number];
+export type SttModel = string;
 
 /** Configuration for voice transcription (STT + optional LLM enhancement). */
 export interface TranscriptionConfig {
@@ -140,14 +169,33 @@ let settings: CompanionSettings = {
     enhancementModel: "gpt-5-mini",
     customVocabulary: "",
     enhancementMode: "default",
-    sttModel: "gpt-4o-mini-transcribe",
+    sttModel: DEFAULT_STT_MODEL,
   },
   editorConfig: { editor: "none" },
   sleepInhibitorEnabled: false,
   sleepInhibitorDurationMinutes: 5,
   questmasterViewMode: "cards",
+  questmasterCompactSort: DEFAULT_QUESTMASTER_COMPACT_SORT,
+  codexLeaderContextWindowOverrideTokens: 1_000_000,
+  codexNonLeaderAutoCompactThresholdPercent: 90,
+  codexLeaderRecycleThresholdTokens: 260_000,
+  codexLeaderRecycleThresholdTokensByModel: {},
   updatedAt: 0,
 };
+
+export function resolveCodexLeaderRecycleThresholdTokens(
+  settings: Pick<CompanionSettings, "codexLeaderRecycleThresholdTokens" | "codexLeaderRecycleThresholdTokensByModel">,
+  modelId?: string,
+): number {
+  const normalizedModelId = typeof modelId === "string" ? modelId.trim() : "";
+  const modelOverride = normalizedModelId
+    ? settings.codexLeaderRecycleThresholdTokensByModel?.[normalizedModelId]
+    : undefined;
+  return typeof modelOverride === "number" && modelOverride >= 1
+    ? modelOverride
+    : settings.codexLeaderRecycleThresholdTokens;
+}
+
 let secrets: CompanionSecrets = {
   namerOpenAIApiKey: "",
   transcriptionApiKey: "",
@@ -167,6 +215,33 @@ function deriveSecretsPath(settingsPath: string): string {
 function resetPaths(nextFilePath: string): void {
   filePath = nextFilePath;
   secretsPath = deriveSecretsPath(nextFilePath);
+}
+
+function normalizeCodexLeaderRecycleThresholdTokensByModel(raw: unknown): Record<string, number> {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const normalizedEntries: Array<[string, number]> = [];
+  for (const [rawModelId, rawThreshold] of Object.entries(raw as Record<string, unknown>)) {
+    const modelId = rawModelId.trim();
+    if (!modelId) continue;
+    if (typeof rawThreshold !== "number" || !Number.isFinite(rawThreshold) || rawThreshold < 1) continue;
+    normalizedEntries.push([modelId, Math.floor(rawThreshold)]);
+  }
+  normalizedEntries.sort(([left], [right]) => left.localeCompare(right));
+  return Object.fromEntries(normalizedEntries);
+}
+
+function normalizeQuestmasterCompactSort(raw: unknown): QuestmasterCompactSort {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return DEFAULT_QUESTMASTER_COMPACT_SORT;
+  const candidate = raw as Record<string, unknown>;
+  const column = candidate.column;
+  const direction = candidate.direction;
+  if (
+    !QUESTMASTER_COMPACT_SORT_COLUMNS.includes(column as QuestmasterCompactSortColumn) ||
+    (direction !== "asc" && direction !== "desc")
+  ) {
+    return DEFAULT_QUESTMASTER_COMPACT_SORT;
+  }
+  return { column: column as QuestmasterCompactSortColumn, direction };
 }
 
 /** Parse namerConfig from raw settings, with backward compat for old flat fields. */
@@ -201,10 +276,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
   const cfg = raw?.transcriptionConfig;
   if (cfg && typeof cfg === "object" && !Array.isArray(cfg)) {
     const c = cfg as Record<string, unknown>;
-    const rawSttModel = typeof c.sttModel === "string" ? c.sttModel : "";
-    const sttModel = (STT_MODELS as readonly string[]).includes(rawSttModel)
-      ? (rawSttModel as SttModel)
-      : "gpt-4o-mini-transcribe";
+    const sttModel = typeof c.sttModel === "string" && c.sttModel.trim() ? c.sttModel.trim() : DEFAULT_STT_MODEL;
     const rawEnhancementMode = typeof c.enhancementMode === "string" ? c.enhancementMode : "";
     const enhancementMode: EnhancementMode =
       rawEnhancementMode === "default" || rawEnhancementMode === "bullet" ? rawEnhancementMode : "default";
@@ -228,7 +300,7 @@ function normalizeTranscriptionConfig(raw: Record<string, unknown> | null | unde
     enhancementEnabled: true,
     enhancementModel: "gpt-5-mini",
     customVocabulary: "",
-    sttModel: "gpt-4o-mini-transcribe",
+    sttModel: DEFAULT_STT_MODEL,
     enhancementMode: "default",
   };
 }
@@ -339,6 +411,24 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       raw?.questmasterViewMode === "compact" || raw?.questmasterViewMode === "cards"
         ? raw.questmasterViewMode
         : "cards",
+    questmasterCompactSort: normalizeQuestmasterCompactSort(raw?.questmasterCompactSort),
+    codexLeaderContextWindowOverrideTokens:
+      typeof raw?.codexLeaderContextWindowOverrideTokens === "number" && raw.codexLeaderContextWindowOverrideTokens >= 1
+        ? Math.floor(raw.codexLeaderContextWindowOverrideTokens)
+        : 1_000_000,
+    codexNonLeaderAutoCompactThresholdPercent:
+      typeof raw?.codexNonLeaderAutoCompactThresholdPercent === "number" &&
+      raw.codexNonLeaderAutoCompactThresholdPercent >= 1 &&
+      raw.codexNonLeaderAutoCompactThresholdPercent <= 100
+        ? Math.floor(raw.codexNonLeaderAutoCompactThresholdPercent)
+        : 90,
+    codexLeaderRecycleThresholdTokens:
+      typeof raw?.codexLeaderRecycleThresholdTokens === "number" && raw.codexLeaderRecycleThresholdTokens >= 1
+        ? Math.floor(raw.codexLeaderRecycleThresholdTokens)
+        : 260_000,
+    codexLeaderRecycleThresholdTokensByModel: normalizeCodexLeaderRecycleThresholdTokensByModel(
+      raw?.codexLeaderRecycleThresholdTokensByModel,
+    ),
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -436,6 +526,11 @@ export function updateSettings(
       | "sleepInhibitorEnabled"
       | "sleepInhibitorDurationMinutes"
       | "questmasterViewMode"
+      | "questmasterCompactSort"
+      | "codexLeaderContextWindowOverrideTokens"
+      | "codexNonLeaderAutoCompactThresholdPercent"
+      | "codexLeaderRecycleThresholdTokens"
+      | "codexLeaderRecycleThresholdTokensByModel"
     >
   >,
 ): CompanionSettings {

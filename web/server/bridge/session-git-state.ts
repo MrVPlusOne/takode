@@ -26,6 +26,7 @@ async function resolveUpstreamRef(state: SessionState): Promise<string | null> {
 export function makeDefaultState(sessionId: string, backendType: BackendType = "claude"): SessionState {
   return {
     session_id: sessionId,
+    treeGroupId: "default",
     backend_type: backendType,
     backend_state: "disconnected",
     backend_error: null,

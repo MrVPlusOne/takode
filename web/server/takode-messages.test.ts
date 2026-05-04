@@ -53,16 +53,28 @@ function assistantMsg(
   } as BrowserIncomingMessage;
 }
 
-function toolResultPreview(toolUseId: string, content: string): BrowserIncomingMessage {
+function toolResultPreview(
+  toolUseId: string,
+  content: string,
+  options: {
+    isError?: boolean;
+    durationSeconds?: number;
+    syntheticReason?: string;
+    retainedOutput?: boolean;
+  } = {},
+): BrowserIncomingMessage {
   return {
     type: "tool_result_preview",
     previews: [
       {
         tool_use_id: toolUseId,
         content,
-        is_error: false,
+        is_error: options.isError ?? false,
         total_size: content.length,
         is_truncated: false,
+        ...(typeof options.durationSeconds === "number" ? { duration_seconds: options.durationSeconds } : {}),
+        ...(options.syntheticReason ? { synthetic_reason: options.syntheticReason } : {}),
+        ...(typeof options.retainedOutput === "boolean" ? { retained_output: options.retainedOutput } : {}),
       },
     ],
   } as BrowserIncomingMessage;
@@ -562,6 +574,32 @@ describe("buildPeekRange", () => {
     expect(result.to).toBe(4);
     expect(result.messages.map((msg) => msg.idx)).toEqual([2, 3, 4]);
   });
+
+  it("shows status and orphan diagnostics for single tool calls in range mode", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("Check status", 1000),
+      assistantMsg("", 2000, [{ name: "Bash", input: { command: "git status --short" } }]),
+      resultMsg(500),
+      toolResultPreview("tu-Bash", "Terminal command did not deliver a final result after a later tool completed.", {
+        durationSeconds: 121.7,
+        syntheticReason: "superseded_by_later_completed_tool",
+        retainedOutput: false,
+      }),
+    ];
+
+    const result = buildPeekRange(history, { from: 1, until: 1 });
+    expect(result.messages[0]?.tools).toEqual([
+      expect.objectContaining({
+        name: "Bash",
+        summary: "git status --short",
+        status: "orphaned",
+        durationSeconds: 121.7,
+        syntheticReason: "superseded_by_later_completed_tool",
+        retainedOutput: false,
+        result: "Terminal command did not deliver a final result after a later tool completed.",
+      }),
+    ]);
+  });
 });
 
 describe("buildPeekTurnScan", () => {
@@ -605,6 +643,16 @@ describe("buildPeekTurnScan", () => {
     expect(result.count).toBe(0);
     expect(result.turns).toEqual([]);
     expect(result.compactionEvents).toBeUndefined();
+  });
+
+  it("preserves long turn-start user text so scan can apply its own truncation policy", () => {
+    const longUser = `human prompt ${"x".repeat(1200)} USER_SCAN_KEEP ${"y".repeat(900)}`;
+    const history: BrowserIncomingMessage[] = [userMsg(longUser, 1000), assistantMsg("reply", 2000), resultMsg(3000)];
+
+    const result = buildPeekTurnScan(history, { fromTurn: 0, turnCount: 1 });
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0].user).toContain("USER_SCAN_KEEP");
+    expect(result.turns[0].user.length).toBeGreaterThan(1500);
   });
 });
 

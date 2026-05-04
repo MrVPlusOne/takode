@@ -6,7 +6,26 @@ import * as timerStore from "./timer-store.js";
 
 const SWEEP_INTERVAL_MS = 5_000;
 const MAX_TIMERS_PER_SESSION = 50;
+const LATE_TIMER_THRESHOLD_MS = 5 * 60_000;
 const LOG_TAG = "[timer-manager]";
+
+interface TimerFireContext {
+  scheduledFireAt: number;
+  skippedCount?: number;
+}
+
+export interface TimerSweepResult {
+  fired: Array<{
+    sessionId: string;
+    timerId: string;
+    delivery: "sent" | "queued" | "dropped" | "no_session";
+  }>;
+  skipped: Array<{
+    sessionId: string;
+    timerId: string;
+    reason: "backend_disconnected";
+  }>;
+}
 
 export class TimerManager {
   /** In-memory cache: sessionId -> SessionTimerFile */
@@ -113,6 +132,22 @@ export class TimerManager {
     return this.sessions.get(sessionId)?.timers ?? [];
   }
 
+  /** Return sessions with at least one due timer. Future timers remain scheduled. */
+  getDueTimerSessionIds(now = Date.now()): string[] {
+    const sessionIds: string[] = [];
+    for (const [sessionId, file] of this.sessions) {
+      if (file.timers.some((timer) => timer.nextFireAt <= now)) {
+        sessionIds.push(sessionId);
+      }
+    }
+    return sessionIds;
+  }
+
+  /** Run one immediate due-timer sweep. Used at startup so due timers do not wait for browser navigation. */
+  async sweepDueTimersNow(now = Date.now()): Promise<TimerSweepResult> {
+    return this.sweep(now);
+  }
+
   /** Cancel all timers for a session (on archive). Deletes persistence file. */
   async cancelAllTimers(sessionId: string): Promise<void> {
     const had = this.sessions.has(sessionId);
@@ -131,7 +166,7 @@ export class TimerManager {
   private startSweep(): void {
     this.stopSweep();
     this.sweepTimer = setInterval(() => {
-      void this.sweep();
+      void this.sweepDueTimersNow();
     }, SWEEP_INTERVAL_MS);
   }
 
@@ -143,8 +178,8 @@ export class TimerManager {
   }
 
   /** Check all timers, fire any that are due. */
-  private async sweep(): Promise<void> {
-    const now = Date.now();
+  private async sweep(now = Date.now()): Promise<TimerSweepResult> {
+    const result: TimerSweepResult = { fired: [], skipped: [] };
 
     for (const [sessionId, file] of this.sessions) {
       const toRemove = new Set<string>();
@@ -153,17 +188,24 @@ export class TimerManager {
       for (const timer of file.timers) {
         if (timer.nextFireAt > now) continue;
 
-        // Timer is due -- fire it
-        this.fireTimer(sessionId, timer);
+        const fireContext =
+          timer.type === "recurring" && timer.intervalMs && timer.intervalMs > 0
+            ? this.resolveRecurringFireContext(sessionId, timer, now)
+            : { scheduledFireAt: timer.nextFireAt };
+        if (!fireContext) {
+          result.skipped.push({ sessionId, timerId: timer.id, reason: "backend_disconnected" });
+          continue;
+        }
+
+        // Timer is due -- fire it.
+        const delivery = this.fireTimer(sessionId, timer, fireContext);
+        result.fired.push({ sessionId, timerId: timer.id, delivery });
         timer.lastFiredAt = now;
         timer.fireCount++;
         changed = true;
 
         if (timer.type === "recurring" && timer.intervalMs && timer.intervalMs > 0) {
-          // Advance past now (catchup: skip missed intervals, fire only once)
-          while (timer.nextFireAt <= now) {
-            timer.nextFireAt += timer.intervalMs;
-          }
+          timer.nextFireAt = fireContext.scheduledFireAt + timer.intervalMs;
         } else {
           // One-shot (delay or at), or recurring with corrupt intervalMs: remove after firing
           toRemove.add(timer.id);
@@ -175,20 +217,63 @@ export class TimerManager {
       }
 
       if (changed) {
-        this.persistAndEvictIfEmpty(sessionId);
+        try {
+          await this.persistAndEvictIfEmptyNow(sessionId);
+        } catch (err) {
+          console.error(`${LOG_TAG} Failed to persist timers for ${sessionId.slice(0, 8)}:`, err);
+        }
         this.broadcastTimers(sessionId);
       }
     }
+
+    return result;
   }
 
   /** Fire a single timer: inject user message into the session. */
-  private fireTimer(sessionId: string, timer: SessionTimer): void {
-    const content = `[⏰ Timer ${timer.id}] ${timer.title}` + (timer.description ? `\n\n${timer.description}` : "");
+  private fireTimer(
+    sessionId: string,
+    timer: SessionTimer,
+    context: TimerFireContext,
+  ): "sent" | "queued" | "dropped" | "no_session" {
+    const content =
+      `[⏰ Timer ${timer.id} reminder] ${timer.title}` +
+      `\n\nThis is a reminder from your earlier timer note, not a new user instruction.` +
+      this.formatSkippedOccurrences(context.skippedCount) +
+      this.formatLateDeliveryNote(context.scheduledFireAt, Date.now()) +
+      (timer.description ? `\n\nEarlier note:\n${timer.description}` : "");
     const result = this.wsBridge.injectUserMessage(sessionId, content, {
       sessionId: `timer:${timer.id}`,
       sessionLabel: `Timer ${timer.id}`,
     });
     console.log(`${LOG_TAG} Fired timer ${timer.id} for session ${sessionId.slice(0, 8)}: ${result}`);
+    return result;
+  }
+
+  private resolveRecurringFireContext(sessionId: string, timer: SessionTimer, now: number): TimerFireContext | null {
+    if (!this.isBackendConnected(sessionId)) return null;
+    const intervalMs = timer.intervalMs;
+    if (!intervalMs || intervalMs <= 0) return { scheduledFireAt: timer.nextFireAt };
+    const skippedCount = Math.floor((now - timer.nextFireAt) / intervalMs);
+    return {
+      scheduledFireAt: timer.nextFireAt + skippedCount * intervalMs,
+      skippedCount,
+    };
+  }
+
+  private isBackendConnected(sessionId: string): boolean {
+    const bridge = this.wsBridge as WsBridge & { isBackendConnected?: (sessionId: string) => boolean };
+    return bridge.isBackendConnected?.(sessionId) ?? true;
+  }
+
+  private formatSkippedOccurrences(skippedCount: number | undefined): string {
+    if (!skippedCount || skippedCount <= 0) return "";
+    const noun = skippedCount === 1 ? "occurrence was" : "occurrences were";
+    return `\n\n${skippedCount} earlier due ${noun} skipped while the session was unavailable.`;
+  }
+
+  private formatLateDeliveryNote(scheduledFireAt: number, deliveredAt: number): string {
+    if (deliveredAt - scheduledFireAt <= LATE_TIMER_THRESHOLD_MS) return "";
+    return `\n\nThis timer was initially scheduled to fire at ${new Date(scheduledFireAt).toISOString()}.`;
   }
 
   // ── Browser sync ───────────────────────────────────────────────────────────
@@ -217,19 +302,27 @@ export class TimerManager {
   /** Persist to disk (nextId must survive even when empty), then evict from
    *  memory if no active timers remain. Only cancelAllTimers deletes the disk file. */
   private persistAndEvictIfEmpty(sessionId: string): void {
-    this.persistSession(sessionId);
+    this.persistAndEvictIfEmptyNow(sessionId).catch((err) => {
+      console.error(`${LOG_TAG} Failed to persist timers for ${sessionId.slice(0, 8)}:`, err);
+    });
+  }
+
+  private async persistAndEvictIfEmptyNow(sessionId: string): Promise<void> {
+    await this.persistSessionNow(sessionId);
     const file = this.sessions.get(sessionId);
-    if (file && file.timers.length === 0) {
-      this.sessions.delete(sessionId);
-    }
+    if (file && file.timers.length === 0) this.sessions.delete(sessionId);
   }
 
   /** Save session timer state to disk (fire-and-forget). */
   private persistSession(sessionId: string): void {
-    const file = this.sessions.get(sessionId);
-    if (!file) return;
-    timerStore.saveTimers(file).catch((err) => {
+    this.persistSessionNow(sessionId).catch((err) => {
       console.error(`${LOG_TAG} Failed to persist timers for ${sessionId.slice(0, 8)}:`, err);
     });
+  }
+
+  private async persistSessionNow(sessionId: string): Promise<void> {
+    const file = this.sessions.get(sessionId);
+    if (!file) return;
+    await timerStore.saveTimers(file);
   }
 }

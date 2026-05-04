@@ -97,6 +97,7 @@ function makeDeps(): AdapterBrowserRoutingDeps {
     removePendingCodexInput: vi.fn(() => null),
     clearQueuedTurnLifecycleEntries: vi.fn(),
     queueCodexPendingStartBatch: vi.fn(),
+    pokeStaleCodexPendingDelivery: vi.fn(() => false),
     rebuildQueuedCodexPendingStartBatch: vi.fn(),
     trySteerPendingCodexInputs: vi.fn(() => false),
     sendToBrowser: vi.fn(),
@@ -105,6 +106,7 @@ function makeDeps(): AdapterBrowserRoutingDeps {
     onPermissionModeChanged: vi.fn(),
     sendControlRequest: vi.fn(),
     requestCodexAutoRecovery: vi.fn(() => false),
+    requestCodexLeaderRecycle: vi.fn(async () => ({ ok: true as const })),
     requestCliRelaunch: vi.fn(),
     injectUserMessage: vi.fn((): "sent" => "sent"),
     handleSetModel: vi.fn(),
@@ -373,6 +375,98 @@ describe("permission response handling in browser routing", () => {
     ]);
   });
 
+  it("does not auto-reject pending ExitPlanMode from a different thread", async () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-main-plan", {
+      request_id: "req-main-plan",
+      tool_name: "ExitPlanMode",
+      input: { plan: "## Plan\n\n1. Main-thread plan" },
+      tool_use_id: "tool-main-plan",
+      timestamp: 1,
+      threadKey: "main",
+    });
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "Quest thread follow-up",
+        threadKey: "q-968",
+        questId: "q-968",
+        agentSource: { sessionId: "leader-7", sessionLabel: "#7 Leader" },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.pendingPermissions.has("req-main-plan")).toBe(true);
+    expect(deps.handleInterruptFallback).not.toHaveBeenCalled();
+    const sendCalls = (deps.sendToCLI as any).mock.calls.map(([targetSession, payload]: [unknown, string]) => [
+      targetSession,
+      JSON.parse(payload),
+    ]);
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]).toEqual([
+      session,
+      expect.objectContaining({
+        type: "user",
+        message: expect.objectContaining({
+          role: "user",
+          content: expect.stringContaining("Quest thread follow-up"),
+        }),
+      }),
+    ]);
+  });
+
+  it("auto-rejects pending ExitPlanMode from the same quest thread", async () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-quest-plan", {
+      request_id: "req-quest-plan",
+      tool_name: "ExitPlanMode",
+      input: { plan: "## Plan\n\n1. Quest-thread plan" },
+      tool_use_id: "tool-quest-plan",
+      timestamp: 1,
+      threadKey: "q-968",
+      questId: "q-968",
+    });
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "Implement now in quest thread",
+        threadKey: "q-968",
+        questId: "q-968",
+        agentSource: { sessionId: "leader-7", sessionLabel: "#7 Leader" },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(session.messageHistory.slice(-2).map((entry) => entry.type)).toEqual(["permission_denied", "user_message"]);
+    expect(deps.handleInterruptFallback).toHaveBeenCalledWith(session, "leader");
+    const sendCalls = (deps.sendToCLI as any).mock.calls.map(([targetSession, payload]: [unknown, string]) => [
+      targetSession,
+      JSON.parse(payload),
+    ]);
+    expect(sendCalls[0]).toEqual([
+      session,
+      expect.objectContaining({
+        type: "control_response",
+        response: expect.objectContaining({
+          request_id: "req-quest-plan",
+          response: expect.objectContaining({
+            behavior: "deny",
+            message: "Plan rejected — leader sent a new message",
+          }),
+        }),
+      }),
+    ]);
+  });
+
   it("auto-answers pending AskUserQuestion from a fresh leader message instead of sending a new turn", async () => {
     const session = makeSession();
     session.pendingPermissions.set("req-leader-question", {
@@ -435,6 +529,129 @@ describe("permission response handling in browser routing", () => {
         }),
       }),
     ]);
+  });
+
+  it("does not auto-answer AskUserQuestion from a different thread by default", async () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-thread-question", {
+      request_id: "req-thread-question",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Quest decision?" }] },
+      tool_use_id: "tool-thread-question",
+      timestamp: 1,
+      threadKey: "q-1",
+      questId: "q-1",
+    });
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "Use the staged path",
+        threadKey: "main",
+        agentSource: { sessionId: "leader-7", sessionLabel: "#7 Leader" },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.pendingPermissions.has("req-thread-question")).toBe(true);
+    const sendCalls = (deps.sendToCLI as any).mock.calls.map(([targetSession, payload]: [unknown, string]) => [
+      targetSession,
+      JSON.parse(payload),
+    ]);
+    expect(sendCalls).toHaveLength(1);
+    expect(sendCalls[0]).toEqual([
+      session,
+      expect.objectContaining({
+        type: "user",
+        message: expect.objectContaining({ content: expect.stringContaining("Use the staged path") }),
+      }),
+    ]);
+  });
+
+  it("auto-answers AskUserQuestion from the same quest thread", async () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-thread-question", {
+      request_id: "req-thread-question",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Quest decision?" }] },
+      tool_use_id: "tool-thread-question",
+      timestamp: 1,
+      threadKey: "q-1",
+      questId: "q-1",
+    });
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "Use the staged path",
+        threadKey: "q-1",
+        questId: "q-1",
+        agentSource: { sessionId: "leader-7", sessionLabel: "#7 Leader" },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(session.messageHistory[0]).toEqual(
+      expect.objectContaining({
+        type: "permission_approved",
+        request_id: "req-thread-question",
+        tool_name: "AskUserQuestion",
+        answers: [{ question: "Quest decision?", answer: "Use the staged path" }],
+      }),
+    );
+  });
+
+  it("allows exact structured cross-thread AskUserQuestion overrides", async () => {
+    const session = makeSession();
+    session.pendingPermissions.set("req-q1", {
+      request_id: "req-q1",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Q1 decision?" }] },
+      tool_use_id: "tool-q1",
+      timestamp: 1,
+      threadKey: "q-1",
+      questId: "q-1",
+    });
+    session.pendingPermissions.set("req-q2", {
+      request_id: "req-q2",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Q2 decision?" }] },
+      tool_use_id: "tool-q2",
+      timestamp: 2,
+      threadKey: "q-2",
+      questId: "q-2",
+    });
+    const deps = makeDeps();
+
+    await routeBrowserMessage(
+      session as any,
+      {
+        type: "user_message",
+        content: "thread:q-2 Use the staged path",
+        threadKey: "main",
+        agentSource: { sessionId: "leader-7", sessionLabel: "#7 Leader" },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.pendingPermissions.has("req-q1")).toBe(true);
+    expect(session.pendingPermissions.has("req-q2")).toBe(false);
+    expect(session.messageHistory[0]).toEqual(
+      expect.objectContaining({
+        type: "permission_approved",
+        request_id: "req-q2",
+        tool_name: "AskUserQuestion",
+        answers: [{ question: "Q2 decision?", answer: "thread:q-2 Use the staged path" }],
+      }),
+    );
   });
 
   it("clears Codex permission notifications and action attention before denial side effects", () => {

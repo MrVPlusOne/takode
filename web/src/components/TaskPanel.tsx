@@ -6,6 +6,7 @@ import { api, type GitHubPRInfo } from "../api.js";
 import type { TaskItem, SessionTaskEntry, SdkSessionInfo } from "../types.js";
 import { McpSection } from "./McpPanel.js";
 import { ClaudeMdEditor } from "./ClaudeMdEditor.js";
+import { QuestStatusPanel } from "./QuestStatusPanel.js";
 import {
   cycleElapsedPct,
   FIVE_HOURS_MS,
@@ -22,13 +23,16 @@ const EMPTY_TASKS: TaskItem[] = [];
 
 const collapseListeners = new Set<() => void>();
 
-export function usePersistedCollapse(key: string): [boolean, () => void] {
+export function usePersistedCollapse(key: string, defaultCollapsed = false): [boolean, () => void] {
   const value = useSyncExternalStore(
     (cb) => {
       collapseListeners.add(cb);
       return () => collapseListeners.delete(cb);
     },
-    () => localStorage.getItem(key) === "1",
+    () => {
+      const stored = localStorage.getItem(key);
+      return stored === null ? defaultCollapsed : stored === "1";
+    },
   );
   const toggle = useCallback(() => {
     localStorage.setItem(key, value ? "0" : "1");
@@ -37,7 +41,7 @@ export function usePersistedCollapse(key: string): [boolean, () => void] {
   return [value, toggle];
 }
 
-function SectionHeader({
+export function SectionHeader({
   title,
   collapsed,
   onToggle,
@@ -1015,6 +1019,9 @@ export function TaskPanel({ sessionId }: { sessionId: string }) {
       </div>
 
       <div data-testid="task-panel-content" className="min-h-0 flex-1 overflow-y-auto">
+        {/* Quest/status state that the leader can rely on instead of repeating in prose. */}
+        <QuestStatusPanel sessionId={sessionId} />
+
         {/* Usage limits — Claude Code uses REST-polled limits, Codex uses streamed rate limits */}
         <UsageCollapsible sessionId={sessionId} isCodex={isCodex} />
 

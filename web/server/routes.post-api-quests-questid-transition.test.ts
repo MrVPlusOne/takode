@@ -537,13 +537,13 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 describe("POST /api/quests/:questId/transition", () => {
   it("clears claimed quest from the pre-transition active owner when moved to done", async () => {
     ensureBridgeSession(bridge, "session-1", {
-      state: { claimedQuestId: "q-1", claimedQuestTitle: "Quest", claimedQuestStatus: "needs_verification" },
+      state: { claimedQuestId: "q-1", claimedQuestTitle: "Quest", claimedQuestStatus: "done" },
     });
     vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
       id: "q-1-v2",
       questId: "q-1",
       title: "Quest",
-      status: "needs_verification",
+      status: "done",
       sessionId: "session-1",
       createdAt: Date.now(),
       claimedAt: Date.now(),
@@ -565,10 +565,14 @@ describe("POST /api/quests/:questId/transition", () => {
     const res = await app.request("/api/quests/q-1/transition", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ status: "done" }),
+      body: JSON.stringify({ status: "done", debrief: "Final outcome.", debriefTldr: "Final TLDR." }),
     });
 
     expect(res.status).toBe(200);
+    expect(questStore.transitionQuest).toHaveBeenCalledWith(
+      "q-1",
+      expect.objectContaining({ status: "done", debrief: "Final outcome.", debriefTldr: "Final TLDR." }),
+    );
     expect(bridge._sessions["session-1"].state).toMatchObject({
       claimedQuestId: undefined,
       claimedQuestTitle: undefined,

@@ -1,16 +1,22 @@
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  addPendingCodexInput,
   commitPendingCodexInputs,
+  handleCodexAdapterInitError,
+  hydrateCodexResumedHistory,
+  reconcileCodexResumedTurn,
   type CodexRecoveryOrchestratorSessionLike,
   type CodexRecoveryOrchestratorDeps,
 } from "./codex-recovery-orchestrator.js";
-import type { PendingCodexInput, BrowserIncomingMessage } from "../session-types.js";
+import type { PendingCodexInput, BrowserIncomingMessage, CodexOutboundTurn } from "../session-types.js";
+import { injectReplyContext } from "../../shared/reply-context.js";
+import type { CodexResumeSnapshot } from "../codex-adapter.js";
 
 function makeSession(pendingInputs: PendingCodexInput[]): CodexRecoveryOrchestratorSessionLike {
   return {
     id: "test-session",
     backendType: "codex",
-    state: { backend_state: "connected", backend_type: "codex", cwd: "/tmp", model: "gpt-5.4" },
+    state: { backend_state: "connected", backend_type: "codex", cwd: "/tmp", model: "gpt-5.4", is_compacting: false },
     messageHistory: [] as BrowserIncomingMessage[],
     pendingMessages: [],
     pendingCodexInputs: pendingInputs,
@@ -62,7 +68,82 @@ function makeDeps(): CodexRecoveryOrchestratorDeps {
   } as unknown as CodexRecoveryOrchestratorDeps;
 }
 
+function makeRecoveryDeps(overrides: Record<string, unknown> = {}) {
+  return {
+    ...makeDeps(),
+    clearCodexDisconnectGraceTimer: vi.fn(),
+    setBackendState: vi.fn((session: any, state: string, error: string | null) => {
+      session.state.backend_state = state;
+      session.state.backend_error = error;
+    }),
+    getCodexTurnInRecovery: vi.fn((session: any) => session.pendingCodexTurns[0] ?? null),
+    getLauncherSessionInfo: vi.fn(() => ({ cliSessionId: "thread-existing" })),
+    rebuildQueuedCodexPendingStartBatch: vi.fn(),
+    setAttentionError: vi.fn(),
+    setGenerating: vi.fn(),
+    hasCliRelaunchCallback: true,
+    adapterFailureResetWindowMs: 120_000,
+    maxAdapterRelaunchFailures: 3,
+    ...overrides,
+  } as any;
+}
+
+function makePendingTurn(): CodexOutboundTurn {
+  return {
+    adapterMsg: { type: "user_message", content: "continue" } as any,
+    userMessageId: "user-1",
+    pendingInputIds: ["input-1"],
+    userContent: "continue",
+    historyIndex: -1,
+    status: "dispatched",
+    dispatchCount: 1,
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+    acknowledgedAt: null,
+    turnTarget: null,
+    lastError: null,
+    turnId: null,
+    disconnectedAt: null,
+    resumeConfirmedAt: null,
+  };
+}
+
 describe("commitPendingCodexInputs", () => {
+  it("touches lastUserMessageAt with the pending timestamp for direct human input", () => {
+    // Direct Codex inputs can sit in the pending queue before they are sent.
+    // The sidebar timestamp should still reflect when the human submitted it.
+    const input: PendingCodexInput = {
+      id: "user-msg-human",
+      content: "Human request",
+      timestamp: 12345,
+      cancelable: false,
+    };
+    const session = makeSession([input]);
+    const deps = makeDeps();
+
+    commitPendingCodexInputs(session, ["user-msg-human"], deps);
+
+    expect(deps.touchUserMessage).toHaveBeenCalledWith("test-session", 12345);
+  });
+
+  it("does not touch lastUserMessageAt when committing agentSource pending input", () => {
+    // Agent/herd/timer inputs are user-shaped for adapter transport, but they
+    // must not reorder the session sidebar as human activity.
+    const input: PendingCodexInput = {
+      id: "user-msg-agent",
+      content: "Herd event summary",
+      timestamp: 12345,
+      cancelable: false,
+      agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+    };
+    const session = makeSession([input]);
+    const deps = makeDeps();
+
+    commitPendingCodexInputs(session, ["user-msg-agent"], deps);
+
+    expect(deps.touchUserMessage).not.toHaveBeenCalled();
+  });
+
   it("includes client_msg_id in the broadcast when pending input has clientMsgId", () => {
     // This test verifies the fix for q-578: ghost pending-upload messages.
     // When a Codex pending input carries a clientMsgId (set during the
@@ -105,5 +186,306 @@ describe("commitPendingCodexInputs", () => {
     const broadcastedMsg = (deps.broadcastToBrowsers as ReturnType<typeof vi.fn>).mock.calls[0][1];
     expect(broadcastedMsg.type).toBe("user_message");
     expect(broadcastedMsg.client_msg_id).toBeUndefined();
+  });
+});
+
+describe("addPendingCodexInput", () => {
+  it("touches lastUserMessageAt for direct human pending input", () => {
+    const deps = makeDeps();
+    const session = makeSession([]);
+
+    addPendingCodexInput(
+      session,
+      {
+        id: "pending-human",
+        content: "Human request",
+        timestamp: 23456,
+        cancelable: true,
+      },
+      deps,
+    );
+
+    expect(deps.touchUserMessage).toHaveBeenCalledWith("test-session", 23456);
+  });
+
+  it("does not touch lastUserMessageAt for agentSource pending input", () => {
+    const deps = makeDeps();
+    const session = makeSession([]);
+
+    addPendingCodexInput(
+      session,
+      {
+        id: "pending-agent",
+        content: "Leader instruction",
+        timestamp: 23456,
+        cancelable: true,
+        agentSource: { sessionId: "leader-1", sessionLabel: "#1 Leader" },
+      },
+      deps,
+    );
+
+    expect(deps.touchUserMessage).not.toHaveBeenCalled();
+  });
+});
+
+describe("hydrateCodexResumedHistory", () => {
+  it("sanitizes legacy reply markers before storing the session preview", () => {
+    // Codex external resume can hydrate historical user text that predates
+    // explicit replyContext metadata. The session preview must stay user-facing
+    // and never expose the raw legacy marker payload.
+    const legacyReply = injectReplyContext("Original answer", "Continue the work", "codex-agent-random-id");
+    const session = makeSession([]);
+    const deps = makeDeps();
+
+    const snapshot: CodexResumeSnapshot = {
+      threadId: "thread-history",
+      turnCount: 1,
+      turns: [
+        {
+          id: "turn-1",
+          status: "completed",
+          error: null,
+          items: [{ type: "userMessage", content: [{ type: "text", text: legacyReply }] }],
+        },
+      ],
+      lastTurn: null,
+    };
+
+    const hydrated = hydrateCodexResumedHistory(session, snapshot, deps);
+
+    expect(hydrated).toBe(1);
+    expect(session.messageHistory[0]).toMatchObject({ type: "user_message", content: legacyReply });
+    expect(session.lastUserMessage).toBe("[reply] Continue the work");
+    expect(session.lastUserMessage).not.toContain("<<<REPLY_TO");
+    expect(session.lastUserMessage).not.toContain("codex-agent-random-id");
+  });
+
+  it("routes and strips leader thread prefixes when hydrating recovered assistant messages", () => {
+    // External Codex resume can replay assistant text with the leader thread
+    // marker still embedded. Store the same routed shape as live assistant
+    // messages so Main and quest projections agree after reconnect.
+    const session = makeSession([]);
+    session.state.isOrchestrator = true;
+    const deps = makeDeps();
+
+    const hydrated = hydrateCodexResumedHistory(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        turns: [
+          {
+            id: "turn-1",
+            status: "completed",
+            error: null,
+            items: [{ type: "agentMessage", id: "agent-1", text: "[thread:q-1119] Created quest notes" }],
+          },
+        ],
+        lastTurn: null,
+      },
+      deps,
+    );
+
+    expect(hydrated).toBe(1);
+    expect(session.messageHistory[0]).toMatchObject({
+      type: "assistant",
+      threadKey: "q-1119",
+      questId: "q-1119",
+      threadRefs: [expect.objectContaining({ threadKey: "q-1119", questId: "q-1119", source: "explicit" })],
+    });
+    const assistant = session.messageHistory[0] as Extract<BrowserIncomingMessage, { type: "assistant" }>;
+    expect(assistant.message.content).toEqual([{ type: "text", text: "Created quest notes" }]);
+  });
+});
+
+describe("reconcileCodexResumedTurn", () => {
+  it("dedupes routed recovered assistant replay against an already stored stripped leader row", () => {
+    // This matches the observed replay shape: the original Main assistant row
+    // is already stored without the leader marker, then Codex resume replays
+    // the same text as an item-* agentMessage with [thread:main] still attached.
+    const session = makeSession([
+      {
+        id: "input-1",
+        content: "continue",
+        timestamp: 1_000,
+        cancelable: false,
+      },
+    ]);
+    session.state.isOrchestrator = true;
+    session.isGenerating = true;
+    session.messageHistory.push({
+      type: "assistant",
+      message: {
+        id: "original-main",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.4",
+        content: [{ type: "text", text: "Approved with the Mental Simulation." }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 900,
+      threadKey: "main",
+    });
+    const pending = makePendingTurn();
+    pending.disconnectedAt = 2_000;
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      completeCodexTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike, turn: CodexOutboundTurn | null) => {
+        if (turn) turn.status = "completed";
+        session.pendingCodexTurns = [];
+        return true;
+      }),
+    });
+    deps.codexAssistantReplayScanLimit = 10;
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-1",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: "continue" }] },
+            { type: "agentMessage", id: "item-1", text: "[thread:main] Approved with the Mental Simulation." },
+          ],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    const assistantRows = session.messageHistory.filter((message) => message.type === "assistant");
+    expect(assistantRows).toHaveLength(1);
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_recovered_messages");
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "assistant" }));
+  });
+});
+
+describe("handleCodexAdapterInitError", () => {
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("keeps transient auto-recovery init errors recoverable and schedules a bounded retry", () => {
+    // A post-restart transport close can be transient. While auto-recovery is
+    // in flight, keep the pending turn retryable instead of terminally broken.
+    vi.useFakeTimers();
+    const adapter = { id: "adapter-1" };
+    const session = makeSession([]);
+    const pending = makePendingTurn();
+    session.codexAdapter = adapter as any;
+    session.state.backend_state = "resuming";
+    session.pendingCodexTurns = [pending];
+    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    const deps = makeRecoveryDeps();
+
+    const result = handleCodexAdapterInitError(
+      session.id,
+      session,
+      adapter,
+      "Codex initialization failed: Transport closed",
+      deps,
+    );
+
+    expect(result).toBe("retrying");
+    expect(session.state.backend_state).toBe("recovering");
+    expect(session.codexAdapter).toBeNull();
+    expect(pending.status).toBe("queued");
+    expect(deps.setAttentionError).not.toHaveBeenCalled();
+    expect(deps.setGenerating).not.toHaveBeenCalled();
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, { type: "backend_disconnected" });
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
+
+    vi.advanceTimersByTime(1_000);
+    expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(session, "init_error:browser_open_dead_backend");
+  });
+
+  it("marks broken only after transient init retry budget is exhausted", () => {
+    // Once the bounded retry budget is spent, the UI should become terminally
+    // broken so users see a real failure instead of an infinite respawn loop.
+    const adapter = { id: "adapter-1" };
+    const session = makeSession([]);
+    const pending = makePendingTurn();
+    session.codexAdapter = adapter as any;
+    session.pendingCodexTurns = [pending];
+    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    (session as any).codexInitRecoveryFailures = 3;
+    const deps = makeRecoveryDeps({ maxAdapterRelaunchFailures: 3 });
+
+    const result = handleCodexAdapterInitError(
+      session.id,
+      session,
+      adapter,
+      "Codex initialization failed: Transport closed",
+      deps,
+    );
+
+    expect(result).toBe("broken");
+    expect(session.state.backend_state).toBe("broken");
+    expect(pending.status).toBe("blocked_broken_session");
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    expect(deps.setAttentionError).toHaveBeenCalledWith(session);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "error",
+      message: "Codex initialization failed: Transport closed",
+    });
+  });
+
+  it("marks non-transient init errors broken immediately", () => {
+    const adapter = { id: "adapter-1" };
+    const session = makeSession([]);
+    session.codexAdapter = adapter as any;
+    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    const deps = makeRecoveryDeps();
+
+    const result = handleCodexAdapterInitError(
+      session.id,
+      session,
+      adapter,
+      "Codex initialization failed: no rollout found",
+      deps,
+    );
+
+    expect(result).toBe("broken");
+    expect(session.state.backend_state).toBe("broken");
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "error",
+      message: "Codex initialization failed: no rollout found",
+    });
+  });
+
+  it.each([
+    "Error: error loading default config after config error: No such file or directory (os error 2)",
+    'MCP server "codex_apps" startup failed during initialize',
+    "rmcp::transport::worker quit with fatal: Transport channel closed",
+    "TokenRefreshFailed while starting MCP server",
+    "OAuth refresh failed: invalid_grant",
+  ])("treats actionable transport-close init stderr as terminal: %s", (stderr) => {
+    // Some startup failures are reported as Transport closed but include a real
+    // local configuration or auth/MCP problem in stderr. Those should stay
+    // visible instead of being hidden behind transient restart recovery.
+    const adapter = { id: "adapter-1" };
+    const session = makeSession([]);
+    session.codexAdapter = adapter as any;
+    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    const deps = makeRecoveryDeps();
+    const error = `Codex initialization failed: Transport closed. Stderr: ${stderr}`;
+
+    const result = handleCodexAdapterInitError(session.id, session, adapter, error, deps);
+
+    expect(result).toBe("broken");
+    expect(session.state.backend_state).toBe("broken");
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "error",
+      message: error,
+    });
   });
 });

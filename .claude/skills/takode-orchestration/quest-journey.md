@@ -1,154 +1,191 @@
 # Quest Journey Lifecycle
 
-Every dispatched task follows the Quest Journey lifecycle. The work board (`takode board show`) tracks each quest's stage and shows the next required leader action. Quests that modify git-tracked files do not skip stages, even when the change is docs, skills, prompts, templates, or other text-only guidance. The only exception is a true zero-code quest with zero git-tracked changes that has passed skeptic review and was explicitly marked with `takode board set <quest-id> --no-code`: it may then use `takode board advance-no-groom <quest-id>` to complete without reviewer-groom or porting.
+Every dispatched task follows a **Quest Journey** assembled from built-in phases. The work board (`takode board show`) tracks proposed pre-dispatch Journeys, active current phases, remaining phases, and next required leader action in compact routine output. Use `takode board show --full` for full-board Journey paths and indexed phase notes, or `takode board detail q-N` for one quest's full Journey, notes, timing history, and revision metadata.
 
-## Stage Overview
+The planned Journey is board-owned state associated with the quest while that quest is on the board. Quest creation or refinement defines the quest text; it does not freeze either the proposed draft or the active Journey.
 
-| Stage | What's happening | Next action |
-|-------|-----------------|-------------|
-| `QUEUED` | Quest is ready, waiting for dispatch | Dispatch to a worker |
-| `PLANNING` | Worker is planning | Wait for the plan via `permission_request` or plain-text `turn_end`, then review it |
-| `IMPLEMENTING` | Worker is implementing | Wait for `turn_end`, then spawn skeptic reviewer |
-| `SKEPTIC_REVIEWING` | Skeptic reviewer is evaluating | Wait for reviewer ACCEPT; skeptic-review dispatches must explicitly say `Use the installed /skeptic-review workflow for this review.` True zero-code quests with zero git-tracked changes that were explicitly marked `--no-code` may then use `takode board advance-no-groom <quest-id>` instead of entering groom review. |
-| `GROOM_REVIEWING` | Reviewer owns the quality pass and follow-up judgment | Wait for reviewer ACCEPT on the worker's response, then send a separate explicit port instruction when ready |
-| `PORTING` | Worker is porting to main repo | Wait for port confirmation, then remove from board |
+When assembling a Journey, ask what each extra phase contributes over merging that work into a later phase. The normal tracked-code path intentionally keeps common work small: `implement` includes the normal investigation, root-cause analysis, code/design reading, and test planning needed to complete approved fixes, docs changes, config changes, prompt changes, and artifact changes. Do not add `explore` before `implement` merely so a worker can look around.
 
-**Board advances only after completed actions.** Do not advance the board anticipating what will happen next. Only advance after the action for that stage is actually done.
+Board-side Journey modes:
 
-**Update the board immediately.** When a herd event arrives that changes quest state (turn_end, permission_request, etc.), update the board as your FIRST action -- before reviewing content, reading messages, or composing responses. The board must always reflect real-time state.
+- `proposed`: pre-dispatch draft, no worker required yet, no active/current phase semantics yet
+- `active`: approved execution Journey, with progress tracked by phase position/index
 
-**Mandatory stages:** Skeptic review and groom review are mandatory for ALL quests with git-tracked changes -- no exceptions for "small", "trivial", docs-only, skill-only, prompt-only, or template-only changes. The default groom path is reviewer-owned via `/reviewer-groom`. `/self-groom` is an escalation path, not the default. Investigation or other no-code quests may skip reviewer-groom only when they truly produce zero git-tracked changes; first mark the board row with `takode board set <quest-id> --no-code`, then use the explicit board command `takode board advance-no-groom <quest-id>` from `SKEPTIC_REVIEWING`, and complete without porting or fake port noise.
+`PROPOSED` and `QUEUED` are board states, not phases. Once active, leaders choose the phase sequence that matches the risk boundary and evidence needed next. Repeated phases are allowed, so progress is tracked by active phase occurrence rather than assuming each phase name appears only once.
 
-## Stage-Explicit Worker Steering
+Before the first dispatch, leaders should use `/leader-dispatch` to propose the planned initial Journey and scheduling approach, then get approval. When the user clearly wants quest creation plus dispatch and the scope is understood, combine this with `/quest-design`: describe the proposed quest draft and proposed Journey/scheduling plan naturally in prose so one confirmation can approve both. After approval, write the approved Journey to the board before or with dispatch using `takode board set --worker ... --phases ...` or by promoting an existing proposed row. If clarification is needed, ask it with quest framing; after the user clarifies and no major ambiguity remains, the next response should include both drafts together. Avoid a separate restated-understanding-only round. The worker alignment phase then returns a lightweight read-in inside that approved Journey and may surface facts that justify a leader-owned Journey revision; it is not the first time phases are proposed. After the worker returns that read-in, the leader normally approves the next phase and advances without a routine second user-approval round. Escalate back to the user only for significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another real blocking issue.
 
-- **Authorize one stage at a time.** Every leader-to-worker message should say what the worker is allowed to do now and what must wait.
-- **Initial dispatch = planning only.** The worker returns a plan and stops. Do not imply implementation is approved.
-- **Quest ownership stays with the worker.** The worker doing the job claims and completes the quest. The leader coordinates the journey but does not claim the quest on the worker's behalf.
-- **Plan approval = implement, keep one substantive user-oriented quest summary comment current, and stop.** Tell the worker to implement, add or refresh the final quest summary comment for the human reader, report back, and wait. The summary should state what changed, why it matters, and what verification passed; it should not become a review/rework timeline. If the same update also addresses human feedback, tell the worker to consolidate that explanation into the summary instead of adding a near-duplicate second comment. Do not let the worker infer review, porting, or quest transitions.
-- **Review/rework = do the named work, refresh that same summary comment, and stop.** If you send reviewer findings, also tell the worker to refresh the user-oriented quest summary comment before reporting back and waiting. When the rework addresses human feedback, one consolidated summary/addressing comment is preferred when it remains clear; separate comments are only for materially different updates or readability. When the rework needs more code changes, tell the worker to commit the current worktree state first and make the follow-up fixes in a separate commit so the reviewer can inspect only the new diff. Do not imply porting is authorized.
-- **Porting requires an explicit instruction.** Only tell the worker to run `/port-changes` after the reviewer ACCEPTs and you are ready for porting.
-- **Investigation/design/no-code quests still need explicit boundaries.** Tell the worker what artifact to produce, have them stop afterward, and choose the next step yourself. Do not assume the worker should self-complete, self-transition, or self-port.
-- **Zero-code quests complete without porting.** If the accepted result is an investigation/report/design artifact with zero git-tracked changes, complete it directly with artifact-focused verification items. Do not invent synced SHA lines or port-summary comments. If the accepted result changed docs, skills, prompts, templates, or any other git-tracked file, it is not zero-code for handoff purposes and still needs normal porting plus structured commit metadata. If you use `quest complete ... --no-code`, treat it only as a local CLI reminder switch, not durable quest metadata.
+## Built-In Phase Library
 
-## Refine (before QUEUED)
+Built-in phase directories are seeded into `~/.companion/quest-journey-phases/<phase-id>/` with:
+- `phase.json`: semantic/runtime metadata such as board state, aliases, role, contract, and next leader action
+- `leader.md`: the leader-facing brief for that phase
+- `assignee.md`: the brief the leader should point the worker or reviewer to for that phase
 
-- If no quest exists or it's in `idea` state, work with the user first to gather requirements
-- Ask clarifying questions until the WHAT and WHY are unambiguous
-- Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction
-- A user-approved plan that explicitly covers the quest text can count as this confirmation; routine feedback, claims, board updates, verification inbox moves, and already-approved lifecycle transitions do not need a separate round
-- Create or refine the quest with a clear description containing the full context a worker needs only after that `/quest-design` confirmation round is complete
-- Do NOT dispatch until the quest is refined -- a vague quest produces vague work
+Use `takode phases` to list available phase metadata and exact brief paths. Leaders should read the exact `leader.md` path themselves and point the target session to the matching exact `assignee.md` path. Do not rely on globally installed phase skills as the primary mechanism.
 
-## QUEUED -> PLANNING
+| Phase | Board state | Leader brief | Assignee brief | Contract | Next leader action |
+|-------|-------------|--------------|----------------|----------|--------------------|
+| Alignment | `PLANNING` | `~/.companion/quest-journey-phases/alignment/leader.md` | `~/.companion/quest-journey-phases/alignment/assignee.md` | Do a lightweight read-in to confirm concrete understanding, ambiguities, clarification questions, and whether deeper exploration is needed before implementation or execution | read the alignment leader brief, send the alignment-only instruction, then review the worker read-in for leader approval, routing, or necessary user escalation |
+| Explore | `EXPLORING` | `~/.companion/quest-journey-phases/explore/leader.md` | `~/.companion/quest-journey-phases/explore/assignee.md` | Investigate when the investigation is the deliverable or when routing is genuinely unknown; do not use Explore as routine pre-implementation looking around for normal bug-fix, docs, or config work | read the explore leader brief, then wait for the findings summary and decide whether to revise the Journey, advance, add a user-checkpoint, or stop |
+| Implement | `IMPLEMENTING` | `~/.companion/quest-journey-phases/implement/leader.md` | `~/.companion/quest-journey-phases/implement/assignee.md` | Make approved code, docs, prompts, config, or artifact changes; this includes normal investigation, root-cause analysis, code/design reading, test planning, and cheap local evidence within the approved scope | read the implement leader brief, then wait for the worker report and choose the next review, execute, or bookkeeping phase |
+| Code Review | `CODE_REVIEWING` | `~/.companion/quest-journey-phases/code-review/leader.md` | `~/.companion/quest-journey-phases/code-review/assignee.md` | Review tracked code or tracked artifacts for comprehensive landing risk: correctness, regressions, tests, maintainability, quest hygiene, implementation completeness, meaningful evidence, and security when relevant | read the code-review leader brief, then wait for the reviewer result and either send rework or advance |
+| Mental Simulation | `MENTAL_SIMULATING` | `~/.companion/quest-journey-phases/mental-simulation/leader.md` | `~/.companion/quest-journey-phases/mental-simulation/assignee.md` | Replay a design, workflow, or implementation against concrete scenarios | read the mental-simulation leader brief, then wait for the scenario review and decide whether the Journey needs revision |
+| Execute | `EXECUTING` | `~/.companion/quest-journey-phases/execute/leader.md` | `~/.companion/quest-journey-phases/execute/assignee.md` | Run approved expensive, risky, long-running, externally consequential, or approval-gated operations | read the execute leader brief, track monitor and stop conditions, then wait for the execution report and decide whether outcome review, more execute work, or a Journey revision is needed |
+| Outcome Review | `OUTCOME_REVIEWING` | `~/.companion/quest-journey-phases/outcome-review/leader.md` | `~/.companion/quest-journey-phases/outcome-review/assignee.md` | Reviewer-owned acceptance judgment over external or non-code outcomes such as metrics, logs, artifacts, prompt behavior, or UX trial notes | read the outcome-review leader brief, then wait for the reviewer judgment and route to implement, execute, alignment, or conclusion |
+| User Checkpoint | `USER_CHECKPOINTING` | `~/.companion/quest-journey-phases/user-checkpoint/leader.md` | `~/.companion/quest-journey-phases/user-checkpoint/assignee.md` | Present findings, options, tradeoffs, and a recommendation for a required user decision before the Journey continues; do not treat this as a terminal phase or a generic TBD bucket | read the user-checkpoint leader brief, publish the decision prompt, notify the user, wait for the answer, then revise the remaining Journey |
+| Bookkeeping | `BOOKKEEPING` | `~/.companion/quest-journey-phases/bookkeeping/leader.md` | `~/.companion/quest-journey-phases/bookkeeping/assignee.md` | Record durable shared external state such as quest updates, stream updates, artifact locations, handoff facts, and superseded facts | read the bookkeeping leader brief, record the durable shared state update, then advance when the facts and handoff state are current |
+| Port | `PORTING` | `~/.companion/quest-journey-phases/port/leader.md` | `~/.companion/quest-journey-phases/port/assignee.md` | Sync accepted tracked changes back to the main repo | read the port leader brief, then wait for sync confirmation and post-port verification before removing the row |
 
-- Choose a worker and send the standardized dispatch message by invoking `/leader-dispatch`
-- The initial dispatch authorizes planning only. Tell the worker to return a plan and stop; do not imply implementation is approved.
-- `takode board set <quest-id> --worker <N> --status PLANNING`
+## Phase Documentation Contract
 
-## PLANNING -> IMPLEMENTING
+Each active phase should leave durable quest documentation before the leader treats the phase as complete. The actor for the phase writes the full entry for future agents first, then derives TLDR metadata for human scanning. Phase-note TLDRs should preserve conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes. Keep raw SHAs, branch names, exhaustive command lists, routine file paths, and detailed verification mechanics in the full body or port metadata unless the exact detail is central to understanding that phase.
 
-- Workers can present plans in two valid ways:
-  - `permission_request` via `ExitPlanMode` (formal plan)
-  - plain-text assistant output on `turn_end` (informal plan)
-- If the worker uses `ExitPlanMode`, review with `takode pending <session>` / the pending payload, then approve or reject with `takode answer`.
-- If the worker returns the plan as plain text on `turn_end`, read the plan in the assistant output, then approve or reject with a normal `takode send <session> "..."` message.
-- Do **not** send a worker back just because it used plain-text output instead of `ExitPlanMode`. Send it back only if it started implementing without presenting a reviewable plan at all.
-- **Read the full plan** -- don't just peek. Verify the worker fully understood the task and aligned with the goal
-- Be skeptical and adversarial: does the plan actually address the root problem? Are there misunderstandings or shortcuts that would produce wrong results?
-- It's better to reject and redirect now than to let the worker implement the wrong thing
-- Approve or reject with the correct mechanism for the path used (`takode answer` for `ExitPlanMode`, normal `takode send` for plain-text plans)
-- On approve, send an explicit stage instruction: implement now, then stop and report back. Do not let the worker assume review, `/reviewer-groom`, `/self-groom`, `/port-changes`, or quest transitions are authorized.
-- On approve: `takode board advance <quest-id>`
+When documenting repository files, use Takode custom file links such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)` instead of plain paths. Standard Markdown file links to repo files are a best-effort clickable fallback in Questmaster, but custom `file:` links remain preferred because they carry richer location metadata.
 
-## IMPLEMENTING -> SKEPTIC_REVIEWING
-
-- React to herd events as they arrive -- don't poll
-- Steer if needed: scope refinements, corrections, additional context for the current task
-- Do NOT send unrelated new tasks to a busy worker -- queue them and wait
-- **When the user is directly steering a herded worker**: stay out of it. Resume normal coordination once the user stops interacting
-- **Workers must NOT self-advance.** After implementing, the worker reports completion and STOPS. It does not run `/reviewer-groom`, `/self-groom`, `/port-changes`, or `/skeptic-review` on its own. The leader controls stage transitions.
-- When `turn_end (✓)` arrives with a quest transition:
-  - Run `takode scan <session>` to understand the solution at a high level
-  - **Always** spawn a skeptic reviewer (see Skeptic Review below). Skeptic review is mandatory for every quest -- no exceptions, regardless of perceived size or triviality.
-  - `takode board advance <quest-id>`
-
-## Skeptic Review
-
-### Spawn Command
+Prefer the q-991 phase-scoped feedback primitive with current-phase inference:
 
 ```bash
-takode spawn --reviewer <session-number> --message-file - <<'EOF'
-Load skills first: /takode-orchestration, /quest, /skeptic-review. Use the installed /skeptic-review workflow for this review. Then skeptic review session #X / quest q-Y. Read changes: takode peek X --from N --show-tools
-EOF
+quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md --kind phase-summary
 ```
 
-The `--reviewer` flag automatically:
-- Disables worktree creation
-- Sets fixed name "Reviewer of #XX"
-- Tracks the parent relationship
+Use `--kind phase-finding` for exploration findings, `--kind review` for review phases, or `--kind artifact` for execution artifacts when that better describes the entry. If inference is unavailable or ambiguous, use explicit flags such as `--phase`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run`. Use `--no-phase` only when a flat unscoped quest comment is intentional, such as non-Journey bookkeeping or legacy quest compatibility.
 
-**Keep the spawn message minimal.** Provide context pointers only -- quest ID, session reference, message range for changes, and the explicit sentence `Use the installed /skeptic-review workflow for this review.` Do NOT add extra review criteria or paste diffs into the spawn message.
+Apply a value filter to phase documentation: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases. If the actor's context was compacted during the phase, or if memory confidence is low, they should reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, they should use working memory and current artifacts instead of unnecessary session archaeology.
 
-**Do not rely on implicit self-start.** The leader must explicitly tell the reviewer to use `/skeptic-review`. This rule exists because an earlier q-343 skeptic pass drifted into an ad hoc review when that instruction was omitted.
+For valuable nontrivial phase outcomes, the assignee may run `takode worker-stream` once the substantive result is ready so the leader can start reading while required paperwork finishes. Treat worker-stream output as an early internal checkpoint only: it is optional, not mandatory ceremony, and it does not replace phase documentation, final debrief metadata, or leader-owned phase transitions.
 
-### Reviewer Lifecycle
+Phase documentation should stay specific to the phase:
+- Alignment: concrete understanding, ambiguities, clarification questions, blockers, surprises, and Journey-revision evidence.
+- Explore: findings, evidence sources, ambiguities or blockers, implementation considerations, and Journey-revision evidence.
+- Implement: changed files or artifacts, rationale, verification, remaining risks, and addressed feedback.
+- Code Review: review scope, aspects covered, evidence checked, findings or ACCEPT rationale, and documentation hygiene judgment.
+- Mental Simulation: scenarios replayed, concrete examples, risks, recommendations, and confidence limits.
+- Execute: approved action, monitors, stop conditions, outcome, deviations, artifacts or logs, and follow-up needs.
+- Outcome Review: evidence judged, acceptance or insufficiency rationale, bounded reruns, and follow-up routing.
+- User Checkpoint: findings, options, tradeoffs, recommendation, required user answer, and Journey-revision implications.
+- Bookkeeping: cross-phase or external durable state beyond normal phase notes, such as records updated, consolidated summaries, final debrief metadata after port when the port worker could not reliably create it, verification checklist reconciliation, superseded facts, external locations, notification/thread cleanup, and durable handoff facts.
+- Port: ordered synced SHAs, post-port verification, port anomalies, remaining sync risks, and final debrief metadata status or draft.
 
-- **One reviewer per parent.** To replace, archive the old reviewer with `takode archive`.
-- **Reuse within a quest**: keep the same reviewer for follow-up reviews and reviewer-groom follow-up checks on the same worker
-- **Archive after the quest is ported**: reviewers are one-off quality gates -- archive them once the quest journey is complete
-- **Auto-cleanup**: reviewer is automatically archived when its parent worker is archived
-- **Worker-slot exempt**: reviewer sessions do NOT count toward the 5-worker-slot limit, and archiving a reviewer does NOT free a worker slot
+Review phases must judge documentation quality, not just presence. Check phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the phase-scoped primitive is available.
 
-## SKEPTIC_REVIEWING -> GROOM_REVIEWING
+## Recommended Default
 
-- **This stage is iterative.** Do not advance until the reviewer issues ACCEPT.
-- If the reviewer CHALLENGEs: send findings to the worker for rework, then send the reworked result back to the reviewer. Repeat until ACCEPT.
-- If you send rework that needs more code changes, tell the worker to commit the current worktree state first, then make the fixes in a separate follow-up commit, refresh the user-oriented quest summary comment, report back, and stop again. If that same update addresses human feedback, the refreshed summary should also explain how it was addressed instead of adding a duplicate comment. Do not imply porting is authorized.
-- **True zero-code exception:** if the skeptic reviewer ACCEPTs a quest that produced zero git-tracked changes, mark the board row with `takode board set <quest-id> --no-code` if it is not already marked, then use `takode board advance-no-groom <quest-id>` to complete the board row directly. Unmarked rows and tracked-file-changing quests must continue into `GROOM_REVIEWING`.
-- On ACCEPT: send the same reviewer a concise review request, then have the reviewer self-invoke `/reviewer-groom "<scope>"`.
-- The best scope strings usually identify the quest, the worker, and the worker message range that contains the follow-up being reviewed.
-- Example scope: `Review [q-324](quest:q-324) for reviewer-groom follow-up after worker #469's update in [#469 msg 723](session:469:723) through [#469 msg 746](session:469:746)`.
-- `/reviewer-groom` generates the quality report inside the reviewer session and should follow an explicit checklist-driven review flow.
-- If `/reviewer-groom` returns any Critical or Recommended findings, send them to the worker and tell the worker to address them, report back, and wait. Do not tell the worker to port yet.
-- If `/reviewer-groom` returns no Critical or Recommended findings, treat that as groom acceptance and continue to the next stage.
-- `takode board advance <quest-id>`
+The recommended built-in tracked-code Journey is:
 
-## GROOM_REVIEWING -> PORTING
+`alignment -> implement -> code-review -> port`
 
-- Wait for the worker to report back what they changed in response to the reviewer-groom findings (or why they skipped a suggestion).
-- **ALWAYS** send the worker's response back to the same reviewer for compliance check. The reviewer verifies that no important Critical or Recommended suggestion was skipped without justification.
-- **This stage is iterative.** Do not advance until the reviewer ACCEPTs.
-- If CHALLENGE: send findings back to the worker, have them address the issues, then re-send to reviewer. Repeat until ACCEPT.
-- Keep the worker waiting while the reviewer checks compliance. If more changes are needed and they require code edits, tell the worker to checkpoint the current worktree state in a commit before starting the fixes, then make the follow-up changes separately and stop again afterward.
-- On reviewer ACCEPT: tell the worker to port changes using `/port-changes`. Porting must be a separate, explicit instruction, and the worker's report-back must include `Synced SHAs: sha1,sha2` with the ordered synced SHAs from the main repo.
-- `takode board advance <quest-id>`
-- **NEVER combine "reviewer-groom/rework" and "port" in the same instruction to the worker.** Each is a separate gate.
+This preserves a small normal path for common repo work while allowing leaders to choose richer review or operations paths when the quest needs them. It is a default, not a mandate: user overrides win. If the user asks to skip `code-review`, `port`, or another standard phase, follow that instruction or briefly confirm the tradeoff instead of refusing because the phase is standard.
 
-## PORTING -> (removed)
+Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, and `port` are self-explanatory unless the user or quest adds unusual phase-specific work. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase.
 
-- Tell the worker to run `/port-changes` only when you are explicitly ready for porting. Do not assume they will self-port once review is done.
-- Zero-code quests do not enter `PORTING`. After the accepted artifact is ready, complete them directly with verification items about the artifact/result and without `/port-changes`, synced SHAs, or port-summary noise. This applies only when the quest produced zero git-tracked changes; docs, skills, prompts, templates, and other text-only tracked-file edits must still be ported and attached with `quest complete ... --commit/--commits`. On the board, that means explicitly marking the row with `takode board set <quest-id> --no-code` and then using `takode board advance-no-groom <quest-id>` from `SKEPTIC_REVIEWING` rather than advancing into `GROOM_REVIEWING` or `PORTING`. If you pass `--no-code`, use it only to suppress the local CLI's port reminder noise.
-- Wait for the worker to confirm sync is complete (commits landed, required post-port verification passed, pushed to remote) **and include the ordered synced SHAs from the main repo as a dedicated `Synced SHAs: sha1,sha2` line**
-- For refactor quests, the required post-port verification gate is `cd web && bun run typecheck`, `cd web && bun run test`, and `cd web && bun run format:check`. `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, the exception must be documented explicitly in the worker's report-back.
-- If the required post-port verification run fails, dispatch a suitable worker to fix `main` immediately rather than waiting for the human to notice or ask.
-- Only after port is confirmed: transition the quest to `needs_verification` and attach those SHAs explicitly with `quest complete q-N --items "..." --commits "sha1,sha2"`. Structured commit metadata should carry routine port information; add a second prose port comment only when something exceptional about the port is materially worth noting.
-- `takode board advance <quest-id>` -- this removes the row from the board
-- Do **not** run `takode notify review` for quest completion -- when the work board item is completed, Takode already fires the review notification automatically. Sending another one duplicates the quest-completion notification.
+## Approval and Board Workflow
+
+Use natural prose as the normal approval surface. Once the user approves, make the Journey durable on the board before or with dispatch:
+
+```bash
+takode board set q-12 --worker 5 --phases alignment,implement,code-review,port --preset full-code
+```
+
+- `takode board set --worker ... --phases ...` creates the active board row in one step after prose approval
+- `takode board propose` remains available to create or revise a board-owned draft when the quest already exists and a draft row helps coordination
+- prefer `takode board propose --spec-file` for complete proposal drafts with phases, concise non-standard notes, and scheduling metadata
+- `takode board note` remains available for targeted note edits, but each draft mutation makes any previous presentation stale
+- `takode board present` creates an optional user-facing approval artifact from the current draft
+- `takode board promote` reuses a proposed Journey object for execution after approval; a separate presentation step is no longer required
+- approval-hold rows should use `PROPOSED` plus `--wait-for-input`, not a fake generic queue dependency
+
+Examples:
+
+- Straight tracked-code work: `alignment -> implement -> code-review -> port`
+- Expensive or approval-gated run: `alignment -> explore -> execute -> outcome-review`
+- Findings that require user steering: `alignment -> explore -> user-checkpoint -> implement -> code-review -> port`
+- Design or workflow validation: `alignment -> implement -> mental-simulation -> code-review -> port`
+- Cheap local evidence followed by acceptance review: `alignment -> implement -> outcome-review -> code-review -> port`
+
+## Journey Revision
+
+Leaders may revise the remaining Journey when risk, evidence needs, external-state impact, user steering, or the next action changes.
+
+Use:
+
+```bash
+takode board set q-12 --phases implement,outcome-review,code-review,port \
+  --preset cli-rollout
+```
+
+Rules:
+
+- Already completed phase occurrences are historical and cannot be revised in place.
+- Keep completed prefix positions unchanged; append a later repeated phase when requirements change after a phase has run.
+- Proposed rows with no executed phases can be revised freely.
+- When revising an active row without changing `--status`, include the current phase in `--phases`.
+- Repeated phases are first-class. Insert or append them directly instead of pretending the Journey reset to an earlier abstract state.
+- Indexed phase notes rebase by phase occurrence, not raw index. If the same occurrence still exists after a phase-list revision, the note follows it even when its position shifts.
+- If a revision removes the intended occurrence, `takode board set` / `takode board propose` warns about the dropped note so the leader can reattach or rewrite it deliberately.
+- Repeated active phases are tracked by occurrence index, not just by `currentPhaseId`. When a repeated phase is active and `--status` alone would be ambiguous, set `--active-phase-position` so the board row and UI point at the correct occurrence.
+- If the active boundary itself changes, set an explicit `--status` that matches the revised phase plan.
+- `takode board advance` always follows the row's planned phases, not a hard-coded global order.
+
+## Phase-Explicit Worker Steering
+
+- **Authorize one phase at a time.**
+- **Initial Journey approval happens before dispatch.** Use `/leader-dispatch` to get approval for the proposed Journey and scheduling plan, then put the approved Journey on the board before or with dispatch.
+- **Read the exact leader brief; point assignees to the exact assignee brief.** Use `takode phases` when you need the paths. Do not treat globally installed phase skills as the primary phase mechanism.
+- **Initial dispatch = alignment only.**
+- **Promote the same board-drafted Journey after approval when a proposed row exists.** Otherwise, create the active row directly with the approved phase list. Do not let recovery depend only on transcript prose.
+- **Quest ownership stays with the worker.**
+- **Worker alignment returns a lightweight read-in inside a leader-approved Journey.** It may surface blockers, surprises, and evidence that justify leader-owned Journey revision, but the board-owned Journey remains authoritative until the leader changes it.
+- **Point alignment at exact sources when you already know them.** When the relevant prior messages, quests, or discussions are known, point the worker to those specific sources so alignment can use targeted Takode or quest inspection instead of broad exploration.
+- **Alignment approval is leader-owned by default.** Once the user has approved the initial Journey plus scheduling plan, the leader normally approves the returned worker read-in and dispatches the next phase.
+- **Escalate alignment back to the user only for real blockers.** Significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another blocking issue can require fresh user approval.
+- **Alignment approval authorizes exactly one next phase.** For example: explore now, then stop and report back.
+- **Use `user-checkpoint` for explicit user participation.** Present findings, options, tradeoffs, and a recommendation; notify the user and wait; then revise the remaining Journey after the user answers. Do not use it as terminal closure, generic TBD, or optional leader-only indecision.
+- **Workers and reviewers document, report, then stop at phase boundaries.** They do not self-review, self-port, self-transition, or self-complete unless explicitly instructed.
+- **Porting requires an explicit instruction.** Port must also settle final debrief ownership: completion by the port worker should use `--debrief-file` and `--debrief-tldr-file`; leader-controlled completion needs a `Final debrief draft:` plus `Debrief TLDR draft:` or a focused Bookkeeping phase if Port cannot reliably produce them.
+- **Every completed non-cancelled quest needs final debrief metadata.** Completion without both a final debrief and debrief TLDR is incomplete. When Port is omitted, the leader owns this before completion: draft from accepted evidence, require the final phase actor to provide `Final debrief draft:` plus `Debrief TLDR draft:`, or route a focused Bookkeeping phase. After Outcome Review accepts a zero-tracked-change result, do not remove the row and complete the quest until that ownership is settled.
+
+## Review Phases
+
+Use the review phase that matches the evidence you need:
+
+- **`code-review`** for tracked code/artifact quality and landing risk.
+- **`mental-simulation`** for scenario-driven workflow, design, or responsibility-split replay.
+- **`outcome-review`** for reviewer-owned acceptance over external behavior, metrics, artifacts, prompt behavior, or operational outcomes that already exist.
+- **`execute`** when more evidence requires expensive, risky, long-running, externally consequential, or approval-gated runs rather than a reviewer acceptance pass.
+
+Guidance:
+
+- Use **`mental-simulation`** when the question is whether a design or workflow makes sense under replayed scenarios. This is about plausibility and failure modes, not externally executed sufficiency.
+- Use **`outcome-review`** when the worker has usually already produced the evidence and a reviewer should decide whether that evidence is sufficient. The reviewer may do only small bounded reruns or repros needed for acceptance.
+- Use **`execute`** when the worker needs more than cheap local evidence gathering and the next step is an approved run with monitors, stop conditions, risk controls, or external consequences.
+- If outcome evidence is insufficient, route back deliberately: **`implement`** when behavior or code must change, **`execute`** when more approved runs are needed, and **`alignment`** when success criteria, scope, or experiment design changed.
+
+Do not default to a generic skeptic-review framing for new work. Legacy board rows or saved phrases may still mention `skeptic-review`, `reviewer-groom`, or `stream-update`; treat those as compatibility aliases rather than the preferred vocabulary.
+
+## Zero-Tracked-Change Journeys
+
+Zero-tracked-change quests use the same phase-based Journey model as any other quest. Do not use a separate board flag or shortcut command.
+
+Choose explicit phases that match the evidence you need and simply omit `port` when nothing will be synced. Examples:
+
+- `alignment -> explore -> outcome-review`
+- `alignment -> explore -> bookkeeping`
+- `alignment -> mental-simulation`
+
+Advancing from the final planned phase removes the row from the board. Git-tracked docs, skills, prompts, templates, and other text-only edits still count as tracked-change work and should include `port`.
+
+Omitting `port` does not omit final debrief ownership. The leader must ensure the completed non-cancelled quest receives both final debrief metadata and debrief TLDR metadata through the final phase report, leader-authored completion metadata, or a focused Bookkeeping phase.
 
 ## Feedback Rework Loop
 
-When new human feedback lands on a quest:
+When new human feedback lands:
 
-1. **Record the feedback**: `quest feedback <id> --text "..." --author human` for short notes, or `quest feedback <id> --text-file - --author human` when recording copied logs or shell-like text (attach screenshots with `--image <path>`)
-2. **Decide whether the quest status itself must move backward**:
-   - If the quest is currently in `needs_verification` or `done`, run `quest transition <id> --status refined` first. Those statuses describe a completed review handoff, so the quest itself must re-open before the fresh cycle begins.
-   - If the quest is already active (`refined` or `in_progress`), do **not** transition it backward just because new feedback arrived. The quest is already open; the coordination fix is to reset the board row, not to create another status transition.
-3. **Reset the board row to match the fresh cycle**: if the quest is still on the board, immediately move it back to the earliest valid stage for the new scope. Usually that means `takode board set <quest-id> --worker <N> --status PLANNING` when the same worker should re-plan, or `takode board set <quest-id> --status QUEUED` when ownership needs to be reconsidered.
-4. **Treat the new human feedback as the source of truth**: any stale in-flight review ACCEPT, stale port confirmation, or delayed worker completion from the older scope becomes non-advancing context. Inspect it if useful, but do not let it move the quest forward after the reset.
-5. **Dispatch for full quest journey from that reset point**: treat the rework as a fresh cycle. The quest goes through PLANNING -> IMPLEMENTING -> SKEPTIC_REVIEWING -> GROOM_REVIEWING -> PORTING again from the reset stage, ensuring rework gets the same review rigor as the original implementation. Never skip review steps for "small" feedback fixes.
-6. **Prefer the original worker** if still available -- it has the most context from the first implementation. Check `takode list` for idle/disconnected workers with matching quest history.
-7. **Use the rework dispatch template** from `/leader-dispatch`, which explicitly tells the worker to check and address feedback and return a fresh plan before implementing.
-8. **The worker must mark each feedback entry as addressed**: `quest address <id> <index>` after fixing each item. This is a hard requirement -- the leader should verify via `quest show <id>` that all feedback entries are marked addressed before accepting the rework. Also verify that the worker did not leave a trail of duplicated or overly similar comments; one consolidated summary/addressing comment is preferred when it clearly covers the fix and the human feedback.
-9. **If the old-scope worker is still actively generating, interrupt before re-steering.** After resetting the board for fresh human feedback, use `takode interrupt <N>` before sending the new planning/rework instruction. A normal queued correction can arrive too late and let stale old-scope work keep running.
+0. First check whether the feedback likely belongs to the current quest. Same-thread feedback usually does, but users may occasionally post new-quest or unrelated feature feedback in the wrong thread. If the message appears separate or cross-cutting, ask or propose the split before changing the current quest; after the new quest exists, attach the relevant messages/images there.
+1. Record the feedback on the quest.
+2. Re-open the quest if it was already in `needs_verification` or `done`.
+3. Reset the board row to the earliest valid phase for the new scope.
+4. Treat the new feedback as the source of truth.
+5. Run a fresh Journey from that reset point.
 
-This loop can repeat multiple times. Each round is a full quest journey.
+Fresh human feedback outranks stale old-scope review or port completions.

@@ -1,4 +1,6 @@
 import type {
+  BoardParticipantStatus,
+  BoardRowSessionStatus,
   SessionState,
   CodexAppReference,
   CodexSkillReference,
@@ -13,27 +15,53 @@ import type {
   ToolResultPreview,
   SessionTaskEntry,
   HistoryWindowState,
+  LeaderProjectionSnapshot,
+  LeaderProjectionThreadRow,
+  LeaderProjectionThreadSummary,
   PendingCodexInput,
   PendingCodexInputImageDraft,
   VsCodeSelectionMetadata,
   VsCodeSelectionState,
   SessionNotification,
+  SessionAttentionRecord,
+  SessionAttentionRecordPriority,
+  SessionAttentionRecordRoute,
+  SessionAttentionRecordState,
+  SessionAttentionRecordType,
+  SessionLifecycleEvent,
+  ActiveTurnRoute,
+  ThreadRef,
+  ThreadAttachmentMarker,
+  ThreadAttachmentMovementSummary,
+  ThreadAttachmentUpdate,
+  ThreadAttachmentUpdateChangedMessage,
+  ThreadAttachmentUpdateEntry,
+  ThreadTransitionMarker,
+  ThreadWindowEntry,
+  ThreadWindowState,
+  ThreadRoutingError,
 } from "../server/session-types.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
 import type { SessionTimer } from "../server/timer-types.js";
+import type { ReplyContext } from "../shared/reply-context.js";
 import type {
   QuestmasterTask,
   QuestStatus,
   QuestVerificationItem,
   QuestFeedbackEntry,
+  QuestRelatedQuest,
+  QuestRelatedQuestKind,
   QuestImage,
   QuestCreateInput,
   QuestPatchInput,
   QuestTransitionInput,
+  QuestHistoryView,
 } from "../server/quest-types.js";
 
 export type {
+  BoardParticipantStatus,
+  BoardRowSessionStatus,
   SessionState,
   CodexAppReference,
   CodexSkillReference,
@@ -48,6 +76,9 @@ export type {
   ToolResultPreview,
   SessionTaskEntry,
   HistoryWindowState,
+  LeaderProjectionSnapshot,
+  LeaderProjectionThreadRow,
+  LeaderProjectionThreadSummary,
   PendingCodexInput,
   PendingCodexInputImageDraft,
   ImageRef,
@@ -55,18 +86,49 @@ export type {
   VsCodeSelectionState,
   SessionTimer,
   SessionNotification,
+  SessionAttentionRecord,
+  SessionAttentionRecordPriority,
+  SessionAttentionRecordRoute,
+  SessionAttentionRecordState,
+  SessionAttentionRecordType,
+  SessionLifecycleEvent,
+  ActiveTurnRoute,
+  ThreadRef,
+  ThreadAttachmentMarker,
+  ThreadAttachmentMovementSummary,
+  ThreadAttachmentUpdate,
+  ThreadAttachmentUpdateChangedMessage,
+  ThreadAttachmentUpdateEntry,
+  ThreadTransitionMarker,
+  ThreadWindowEntry,
+  ThreadWindowState,
+  ThreadRoutingError,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";
+export type {
+  StreamCurrentState,
+  StreamEntryType,
+  StreamFactStatus,
+  StreamLink,
+  StreamOwner,
+  StreamPinnedFact,
+  StreamRecord,
+  StreamStatus,
+  StreamTimelineEntry,
+} from "../server/stream-types.js";
 export { assertNever, isClaudeFamily };
 export type {
   QuestmasterTask,
   QuestStatus,
   QuestVerificationItem,
   QuestFeedbackEntry,
+  QuestRelatedQuest,
+  QuestRelatedQuestKind,
   QuestImage,
   QuestCreateInput,
   QuestPatchInput,
   QuestTransitionInput,
+  QuestHistoryView,
 };
 
 /** Tool names that spawn subagent sessions. Older CLI versions use "Task",
@@ -113,15 +175,39 @@ export interface ChatMessage {
     answers?: { question: string; answer: string }[];
     /** LLM rationale for auto-approved permissions (rendered separately from the summary). */
     autoApprovalReason?: string;
+    /** Explicit leader-to-user publication created by `takode user-message`. */
+    leaderUserMessage?: boolean;
+    /** Optional quest/thread memberships. Main is implicit for every message. */
+    threadRefs?: ThreadRef[];
+    threadKey?: string;
+    questId?: string;
+    threadAttachmentMarker?: ThreadAttachmentMarker;
+    threadTransitionMarker?: ThreadTransitionMarker;
+    crossThreadActivityMarker?: {
+      threadKey: string;
+      questId?: string;
+      count: number;
+      firstMessageId: string;
+      lastMessageId: string;
+      firstHistoryIndex?: number;
+      lastHistoryIndex?: number;
+      startedAt: number;
+      updatedAt: number;
+    };
+    attentionRecord?: SessionAttentionRecord;
+    threadRoutingError?: ThreadRoutingError;
+    replyContext?: ReplyContext;
     vscodeSelection?: VsCodeSelectionMetadata;
     quest?: {
       questId: string;
       title: string;
       description?: string;
+      tldr?: string;
       status: string;
       tags?: string[];
       images?: QuestImage[];
       verificationItems?: QuestVerificationItem[];
+      leaderSessionId?: string;
     };
   };
   /** Present when this user message was injected programmatically (e.g. via takode CLI or cron). */
@@ -129,13 +215,21 @@ export interface ChatMessage {
   /** Assistant message UUID from CLI, for revert support */
   cliUuid?: string;
   /** Notification anchored to this message (set by takode notify). */
-  notification?: { category: "needs-input" | "review"; timestamp: number; summary?: string };
+  notification?: {
+    id?: string;
+    category: "needs-input" | "review";
+    timestamp: number;
+    summary?: string;
+    suggestedAnswers?: string[];
+  };
   /** Browser-only message not present in server messageHistory; excluded from sync hash verification. */
   ephemeral?: boolean;
   /** Browser-only pending upload/send state for local user messages. */
   pendingState?: "uploading" | "delivering" | "failed";
   pendingError?: string;
   clientMsgId?: string;
+  /** Raw server messageHistory index, used for Takode CLI-compatible message links. */
+  historyIndex?: number;
 }
 
 export interface PendingUserUpload {
@@ -145,7 +239,10 @@ export interface PendingUserUpload {
   timestamp: number;
   stage: "delivering" | "failed";
   error?: string;
+  replyContext?: ReplyContext;
   vscodeSelection?: VsCodeSelectionMetadata;
+  threadKey?: string;
+  questId?: string;
   prepared?: {
     deliveryContent: string;
     imageRefs: ImageRef[];
@@ -202,6 +299,14 @@ export interface SdkSessionInfo {
   cronJobName?: string;
   /** Number of active timers currently waiting on this session. */
   pendingTimerCount?: number;
+  /** Highest active Takode notification urgency restored from the session inbox. */
+  notificationUrgency?: "needs-input" | "review" | null;
+  /** Number of unresolved Takode notifications for sidebar snapshots. */
+  activeNotificationCount?: number;
+  /** Monotonic server-owned notification status version for stale update rejection. */
+  notificationStatusVersion?: number;
+  /** Epoch ms when notification status last changed on the server. */
+  notificationStatusUpdatedAt?: number;
   /** Truncated preview of the last user message */
   lastMessagePreview?: string;
   /** Whether the CLI process is currently connected (from REST API) */
@@ -235,7 +340,14 @@ export interface SdkSessionInfo {
   /** Accumulated search keywords from the session auto-namer */
   keywords?: string[];
   /** Current claimed quest status for sidebar/title rendering. */
+  claimedQuestId?: string | null;
+  /** Current claimed quest title for sidebar/title rendering. */
+  claimedQuestTitle?: string | null;
   claimedQuestStatus?: string | null;
+  /** Review inbox metadata for a claimed done quest, if it is still in review flow. */
+  claimedQuestVerificationInboxUnread?: boolean;
+  /** Orchestrating leader session for the claimed quest, when known. */
+  claimedQuestLeaderSessionId?: string | null;
   /** Epoch ms of last real activity (user/assistant message, not keep_alive) */
   lastActivityAt?: number;
   /** Epoch ms of last user message (for sidebar activity sort -- not updated by assistant/tool activity) */
@@ -250,8 +362,37 @@ export interface SdkSessionInfo {
   codexRetainedPayloadBytes?: number;
   /** Last server-reported Codex token details for this session. */
   codexTokenDetails?: SessionState["codex_token_details"];
+  /** Resolved Codex leader recycle threshold for display-only effective context metrics. */
+  codexLeaderRecycleThresholdTokens?: number;
   /** Last server-reported Claude token details for this session. */
   claudeTokenDetails?: SessionState["claude_token_details"];
+  /** Debug lifecycle events restored from server session state. */
+  sessionLifecycleEvents?: SessionLifecycleEvent[];
+  /** Codex leader recycle lineage persisted across fresh-thread swaps. */
+  codexLeaderRecycleLineage?: {
+    cliSessionIds: string[];
+    recycleEvents: Array<{
+      trigger: "threshold" | "manual_compact";
+      requestedAt: number;
+      previousCliSessionId?: string;
+      nextCliSessionId?: string;
+      tokenUsage?: {
+        contextTokensUsed?: number;
+        contextUsedPercent?: number;
+        modelContextWindow?: number;
+        inputTokens?: number;
+        cachedInputTokens?: number;
+        outputTokens?: number;
+        reasoningOutputTokens?: number;
+      };
+    }>;
+  };
+  /** Pending Codex leader recycle waiting for the replacement thread. */
+  codexLeaderRecyclePending?: {
+    eventIndex: number;
+    trigger: "threshold" | "manual_compact";
+    requestedAt: number;
+  } | null;
   /** The Companion-injected system prompt constructed at launch time (for debugging). */
   injectedSystemPrompt?: string;
   /** Session number of the parent session this reviewer is reviewing (reviewer lifecycle) */

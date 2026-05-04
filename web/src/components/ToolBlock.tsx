@@ -8,11 +8,19 @@ import { CodeCopyButton } from "./CodeCopyButton.js";
 import { Lightbox } from "./Lightbox.js";
 import { CollapseFooter } from "./CollapseFooter.js";
 import { CopyFormatButton } from "./CopyFormatButton.js";
-import { BoardBlock, type BoardRowData } from "./BoardBlock.js";
+import { BoardBlock, type BoardProposalReviewPayload, type BoardRowData } from "./BoardBlock.js";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
-import { getChangePatch, parseEditToolInput, parseWriteToolInput } from "../utils/tool-rendering.js";
+import {
+  getChangeContent,
+  getChangeFilePath,
+  getChangePatch,
+  getDistinctChangeFilePaths,
+  parseEditToolInput,
+  parseWriteToolInput,
+} from "../utils/tool-rendering.js";
+import type { BoardRowSessionStatus } from "../types.js";
 import type { BoardQueueWarning } from "../../shared/quest-journey.js";
 import {
   openFileWithEditorPreference,
@@ -245,6 +253,8 @@ interface ToolBlockProps {
   defaultOpen?: boolean;
   disableInlineSpecialCases?: boolean;
   suppressNotificationMarker?: boolean;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
 }
 
 /** Public ToolBlock: wraps the inner implementation in an error boundary so that
@@ -268,6 +278,8 @@ const ToolBlockInner = memo(function ToolBlockInner({
   defaultOpen,
   disableInlineSpecialCases = false,
   suppressNotificationMarker = false,
+  currentThreadKey,
+  onSelectThread,
 }: ToolBlockProps) {
   const [open, setOpen] = useState(() => {
     if (defaultOpen !== undefined) return defaultOpen;
@@ -299,9 +311,13 @@ const ToolBlockInner = memo(function ToolBlockInner({
   const preview = getPreview(name, input);
   const hideHeaderLabel = hideLabel || name === "Bash";
   // File-operation tools show smart-truncated path + Open File button in the header
-  const isFileTool = (name === "Read" || name === "Write" || name === "Edit") && !!input.file_path;
+  const changedFilePaths = name === "Write" || name === "Edit" ? getDistinctChangeFilePaths(input) : ([] as string[]);
+  const isMultiFileChangeTool = (name === "Write" || name === "Edit") && changedFilePaths.length > 1;
+  const isFileTool =
+    (name === "Read" || ((name === "Write" || name === "Edit") && !isMultiFileChangeTool)) && !!input.file_path;
   const filePath = isFileTool ? String(input.file_path) : "";
   const filePathParts = isFileTool ? formatFileHeaderPath(filePath) : null;
+  const multiFilePreview = isMultiFileChangeTool ? `${changedFilePaths.length} files` : "";
 
   // Session cwd for the header Open File button (only subscribed for file tools)
   const sessionCwd = useStore((s) => {
@@ -309,26 +325,35 @@ const ToolBlockInner = memo(function ToolBlockInner({
     return s.sessions.get(sessionId)?.cwd ?? s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.cwd ?? null;
   });
 
-  // takode notify: render inline notification chip instead of terminal block.
+  // takode notify review: render an inline review chip before inbox hydration.
+  // needs-input notifications have richer generated surfaces; their command
+  // tool calls should stay normal Bash rows instead of a generic amber chip.
   const notifyMatch =
     !disableInlineSpecialCases && name === "Bash" ? parseTakodeNotifyCommand(String(input.command || "")) : null;
+  const inlineNotifyMatch = notifyMatch?.category === "review" ? notifyMatch : null;
   const anchoredNotificationSummary = useStore((s) => {
-    if (!notifyMatch || !sessionId || !parentMessageId) return undefined;
+    if (!inlineNotifyMatch || !sessionId || !parentMessageId) return undefined;
     return getSingleAnchoredNotification(s.sessionNotifications?.get(sessionId), parentMessageId)?.summary;
   });
 
   // takode board: render board card instead of terminal block.
   // Tool result previews are truncated to 300 chars by the server, which breaks
   // JSON parsing for boards with several rows. We fetch the full result if needed.
-  const isBoardCommand =
-    !disableInlineSpecialCases && name === "Bash" && isTakodeBoardCommand(String(input.command || ""));
-  const parsedBoard = useBoardData(isBoardCommand, sessionId, toolUseId);
-  if (isBoardCommand && parsedBoard) {
+  const boardCommand = !disableInlineSpecialCases && name === "Bash" ? parseTakodeBoardCommand(input.command) : null;
+  const parsedBoard = useBoardData(
+    boardCommand != null,
+    boardCommand?.canUseLiveBoardFallback === true,
+    sessionId,
+    toolUseId,
+  );
+  if (boardCommand && parsedBoard) {
     return (
       <BoardBlock
         board={parsedBoard.board}
+        rowSessionStatuses={parsedBoard.rowSessionStatuses}
         operation={parsedBoard.operation}
         queueWarnings={parsedBoard.queueWarnings}
+        proposalReview={parsedBoard.proposalReview}
         toolUseId={toolUseId}
         sessionId={sessionId ?? undefined}
         originalToolName={name}
@@ -338,13 +363,15 @@ const ToolBlockInner = memo(function ToolBlockInner({
     );
   }
 
-  if (notifyMatch && !suppressNotificationMarker) {
+  if (inlineNotifyMatch && !suppressNotificationMarker) {
     return (
       <NotificationMarker
-        category={notifyMatch.category}
+        category={inlineNotifyMatch.category}
         summary={anchoredNotificationSummary}
         sessionId={sessionId}
         messageId={parentMessageId}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
       />
     );
   }
@@ -378,11 +405,11 @@ const ToolBlockInner = memo(function ToolBlockInner({
             {filePathParts.dirLabel && <span className="text-cc-muted">{filePathParts.dirLabel}</span>}
             <span className="font-semibold text-cc-fg">{filePathParts.baseLabel}</span>
           </span>
-        ) : preview ? (
+        ) : multiFilePreview || preview ? (
           <span
             className={`text-xs truncate flex-1 font-mono-code ${hideHeaderLabel ? "text-cc-fg/90" : "text-cc-muted"}`}
           >
-            {preview}
+            {multiFilePreview || preview}
           </span>
         ) : null}
         {/* Open File in header for file tools. Uses line=1 because the header doesn't
@@ -421,9 +448,61 @@ const ToolBlockInner = memo(function ToolBlockInner({
   );
 });
 
-/** Detect `takode board` commands (display, add, set, rm). */
-function isTakodeBoardCommand(command: string): boolean {
-  return /\btakode\s+board\b/.test(command);
+const INLINE_BOARD_FALLBACK_SUBCOMMANDS = new Set([
+  "",
+  "show",
+  "display",
+  "set",
+  "add",
+  "rm",
+  "advance",
+  "propose",
+  "promote",
+  "note",
+  "present",
+]);
+
+interface TakodeBoardCommandMatch {
+  canUseLiveBoardFallback: boolean;
+}
+
+/** Detect `takode board` commands while keeping non-table subcommands as plain terminal rows. */
+export function parseTakodeBoardCommand(rawCommand: unknown): TakodeBoardCommandMatch | null {
+  const command = stripLeadingEnvAssignments(String(rawCommand || ""));
+  const commandMatcher = /(?:^|[\s;&|()])takode\s+board(?:\s+([^\s;&|()]+))?/g;
+  let match: RegExpExecArray | null;
+  while ((match = commandMatcher.exec(command)) !== null) {
+    const segmentStart = command.indexOf("takode", match.index);
+    const segment = command.slice(segmentStart).split(/[;&|\n\r]/, 1)[0] ?? "";
+    const rawSubcommand = (match[1] ?? "").toLowerCase();
+    const isHelp = rawSubcommand === "help" || rawSubcommand === "--help" || /\s--help(?:\s|$)/.test(segment);
+    const subcommand = rawSubcommand.startsWith("--") ? "" : rawSubcommand;
+    if (isHelp) return { canUseLiveBoardFallback: false };
+    return { canUseLiveBoardFallback: INLINE_BOARD_FALLBACK_SUBCOMMANDS.has(subcommand) };
+  }
+  return null;
+}
+
+function looksLikeTakodeBoardTableOutput(content: string | undefined): boolean {
+  if (!content) return false;
+  const lines = content
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean);
+  const headerIndex = lines.findIndex(
+    (line) => /\bQUEST\b/i.test(line) && /\bTITLE\b/i.test(line) && /\b(STATE|WORKER|WAIT-FOR)\b/i.test(line),
+  );
+  if (headerIndex < 0) return false;
+  return lines.slice(headerIndex + 1, headerIndex + 8).some((line) => /\bq-\d+\b/i.test(line));
+}
+
+function liveBoardFallback(
+  canUseLiveBoardFallback: boolean,
+  content: string | undefined,
+  liveBoard: BoardRowData[] | undefined,
+): ParsedBoardResult | null {
+  if (!canUseLiveBoardFallback || !liveBoard || !looksLikeTakodeBoardTableOutput(content)) return null;
+  return { board: liveBoard };
 }
 
 /** Strip leading shell-style env assignments from a Bash command preview. */
@@ -455,6 +534,7 @@ function parseTakodeNotifyCommand(command: string): { category: "needs-input" | 
  */
 function useBoardData(
   isBoardCommand: boolean,
+  canUseLiveBoardFallback: boolean,
   sessionId: string | null | undefined,
   toolUseId: string,
 ): ParsedBoardResult | null {
@@ -487,12 +567,12 @@ function useBoardData(
       return;
     }
     if (previewContent === undefined) {
-      setBoardData(liveBoard !== undefined ? { board: liveBoard } : null);
+      setBoardData(null);
       return;
     }
     if (!isTruncated) {
       const parsed = parseBoardFromResult(previewContent);
-      setBoardData(parsed ?? (liveBoard !== undefined ? { board: liveBoard } : null));
+      setBoardData(parsed ?? liveBoardFallback(canUseLiveBoardFallback, previewContent, liveBoard));
       return;
     }
     // Server truncated the preview -- fetch full result to get complete JSON
@@ -506,15 +586,28 @@ function useBoardData(
           return;
         }
         const parsed = parseBoardFromResult(full?.content);
-        setBoardData(parsed ?? (liveBoard !== undefined ? { board: liveBoard } : null));
+        setBoardData(
+          parsed ??
+            liveBoardFallback(canUseLiveBoardFallback, full?.content, liveBoard) ??
+            liveBoardFallback(canUseLiveBoardFallback, previewContent, liveBoard),
+        );
       })
       .catch(() => {
-        if (!cancelled) setBoardData(liveBoard !== undefined ? { board: liveBoard } : null);
+        if (!cancelled) setBoardData(liveBoardFallback(canUseLiveBoardFallback, previewContent, liveBoard));
       });
     return () => {
       cancelled = true;
     };
-  }, [isBoardCommand, sessionId, toolUseId, previewContent, previewIsError, isTruncated, liveBoard]);
+  }, [
+    canUseLiveBoardFallback,
+    isBoardCommand,
+    sessionId,
+    toolUseId,
+    previewContent,
+    previewIsError,
+    isTruncated,
+    liveBoard,
+  ]);
 
   return boardData;
 }
@@ -528,8 +621,10 @@ function useBoardData(
  */
 export interface ParsedBoardResult {
   board: BoardRowData[];
+  rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
   operation?: string;
   queueWarnings?: BoardQueueWarning[];
+  proposalReview?: BoardProposalReviewPayload;
 }
 
 export function parseBoardFromResult(resultContent: string | undefined): ParsedBoardResult | null {
@@ -539,10 +634,21 @@ export function parseBoardFromResult(resultContent: string | undefined): ParsedB
   try {
     const parsed = JSON.parse(jsonStr);
     if (parsed?.__takode_board__ === true && Array.isArray(parsed.board)) {
+      const proposalReview =
+        parsed.proposalReview && typeof parsed.proposalReview === "object" && !Array.isArray(parsed.proposalReview)
+          ? (parsed.proposalReview as BoardProposalReviewPayload)
+          : undefined;
       return {
         board: parsed.board,
+        rowSessionStatuses:
+          parsed.rowSessionStatuses &&
+          typeof parsed.rowSessionStatuses === "object" &&
+          !Array.isArray(parsed.rowSessionStatuses)
+            ? (parsed.rowSessionStatuses as Record<string, BoardRowSessionStatus>)
+            : undefined,
         operation: typeof parsed.operation === "string" ? parsed.operation : undefined,
         queueWarnings: Array.isArray(parsed.queueWarnings) ? parsed.queueWarnings : undefined,
+        ...(proposalReview ? { proposalReview } : {}),
       };
     }
   } catch {
@@ -890,6 +996,45 @@ function getFirstChangedLineForEditFile(parsed: ReturnType<typeof parseEditToolI
   return 1;
 }
 
+interface ChangePatchGroup {
+  filePath: string;
+  changes: Array<Record<string, unknown>>;
+  unifiedDiff: string;
+  newText: string;
+}
+
+function buildChangePatchGroups(changes: Array<Record<string, unknown>>, fallbackFilePath = ""): ChangePatchGroup[] {
+  const groups: ChangePatchGroup[] = [];
+  const groupIndexes = new Map<string, number>();
+
+  for (const change of changes) {
+    const filePath = getChangeFilePath(change) || fallbackFilePath;
+    if (!filePath) continue;
+
+    const existingIndex = groupIndexes.get(filePath);
+    if (existingIndex !== undefined) {
+      groups[existingIndex].changes.push(change);
+      continue;
+    }
+
+    groupIndexes.set(filePath, groups.length);
+    groups.push({ filePath, changes: [change], unifiedDiff: "", newText: "" });
+  }
+
+  for (const group of groups) {
+    group.unifiedDiff = group.changes
+      .map((change) => getChangePatch(change))
+      .filter(Boolean)
+      .join("\n");
+    group.newText = group.changes
+      .map((change) => getChangeContent(change))
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return groups;
+}
+
 /** Memoized pure component for "Open File" buttons in diff headers.
  *  Accepts `cwd` as a prop instead of reading it from the Zustand store.
  *  This is critical: DiffViewer calls `renderHeaderActions` during its render
@@ -956,6 +1101,7 @@ function BashDetail({ input }: { input: Record<string, unknown> }) {
 function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
   const parsed = useMemo(() => parseEditToolInput(input), [input]);
   const { filePath, oldText: oldStr, newText: newStr, changes, unifiedDiff } = parsed;
+  const changePatchGroups = useMemo(() => buildChangePatchGroups(changes, filePath), [changes, filePath]);
 
   // Session cwd for the changes-list Open File buttons (the main header Open File
   // button is now in ToolBlockInner, so this is only needed for the multi-change path).
@@ -968,6 +1114,27 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
   // no longer needs fileName or renderHeaderActions for single-file edits.
 
   if (!oldStr && !newStr && unifiedDiff) {
+    if (changePatchGroups.length > 1) {
+      return (
+        <div className="space-y-2">
+          {changePatchGroups.map((group) => (
+            <DiffViewer
+              key={group.filePath}
+              unifiedDiff={group.unifiedDiff}
+              fileName={group.filePath}
+              mode="full"
+              headerActions={
+                <DiffOpenFileButton
+                  filePath={group.filePath}
+                  cwd={sessionCwd}
+                  line={getFirstChangedLineForEditFile(parsed, group.filePath)}
+                />
+              }
+            />
+          ))}
+        </div>
+      );
+    }
     return <DiffViewer unifiedDiff={unifiedDiff} mode="full" />;
   }
 
@@ -1013,6 +1180,7 @@ function EditToolDetail({ input, sessionId }: { input: Record<string, unknown>; 
 
 function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>; sessionId?: string }) {
   const { filePath, content, changes, unifiedDiff } = useMemo(() => parseWriteToolInput(input), [input]);
+  const changePatchGroups = useMemo(() => buildChangePatchGroups(changes, filePath), [changes, filePath]);
 
   // Session cwd for the changes-list Open File buttons only
   const sessionCwd = useStore((s) => {
@@ -1021,6 +1189,23 @@ function WriteToolDetail({ input, sessionId }: { input: Record<string, unknown>;
   });
 
   // File path and Open File button are now in the ToolBlock header
+
+  if (changePatchGroups.length > 1 && changePatchGroups.some((group) => group.unifiedDiff || group.newText)) {
+    return (
+      <div className="space-y-2">
+        {changePatchGroups.map((group) => (
+          <DiffViewer
+            key={group.filePath}
+            unifiedDiff={group.unifiedDiff || undefined}
+            newText={group.unifiedDiff ? undefined : group.newText}
+            fileName={group.filePath}
+            mode="full"
+            headerActions={<DiffOpenFileButton filePath={group.filePath} cwd={sessionCwd} line={1} />}
+          />
+        ))}
+      </div>
+    );
+  }
 
   if (!content && unifiedDiff) {
     return <DiffViewer unifiedDiff={unifiedDiff} mode="full" />;

@@ -1,4 +1,4 @@
-export type QuestLifecycleStatus = "in_progress" | "needs_verification" | "done";
+export type QuestLifecycleStatus = "in_progress" | "done";
 
 export type QuestDetectionInput = { kind: "command"; text: string } | { kind: "result"; text: string };
 
@@ -7,13 +7,14 @@ export interface DetectedQuestEvent {
   title?: string;
   status?: QuestLifecycleStatus;
   targetStatus?: QuestLifecycleStatus;
+  verificationInboxUnread?: boolean;
 }
 
 function normalizeQuestStatus(value: string | undefined): QuestLifecycleStatus | undefined {
   if (!value) return undefined;
   const s = value.toLowerCase();
   if (s === "in_progress") return "in_progress";
-  if (s === "needs_verification" || s === "verification") return "needs_verification";
+  if (s === "needs_verification" || s === "verification") return "done";
   if (s === "done") return "done";
   return undefined;
 }
@@ -78,7 +79,7 @@ function detectFromCommand(command: string): DetectedQuestEvent | null {
   if (!subcommand || !questId) return null;
 
   if (subcommand === "claim") return { questId, targetStatus: "in_progress" };
-  if (subcommand === "complete") return { questId, targetStatus: "needs_verification" };
+  if (subcommand === "complete") return { questId, targetStatus: "done", verificationInboxUnread: true };
   if (subcommand === "done" || subcommand === "cancel") return { questId, targetStatus: "done" };
   if (subcommand === "transition") {
     const statusMatch = command.match(/--status\s+([a-z_]+)/i);
@@ -100,8 +101,10 @@ function detectFromResult(resultText: string): DetectedQuestEvent | null {
       );
       const title = typeof parsed.title === "string" ? parsed.title : undefined;
       const status = normalizeQuestStatus(typeof parsed.status === "string" ? parsed.status : undefined);
+      const verificationInboxUnread =
+        typeof parsed.verificationInboxUnread === "boolean" ? parsed.verificationInboxUnread : undefined;
       if (!questId && !title && !status) return null;
-      return { questId, title, status };
+      return { questId, title, status, verificationInboxUnread };
     } catch {
       return null;
     }
@@ -123,7 +126,7 @@ function detectFromResult(resultText: string): DetectedQuestEvent | null {
 
   const completeLine = trimmed.match(/Completed\s+(q-\d+)\s+"([^"]+)"/i);
   if (completeLine) {
-    return { questId: completeLine[1], title: completeLine[2], status: "needs_verification" };
+    return { questId: completeLine[1], title: completeLine[2], status: "done", verificationInboxUnread: true };
   }
 
   const doneLine = trimmed.match(/(?:Marked done|Cancelled)\s+(q-\d+)\s+"([^"]+)"/i);

@@ -1,19 +1,22 @@
 import { useStore } from "../store.js";
-import type { SdkSessionInfo } from "../types.js";
+import type { ChatMessage, SdkSessionInfo } from "../types.js";
+import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "./thread-projection.js";
 
 export type Route =
   | { page: "home" }
-  | { page: "session"; sessionId: string; messageId?: string }
+  | { page: "session"; sessionId: string; messageIndex?: number; messageId?: string }
   | { page: "settings" }
   | { page: "logs" }
   | { page: "terminal" }
   | { page: "environments" }
   | { page: "scheduled" }
   | { page: "questmaster" }
+  | { page: "streams" }
   | { page: "playground" };
 
 const SESSION_PREFIX = "#/session/";
 const QUEST_ID_PATTERN = /^q-\d+$/i;
+const THREAD_QUERY_PARAM = "thread";
 
 function splitHash(hash: string): { path: string; params: URLSearchParams } {
   const normalized = hash ? (hash.startsWith("#") ? hash : `#${hash}`) : "#/";
@@ -27,6 +30,15 @@ function normalizeQuestId(raw: string | null): string | null {
   if (!raw) return null;
   const trimmed = raw.trim().toLowerCase();
   return QUEST_ID_PATTERN.test(trimmed) ? trimmed : null;
+}
+
+function normalizeRouteThreadKey(raw: string | null): string | null {
+  if (!raw) return null;
+  const normalized = normalizeThreadKey(raw);
+  if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY || QUEST_ID_PATTERN.test(normalized)) {
+    return normalized;
+  }
+  return null;
 }
 
 function normalizePlaygroundSectionId(raw: string | null): string | null {
@@ -46,6 +58,7 @@ export function parseHash(hash: string): Route {
   if (path === "#/environments") return { page: "environments" };
   if (path === "#/scheduled") return { page: "scheduled" };
   if (path === "#/questmaster") return { page: "questmaster" };
+  if (path === "#/streams") return { page: "streams" };
   if (path === "#/playground") return { page: "playground" };
 
   if (path.startsWith(SESSION_PREFIX)) {
@@ -55,8 +68,14 @@ export function parseHash(hash: string): Route {
     const rawSessionId = markerIdx >= 0 ? sessionPath.slice(0, markerIdx) : sessionPath;
     const rawMessageId = markerIdx >= 0 ? sessionPath.slice(markerIdx + messageMarker.length) : "";
     const sessionId = decodeURIComponent(rawSessionId);
-    const messageId = rawMessageId ? decodeURIComponent(rawMessageId) : undefined;
-    if (sessionId) return messageId ? { page: "session", sessionId, messageId } : { page: "session", sessionId };
+    const messageRef = rawMessageId ? decodeURIComponent(rawMessageId) : undefined;
+    if (sessionId) {
+      if (!messageRef) return { page: "session", sessionId };
+      if (/^\d+$/.test(messageRef)) {
+        return { page: "session", sessionId, messageIndex: Number.parseInt(messageRef, 10) };
+      }
+      return { page: "session", sessionId, messageId: messageRef };
+    }
   }
 
   return { page: "home" };
@@ -88,6 +107,37 @@ export function withQuestIdInHash(hash: string, questId: string): string {
 export function withoutQuestIdInHash(hash: string): string {
   const { path, params } = splitHash(hash);
   params.delete("quest");
+  const query = params.toString();
+  return query ? `${path}?${query}` : path;
+}
+
+/**
+ * Read leader thread route state from the hash query.
+ *
+ * `hasThreadParam` distinguishes the default Main route from an invalid
+ * explicit thread param, allowing callers to clean invalid URLs with replaceState.
+ */
+export function threadRouteFromHash(hash: string): { hasThreadParam: boolean; threadKey: string | null } {
+  const { params } = splitHash(hash);
+  if (!params.has(THREAD_QUERY_PARAM)) return { hasThreadParam: false, threadKey: null };
+  return {
+    hasThreadParam: true,
+    threadKey: normalizeRouteThreadKey(params.get(THREAD_QUERY_PARAM)),
+  };
+}
+
+/**
+ * Return a hash string with the leader thread route query param updated.
+ * Main is the canonical default and is represented by removing the param.
+ */
+export function withThreadKeyInHash(hash: string, threadKey: string): string {
+  const { path, params } = splitHash(hash);
+  const normalized = normalizeRouteThreadKey(threadKey);
+  if (!normalized || normalized === MAIN_THREAD_KEY) {
+    params.delete(THREAD_QUERY_PARAM);
+  } else {
+    params.set(THREAD_QUERY_PARAM, normalized);
+  }
   const query = params.toString();
   return query ? `${path}?${query}` : path;
 }
@@ -131,10 +181,15 @@ export function sessionHash(sessionId: string | number): string {
 }
 
 /**
- * Build a hash string for a given session + stable message ID.
+ * Build a hash string for a given session + readable message index.
  */
-export function sessionMessageHash(sessionId: string | number, messageId: string): string {
-  return `${sessionHash(sessionId)}/msg/${encodeURIComponent(messageId)}`;
+export function sessionMessageHash(sessionId: string | number, messageIndex: number): string {
+  return `${sessionHash(sessionId)}/msg/${encodeURIComponent(String(messageIndex))}`;
+}
+
+function resolveMessageByReadableIndex(messages: ChatMessage[], messageIndex: number): ChatMessage | undefined {
+  const hasRawHistoryIndexes = messages.some((msg) => typeof msg.historyIndex === "number");
+  return hasRawHistoryIndexes ? messages.find((msg) => msg.historyIndex === messageIndex) : messages[messageIndex];
 }
 
 /**
@@ -151,6 +206,33 @@ export function navigateToSession(sessionId: string, replace = false): void {
   }
 }
 
+function routeTargetsSession(sessionRef: string, sessionId: string): boolean {
+  if (sessionRef === sessionId) return true;
+  return resolveSessionIdFromRoute(sessionRef, useStore.getState().sdkSessions as SdkSessionInfo[]) === sessionId;
+}
+
+/**
+ * Navigate within a leader session to Main, All Threads, or a quest thread.
+ * Preserves the current session route shape and query params when already on a
+ * session URL, so numeric session routes and quest overlays remain stable.
+ */
+export function navigateToSessionThread(sessionId: string, threadKey: string, replace = false): void {
+  const currentRoute = parseHash(window.location.hash);
+  const currentHash =
+    currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId)
+      ? window.location.hash
+      : sessionHash(sessionId);
+  const newHash = withThreadKeyInHash(currentHash, threadKey);
+  if (newHash === window.location.hash) return;
+
+  if (replace) {
+    history.replaceState(null, "", newHash);
+    window.dispatchEvent(new HashChangeEvent("hashchange"));
+  } else {
+    window.location.hash = newHash.startsWith("#") ? newHash.slice(1) : newHash;
+  }
+}
+
 /**
  * Resolve a message index to an ID and trigger scroll+expand.
  * If messages are loaded, scrolls immediately; otherwise stores a pending scroll.
@@ -159,15 +241,16 @@ export function scrollToMessageIndex(sessionId: string, messageIndex: number): v
   const store = useStore.getState();
   const messages = store.messages.get(sessionId);
 
-  if (messages && messageIndex < messages.length) {
-    const targetMsg = messages[messageIndex];
+  if (messages) {
+    const targetMsg = resolveMessageByReadableIndex(messages, messageIndex);
     if (targetMsg) {
       store.requestScrollToMessage(sessionId, targetMsg.id);
       store.setExpandAllInTurn(sessionId, targetMsg.id);
+      return;
     }
-  } else {
-    store.setPendingScrollToMessageIndex(sessionId, messageIndex);
   }
+
+  store.setPendingScrollToMessageIndex(sessionId, messageIndex);
 }
 
 /**
@@ -188,7 +271,7 @@ export function navigateToSessionMessageId(
   options: { replace?: boolean; routeSessionId?: string | number } = {},
 ): void {
   const { replace = false, routeSessionId = sessionId } = options;
-  const newHash = sessionMessageHash(routeSessionId, messageId);
+  const newHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}`;
   if (replace) {
     history.replaceState(null, "", newHash);
     window.dispatchEvent(new HashChangeEvent("hashchange"));
@@ -201,9 +284,12 @@ export function navigateToSessionMessageId(
 }
 
 /**
- * Read message index from hash query param (e.g. `?msg=42`).
+ * Read message index from the route path (e.g. `/msg/42`) or legacy query param (e.g. `?msg=42`).
  */
 export function messageIndexFromHash(hash: string): number | null {
+  const route = parseHash(hash);
+  if (route.page === "session" && route.messageIndex != null) return route.messageIndex;
+
   const { params } = splitHash(hash);
   const raw = params.get("msg");
   if (!raw) return null;

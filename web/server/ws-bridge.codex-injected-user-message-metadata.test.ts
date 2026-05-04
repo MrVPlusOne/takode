@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -649,8 +660,7 @@ describe("Codex injected user_message metadata", () => {
       status: "queued",
     });
 
-    vi.advanceTimersByTime(2100);
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2100);
 
     expect(session.pendingCodexInputs).toHaveLength(1);
     expect(session.pendingCodexTurns).toHaveLength(1);
@@ -707,8 +717,7 @@ describe("Codex injected user_message metadata", () => {
 
     const session = bridge.getSession(leaderId)!;
     expect(getPendingCodexTurn(session)).toMatchObject({ status: "queued" });
-    vi.advanceTimersByTime(2100);
-    await Promise.resolve();
+    await vi.advanceTimersByTimeAsync(2100);
     expect(getPendingCodexTurn(session)).toMatchObject({ status: "dispatched" });
 
     adapter.emitTurnStarted("turn-herd-events-follow-up");
@@ -729,7 +738,7 @@ describe("Codex injected user_message metadata", () => {
       .map((call) => call[0])
       .find((msg: any) => msg.type === "codex_steer_pending");
     expect(steerCall?.type).toBe("codex_steer_pending");
-    expect(steerCall?.inputs?.[0]?.content).toBe("actual leader message");
+    expect(steerCall?.inputs?.[0]?.content).toMatch(/^\[User .*?\] \[thread:main\] actual leader message$/);
 
     adapter.emitTurnSteered("turn-herd-events-follow-up", [pendingId]);
     expect(session.pendingCodexInputs).toHaveLength(0);

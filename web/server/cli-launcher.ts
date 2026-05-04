@@ -6,7 +6,13 @@ import { mkdir, access, readFile, writeFile } from "node:fs/promises";
 const execPromise = promisify(execCb);
 import type { Subprocess } from "bun";
 import type { SessionStore } from "./session-store.js";
-import type { BackendType } from "./session-types.js";
+import type {
+  BackendType,
+  CodexLeaderRecycleEvent,
+  CodexLeaderRecycleLineage,
+  CodexLeaderRecycleTokenSnapshot,
+  CodexLeaderRecycleTrigger,
+} from "./session-types.js";
 import { assertNever } from "./session-types.js";
 import type { RecorderManager } from "./recorder.js";
 import { CodexAdapter } from "./codex-adapter.js";
@@ -18,10 +24,28 @@ import {
   getOrchestratorGuardrails as renderOrchestratorGuardrails,
 } from "./cli-launcher-instructions.js";
 import { MissingCodexBinaryError, prepareCodexSpawn } from "./cli-launcher-codex.js";
+import { stripInheritedTelemetryEnv, withNonInteractiveGitEditorEnv } from "./cli-launcher-env.js";
 import { prepareWorktreeSessionArtifacts } from "./cli-launcher-worktree.js";
+import { ensureQuestJourneyPhaseDataForCwd } from "./quest-journey-phases.js";
+import { isRecoverableCodexInitError } from "./codex-adapter-utils.js";
+import { type CodexTokenRefreshNoiseState } from "./cli-stream-log-classifier.js";
+import { formatStreamTailForError, pipeLauncherStream } from "./cli-launcher-streams.js";
 import { sessionTag } from "./session-tag.js";
 import type { HerdChangeEvent, HerdSessionsResponse } from "../shared/herd-types.js";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
+
+function appendUniqueCliSessionId(
+  lineage: CodexLeaderRecycleLineage | undefined,
+  cliSessionId: string,
+): CodexLeaderRecycleLineage {
+  const current = lineage ?? { cliSessionIds: [], recycleEvents: [] };
+  if (!cliSessionId) return current;
+  if (current.cliSessionIds.includes(cliSessionId)) return current;
+  return {
+    ...current,
+    cliSessionIds: [...current.cliSessionIds, cliSessionId],
+  };
+}
 
 /** Check if a file exists (async equivalent of existsSync). */
 async function fileExists(path: string): Promise<boolean> {
@@ -98,22 +122,6 @@ function sanitizeSpawnArgsForLog(args: string[]): string {
   return out.join(" ");
 }
 
-function appendStreamTail(lines: string[], chunk: string, maxLines = 20): void {
-  for (const rawLine of chunk.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line) continue;
-    lines.push(line);
-    if (lines.length > maxLines) lines.shift();
-  }
-}
-
-function formatStreamTailForError(lines: string[]): string | null {
-  if (lines.length === 0) return null;
-  const summary = lines.slice(-4).join(" | ");
-  if (!summary) return null;
-  return summary.length > 500 ? `${summary.slice(0, 497)}...` : summary;
-}
-
 export interface SdkSessionInfo {
   sessionId: string;
   /** Monotonic integer ID assigned at runtime (not persisted — regenerated on restart) */
@@ -133,6 +141,14 @@ export interface SdkSessionInfo {
   lastUserMessageAt?: number;
   /** The CLI's internal session ID (from system.init), used for --resume */
   cliSessionId?: string;
+  /** Codex leader recycle lineage across fresh-thread swaps within one Takode session. */
+  codexLeaderRecycleLineage?: CodexLeaderRecycleLineage;
+  /** Pending Codex leader recycle awaiting a fresh replacement thread and recovery prompt. */
+  codexLeaderRecyclePending?: {
+    eventIndex: number;
+    trigger: CodexLeaderRecycleTrigger;
+    requestedAt: number;
+  } | null;
   archived?: boolean;
   /** Epoch ms when this session was archived */
   archivedAt?: number;
@@ -164,12 +180,18 @@ export interface SdkSessionInfo {
   codexSandbox?: "workspace-write" | "danger-full-access";
   /** Reasoning effort selected for Codex sessions (e.g. low/medium/high). */
   codexReasoningEffort?: string;
+  /** Optional per-session Codex home override, reused across relaunches. */
+  codexHome?: string;
   /** If this session was spawned by a cron job */
   cronJobId?: string;
   /** Human-readable name of the cron job that spawned this session */
   cronJobName?: string;
   /** Number of active timers currently waiting on this session. */
   pendingTimerCount?: number;
+  /** Highest active Takode notification urgency restored from the session inbox. */
+  notificationUrgency?: "needs-input" | "review" | null;
+  /** Number of unresolved Takode notifications for sidebar snapshots. */
+  activeNotificationCount?: number;
   /** Set by idle manager before killing — lets the UI show a less alarming indicator */
   killedByIdleManager?: boolean;
   /** Whether --resume has already been retried once after a fast exit */
@@ -234,6 +256,10 @@ export interface LaunchOptions {
   codexReasoningEffort?: string;
   /** Optional override for CODEX_HOME used by Codex sessions. */
   codexHome?: string;
+  /** Codex leader-only effective context window override for session-local config. */
+  codexLeaderContextWindowOverrideTokens?: number;
+  /** Codex non-leader auto-compact threshold as a percent of effective model context. */
+  codexNonLeaderAutoCompactThresholdPercent?: number;
   /** Docker container ID — when set, CLI runs inside container via docker exec */
   containerId?: string;
   /** Docker container name */
@@ -260,11 +286,18 @@ export interface LaunchOptions {
  * Manages CLI backend processes (Claude Code via --sdk-url WebSocket,
  * or Codex via app-server stdio).
  */
+const knownSessionNums = new Map<string, number>();
+
+export function getKnownSessionNum(sessionId: string): number | undefined {
+  return knownSessionNums.get(sessionId);
+}
+
 export class CliLauncher {
   private sessions = new Map<string, SdkSessionInfo>();
   private processes = new Map<string, Subprocess>();
   /** Runtime-only env vars per session (kept out of persisted launcher state). */
   private sessionEnvs = new Map<string, Record<string, string>>();
+  private codexTokenRefreshNoiseBySession = new Map<string, CodexTokenRefreshNoiseState>();
   private port: number;
   private serverId: string;
   private store: SessionStore | null = null;
@@ -275,7 +308,14 @@ export class CliLauncher {
     | null = null;
   private onBeforeRelaunch: ((sessionId: string, backendType: BackendType) => void) | null = null;
   private exitHandlers: ((sessionId: string, exitCode: number | null) => void)[] = [];
-  private settingsGetter: (() => { claudeBinary: string; codexBinary: string }) | null = null;
+  private settingsGetter:
+    | (() => {
+        claudeBinary: string;
+        codexBinary: string;
+        codexLeaderContextWindowOverrideTokens?: number;
+        codexNonLeaderAutoCompactThresholdPercent?: number;
+      })
+    | null = null;
   /** Callback to resolve env profile variables by slug (set by server bootstrap). */
   private envResolver: ((slug: string) => Promise<Record<string, string> | null>) | null = null;
 
@@ -334,7 +374,14 @@ export class CliLauncher {
   }
 
   /** Attach a settings getter so relaunch() can read current binary settings. */
-  setSettingsGetter(fn: () => { claudeBinary: string; codexBinary: string }): void {
+  setSettingsGetter(
+    fn: () => {
+      claudeBinary: string;
+      codexBinary: string;
+      codexLeaderContextWindowOverrideTokens?: number;
+      codexNonLeaderAutoCompactThresholdPercent?: number;
+    },
+  ): void {
     this.settingsGetter = fn;
   }
 
@@ -390,29 +437,35 @@ export class CliLauncher {
   /** Assign a monotonic integer ID to a session. */
   private assignSessionNum(sessionId: string): number {
     const existing = this.sessionNumMap.get(sessionId);
-    if (existing !== undefined) return existing;
+    if (existing !== undefined) {
+      knownSessionNums.set(sessionId, existing);
+      return existing;
+    }
     const num = this.nextSessionNum++;
     this.sessionNumMap.set(sessionId, num);
     this.sessionByNum.set(num, sessionId);
+    knownSessionNums.set(sessionId, num);
     return num;
   }
 
   /**
    * Resolve a session identifier to a full UUID.
-   * Accepts: integer session number, full UUID, or UUID prefix (min 4 chars).
+   * Accepts: integer session number, #N session number, full UUID, or UUID prefix (min 4 chars).
    * Returns null if no match found.
    */
   resolveSessionId(idOrNum: string): string | null {
+    const normalized = idOrNum.trim();
+    const numericRef = /^#\d+$/.test(normalized) ? normalized.slice(1) : normalized;
     // Try integer lookup first
-    const num = parseInt(idOrNum, 10);
-    if (!isNaN(num) && String(num) === idOrNum) {
+    const num = parseInt(numericRef, 10);
+    if (!isNaN(num) && String(num) === numericRef) {
       return this.sessionByNum.get(num) ?? null;
     }
     // Exact UUID match
-    if (this.sessions.has(idOrNum)) return idOrNum;
+    if (this.sessions.has(normalized)) return normalized;
     // Prefix match (min 4 chars to avoid ambiguity)
-    if (idOrNum.length >= 4) {
-      const lower = idOrNum.toLowerCase();
+    if (normalized.length >= 4) {
+      const lower = normalized.toLowerCase();
       let match: string | null = null;
       for (const uuid of this.sessions.keys()) {
         if (uuid.toLowerCase().startsWith(lower)) {
@@ -525,6 +578,7 @@ export class CliLauncher {
       if (info.sessionNum !== undefined && info.sessionNum !== null) {
         this.sessionNumMap.set(info.sessionId, info.sessionNum);
         this.sessionByNum.set(info.sessionNum, info.sessionId);
+        knownSessionNums.set(info.sessionId, info.sessionNum);
         if (info.sessionNum > maxNum) maxNum = info.sessionNum;
       }
     }
@@ -612,6 +666,7 @@ export class CliLauncher {
       info.codexInternetAccess = options.codexInternetAccess === true;
       info.codexSandbox = options.codexSandbox;
       info.codexReasoningEffort = options.codexReasoningEffort;
+      info.codexHome = options.codexHome;
     }
 
     // Store container metadata if provided
@@ -627,6 +682,18 @@ export class CliLauncher {
       info.repoRoot = options.worktreeInfo.repoRoot;
       info.branch = options.worktreeInfo.branch;
       info.actualBranch = options.worktreeInfo.actualBranch;
+    }
+
+    // Phase briefs are global runtime files, but reviewers often share an unported
+    // worker worktree. Refresh from the session CWD before launch so the assignee
+    // path leaders provide matches the worktree version being reviewed.
+    try {
+      const refreshedPhaseBriefs = await ensureQuestJourneyPhaseDataForCwd(info.cwd);
+      if (refreshedPhaseBriefs) {
+        console.log(`[cli-launcher] Refreshed Quest Journey phase briefs from session cwd (${info.cwd})`);
+      }
+    } catch (error) {
+      console.warn(`[cli-launcher] Failed to refresh Quest Journey phase briefs from session cwd:`, error);
     }
 
     // Inject backend-specific worktree guardrails.
@@ -842,6 +909,9 @@ export class CliLauncher {
             codexSandbox: info.codexSandbox,
             codexInternetAccess: info.codexInternetAccess,
             codexReasoningEffort: info.codexReasoningEffort,
+            codexHome: info.codexHome,
+            codexLeaderContextWindowOverrideTokens: binSettings.codexLeaderContextWindowOverrideTokens,
+            codexNonLeaderAutoCompactThresholdPercent: binSettings.codexNonLeaderAutoCompactThresholdPercent,
             containerId: info.containerId,
             containerName: info.containerName,
             containerImage: info.containerImage,
@@ -1040,12 +1110,11 @@ export class CliLauncher {
       // Keeping stdin open avoids premature EOF-driven exits in SDK mode.
       // Environment variables are passed via -e flags to docker exec.
       const dockerArgs = ["docker", "exec", "-i"];
+      const containerEnv = withNonInteractiveGitEditorEnv(options.env ?? {});
 
       // Pass env vars via -e flags
-      if (options.env) {
-        for (const [k, v] of Object.entries(options.env)) {
-          dockerArgs.push("-e", `${k}=${v}`);
-        }
+      for (const [k, v] of Object.entries(containerEnv)) {
+        dockerArgs.push("-e", `${k}=${v}`);
       }
       // Ensure CLAUDECODE is unset inside container
       dockerArgs.push("-e", "CLAUDECODE=");
@@ -1062,12 +1131,12 @@ export class CliLauncher {
     } else {
       // Host-based spawn (original behavior)
       spawnCmd = [binary, ...args];
-      spawnEnv = {
-        ...process.env,
+      spawnEnv = withNonInteractiveGitEditorEnv({
+        ...stripInheritedTelemetryEnv(process.env),
         CLAUDECODE: undefined,
         ...options.env,
         PATH: getEnrichedPath({ serverId: this.serverId }),
-      };
+      });
       spawnCwd = info.cwd;
     }
 
@@ -1211,7 +1280,15 @@ export class CliLauncher {
     let spawnCwd: string | undefined;
     let sandboxMode: "workspace-write" | "danger-full-access";
     try {
-      const spawnSpec = await prepareCodexSpawn(sessionId, info, options);
+      const spawnSpec = await prepareCodexSpawn(
+        sessionId,
+        {
+          cwd: info.cwd,
+          cliSessionId: info.cliSessionId,
+          isOrchestrator: info.isOrchestrator,
+        },
+        options,
+      );
       spawnCmd = spawnSpec.spawnCmd;
       spawnEnv = spawnSpec.spawnEnv;
       spawnCwd = spawnSpec.spawnCwd;
@@ -1259,9 +1336,6 @@ export class CliLauncher {
     // Pipe stderr for debugging (stdout is used for JSON-RPC)
     const stderr = proc.stderr;
     const stderrTail: string[] = [];
-    if (stderr && typeof stderr !== "number") {
-      this.pipeStream(sessionId, stderr, "stderr", stderrTail);
-    }
 
     // Create the CodexAdapter which handles JSON-RPC and message translation
     // Pass the raw permission mode — the adapter maps it to Codex's approval policy
@@ -1292,17 +1366,22 @@ export class CliLauncher {
       instructions: codexInstructions || undefined,
       failureContextProvider: () => formatStreamTailForError(stderrTail),
     });
+    if (stderr && typeof stderr !== "number") {
+      this.pipeStream(sessionId, stderr, "stderr", stderrTail, (text) => adapter.handleProcessStderr(text));
+    }
 
-    // Handle init errors — mark session as exited so UI shows failure.
-    // Also clear cliSessionId so the next relaunch starts a fresh thread
-    // instead of trying to resume one whose rollout may be missing.
+    // Handle init errors — mark session as exited so recovery can relaunch.
+    // Preserve cliSessionId for transient startup failures so automatic retry
+    // has the same resume target that a later manual Relaunch would use.
     adapter.onInitError((error) => {
       console.error(`[cli-launcher] Codex session ${sessionTag(sessionId)} init failed: ${error}`);
       const session = this.sessions.get(sessionId);
       if (session) {
         session.state = "exited";
         session.exitCode = 1;
-        session.cliSessionId = undefined;
+        if (!isRecoverableCodexInitError(error)) {
+          session.cliSessionId = undefined;
+        }
       }
       if (this.processes.get(sessionId) === proc) {
         this.processes.delete(sessionId);
@@ -1383,8 +1462,54 @@ export class CliLauncher {
     const session = this.sessions.get(sessionId);
     if (session) {
       session.cliSessionId = cliSessionId;
+      session.codexLeaderRecycleLineage = appendUniqueCliSessionId(session.codexLeaderRecycleLineage, cliSessionId);
+      const pendingRecycle = session.codexLeaderRecyclePending;
+      if (pendingRecycle) {
+        const recycleEvents = session.codexLeaderRecycleLineage?.recycleEvents ?? [];
+        const recycleEvent = recycleEvents[pendingRecycle.eventIndex];
+        if (recycleEvent && !recycleEvent.nextCliSessionId) {
+          recycleEvent.nextCliSessionId = cliSessionId;
+        }
+      }
       this.persistState();
     }
+  }
+
+  prepareCodexLeaderRecycle(
+    sessionId: string,
+    options: { trigger: CodexLeaderRecycleTrigger; tokenUsage?: CodexLeaderRecycleTokenSnapshot },
+  ): { ok: boolean; error?: string } {
+    const session = this.sessions.get(sessionId);
+    if (!session) return { ok: false, error: "Session not found" };
+    if (session.backendType !== "codex") return { ok: false, error: "Session is not a Codex session" };
+    if (!session.isOrchestrator) return { ok: false, error: "Session is not a Codex leader" };
+    if (session.codexLeaderRecyclePending) return { ok: true };
+
+    const previousCliSessionId = session.cliSessionId;
+    const recycleEvent: CodexLeaderRecycleEvent = {
+      trigger: options.trigger,
+      requestedAt: Date.now(),
+      previousCliSessionId,
+      ...(options.tokenUsage ? { tokenUsage: options.tokenUsage } : {}),
+    };
+    const normalizedLineage = appendUniqueCliSessionId(session.codexLeaderRecycleLineage, previousCliSessionId || "");
+    normalizedLineage.recycleEvents.push(recycleEvent);
+    session.codexLeaderRecycleLineage = normalizedLineage;
+    session.codexLeaderRecyclePending = {
+      eventIndex: normalizedLineage.recycleEvents.length - 1,
+      trigger: options.trigger,
+      requestedAt: recycleEvent.requestedAt,
+    };
+    session.cliSessionId = undefined;
+    this.persistState();
+    return { ok: true };
+  }
+
+  completeCodexLeaderRecycle(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session?.codexLeaderRecyclePending) return;
+    session.codexLeaderRecyclePending = null;
+    this.persistState();
   }
 
   /**
@@ -1553,13 +1678,16 @@ export class CliLauncher {
   }
 
   /**
-   * Update the last user message timestamp for a session.
-   * Only called when a real user message is committed, not on assistant/tool activity.
+   * Update the last human user message timestamp for a session.
+   * Only called for direct human input, not programmatic agent/system/herd messages.
    */
-  touchUserMessage(sessionId: string): void {
+  touchUserMessage(sessionId: string, timestamp = Date.now()): void {
     const info = this.sessions.get(sessionId);
     if (info) {
-      info.lastUserMessageAt = Date.now();
+      const normalizedTimestamp = Number.isFinite(timestamp) ? timestamp : Date.now();
+      const nextTimestamp = Math.max(info.lastUserMessageAt ?? 0, normalizedTimestamp);
+      if (info.lastUserMessageAt === nextTimestamp) return;
+      info.lastUserMessageAt = nextTimestamp;
       this.persistState();
     }
   }
@@ -1747,6 +1875,7 @@ export class CliLauncher {
     this.sessions.delete(sessionId);
     this.processes.delete(sessionId);
     this.sessionEnvs.delete(sessionId);
+    knownSessionNums.delete(sessionId);
     this.persistState();
   }
 
@@ -1814,26 +1943,17 @@ export class CliLauncher {
     stream: ReadableStream<Uint8Array> | null,
     label: "stdout" | "stderr",
     tailLines?: string[],
+    onText?: (text: string) => void,
   ): Promise<void> {
-    if (!stream) return;
-    const reader = stream.getReader();
-    const decoder = new TextDecoder();
-    const log = label === "stdout" ? console.log : console.error;
-    try {
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        const text = decoder.decode(value);
-        if (tailLines) appendStreamTail(tailLines, text);
-        if (text.trim()) {
-          const sessionNum = this.getSessionNum(sessionId);
-          const sessionLabel = sessionNum !== undefined ? `#${sessionNum}` : sessionId.slice(0, 8);
-          log(`[session:${sessionLabel}:${label}] ${text.trimEnd()}`);
-        }
-      }
-    } catch {
-      // stream closed
-    }
+    await pipeLauncherStream({
+      sessionId,
+      stream,
+      label,
+      tailLines,
+      onText,
+      getSessionNum: (id) => this.getSessionNum(id),
+      codexTokenRefreshNoiseBySession: this.codexTokenRefreshNoiseBySession,
+    });
   }
 
   private pipeOutput(sessionId: string, proc: Subprocess): void {

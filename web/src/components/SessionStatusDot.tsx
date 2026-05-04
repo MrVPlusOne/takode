@@ -2,16 +2,16 @@
  * SessionStatusDot — a small indicator showing the current state of a session.
  *
  * Status priority (highest to lowest):
- *   1. archived          -> gray yarn ball, no glow
- *   2. permission         -> amber yarn ball, breathing glow (needs user action)
+ *   1. archived          -> gray dot, no glow
+ *   2. permission         -> amber dot, breathing glow (needs user action)
  *   3. disconnected       -> gray power plug, no glow
- *   4. running            -> green yarn ball, breathing glow (agent actively working)
- *   5. compacting         -> green yarn ball, breathing glow (context compaction)
- *   6. completed_unread   -> blue yarn ball, no glow (agent finished, user hasn't checked)
- *   7. idle               -> gray yarn ball, no glow
+ *   4. running            -> green dot, breathing glow (agent actively working)
+ *   5. compacting         -> green dot, breathing glow (context compaction)
+ *   6. completed_unread   -> blue dot, no glow (agent finished, user hasn't checked)
+ *   7. idle               -> gray dot, no glow
  */
 
-import { YarnBallDot, PowerPlugDot } from "./CatIcons.js";
+import { PowerPlugDot } from "./CatIcons.js";
 
 export type SessionVisualStatus =
   | "archived"
@@ -23,6 +23,7 @@ export type SessionVisualStatus =
   | "idle";
 
 export interface SessionStatusDotProps {
+  className?: string;
   /** Whether the session is archived */
   archived?: boolean;
   /** Number of pending permission requests */
@@ -61,15 +62,15 @@ export function deriveSessionStatus(props: SessionStatusDotProps): SessionVisual
   return "idle";
 }
 
-/** Maps visual status to the yarn ball's text color class (used with fill=currentColor) */
-const DOT_COLOR: Record<SessionVisualStatus, string> = {
-  archived: "text-cc-muted/40",
-  permission: "text-cc-warning",
-  disconnected: "text-cc-muted/50",
-  running: "text-cc-success",
-  compacting: "text-cc-success",
-  completed_unread: "text-blue-500",
-  idle: "text-cc-muted/40",
+/** Maps visual status to the rounded dot background color. */
+const DOT_CLASS: Record<SessionVisualStatus, string> = {
+  archived: "bg-cc-muted/45",
+  permission: "bg-amber-400",
+  disconnected: "bg-cc-muted/60",
+  running: "bg-emerald-500",
+  compacting: "bg-emerald-500",
+  completed_unread: "bg-blue-500",
+  idle: "bg-cc-muted/50",
 };
 
 /** Maps visual status to whether the dot should have a breathing glow */
@@ -109,13 +110,13 @@ const STATUS_LABEL: Record<SessionVisualStatus, string> = {
 };
 
 export function SessionStatusDot(props: SessionStatusDotProps) {
-  const visualStatus = deriveSessionStatus(props);
-  const dotColor = DOT_COLOR[visualStatus];
+  const { className, ...rest } = props;
+  const visualStatus = deriveSessionStatus(rest);
   const showGlow = SHOULD_GLOW[visualStatus];
   const glowColor = GLOW_COLOR[visualStatus];
   const label = STATUS_LABEL[visualStatus];
 
-  // Use CSS filter drop-shadow for glow — follows the circular shape of the yarn ball
+  // Use CSS filter drop-shadow for glow so the compact dot stays crisp.
   const glowStyle: React.CSSProperties | undefined = showGlow
     ? {
         ["--glow-color" as string]: glowColor,
@@ -123,12 +124,11 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
       }
     : undefined;
 
-  const shouldRoll = visualStatus === "running" || visualStatus === "compacting";
   const isDisconnected = visualStatus === "disconnected";
 
   return (
     <div
-      className="relative shrink-0 mt-[7px]"
+      className={`relative inline-flex h-2.5 w-2.5 shrink-0 items-center justify-center ${className ?? "mt-[7px]"}`}
       title={label}
       aria-label={label}
       data-testid="session-status-dot"
@@ -136,9 +136,9 @@ export function SessionStatusDot(props: SessionStatusDotProps) {
       style={glowStyle}
     >
       {isDisconnected ? (
-        <PowerPlugDot className={`block w-2.5 h-2.5 ${dotColor}`} />
+        <PowerPlugDot className="block h-2.5 w-2.5 text-cc-muted/60" />
       ) : (
-        <YarnBallDot className={`block w-2.5 h-2.5 ${dotColor} ${shouldRoll ? "yarn-ball-roll" : ""}`} />
+        <span className={`block h-2 w-2 rounded-full ${DOT_CLASS[visualStatus]}`} />
       )}
     </div>
   );

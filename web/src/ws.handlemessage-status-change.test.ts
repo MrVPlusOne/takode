@@ -143,4 +143,21 @@ describe("handleMessage: status_change", () => {
 
     expect(useStore.getState().sessionStatus.get("s1")).toBe("running");
   });
+
+  it("stores active turn route from running status and clears it when idle", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "status_change",
+      status: "running",
+      activeTurnRoute: { threadKey: "q-975", questId: "q-975" },
+    });
+
+    expect(useStore.getState().activeTurnRoutes.get("s1")).toEqual({ threadKey: "q-975", questId: "q-975" });
+
+    fireMessage({ type: "status_change", status: "idle" });
+
+    expect(useStore.getState().activeTurnRoutes.get("s1")).toBeNull();
+  });
 });

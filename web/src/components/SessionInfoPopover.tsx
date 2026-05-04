@@ -5,16 +5,19 @@ import {
   McpCollapsible,
   ClaudeMdCollapsible,
   HerdDiagnosticsSection,
+  SectionHeader,
   SystemPromptCollapsible,
+  usePersistedCollapse,
 } from "./TaskPanel.js";
 import { formatModel, getModelsForBackend, CODEX_REASONING_EFFORTS } from "../utils/backends.js";
-import { coalesceSessionViewModel } from "../utils/session-view-model.js";
+import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
 import { navigateTo } from "../utils/navigation.js";
 import { sendToSession } from "../ws.js";
 import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type EditorKind } from "../api.js";
+import type { SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
 import { openPathWithEditorPreference } from "../utils/vscode-bridge.js";
 
 export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
@@ -31,8 +34,6 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
 
   // Stats
   const turns = sessionVm?.numTurns ?? 0;
-  const contextPercent = sessionVm?.contextUsedPercent ?? 0;
-  const contextWindow = sessionVm?.modelContextWindow ?? 0;
   const historyBytes = sessionVm?.messageHistoryBytes ?? 0;
   const codexRetainedPayloadBytes = sessionVm?.codexRetainedPayloadBytes ?? 0;
   const isCodexSession = backendType === "codex";
@@ -92,6 +93,7 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
   const [editorConfigError, setEditorConfigError] = useState("");
   const [openEditorError, setOpenEditorError] = useState("");
   const [openingEditor, setOpeningEditor] = useState(false);
+  const [sdkSessionsFallback, setSdkSessionsFallback] = useState<SdkSessionInfo[] | null>(null);
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const reasoningDropdownRef = useRef<HTMLDivElement>(null);
   const modelOptions = useMemo(() => getModelsForBackend(backendType as "claude" | "codex"), [backendType]);
@@ -129,23 +131,65 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
     };
   }, []);
 
+  useEffect(() => {
+    if (sdkSessions.length > 0 && sdkSession) {
+      setSdkSessionsFallback(null);
+      return;
+    }
+    let cancelled = false;
+    api
+      .listSessions()
+      .then((sessions) => {
+        if (cancelled) return;
+        setSdkSessionsFallback(sessions);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setSdkSessionsFallback(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [sdkSession, sdkSessions.length]);
+
   const backendLabel = backendType === "codex" ? "Codex" : "Claude";
   const hasGit = gitBranch || gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0;
+  const effectiveSdkSessions = sdkSessions.length > 0 ? sdkSessions : (sdkSessionsFallback ?? []);
+  const effectiveSdkSession = sdkSession ?? effectiveSdkSessions.find((x) => x.sessionId === sessionId);
+  const contextStats = getSessionInfoContextStats(sessionVm, effectiveSdkSession);
+  const contextPercent = contextStats.contextPercent;
+  const contextWindow = contextStats.contextWindow;
   const hasStats =
     turns > 0 || contextPercent > 0 || contextWindow > 0 || historyBytes > 0 || codexRetainedPayloadBytes > 0;
+  const codexLeaderRecycleLineage = effectiveSdkSession?.codexLeaderRecycleLineage;
+  const codexLeaderRecyclePending = effectiveSdkSession?.codexLeaderRecyclePending;
+  const lifecycleEvents = session?.lifecycle_events ?? effectiveSdkSession?.sessionLifecycleEvents ?? [];
+  const hasLifecycleDebug =
+    lifecycleEvents.length > 0 ||
+    !!codexLeaderRecyclePending ||
+    !!(
+      codexLeaderRecycleLineage &&
+      (codexLeaderRecycleLineage.cliSessionIds.length > 0 || codexLeaderRecycleLineage.recycleEvents.length > 0)
+    );
+  const [lifecycleCollapsed, toggleLifecycleCollapsed] = usePersistedCollapse(
+    "cc-collapse-session-lifecycle-debug",
+    true,
+  );
   const taskEntries = (taskHistory ?? []).map((task) => ({
     ...task,
     title: task.title.trim(),
   }));
   const herdedSessions = useMemo(() => {
-    if (!sdkSession?.isOrchestrator) return [];
-    return sdkSessions.filter((sdk) => sdk.herdedBy === sessionId && !sdk.archived).map((sdk) => sdk.sessionId);
-  }, [sdkSession?.isOrchestrator, sdkSessions, sessionId]);
+    if (!effectiveSdkSession?.isOrchestrator) return [];
+    return effectiveSdkSessions
+      .filter((sdk) => sdk.herdedBy === sessionId && !sdk.archived)
+      .map((sdk) => sdk.sessionId);
+  }, [effectiveSdkSession?.isOrchestrator, effectiveSdkSessions, sessionId]);
   const leaderSession = useMemo(() => {
-    if (sdkSession?.isOrchestrator || !sdkSession?.herdedBy) return null;
-    const leader = sdkSessions.find((sdk) => sdk.sessionId === sdkSession.herdedBy && !sdk.archived);
-    return leader?.sessionId ?? sdkSession.herdedBy;
-  }, [sdkSession?.isOrchestrator, sdkSession?.herdedBy, sdkSessions]);
+    if (effectiveSdkSession?.isOrchestrator || !effectiveSdkSession?.herdedBy) return null;
+    const leader = effectiveSdkSessions.find((sdk) => sdk.sessionId === effectiveSdkSession.herdedBy && !sdk.archived);
+    return leader?.sessionId ?? effectiveSdkSession.herdedBy;
+  }, [effectiveSdkSession?.isOrchestrator, effectiveSdkSession?.herdedBy, effectiveSdkSessions]);
   const editorDisabledReason = !cwd
     ? "No working directory is available for this session."
     : editorConfigError
@@ -442,6 +486,68 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
           </div>
         )}
 
+        {hasLifecycleDebug && (
+          <div className="border-t border-cc-border/50" data-testid="session-lifecycle-debug">
+            <SectionHeader
+              title="Session Lifecycle"
+              collapsed={lifecycleCollapsed}
+              onToggle={toggleLifecycleCollapsed}
+            />
+            {!lifecycleCollapsed && (
+              <div className="px-4 py-2 space-y-2">
+                {codexLeaderRecyclePending && (
+                  <div className="text-[11px] text-amber-400">
+                    Pending {codexLeaderRecyclePending.trigger === "manual_compact" ? "manual /compact" : "threshold"}{" "}
+                    recycle
+                  </div>
+                )}
+                {codexLeaderRecycleLineage?.cliSessionIds.length ? (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-cc-muted/70">CLI sessions</div>
+                    <div className="space-y-1">
+                      {codexLeaderRecycleLineage.cliSessionIds.map((cliSessionId, index) => (
+                        <div key={`${cliSessionId}-${index}`} className="text-[11px] text-cc-fg/90 font-mono break-all">
+                          {cliSessionId}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {codexLeaderRecycleLineage?.recycleEvents.length ? (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-cc-muted/70">Recycle events</div>
+                    <div className="space-y-1.5">
+                      {codexLeaderRecycleLineage.recycleEvents.map((event, index) => (
+                        <div key={`${event.requestedAt}-${index}`} className="rounded-lg bg-cc-hover/40 px-2 py-1.5">
+                          <div className="text-[11px] text-cc-fg">
+                            {event.trigger === "manual_compact" ? "Manual /compact" : "Threshold"} recycle
+                          </div>
+                          <div className="mt-0.5 text-[10px] text-cc-muted">
+                            {formatRecycleTimestamp(event.requestedAt)}
+                            {typeof event.tokenUsage?.contextTokensUsed === "number"
+                              ? ` • ${formatLifecycleTokenCount(event.tokenUsage.contextTokensUsed)} context`
+                              : " • context unknown"}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+                {lifecycleEvents.length > 0 && (
+                  <div className="space-y-1">
+                    <div className="text-[10px] text-cc-muted/70">Compaction events</div>
+                    <div className="space-y-1.5">
+                      {lifecycleEvents.map((event) => (
+                        <LifecycleEventRow key={event.id} event={event} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        )}
+
         {/* Herd diagnostics — only for leader sessions */}
         {sdkSession?.isOrchestrator && (
           <div className="border-t border-cc-border/50">
@@ -457,6 +563,83 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
       </div>
     </div>
   );
+}
+
+function getSessionInfoContextStats(
+  sessionVm: SessionViewModel | null,
+  effectiveSdkSession: SdkSessionInfo | undefined,
+): { contextPercent: number; contextWindow: number } {
+  const defaultStats = {
+    contextPercent: sessionVm?.contextUsedPercent ?? 0,
+    contextWindow: sessionVm?.modelContextWindow ?? 0,
+  };
+  const thresholdTokens =
+    positiveNumber(sessionVm?.codexLeaderRecycleThresholdTokens) ??
+    positiveNumber(effectiveSdkSession?.codexLeaderRecycleThresholdTokens);
+  if (!thresholdTokens) return defaultStats;
+  const isCodexLeader =
+    sessionVm?.backendType === "codex" &&
+    (sessionVm?.isOrchestrator === true || effectiveSdkSession?.isOrchestrator === true);
+  if (!isCodexLeader) return defaultStats;
+
+  const contextTokensUsed =
+    positiveNumber(sessionVm?.contextTokensUsed) ??
+    positiveNumber(effectiveSdkSession?.codexTokenDetails?.contextTokensUsed);
+  return {
+    contextPercent: contextTokensUsed ? (contextTokensUsed / thresholdTokens) * 100 : defaultStats.contextPercent,
+    contextWindow: thresholdTokens,
+  };
+}
+
+function positiveNumber(value: number | undefined): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+function LifecycleEventRow({ event }: { event: SessionLifecycleEvent }) {
+  if (event.type !== "compaction") return null;
+  const title = `${formatLifecycleBackend(event.backendType)} compaction`;
+  const trigger = event.trigger ? ` • ${event.trigger}` : "";
+  return (
+    <div className="rounded-lg bg-cc-hover/40 px-2 py-1.5">
+      <div className="text-[11px] text-cc-fg">
+        {title}
+        {trigger}
+      </div>
+      <div className="mt-0.5 text-[10px] text-cc-muted">{formatRecycleTimestamp(event.timestamp)}</div>
+      <div className="mt-1 grid grid-cols-2 gap-1 text-[10px] text-cc-muted">
+        <span>Before {formatContextSnapshot(event.before)}</span>
+        <span>After {formatContextSnapshot(event.after)}</span>
+      </div>
+    </div>
+  );
+}
+
+function formatRecycleTimestamp(timestamp: number): string {
+  return new Date(timestamp).toLocaleString([], {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function formatContextSnapshot(snapshot: Extract<SessionLifecycleEvent, { type: "compaction" }>["before"]): string {
+  if (!snapshot || typeof snapshot.contextTokensUsed !== "number") return "unknown";
+  const tokenText = `${formatLifecycleTokenCount(snapshot.contextTokensUsed)} context`;
+  if (typeof snapshot.contextUsedPercent !== "number") return tokenText;
+  return `${tokenText} (${Math.round(snapshot.contextUsedPercent)}%)`;
+}
+
+function formatLifecycleTokenCount(count: number): string {
+  if (count >= 1_000_000) return `${(count / 1_000_000).toFixed(1)}M`;
+  if (count >= 1_000) return `${Math.round(count / 1_000)}K`;
+  return String(count);
+}
+
+function formatLifecycleBackend(backendType: SessionLifecycleEvent["backendType"]): string {
+  if (backendType === "codex") return "Codex";
+  if (backendType === "claude-sdk") return "Claude SDK";
+  return "Claude";
 }
 
 /** Quest chip in task history; hover popups are intentionally disabled here to keep scrolling smooth. */

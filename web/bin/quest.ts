@@ -11,27 +11,29 @@
  *   list       List all quests (latest versions)
  *   mine       List quests owned by current session
  *   show       Show full quest detail
- *   history    Show all versions of a quest
+ *   status     Show compact action-oriented quest status
+ *   history    Show quest history (live or legacy backup)
  *   create     Create a new quest
  *   claim      Claim a quest for a session
- *   complete   Transition to needs_verification with checklist
+ *   complete   Mark done and enter review inbox with checklist
  *   done       Mark quest as done
  *   cancel     Cancel a quest from any status
  *   transition Generic status transition
  *   edit       In-place edit (no new version)
- *   later      Move needs_verification quest out of verification inbox
- *   inbox      Move needs_verification quest back to verification inbox
+ *   later      Move review-pending quest out of review inbox
+ *   inbox      Move review-pending quest back to review inbox
  *   check      Toggle a verification checkbox
  *   feedback   Add a feedback entry to a quest's thread
  *   address    Toggle feedback addressed status
- *   delete     Delete a quest and all versions
+ *   delete     Delete a quest
  *   resize-image  Resize an image to fit within a max pixel dimension
+ *   optimize-image  Write an optimized .takode-agent sibling image
  */
 
 import {
   listQuests,
   getQuest,
-  getQuestHistory,
+  getQuestHistoryView,
   createQuest,
   claimQuest,
   completeQuest,
@@ -45,11 +47,40 @@ import {
   deleteQuest,
 } from "../server/quest-store.js";
 import type { QuestmasterTask } from "../server/quest-types.js";
+import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/quest-types.js";
 import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { grepQuests } from "../server/quest-grep.js";
 import { getName } from "../server/session-names.js";
 import { formatQuestDetail, formatQuestLine, formatSessionLabel } from "./quest-format.js";
+import {
+  normalizeTldr,
+  preferredFeedbackPreview,
+  tldrWarningForContent,
+  QUEST_TLDR_WARNING_HEADER,
+} from "../server/quest-tldr.js";
+import { QUEST_PHASE_DOCUMENTATION_WARNING_HEADER } from "../server/quest-phase-docs.js";
+import {
+  compactPhaseDocumentationGroups,
+  phaseDocumentationPreview,
+  summarizeQuestPhaseDocumentation,
+} from "../shared/quest-phase-documentation-summary.js";
+import {
+  completionHygieneWarnings,
+  feedbackAddWarnings,
+  filterFeedbackEntries,
+  formatFeedbackIndices,
+  isAgentSummaryFeedback,
+  latestAgentSummaryFeedback,
+  latestFeedbackEntry,
+  unaddressedHumanFeedbackEntries,
+  type FeedbackAuthorFilter,
+  type IndexedFeedbackEntry,
+} from "./quest-feedback.js";
+import { showHelp } from "./quest-help.js";
+import { runOptimizeImageCommand, runResizeImageCommand } from "./quest-image.js";
+import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
+import { runTagsCommand } from "./quest-tags-command.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
@@ -315,6 +346,37 @@ function compactSnippet(text: string, maxLen: number): string {
   return truncate(text.replace(/\s+/g, " ").trim(), maxLen);
 }
 
+function formatPhaseScopeLabel(match: {
+  phaseId?: string;
+  phasePosition?: number;
+  phaseOccurrence?: number;
+  phaseOccurrenceId?: string;
+  journeyRunId?: string;
+}): string | null {
+  if (!match.phaseId && !match.phasePosition && !match.phaseOccurrenceId && !match.journeyRunId) return null;
+  const phase = match.phaseId
+    ? `${match.phaseId}${match.phaseOccurrence && match.phaseOccurrence > 1 ? `#${match.phaseOccurrence}` : ""}${
+        match.phasePosition ? `@${match.phasePosition}` : ""
+      }`
+    : match.phasePosition
+      ? `phase@${match.phasePosition}`
+      : "phase";
+  return `phase: ${phase}`;
+}
+
+function warn(message: string): void {
+  console.error(`Warning: ${message}`);
+}
+
+function warnAll(messages: string[]): void {
+  for (const message of messages) warn(message);
+}
+
+function tldrWarningsForWrite(kind: "description" | "feedback" | "debrief", text: unknown, tldr: unknown): string[] {
+  const warning = tldrWarningForContent(kind, text, tldr);
+  return warning ? [warning] : [];
+}
+
 function timeAgo(ts: number): string {
   const seconds = Math.floor((Date.now() - ts) / 1000);
   if (seconds < 60) return `${seconds}s ago`;
@@ -330,7 +392,6 @@ const STATUS_LABELS: Record<string, string> = {
   idea: "idea",
   refined: "refined",
   in_progress: "in_progress",
-  needs_verification: "verification",
   done: "done",
 };
 
@@ -356,9 +417,9 @@ function parseVerificationFilterTokens(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-function requireNeedsVerificationQuest(quest: QuestmasterTask, questId: string, action: "later" | "inbox"): void {
-  if (quest.status === "needs_verification") return;
-  die(`Quest ${questId} is ${quest.status}; quest ${action} only applies to needs_verification quests.`);
+function requireReviewPendingQuest(quest: QuestmasterTask, questId: string, action: "later" | "inbox"): void {
+  if (hasQuestReviewMetadata(quest)) return;
+  die(`Quest ${questId} is ${quest.status}; quest ${action} only applies to quests under review.`);
 }
 
 const currentSessionId = getCurrentSessionId();
@@ -432,6 +493,125 @@ function parsePositiveIntegerFlag(name: string, fallback: number, label: string)
     die(`--${name} must be a positive integer for ${label}`);
   }
   return parsed;
+}
+
+function parseFeedbackAuthorFilter(): FeedbackAuthorFilter {
+  const author = option("author") ?? "all";
+  if (author === "human" || author === "agent" || author === "all") return author;
+  die("--author must be one of: human, agent, all");
+}
+
+function humanFeedbackWarning(quest: QuestmasterTask): string | null {
+  const unaddressed = unaddressedHumanFeedbackEntries(quest);
+  if (unaddressed.length === 0) return null;
+  return `unaddressed human feedback on ${quest.questId}: ${formatFeedbackIndices(unaddressed)}. Inspect with quest feedback list ${quest.questId} --unaddressed and mark resolved with quest address ${quest.questId} <index>.`;
+}
+
+function printHumanFeedbackWarning(quest: QuestmasterTask): void {
+  const message = humanFeedbackWarning(quest);
+  if (message) warn(message);
+}
+
+function feedbackEntryForJson(entry: IndexedFeedbackEntry): IndexedFeedbackEntry {
+  return entry;
+}
+
+function formatFeedbackEntry(entry: IndexedFeedbackEntry, options: { full?: boolean } = {}): string {
+  const state =
+    entry.author === "human"
+      ? entry.addressed
+        ? "addressed"
+        : "unaddressed"
+      : isAgentSummaryFeedback(entry.text)
+        ? "summary"
+        : "comment";
+  const text = options.full ? entry.text : compactSnippet(preferredFeedbackPreview(entry), 160);
+  const imageNote = entry.images?.length
+    ? ` (${entry.images.length} image${entry.images.length === 1 ? "" : "s"})`
+    : "";
+  const phaseNote = entry.phaseId ? `, ${entry.phaseId}${entry.phasePosition ? `@${entry.phasePosition}` : ""}` : "";
+  return `#${entry.index} [${entry.author}, ${state}${phaseNote}, ${timeAgo(entry.ts)}] ${text}${imageNote}`;
+}
+
+function formatStatusSummary(quest: QuestmasterTask, sessionMetadata?: Map<string, SessionMetadata>): string {
+  const lines: string[] = [];
+  const owner =
+    "sessionId" in quest
+      ? formatSessionLabel(quest.sessionId, sessionMetadata, { currentSessionId, getSessionName: getName })
+      : "unclaimed";
+  const leaderSessionId = (quest as { leaderSessionId?: string }).leaderSessionId;
+  const leader = leaderSessionId
+    ? formatSessionLabel(leaderSessionId, sessionMetadata, { currentSessionId, getSessionName: getName })
+    : "none";
+  const verification =
+    "verificationItems" in quest
+      ? `${quest.verificationItems.filter((item) => item.checked).length}/${quest.verificationItems.length}`
+      : "none";
+  const inbox = hasQuestReviewMetadata(quest) ? (isQuestReviewInboxUnread(quest) ? "unread" : "acknowledged") : "n/a";
+  const humanEntries = filterFeedbackEntries(quest, { author: "human" });
+  const unaddressed = unaddressedHumanFeedbackEntries(quest);
+  const latestSummary = latestAgentSummaryFeedback(quest);
+  lines.push(`Quest ${quest.questId}: ${quest.title}`);
+  lines.push(`Status:      ${STATUS_LABELS[quest.status] ?? quest.status}`);
+  lines.push(`Owner:       ${owner}`);
+  lines.push(`Leader:      ${leader}`);
+  lines.push(`Verification:${verification}`);
+  lines.push(`Inbox:       ${inbox}`);
+  lines.push(
+    `Commits:     ${quest.commitShas?.length ?? 0}${quest.commitShas?.length ? ` (${quest.commitShas.join(", ")})` : ""}`,
+  );
+  lines.push(`Human Feedback: ${humanEntries.length}`);
+  lines.push(`Unaddressed: ${unaddressed.length ? formatFeedbackIndices(unaddressed) : "none"}`);
+  lines.push(
+    `Latest Summary: ${latestSummary ? `#${latestSummary.index} ${compactSnippet(preferredFeedbackPreview(latestSummary), 120)}` : "none"}`,
+  );
+  lines.push(`Next Action:  ${suggestNextQuestAction(quest)}`);
+  return lines.join("\n");
+}
+
+function statusSummaryForJson(quest: QuestmasterTask): Record<string, unknown> {
+  const humanEntries = filterFeedbackEntries(quest, { author: "human" });
+  const unaddressed = unaddressedHumanFeedbackEntries(quest);
+  const latestSummary = latestAgentSummaryFeedback(quest);
+  return {
+    questId: quest.questId,
+    title: quest.title,
+    status: quest.status,
+    ownerSessionId: "sessionId" in quest ? quest.sessionId : null,
+    leaderSessionId: (quest as { leaderSessionId?: string }).leaderSessionId ?? null,
+    verification:
+      "verificationItems" in quest
+        ? {
+            checked: quest.verificationItems.filter((item) => item.checked).length,
+            total: quest.verificationItems.length,
+          }
+        : { checked: 0, total: 0 },
+    inbox: hasQuestReviewMetadata(quest) ? (isQuestReviewInboxUnread(quest) ? "unread" : "acknowledged") : null,
+    commitCount: quest.commitShas?.length ?? 0,
+    commitShas: quest.commitShas ?? [],
+    humanFeedbackCount: humanEntries.length,
+    unaddressedHumanFeedbackIndices: unaddressed.map((entry) => entry.index),
+    latestSummary: latestSummary
+      ? { index: latestSummary.index, text: latestSummary.text, tldr: latestSummary.tldr, ts: latestSummary.ts }
+      : null,
+    suggestedNextAction: suggestNextQuestAction(quest),
+  };
+}
+
+function suggestNextQuestAction(quest: QuestmasterTask): string {
+  const unaddressed = unaddressedHumanFeedbackEntries(quest);
+  if (unaddressed.length > 0) return `address human feedback ${formatFeedbackIndices(unaddressed)}`;
+  if (quest.status === "idea") return "refine the quest before dispatch";
+  if (quest.status === "refined") return "claim the quest before implementation";
+  if (quest.status === "in_progress")
+    return "implement and add a consolidated Summary: feedback comment before handoff";
+  if (hasQuestReviewMetadata(quest)) {
+    return isQuestReviewInboxUnread(quest)
+      ? "human review inbox triage"
+      : "await final review or respond to new feedback";
+  }
+  if (quest.status === "done") return "no action";
+  return "inspect quest details";
 }
 
 let stdinTextPromise: Promise<string> | null = null;
@@ -527,6 +707,24 @@ async function readRichTextOption(args: {
   return value;
 }
 
+async function readOptionalDebriefOptions(): Promise<{ debrief?: string; debriefTldr?: string }> {
+  const debrief = await readOptionalRichTextOption({
+    inlineFlag: "debrief",
+    fileFlag: "debrief-file",
+    label: "Final debrief",
+  });
+  const debriefTldr = await readOptionalRichTextOption({
+    inlineFlag: "debrief-tldr",
+    fileFlag: "debrief-tldr-file",
+    label: "Final debrief TLDR",
+  });
+  const normalizedDebriefTldr = normalizeTldr(debriefTldr);
+  return {
+    ...(debrief !== undefined ? { debrief } : {}),
+    ...(debriefTldr !== undefined ? { debriefTldr: normalizedDebriefTldr ?? "" } : {}),
+  };
+}
+
 function parseVerificationItems(raw: string, sourceLabel: string): { text: string; checked: boolean }[] {
   const trimmed = raw.trim();
   if (!trimmed) return [];
@@ -615,6 +813,20 @@ async function cmdList(): Promise<void> {
   }
   for (const q of quests) {
     console.log(formatQuestLine(q, sessionMetadata, { currentSessionId, getSessionName: getName }));
+    const tldr = normalizeTldr((q as { tldr?: unknown }).tldr);
+    if (tldr) {
+      console.log(`       TLDR: ${compactSnippet(tldr, 120)}`);
+    }
+    const phaseSummary = summarizeQuestPhaseDocumentation(q);
+    const phaseGroups = compactPhaseDocumentationGroups(phaseSummary, 2);
+    for (const group of phaseGroups) {
+      const latestEntry = group.entries.at(-1);
+      if (!latestEntry) continue;
+      const meta = group.metaLabel ? ` [${group.metaLabel}]` : "";
+      console.log(
+        `       Phase: ${group.displayLabel}${meta}: ${compactSnippet(phaseDocumentationPreview(latestEntry), 120)}`,
+      );
+    }
   }
 }
 
@@ -632,6 +844,24 @@ async function cmdShow(): Promise<void> {
   }
   const sessionMetadata = await getSessionMetadataMap();
   console.log(formatQuestDetail(quest, sessionMetadata, { currentSessionId, getSessionName: getName }));
+  printHumanFeedbackWarning(quest);
+}
+
+async function cmdStatus(): Promise<void> {
+  validateFlags(["json"]);
+  const id = positional(0);
+  if (!id) die("Usage: quest status <questId>");
+
+  const quest = await getQuest(id);
+  if (!quest) die(`Quest ${id} not found`);
+
+  if (jsonOutput) {
+    out(statusSummaryForJson(quest));
+    return;
+  }
+  const sessionMetadata = await getSessionMetadataMap();
+  console.log(formatStatusSummary(quest, sessionMetadata));
+  printHumanFeedbackWarning(quest);
 }
 
 async function cmdGrep(): Promise<void> {
@@ -713,6 +943,8 @@ async function cmdGrep(): Promise<void> {
     for (const match of group.matches) {
       const parts = [match.matchedField];
       if (match.feedbackAuthor) parts.push(match.feedbackAuthor);
+      const phaseScope = formatPhaseScopeLabel(match);
+      if (phaseScope) parts.push(phaseScope);
       const quest = questById.get(match.questId);
       const feedbackEntries =
         quest && "feedback" in quest ? (quest as { feedback?: Array<{ ts?: number }> }).feedback : undefined;
@@ -732,20 +964,46 @@ async function cmdHistory(): Promise<void> {
   const id = positional(0);
   if (!id) die("Usage: quest history <questId>");
 
-  const versions = await getQuestHistory(id);
-  if (versions.length === 0) die(`Quest ${id} not found`);
+  const quest = await getQuest(id);
+  if (!quest) die(`Quest ${id} not found`);
+  const history = await getQuestHistoryView(id);
 
   if (jsonOutput) {
-    out(versions);
+    out(history);
     return;
   }
-  for (const v of versions) {
-    console.log(`v${v.version} (${STATUS_LABELS[v.status] ?? v.status}) — ${timeAgo(v.createdAt)}  [${v.id}]`);
+
+  if (history.mode === "legacy_backup") {
+    console.log("Legacy backup history");
+  } else if (history.mode === "unavailable") {
+    console.log(history.message ?? "History is unavailable.");
+    return;
+  }
+
+  if (history.entries.length === 0) {
+    console.log(history.message ?? "No previous versions.");
+    return;
+  }
+
+  for (const v of history.entries) {
+    console.log(`v${v.version} (${STATUS_LABELS[v.status] ?? v.status}) -- ${timeAgo(v.createdAt)}  [${v.id}]`);
   }
 }
 
 async function cmdCreate(): Promise<void> {
-  validateFlags(["title", "title-file", "desc", "desc-file", "tags", "image", "images", "json"]);
+  validateFlags([
+    "title",
+    "title-file",
+    "desc",
+    "desc-file",
+    "tldr",
+    "tldr-file",
+    "tags",
+    "follow-up-of",
+    "image",
+    "images",
+    "json",
+  ]);
   const positionalTitle = positional(0);
   const title = await readOptionalRichTextOption({
     inlineFlag: "title",
@@ -759,7 +1017,8 @@ async function cmdCreate(): Promise<void> {
   if (!resolvedTitle) {
     die(
       'Usage: quest create [<title> | --title "..." | --title-file <path>|-] ' +
-        '[--desc "..." | --desc-file <path>|-] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"]',
+        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] ' +
+        '[--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"]',
     );
   }
 
@@ -768,6 +1027,12 @@ async function cmdCreate(): Promise<void> {
     fileFlag: "desc-file",
     label: "Quest description",
   });
+  const tldr = await readOptionalRichTextOption({
+    inlineFlag: "tldr",
+    fileFlag: "tldr-file",
+    label: "Quest TLDR",
+  });
+  const normalizedTldr = normalizeTldr(tldr);
   const tagsStr = option("tags");
   const tags = tagsStr
     ? tagsStr
@@ -779,6 +1044,7 @@ async function cmdCreate(): Promise<void> {
     ...options("image"),
     ...options("images").flatMap((group) => group.split(",").map((p) => p.trim())),
   ].filter(Boolean);
+  const relationships = parseRelationshipFlags({ option });
 
   try {
     const uploadedImages =
@@ -795,7 +1061,9 @@ async function cmdCreate(): Promise<void> {
     const quest = await createQuest({
       title: resolvedTitle,
       description,
+      ...(normalizedTldr ? { tldr: normalizedTldr } : {}),
       tags,
+      ...(relationships ? { relationships } : {}),
       ...(resolvedImages?.length ? { images: resolvedImages } : {}),
     });
     await notifyServer();
@@ -805,6 +1073,7 @@ async function cmdCreate(): Promise<void> {
       const imageNote = resolvedImages?.length ? `, ${resolvedImages.length} image(s)` : "";
       console.log(`Created ${quest.questId}: "${quest.title}" (${quest.status}${imageNote})`);
     }
+    warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
   } catch (e) {
     die((e as Error).message);
   }
@@ -849,6 +1118,7 @@ async function cmdClaim(): Promise<void> {
             getSessionName: getName,
           })}`,
         );
+        printHumanFeedbackWarning(quest);
       }
       return;
     } catch (e) {
@@ -873,6 +1143,7 @@ async function cmdClaim(): Promise<void> {
           getSessionName: getName,
         })}`,
       );
+      printHumanFeedbackWarning(quest);
     }
   } catch (e) {
     die((e as Error).message);
@@ -880,12 +1151,25 @@ async function cmdClaim(): Promise<void> {
 }
 
 async function cmdComplete(): Promise<void> {
-  validateFlags(["items", "items-file", "commit", "commits", "no-code", "json"]);
+  validateFlags([
+    "items",
+    "items-file",
+    "commit",
+    "commits",
+    "no-code",
+    "session",
+    "debrief",
+    "debrief-file",
+    "debrief-tldr",
+    "debrief-tldr-file",
+    "json",
+  ]);
   const id = positional(0);
   if (!id) {
     die(
       'Usage: quest complete <questId> [--items "check1,check2" | --items-file <path>|-] ' +
-        '[--no-code] [--commit <sha>] [--commits "sha1,sha2"]',
+        '[--no-code] [--session <sid>] [--commit <sha>] [--commits "sha1,sha2"] ' +
+        '[--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-]',
     );
   }
 
@@ -905,6 +1189,11 @@ async function cmdComplete(): Promise<void> {
   if (inlineItems !== undefined && itemsFile !== undefined) {
     die("Use either --items or --items-file, not both");
   }
+  const targetSessionId = option("session")?.trim();
+  if (flag("session") && !targetSessionId) {
+    die("--session requires a session id");
+  }
+  const debriefOptions = await readOptionalDebriefOptions();
 
   let items: { text: string; checked: boolean }[] = [];
   if (itemsFile !== undefined) {
@@ -923,6 +1212,10 @@ async function cmdComplete(): Promise<void> {
         "Consider adding --items for simple inline lists or --items-file <path> / --items-file - for richer input.",
     );
   }
+  const currentQuest = await getQuest(id);
+  if (currentQuest) {
+    warnAll(completionHygieneWarnings(currentQuest, items, commitShas));
+  }
 
   // Prefer HTTP endpoint when server is available — it broadcasts quest status
   // change to browsers (triggers "Quest Submitted" chat message + review badge).
@@ -933,7 +1226,9 @@ async function cmdComplete(): Promise<void> {
         headers: companionAuthHeaders({ "Content-Type": "application/json" }),
         body: JSON.stringify({
           verificationItems: items,
+          ...(targetSessionId ? { sessionId: targetSessionId } : {}),
           ...(commitShas.length > 0 ? { commitShas } : {}),
+          ...debriefOptions,
         }),
         signal: AbortSignal.timeout(5000),
       });
@@ -948,6 +1243,7 @@ async function cmdComplete(): Promise<void> {
         console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} verification items`);
         console.log(formatCompletionReminder(quest.questId, { noCode }));
       }
+      warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
       return;
     } catch (e) {
       if ((e as Error).name === "AbortError" || (e as Error).message?.includes("timeout")) {
@@ -960,7 +1256,13 @@ async function cmdComplete(): Promise<void> {
 
   // Fallback: direct filesystem (no browser notification)
   try {
-    const quest = await completeQuest(id, items, commitShas.length > 0 ? { commitShas } : undefined);
+    const quest = await completeQuest(
+      id,
+      items,
+      commitShas.length > 0 || targetSessionId || Object.keys(debriefOptions).length > 0
+        ? { commitShas, ...(targetSessionId ? { sessionId: targetSessionId } : {}), ...debriefOptions }
+        : undefined,
+    );
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -969,6 +1271,7 @@ async function cmdComplete(): Promise<void> {
       console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} verification items`);
       console.log(formatCompletionReminder(quest.questId, { noCode }));
     }
+    warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
   } catch (e) {
     die((e as Error).message);
   }
@@ -979,11 +1282,11 @@ function formatCompletionReminder(questId: string, options: { noCode: boolean })
     `Reminder: keep one substantive user-oriented quest summary comment up to date with ` +
     `\`quest feedback ${questId} --text "Summary: <what changed, why it matters, and what verification passed>"\`` +
     ` before reporting that the quest is ready. Use \`--text-file <path>\` or \`--text-file -\`` +
-    ` when that summary includes copied logs, backticks, or other shell-like text. Avoid review/rework timelines unless essential.`;
+    ` when that summary includes copied logs, backticks, or other shell-like text. For long multi-topic summaries, write the full \`--text\`/\`--text-file\` body first and add \`--tldr\`/\`--tldr-file\` second, with each major topic preserved in concise scan text instead of incidental raw details. Put implementation details and automated verification results in that summary, not in \`quest complete --items\`. Avoid review/rework timelines unless essential. Every completed non-cancelled quest must also have final debrief metadata and debrief TLDR metadata; use \`--debrief-file\` plus \`--debrief-tldr-file\` on completion, or treat the handoff as incomplete until a leader or Bookkeeping phase can supply both.`;
   if (options.noCode) {
     return (
       summaryLine +
-      " You used `--no-code` for this local CLI handoff, so do not add port commentary or synced SHA placeholders. Only use `--no-code` when the quest produced zero git-tracked changes."
+      " You used `--no-code` for this local CLI handoff, so do not add port commentary or synced SHA placeholders. Only use `--no-code` when the quest produced zero git-tracked changes; it does not relax the final debrief and debrief TLDR requirement."
     );
   }
   return (
@@ -993,19 +1296,36 @@ function formatCompletionReminder(questId: string, options: { noCode: boolean })
 }
 
 async function cmdDone(): Promise<void> {
-  validateFlags(["notes", "notes-file", "cancelled", "json"]);
+  validateFlags([
+    "notes",
+    "notes-file",
+    "debrief",
+    "debrief-file",
+    "debrief-tldr",
+    "debrief-tldr-file",
+    "cancelled",
+    "json",
+  ]);
   const id = positional(0);
-  if (!id) die('Usage: quest done <questId> [--notes "..." | --notes-file <path>|-] [--cancelled]');
+  if (!id)
+    die(
+      'Usage: quest done <questId> [--notes "..." | --notes-file <path>|-] ' +
+        '[--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled]',
+    );
 
   const notes = await readOptionalRichTextOption({
     inlineFlag: "notes",
     fileFlag: "notes-file",
     label: "Closure notes",
   });
+  const debriefOptions = await readOptionalDebriefOptions();
   const cancelled = flag("cancelled");
+  if (cancelled && Object.keys(debriefOptions).length > 0) {
+    die("Final debrief metadata is only supported for completed quests, not cancelled quests");
+  }
 
   try {
-    const quest = await markDone(id, { notes, cancelled });
+    const quest = await markDone(id, { notes, cancelled, ...debriefOptions });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -1014,6 +1334,7 @@ async function cmdDone(): Promise<void> {
       const verb = cancelled ? "Cancelled" : "Marked done";
       console.log(`${verb} ${quest.questId} "${quest.title}"`);
     }
+    warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
   } catch (e) {
     die((e as Error).message);
   }
@@ -1045,30 +1366,66 @@ async function cmdCancel(): Promise<void> {
 }
 
 async function cmdTransition(): Promise<void> {
-  validateFlags(["status", "desc", "desc-file", "session", "commit", "commits", "json"]);
+  validateFlags([
+    "status",
+    "desc",
+    "desc-file",
+    "tldr",
+    "tldr-file",
+    "session",
+    "commit",
+    "commits",
+    "debrief",
+    "debrief-file",
+    "debrief-tldr",
+    "debrief-tldr-file",
+    "json",
+  ]);
   const id = positional(0);
-  if (!id) die('Usage: quest transition <questId> --status <s> [--desc "..." | --desc-file <path>|-]');
+  if (!id)
+    die(
+      'Usage: quest transition <questId> --status <s> [--desc "..." | --desc-file <path>|-] ' +
+        '[--tldr "..." | --tldr-file <path>|-] ' +
+        '[--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-]',
+    );
 
   const status = option("status");
   if (!status) die("--status is required");
+  if (status === "needs_verification" || status === "verification") {
+    die(
+      "needs_verification is no longer a lifecycle transition target. Use `quest complete` for review handoff or `quest list --verification ...` for review filters.",
+    );
+  }
 
   const description = await readOptionalRichTextOption({
     inlineFlag: "desc",
     fileFlag: "desc-file",
     label: "Quest description",
   });
+  const tldr = await readOptionalRichTextOption({
+    inlineFlag: "tldr",
+    fileFlag: "tldr-file",
+    label: "Quest TLDR",
+  });
+  const normalizedTldr = normalizeTldr(tldr);
+  const debriefOptions = await readOptionalDebriefOptions();
   const sessionId = option("session") || currentSessionId;
   const commitShas = parseCommitShasFromFlags();
-  if (commitShas.length > 0 && status !== "needs_verification") {
-    die("--commit/--commits can only be used when transitioning to needs_verification");
+  if (commitShas.length > 0 && status !== "done") {
+    die("--commit/--commits can only be used when completing a quest");
+  }
+  if (Object.keys(debriefOptions).length > 0 && status !== "done") {
+    die("--debrief/--debrief-file and --debrief-tldr/--debrief-tldr-file can only be used with --status done");
   }
 
   try {
     const quest = await transitionQuest(id, {
       status: status as import("../server/quest-types.js").QuestStatus,
       ...(description !== undefined ? { description } : {}),
+      ...(tldr !== undefined ? { tldr: normalizedTldr ?? "" } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(commitShas.length > 0 ? { commitShas } : {}),
+      ...debriefOptions,
     });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
@@ -1077,6 +1434,8 @@ async function cmdTransition(): Promise<void> {
     } else {
       console.log(`Transitioned ${quest.questId} to ${quest.status}`);
     }
+    warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
+    warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
   } catch (e) {
     die((e as Error).message);
   }
@@ -1102,11 +1461,11 @@ async function cmdLater(): Promise<void> {
         die((err as { error: string }).error || res.statusText);
       }
       const quest = (await res.json()) as QuestmasterTask;
-      requireNeedsVerificationQuest(quest, id, "later");
+      requireReviewPendingQuest(quest, id, "later");
       if (jsonOutput) {
         out(quest);
       } else {
-        console.log(`Marked ${quest.questId} as acknowledged (left Verification Inbox, stays in Verification)`);
+        console.log(`Marked ${quest.questId} as acknowledged (left Review Inbox, stays under review)`);
       }
       return;
     } catch (e) {
@@ -1121,12 +1480,12 @@ async function cmdLater(): Promise<void> {
   try {
     const quest = await markQuestVerificationRead(id);
     if (!quest) die(`Quest ${id} not found`);
-    requireNeedsVerificationQuest(quest, id, "later");
+    requireReviewPendingQuest(quest, id, "later");
     await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
-      console.log(`Marked ${quest.questId} as acknowledged (left Verification Inbox, stays in Verification)`);
+      console.log(`Marked ${quest.questId} as acknowledged (left Review Inbox, stays under review)`);
     }
   } catch (e) {
     die((e as Error).message);
@@ -1153,11 +1512,11 @@ async function cmdInbox(): Promise<void> {
         die((err as { error: string }).error || res.statusText);
       }
       const quest = (await res.json()) as QuestmasterTask;
-      requireNeedsVerificationQuest(quest, id, "inbox");
+      requireReviewPendingQuest(quest, id, "inbox");
       if (jsonOutput) {
         out(quest);
       } else {
-        console.log(`Moved ${quest.questId} back to Verification Inbox`);
+        console.log(`Moved ${quest.questId} back to Review Inbox`);
       }
       return;
     } catch (e) {
@@ -1172,12 +1531,12 @@ async function cmdInbox(): Promise<void> {
   try {
     const quest = await markQuestVerificationInboxUnread(id);
     if (!quest) die(`Quest ${id} not found`);
-    requireNeedsVerificationQuest(quest, id, "inbox");
+    requireReviewPendingQuest(quest, id, "inbox");
     await notifyServer();
     if (jsonOutput) {
       out(quest);
     } else {
-      console.log(`Moved ${quest.questId} back to Verification Inbox`);
+      console.log(`Moved ${quest.questId} back to Review Inbox`);
     }
   } catch (e) {
     die((e as Error).message);
@@ -1185,12 +1544,23 @@ async function cmdInbox(): Promise<void> {
 }
 
 async function cmdEdit(): Promise<void> {
-  validateFlags(["title", "title-file", "desc", "desc-file", "tags", "json"]);
+  validateFlags([
+    "title",
+    "title-file",
+    "desc",
+    "desc-file",
+    "tldr",
+    "tldr-file",
+    "tags",
+    "follow-up-of",
+    "clear-follow-up-of",
+    "json",
+  ]);
   const id = positional(0);
   if (!id) {
     die(
       'Usage: quest edit <questId> [--title "..." | --title-file <path>|-] ' +
-        '[--desc "..." | --desc-file <path>|-] [--tags "t1,t2"]',
+        '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2" | --clear-follow-up-of]',
     );
   }
 
@@ -1204,6 +1574,12 @@ async function cmdEdit(): Promise<void> {
     fileFlag: "desc-file",
     label: "Quest description",
   });
+  const tldr = await readOptionalRichTextOption({
+    inlineFlag: "tldr",
+    fileFlag: "tldr-file",
+    label: "Quest TLDR",
+  });
+  const normalizedTldr = normalizeTldr(tldr);
   const tagsStr = option("tags");
   const tags = tagsStr
     ? tagsStr
@@ -1211,16 +1587,30 @@ async function cmdEdit(): Promise<void> {
         .map((t) => t.trim())
         .filter(Boolean)
     : undefined;
+  if (flag("clear-follow-up-of") && flag("follow-up-of")) {
+    die("Use either --follow-up-of or --clear-follow-up-of, not both");
+  }
+  const relationships = parseRelationshipFlags({ option, clearFollowUpOf: flag("clear-follow-up-of") });
 
-  if (title === undefined && description === undefined && tags === undefined) {
-    die("At least one of --title/--title-file, --desc/--desc-file, or --tags is required");
+  if (
+    title === undefined &&
+    description === undefined &&
+    tldr === undefined &&
+    tags === undefined &&
+    relationships === undefined
+  ) {
+    die(
+      "At least one of --title/--title-file, --desc/--desc-file, --tldr/--tldr-file, --tags, --follow-up-of, or --clear-follow-up-of is required",
+    );
   }
 
   try {
     const quest = await patchQuest(id, {
       ...(title !== undefined ? { title } : {}),
       ...(description !== undefined ? { description } : {}),
+      ...(tldr !== undefined ? { tldr: normalizedTldr ?? "" } : {}),
       ...(tags !== undefined ? { tags } : {}),
+      ...(relationships !== undefined ? { relationships } : {}),
     });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
@@ -1229,6 +1619,7 @@ async function cmdEdit(): Promise<void> {
     } else {
       console.log(`Updated ${quest.questId} "${quest.title}"`);
     }
+    warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
   } catch (e) {
     die((e as Error).message);
   }
@@ -1267,12 +1658,110 @@ async function cmdCheck(): Promise<void> {
 }
 
 async function cmdFeedback(): Promise<void> {
-  validateFlags(["text", "text-file", "author", "session", "image", "images", "json"]);
-  const id = positional(0);
+  const subcommand = positional(0);
+  if (subcommand === "list") return cmdFeedbackList();
+  if (subcommand === "latest") return cmdFeedbackLatest();
+  if (subcommand === "show") return cmdFeedbackShow();
+  if (subcommand === "add") return cmdFeedbackAdd({ explicitAdd: true });
+  return cmdFeedbackAdd({ explicitAdd: false });
+}
+
+async function cmdFeedbackList(): Promise<void> {
+  validateFlags(["last", "author", "unaddressed", "json"]);
+  const id = positional(1);
+  if (!id) die("Usage: quest feedback list <questId> [--last N] [--author human|agent|all] [--unaddressed] [--json]");
+  const quest = await getQuest(id);
+  if (!quest) die(`Quest ${id} not found`);
+  if (flag("last") && option("last") === undefined) die("--last requires a positive integer value");
+  const last = flag("last") ? parsePositiveIntegerFlag("last", 10, "feedback entries") : undefined;
+  const entries = filterFeedbackEntries(quest, {
+    author: parseFeedbackAuthorFilter(),
+    unaddressed: flag("unaddressed"),
+    ...(last !== undefined ? { last } : {}),
+  });
+  if (jsonOutput) {
+    out(entries.map(feedbackEntryForJson));
+    return;
+  }
+  if (entries.length === 0) {
+    console.log(`No feedback entries found for ${quest.questId}.`);
+    return;
+  }
+  for (const entry of entries) {
+    console.log(formatFeedbackEntry(entry));
+  }
+}
+
+async function cmdFeedbackLatest(): Promise<void> {
+  validateFlags(["author", "unaddressed", "full", "json"]);
+  const id = positional(1);
+  if (!id) die("Usage: quest feedback latest <questId> [--author human|agent|all] [--unaddressed] [--full] [--json]");
+  const quest = await getQuest(id);
+  if (!quest) die(`Quest ${id} not found`);
+  const entry = latestFeedbackEntry(quest, {
+    author: parseFeedbackAuthorFilter(),
+    unaddressed: flag("unaddressed"),
+  });
+  if (jsonOutput) {
+    out(entry ? feedbackEntryForJson(entry) : null);
+    return;
+  }
+  if (!entry) {
+    console.log(`No matching feedback entries found for ${quest.questId}.`);
+    return;
+  }
+  console.log(formatFeedbackEntry(entry, { full: flag("full") }));
+}
+
+async function cmdFeedbackShow(): Promise<void> {
+  validateFlags(["json"]);
+  const id = positional(1);
+  const indexStr = positional(2);
+  if (!id || indexStr === undefined) die("Usage: quest feedback show <questId> <index> [--json]");
+  const index = Number(indexStr);
+  if (!Number.isInteger(index) || index < 0) die("Index must be a non-negative integer");
+  const quest = await getQuest(id);
+  if (!quest) die(`Quest ${id} not found`);
+  const entry = filterFeedbackEntries(quest).find((candidate) => candidate.index === index);
+  if (!entry) die(`Feedback index ${index} out of range`);
+  if (jsonOutput) {
+    out(feedbackEntryForJson(entry));
+    return;
+  }
+  console.log(formatFeedbackEntry(entry, { full: true }));
+  if (entry.images?.length) {
+    for (const img of entry.images) {
+      console.log(`  ${img.filename} -> ${img.path}`);
+    }
+  }
+}
+
+async function cmdFeedbackAdd(addOptions: { explicitAdd: boolean }): Promise<void> {
+  validateFlags([
+    "text",
+    "text-file",
+    "tldr",
+    "tldr-file",
+    "author",
+    "session",
+    "image",
+    "images",
+    "phase",
+    "phase-position",
+    "phase-occurrence",
+    "phase-occurrence-id",
+    "journey-run",
+    "kind",
+    "infer-phase",
+    "no-phase",
+    "json",
+  ]);
+  const id = positional(addOptions.explicitAdd ? 1 : 0);
   if (!id) {
     die(
       'Usage: quest feedback <questId> (--text "..." | --text-file <path>|-) ' +
-        '[--author agent|human] [--session <sid>] [--image <path>] [--images "p1,p2"]',
+        '[--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] ' +
+        '[--image <path>] [--images "p1,p2"]',
     );
   }
 
@@ -1281,6 +1770,12 @@ async function cmdFeedback(): Promise<void> {
     fileFlag: "text-file",
     label: "Feedback text",
   });
+  const tldr = await readOptionalRichTextOption({
+    inlineFlag: "tldr",
+    fileFlag: "tldr-file",
+    label: "Feedback TLDR",
+  });
+  const normalizedTldr = normalizeTldr(tldr);
 
   const authorOpt = option("author");
   const author = authorOpt === "human" ? "human" : "agent";
@@ -1299,6 +1794,7 @@ async function cmdFeedback(): Promise<void> {
   }
 
   try {
+    const before = await getQuest(id);
     const uploadedImages =
       imagePaths.length > 0 ? await Promise.all(imagePaths.map((p) => uploadQuestImage(port, p))) : undefined;
     const res = await fetch(`http://localhost:${port}/api/quests/${encodeURIComponent(id)}/feedback`, {
@@ -1306,9 +1802,18 @@ async function cmdFeedback(): Promise<void> {
       headers: companionAuthHeaders({ "Content-Type": "application/json" }),
       body: JSON.stringify({
         text: text.trim(),
+        ...(normalizedTldr ? { tldr: normalizedTldr } : {}),
         author,
         ...(author === "agent" && sessionId ? { sessionId } : {}),
         ...(uploadedImages?.length ? { images: uploadedImages } : {}),
+        ...(option("phase") ? { phase: option("phase") } : {}),
+        ...(option("phase-position") ? { phasePosition: option("phase-position") } : {}),
+        ...(option("phase-occurrence") ? { phaseOccurrence: option("phase-occurrence") } : {}),
+        ...(option("phase-occurrence-id") ? { phaseOccurrenceId: option("phase-occurrence-id") } : {}),
+        ...(option("journey-run") ? { journeyRunId: option("journey-run") } : {}),
+        ...(option("kind") ? { kind: option("kind") } : {}),
+        ...(flag("infer-phase") ? { inferPhase: true } : {}),
+        ...(flag("no-phase") ? { noPhase: true } : {}),
       }),
       signal: AbortSignal.timeout(5000),
     });
@@ -1317,12 +1822,22 @@ async function cmdFeedback(): Promise<void> {
       die((err as { error: string }).error || res.statusText);
     }
     const quest = (await res.json()) as QuestmasterTask;
+    const tldrHeaderWarning = res.headers.get(QUEST_TLDR_WARNING_HEADER);
+    const phaseHeaderWarning = res.headers.get(QUEST_PHASE_DOCUMENTATION_WARNING_HEADER);
+    const mutationWarnings = feedbackAddWarnings({ before, after: quest, author, text: text.trim() });
+    const tldrWarnings = tldrHeaderWarning
+      ? [tldrHeaderWarning]
+      : author === "agent"
+        ? tldrWarningsForWrite("feedback", text, normalizedTldr)
+        : [];
     if (jsonOutput) {
       out(quest);
+      warnAll([...mutationWarnings, ...tldrWarnings, ...(phaseHeaderWarning ? [phaseHeaderWarning] : [])]);
     } else {
       const entries = "feedback" in quest ? (quest as { feedback?: { author: string; text: string }[] }).feedback : [];
       const imageNote = uploadedImages?.length ? `, ${uploadedImages.length} image(s)` : "";
       console.log(`Added feedback to ${quest.questId} (${entries?.length ?? 0} entries total${imageNote})`);
+      warnAll([...mutationWarnings, ...tldrWarnings, ...(phaseHeaderWarning ? [phaseHeaderWarning] : [])]);
     }
   } catch (e) {
     die((e as Error).message);
@@ -1357,12 +1872,19 @@ async function cmdAddress(): Promise<void> {
       die((err as { error: string }).error || res.statusText);
     }
     const quest = (await res.json()) as QuestmasterTask;
+    const unaddressed = unaddressedHumanFeedbackEntries(quest);
     if (jsonOutput) {
       out(quest);
+      if (unaddressed.length > 0) {
+        warn(`remaining unaddressed human feedback: ${formatFeedbackIndices(unaddressed)}.`);
+      }
     } else {
       const fb = "feedback" in quest ? (quest as { feedback?: { addressed?: boolean }[] }).feedback : [];
       const entry = fb?.[index];
       console.log(`Feedback #${index} on ${quest.questId}: ${entry?.addressed ? "addressed" : "unaddressed"}`);
+      if (unaddressed.length > 0) {
+        warn(`remaining unaddressed human feedback: ${formatFeedbackIndices(unaddressed)}.`);
+      }
     }
   } catch (e) {
     die((e as Error).message);
@@ -1403,154 +1925,8 @@ async function cmdDelete(): Promise<void> {
   if (jsonOutput) {
     out({ deleted: true, questId: id });
   } else {
-    console.log(`Deleted ${id} and all versions`);
+    console.log(`Deleted ${id}`);
   }
-}
-
-async function cmdResizeImage(): Promise<void> {
-  validateFlags(["max-dim", "json"]);
-  const imagePath = positional(0);
-  if (!imagePath) die("Usage: quest resize-image <path> [--max-dim 1920]");
-
-  const maxDimStr = option("max-dim");
-  const maxDim = maxDimStr ? Number(maxDimStr) : 1920;
-  if (!Number.isFinite(maxDim) || maxDim < 1) die("--max-dim must be a positive integer");
-
-  const sharp = (await import("sharp")).default;
-  const { readFile, writeFile } = await import("node:fs/promises");
-
-  let buf: Buffer;
-  try {
-    buf = (await readFile(imagePath)) as Buffer;
-  } catch {
-    die(`Cannot read file: ${imagePath}`);
-  }
-
-  const meta = await sharp(buf).metadata();
-  if (!meta.width || !meta.height) die("Could not read image dimensions");
-
-  if (meta.width <= maxDim && meta.height <= maxDim) {
-    if (jsonOutput) {
-      out({ resized: false, width: meta.width, height: meta.height, path: imagePath });
-    } else {
-      console.log(`Already within ${maxDim}px: ${meta.width}×${meta.height}  ${imagePath}`);
-    }
-    return;
-  }
-
-  const resized = await sharp(buf)
-    .resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true })
-    .toBuffer();
-  await writeFile(imagePath, resized);
-  const after = await sharp(resized).metadata();
-
-  if (jsonOutput) {
-    out({
-      resized: true,
-      before: { width: meta.width, height: meta.height, bytes: buf.length },
-      after: { width: after.width, height: after.height, bytes: resized.length },
-      path: imagePath,
-    });
-  } else {
-    console.log(
-      `Resized: ${meta.width}×${meta.height} → ${after.width}×${after.height}  ` +
-        `(${(buf.length / 1024).toFixed(0)}KB → ${(resized.length / 1024).toFixed(0)}KB)  ${imagePath}`,
-    );
-  }
-}
-
-async function cmdTags(): Promise<void> {
-  validateFlags(["json"]);
-  const quests = await listQuests();
-  const tagCounts = new Map<string, number>();
-  for (const q of quests) {
-    if (q.tags) {
-      for (const tag of q.tags) {
-        tagCounts.set(tag, (tagCounts.get(tag) || 0) + 1);
-      }
-    }
-  }
-
-  if (jsonOutput) {
-    out(Object.fromEntries(tagCounts));
-    return;
-  }
-
-  if (tagCounts.size === 0) {
-    console.log("No tags found.");
-    return;
-  }
-  // Sort by count desc, then alpha
-  const sorted = [...tagCounts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-  for (const [tag, count] of sorted) {
-    console.log(`  ${tag} (${count})`);
-  }
-}
-
-// ─── Help ───────────────────────────────────────────────────────────────────
-
-function showHelp(): void {
-  console.log(`Questmaster CLI
-
-Usage: quest <command> [options]
-
-Commands:
-  list   [--status <s1,s2>] [--tag <t>] [--tags "t1,t2"] [--session <sid>] [--text <q>] [--verification <scope>] [--json]
-                                                         List quests with optional filters
-  mine   [--json]                                        List quests owned by current session
-  grep   <pattern> [--count N] [--json]                  Search inside quest title, description, and feedback/comments with snippets
-  show   <id> [--json]                                   Show quest detail
-  history <id> [--json]                                  Show version history
-  tags   [--json]                                        List all existing tags with counts
-  create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tags "t1,t2"] [--image <path>] [--images "p1,p2"] [--json]
-                                                         Create a quest
-  claim  <id> [--session <sid>] [--json]                 Claim for session
-  complete <id> [--items "c1,c2" | --items-file <path>|-] [--commit <sha>] [--commits "s1,s2"] [--json]
-                                                         Submit for verification
-  done   <id> [--notes "..." | --notes-file <path>|-] [--cancelled] [--json]
-                                                         Mark as done/cancelled
-  cancel <id> [--notes "reason" | --notes-file <path>|-] [--json]
-                                                         Cancel from any status
-  transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--commit <sha>] [--commits "s1,s2"] [--json]
-                                                         Change status
-  later  <id> [--json]                                   Move verification quest out of inbox
-  inbox  <id> [--json]                                   Move verification quest back to inbox
-  edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tags "t1,t2"] [--json]
-                                                         Edit in place
-  check  <id> <index> [--json]                           Toggle verification item
-  feedback <id> [--text "..." | --text-file <path>|-] [--author agent|human] [--session <sid>] [--image <path>] [--images "p1,p2"] [--json]
-                                                         Add feedback entry
-  address <id> <index> [--json]                          Toggle feedback addressed status
-  delete <id> [--json]                                   Delete quest
-  resize-image <path> [--max-dim 1920] [--json]          Resize an image to fit within max dimension
-
-Environment:
-  COMPANION_SESSION_ID  Session ID (auto-set by Companion)
-  COMPANION_AUTH_TOKEN  Session auth token (auto-set by Companion)
-  COMPANION_PORT        Server port for browser notifications
-
-Auth fallback:
-  .companion/session-auth.json (or legacy .codex/.claude paths)
-
-Verification scopes:
-  --verification inbox      needs_verification quests in Verification Inbox
-  --verification reviewed   needs_verification quests in Verification (acknowledged)
-  --verification all        all needs_verification quests
-
-Search tips:
-  quest list --text "foo"   Filter quests broadly by text
-  quest grep "foo|bar"      Search inside quest text/comments with contextual snippets
-
-Safer rich-text input:
-  quest create --title-file title.txt --desc-file body.md
-  printf '%s\\n' 'Copied \`$(snippet)\` stays literal' | quest create "Quest title" --desc-file -
-  quest edit q-1 --desc-file body.md
-  quest feedback q-1 --text-file note.md
-  printf '%s\\n' 'Line 1' '\`$(nope)\`' | quest feedback q-1 --text-file -
-  quest complete q-1 --items-file items.txt
-  printf '%s\\n' 'Review comma-heavy item, "quotes", {braces}' | quest complete q-1 --items-file -
-  quest done q-1 --notes-file closeout.md
-  printf '%s\\n' 'Superseded by q-2 with copied \`$(note)\` text' | quest cancel q-1 --notes-file -`);
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────
@@ -1565,10 +1941,12 @@ async function main(): Promise<void> {
       return cmdGrep();
     case "show":
       return cmdShow();
+    case "status":
+      return cmdStatus();
     case "history":
       return cmdHistory();
     case "tags":
-      return cmdTags();
+      return runTagsCommand({ listQuests, validateFlags, jsonOutput, out });
     case "create":
       return cmdCreate();
     case "claim":
@@ -1596,7 +1974,9 @@ async function main(): Promise<void> {
     case "delete":
       return cmdDelete();
     case "resize-image":
-      return cmdResizeImage();
+      return runResizeImageCommand({ validateFlags, positional, option, die, jsonOutput, out });
+    case "optimize-image":
+      return runOptimizeImageCommand({ validateFlags, positional, option, die, jsonOutput, out });
     case "help":
     case "--help":
     case "-h":

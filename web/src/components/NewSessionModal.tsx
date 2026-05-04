@@ -6,6 +6,7 @@ import {
   type GitBranchInfo,
   type BackendInfo,
   type CliSession,
+  type ServerNewSessionDefaults,
 } from "../api.js";
 import { getRecentDirs } from "../utils/recent-dirs.js";
 import { queuePendingSession } from "../utils/pending-creation.js";
@@ -27,8 +28,10 @@ import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import {
   getGlobalNewSessionDefaults,
   getGroupNewSessionDefaults,
+  getCachedGroupNewSessionDefaults,
   saveLastSessionCreationContext,
   saveGroupNewSessionDefaults,
+  type NewSessionDefaults,
   type NewSessionBackend,
 } from "../utils/new-session-defaults.js";
 import { EnvManager } from "./EnvManager.js";
@@ -77,12 +80,20 @@ export function NewSessionModal({
   // Resolve defaults: group-specific when opening for a group, global otherwise
   const defaultsKey = newSessionDefaultsKey?.trim() || groupKey?.trim() || "";
   const defaults = defaultsKey ? getGroupNewSessionDefaults(defaultsKey) : getGlobalNewSessionDefaults();
+  const persistGlobalDefaults = defaultsKey.length === 0;
+
+  function persistGlobalDefault(key: string, value: string): void {
+    if (!persistGlobalDefaults) return;
+    scopedSetItem(key, value);
+  }
 
   const [backend, setBackend] = useState<BackendType>(() => defaults.backend);
   const [backends, setBackends] = useState<BackendInfo[]>([]);
   const [model, setModel] = useState(() => defaults.model);
   const [mode, setMode] = useState(() => defaults.mode);
-  const [cwd, setCwd] = useState(() => groupCwd || defaults.cwd || getRecentDirs()[0] || "");
+  const [cwd, setCwd] = useState(() => groupCwd || defaults.cwd || getRecentDirs(defaultsKey)[0] || "");
+  const cwdRef = useRef(cwd);
+  const cwdUserEditedRef = useRef(false);
   const [sending, setSending] = useState(false);
   const [error, setError] = useState("");
   const [dynamicModels, setDynamicModels] = useState<ModelOption[] | null>(null);
@@ -132,22 +143,48 @@ export function NewSessionModal({
   const envDropdownRef = useRef<HTMLDivElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
 
-  // Reset all form state when the modal opens (with potentially new group context).
-  // useState initializers only run on first mount, so this effect is needed to
-  // reinitialize when re-opening with different props.
   useEffect(() => {
-    if (!open) return;
-    const d = defaultsKey ? getGroupNewSessionDefaults(defaultsKey) : getGlobalNewSessionDefaults();
+    cwdRef.current = cwd;
+  }, [cwd]);
+
+  function resolveDefaultCwd(d: NewSessionDefaults | ServerNewSessionDefaults): string {
+    return groupCwd || d.cwd || getRecentDirs(defaultsKey)[0] || "";
+  }
+
+  function applyDefaults(d: NewSessionDefaults | ServerNewSessionDefaults, opts?: { preserveEditedCwd?: boolean }) {
     setBackend(d.backend);
     setModel(d.model);
     setMode(d.mode);
-    setCwd(groupCwd || d.cwd || getRecentDirs()[0] || "");
+    if (!opts?.preserveEditedCwd || !cwdUserEditedRef.current) {
+      setSystemCwd(resolveDefaultCwd(d));
+    }
     setAskPermission(d.askPermission);
     setSelectedEnv(d.envSlug);
     setUseWorktree(d.useWorktree);
     setCodexInternetAccess(d.codexInternetAccess);
     setCodexReasoningEffort(d.codexReasoningEffort);
     setSessionRole(d.sessionRole);
+  }
+
+  function setSystemCwd(path: string) {
+    cwdRef.current = path;
+    setCwd(path);
+  }
+
+  function setUserSelectedCwd(path: string) {
+    cwdUserEditedRef.current = true;
+    cwdRef.current = path;
+    setCwd(path);
+  }
+
+  // Reset all form state when the modal opens (with potentially new group context).
+  // useState initializers only run on first mount, so this effect is needed to
+  // reinitialize when re-opening with different props.
+  useEffect(() => {
+    if (!open) return;
+    cwdUserEditedRef.current = false;
+    const d = defaultsKey ? getGroupNewSessionDefaults(defaultsKey) : getGlobalNewSessionDefaults();
+    applyDefaults(d);
     setSelectedBranch("");
     setBranches([]);
     setIsNewBranch(false);
@@ -159,14 +196,43 @@ export function NewSessionModal({
     setDynamicModels(null);
   }, [open, defaultsKey, groupCwd, treeGroupId]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  useEffect(() => {
+    if (!open || !defaultsKey) return;
+    let cancelled = false;
+    const cachedDefaults = getCachedGroupNewSessionDefaults(defaultsKey);
+
+    api
+      .getNewSessionDefaults(defaultsKey)
+      .then(({ defaults: serverDefaults }) => {
+        if (cancelled) return;
+        if (serverDefaults) {
+          saveGroupNewSessionDefaults(defaultsKey, serverDefaults);
+          applyDefaults(serverDefaults, { preserveEditedCwd: true });
+          return;
+        }
+        if (cachedDefaults) {
+          api
+            .saveNewSessionDefaults(defaultsKey, cachedDefaults)
+            .catch((err) => console.error("Failed to migrate New Session defaults:", defaultsKey, err));
+        }
+      })
+      .catch((err) => {
+        console.error("Failed to load server New Session defaults:", defaultsKey, err);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [open, defaultsKey, groupCwd]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // Load server home/cwd and available backends on mount
   useEffect(() => {
     if (!open) return;
     api
       .getHome()
       .then(({ home, cwd: serverCwd }) => {
-        if (!cwd) {
-          setCwd(serverCwd || home);
+        if (!cwdRef.current && !cwdUserEditedRef.current) {
+          setSystemCwd(serverCwd || home);
         }
       })
       .catch(() => {});
@@ -186,12 +252,12 @@ export function NewSessionModal({
 
   function updateMode(value: string) {
     setMode(value);
-    scopedSetItem("cc-mode", value);
+    persistGlobalDefault("cc-mode", value);
   }
 
   function switchBackend(newBackend: BackendType) {
     setBackend(newBackend);
-    scopedSetItem("cc-backend", newBackend);
+    persistGlobalDefault("cc-backend", newBackend);
     setDynamicModels(null);
 
     const savedModel = scopedGetItem(`cc-model-${newBackend}`);
@@ -225,7 +291,7 @@ export function NewSessionModal({
           setDynamicModels(withDefault);
           if (!withDefault.some((m) => m.value === model)) {
             setModel(withDefault[0].value);
-            scopedSetItem(`cc-model-${backend}`, withDefault[0].value);
+            persistGlobalDefault(`cc-model-${backend}`, withDefault[0].value);
           }
         }
       })
@@ -240,8 +306,8 @@ export function NewSessionModal({
     const ask = deriveCodexAskPermission(mode);
     setMode(uiMode);
     setAskPermission(ask);
-    scopedSetItem("cc-mode", uiMode);
-    scopedSetItem("cc-ask-permission", String(ask));
+    persistGlobalDefault("cc-mode", uiMode);
+    persistGlobalDefault("cc-ask-permission", String(ask));
   }, [backend, mode]);
 
   // Close dropdowns on outside click
@@ -384,11 +450,12 @@ export function NewSessionModal({
       assistantMode: undefined,
       askPermission,
       role: sessionRole === "leader" ? ("orchestrator" as const) : undefined,
+      treeGroupId: treeGroupId || undefined,
     };
 
     const defaultsGroupKey = (defaultsKey || gitRepoInfo?.repoRoot || cwdSnapshot || "").trim();
     if (defaultsGroupKey) {
-      saveGroupNewSessionDefaults(defaultsGroupKey, {
+      const defaultsToPersist: NewSessionDefaults = {
         backend: backend as NewSessionBackend,
         model,
         mode,
@@ -399,7 +466,13 @@ export function NewSessionModal({
         useWorktree,
         codexInternetAccess,
         codexReasoningEffort,
-      });
+      };
+      saveGroupNewSessionDefaults(defaultsGroupKey, defaultsToPersist);
+      try {
+        await api.saveNewSessionDefaults(defaultsGroupKey, defaultsToPersist);
+      } catch (err) {
+        console.error("Failed to save server New Session defaults:", defaultsGroupKey, err);
+      }
     }
 
     saveLastSessionCreationContext({
@@ -416,6 +489,7 @@ export function NewSessionModal({
       createOpts,
       cwd: cwdSnapshot || null,
       treeGroupId: treeGroupId || undefined,
+      recentDirsKey: defaultsKey || undefined,
     });
   }
 
@@ -462,6 +536,7 @@ export function NewSessionModal({
       envSlug: selectedEnv || undefined,
       resumeCliSessionId: resumeSessionId,
       askPermission,
+      treeGroupId: treeGroupId || undefined,
     };
 
     onClose();
@@ -470,6 +545,8 @@ export function NewSessionModal({
       backend,
       createOpts,
       cwd: cwd || null,
+      treeGroupId: treeGroupId || undefined,
+      recentDirsKey: defaultsKey || undefined,
     });
   }
 
@@ -486,7 +563,8 @@ export function NewSessionModal({
       >
         {/* Popover card — anchored near the top-left, next to sidebar */}
         <div
-          className="absolute left-[272px] top-2 bg-cc-card border border-cc-border rounded-2xl shadow-2xl w-[400px] max-w-[calc(100vw-2rem)] max-md:left-2 max-md:right-2 max-md:w-auto overflow-hidden"
+          className="absolute left-[272px] top-2 bg-cc-card border border-cc-border rounded-2xl shadow-2xl w-[400px] max-w-[calc(100vw-2rem)] max-md:left-2 max-md:right-2 max-md:w-auto"
+          data-testid="new-session-modal-card"
           onClick={(e) => e.stopPropagation()}
         >
           {/* Header */}
@@ -580,7 +658,7 @@ export function NewSessionModal({
                           onClick={() => {
                             setSelectedCliSession(s.id);
                             setManualSessionId("");
-                            if (s.cwd) setCwd(s.cwd);
+                            if (s.cwd) setUserSelectedCwd(s.cwd);
                           }}
                           className={`w-full px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer border-b border-cc-border last:border-b-0 ${
                             selectedCliSession === s.id ? "bg-cc-primary/10" : ""
@@ -628,8 +706,9 @@ export function NewSessionModal({
                     {showFolderPicker && (
                       <FolderPicker
                         initialPath={cwd || ""}
+                        recentDirsKey={defaultsKey || undefined}
                         onSelect={(path) => {
-                          setCwd(path);
+                          setUserSelectedCwd(path);
                         }}
                         onClose={() => setShowFolderPicker(false)}
                       />
@@ -660,7 +739,7 @@ export function NewSessionModal({
                         <button
                           onClick={() => {
                             setSelectedEnv("");
-                            scopedSetItem("cc-selected-env", "");
+                            persistGlobalDefault("cc-selected-env", "");
                             setShowEnvDropdown(false);
                           }}
                           className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer ${!selectedEnv ? "text-cc-primary font-medium" : "text-cc-fg"}`}
@@ -672,7 +751,7 @@ export function NewSessionModal({
                             key={env.slug}
                             onClick={() => {
                               setSelectedEnv(env.slug);
-                              scopedSetItem("cc-selected-env", env.slug);
+                              persistGlobalDefault("cc-selected-env", env.slug);
                               setShowEnvDropdown(false);
                             }}
                             className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer ${env.slug === selectedEnv ? "text-cc-primary font-medium" : "text-cc-fg"}`}
@@ -801,7 +880,7 @@ export function NewSessionModal({
                       onClick={() => {
                         const next = !askPermission;
                         setAskPermission(next);
-                        scopedSetItem("cc-ask-permission", String(next));
+                        persistGlobalDefault("cc-ask-permission", String(next));
                       }}
                       className="flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer select-none hover:bg-cc-hover"
                       title={
@@ -844,7 +923,7 @@ export function NewSessionModal({
                         onClick={() => {
                           const next = !codexInternetAccess;
                           setCodexInternetAccess(next);
-                          scopedSetItem("cc-codex-internet-access", next ? "1" : "0");
+                          persistGlobalDefault("cc-codex-internet-access", next ? "1" : "0");
                         }}
                         className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors cursor-pointer ${
                           codexInternetAccess
@@ -882,7 +961,7 @@ export function NewSessionModal({
                                 key={effort.value || "default"}
                                 onClick={() => {
                                   setCodexReasoningEffort(effort.value);
-                                  scopedSetItem("cc-codex-reasoning-effort", effort.value);
+                                  persistGlobalDefault("cc-codex-reasoning-effort", effort.value);
                                   setShowReasoningDropdown(false);
                                 }}
                                 className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer ${
@@ -915,8 +994,9 @@ export function NewSessionModal({
                     {showFolderPicker && (
                       <FolderPicker
                         initialPath={cwd || ""}
+                        recentDirsKey={defaultsKey || undefined}
                         onSelect={(path) => {
-                          setCwd(path);
+                          setUserSelectedCwd(path);
                         }}
                         onClose={() => setShowFolderPicker(false)}
                       />
@@ -930,7 +1010,7 @@ export function NewSessionModal({
                         if (sessionRole === "leader") return;
                         const next = !useWorktree;
                         setUseWorktree(next);
-                        scopedSetItem("cc-worktree", String(next));
+                        persistGlobalDefault("cc-worktree", String(next));
                       }}
                       disabled={sessionRole === "leader"}
                       className={`flex items-center gap-1.5 px-2 py-1 text-xs rounded-md transition-colors ${
@@ -1176,7 +1256,7 @@ export function NewSessionModal({
                         <button
                           onClick={() => {
                             setSelectedEnv("");
-                            scopedSetItem("cc-selected-env", "");
+                            persistGlobalDefault("cc-selected-env", "");
                             setShowEnvDropdown(false);
                           }}
                           className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer ${
@@ -1190,7 +1270,7 @@ export function NewSessionModal({
                             key={env.slug}
                             onClick={() => {
                               setSelectedEnv(env.slug);
-                              scopedSetItem("cc-selected-env", env.slug);
+                              persistGlobalDefault("cc-selected-env", env.slug);
                               setShowEnvDropdown(false);
                             }}
                             className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-1 ${
@@ -1232,13 +1312,16 @@ export function NewSessionModal({
                       </svg>
                     </button>
                     {showModelDropdown && (
-                      <div className="absolute left-0 top-full mt-1 w-48 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1">
+                      <div
+                        className="absolute left-0 top-full mt-1 w-48 max-h-60 overflow-y-auto overscroll-contain bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1"
+                        data-testid="new-session-model-dropdown"
+                      >
                         {displayModels.map((m) => (
                           <button
                             key={m.value}
                             onClick={() => {
                               setModel(m.value);
-                              scopedSetItem(`cc-model-${backend}`, m.value);
+                              persistGlobalDefault(`cc-model-${backend}`, m.value);
                               setShowModelDropdown(false);
                             }}
                             className={`w-full px-3 py-2 text-xs text-left hover:bg-cc-hover transition-colors cursor-pointer flex items-center gap-2 ${

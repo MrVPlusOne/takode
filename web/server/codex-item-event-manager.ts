@@ -31,6 +31,16 @@ type ToolEmitOptions = {
   timestamp?: number;
 };
 
+type RouterFailureToolName = "write_stdin";
+
+type TerminalInteractionToolUse = {
+  toolUseId: string;
+  commandToolUseId: string;
+  processId: string;
+  stdin: string;
+  parentToolUseId: string | null;
+};
+
 export class CodexItemEventManager {
   private streamingText = "";
   private streamingItemId: string | null = null;
@@ -47,7 +57,11 @@ export class CodexItemEventManager {
 
   private emittedToolUseIds = new Set<string>();
   private emittedToolUseInputsById = new Map<string, Record<string, unknown>>();
+  private emittedToolUseNamesById = new Map<string, string>();
   private emittedToolResultIds = new Set<string>();
+  private activeToolUseIds = new Set<string>();
+  private terminalInteractionByProcessId = new Map<string, TerminalInteractionToolUse>();
+  private failedTerminalRouterErrorKeys = new Set<string>();
   private patchChangesByCallId = new Map<string, ToolFileChange[]>();
   private parentToolUseIdByThreadId = new Map<string, string>();
   private parentToolUseIdByItemId = new Map<string, string | null>();
@@ -68,7 +82,11 @@ export class CodexItemEventManager {
     this.reasoningTimeFromLastMessageByItemId.clear();
     this.emittedToolUseIds.clear();
     this.emittedToolUseInputsById.clear();
+    this.emittedToolUseNamesById.clear();
     this.emittedToolResultIds.clear();
+    this.activeToolUseIds.clear();
+    this.terminalInteractionByProcessId.clear();
+    this.failedTerminalRouterErrorKeys.clear();
     this.patchChangesByCallId.clear();
     this.parentToolUseIdByThreadId.clear();
     this.parentToolUseIdByItemId.clear();
@@ -312,6 +330,13 @@ export class CodexItemEventManager {
         ? `Polled session ${processId} via write_stdin(chars="").`
         : `Sent stdin to session ${processId} via write_stdin.`;
     this.emitToolResult(toolUseId, summary, false, parentToolUseId);
+    this.rememberTerminalInteraction({
+      toolUseId,
+      commandToolUseId: itemId,
+      processId,
+      stdin,
+      parentToolUseId,
+    });
   }
 
   handleRawResponseItemCompleted(params: Record<string, unknown>): void {
@@ -366,6 +391,8 @@ export class CodexItemEventManager {
     const item = params.item as CodexItem;
     if (!item) return;
     const parentToolUseId = this.resolveParentToolUseId(params, item.id);
+    this.activeToolUseIds.delete(item.id);
+    this.clearTerminalInteractionsForCommand(item.id);
 
     switch (item.type) {
       case "agentMessage": {
@@ -621,10 +648,15 @@ export class CodexItemEventManager {
   ): void {
     this.emittedToolUseIds.add(toolUseId);
     this.emittedToolUseInputsById.set(toolUseId, input);
+    this.emittedToolUseNamesById.set(toolUseId, toolName);
+    if (this.isResultBearingToolUse(toolUseId, toolName)) {
+      this.activeToolUseIds.add(toolUseId);
+    }
     this.emitToolUse(toolUseId, toolName, input, options);
   }
 
   emitToolResult(toolUseId: string, content: unknown, isError: boolean, parentToolUseId?: string | null): void {
+    this.activeToolUseIds.delete(toolUseId);
     const safeContent = typeof content === "string" ? content : JSON.stringify(content);
     const completedAt = Date.now();
     this.emit({
@@ -649,6 +681,175 @@ export class CodexItemEventManager {
       timestamp: completedAt,
     });
     this.markMessageFinished(completedAt);
+  }
+
+  handleToolRouterError(message: string, targetToolName?: RouterFailureToolName, duplicateScope?: string): boolean {
+    if (targetToolName === "write_stdin") {
+      if (this.handleWriteStdinRouterError(message)) return true;
+      if (this.handleActiveToolRouterError(message, "write_stdin")) return true;
+      return this.emitFailedWriteStdinRouterDiagnosticResult({
+        message,
+        duplicateKey: `diagnostic:${duplicateScope ?? "session"}\n${message}`,
+        processId: this.extractWriteStdinFailureProcessId(message) ?? "",
+        stdin: "",
+      });
+    }
+    return this.handleActiveToolRouterError(message);
+  }
+
+  private handleActiveToolRouterError(message: string, targetToolName?: RouterFailureToolName): boolean {
+    if (this.activeToolUseIds.size !== 1) return false;
+    const activeToolUseId = Array.from(this.activeToolUseIds).at(-1);
+    if (!activeToolUseId) return false;
+    if (targetToolName && this.emittedToolUseNamesById.get(activeToolUseId) !== targetToolName) return false;
+    const parentToolUseId = this.parentToolUseIdByItemId.get(activeToolUseId) ?? null;
+    this.emitToolResultOnce(activeToolUseId, message, true, parentToolUseId);
+    return true;
+  }
+
+  private handleWriteStdinRouterError(message: string): boolean {
+    const processId = this.extractWriteStdinFailureProcessId(message);
+    if (processId) {
+      const interaction = this.terminalInteractionByProcessId.get(processId);
+      if (!interaction) return false;
+      if (!this.activeToolUseIds.has(interaction.commandToolUseId)) return false;
+      return this.emitFailedWriteStdinRouterResult({
+        message,
+        duplicateKey: `${interaction.toolUseId}\n${message}`,
+        commandToolUseId: interaction.commandToolUseId,
+        processId: interaction.processId,
+        stdin: interaction.stdin,
+        parentToolUseId: interaction.parentToolUseId,
+      });
+    }
+
+    if (!this.isWriteStdinClosedForSessionFailure(message)) return false;
+    const interaction = this.getOnlyActiveTerminalInteraction();
+    if (interaction) {
+      return this.emitFailedWriteStdinRouterResult({
+        message,
+        duplicateKey: `${interaction.toolUseId}\n${message}`,
+        commandToolUseId: interaction.commandToolUseId,
+        processId: interaction.processId,
+        stdin: interaction.stdin,
+        parentToolUseId: interaction.parentToolUseId,
+      });
+    }
+
+    const commandToolUseId = this.getOnlyActiveCommandToolUseId();
+    if (!commandToolUseId) return false;
+    return this.emitFailedWriteStdinRouterResult({
+      message,
+      duplicateKey: `${commandToolUseId}\n${message}`,
+      commandToolUseId,
+      processId: "",
+      stdin: "",
+      parentToolUseId: this.parentToolUseIdByItemId.get(commandToolUseId) ?? null,
+    });
+  }
+
+  private emitFailedWriteStdinRouterResult(args: {
+    message: string;
+    duplicateKey: string;
+    commandToolUseId: string;
+    processId: string;
+    stdin: string;
+    parentToolUseId: string | null;
+  }): boolean {
+    const { message, duplicateKey, commandToolUseId, processId, stdin, parentToolUseId } = args;
+    if (this.failedTerminalRouterErrorKeys.has(duplicateKey)) return true;
+    this.failedTerminalRouterErrorKeys.add(duplicateKey);
+
+    const failedToolUseId = `${commandToolUseId}:terminal-error:${++this.terminalInteractionToolUseSeq}`;
+    this.emitToolUseTracked(
+      failedToolUseId,
+      "write_stdin",
+      {
+        session_id: processId,
+        chars: stdin,
+      },
+      { parentToolUseId },
+    );
+    this.emitToolResult(failedToolUseId, message, true, parentToolUseId);
+    return true;
+  }
+
+  private emitFailedWriteStdinRouterDiagnosticResult(args: {
+    message: string;
+    duplicateKey: string;
+    processId: string;
+    stdin: string;
+  }): boolean {
+    const { message, duplicateKey, processId, stdin } = args;
+    if (this.failedTerminalRouterErrorKeys.has(duplicateKey)) return true;
+    this.failedTerminalRouterErrorKeys.add(duplicateKey);
+
+    const failedToolUseId = `codex-write-stdin-router-error:${++this.terminalInteractionToolUseSeq}`;
+    this.emitToolUseTracked(failedToolUseId, "write_stdin", {
+      session_id: processId,
+      chars: stdin,
+    });
+    this.emitToolResult(failedToolUseId, message, true);
+    return true;
+  }
+
+  private extractWriteStdinFailureProcessId(message: string): string | null {
+    const match = message.match(/\bUnknown process id\s+([^\s,.]+)/i);
+    return match?.[1]?.trim() || null;
+  }
+
+  private isWriteStdinClosedForSessionFailure(message: string): boolean {
+    return /\bwrite_stdin\s+failed:\s+stdin is closed for this session\b/i.test(message);
+  }
+
+  private getOnlyActiveTerminalInteraction(): TerminalInteractionToolUse | null {
+    const activeInteractions = Array.from(this.terminalInteractionByProcessId.values()).filter((interaction) =>
+      this.activeToolUseIds.has(interaction.commandToolUseId),
+    );
+    return activeInteractions.length === 1 ? activeInteractions[0] : null;
+  }
+
+  private getOnlyActiveCommandToolUseId(): string | null {
+    const activeCommandToolUseIds = Array.from(this.activeToolUseIds).filter(
+      (toolUseId) => this.emittedToolUseNamesById.get(toolUseId) === "Bash",
+    );
+    if (activeCommandToolUseIds.length !== this.activeToolUseIds.size) return null;
+    return activeCommandToolUseIds.length === 1 ? activeCommandToolUseIds[0] : null;
+  }
+
+  private clearTerminalInteractionsForCommand(commandToolUseId: string): void {
+    for (const [processId, interaction] of this.terminalInteractionByProcessId) {
+      if (interaction.commandToolUseId !== commandToolUseId) continue;
+      this.terminalInteractionByProcessId.delete(processId);
+      this.clearFailedTerminalRouterErrorKeysForInteraction(interaction);
+    }
+    this.clearFailedTerminalRouterErrorKeysForCommand(commandToolUseId);
+  }
+
+  private rememberTerminalInteraction(interaction: TerminalInteractionToolUse): void {
+    const previous = this.terminalInteractionByProcessId.get(interaction.processId);
+    if (previous) this.clearFailedTerminalRouterErrorKeysForInteraction(previous);
+    this.terminalInteractionByProcessId.set(interaction.processId, interaction);
+  }
+
+  private clearFailedTerminalRouterErrorKeysForInteraction(interaction: TerminalInteractionToolUse): void {
+    for (const key of this.failedTerminalRouterErrorKeys) {
+      if (key.startsWith(`${interaction.toolUseId}\n`)) {
+        this.failedTerminalRouterErrorKeys.delete(key);
+      }
+    }
+  }
+
+  private clearFailedTerminalRouterErrorKeysForCommand(commandToolUseId: string): void {
+    for (const key of this.failedTerminalRouterErrorKeys) {
+      if (key.startsWith(`${commandToolUseId}\n`)) {
+        this.failedTerminalRouterErrorKeys.delete(key);
+      }
+    }
+  }
+
+  private isResultBearingToolUse(toolUseId: string, toolName: string): boolean {
+    return !toolUseId.startsWith("codex-plan-") && toolName !== "TodoWrite" && toolName !== "TaskUpdate";
   }
 
   private resolveFileChangesForTool(toolUseId: string, rawChanges: unknown): ToolFileChange[] {

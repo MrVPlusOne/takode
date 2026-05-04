@@ -20,6 +20,8 @@ import type {
   SessionState,
   ContentBlock,
   ToolResultPreview,
+  ActiveTurnRoute,
+  ThreadRef,
 } from "../session-types.js";
 import {
   computeContextUsedPercent,
@@ -29,8 +31,28 @@ import {
   resolveResultContextWindow,
   type TokenUsage,
 } from "./context-usage.js";
+import {
+  recordCompactionBoundary,
+  recordCompactionFinished,
+  recordCompactionStarted,
+} from "./session-lifecycle-events.js";
 import { sessionTag } from "../session-tag.js";
 import type { ImageRef } from "../image-store.js";
+import {
+  buildThreadRoutingReminderForCompletedTurn,
+  normalizeLeaderAssistantRouting,
+} from "./thread-routing-reminder.js";
+import {
+  consumeQuestThreadRemindersForCompletedTurn,
+  extractQuestThreadRemindersFromContent,
+  queueQuestThreadRemindersForCompletedTurn,
+} from "./quest-thread-reminder.js";
+import {
+  appendThreadTransitionMarkerForRouteSwitch,
+  normalizeThreadRoute,
+  routeFromHistoryEntry,
+  type ThreadRouteMetadata,
+} from "../thread-routing-metadata.js";
 
 type BroadcastOptions = {
   skipBuffer?: boolean;
@@ -103,7 +125,9 @@ export interface AssistantMessageSessionLike {
   cliResuming: boolean;
   dropReplayHistoryAfterRevert?: boolean;
   isGenerating: boolean;
+  activeTurnRoute?: ActiveTurnRoute | null;
   messageHistory: BrowserIncomingMessage[];
+  questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
   assistantAccumulator: Map<string, { contentBlockIds: Set<string> }>;
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
@@ -112,11 +136,13 @@ export interface AssistantMessageSessionLike {
   state: {
     model: string;
     context_used_percent: number;
+    isOrchestrator?: boolean;
   };
 }
 
 interface HandleAssistantMessageDeps {
   hasAssistantReplay: (session: AssistantMessageSessionLike, messageId: string) => boolean;
+  getLauncherSessionInfo?: (sessionId: string) => { isOrchestrator?: boolean } | null | undefined;
   broadcastToBrowsers: (
     session: AssistantMessageSessionLike,
     msg: BrowserIncomingMessage,
@@ -134,18 +160,82 @@ interface HandleAssistantRuntimeDeps extends HandleAssistantMessageDeps {
   broadcastStatusRunning: (session: AssistantMessageSessionLike) => void;
 }
 
+function isLeaderSessionForAssistantRouting(
+  session: AssistantMessageSessionLike,
+  deps: Pick<HandleAssistantMessageDeps, "getLauncherSessionInfo">,
+): boolean {
+  if (session.state.isOrchestrator === true) return true;
+  if (deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator !== true) return false;
+  session.state.isOrchestrator = true;
+  return true;
+}
+
+function routeFromLeaderAssistantResult(routed: {
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
+}): ThreadRouteMetadata | undefined {
+  if (!routed.threadKey) return undefined;
+  return {
+    threadKey: routed.threadKey,
+    ...(routed.questId ? { questId: routed.questId } : {}),
+    ...(routed.threadRefs?.length ? { threadRefs: routed.threadRefs } : {}),
+  };
+}
+
+function activeTurnRouteFromThreadRoute(route: ThreadRouteMetadata): ActiveTurnRoute {
+  return {
+    threadKey: route.threadKey,
+    ...(route.questId ? { questId: route.questId } : {}),
+  };
+}
+
+function sameActiveTurnRoute(
+  current: ActiveTurnRoute | null | undefined,
+  next: ActiveTurnRoute | null | undefined,
+): boolean {
+  return (current?.threadKey ?? "main") === (next?.threadKey ?? "main") && current?.questId === next?.questId;
+}
+
+function updateActiveTurnRouteFromLeaderAssistant(
+  session: AssistantMessageSessionLike,
+  route: ThreadRouteMetadata | undefined,
+  deps: Pick<HandleAssistantMessageDeps, "broadcastToBrowsers">,
+): void {
+  if (!route || !session.isGenerating) return;
+  const nextRoute = activeTurnRouteFromThreadRoute(route);
+  if (sameActiveTurnRoute(session.activeTurnRoute, nextRoute)) return;
+  session.activeTurnRoute = nextRoute;
+  deps.broadcastToBrowsers(session, {
+    type: "status_change",
+    status: "running",
+    activeTurnRoute: nextRoute,
+  });
+}
+
+function queueQuestThreadRemindersFromLeaderAssistant(
+  session: AssistantMessageSessionLike,
+  reminders: string[] | undefined,
+  route: ThreadRouteMetadata | undefined,
+): void {
+  if (!reminders?.length) return;
+  queueQuestThreadRemindersForCompletedTurn(session, reminders, route);
+}
+
 export interface ResultMessageSessionLike {
   id: string;
   backendType: "claude" | "codex" | "claude-sdk";
   cliResuming: boolean;
   dropReplayHistoryAfterRevert?: boolean;
   messageHistory: BrowserIncomingMessage[];
+  questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
   state: Pick<SessionState, "model" | "total_cost_usd" | "num_turns" | "context_used_percent" | "claude_token_details">;
   diffStatsDirty: boolean;
   generationStartedAt?: number | null;
   interruptedDuringTurn: boolean;
   queuedTurnStarts: number;
   queuedTurnInterruptSources: Array<"user" | "leader" | "system" | null>;
+  userMessageIdsThisTurn: number[];
   isGenerating: boolean;
   lastOutboundUserNdjson: string | null;
   pendingPermissions: Map<string, PermissionRequest>;
@@ -262,6 +352,13 @@ interface ResultMessageDeps {
     turnTriggerSource: "user" | "leader" | "system" | "unknown",
   ) => void;
   onTurnCompleted: (session: ResultMessageSessionLike) => void;
+  injectUserMessage: (
+    sessionId: string,
+    content: string,
+    agentSource: { sessionId: string; sessionLabel?: string },
+    takodeHerdBatch: undefined,
+    threadRoute: ThreadRouteMetadata,
+  ) => void;
 }
 
 interface ClaudeSdkBrowserMessageSessionLike {
@@ -293,6 +390,8 @@ interface ClaudeSdkBrowserMessageSessionLike {
   queuedTurnReasons: string[];
   queuedTurnUserMessageIds: number[][];
   queuedTurnInterruptSources: Array<"user" | "leader" | "system" | null>;
+  queuedTurnActiveRoutes?: Array<ActiveTurnRoute | null>;
+  userMessageIdsThisTurn: number[];
   state: SessionState;
 }
 
@@ -324,6 +423,7 @@ export function handleAssistantMessage(
   deps: HandleAssistantMessageDeps,
 ): void {
   const msgId = msg.message?.id;
+  const isLeaderSession = isLeaderSessionForAssistantRouting(session, deps);
 
   if (!msgId) {
     if (shouldDropReplayHistoryAfterRevert(session)) {
@@ -332,15 +432,31 @@ export function handleAssistantMessage(
       );
       return;
     }
+    const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content, msg.parent_tool_use_id);
+    queueQuestThreadRemindersFromLeaderAssistant(
+      session,
+      routed.questThreadReminders,
+      routeFromLeaderAssistantResult(routed),
+    );
     const browserMsg: BrowserIncomingMessage = {
       type: "assistant",
-      message: msg.message,
+      message: { ...msg.message, content: routed.content },
       parent_tool_use_id: msg.parent_tool_use_id,
       timestamp: Date.now(),
       uuid: msg.uuid,
+      ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+      ...(routed.questId ? { questId: routed.questId } : {}),
+      ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+      ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
     };
+    const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+      session.messageHistory,
+      normalizeThreadRoute(routed.threadKey, routed.questId),
+    );
+    if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
+    updateActiveTurnRouteFromLeaderAssistant(session, routeFromLeaderAssistantResult(routed), deps);
     maybeUpdateContextUsedPercentFromAssistantUsage(
       session,
       msg.message.usage,
@@ -363,10 +479,17 @@ export function handleAssistantMessage(
       return;
     }
 
+    const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content, msg.parent_tool_use_id);
+    queueQuestThreadRemindersFromLeaderAssistant(
+      session,
+      routed.questThreadReminders,
+      routeFromLeaderAssistantResult(routed),
+    );
+    const routedMessage = { ...msg.message, content: routed.content };
     const contentBlockIds = new Set<string>();
     const now = Date.now();
     const toolStartTimesMap: Record<string, number> = {};
-    for (const block of msg.message.content) {
+    for (const block of routedMessage.content) {
       if (block.type === "tool_use" && block.id) {
         contentBlockIds.add(block.id);
         if (!session.toolStartTimes.has(block.id)) {
@@ -380,15 +503,25 @@ export function handleAssistantMessage(
 
     const browserMsg: BrowserIncomingMessage = {
       type: "assistant",
-      message: { ...msg.message, content: [...msg.message.content] },
+      message: { ...routedMessage, content: [...routedMessage.content] },
       parent_tool_use_id: msg.parent_tool_use_id,
       timestamp: Date.now(),
       uuid: msg.uuid,
       ...(Object.keys(toolStartTimesMap).length > 0 ? { tool_start_times: toolStartTimesMap } : {}),
+      ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+      ...(routed.questId ? { questId: routed.questId } : {}),
+      ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+      ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
     };
     session.assistantAccumulator.set(msgId, { contentBlockIds });
+    const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+      session.messageHistory,
+      normalizeThreadRoute(routed.threadKey, routed.questId),
+    );
+    if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
+    updateActiveTurnRouteFromLeaderAssistant(session, routeFromLeaderAssistantResult(routed), deps);
   } else {
     const historyEntry = session.messageHistory.findLast(
       (entry) => entry.type === "assistant" && (entry as { message?: { id?: string } }).message?.id === msgId,
@@ -401,10 +534,17 @@ export function handleAssistantMessage(
       | undefined;
     if (!historyEntry) return;
 
-    const newBlocks = getAssistantContentAppendBlocks(
+    const appendedBlocks = getAssistantContentAppendBlocks(
       historyEntry.message.content,
       msg.message.content,
       acc.contentBlockIds,
+    );
+    const extracted = extractQuestThreadRemindersFromContent(appendedBlocks);
+    const newBlocks = extracted.content;
+    queueQuestThreadRemindersFromLeaderAssistant(
+      session,
+      extracted.reminders,
+      routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined,
     );
     if (newBlocks.length > 0) {
       for (const block of newBlocks) {
@@ -441,6 +581,11 @@ export function handleAssistantMessage(
         ...(Object.keys(allToolStartTimes).length > 0 ? { tool_start_times: allToolStartTimes } : {}),
       },
       { skipBuffer: true },
+    );
+    updateActiveTurnRouteFromLeaderAssistant(
+      session,
+      routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined,
+      deps,
     );
   }
 
@@ -548,6 +693,9 @@ export function handleResultMessage(
     deps.markTurnInterrupted(session, session.queuedTurnInterruptSources[0] ?? "user");
   }
   const turnWasInterrupted = session.interruptedDuringTurn || resultInterrupted || resultIsUserControlDiagnostic;
+  const threadRoutingReminder = turnWasInterrupted ? null : buildThreadRoutingReminderForCompletedTurn(session);
+  const questThreadReminders = consumeQuestThreadRemindersForCompletedTurn(session);
+  const deliverQuestThreadReminders = turnWasInterrupted ? [] : questThreadReminders;
   deps.drainInlineQueuedClaudeTurns(session, "result");
 
   const turnTriggerSource = deps.getCurrentTurnTriggerSource(session);
@@ -593,6 +741,18 @@ export function handleResultMessage(
     deps.onResultAttentionAndNotifications(session, msg, turnTriggerSource);
   }
   deps.onTurnCompleted(session);
+  for (const reminder of deliverQuestThreadReminders) {
+    deps.injectUserMessage(session.id, reminder.content, reminder.agentSource, undefined, reminder.route);
+  }
+  if (threadRoutingReminder) {
+    deps.injectUserMessage(
+      session.id,
+      threadRoutingReminder.content,
+      threadRoutingReminder.agentSource,
+      undefined,
+      threadRoutingReminder.route,
+    );
+  }
 }
 
 export function routeCLIMessage(session: CliMessageRouteSessionLike, msg: CLIMessage, deps: CliMessageRouteDeps): void {
@@ -825,6 +985,7 @@ export function createClaudeMessageHandlers(
   };
   const assistantMessageDeps: HandleAssistantRuntimeDeps = {
     hasAssistantReplay: deps.hasAssistantReplay,
+    getLauncherSessionInfo: deps.getLauncherSessionInfo,
     broadcastToBrowsers: deps.broadcastToBrowsers,
     persistSession: deps.persistSession,
     setGenerating: deps.setGenerating,
@@ -848,6 +1009,7 @@ export function createClaudeMessageHandlers(
     onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
     onResultAttentionAndNotifications: deps.onResultAttentionAndNotifications,
     onTurnCompleted: deps.onTurnCompleted,
+    injectUserMessage: deps.injectUserMessage,
   };
   const cliUserMessageDeps: ClaudeCliUserMessageDeps = {
     hasUserPromptReplay: deps.hasUserPromptReplay,
@@ -909,6 +1071,7 @@ function handleSdkBrowserMessage(
       session.queuedTurnReasons = [];
       session.queuedTurnUserMessageIds = [];
       session.queuedTurnInterruptSources = [];
+      session.queuedTurnActiveRoutes = [];
     }
     handleResultMessage(session, (msg as any).data ?? msg, resultMessageDeps);
     return true;
@@ -965,12 +1128,17 @@ function handleSdkStatusChange(
       timestamp: ts,
       id: markerId,
     });
+    recordCompactionStarted(session, { id: markerId, timestamp: ts });
     deps.freezeHistoryThroughCurrentTail(session);
     session.awaitingCompactSummary = true;
     deps.broadcastToBrowsers(session, {
       type: "compact_boundary",
       id: markerId,
       timestamp: ts,
+    });
+    deps.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { lifecycle_events: session.state.lifecycle_events },
     });
   }
   handleSystemStatus(
@@ -1002,9 +1170,19 @@ function handleSdkCompactBoundary(
     existingMarker.cliUuid = cliUuid;
     existingMarker.trigger = meta?.trigger;
     existingMarker.preTokens = meta?.pre_tokens;
+    recordCompactionBoundary(session, {
+      id: existingMarker.id ?? `compact-boundary-${existingMarker.timestamp}`,
+      timestamp: existingMarker.timestamp,
+      trigger: meta?.trigger,
+      preTokens: meta?.pre_tokens,
+    });
     if (session.backendType === "claude") {
       session.claudeCompactBoundarySeen = true;
     }
+    deps.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { lifecycle_events: session.state.lifecycle_events },
+    });
     deps.persistSession(session);
     return;
   }
@@ -1215,6 +1393,11 @@ function handleSystemStatus(
     });
   }
   if (wasCompacting && msg.status !== "compacting" && !session.cliResuming) {
+    recordCompactionFinished(session);
+    deps.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { lifecycle_events: session.state.lifecycle_events },
+    });
     deps.emitTakodeEvent(session.id, "compaction_finished", {
       ...(typeof session.state.context_used_percent === "number"
         ? { context_used_percent: session.state.context_used_percent }
@@ -1274,6 +1457,12 @@ function handleCompactBoundary(
     trigger: meta?.trigger,
     preTokens: meta?.pre_tokens,
   });
+  recordCompactionBoundary(session, {
+    id: markerId,
+    timestamp: ts,
+    trigger: meta?.trigger,
+    preTokens: meta?.pre_tokens,
+  });
   deps.freezeHistoryThroughCurrentTail(session);
   session.awaitingCompactSummary = true;
   deps.broadcastToBrowsers(session, {
@@ -1282,6 +1471,10 @@ function handleCompactBoundary(
     timestamp: ts,
     trigger: meta?.trigger,
     preTokens: meta?.pre_tokens,
+  });
+  deps.broadcastToBrowsers(session, {
+    type: "session_update",
+    session: { lifecycle_events: session.state.lifecycle_events },
   });
   deps.persistSession(session);
 }

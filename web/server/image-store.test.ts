@@ -3,7 +3,13 @@ import { mkdtempSync, existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 import { rmSync } from "node:fs";
-import { ImageStore, resizeForStore } from "./image-store.js";
+import {
+  ImageStore,
+  resetSharpLoaderForTest,
+  resizeForStore,
+  setSharpLoaderForTest,
+  SharpUnavailableError,
+} from "./image-store.js";
 
 let store: ImageStore;
 let tempDir: string;
@@ -18,6 +24,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  resetSharpLoaderForTest();
   rmSync(tempDir, { recursive: true, force: true });
 });
 
@@ -43,19 +50,20 @@ async function waitForValue<T>(getter: () => Promise<T | null>, timeoutMs = 1000
 }
 
 describe("ImageStore", () => {
-  // Tests that store() saves original (as JPEG for PNG input) and thumbnail files to disk,
+  // Tests that store() saves processed PNG input as a marked JPEG and generates thumbnail files,
   // returning a valid ImageRef with a unique imageId and converted media_type.
-  it("store() converts PNG to JPEG and writes original and thumbnail files", async () => {
+  it("store() converts PNG to JPEG and writes .takode-agent file plus thumbnail", async () => {
     const ref = await store.store("sess-1", TINY_PNG_BASE64, "image/png");
 
     expect(ref.imageId).toBeTruthy();
     // PNG input should be converted to JPEG
     expect(ref.media_type).toBe("image/jpeg");
+    expect(ref.optimized).toBe(true);
 
-    // Original file should exist as .orig.jpeg (not .orig.png)
+    // Processed upload should use the shared .takode-agent convention.
     const origPath = await store.getOriginalPath("sess-1", ref.imageId);
     expect(origPath).toBeTruthy();
-    expect(origPath!.endsWith(".orig.jpeg")).toBe(true);
+    expect(origPath!.endsWith(".takode-agent.jpeg")).toBe(true);
     expect(existsSync(origPath!)).toBe(true);
 
     // Thumbnail should exist
@@ -114,7 +122,7 @@ describe("ImageStore", () => {
   });
 
   // Tests that JPEG input stays as JPEG (no double-compression)
-  it("store() preserves JPEG input format", async () => {
+  it("store() preserves unchanged JPEG input format under the legacy original name", async () => {
     const sharpMod = (await import("sharp")).default;
     const jpegBuffer = await sharpMod(Buffer.alloc(100 * 100 * 3), {
       raw: { width: 100, height: 100, channels: 3 },
@@ -126,9 +134,30 @@ describe("ImageStore", () => {
     const ref = await store.store("sess-1", jpegBase64, "image/jpeg");
 
     expect(ref.media_type).toBe("image/jpeg");
+    expect(ref.optimized).toBeUndefined();
     const origPath = await store.getOriginalPath("sess-1", ref.imageId);
     expect(origPath).toBeTruthy();
     expect(origPath!.endsWith(".orig.jpeg")).toBe(true);
+  });
+
+  it("store() no-ops already optimized filenames while preserving marker naming", async () => {
+    const sharpMod = (await import("sharp")).default;
+    const jpegBuffer = await sharpMod(Buffer.alloc(120 * 80 * 3), {
+      raw: { width: 120, height: 80, channels: 3 },
+    })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    const jpegBase64 = jpegBuffer.toString("base64");
+
+    const ref = await store.store("sess-1", jpegBase64, "image/jpeg", "upload.takode-agent.jpeg");
+
+    expect(ref.media_type).toBe("image/jpeg");
+    expect(ref.optimized).toBe(true);
+    expect(ref.sourceName).toBe("upload.takode-agent.jpeg");
+    const origPath = await store.getOriginalPath("sess-1", ref.imageId);
+    expect(origPath).toBeTruthy();
+    expect(origPath!.endsWith(".takode-agent.jpeg")).toBe(true);
+    expect(readFileSync(origPath!)).toEqual(jpegBuffer);
   });
 
   // Tests that PNG-to-JPEG conversion produces a smaller file than the PNG original
@@ -212,7 +241,15 @@ describe("ImageStore", () => {
 
   // Tests that removeSession is safe to call on nonexistent sessions
   it("removeSession() is safe for nonexistent session", async () => {
-    await expect(store.removeSession("nonexistent")).resolves.not.toThrow();
+    await expect(store.removeSession("nonexistent")).resolves.toBeUndefined();
+  });
+
+  it("store() throws a clear error when sharp is unavailable", async () => {
+    setSharpLoaderForTest(async () => {
+      throw new Error("missing native module");
+    });
+
+    await expect(store.store("sess-1", TINY_PNG_BASE64, "image/png")).rejects.toBeInstanceOf(SharpUnavailableError);
   });
 
   // Tests that corrupt base64 data still saves the original and that

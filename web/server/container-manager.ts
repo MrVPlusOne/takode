@@ -142,6 +142,9 @@ export class ContainerManager {
       timeout: QUICK_EXEC_TIMEOUT_MS,
     });
 
+    const hasHostCodexHome = existsSync(join(homedir, ".codex")); // sync-ok: container management, not called during message handling
+    const hasHostAgentsHome = existsSync(join(homedir, ".agents")); // sync-ok: container management, not called during message handling
+
     // Build docker create args
     const args: string[] = [
       "docker",
@@ -156,10 +159,11 @@ export class ContainerManager {
       `${homedir}/.claude:/companion-host-claude:ro`,
       "--tmpfs",
       "/root/.claude",
-      // Seed Codex auth/config from host (if present)
-      ...(existsSync(join(homedir, ".codex")) // sync-ok: container management, not called during message handling
-        ? ["-v", `${homedir}/.codex:/companion-host-codex:ro`, "--tmpfs", "/root/.codex"]
-        : []),
+      // Seed Codex auth/config from .codex and official skills from .agents.
+      ...(hasHostCodexHome ? ["-v", `${homedir}/.codex:/companion-host-codex:ro`] : []),
+      ...(hasHostAgentsHome ? ["-v", `${homedir}/.agents:/companion-host-agents:ro`] : []),
+      ...(hasHostCodexHome || hasHostAgentsHome ? ["--tmpfs", "/root/.codex"] : []),
+      ...(hasHostCodexHome || hasHostAgentsHome ? ["--tmpfs", "/root/.agents"] : []),
       // Isolated workspace: named volume populated later via docker cp
       "-v",
       `${volumeName}:/workspace`,
@@ -282,8 +286,9 @@ export class ContainerManager {
   }
 
   /**
-   * Copy Codex auth & config files from the read-only bind mount into the
-   * tmpfs home dir. Similar to seedAuthFiles but for Codex's ~/.codex directory.
+   * Copy Codex auth/config from .codex and skills from .agents into their
+   * official runtime homes. Legacy .codex/skills entries are copied only when
+   * the .agents skill slug is missing.
    * Called after both initial create and restart (tmpfs is wiped on stop).
    */
   private seedCodexFiles(containerId: string): void {
@@ -292,11 +297,17 @@ export class ContainerManager {
         "sh",
         "-lc",
         [
-          "[ -d /companion-host-codex ] || exit 0",
           "mkdir -p /root/.codex",
           "for f in auth.json config.toml models_cache.json version.json; do " +
             "[ -f /companion-host-codex/$f ] && cp /companion-host-codex/$f /root/.codex/$f 2>/dev/null; done",
-          "for d in skills vendor_imports prompts rules; do " +
+          "[ -d /companion-host-agents/skills ] && mkdir -p /root/.agents/skills && " +
+            "cp -RL /companion-host-agents/skills/. /root/.agents/skills/ 2>/dev/null",
+          "if [ -d /companion-host-codex/skills ]; then mkdir -p /root/.agents/skills; " +
+            'for s in /companion-host-codex/skills/*; do [ -e "$s" ] || continue; name=$(basename "$s"); ' +
+            'target="/root/.agents/skills/$name"; ' +
+            '[ -L "$target" ] && [ ! -e "$target" ] && rm -f "$target"; ' +
+            '[ -e "$target" ] || cp -RL "$s" "$target" 2>/dev/null; done; fi',
+          "for d in vendor_imports prompts rules; do " +
             "[ -d /companion-host-codex/$d ] && cp -r /companion-host-codex/$d /root/.codex/$d 2>/dev/null; done",
           "true",
         ].join("; "),

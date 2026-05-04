@@ -1,18 +1,19 @@
 // @vitest-environment jsdom
 import { render, fireEvent, screen } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import type { ComponentProps } from "react";
+import { useState, type ComponentProps } from "react";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 
 const mockStoreState = {
   questNamedSessions: new Set<string>(),
-  sessions: new Map<string, { claimedQuestStatus?: string }>(),
+  sessions: new Map<string, { claimedQuestStatus?: string; claimedQuestVerificationInboxUnread?: boolean }>(),
   sessionTaskPreview: new Map<string, { text: string; updatedAt: number }>(),
   sessionPreviewUpdatedAt: new Map<string, number>(),
   sessionAttention: new Map<string, "action" | "error" | "review" | null>(),
   sessionNotifications: new Map<string, Array<any>>(),
   sessionTimers: new Map<string, Array<{ id: string }>>(),
+  sdkSessions: [] as Array<any>,
   currentSessionId: "s1",
 };
 
@@ -84,6 +85,40 @@ function renderSessionItem(overrides: Partial<ComponentProps<typeof SessionItem>
     onArchive,
     onSelect,
   };
+}
+
+function EditingSessionItem({
+  onConfirmRename = vi.fn(),
+  onCancelRename = vi.fn(),
+}: {
+  onConfirmRename?: ReturnType<typeof vi.fn>;
+  onCancelRename?: ReturnType<typeof vi.fn>;
+}) {
+  const [editingName, setEditingName] = useState("Session");
+
+  return (
+    <SessionItem
+      session={makeSession()}
+      isActive={false}
+      isArchived={false}
+      sessionName="Session"
+      sessionPreview="preview"
+      permCount={0}
+      isRecentlyRenamed={false}
+      onSelect={vi.fn()}
+      onStartRename={vi.fn()}
+      onArchive={vi.fn()}
+      onUnarchive={vi.fn()}
+      onDelete={vi.fn()}
+      onClearRecentlyRenamed={vi.fn()}
+      editingSessionId="s1"
+      editingName={editingName}
+      setEditingName={setEditingName}
+      onConfirmRename={onConfirmRename as () => void}
+      onCancelRename={onCancelRename as () => void}
+      editInputRef={{ current: null }}
+    />
+  );
 }
 
 function setSessionNotifications(sessionId: string, notifications: Array<any>) {
@@ -209,6 +244,28 @@ describe("SessionItem archived worktree cleanup status", () => {
   });
 });
 
+describe("SessionItem rename mode", () => {
+  it("keeps the rename input outside the clickable row button so spaces do not trigger row activation", () => {
+    // Regression guard for q-676: the rename input must not be nested inside the
+    // row button, because Space can activate buttons and collapse edit mode.
+    const onConfirmRename = vi.fn();
+    const onCancelRename = vi.fn();
+
+    render(<EditingSessionItem onConfirmRename={onConfirmRename} onCancelRename={onCancelRename} />);
+    const input = screen.getByDisplayValue("Session");
+
+    input.focus();
+    fireEvent.change(input, { target: { value: "Session Name" } });
+    fireEvent.keyDown(input, { key: " " });
+
+    expect(input.closest("button")).toBeNull();
+    expect(screen.getByDisplayValue("Session Name")).toBeInTheDocument();
+    expect(document.activeElement).toBe(input);
+    expect(onConfirmRename).not.toHaveBeenCalled();
+    expect(onCancelRename).not.toHaveBeenCalled();
+  });
+});
+
 describe("SessionItem search match context", () => {
   it("shows matched field label and highlights matched query text", () => {
     renderSessionItem({
@@ -234,6 +291,19 @@ describe("SessionItem search match context", () => {
     expect(screen.getByText("name:")).toBeInTheDocument();
     const highlight = screen.getByText("Beta");
     expect(highlight.tagName).toBe("MARK");
+  });
+
+  it("falls back to the numeric session label for exact session-number matches", () => {
+    renderSessionItem({
+      session: makeSession({ sessionNum: 12 }),
+      matchContext: null,
+      matchedField: "session_number",
+      matchQuery: "#0012",
+    });
+
+    const matchLine = screen.getByText("session:").parentElement;
+    expect(matchLine).not.toBeNull();
+    expect(matchLine).toHaveTextContent("#12");
   });
 });
 
@@ -387,6 +457,7 @@ describe("SessionItem notification marker", () => {
     mockStoreState.sessionAttention.clear();
     mockStoreState.sessionNotifications.clear();
     mockStoreState.sessionTimers.clear();
+    mockStoreState.sdkSessions = [];
   });
 
   it("shows a blue notification marker when review is the highest active inbox urgency", () => {
@@ -413,6 +484,102 @@ describe("SessionItem notification marker", () => {
     renderSessionItem();
     const marker = screen.getByTestId("session-notification-marker");
     expect(marker).toHaveAttribute("data-urgency", "needs-input");
+  });
+
+  it("does not fall back to a stale snapshot marker after the live inbox is known cleared", () => {
+    // A loaded empty inbox is authoritative for the session row. Falling back to
+    // an older /api/sessions amber marker would resurrect a resolved needs-input dot.
+    setSessionNotifications("s1", []);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+      },
+    ];
+
+    const { container } = renderSessionItem({
+      session: makeSession({ notificationUrgency: "needs-input", activeNotificationCount: 1 }),
+    });
+
+    expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
+  });
+
+  it("ignores stale active full-inbox data when a newer clear summary is known", () => {
+    // A browser can have an old full notification inbox from a previous visit
+    // while global fanout has already delivered a newer lightweight clear.
+    // The sidebar marker must follow the newer clear summary.
+    setSessionNotifications("s1", [
+      { id: "n-input", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      },
+    ];
+
+    const { container } = renderSessionItem();
+
+    expect(container.querySelector('[data-testid="session-notification-marker"]')).toBeNull();
+  });
+
+  it("uses a newer active summary over stale review-only full-inbox data", () => {
+    // The notification chip and session row can hold an older full inbox while
+    // global fanout has already delivered the latest lightweight needs-input
+    // status. The row must keep showing amber, not fall back to blue review.
+    setSessionNotifications("s1", [
+      { id: "n-review", category: "review", summary: "Review", timestamp: Date.now(), done: false },
+    ]);
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 6,
+        notificationStatusUpdatedAt: 6000,
+      },
+    ];
+
+    renderSessionItem();
+
+    const marker = screen.getByTestId("session-notification-marker");
+    expect(marker).toHaveAttribute("data-urgency", "needs-input");
+  });
+
+  it("does not render stale action attention after notification status is known cleared", () => {
+    // A stale action attention value should not render the same amber dot after
+    // the versioned notification summary has already cleared the inbox.
+    const { container } = renderSessionItem({
+      attention: "action",
+      hasUnread: true,
+      session: makeSession({
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+      }),
+    });
+
+    expect(container.querySelector(".bg-amber-400")).toBeNull();
+  });
+
+  it("keeps rendering action attention when notification status is still active", () => {
+    // The render guard is only for stale cleared summaries; current needs-input
+    // action attention should still produce the visible amber badge.
+    const { container } = renderSessionItem({
+      attention: "action",
+      session: makeSession({
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 5,
+      }),
+    });
+
+    expect(container.querySelector(".bg-amber-400")).not.toBeNull();
   });
 
   it("suppresses the inbox marker when a higher-priority attention badge is already active", () => {
@@ -712,7 +879,7 @@ describe("SessionItem reviewer badge", () => {
 
 describe("SessionItem quest title label", () => {
   // Quest-named sessions display a checkbox prefix to indicate status:
-  // ☐ for in-progress, ☑ for needs_verification.
+  // ☐ for in-progress, ☑ for done.
   // Non-quest sessions show the plain name with no prefix.
 
   afterEach(() => {
@@ -730,9 +897,9 @@ describe("SessionItem quest title label", () => {
     expect(screen.getByText("☐ Fix auth bug")).toBeInTheDocument();
   });
 
-  it("shows ☑ prefix for needs_verification quest sessions", () => {
+  it("shows ☑ prefix for done quest sessions under review", () => {
     mockStoreState.questNamedSessions.add("s1");
-    mockStoreState.sessions.set("s1", { claimedQuestStatus: "needs_verification" });
+    mockStoreState.sessions.set("s1", { claimedQuestStatus: "done", claimedQuestVerificationInboxUnread: true });
 
     renderSessionItem({ sessionName: "Fix auth bug" });
 
@@ -742,7 +909,7 @@ describe("SessionItem quest title label", () => {
   it("can derive the checked prefix from sidebar session data when bridge quest state is missing", () => {
     renderSessionItem({
       sessionName: "Fix auth bug",
-      session: makeSession({ claimedQuestStatus: "needs_verification" }),
+      session: makeSession({ claimedQuestStatus: "done", claimedQuestVerificationInboxUnread: true }),
     });
 
     expect(screen.getByText("☑ Fix auth bug")).toBeInTheDocument();
@@ -751,7 +918,7 @@ describe("SessionItem quest title label", () => {
   it("does not derive a quest checkbox prefix for orchestrator rows", () => {
     renderSessionItem({
       sessionName: "Leader 7",
-      session: makeSession({ isOrchestrator: true, claimedQuestStatus: "needs_verification" }),
+      session: makeSession({ isOrchestrator: true, claimedQuestStatus: "done" }),
     });
 
     const span = screen.getByText("Leader 7");
@@ -778,8 +945,8 @@ describe("SessionItem quest title label", () => {
     expect(screen.getByText("☐ Mystery quest")).toBeInTheDocument();
   });
 
-  it("shows ☐ prefix for non-verification statuses like 'done'", () => {
-    // Confirms the ☑ check is strict -- only "needs_verification" gets a checked box.
+  it("shows ☐ prefix for final done quests without review metadata", () => {
+    // Confirms the ☑ check is strict -- only review-pending done gets a checked box.
     mockStoreState.questNamedSessions.add("s1");
     mockStoreState.sessions.set("s1", { claimedQuestStatus: "done" });
 

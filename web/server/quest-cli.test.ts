@@ -85,16 +85,26 @@ describe("quest CLI help", () => {
 
     expect(result.status).toBe(0);
     expect(result.stdout).toContain(
-      "grep   <pattern> [--count N] [--json]                  Search inside quest title, description, and feedback/comments with snippets",
+      "grep   <pattern> [--count N] [--json]                  Search inside quest title, description, debrief, and feedback/comments with snippets",
     );
     expect(result.stdout).toContain('quest list --text "foo"   Filter quests broadly by text');
     expect(result.stdout).toContain(
-      'quest grep "foo|bar"      Search inside quest text/comments with contextual snippets',
+      'quest grep "foo|bar"      Search inside quest text/debrief/comments with contextual snippets',
     );
     expect(result.stdout).toContain("quest create --title-file title.txt --desc-file body.md");
     expect(result.stdout).toContain("quest edit q-1 --desc-file body.md");
     expect(result.stdout).toContain("quest feedback q-1 --text-file note.md");
+    expect(result.stdout).toContain("quest feedback q-1 --text-file note.md --tldr-file note-tldr.md");
+    expect(result.stdout).toContain("--phase-occurrence <n>");
+    expect(result.stdout).toContain("--phase-occurrence-id <id>");
+    expect(result.stdout).toContain("--infer-phase");
+    expect(result.stdout).toContain('complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>]');
+    expect(result.stdout).toContain('[--debrief "..." | --debrief-file <path>|-]');
+    expect(result.stdout).toContain('[--debrief-tldr "..." | --debrief-tldr-file <path>|-]');
     expect(result.stdout).toContain("quest complete q-1 --items-file items.txt");
+    expect(result.stdout).toContain(
+      "quest done q-1 --debrief-file final-debrief.md --debrief-tldr-file final-debrief-tldr.md",
+    );
     expect(result.stdout).toContain("quest done q-1 --notes-file closeout.md");
 
     const lines = result.stdout.split("\n");
@@ -164,6 +174,82 @@ describe("quest CLI safer rich-text inputs", () => {
         text: payload,
         author: "agent",
         sessionId: "session-file",
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("passes phase documentation flags through the feedback endpoint", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-feedback-phase-flags-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const seenBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/feedback") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "in_progress", feedback: [] }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        [
+          "feedback",
+          "add",
+          "q-1",
+          "--text",
+          "Summary: implement docs",
+          "--tldr",
+          "Docs summary",
+          "--phase",
+          "implement",
+          "--phase-position",
+          "3",
+          "--phase-occurrence",
+          "1",
+          "--journey-run",
+          "run-1",
+          "--kind",
+          "phase-summary",
+          "--json",
+        ],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(seenBodies[0]).toMatchObject({
+        text: "Summary: implement docs",
+        tldr: "Docs summary",
+        author: "agent",
+        sessionId: "session-file",
+        phase: "implement",
+        phasePosition: "3",
+        phaseOccurrence: "1",
+        journeyRunId: "run-1",
+        kind: "phase-summary",
       });
     } finally {
       server.close();
@@ -555,6 +641,69 @@ describe("quest CLI safer rich-text inputs", () => {
     }
   });
 
+  it("reads final debrief and debrief TLDR from files", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-done-debrief-file-"));
+    const debriefPath = join(tmp, "debrief.md");
+    const debriefTldrPath = join(tmp, "debrief-tldr.md");
+    const debrief = [
+      "Shipped the requested workflow update.",
+      "Verified CLI output and preserved copied `$(shell)` text literally.",
+    ].join("\n");
+    const debriefTldr = "Workflow update shipped with CLI verification.";
+    writeFileSync(debriefPath, debrief, "utf-8");
+    writeFileSync(debriefTldrPath, debriefTldr, "utf-8");
+
+    try {
+      const created = await runQuest(
+        ["create", "Quest to debrief", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      const quest = JSON.parse(created.stdout) as { questId: string };
+
+      const refined = await runQuest(
+        ["transition", quest.questId, "--status", "refined", "--desc", "Ready for closeout", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+      expect(refined.status).toBe(0);
+
+      const result = await runQuest(
+        ["done", quest.questId, "--debrief-file", debriefPath, "--debrief-tldr-file", debriefTldrPath, "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: undefined,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(JSON.parse(result.stdout)).toMatchObject({
+        questId: quest.questId,
+        status: "done",
+        debrief,
+        debriefTldr,
+      });
+    } finally {
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("reads cancel notes from stdin via --notes-file - literally", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-cancel-notes-stdin-"));
     const notes = [
@@ -670,7 +819,7 @@ describe("quest CLI safer rich-text inputs", () => {
       if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
         seenBodies.push(await readJson(req));
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "needs_verification" }));
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "done" }));
         return;
       }
       if (req.method === "POST" && req.url === "/api/quests/_notify") {
@@ -730,7 +879,7 @@ describe("quest CLI safer rich-text inputs", () => {
       if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
         seenBodies.push(await readJson(req));
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "needs_verification" }));
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "done" }));
         return;
       }
       if (req.method === "POST" && req.url === "/api/quests/_notify") {
@@ -795,7 +944,7 @@ describe("quest CLI safer rich-text inputs", () => {
       if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
         seenBodies.push(await readJson(req));
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "needs_verification" }));
+        res.end(JSON.stringify({ questId: "q-1", title: "Quest", status: "done" }));
         return;
       }
       if (req.method === "POST" && req.url === "/api/quests/_notify") {
@@ -975,7 +1124,7 @@ describe("quest CLI auth fallback", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             feedback: [{ author: "agent", text: "Addressed" }],
           }),
         );
@@ -1197,7 +1346,7 @@ describe("quest CLI grep", () => {
           prevId: "q-2-v1",
           title: "Feedback quest",
           createdAt: 2,
-          status: "needs_verification",
+          status: "done",
           description:
             "Beta appears in the description too, and the surrounding text is intentionally long so the rendered snippet has to be compact and easy to scan in grouped output.",
           sessionId: "session-2",
@@ -1228,7 +1377,7 @@ describe("quest CLI grep", () => {
       expect(result.stdout).toContain('3 quest matches for "beta"');
       expect(result.stdout).toContain("q-1    Add beta search (refined)");
       expect(result.stdout).toContain("title");
-      expect(result.stdout).toContain("q-2    Feedback quest (verification)");
+      expect(result.stdout).toContain("q-2    Feedback quest (done)");
       expect(result.stdout).toContain("description");
       expect(result.stdout).toContain("feedback[0] | human |");
       expect(result.stdout).not.toContain("field:");
@@ -1252,7 +1401,7 @@ describe("quest CLI grep", () => {
           version: 1,
           title: "Context quest",
           createdAt: 3,
-          status: "needs_verification",
+          status: "done",
           description: "alpha in description",
           sessionId: "session-3",
           claimedAt: 3,
@@ -1359,7 +1508,7 @@ describe("quest CLI verification inbox commands", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationInboxUnread: false,
             verificationItems: [{ text: "check", checked: false }],
           }),
@@ -1423,7 +1572,7 @@ describe("quest CLI verification inbox commands", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationInboxUnread: true,
             verificationItems: [{ text: "check", checked: false }],
           }),
@@ -1486,7 +1635,7 @@ describe("quest CLI completion reminder", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationItems: [{ text: "Visual check", checked: false }],
           }),
         );
@@ -1527,6 +1676,11 @@ describe("quest CLI completion reminder", () => {
       expect(result.stdout).toContain(
         'quest feedback q-1 --text "Summary: <what changed, why it matters, and what verification passed>"',
       );
+      expect(result.stdout).toContain(
+        "Put implementation details and automated verification results in that summary, not in `quest complete --items`",
+      );
+      expect(result.stdout).toContain("For long multi-topic summaries");
+      expect(result.stdout).toContain("add `--tldr`/`--tldr-file` second");
       expect(result.stdout).toContain("Avoid review/rework timelines unless essential");
       expect(result.stdout).toContain("Use `--commit/--commits` structured metadata for routine port info");
       expect(result.stdout).toContain(
@@ -1553,7 +1707,7 @@ describe("quest CLI completion reminder", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationItems: [{ text: "Review artifact", checked: false }],
           }),
         );
@@ -1628,7 +1782,7 @@ describe("quest CLI completion reminder", () => {
           JSON.stringify({
             questId: "q-1",
             title: "Quest",
-            status: "needs_verification",
+            status: "done",
             verificationItems: [{ text: "Visual check", checked: false }],
             commitShas: ["abc1234", "deadbeef"],
           }),
@@ -1668,6 +1822,70 @@ describe("quest CLI completion reminder", () => {
       expect(seenBodies[0]).toMatchObject({
         verificationItems: [{ text: "Visual check", checked: false }],
         commitShas: ["abc1234", "deadbeef"],
+      });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("forwards an explicit worker session during HTTP completion", async () => {
+    // Leader sessions use this payload to complete a worker-owned quest without
+    // losing the worker session context required by the quest store.
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-session-http-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const seenBodies: JsonObject[] = [];
+
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            questId: "q-1",
+            title: "Quest",
+            status: "done",
+            sessionId: "worker-1",
+            verificationItems: [{ text: "Visual check", checked: false }],
+          }),
+        );
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/quests/_notify") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "leader-1", authToken: "leader-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1", "--items", "Visual check", "--session", "worker-1", "--json"],
+        {
+          ...process.env,
+          COMPANION_PORT: String(port),
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(seenBodies[0]).toMatchObject({
+        sessionId: "worker-1",
+        verificationItems: [{ text: "Visual check", checked: false }],
       });
     } finally {
       server.close();
@@ -1722,6 +1940,8 @@ describe("quest CLI completion reminder", () => {
       expect(result.stdout).toContain(
         'quest feedback q-1 --text "Summary: <what changed, why it matters, and what verification passed>"',
       );
+      expect(result.stdout).toContain("For long multi-topic summaries");
+      expect(result.stdout).toContain("add `--tldr`/`--tldr-file` second");
       expect(result.stdout).toContain("Avoid review/rework timelines unless essential");
       expect(result.stdout).toContain("Use `--commit/--commits` structured metadata for routine port info");
     } finally {

@@ -3,7 +3,15 @@ import { DiffViewer } from "../DiffViewer.js";
 import { MarkdownContent } from "../MarkdownContent.js";
 import { SessionCreationProgress } from "../SessionCreationProgress.js";
 import { StepList } from "../SessionCreationView.js";
-import { CatPawAvatar, CatPawLeft, CatPawRight, YarnBallDot, YarnBallSpinner, SleepingCat } from "../CatIcons.js";
+import {
+  CatPawAvatar,
+  CatPawLeft,
+  CatPawRight,
+  YarnBallDot,
+  YarnBallSpinner,
+  SleepingCat,
+  PowerPlugDot,
+} from "../CatIcons.js";
 import { HighlightedText } from "../HighlightedText.js";
 import { PawTrailAvatar } from "../PawTrail.js";
 import type { CreationProgressEvent } from "../../types.js";
@@ -333,10 +341,21 @@ export function PlaygroundStateSections() {
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
                 {/* Recording indicator with mode toggle */}
-                <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
+                <div
+                  data-testid="playground-recording-mode-row-edit"
+                  className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500"
+                >
+                  <div
+                    data-testid="playground-recording-mode-toggle-edit"
+                    className="flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5"
+                  >
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-cc-primary text-white">
+                      Edit
+                    </span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-cc-muted">Append</span>
+                  </div>
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
                   <span className="shrink-0">Recording</span>
-                  {/* Volume bars mock */}
                   <div className="flex items-center gap-[2px] h-3">
                     {[0, 0.15, 0.3, 0.45, 0.6].map((_, i) => (
                       <div
@@ -348,13 +367,6 @@ export function PlaygroundStateSections() {
                         }}
                       />
                     ))}
-                  </div>
-                  {/* Mode toggle */}
-                  <div className="ml-auto flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-cc-primary text-white">
-                      Edit
-                    </span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-cc-muted">Append</span>
                   </div>
                 </div>
                 <textarea
@@ -408,7 +420,19 @@ export function PlaygroundStateSections() {
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
                 {/* Recording indicator with append mode active */}
-                <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
+                <div
+                  data-testid="playground-recording-mode-row-append"
+                  className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500"
+                >
+                  <div
+                    data-testid="playground-recording-mode-toggle-append"
+                    className="flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5"
+                  >
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-cc-muted">Edit</span>
+                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-cc-primary text-white">
+                      Append
+                    </span>
+                  </div>
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
                   <span className="shrink-0">Recording</span>
                   <div className="flex items-center gap-[2px] h-3">
@@ -422,13 +446,6 @@ export function PlaygroundStateSections() {
                         }}
                       />
                     ))}
-                  </div>
-                  {/* Mode toggle — append selected */}
-                  <div className="ml-auto flex items-center gap-0.5 rounded-full bg-cc-bg-secondary p-0.5">
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-cc-muted">Edit</span>
-                    <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-cc-primary text-white">
-                      Append
-                    </span>
                   </div>
                 </div>
                 <textarea
@@ -1043,85 +1060,91 @@ export function PlaygroundStateSections() {
               </button>
             </div>
           </Card>
-          <Card label="Collapsed leader turn — deprecated tags stay in raw text">
+          <Card label="Leader Main stream — full activity visible">
             <div className="space-y-3">
-              {/* Collapsed activity card */}
-              <div className="flex items-start gap-3">
-                <PawTrailAvatar />
-                <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
-                  <button className="w-full flex items-center gap-1.5 py-1.5 px-3 border-l-2 border-cc-border/40 bg-cc-hover/10 hover:bg-cc-hover/30 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code">
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
-                      <path d="M6 4l4 4-4 4" />
-                    </svg>
-                    <span>3 messages</span>
-                    <span className="text-cc-muted/40">&middot;</span>
-                    <span>6 tools</span>
-                    <span className="text-cc-muted/40">&middot;</span>
-                    <span>3 herd events</span>
-                    <span className="text-cc-muted/40">&middot;</span>
-                    <span>17m 33s</span>
-                  </button>
-                </div>
-              </div>
+              <MessageBubble
+                message={{
+                  id: "playground-leader-private-detail",
+                  role: "assistant",
+                  content: "Checked worker state, inspected the board, and prepared the next dispatch.",
+                  timestamp: Date.now() - 120000,
+                  metadata: {
+                    threadKey: "main",
+                  },
+                }}
+              />
+              <MessageBubble
+                message={{
+                  id: "playground-threaded-user-reply",
+                  role: "user",
+                  content: "I replied from the quest thread, so route the next leader answer there.",
+                  timestamp: Date.now() - 90000,
+                  metadata: {
+                    threadKey: "q-43",
+                    questId: "q-43",
+                    threadRefs: [{ threadKey: "q-43", questId: "q-43", source: "explicit" }],
+                  },
+                }}
+              />
               <MessageBubble
                 message={{
                   id: "playground-collapsed-touser",
                   role: "assistant",
                   content:
-                    "Approved #70's plan for q-43. It's a clean unification: resize once at store time (1920px max). @to(user)",
+                    "Approved #70's plan for q-43. It's a clean unification: resize once at store time (1920px max).",
                   timestamp: Date.now() - 60000,
+                  metadata: {
+                    threadKey: "q-43",
+                    threadRefs: [{ threadKey: "q-43", questId: "q-43", source: "explicit" }],
+                  },
                 }}
               />
             </div>
           </Card>
-          <Card label="Collapsed leader turn — sub-conclusions (no herd summary lines)">
-            <div className="space-y-3">
-              <div className="flex items-start gap-3">
-                <PawTrailAvatar />
-                <div className="flex-1 min-w-0 rounded-xl border border-cc-border/20 bg-cc-card/20 overflow-hidden">
-                  {/* Collapsed activity bar */}
-                  <button className="w-full flex items-center gap-1.5 py-1.5 px-3 border-l-2 border-cc-border/40 bg-cc-hover/10 hover:bg-cc-hover/30 transition-colors cursor-pointer text-[11px] text-cc-muted font-mono-code">
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
-                      <path d="M6 4l4 4-4 4" />
-                    </svg>
-                    <span>12 messages</span>
-                    <span className="text-cc-muted/40">&middot;</span>
-                    <span>15 tools</span>
-                    <span className="text-cc-muted/40">&middot;</span>
-                    <span>4 herd events</span>
-                    <span className="text-cc-muted/40">&middot;</span>
-                    <span>45m</span>
-                  </button>
-                  {/* Sub-conclusions (herd summary lines omitted in collapsed view) */}
-                  <div className="px-3 pt-2 space-y-1.5">
-                    <MessageBubble
-                      message={{
-                        id: "playground-subconc-1",
-                        role: "assistant",
-                        content: "Dispatched #264 to work on q-42. Spawned skeptic reviewer #265.",
-                        timestamp: Date.now() - 120000,
+          <Card label="Leader thread switcher">
+            <div className="rounded-lg border border-cc-border bg-cc-card/60 p-2 text-xs">
+              <div className="rounded-md bg-cc-hover px-2 py-1.5 text-cc-fg">
+                <div className="font-semibold">Main</div>
+                <div className="text-[10px] text-cc-muted">Complete leader transcript</div>
+              </div>
+              <div className="px-2 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70">Active</div>
+              <div className="mt-1 rounded-md px-2 py-1.5 text-cc-muted">
+                <div className="flex items-start gap-1.5">
+                  <span className="shrink-0 text-xs font-medium font-mono-code text-blue-300">q-43</span>
+                  <span className="min-w-0 truncate text-xs font-medium text-cc-fg">Resize images at store time</span>
+                </div>
+                <div className="mt-1 flex flex-wrap items-center gap-1.5">
+                  <span className="inline-flex items-center gap-1 rounded-full border border-cc-border/60 bg-cc-card/70 px-1.5 py-0.5 text-[10px] text-cc-muted">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400" />
+                    Implement
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
+                    <span
+                      className="h-2 w-2 rounded-full bg-emerald-500"
+                      style={{
+                        animation: "yarn-glow-breathe 2s ease-in-out infinite",
+                        ["--glow-color" as string]: "rgba(34, 197, 94, 0.6)",
                       }}
                     />
-                    <MessageBubble
-                      message={{
-                        id: "playground-subconc-2",
-                        role: "assistant",
-                        content: "q-42 complete! Skeptic ACCEPTED. Now dispatching q-43 to #266.",
-                        timestamp: Date.now() - 60000,
-                      }}
-                    />
-                  </div>
-                  {/* Final response entry */}
-                  <div className="px-3 py-2.5">
-                    <MessageBubble
-                      message={{
-                        id: "playground-subconc-final",
-                        role: "assistant",
-                        content: "All 3 quests dispatched and verified. Porting commits to main now.",
-                        timestamp: Date.now() - 30000,
-                      }}
-                    />
-                  </div>
+                    W <span className="font-mono-code text-amber-400">#70</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
+                    <span className="h-2 w-2 rounded-full bg-cc-muted/50" />R{" "}
+                    <span className="font-mono-code text-amber-400">#71</span>
+                  </span>
+                  <span className="inline-flex items-center gap-1 rounded border border-cc-border/60 bg-cc-hover/40 px-1.5 py-0.5 text-[10px] leading-none">
+                    <PowerPlugDot className="h-2.5 w-2.5 text-cc-muted/60" />W{" "}
+                    <span className="font-mono-code text-amber-400">#72</span>
+                  </span>
+                </div>
+                <div className="mt-1 text-[10px] tabular-nums text-cc-muted/85">3 messages</div>
+              </div>
+              <div className="px-2 pt-2 text-[10px] font-semibold uppercase tracking-wide text-cc-muted/70">Done</div>
+              <div className="mt-1 rounded-md px-2 py-1.5 text-cc-muted">
+                <div className="truncate text-xs text-blue-300">
+                  <span className="font-mono-code">q-41</span>
+                  <span className="text-cc-muted"> · </span>
+                  <span>Finalize quest handoff</span>
                 </div>
               </div>
             </div>
@@ -1187,7 +1210,7 @@ export function PlaygroundStateSections() {
       </Section>
       <Section
         title="Timer Messages"
-        description="Timer injections render as lightweight inline event rows: fired timers stay on one line with the timer id and title, while cancellations read as simpler muted events."
+        description="Timer injections render as lightweight inline event rows: fired timers are framed as reminders from an earlier note, while cancellations read as simpler muted events."
       >
         <div className="space-y-4 max-w-3xl">
           <Card label="Fired timer with collapsed description">
@@ -1198,7 +1221,7 @@ export function PlaygroundStateSections() {
                   id: "timer-message-demo",
                   role: "user",
                   content:
-                    "[⏰ Timer t2] Review release checklist\n\nConfirm staging smoke tests are green, summarize open follow-ups, and post the next handoff note if anything is still blocked.",
+                    "[⏰ Timer t2 reminder] Review release checklist\n\nThis is a reminder from your earlier timer note, not a new user instruction.\n\nEarlier note:\nConfirm staging smoke tests are green, summarize open follow-ups, and post the next handoff note if anything is still blocked.",
                   timestamp: Date.now(),
                   agentSource: { sessionId: "timer:t2", sessionLabel: "Timer t2" },
                 }}
@@ -1274,6 +1297,38 @@ export function PlaygroundStateSections() {
  }`}
               mode="full"
             />
+          </Card>
+          <Card label="Sticky collapsible file headers">
+            <div className="max-h-64 overflow-auto">
+              <DiffViewer
+                unifiedDiff={`diff --git a/src/routes/long-handler.ts b/src/routes/long-handler.ts
+--- a/src/routes/long-handler.ts
++++ b/src/routes/long-handler.ts
+@@ -1,8 +1,10 @@
+ import { Router } from "express";
+ const router = Router();
+
+-router.get("/sessions/:id/diff", async (req, res) => loadDiff(req.params.id).then(res.json));
++router.get("/sessions/:id/diff", async (req, res) => {
++  const diff = await loadDiff(req.params.id, { includeContents: true, preserveWhitespace: true, expandRenames: true });
++  res.json(diff);
++});
+ export default router;
+diff --git a/src/routes/summary.ts b/src/routes/summary.ts
+--- a/src/routes/summary.ts
++++ b/src/routes/summary.ts
+@@ -1,4 +1,5 @@
+ export function summarize(files: string[]) {
+-  return files.join(", ");
++  return files.map((file) => file.replace(process.cwd(), ".")).join(", ");
+ }
++export const summaryVersion = 2;`}
+                mode="full"
+                showLineNumbers
+                stickyFileHeaders
+                collapsibleFiles
+              />
+            </div>
           </Card>
           <Card label="Unified diff with expandable gap between hunks">
             <DiffViewer

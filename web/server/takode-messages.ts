@@ -8,12 +8,8 @@
 
 import type { BrowserIncomingMessage, CLIResultMessage, ContentBlock, ToolResultPreview } from "./session-types.js";
 import type { ImageRef } from "./image-store.js";
+import { deriveAttachmentPaths } from "./attachment-paths.js";
 import { TAKODE_PEEK_CONTENT_LIMIT } from "../shared/takode-constants.js";
-import { join } from "node:path";
-import { homedir } from "node:os";
-
-/** Default image store base directory (must match image-store.ts). */
-const IMAGE_STORE_BASE = join(homedir(), ".companion", "images");
 
 // ─── Peek Response Types ──────────────────────────────────────────────────────
 
@@ -23,6 +19,13 @@ export interface TakodePeekTool {
   name: string;
   /** One-line summary (e.g. "server/routes.ts +15 lines") */
   summary: string;
+  status?: "running" | "completed" | "error" | "orphaned";
+  durationSeconds?: number;
+  result?: string;
+  resultTruncated?: boolean;
+  resultTotalSize?: number;
+  syntheticReason?: string;
+  retainedOutput?: boolean;
 }
 
 export interface TakodePeekMessage {
@@ -75,7 +78,7 @@ export interface TakodePeekTurnSummary {
   success?: boolean;
   /** Truncated result or last assistant text for the collapsed one-liner */
   result: string;
-  /** Truncated user message that started this turn */
+  /** User message preview that started this turn */
   user: string;
   /** Source of the user message if injected programmatically */
   agent?: { sessionId: string; sessionLabel?: string };
@@ -152,38 +155,12 @@ export interface TakodeReadResponse {
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
-/** MIME type to file extension mapping (must match image-store.ts). */
-const MIME_TO_EXT: Record<string, string> = {
-  "image/png": "png",
-  "image/jpeg": "jpeg",
-  "image/jpg": "jpg",
-  "image/gif": "gif",
-  "image/webp": "webp",
-  "image/svg+xml": "svg",
-  "image/bmp": "bmp",
-  "image/tiff": "tiff",
-  "image/avif": "avif",
-  "image/heic": "heic",
-  "image/heif": "heif",
-};
-
-/** Derive original image file paths from ImageRefs stored in message history.
- *  Original images preserve full quality and metadata — preferred over the
- *  compressed transport JPEGs for downstream consumption. */
-function deriveImagePaths(sessionId: string, images: ImageRef[]): string[] {
-  const dir = join(IMAGE_STORE_BASE, sessionId);
-  return images.map((ref) => {
-    const ext = MIME_TO_EXT[ref.media_type] || "bin";
-    return join(dir, `${ref.imageId}.orig.${ext}`);
-  });
-}
-
 /** Extract image paths from a user_message in message history, if present. */
 function extractImagePaths(sessionId: string, msg: BrowserIncomingMessage): string[] | undefined {
   if (msg.type !== "user_message") return undefined;
   const images = (msg as { images?: ImageRef[] }).images;
   if (!images?.length) return undefined;
-  return deriveImagePaths(sessionId, images);
+  return deriveAttachmentPaths(sessionId, images);
 }
 
 function truncate(s: string, max: number): string {
@@ -374,6 +351,39 @@ function resolveToolResult(
   return null;
 }
 
+function isSyntheticTerminalResultPreview(preview: ToolResultPreview): boolean {
+  if (preview.synthetic_reason) return true;
+  return /terminal command (completed, but no output was captured|did not deliver a final result|was interrupted|failed before the final tool result)/i.test(
+    preview.content,
+  );
+}
+
+function buildPeekTool(
+  block: { id: string; name: string; input: Record<string, unknown> },
+  idx: number,
+  toolResultPreviews: Map<string, ToolResultPreview>,
+): TakodePeekTool {
+  const preview = toolResultPreviews.get(block.id);
+  const base: TakodePeekTool = {
+    idx,
+    name: block.name,
+    summary: buildToolSummary(block.name, block.input),
+  };
+  if (!preview) return { ...base, status: "running" };
+
+  const isSynthetic = isSyntheticTerminalResultPreview(preview);
+  return {
+    ...base,
+    status: isSynthetic ? "orphaned" : preview.is_error ? "error" : "completed",
+    ...(typeof preview.duration_seconds === "number" ? { durationSeconds: preview.duration_seconds } : {}),
+    ...(preview.content ? { result: truncate(preview.content, 100) } : {}),
+    ...(preview.is_truncated ? { resultTruncated: true } : {}),
+    ...(typeof preview.total_size === "number" ? { resultTotalSize: preview.total_size } : {}),
+    ...(preview.synthetic_reason ? { syntheticReason: preview.synthetic_reason } : {}),
+    ...(typeof preview.retained_output === "boolean" ? { retainedOutput: preview.retained_output } : {}),
+  };
+}
+
 function deriveTurnResultPreview(
   messageHistory: BrowserIncomingMessage[],
   turn: TurnBoundary,
@@ -467,6 +477,9 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
       return text;
     }
 
+    case "leader_user_message":
+      return msg.content || "";
+
     case "assistant": {
       const blocks = msg.message?.content || [];
       const parts: string[] = [];
@@ -518,6 +531,7 @@ function extractFullText(msg: BrowserIncomingMessage, sessionId?: string): strin
 function extractTimestamp(msg: BrowserIncomingMessage): number {
   switch (msg.type) {
     case "user_message":
+    case "leader_user_message":
       return msg.timestamp || 0;
     case "assistant":
       return (msg as { timestamp?: number }).timestamp || 0;
@@ -539,6 +553,7 @@ function extractTimestamp(msg: BrowserIncomingMessage): number {
 /** Message types that carry meaningful content for the peek/read API. */
 type PeekableType =
   | "user_message"
+  | "leader_user_message"
   | "assistant"
   | "result"
   | "compact_marker"
@@ -547,6 +562,7 @@ type PeekableType =
 
 const PEEKABLE_TYPES = new Set<string>([
   "user_message",
+  "leader_user_message",
   "assistant",
   "result",
   "compact_marker",
@@ -561,6 +577,7 @@ function isPeekable(msg: BrowserIncomingMessage): boolean {
 /** Map message type to the simplified peek type. */
 function toPeekType(type: string): "user" | "assistant" | "result" | "system" {
   if (type === "user_message") return "user";
+  if (type === "leader_user_message") return "assistant";
   if (type === "assistant") return "assistant";
   if (type === "result") return "result";
   return "system";
@@ -763,11 +780,7 @@ function buildTurnMessages(
         if (visibleToolBlocks.length > 0) {
           peekMsg.tools = visibleToolBlocks.map((block) => {
             const blockIdx = msg.message.content.indexOf(block);
-            return {
-              idx: blockIdx >= 0 ? blockIdx : 0,
-              name: block.name,
-              summary: buildToolSummary(block.name, block.input),
-            };
+            return buildPeekTool(block, blockIdx >= 0 ? blockIdx : 0, toolResultPreviews);
           });
         }
       }
@@ -1086,14 +1099,10 @@ export function buildPeekRange(
           return true;
         });
         if (visibleBlocks.length > 0) {
-          if (options.showTools) {
+          if (options.showTools || visibleBlocks.length === 1) {
             peekMsg.tools = visibleBlocks.map((block) => {
               const blockIdx = msg.message.content.indexOf(block);
-              return {
-                idx: blockIdx >= 0 ? blockIdx : 0,
-                name: block.name,
-                summary: buildToolSummary(block.name, block.input),
-              };
+              return buildPeekTool(block, blockIdx >= 0 ? blockIdx : 0, toolResultPreviews);
             });
           } else {
             const counts: Record<string, number> = {};
@@ -1287,7 +1296,10 @@ export function buildPeekTurnScan(
       subagentToolUseIds,
       toolResultPreviews,
     });
-    const userPreview = startMsg.type === "user_message" ? truncate(startMsg.content || "", 80) : "";
+    // Preserve the raw turn-start user text for scan mode so the CLI can apply
+    // its own source-aware truncation policy. An eager server-side 80-char
+    // clamp defeats the larger human-user window on `takode scan`.
+    const userPreview = startMsg.type === "user_message" ? startMsg.content || "" : "";
 
     return {
       turn: turnNum,

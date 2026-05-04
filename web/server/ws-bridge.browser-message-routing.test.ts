@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -578,6 +589,13 @@ describe("Browser message routing", () => {
   });
 
   it("user_message: sends NDJSON to CLI and stores in history", () => {
+    const touchUserMessage = vi.fn();
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage,
+      getSession: vi.fn(() => ({})),
+    } as any);
+
     bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
@@ -601,7 +619,32 @@ describe("Browser message routing", () => {
     expect(session.messageHistory[0].type).toBe("user_message");
     if (session.messageHistory[0].type === "user_message") {
       expect(session.messageHistory[0].content).toBe("What is 2+2?");
+      expect(touchUserMessage).toHaveBeenCalledWith("s1", session.messageHistory[0].timestamp);
     }
+  });
+
+  it("user_message: does not touch lastUserMessageAt for agentSource messages", () => {
+    // Programmatic user-shaped messages are rendered as user messages, but they
+    // must not affect sidebar last-user-message ordering.
+    const touchUserMessage = vi.fn();
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage,
+      getSession: vi.fn(() => ({ isOrchestrator: true })),
+    } as any);
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "worker progress",
+        agentSource: { sessionId: "worker-1", sessionLabel: "#22 Worker" },
+      }),
+    );
+
+    const session = bridge.getSession("s1")!;
+    expect(session.messageHistory.filter((m) => m.type === "user_message")).toHaveLength(1);
+    expect(touchUserMessage).not.toHaveBeenCalled();
   });
 
   it("user_message: queues when CLI not connected", () => {
@@ -1265,7 +1308,7 @@ describe("Browser message routing", () => {
     spy.mockRestore();
   });
 
-  it("routeBrowserMessage interrupt from leader emits turn_end with interrupt_source=leader", async () => {
+  it("interruptSession from leader emits turn_end with interrupt_source=leader", async () => {
     const spy = vi.spyOn(bridge, "emitTakodeEvent");
 
     bridge.handleBrowserMessage(
@@ -1275,10 +1318,8 @@ describe("Browser message routing", () => {
         content: "start work",
       }),
     );
-    await (bridge as any).routeBrowserMessage(bridge.getSession("s1")!, {
-      type: "interrupt",
-      interruptSource: "leader",
-    });
+    const interrupted = await bridge.interruptSession("s1", "leader");
+    expect(interrupted).toBe(true);
     bridge.handleCLIMessage(
       cli,
       JSON.stringify({

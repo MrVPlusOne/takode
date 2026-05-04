@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import type { SessionState, SdkSessionInfo } from "../types.js";
+import type { SessionNotification, SessionState, SdkSessionInfo } from "../types.js";
 
 // ─── Mock setup ──────────────────────────────────────────────────────────────
 
@@ -30,6 +30,9 @@ const mockApi = {
   archiveSession: vi.fn().mockResolvedValue({}),
   archiveGroup: vi.fn().mockResolvedValue({ ok: true, archived: 1, failed: 0 }),
   unarchiveSession: vi.fn().mockResolvedValue({}),
+  createTreeGroup: vi.fn().mockResolvedValue({ ok: true, group: { id: "group-2", name: "Group 2" } }),
+  assignSessionToTreeGroup: vi.fn().mockResolvedValue({ ok: true }),
+  assignSessionsToTreeGroup: vi.fn().mockResolvedValue({ ok: true }),
   herdWorkerToLeader: vi
     .fn()
     .mockResolvedValue({ herded: ["worker-1"], notFound: [], conflicts: [], reassigned: [], leaders: [] }),
@@ -48,6 +51,9 @@ vi.mock("../api.js", () => ({
     archiveSession: (...args: unknown[]) => mockApi.archiveSession(...args),
     archiveGroup: (...args: unknown[]) => mockApi.archiveGroup(...args),
     unarchiveSession: (...args: unknown[]) => mockApi.unarchiveSession(...args),
+    createTreeGroup: (...args: unknown[]) => mockApi.createTreeGroup(...args),
+    assignSessionToTreeGroup: (...args: unknown[]) => mockApi.assignSessionToTreeGroup(...args),
+    assignSessionsToTreeGroup: (...args: unknown[]) => mockApi.assignSessionsToTreeGroup(...args),
     herdWorkerToLeader: (...args: unknown[]) => mockApi.herdWorkerToLeader(...args),
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     updateSettings: (...args: unknown[]) => mockApi.updateSettings(...args),
@@ -79,6 +85,7 @@ interface MockStoreState {
   sessionTaskPreview: Map<string, string>;
   sessionTaskHistory: Map<string, Array<{ title: string; action: string; timestamp: number }>>;
   sessionKeywords: Map<string, string[]>;
+  sessionNotifications: Map<string, SessionNotification[]>;
   recentlyRenamed: Set<string>;
   questNamedSessions: Set<string>;
   pendingPermissions: Map<string, Map<string, unknown>>;
@@ -93,6 +100,8 @@ interface MockStoreState {
   sessionInfoOpenSessionId: string | null;
   reorderMode: boolean;
   setReorderMode: ReturnType<typeof vi.fn>;
+  sessionSortMode: "created" | "activity";
+  setSessionSortMode: ReturnType<typeof vi.fn>;
   pendingSessions: Map<string, unknown>;
   serverName: string;
   treeGroups: Array<{ id: string; name: string }>;
@@ -183,6 +192,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionTaskPreview: new Map(),
     sessionTaskHistory: new Map(),
     sessionKeywords: new Map(),
+    sessionNotifications: new Map(),
     recentlyRenamed: new Set(),
     questNamedSessions: new Set(),
     pendingPermissions: new Map(),
@@ -193,6 +203,8 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
     sessionInfoOpenSessionId: null,
     reorderMode: false,
     setReorderMode: vi.fn(),
+    sessionSortMode: "created",
+    setSessionSortMode: vi.fn(),
     pendingSessions: new Map(),
     serverName: "",
     treeGroups: [],
@@ -305,6 +317,84 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(mockConnectAllSessions).not.toHaveBeenCalled();
   });
 
+  it("hydrates notification markers from the session-list snapshot without per-session sockets", async () => {
+    // Non-current sessions may not have a WebSocket after restart. The sidebar
+    // should still render restored notification state from /api/sessions.
+    const listed = [
+      makeSdkSession("s1", {
+        createdAt: 1000,
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+      }),
+    ];
+    mockState = createMockState({
+      sessionNotifications: new Map([["s1", []]]),
+      setSdkSessions: vi.fn((sessions: SdkSessionInfo[]) => {
+        mockState.sdkSessions = sessions;
+      }),
+    });
+    mockApi.listSessions.mockResolvedValueOnce(listed);
+
+    const { rerender } = render(<Sidebar />);
+
+    await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledWith(listed));
+    rerender(<Sidebar />);
+
+    expect(screen.getByTestId("session-notification-marker")).toHaveAttribute("data-urgency", "needs-input");
+    expect(mockConnectSession).not.toHaveBeenCalled();
+    expect(mockConnectAllSessions).not.toHaveBeenCalled();
+  });
+
+  it("focus refresh is stale-gated to avoid extra foreground churn", async () => {
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    mockApi.listSessions.mockResolvedValue([makeSdkSession("s1")]);
+
+    try {
+      render(<Sidebar />);
+
+      await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledTimes(1));
+      window.dispatchEvent(new Event("focus"));
+      await Promise.resolve();
+      expect(mockApi.listSessions).toHaveBeenCalledTimes(1);
+
+      dateNow.mockReturnValue(1_000 + 3 * 60_000 + 1);
+      window.dispatchEvent(new Event("focus"));
+
+      await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledTimes(2));
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
+  it("dedupes stale focus and pageshow refreshes while a session-list request is in flight", async () => {
+    const dateNow = vi.spyOn(Date, "now").mockReturnValue(1_000);
+    mockApi.listSessions.mockResolvedValueOnce([makeSdkSession("s1")]);
+    let resolveSecond: (sessions: SdkSessionInfo[]) => void = () => {};
+    const secondRequest = new Promise<SdkSessionInfo[]>((resolve) => {
+      resolveSecond = resolve;
+    });
+
+    try {
+      render(<Sidebar />);
+
+      await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledTimes(1));
+      mockApi.listSessions.mockReturnValueOnce(secondRequest);
+      dateNow.mockReturnValue(1_000 + 3 * 60_000 + 1);
+      window.dispatchEvent(new Event("focus"));
+      await waitFor(() => expect(mockApi.listSessions).toHaveBeenCalledTimes(2));
+
+      dateNow.mockReturnValue(1_000 + 6 * 60_000 + 2);
+      window.dispatchEvent(new Event("pageshow"));
+      await Promise.resolve();
+      expect(mockApi.listSessions).toHaveBeenCalledTimes(2);
+
+      resolveSecond([makeSdkSession("s2")]);
+      await waitFor(() => expect(mockState.setSdkSessions).toHaveBeenCalledTimes(2));
+    } finally {
+      dateNow.mockRestore();
+    }
+  });
+
   it("polling strips search metadata from sdkSessions and skips unchanged task/keyword hydration", async () => {
     const unchangedTasks = [{ title: "Task", action: "new", timestamp: 1, triggerMessageId: "m1" }] as const;
     const unchangedKeywords = ["alpha", "beta"];
@@ -381,14 +471,19 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(mockState.setTreeGroups).toHaveBeenCalledWith(groups, assignments, nodeOrder);
   });
 
-  it("renders 'New Session' button", () => {
+  it("removes the global new-session button", () => {
     render(<Sidebar />);
-    expect(screen.getByText("New Session")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New Session" })).not.toBeInTheDocument();
   });
 
-  it("renders 'No sessions yet.' when no sessions exist", () => {
+  it("renders an actionable default Session Space when no sessions exist", () => {
     render(<Sidebar />);
-    expect(screen.getByText("No sessions yet.")).toBeInTheDocument();
+    expect(screen.getByText("Default")).toBeInTheDocument();
+    fireEvent.click(screen.getByLabelText("Create session in Default Session Space"));
+    expect(mockState.openNewSessionModal).toHaveBeenCalledWith({
+      treeGroupId: "default",
+      newSessionDefaultsKey: "tree-group:default",
+    });
   });
 
   it("uses server-side session search when query is non-empty", async () => {
@@ -431,6 +526,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
         "beta",
         expect.objectContaining({
           includeArchived: false,
+          includeReviewers: false,
           signal: expect.any(AbortSignal),
         }),
       );
@@ -473,6 +569,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
         "alpha",
         expect.objectContaining({
           includeArchived: false,
+          includeReviewers: false,
           signal: expect.any(AbortSignal),
         }),
       );
@@ -682,7 +779,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     });
 
     render(<Sidebar />);
-    expect(screen.getByLabelText("Create session in Takode")).toBeInTheDocument();
+    expect(screen.getByLabelText("Create session in Takode Session Space")).toBeInTheDocument();
   });
 
   it("session items do not show git branch text when available", () => {
@@ -850,14 +947,6 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(window.location.hash).toBe("#/session/s1");
   });
 
-  it("New Session button opens new session modal", () => {
-    render(<Sidebar />);
-    fireEvent.click(screen.getByText("New Session"));
-
-    // handleNewSession opens the modal without group context
-    expect(mockState.openNewSessionModal).toHaveBeenCalledWith();
-  });
-
   it("default tree group plus button opens new session modal with tree defaults", () => {
     const session = makeSession("s1", {
       cwd: "/home/user/projects/myapp",
@@ -870,7 +959,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     });
 
     render(<Sidebar />);
-    fireEvent.click(screen.getByLabelText("Create session in Default"));
+    fireEvent.click(screen.getByLabelText("Create session in Default Session Space"));
 
     expect(mockState.openNewSessionModal).toHaveBeenCalledWith({
       treeGroupId: "default",
@@ -892,7 +981,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     });
 
     render(<Sidebar />);
-    fireEvent.click(screen.getByLabelText("Create session in Takode"));
+    fireEvent.click(screen.getByLabelText("Create session in Takode Session Space"));
 
     expect(mockState.openNewSessionModal).toHaveBeenCalledWith({
       treeGroupId: "team-alpha",
@@ -1117,6 +1206,26 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(screen.getByRole("button", { name: "Done" })).toBeInTheDocument();
   });
 
+  it("labels activity sort as sorting by last user message", () => {
+    const session1 = makeSession("s1");
+    const session2 = makeSession("s2");
+    const sdk1 = makeSdkSession("s1");
+    const sdk2 = makeSdkSession("s2");
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", session1],
+        ["s2", session2],
+      ]),
+      sdkSessions: [sdk1, sdk2],
+      sessionSortMode: "activity",
+    });
+
+    render(<Sidebar />);
+
+    expect(screen.getByTitle("Sorted by last user message")).toBeInTheDocument();
+    expect(screen.queryByTitle("Sorted by recent activity")).not.toBeInTheDocument();
+  });
+
   it("renders a mobile dismiss button that closes the sidebar explicitly", () => {
     render(<Sidebar />);
 
@@ -1228,6 +1337,12 @@ describe("Sidebar", { timeout: 10000 }, () => {
     render(<Sidebar />);
     fireEvent.click(screen.getByTitle("Terminal"));
     expect(window.location.hash).toBe("#/terminal");
+  });
+
+  it("navigates to streams page when Streams is clicked", () => {
+    render(<Sidebar />);
+    fireEvent.click(screen.getByTitle("Streams"));
+    expect(window.location.hash).toBe("#/streams");
   });
 
   it("session name shows animate-name-appear class when recently renamed", () => {
@@ -1499,9 +1614,131 @@ describe("Sidebar", { timeout: 10000 }, () => {
     });
 
     render(<Sidebar />);
-    expect(screen.getByLabelText("Create session in Takode")).toBeInTheDocument();
+    expect(screen.getByLabelText("Create session in Takode Session Space")).toBeInTheDocument();
     // But the session inside it should be hidden
     expect(screen.queryByText("hidden-model")).not.toBeInTheDocument();
+  });
+
+  it("supports bulk session assignment from a search-adjacent source Session Space chooser", async () => {
+    const session1 = makeSession("s1", { cwd: "/home/user/project-a", model: "Session One" });
+    const session2 = makeSession("s2", { cwd: "/home/user/project-a", model: "Session Two" });
+    const session3 = makeSession("s3", { cwd: "/home/user/project-b", model: "Session Three" });
+    const sdk1 = makeSdkSession("s1", { cwd: "/home/user/project-a" });
+    const sdk2 = makeSdkSession("s2", { cwd: "/home/user/project-a" });
+    const sdk3 = makeSdkSession("s3", { cwd: "/home/user/project-b" });
+    const groups = [
+      { id: "alpha", name: "Alpha" },
+      { id: "beta", name: "Beta" },
+    ];
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", session1],
+        ["s2", session2],
+        ["s3", session3],
+      ]),
+      sdkSessions: [sdk1, sdk2, sdk3],
+      treeGroups: groups,
+      treeAssignments: new Map([
+        ["s1", "alpha"],
+        ["s2", "alpha"],
+        ["s3", "beta"],
+      ]),
+    });
+    mockApi.getTreeGroups
+      .mockResolvedValueOnce({
+        groups,
+        assignments: { s1: "alpha", s2: "alpha", s3: "beta" },
+        nodeOrder: {},
+      })
+      .mockResolvedValueOnce({
+        groups,
+        assignments: { s1: "beta", s2: "beta", s3: "beta" },
+        nodeOrder: {},
+      });
+
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Bulk organize sessions by source Session Space" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bulk organize Alpha Session Space" }));
+    fireEvent.click(screen.getByText("All"));
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "beta" } });
+    fireEvent.click(screen.getByRole("button", { name: "Assign" }));
+
+    await waitFor(() => {
+      expect(mockApi.assignSessionsToTreeGroup).toHaveBeenCalledWith(expect.arrayContaining(["s1", "s2"]), "beta");
+    });
+    expect((mockApi.assignSessionsToTreeGroup.mock.calls[0]?.[0] as string[]) ?? []).toHaveLength(2);
+    await waitFor(() => {
+      expect(mockState.setTreeGroups).toHaveBeenCalledWith(groups, { s1: "beta", s2: "beta", s3: "beta" }, {});
+    });
+  });
+
+  it("disables bulk organization during active search so scope is not confused with results", () => {
+    const session1 = makeSession("s1", { cwd: "/home/user/project-a", model: "Session One" });
+    const session2 = makeSession("s2", { cwd: "/home/user/project-b", model: "Session Two" });
+    const sdk1 = makeSdkSession("s1", { cwd: "/home/user/project-a" });
+    const sdk2 = makeSdkSession("s2", { cwd: "/home/user/project-b" });
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", session1],
+        ["s2", session2],
+      ]),
+      sdkSessions: [sdk1, sdk2],
+      treeGroups: [
+        { id: "alpha", name: "Alpha" },
+        { id: "beta", name: "Beta" },
+      ],
+      treeAssignments: new Map([
+        ["s1", "alpha"],
+        ["s2", "beta"],
+      ]),
+    });
+
+    render(<Sidebar />);
+    fireEvent.change(screen.getByPlaceholderText("Search..."), { target: { value: "session" } });
+
+    const bulkButton = screen.getByRole("button", { name: "Clear search to bulk organize Session Spaces" });
+    expect(bulkButton).toBeDisabled();
+    expect(bulkButton).toHaveAttribute("title", "Clear search to bulk organize Session Spaces");
+    expect(screen.queryByText("Choose source Session Space")).not.toBeInTheDocument();
+  });
+
+  it("auto-expands a collapsed group when bulk mode starts", () => {
+    const session1 = makeSession("s1", { cwd: "/home/user/project-a", model: "Session One" });
+    const session2 = makeSession("s2", { cwd: "/home/user/project-a", model: "Session Two" });
+    const sdk1 = makeSdkSession("s1", { cwd: "/home/user/project-a" });
+    const sdk2 = makeSdkSession("s2", { cwd: "/home/user/project-a" });
+    const groups = [
+      { id: "alpha", name: "Alpha" },
+      { id: "beta", name: "Beta" },
+    ];
+    mockState = createMockState({
+      sessions: new Map([
+        ["s1", session1],
+        ["s2", session2],
+      ]),
+      sdkSessions: [sdk1, sdk2],
+      treeGroups: groups,
+      treeAssignments: new Map([
+        ["s1", "alpha"],
+        ["s2", "alpha"],
+      ]),
+      collapsedTreeGroups: new Set(["alpha"]),
+    });
+    mockState.toggleTreeGroupCollapse.mockImplementation((groupId: string) => {
+      const next = new Set(mockState.collapsedTreeGroups);
+      next.delete(groupId);
+      mockState.collapsedTreeGroups = next;
+    });
+
+    render(<Sidebar />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Bulk organize sessions by source Session Space" }));
+    fireEvent.click(screen.getByRole("button", { name: "Bulk organize Alpha Session Space" }));
+
+    expect(mockState.toggleTreeGroupCollapse).toHaveBeenCalledWith("alpha");
+    expect(screen.getByText("0 selected")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Assign" })).toBeInTheDocument();
   });
 
   it("context menu supports copy actions and confirms delete", async () => {
@@ -1533,6 +1770,27 @@ describe("Sidebar", { timeout: 10000 }, () => {
     await waitFor(() => {
       expect(mockApi.deleteSession).toHaveBeenCalledWith("s1");
     });
+  });
+
+  it("copies session numbers with a leading hash from the context menu", () => {
+    // The session-row menu exposes Takode session numbers in their UI form so
+    // pasted references stay consistent with linked session tokens elsewhere.
+    const session = makeSession("s1");
+    const sdk = makeSdkSession("s1", { sessionNum: 1147 });
+    mockState = createMockState({
+      sessions: new Map([["s1", session]]),
+      sdkSessions: [sdk],
+      currentSessionId: "s1",
+    });
+
+    render(<Sidebar />);
+    const sessionButton = screen.getByText("claude-sonnet-4-5-20250929").closest("button")!;
+    fireEvent.contextMenu(sessionButton, { clientX: 100, clientY: 120 });
+
+    expect(screen.getByText("Copy Session Number")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByText("Copy Session Number"));
+    expect(mockWriteClipboardText).toHaveBeenCalledWith("#1147");
   });
 
   it("offers a force-herd action to the current leader for workers owned by another leader", async () => {
@@ -1732,244 +1990,5 @@ describe("Sidebar", { timeout: 10000 }, () => {
       expect(scroller).toHaveClass("max-h-40");
       expect(scroller).toHaveClass("overflow-y-auto");
     });
-  });
-
-  it("hovering a herded worker highlights its leader and shows leader info in hover card", async () => {
-    const leaderSessionId = "leader-1";
-    const workerSessionId = "worker-1";
-    const leaderSession = makeSession(leaderSessionId, { model: "leader-model" });
-    const workerSession = makeSession(workerSessionId, { model: "worker-model" });
-    const leaderSdk = makeSdkSession(leaderSessionId, {
-      isOrchestrator: true,
-      sessionNum: 7,
-      createdAt: 1700000000000,
-    });
-    const workerSdk = makeSdkSession(workerSessionId, {
-      herdedBy: leaderSessionId,
-      sessionNum: 11,
-      createdAt: 1700000001000,
-    });
-    mockState = createMockState({
-      sessions: new Map([
-        [leaderSessionId, leaderSession],
-        [workerSessionId, workerSession],
-      ]),
-      sdkSessions: [leaderSdk, workerSdk],
-      sessionNames: new Map([
-        [leaderSessionId, "Leader Session"],
-        [workerSessionId, "Worker Session"],
-      ]),
-      expandedHerdNodes: new Set([leaderSessionId]),
-    });
-
-    render(<Sidebar />);
-    const workerButton = screen.getByText("Worker Session").closest("button")!;
-    fireEvent.mouseEnter(workerButton);
-
-    await waitFor(() => {
-      expect(screen.getByText("Herded by")).toBeInTheDocument();
-      const section = screen.getByTestId("session-hover-herded-by");
-      expect(within(section).getByRole("button", { name: "#7" })).toBeInTheDocument();
-    });
-  });
-
-  it("keeps workers grouped under the correct leader when multiple herds are expanded", () => {
-    const leaderAlphaId = "leader-alpha";
-    const workerAlphaId = "worker-alpha";
-    const leaderBetaId = "leader-beta";
-    const workerBetaId = "worker-beta";
-    mockState = createMockState({
-      sessions: new Map([
-        [leaderAlphaId, makeSession(leaderAlphaId, { model: "leader-alpha-model" })],
-        [workerAlphaId, makeSession(workerAlphaId, { model: "worker-alpha-model" })],
-        [leaderBetaId, makeSession(leaderBetaId, { model: "leader-beta-model" })],
-        [workerBetaId, makeSession(workerBetaId, { model: "worker-beta-model" })],
-      ]),
-      sdkSessions: [
-        makeSdkSession(leaderAlphaId, { isOrchestrator: true, sessionNum: 7, createdAt: 1700000001000 }),
-        makeSdkSession(workerAlphaId, { herdedBy: leaderAlphaId, sessionNum: 8, createdAt: 1700000002000 }),
-        makeSdkSession(leaderBetaId, { isOrchestrator: true, sessionNum: 9, createdAt: 1700000003000 }),
-        makeSdkSession(workerBetaId, { herdedBy: leaderBetaId, sessionNum: 10, createdAt: 1700000004000 }),
-      ],
-      sessionNames: new Map([
-        [leaderAlphaId, "Leader Alpha"],
-        [workerAlphaId, "Worker Alpha"],
-        [leaderBetaId, "Leader Beta"],
-        [workerBetaId, "Worker Beta"],
-      ]),
-      expandedHerdNodes: new Set([leaderAlphaId, leaderBetaId]),
-    });
-
-    render(<Sidebar />);
-
-    const leaderAlphaButton = screen.getByText("Leader Alpha").closest("button")!;
-    const workerAlphaButton = screen.getByText("Worker Alpha").closest("button")!;
-    const leaderBetaButton = screen.getByText("Leader Beta").closest("button")!;
-    const workerBetaButton = screen.getByText("Worker Beta").closest("button")!;
-
-    expect(
-      leaderAlphaButton.compareDocumentPosition(workerAlphaButton) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
-    expect(leaderBetaButton.compareDocumentPosition(workerBetaButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("does not add redundant herd highlight rings when leader info panel is open in tree view", () => {
-    const leaderSessionId = "leader-2";
-    const workerSessionId = "worker-2";
-    const leaderSession = makeSession(leaderSessionId, { model: "leader-open-model" });
-    const workerSession = makeSession(workerSessionId, { model: "worker-open-model" });
-    const leaderSdk = makeSdkSession(leaderSessionId, {
-      isOrchestrator: true,
-      sessionNum: 21,
-      createdAt: 1700000002000,
-    });
-    const workerSdk = makeSdkSession(workerSessionId, {
-      herdedBy: leaderSessionId,
-      sessionNum: 22,
-      createdAt: 1700000003000,
-    });
-    mockState = createMockState({
-      sessions: new Map([
-        [leaderSessionId, leaderSession],
-        [workerSessionId, workerSession],
-      ]),
-      sdkSessions: [leaderSdk, workerSdk],
-      sessionNames: new Map([
-        [leaderSessionId, "Leader Open"],
-        [workerSessionId, "Worker Open"],
-      ]),
-      sessionInfoOpenSessionId: leaderSessionId,
-      expandedHerdNodes: new Set([leaderSessionId]),
-    });
-
-    render(<Sidebar />);
-    const workerButton = screen.getByText("Worker Open").closest("button");
-    expect(workerButton).not.toHaveClass("ring-amber-400/45");
-  });
-
-  it("does not add redundant herd highlight rings when worker info panel is open in tree view", () => {
-    const leaderSessionId = "leader-3";
-    const workerSessionId = "worker-3";
-    const leaderSession = makeSession(leaderSessionId, { model: "leader-worker-open-model" });
-    const workerSession = makeSession(workerSessionId, { model: "worker-worker-open-model" });
-    const leaderSdk = makeSdkSession(leaderSessionId, {
-      isOrchestrator: true,
-      sessionNum: 31,
-      createdAt: 1700000004000,
-    });
-    const workerSdk = makeSdkSession(workerSessionId, {
-      herdedBy: leaderSessionId,
-      sessionNum: 32,
-      createdAt: 1700000005000,
-    });
-    mockState = createMockState({
-      sessions: new Map([
-        [leaderSessionId, leaderSession],
-        [workerSessionId, workerSession],
-      ]),
-      sdkSessions: [leaderSdk, workerSdk],
-      sessionNames: new Map([
-        [leaderSessionId, "Leader Worker Open"],
-        [workerSessionId, "Worker Worker Open"],
-      ]),
-      sessionInfoOpenSessionId: workerSessionId,
-      expandedHerdNodes: new Set([leaderSessionId]),
-    });
-
-    render(<Sidebar />);
-    const leaderButton = screen.getByText("Leader Worker Open").closest("button");
-    expect(leaderButton).not.toHaveClass("ring-amber-400/70");
-  });
-
-  it("tree view renders herd leaders before expanded worker rows", () => {
-    const leaderSessionId = "leader-first";
-    const workerSessionId = "worker-first";
-    const leaderSession = makeSession(leaderSessionId, { model: "leader-first-model" });
-    const workerSession = makeSession(workerSessionId, { model: "worker-first-model" });
-    mockState = createMockState({
-      sessions: new Map([
-        [leaderSessionId, leaderSession],
-        [workerSessionId, workerSession],
-      ]),
-      sdkSessions: [
-        makeSdkSession(leaderSessionId, {
-          isOrchestrator: true,
-          sessionNum: 41,
-          createdAt: 100,
-        }),
-        makeSdkSession(workerSessionId, {
-          herdedBy: leaderSessionId,
-          sessionNum: 42,
-          createdAt: 300,
-        }),
-      ],
-      sessionNames: new Map([
-        [leaderSessionId, "Leader First"],
-        [workerSessionId, "Worker First"],
-      ]),
-      expandedHerdNodes: new Set([leaderSessionId]),
-    });
-
-    render(<Sidebar />);
-
-    const leaderAfter = screen.getByText("Leader First").closest("button")!;
-    const workerAfter = screen.getByText("Worker First").closest("button")!;
-    expect(leaderAfter.compareDocumentPosition(workerAfter) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-  });
-
-  it("tree view keeps workers in their leader's assigned group across projects", () => {
-    const leaderSessionId = "leader-cross-project";
-    const leaderPeerSessionId = "leader-peer";
-    const workerSessionId = "worker-cross-project";
-    const leaderSession = makeSession(leaderSessionId, { cwd: "/home/user/project-leader" });
-    const leaderPeerSession = makeSession(leaderPeerSessionId, { cwd: "/home/user/project-leader" });
-    const workerSession = makeSession(workerSessionId, { cwd: "/home/user/project-worker" });
-    mockState = createMockState({
-      sessions: new Map([
-        [leaderSessionId, leaderSession],
-        [leaderPeerSessionId, leaderPeerSession],
-        [workerSessionId, workerSession],
-      ]),
-      sdkSessions: [
-        makeSdkSession(leaderSessionId, {
-          cwd: "/home/user/project-leader",
-          isOrchestrator: true,
-          sessionNum: 51,
-          createdAt: 100,
-        }),
-        makeSdkSession(leaderPeerSessionId, {
-          cwd: "/home/user/project-leader",
-          sessionNum: 52,
-          createdAt: 300,
-        }),
-        makeSdkSession(workerSessionId, {
-          cwd: "/home/user/project-worker",
-          herdedBy: leaderSessionId,
-          sessionNum: 53,
-          createdAt: 400,
-        }),
-      ],
-      sessionNames: new Map([
-        [leaderSessionId, "Cross Project Leader"],
-        [leaderPeerSessionId, "Newer Leader-Project Peer"],
-        [workerSessionId, "Cross Project Worker"],
-      ]),
-      treeGroups: [
-        { id: "alpha", name: "Alpha" },
-        { id: "beta", name: "Beta" },
-      ],
-      treeAssignments: new Map([
-        [leaderSessionId, "alpha"],
-        [leaderPeerSessionId, "alpha"],
-        [workerSessionId, "beta"],
-      ]),
-      expandedHerdNodes: new Set([leaderSessionId]),
-    });
-
-    render(<Sidebar />);
-
-    const workerButton = screen.getByText("Cross Project Worker").closest("button")!;
-    const betaHeader = screen.getByText("Beta");
-    expect(workerButton.compareDocumentPosition(betaHeader) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 });

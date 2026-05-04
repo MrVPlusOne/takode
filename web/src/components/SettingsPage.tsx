@@ -1,25 +1,30 @@
 import { useEffect, useRef, useState } from "react";
 import {
   api,
+  ApiError,
   checkHealth,
+  isInterruptRestartBlockersResponse,
   type ImportStats,
   type AutoApprovalConfig,
   type NamerConfig,
   type TranscriptionConfig,
   type EditorKind,
   type PushoverEventFilters,
+  type InterruptRestartBlockersResponse,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
 import { recordShortcutBindingFromEvent, type ShortcutActionId } from "../shortcuts.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
-import { AutoApprovalDebugPanel } from "./AutoApprovalDebugPanel.js";
-import { TranscriptionDebugPanel } from "./TranscriptionDebugPanel.js";
-import { EnhancementTester } from "./EnhancementTester.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
-import { FolderPicker } from "./FolderPicker.js";
-import { AutoApprovalConfigCard } from "./AutoApprovalConfigCard.js";
+import { SettingsAutoApprovalSection } from "./SettingsAutoApprovalSection.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsShortcutSection } from "./SettingsShortcutSection.js";
+import {
+  BUILT_IN_STT_MODELS,
+  CUSTOM_STT_MODEL_VALUE,
+  DEFAULT_STT_MODEL,
+  SettingsVoiceTranscriptionSection,
+} from "./SettingsVoiceTranscriptionSection.js";
 import { SettingsPageHeader } from "./SettingsPageHeader.js";
 import { SettingsSearchControls, SettingsSectionNav, useSettingsSearchNavigation } from "./settings-search.js";
 import { EDIT_BLOCKS_EXPANDED_KEY } from "./ToolBlock.js";
@@ -36,6 +41,91 @@ const DEFAULT_PUSHOVER_EVENT_FILTERS: PushoverEventFilters = {
 interface SettingsPageProps {
   embedded?: boolean;
   isActive?: boolean;
+}
+
+interface CodexLeaderThresholdOverrideDraft {
+  draftId: string;
+  modelId: string;
+  thresholdTokens: string;
+}
+
+let codexLeaderThresholdOverrideDraftIdCounter = 0;
+
+function createCodexLeaderThresholdOverrideDraft(
+  modelId = "",
+  thresholdTokens = "",
+  draftId?: string,
+): CodexLeaderThresholdOverrideDraft {
+  codexLeaderThresholdOverrideDraftIdCounter += 1;
+  return {
+    draftId: draftId ?? `codex-leader-threshold-draft-${codexLeaderThresholdOverrideDraftIdCounter}`,
+    modelId,
+    thresholdTokens,
+  };
+}
+
+function codexLeaderThresholdOverrideDraftsFromSettings(
+  overrides: Record<string, number> | undefined,
+  existingDrafts: CodexLeaderThresholdOverrideDraft[] = [],
+): CodexLeaderThresholdOverrideDraft[] {
+  const nextEntries = Object.entries(overrides ?? {})
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([modelId, thresholdTokens]) => ({
+      modelId,
+      thresholdTokens: String(thresholdTokens),
+    }));
+  const unusedDraftIds = new Set(existingDrafts.map((draft) => draft.draftId));
+  return nextEntries.map(({ modelId, thresholdTokens }) => {
+    const matchingDraft = existingDrafts.find((draft) => {
+      if (!unusedDraftIds.has(draft.draftId)) return false;
+      const normalizedDraft = normalizeCodexLeaderThresholdOverrideDraftForComparison(draft);
+      return normalizedDraft.modelId === modelId && normalizedDraft.thresholdTokens === thresholdTokens;
+    });
+    if (matchingDraft) {
+      unusedDraftIds.delete(matchingDraft.draftId);
+      return { ...matchingDraft, modelId, thresholdTokens };
+    }
+    return createCodexLeaderThresholdOverrideDraft(modelId, thresholdTokens);
+  });
+}
+
+function normalizeCodexLeaderThresholdOverrideDraftForComparison(
+  draft: Pick<CodexLeaderThresholdOverrideDraft, "modelId" | "thresholdTokens">,
+): { modelId: string; thresholdTokens: string } {
+  const modelId = draft.modelId.trim();
+  const trimmedThresholdTokens = draft.thresholdTokens.trim();
+  const thresholdNumber = Number(trimmedThresholdTokens);
+  return {
+    modelId,
+    thresholdTokens:
+      Number.isInteger(thresholdNumber) && thresholdNumber >= 1 ? String(thresholdNumber) : trimmedThresholdTokens,
+  };
+}
+
+function parseCodexLeaderThresholdOverrideDrafts(
+  drafts: CodexLeaderThresholdOverrideDraft[],
+): { ok: true; value: Record<string, number> } | { ok: false; error: string } {
+  const overrides: Record<string, number> = {};
+  for (const draft of drafts) {
+    const modelId = draft.modelId.trim();
+    const rawThreshold = draft.thresholdTokens.trim();
+    if (!modelId && !rawThreshold) continue;
+    if (!modelId || !rawThreshold) {
+      return { ok: false, error: "Each Codex leader model override needs both a model ID and a threshold." };
+    }
+    const thresholdTokens = Number(rawThreshold);
+    if (!Number.isInteger(thresholdTokens) || thresholdTokens < 1) {
+      return { ok: false, error: `Threshold for ${modelId} must be a positive integer.` };
+    }
+    if (overrides[modelId] !== undefined) {
+      return { ok: false, error: `Duplicate Codex leader model override: ${modelId}` };
+    }
+    overrides[modelId] = thresholdTokens;
+  }
+  return {
+    ok: true,
+    value: Object.fromEntries(Object.entries(overrides).sort(([left], [right]) => left.localeCompare(right))),
+  };
 }
 
 export function SettingsPage({ embedded = false, isActive = true }: SettingsPageProps) {
@@ -82,6 +172,17 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [logFile, setLogFile] = useState("");
   const [binSaving, setBinSaving] = useState(false);
   const [binError, setBinError] = useState("");
+  const [codexLeaderContextWindowOverrideTokens, setCodexLeaderContextWindowOverrideTokens] = useState(1_000_000);
+  const [codexNonLeaderAutoCompactThresholdPercent, setCodexNonLeaderAutoCompactThresholdPercent] = useState(90);
+  const [codexLeaderRecycleThresholdTokens, setCodexLeaderRecycleThresholdTokens] = useState(260_000);
+  const [codexLeaderRecycleThresholdTokensByModel, setCodexLeaderRecycleThresholdTokensByModel] = useState<
+    Record<string, number>
+  >({});
+  const [codexLeaderThresholdOverrideDrafts, setCodexLeaderThresholdOverrideDrafts] = useState<
+    CodexLeaderThresholdOverrideDraft[]
+  >([]);
+  const [codexLeaderSettingsSaving, setCodexLeaderSettingsSaving] = useState(false);
+  const [codexLeaderSettingsError, setCodexLeaderSettingsError] = useState("");
   const [claudeTest, setClaudeTest] = useState<{
     ok: boolean;
     resolvedPath?: string;
@@ -100,6 +201,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [editorSaving, setEditorSaving] = useState(false);
   const [editorError, setEditorError] = useState("");
   const binDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const codexLeaderSettingsDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Session lifecycle state
   const [maxKeepAlive, setMaxKeepAlive] = useState(0);
@@ -147,6 +249,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   // Server restart state
   const [restarting, setRestarting] = useState(false);
   const [restartError, setRestartError] = useState("");
+  const [restartPrepResult, setRestartPrepResult] = useState<InterruptRestartBlockersResponse | null>(null);
   const [restartSupported, setRestartSupported] = useState(true);
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const healthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -181,7 +284,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [transcriptionApiKey, setTranscriptionApiKey] = useState("");
   const [transcriptionBaseUrl, setTranscriptionBaseUrl] = useState("");
   const [transcriptionModel, setTranscriptionModel] = useState("");
-  const [sttModel, setSttModel] = useState("gpt-4o-mini-transcribe");
+  const [sttModel, setSttModel] = useState(DEFAULT_STT_MODEL);
+  const [customSttModel, setCustomSttModel] = useState("");
   const [transcriptionEnhancement, setTranscriptionEnhancement] = useState(false);
   const [enhancementMode, setEnhancementMode] = useState<"default" | "bullet">("default");
   const [transcriptionVocabulary, setTranscriptionVocabulary] = useState("");
@@ -225,6 +329,13 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       .then((s) => {
         setClaudeBin(s.claudeBinary || "");
         setCodexBin(s.codexBinary || "");
+        setCodexLeaderContextWindowOverrideTokens(s.codexLeaderContextWindowOverrideTokens ?? 1_000_000);
+        setCodexNonLeaderAutoCompactThresholdPercent(s.codexNonLeaderAutoCompactThresholdPercent ?? 90);
+        setCodexLeaderRecycleThresholdTokens(s.codexLeaderRecycleThresholdTokens ?? 260_000);
+        setCodexLeaderRecycleThresholdTokensByModel(s.codexLeaderRecycleThresholdTokensByModel ?? {});
+        setCodexLeaderThresholdOverrideDrafts((currentDrafts) =>
+          codexLeaderThresholdOverrideDraftsFromSettings(s.codexLeaderRecycleThresholdTokensByModel, currentDrafts),
+        );
         setDefaultClaudeBackend(s.defaultClaudeBackend || "claude");
         setLogFile(s.logFile || "");
         setMaxKeepAlive(s.maxKeepAlive || 0);
@@ -254,7 +365,14 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
           setTranscriptionApiKey(s.transcriptionConfig.apiKey === "***" ? "***" : s.transcriptionConfig.apiKey || "");
           setTranscriptionBaseUrl(s.transcriptionConfig.baseUrl || "");
           setTranscriptionModel(s.transcriptionConfig.enhancementModel || "");
-          setSttModel(s.transcriptionConfig.sttModel || "gpt-4o-mini-transcribe");
+          const configuredSttModel = s.transcriptionConfig.sttModel || DEFAULT_STT_MODEL;
+          if (BUILT_IN_STT_MODELS.includes(configuredSttModel as (typeof BUILT_IN_STT_MODELS)[number])) {
+            setSttModel(configuredSttModel);
+            setCustomSttModel("");
+          } else {
+            setSttModel(CUSTOM_STT_MODEL_VALUE);
+            setCustomSttModel(configuredSttModel);
+          }
           setTranscriptionEnhancement(s.transcriptionConfig.enhancementEnabled ?? false);
           setEnhancementMode(s.transcriptionConfig.enhancementMode ?? "default");
           setTranscriptionVocabulary(s.transcriptionConfig.customVocabulary || "");
@@ -410,6 +528,69 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
     }, 800);
   }
 
+  function debouncedSaveCodexLeaderSettings(
+    newWindow: number,
+    newNonLeaderAutoCompactThresholdPercent: number,
+    newThreshold: number,
+    newThresholdsByModel: Record<string, number>,
+  ) {
+    if (codexLeaderSettingsDebounceRef.current) clearTimeout(codexLeaderSettingsDebounceRef.current);
+    codexLeaderSettingsDebounceRef.current = setTimeout(async () => {
+      setCodexLeaderSettingsSaving(true);
+      setCodexLeaderSettingsError("");
+      try {
+        const res = await api.updateSettings({
+          codexLeaderContextWindowOverrideTokens: newWindow,
+          codexNonLeaderAutoCompactThresholdPercent: newNonLeaderAutoCompactThresholdPercent,
+          codexLeaderRecycleThresholdTokens: newThreshold,
+          codexLeaderRecycleThresholdTokensByModel: newThresholdsByModel,
+        });
+        setCodexLeaderContextWindowOverrideTokens(res.codexLeaderContextWindowOverrideTokens ?? newWindow);
+        setCodexNonLeaderAutoCompactThresholdPercent(
+          res.codexNonLeaderAutoCompactThresholdPercent ?? newNonLeaderAutoCompactThresholdPercent,
+        );
+        setCodexLeaderRecycleThresholdTokens(res.codexLeaderRecycleThresholdTokens ?? newThreshold);
+        const nextThresholdsByModel = res.codexLeaderRecycleThresholdTokensByModel ?? newThresholdsByModel;
+        setCodexLeaderRecycleThresholdTokensByModel(nextThresholdsByModel);
+        setCodexLeaderThresholdOverrideDrafts((currentDrafts) =>
+          codexLeaderThresholdOverrideDraftsFromSettings(nextThresholdsByModel, currentDrafts),
+        );
+      } catch (err: unknown) {
+        setCodexLeaderSettingsError(err instanceof Error ? err.message : String(err));
+      } finally {
+        setCodexLeaderSettingsSaving(false);
+      }
+    }, 800);
+  }
+
+  function updateCodexLeaderThresholdOverrideDrafts(nextDrafts: CodexLeaderThresholdOverrideDraft[]) {
+    setCodexLeaderThresholdOverrideDrafts(nextDrafts);
+    const parsed = parseCodexLeaderThresholdOverrideDrafts(nextDrafts);
+    if (!parsed.ok) {
+      setCodexLeaderSettingsError(parsed.error);
+      return;
+    }
+    setCodexLeaderSettingsError("");
+    setCodexLeaderRecycleThresholdTokensByModel(parsed.value);
+    debouncedSaveCodexLeaderSettings(
+      codexLeaderContextWindowOverrideTokens,
+      codexNonLeaderAutoCompactThresholdPercent,
+      codexLeaderRecycleThresholdTokens,
+      parsed.value,
+    );
+  }
+
+  function updateCodexLeaderThresholdOverrideDraft(
+    index: number,
+    patch: Partial<CodexLeaderThresholdOverrideDraft>,
+  ): void {
+    updateCodexLeaderThresholdOverrideDrafts(
+      codexLeaderThresholdOverrideDrafts.map((draft, draftIndex) =>
+        draftIndex === index ? { ...draft, ...patch } : draft,
+      ),
+    );
+  }
+
   async function onTestBinary(which: "claude" | "codex") {
     const binary = which === "claude" ? claudeBin.trim() || "claude" : codexBin.trim() || "codex";
     const setTesting = which === "claude" ? setClaudeTesting : setCodexTesting;
@@ -499,6 +680,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
 
     setRestarting(true);
     setRestartError("");
+    setRestartPrepResult(null);
     useStore.getState().setServerRestarting(true);
 
     try {
@@ -509,6 +691,12 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       const msg = e instanceof Error ? e.message : String(e);
       const isNetworkError = !msg || msg.includes("fetch") || msg.includes("Failed") || msg.includes("ECONNREFUSED");
       if (!isNetworkError) {
+        if (e instanceof ApiError) {
+          const result = e.body && typeof e.body === "object" ? (e.body as { result?: unknown }).result : undefined;
+          if (isInterruptRestartBlockersResponse(result)) {
+            setRestartPrepResult(result);
+          }
+        }
         setRestartError(msg);
         setRestarting(false);
         useStore.getState().setServerRestarting(false);
@@ -824,6 +1012,157 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 )}
               </div>
 
+              <div hidden={settingsSearch.rowHidden("cli", "codex-non-leader-auto-compact-threshold")}>
+                <label className="block text-sm font-medium mb-1.5" htmlFor="codex-non-leader-auto-compact-threshold">
+                  Codex Non-Leader Auto-Compact Threshold
+                </label>
+                <input
+                  id="codex-non-leader-auto-compact-threshold"
+                  type="number"
+                  min={1}
+                  max={100}
+                  step={1}
+                  value={codexNonLeaderAutoCompactThresholdPercent}
+                  onChange={(e) => {
+                    const next = Math.min(100, Math.max(1, Number(e.target.value) || 1));
+                    setCodexNonLeaderAutoCompactThresholdPercent(next);
+                    debouncedSaveCodexLeaderSettings(
+                      codexLeaderContextWindowOverrideTokens,
+                      next,
+                      codexLeaderRecycleThresholdTokens,
+                      codexLeaderRecycleThresholdTokensByModel,
+                    );
+                  }}
+                  className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+                />
+                <p className="mt-1.5 text-xs text-cc-muted">
+                  Applied only to new and relaunched non-leader Codex sessions. Takode writes a session-local model
+                  catalog override so provider auto-compaction triggers at this percent of each model&apos;s effective
+                  context window.
+                </p>
+              </div>
+
+              <div hidden={settingsSearch.rowHidden("cli", "codex-leader-context-window")}>
+                <label className="block text-sm font-medium mb-1.5" htmlFor="codex-leader-context-window">
+                  Codex Leader Context Window
+                </label>
+                <input
+                  id="codex-leader-context-window"
+                  type="number"
+                  min={1}
+                  step={1000}
+                  value={codexLeaderContextWindowOverrideTokens}
+                  onChange={(e) => {
+                    const next = Math.max(1, Number(e.target.value) || 1);
+                    setCodexLeaderContextWindowOverrideTokens(next);
+                    debouncedSaveCodexLeaderSettings(
+                      next,
+                      codexNonLeaderAutoCompactThresholdPercent,
+                      codexLeaderRecycleThresholdTokens,
+                      codexLeaderRecycleThresholdTokensByModel,
+                    );
+                  }}
+                  className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+                />
+                <p className="mt-1.5 text-xs text-cc-muted">
+                  Applied only to new and relaunched Codex leader sessions. Takode writes this into the session-local
+                  Codex config so provider auto-compaction stays above the Takode recycle threshold.
+                </p>
+              </div>
+
+              <div hidden={settingsSearch.rowHidden("cli", "codex-leader-recycle-threshold")}>
+                <label className="block text-sm font-medium mb-1.5" htmlFor="codex-leader-recycle-threshold">
+                  Codex Leader Default Recycle Threshold
+                </label>
+                <input
+                  id="codex-leader-recycle-threshold"
+                  type="number"
+                  min={1}
+                  step={1000}
+                  value={codexLeaderRecycleThresholdTokens}
+                  onChange={(e) => {
+                    const next = Math.max(1, Number(e.target.value) || 1);
+                    setCodexLeaderRecycleThresholdTokens(next);
+                    debouncedSaveCodexLeaderSettings(
+                      codexLeaderContextWindowOverrideTokens,
+                      codexNonLeaderAutoCompactThresholdPercent,
+                      next,
+                      codexLeaderRecycleThresholdTokensByModel,
+                    );
+                  }}
+                  className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+                />
+                <p className="mt-1.5 text-xs text-cc-muted">
+                  Fallback threshold for Codex leaders whose model ID does not have an explicit override below.
+                </p>
+              </div>
+
+              <div hidden={settingsSearch.rowHidden("cli", "codex-leader-recycle-threshold-overrides")}>
+                <div className="flex items-center justify-between gap-3 mb-1.5">
+                  <label className="block text-sm font-medium" htmlFor="codex-leader-recycle-threshold-model-0">
+                    Codex Leader Model Threshold Overrides
+                  </label>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setCodexLeaderThresholdOverrideDrafts([
+                        ...codexLeaderThresholdOverrideDrafts,
+                        createCodexLeaderThresholdOverrideDraft(),
+                      ])
+                    }
+                    className="px-2.5 py-1 text-xs rounded-md border border-cc-border text-cc-fg bg-cc-hover hover:bg-cc-active cursor-pointer"
+                  >
+                    Add Override
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {codexLeaderThresholdOverrideDrafts.length === 0 && (
+                    <p className="text-xs text-cc-muted">No model-specific overrides. The default threshold applies.</p>
+                  )}
+                  {codexLeaderThresholdOverrideDrafts.map((draft, index) => (
+                    <div key={draft.draftId} className="grid grid-cols-[minmax(0,1fr)_160px_auto] gap-2">
+                      <input
+                        id={`codex-leader-recycle-threshold-model-${index}`}
+                        aria-label={`Codex Leader Recycle Threshold Model ${index + 1}`}
+                        type="text"
+                        value={draft.modelId}
+                        placeholder="gpt-5.4"
+                        onChange={(e) => updateCodexLeaderThresholdOverrideDraft(index, { modelId: e.target.value })}
+                        className="min-w-0 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+                      />
+                      <input
+                        aria-label={`Codex Leader Recycle Threshold Tokens ${index + 1}`}
+                        type="number"
+                        min={1}
+                        step={1000}
+                        value={draft.thresholdTokens}
+                        placeholder="430000"
+                        onChange={(e) =>
+                          updateCodexLeaderThresholdOverrideDraft(index, { thresholdTokens: e.target.value })
+                        }
+                        className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60"
+                      />
+                      <button
+                        type="button"
+                        onClick={() =>
+                          updateCodexLeaderThresholdOverrideDrafts(
+                            codexLeaderThresholdOverrideDrafts.filter((_, draftIndex) => draftIndex !== index),
+                          )
+                        }
+                        className="px-2.5 py-2 text-xs rounded-md border border-cc-border text-cc-fg bg-cc-hover hover:bg-cc-active cursor-pointer"
+                      >
+                        Remove
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <p className="mt-1.5 text-xs text-cc-muted">
+                  Match exact Session Info model IDs such as <code>gpt-5.4</code> or <code>gpt-5.5</code>. When tracked
+                  Codex leader usage crosses the resolved threshold, Takode recycles the underlying Codex thread in
+                  place and keeps the same Takode session.
+                </p>
+              </div>
+
               <div hidden={settingsSearch.rowHidden("cli", "default-backend")}>
                 <label className="block text-sm font-medium mb-1.5">Default Claude Backend</label>
                 <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5 w-fit">
@@ -894,8 +1233,15 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   {editorError}
                 </div>
               )}
+              {codexLeaderSettingsError && (
+                <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
+                  {codexLeaderSettingsError}
+                </div>
+              )}
 
-              {(binSaving || editorSaving) && <p className="text-xs text-cc-muted">Saving...</p>}
+              {(binSaving || editorSaving || codexLeaderSettingsSaving) && (
+                <p className="text-xs text-cc-muted">Saving...</p>
+              )}
 
               <button
                 type="button"
@@ -1366,294 +1712,38 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               </div>
             </CollapsibleSection>
 
-            {/* ── 6. Auto-Approval (LLM) ──────────────────────────── */}
-            <CollapsibleSection
-              id="auto-approval"
-              title="Auto-Approval (LLM)"
-              description="When enabled, permission requests are first evaluated by a fast LLM against your project-specific criteria. If the LLM approves, the permission is auto-approved. Otherwise, it falls through to you as usual."
-              {...settingsSearch.sectionSearch("auto-approval")}
-            >
-              {/* Master toggle + model selector — auto-save on change */}
-              <div className="flex items-center gap-4 flex-wrap">
-                <label className="flex items-center gap-2 text-xs text-cc-fg cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={aaEnabled}
-                    disabled={aaSaving}
-                    onChange={async (e) => {
-                      const newEnabled = e.target.checked;
-                      setAaEnabled(newEnabled);
-                      setAaSaving(true);
-                      setAaError("");
-                      try {
-                        const res = await api.updateSettings({ autoApprovalEnabled: newEnabled });
-                        setAaEnabled(res.autoApprovalEnabled);
-                      } catch (err: unknown) {
-                        setAaEnabled(!newEnabled);
-                        setAaError(err instanceof Error ? err.message : String(err));
-                      } finally {
-                        setAaSaving(false);
-                      }
-                    }}
-                    className="accent-cc-primary"
-                  />
-                  Enabled {aaSaving && <span className="text-cc-muted">(saving...)</span>}
-                </label>
-                <label className="flex items-center gap-2 text-xs text-cc-fg">
-                  <span className="text-cc-muted">Model:</span>
-                  <select
-                    value={aaModel}
-                    disabled={aaSaving}
-                    onChange={async (e) => {
-                      const newModel = e.target.value;
-                      const oldModel = aaModel;
-                      setAaModel(newModel);
-                      setAaSaving(true);
-                      setAaError("");
-                      try {
-                        const res = await api.updateSettings({ autoApprovalModel: newModel });
-                        setAaModel(res.autoApprovalModel);
-                      } catch (err: unknown) {
-                        setAaModel(oldModel);
-                        setAaError(err instanceof Error ? err.message : String(err));
-                      } finally {
-                        setAaSaving(false);
-                      }
-                    }}
-                    className="px-2 py-1 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/50"
-                  >
-                    <option value="">Default (session model)</option>
-                    <option value="haiku">Haiku (fast, cheap)</option>
-                    <option value="sonnet">Sonnet (more capable)</option>
-                  </select>
-                </label>
-                {aaError && <span className="text-xs text-cc-error">{aaError}</span>}
-              </div>
-
-              {/* Concurrency + Timeout controls */}
-              <div className="flex items-center gap-4 flex-wrap">
-                <label className="flex items-center gap-2 text-xs text-cc-fg">
-                  <span className="text-cc-muted">Max concurrency:</span>
-                  <input
-                    type="number"
-                    min={1}
-                    max={20}
-                    value={aaMaxConcurrency}
-                    disabled={aaSaving}
-                    onChange={async (e) => {
-                      const val = Math.max(1, Math.min(20, Math.floor(Number(e.target.value) || 4)));
-                      const old = aaMaxConcurrency;
-                      setAaMaxConcurrency(val);
-                      setAaSaving(true);
-                      setAaError("");
-                      try {
-                        const res = await api.updateSettings({ autoApprovalMaxConcurrency: val });
-                        setAaMaxConcurrency(res.autoApprovalMaxConcurrency);
-                      } catch (err: unknown) {
-                        setAaMaxConcurrency(old);
-                        setAaError(err instanceof Error ? err.message : String(err));
-                      } finally {
-                        setAaSaving(false);
-                      }
-                    }}
-                    className="w-16 px-2 py-1 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/50"
-                  />
-                </label>
-                <label className="flex items-center gap-2 text-xs text-cc-fg">
-                  <span className="text-cc-muted">Timeout:</span>
-                  <input
-                    type="number"
-                    min={5}
-                    max={120}
-                    value={aaTimeoutSeconds}
-                    disabled={aaSaving}
-                    onChange={async (e) => {
-                      const val = Math.max(5, Math.min(120, Math.floor(Number(e.target.value) || 45)));
-                      const old = aaTimeoutSeconds;
-                      setAaTimeoutSeconds(val);
-                      setAaSaving(true);
-                      setAaError("");
-                      try {
-                        const res = await api.updateSettings({ autoApprovalTimeoutSeconds: val });
-                        setAaTimeoutSeconds(res.autoApprovalTimeoutSeconds);
-                      } catch (err: unknown) {
-                        setAaTimeoutSeconds(old);
-                        setAaError(err instanceof Error ? err.message : String(err));
-                      } finally {
-                        setAaSaving(false);
-                      }
-                    }}
-                    className="w-16 px-2 py-1 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/50"
-                  />
-                  <span className="text-cc-muted">seconds</span>
-                </label>
-              </div>
-
-              {/* Project configs list */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
-                  <span className="text-xs font-medium text-cc-fg">Project Rules</span>
-                  <button
-                    type="button"
-                    onClick={loadAutoApprovalConfigs}
-                    disabled={aaConfigsLoading}
-                    className="text-[10px] text-cc-muted hover:text-cc-fg cursor-pointer"
-                  >
-                    {aaConfigsLoading ? "Loading..." : "Refresh"}
-                  </button>
-                </div>
-
-                {aaConfigs.length === 0 && !aaConfigsLoading && (
-                  <p className="text-xs text-cc-muted italic">No project rules configured yet.</p>
-                )}
-
-                {aaConfigs.map((config) => (
-                  <AutoApprovalConfigCard key={config.slug} config={config} onUpdate={loadAutoApprovalConfigs} />
-                ))}
-
-                {/* Add new config form */}
-                <div className="border border-dashed border-cc-border rounded-lg p-3 space-y-2">
-                  <span className="text-xs font-medium text-cc-muted">Add Project Rule</span>
-
-                  {/* Project paths */}
-                  <div className="space-y-1">
-                    {aaNewProjectPaths.map((p, i) => (
-                      <div key={i} className="flex items-center gap-1">
-                        <span
-                          className="flex-1 px-2 py-1 text-[10px] font-mono-code bg-cc-hover rounded truncate"
-                          title={p}
-                        >
-                          {p}
-                        </span>
-                        <button
-                          type="button"
-                          onClick={() => setAaNewProjectPaths(aaNewProjectPaths.filter((_, j) => j !== i))}
-                          className="text-[10px] text-cc-error/60 hover:text-cc-error cursor-pointer px-1"
-                          title="Remove path"
-                        >
-                          ×
-                        </button>
-                      </div>
-                    ))}
-                    <div className="flex items-center gap-1.5">
-                      <input
-                        type="text"
-                        value={aaNewPathInput}
-                        onChange={(e) => setAaNewPathInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            const trimmed = aaNewPathInput.trim();
-                            if (trimmed && !aaNewProjectPaths.includes(trimmed)) {
-                              setAaNewProjectPaths([...aaNewProjectPaths, trimmed]);
-                              if (!aaNewLabel.trim()) setAaNewLabel(trimmed.split("/").pop() || "");
-                              setAaNewPathInput("");
-                            }
-                          }
-                        }}
-                        placeholder={
-                          aaNewProjectPaths.length === 0
-                            ? "Project path (e.g. /home/user/my-project)"
-                            : "Add another project path..."
-                        }
-                        className="flex-1 px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted/50 focus:outline-none focus:border-cc-primary/50"
-                      />
-                      <button
-                        type="button"
-                        onClick={() => setShowAaFolderPicker(true)}
-                        className="shrink-0 w-7 h-7 flex items-center justify-center rounded-lg border border-cc-border text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-                        title="Browse folders"
-                      >
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                          <path d="M1 3.5A1.5 1.5 0 012.5 2h3.379a1.5 1.5 0 011.06.44l.622.621a.5.5 0 00.353.146H13.5A1.5 1.5 0 0115 4.707V12.5a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 12.5v-9z" />
-                        </svg>
-                      </button>
-                      {aaNewPathInput.trim() && (
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const trimmed = aaNewPathInput.trim();
-                            if (trimmed && !aaNewProjectPaths.includes(trimmed)) {
-                              setAaNewProjectPaths([...aaNewProjectPaths, trimmed]);
-                              if (!aaNewLabel.trim()) setAaNewLabel(trimmed.split("/").pop() || "");
-                              setAaNewPathInput("");
-                            }
-                          }}
-                          className="text-[10px] text-cc-primary hover:text-cc-primary-hover cursor-pointer px-1"
-                        >
-                          Add
-                        </button>
-                      )}
-                    </div>
-                  </div>
-                  {showAaFolderPicker && (
-                    <FolderPicker
-                      initialPath={aaNewPathInput || ""}
-                      onSelect={(path) => {
-                        if (!aaNewProjectPaths.includes(path)) {
-                          setAaNewProjectPaths([...aaNewProjectPaths, path]);
-                        }
-                        if (!aaNewLabel.trim()) setAaNewLabel(path.split("/").pop() || "");
-                        setAaNewPathInput("");
-                      }}
-                      onClose={() => setShowAaFolderPicker(false)}
-                    />
-                  )}
-                  <input
-                    type="text"
-                    value={aaNewLabel}
-                    onChange={(e) => setAaNewLabel(e.target.value)}
-                    placeholder="Label (e.g. My Project)"
-                    className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted/50 focus:outline-none focus:border-cc-primary/50"
-                  />
-                  <textarea
-                    value={aaNewCriteria}
-                    onChange={(e) => setAaNewCriteria(e.target.value)}
-                    placeholder="Criteria (natural language rules, e.g. 'Allow all read operations. Allow git commands. Deny rm and chmod.')"
-                    rows={3}
-                    className="w-full px-2.5 py-1.5 text-xs bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted/50 focus:outline-none focus:border-cc-primary/50 resize-y"
-                  />
-                  <div className="flex items-center gap-2">
-                    <button
-                      type="button"
-                      disabled={
-                        aaCreating || aaNewProjectPaths.length === 0 || !aaNewLabel.trim() || !aaNewCriteria.trim()
-                      }
-                      onClick={async () => {
-                        setAaCreating(true);
-                        setAaCreateError("");
-                        try {
-                          await api.createAutoApprovalConfig({
-                            projectPath: aaNewProjectPaths[0],
-                            projectPaths: aaNewProjectPaths.length > 1 ? aaNewProjectPaths : undefined,
-                            label: aaNewLabel.trim(),
-                            criteria: aaNewCriteria.trim(),
-                          });
-                          setAaNewProjectPaths([]);
-                          setAaNewPathInput("");
-                          setAaNewLabel("");
-                          setAaNewCriteria("");
-                          loadAutoApprovalConfigs();
-                        } catch (err: unknown) {
-                          setAaCreateError(err instanceof Error ? err.message : String(err));
-                        } finally {
-                          setAaCreating(false);
-                        }
-                      }}
-                      className="px-3 py-1.5 text-xs font-medium rounded-lg bg-cc-primary hover:bg-cc-primary-hover text-white disabled:opacity-50 transition-colors cursor-pointer"
-                    >
-                      {aaCreating ? "Creating..." : "Add Rule"}
-                    </button>
-                    {aaCreateError && <span className="text-xs text-cc-error">{aaCreateError}</span>}
-                  </div>
-                </div>
-              </div>
-
-              {/* Debug panel */}
-              <div className="border-t border-cc-border pt-4">
-                <AutoApprovalDebugPanel />
-              </div>
-            </CollapsibleSection>
+            <SettingsAutoApprovalSection
+              sectionSearchProps={settingsSearch.sectionSearch("auto-approval")}
+              aaEnabled={aaEnabled}
+              setAaEnabled={setAaEnabled}
+              aaModel={aaModel}
+              setAaModel={setAaModel}
+              aaMaxConcurrency={aaMaxConcurrency}
+              setAaMaxConcurrency={setAaMaxConcurrency}
+              aaTimeoutSeconds={aaTimeoutSeconds}
+              setAaTimeoutSeconds={setAaTimeoutSeconds}
+              aaSaving={aaSaving}
+              setAaSaving={setAaSaving}
+              aaError={aaError}
+              setAaError={setAaError}
+              aaConfigs={aaConfigs}
+              aaConfigsLoading={aaConfigsLoading}
+              aaNewProjectPaths={aaNewProjectPaths}
+              setAaNewProjectPaths={setAaNewProjectPaths}
+              aaNewPathInput={aaNewPathInput}
+              setAaNewPathInput={setAaNewPathInput}
+              aaNewLabel={aaNewLabel}
+              setAaNewLabel={setAaNewLabel}
+              aaNewCriteria={aaNewCriteria}
+              setAaNewCriteria={setAaNewCriteria}
+              aaCreating={aaCreating}
+              setAaCreating={setAaCreating}
+              aaCreateError={aaCreateError}
+              setAaCreateError={setAaCreateError}
+              showAaFolderPicker={showAaFolderPicker}
+              setShowAaFolderPicker={setShowAaFolderPicker}
+              loadAutoApprovalConfigs={loadAutoApprovalConfigs}
+            />
 
             {/* ── 7. Session Namer ─────────────────────────────────── */}
             <CollapsibleSection
@@ -1821,173 +1911,38 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               <NamerDebugPanel />
             </CollapsibleSection>
 
-            {/* ── 8. Voice Transcription ──────────────────────────── */}
-            <CollapsibleSection
-              id="voice-transcription"
-              title="Voice Transcription"
-              description="Configure the OpenAI-compatible Whisper API for voice-to-text input. Optionally enable LLM enhancement to clean up transcribed text before sending."
-              {...settingsSearch.sectionSearch("voice-transcription")}
-            >
-              <div className="space-y-3 pl-3 border-l-2 border-cc-border">
-                <div>
-                  <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-api-key">
-                    API Key
-                  </label>
-                  <input
-                    id="transcription-api-key"
-                    type="password"
-                    value={transcriptionApiKey}
-                    onChange={(e) => setTranscriptionApiKey(e.target.value)}
-                    onFocus={() => {
-                      if (transcriptionApiKey === "***") setTranscriptionApiKey("");
-                    }}
-                    placeholder="sk-..."
-                    className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-base-url">
-                    Base URL
-                  </label>
-                  <input
-                    id="transcription-base-url"
-                    type="text"
-                    value={transcriptionBaseUrl}
-                    onChange={(e) => setTranscriptionBaseUrl(e.target.value)}
-                    placeholder="https://api.openai.com/v1"
-                    className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
-                  />
-                  <p className="mt-1 text-xs text-cc-muted">
-                    Leave empty for OpenAI. Use a custom URL for Groq, local Whisper, etc.
-                  </p>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="stt-model">
-                    STT Model
-                  </label>
-                  <select
-                    id="stt-model"
-                    value={sttModel}
-                    onChange={(e) => setSttModel(e.target.value)}
-                    className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
-                  >
-                    <option value="gpt-4o-mini-transcribe">gpt-4o-mini-transcribe</option>
-                    <option value="gpt-4o-transcribe">gpt-4o-transcribe</option>
-                    <option value="gpt-4o-mini-transcribe-2025-12-15">gpt-4o-mini-transcribe-2025-12-15</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-model">
-                    Enhancement Model
-                  </label>
-                  <input
-                    id="transcription-model"
-                    type="text"
-                    value={transcriptionModel}
-                    onChange={(e) => setTranscriptionModel(e.target.value)}
-                    placeholder="gpt-5-mini"
-                    className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
-                  />
-                </div>
-                <label className="flex items-center gap-2 text-xs text-cc-fg cursor-pointer">
-                  <input
-                    type="checkbox"
-                    checked={transcriptionEnhancement}
-                    onChange={(e) => setTranscriptionEnhancement(e.target.checked)}
-                    className="accent-cc-primary"
-                  />
-                  Enable Enhancement
-                </label>
-                {transcriptionEnhancement && (
-                  <div>
-                    <label className="block text-xs font-medium text-cc-muted mb-1.5">Enhancement Style</label>
-                    <select
-                      value={enhancementMode}
-                      onChange={(e) => setEnhancementMode(e.target.value as "default" | "bullet")}
-                      className="w-full bg-cc-input-bg text-cc-fg border border-cc-border rounded-lg px-3 py-2 text-xs"
-                    >
-                      <option value="default">Prose</option>
-                      <option value="bullet">Bullet Points</option>
-                    </select>
-                    <p className="mt-1 text-xs text-cc-muted">
-                      Prose outputs clean paragraphs. Bullet Points structures dictation as organized lists.
-                    </p>
-                  </div>
-                )}
-                <div>
-                  <label className="block text-xs font-medium text-cc-muted mb-1.5" htmlFor="transcription-vocabulary">
-                    Custom Vocabulary
-                  </label>
-                  <input
-                    id="transcription-vocabulary"
-                    type="text"
-                    value={transcriptionVocabulary}
-                    onChange={(e) => setTranscriptionVocabulary(e.target.value)}
-                    placeholder="Takode, LiteLLM, worktree, mai-agents"
-                    className="w-full px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg focus:outline-none focus:border-cc-primary/60 font-mono"
-                  />
-                  <p className="mt-1 text-xs text-cc-muted">
-                    Comma-separated terms the STT model frequently mishears. Injected as vocabulary hints.
-                  </p>
-                </div>
-              </div>
-
-              {transcriptionError && (
-                <div className="px-3 py-2 rounded-lg bg-cc-error/10 border border-cc-error/20 text-xs text-cc-error">
-                  {transcriptionError}
-                </div>
-              )}
-              {transcriptionSaved && (
-                <div className="px-3 py-2 rounded-lg bg-cc-success/10 border border-cc-success/20 text-xs text-cc-success">
-                  Voice transcription settings saved.
-                </div>
-              )}
-
-              <div className="flex justify-end">
-                <button
-                  type="button"
-                  disabled={transcriptionSaving || loading}
-                  onClick={async () => {
-                    setTranscriptionSaving(true);
-                    setTranscriptionError("");
-                    setTranscriptionSaved(false);
-                    try {
-                      const config: TranscriptionConfig = {
-                        apiKey: transcriptionApiKey === "***" ? "***" : transcriptionApiKey,
-                        baseUrl: transcriptionBaseUrl,
-                        enhancementEnabled: transcriptionEnhancement,
-                        enhancementModel: transcriptionModel,
-                        customVocabulary: transcriptionVocabulary,
-                        enhancementMode,
-                        sttModel: sttModel as TranscriptionConfig["sttModel"],
-                      };
-                      await api.updateSettings({ transcriptionConfig: config });
-                      setTranscriptionSaved(true);
-                      setTimeout(() => setTranscriptionSaved(false), 3000);
-                    } catch (err: unknown) {
-                      setTranscriptionError(err instanceof Error ? err.message : String(err));
-                    } finally {
-                      setTranscriptionSaving(false);
-                    }
-                  }}
-                  className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    transcriptionSaving || loading
-                      ? "bg-cc-hover text-cc-muted cursor-not-allowed"
-                      : "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
-                  }`}
-                >
-                  {transcriptionSaving ? "Saving..." : "Save"}
-                </button>
-              </div>
-
-              <TranscriptionDebugPanel />
-              <EnhancementTester />
-            </CollapsibleSection>
+            <SettingsVoiceTranscriptionSection
+              loading={loading}
+              sectionSearchProps={settingsSearch.sectionSearch("voice-transcription")}
+              transcriptionApiKey={transcriptionApiKey}
+              setTranscriptionApiKey={setTranscriptionApiKey}
+              transcriptionBaseUrl={transcriptionBaseUrl}
+              setTranscriptionBaseUrl={setTranscriptionBaseUrl}
+              transcriptionModel={transcriptionModel}
+              setTranscriptionModel={setTranscriptionModel}
+              sttModel={sttModel}
+              setSttModel={setSttModel}
+              customSttModel={customSttModel}
+              setCustomSttModel={setCustomSttModel}
+              transcriptionEnhancement={transcriptionEnhancement}
+              setTranscriptionEnhancement={setTranscriptionEnhancement}
+              enhancementMode={enhancementMode}
+              setEnhancementMode={setEnhancementMode}
+              transcriptionVocabulary={transcriptionVocabulary}
+              setTranscriptionVocabulary={setTranscriptionVocabulary}
+              transcriptionSaving={transcriptionSaving}
+              setTranscriptionSaving={setTranscriptionSaving}
+              transcriptionSaved={transcriptionSaved}
+              setTranscriptionSaved={setTranscriptionSaved}
+              transcriptionError={transcriptionError}
+              setTranscriptionError={setTranscriptionError}
+            />
 
             <SettingsServerDiagnosticsSection
               logFile={logFile}
               restartSupported={restartSupported}
               restartError={restartError}
+              restartPrepResult={restartPrepResult}
               restarting={restarting}
               onRestartServer={onRestartServer}
               sectionSearch={settingsSearch.childSectionSearch("server")}

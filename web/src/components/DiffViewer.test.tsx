@@ -94,6 +94,42 @@ diff --git a/src/b.ts b/src/b.ts
     expect(screen.getByRole("button", { name: "Open src/b.ts" })).toBeTruthy();
   });
 
+  it("collapses and expands file sections when enabled", () => {
+    const unifiedDiff = `diff --git a/src/app.ts b/src/app.ts
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -1 +1 @@
+-old
++new`;
+
+    const { container } = render(<DiffViewer unifiedDiff={unifiedDiff} mode="full" collapsibleFiles />);
+
+    expect(container.querySelector(".diff-line-add")).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Collapse file" }));
+    expect(container.querySelector(".diff-line-add")).toBeNull();
+    expect(screen.getByRole("button", { name: "Expand file" })).toBeTruthy();
+
+    fireEvent.click(screen.getByRole("button", { name: "Expand file" }));
+    expect(container.querySelector(".diff-line-add")).toBeTruthy();
+  });
+
+  it("marks full diff viewers that delegate scrolling to a parent for sticky file headers", () => {
+    const { container } = render(
+      <DiffViewer oldText="old" newText="new" mode="full" fileName="src/app.ts" stickyFileHeaders />,
+    );
+
+    expect(container.querySelector(".diff-sticky-file-headers")).toBeTruthy();
+  });
+
+  it("marks file headers as opaque surfaces for sticky layering", () => {
+    const { container } = render(
+      <DiffViewer oldText="old" newText="new" mode="full" fileName="src/app.ts" stickyFileHeaders />,
+    );
+
+    expect(container.querySelector(".diff-file-header")?.classList.contains("diff-file-header-opaque")).toBe(true);
+  });
+
   it("renders full mode with line numbers when explicitly enabled", () => {
     const { container } = render(<DiffViewer oldText="hello" newText="world" mode="full" showLineNumbers />);
     expect(container.querySelector(".diff-full")).toBeTruthy();

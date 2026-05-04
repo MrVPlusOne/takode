@@ -60,7 +60,7 @@ export function TaskOutlineBar({ sessionId }: { sessionId: string }) {
           const isQuest = task.source === "quest";
           // Quest pills should only highlight as active when the quest is
           // still in_progress for this session. Once a quest transitions to
-          // needs_verification/done (or the session moves to a different
+          // review/done (or the session moves to a different
           // quest), the pill should appear inactive so the timeline doesn't
           // show stale "active" quests.
           const isQuestStale =

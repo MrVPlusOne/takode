@@ -1,7 +1,7 @@
 import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import type { ChatMessage, ContentBlock } from "../types.js";
+import type { ChatMessage, ContentBlock, ThreadAttachmentMarker, ThreadTransitionMarker } from "../types.js";
 import { isSubagentToolName } from "../types.js";
 import {
   isUserBoundaryEntry,
@@ -30,9 +30,17 @@ import {
   getTurnFeedBlockId,
   isTimedChatMessage,
 } from "./message-feed-utils.js";
-import type { FeedSection } from "./message-feed-sections.js";
+import { findPreviousSectionStartIndex, type FeedSection } from "./message-feed-sections.js";
 import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
+import {
+  formatThreadAttachmentMarkerDetail,
+  isCrossThreadActivityMarkerMessage,
+  isThreadAttachmentMarkerMessage,
+  isThreadTransitionMarkerMessage,
+} from "../utils/thread-projection.js";
+import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
+import { isAttentionLedgerMessage } from "../utils/attention-records.js";
 
 function useExpandForScrollTarget(
   sessionId: string,
@@ -101,9 +109,7 @@ function getTurnSummaryDurationMs(turn: Turn, nextTurn: Turn | null, leaderMode:
   return getNormalTurnDurationMs(turn);
 }
 
-export function findPreviousSectionStartIndex(sections: FeedSection[], fromIndex: number): number | null {
-  return fromIndex > 0 ? Math.min(fromIndex - 1, sections.length - 1) : null;
-}
+export { findPreviousSectionStartIndex };
 
 function TurnSummaryStats({
   stats,
@@ -158,6 +164,16 @@ function TurnSummaryStats({
         </>
       )}
     </>
+  );
+}
+
+function hasTurnSummaryStats(stats: TurnStats, durationMs: number | null): boolean {
+  return (
+    stats.messageCount > 0 ||
+    stats.toolCount > 0 ||
+    stats.subagentCount > 0 ||
+    stats.herdEventCount > 0 ||
+    durationMs !== null
   );
 }
 
@@ -224,6 +240,14 @@ function isHerdEventEntry(entry: FeedEntry): entry is { kind: "message"; msg: Ch
   return entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource?.sessionId === "herd-events";
 }
 
+function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
+  return (
+    isThreadAttachmentMarkerMessage(message) ||
+    isThreadTransitionMarkerMessage(message) ||
+    isCrossThreadActivityMarkerMessage(message)
+  );
+}
+
 function formatHerdBatchTimeRange(messages: ChatMessage[]): string {
   const first = messages[0];
   const last = messages[messages.length - 1];
@@ -280,6 +304,311 @@ function HerdEventBatchGroup({ messages, sessionId }: { messages: ChatMessage[];
   );
 }
 
+function ThreadMarkerClusterRow({
+  messages,
+  onSelectThread,
+}: {
+  messages: ChatMessage[];
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const [detailsOpen, setDetailsOpen] = useState(false);
+  const moveSummary = summarizeThreadAttachmentMarkers(messages);
+  const transitionSummary = summarizeThreadTransitionMarkers(messages);
+  const activitySummary = summarizeCrossThreadActivityMarkers(messages);
+  if (!moveSummary && !transitionSummary && !activitySummary) return null;
+  const firstMessage = messages[0];
+  const firstThreadKey =
+    moveSummary?.destinations[0]?.threadKey ??
+    transitionSummary?.destinations[0]?.threadKey ??
+    activitySummary?.destinations[0]?.threadKey;
+  const details = buildThreadMarkerClusterDetails(messages);
+  const showDetails = details.length > 0 && (messages.length > 1 || !!moveSummary || !!transitionSummary);
+  const testId =
+    [moveSummary, transitionSummary, activitySummary].filter(Boolean).length > 1
+      ? "thread-system-marker-cluster"
+      : moveSummary
+        ? "thread-attachment-marker"
+        : transitionSummary
+          ? "thread-transition-marker"
+          : "cross-thread-activity-marker";
+
+  return (
+    <div
+      className="animate-[fadeSlideIn_0.2s_ease-out] pl-9"
+      data-testid={testId}
+      data-thread-key={firstThreadKey}
+      data-message-id={firstMessage?.id}
+      data-feed-block-id={getMessageFeedBlockId(firstMessage?.id ?? "thread-marker-cluster")}
+    >
+      <div className="max-w-full space-y-0.5 text-[11px] text-cc-muted font-mono-code">
+        {moveSummary && (
+          <div>
+            <MoveSummaryLine summary={moveSummary} onSelectThread={onSelectThread} />
+            {showDetails && (
+              <>
+                <span className="mx-1.5 text-cc-muted/35">·</span>
+                <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
+              </>
+            )}
+          </div>
+        )}
+        {transitionSummary && (
+          <div>
+            <TransitionSummaryLine summary={transitionSummary} onSelectThread={onSelectThread} />
+            {!moveSummary && showDetails && (
+              <>
+                <span className="mx-1.5 text-cc-muted/35">·</span>
+                <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
+              </>
+            )}
+          </div>
+        )}
+        {activitySummary && (
+          <div>
+            <ActivitySummaryLine summary={activitySummary} onSelectThread={onSelectThread} />
+            {!moveSummary && !transitionSummary && showDetails && (
+              <>
+                <span className="mx-1.5 text-cc-muted/35">·</span>
+                <DetailsToggle open={detailsOpen} onToggle={() => setDetailsOpen((v) => !v)} />
+              </>
+            )}
+          </div>
+        )}
+        {detailsOpen && showDetails && (
+          <div className="mt-1 max-w-3xl space-y-0.5 text-cc-muted/70" data-testid="thread-marker-cluster-details">
+            {details.map((detail, index) => (
+              <div key={`${detail}-${index}`}>{detail}</div>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function DetailsToggle({ open, onToggle }: { open: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline"
+      aria-expanded={open}
+    >
+      Details
+    </button>
+  );
+}
+
+type ThreadMarkerDestinationSummary = {
+  threadKey: string;
+  label: string;
+  count: number;
+};
+
+function MoveSummaryLine({
+  summary,
+  onSelectThread,
+}: {
+  summary: { count: number; destinations: ThreadMarkerDestinationSummary[] };
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const grouped = summary.destinations.length > 1;
+  const countLabel = `${summary.count} ${summary.count === 1 ? "message" : "messages"} moved to `;
+  return (
+    <>
+      {!grouped && <span>{countLabel}</span>}
+      {summary.destinations.map((destination, index) => (
+        <span key={destination.threadKey}>
+          {index > 0 && <span className="text-cc-muted">, </span>}
+          {grouped && (
+            <span>
+              {destination.count}{" "}
+              {index === 0 ? `${destination.count === 1 ? "message" : "messages"} moved to ` : "to "}
+            </span>
+          )}
+          <ThreadMarkerDestinationButton destination={destination} onSelectThread={onSelectThread} />
+        </span>
+      ))}
+    </>
+  );
+}
+
+function ActivitySummaryLine({
+  summary,
+  onSelectThread,
+}: {
+  summary: { count: number; destinations: ThreadMarkerDestinationSummary[] };
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const countLabel = `${summary.count} ${summary.count === 1 ? "activity" : "activities"} in `;
+  return (
+    <>
+      <span>{countLabel}</span>
+      {summary.destinations.map((destination, index) => (
+        <span key={destination.threadKey}>
+          {index > 0 && <span className="text-cc-muted">, </span>}
+          <ThreadMarkerDestinationButton destination={destination} onSelectThread={onSelectThread} />
+        </span>
+      ))}
+    </>
+  );
+}
+
+function TransitionSummaryLine({
+  summary,
+  onSelectThread,
+}: {
+  summary: { transitions: ThreadTransitionDestinationSummary[] };
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  return (
+    <>
+      {summary.transitions.map((transition, index) => (
+        <span key={`${transition.sourceLabel}-${transition.destination.threadKey}`}>
+          {index > 0 && <span className="text-cc-muted">, </span>}
+          <span>Work continued from {transition.sourceLabel} to </span>
+          <ThreadMarkerDestinationButton destination={transition.destination} onSelectThread={onSelectThread} />
+        </span>
+      ))}
+    </>
+  );
+}
+
+function ThreadMarkerDestinationButton({
+  destination,
+  onSelectThread,
+}: {
+  destination: ThreadMarkerDestinationSummary;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={() => onSelectThread?.(destination.threadKey)}
+      className="text-cc-primary hover:text-cc-primary/80 underline-offset-2 hover:underline disabled:cursor-default disabled:no-underline disabled:text-cc-muted/60"
+      disabled={!onSelectThread}
+      title={`Open ${destination.label}`}
+    >
+      {destination.label}
+    </button>
+  );
+}
+
+function summarizeCrossThreadActivityMarkers(messages: ChatMessage[]): {
+  count: number;
+  destinations: ThreadMarkerDestinationSummary[];
+} | null {
+  const destinations = new Map<string, ThreadMarkerDestinationSummary>();
+  let count = 0;
+  for (const message of messages) {
+    const marker = message.metadata?.crossThreadActivityMarker;
+    if (!marker) continue;
+    count += marker.count;
+    const destination = marker.questId ?? marker.threadKey;
+    const existing = destinations.get(marker.threadKey);
+    if (existing) {
+      existing.count += marker.count;
+    } else {
+      destinations.set(marker.threadKey, {
+        threadKey: marker.threadKey,
+        label: `thread:${destination}`,
+        count: marker.count,
+      });
+    }
+  }
+  if (count === 0 || destinations.size === 0) return null;
+  return { count, destinations: [...destinations.values()] };
+}
+
+function summarizeThreadAttachmentMarkers(messages: ChatMessage[]): {
+  count: number;
+  destinations: ThreadMarkerDestinationSummary[];
+} | null {
+  const destinations = new Map<string, ThreadMarkerDestinationSummary>();
+  let count = 0;
+  for (const message of messages) {
+    const marker = message.metadata?.threadAttachmentMarker;
+    if (!marker) continue;
+    count += marker.count;
+    const destination = marker.questId ?? marker.threadKey;
+    const existing = destinations.get(marker.threadKey);
+    if (existing) {
+      existing.count += marker.count;
+    } else {
+      destinations.set(marker.threadKey, {
+        threadKey: marker.threadKey,
+        label: `thread:${destination}`,
+        count: marker.count,
+      });
+    }
+  }
+  if (count === 0 || destinations.size === 0) return null;
+  return { count, destinations: [...destinations.values()] };
+}
+
+type ThreadTransitionDestinationSummary = {
+  sourceLabel: string;
+  destination: ThreadMarkerDestinationSummary;
+};
+
+function summarizeThreadTransitionMarkers(messages: ChatMessage[]): {
+  transitions: ThreadTransitionDestinationSummary[];
+  destinations: ThreadMarkerDestinationSummary[];
+} | null {
+  const transitions: ThreadTransitionDestinationSummary[] = [];
+  for (const message of messages) {
+    const marker = message.metadata?.threadTransitionMarker;
+    if (!marker) continue;
+    transitions.push({
+      sourceLabel: formatThreadLabel(marker.sourceQuestId ?? marker.sourceThreadKey),
+      destination: {
+        threadKey: marker.threadKey,
+        label: formatThreadLabel(marker.questId ?? marker.threadKey),
+        count: 1,
+      },
+    });
+  }
+  if (transitions.length === 0) return null;
+  return { transitions, destinations: transitions.map((transition) => transition.destination) };
+}
+
+function buildThreadMarkerClusterDetails(messages: ChatMessage[]): string[] {
+  const details: string[] = [];
+  for (const message of messages) {
+    const attachment = message.metadata?.threadAttachmentMarker;
+    if (attachment) {
+      details.push(formatThreadAttachmentDetail(attachment));
+      continue;
+    }
+    const transition = message.metadata?.threadTransitionMarker;
+    if (transition) {
+      details.push(formatThreadTransitionDetail(transition));
+      continue;
+    }
+    const activity = message.metadata?.crossThreadActivityMarker;
+    if (activity) {
+      const destination = activity.questId ?? activity.threadKey;
+      const countLabel = `${activity.count} ${activity.count === 1 ? "activity" : "activities"}`;
+      details.push(`${countLabel} in thread:${destination}`);
+    }
+  }
+  return details;
+}
+
+function formatThreadAttachmentDetail(marker: ThreadAttachmentMarker): string {
+  return formatThreadAttachmentMarkerDetail(marker);
+}
+
+function formatThreadTransitionDetail(marker: ThreadTransitionMarker): string {
+  return `Work continued from ${formatThreadLabel(marker.sourceQuestId ?? marker.sourceThreadKey)} to ${formatThreadLabel(
+    marker.questId ?? marker.threadKey,
+  )}`;
+}
+
+function formatThreadLabel(threadKey: string): string {
+  return threadKey === "main" ? "Main" : `thread:${threadKey}`;
+}
+
 function ToolMessageGroup({
   group,
   sessionId,
@@ -314,7 +643,13 @@ function ToolMessageGroup({
                 onInspect={() => onOpenCodexTerminal(item.id)}
               />
             ) : (
-              <ToolBlock name={item.name} input={item.input} toolUseId={item.id} sessionId={sessionId} />
+              <ToolBlock
+                name={item.name}
+                input={item.input}
+                toolUseId={item.id}
+                sessionId={sessionId}
+                parentMessageId={item.messageId}
+              />
             )}
           </div>
         </div>
@@ -364,6 +699,7 @@ function ToolMessageGroup({
                       input={item.input}
                       toolUseId={item.id}
                       sessionId={sessionId}
+                      parentMessageId={item.messageId}
                       hideLabel={group.toolName === "Bash"}
                     />
                   ),
@@ -380,21 +716,27 @@ function ToolMessageGroup({
 export const FeedEntries = memo(function FeedEntries({
   entries,
   sessionId,
+  currentThreadKey,
   minuteBoundaryLabels,
   isCodexSession,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
+  onSelectThread,
 }: {
   entries: FeedEntry[];
   sessionId: string;
+  currentThreadKey?: string;
   minuteBoundaryLabels?: Map<string, string>;
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const rendered = useMemo(() => {
     const result: React.ReactNode[] = [];
     let i = 0;
+    // Keep every branch in this manual renderer loop advancing `i`, assigning
+    // `i` to a larger cursor, or returning. A skipped row must not spin render.
     while (i < entries.length) {
       const entry = entries[i];
       if (isApprovalEntry(entry)) {
@@ -420,6 +762,41 @@ export const FeedEntries = memo(function FeedEntries({
         if (batch.length >= 2) {
           result.push(<HerdEventBatchGroup key={`herd-batch:${batch[0].id}`} messages={batch} sessionId={sessionId} />);
           i = j;
+          continue;
+        }
+      }
+      if (entry.kind === "message" && isThreadSystemMarkerMessage(entry.msg)) {
+        const batch: ChatMessage[] = [entry.msg];
+        let j = i + 1;
+        while (j < entries.length) {
+          const next = entries[j];
+          if (next.kind !== "message" || !isThreadSystemMarkerMessage(next.msg)) break;
+          batch.push(next.msg);
+          j++;
+        }
+        result.push(<ThreadMarkerClusterRow key={entry.msg.id} messages={batch} onSelectThread={onSelectThread} />);
+        i = j;
+        continue;
+      }
+      if (entry.kind === "message" && isAttentionLedgerMessage(entry.msg)) {
+        const record = entry.msg.metadata?.attentionRecord;
+        if (record) {
+          result.push(
+            <div
+              key={entry.msg.id}
+              data-message-id={entry.msg.id}
+              data-message-role={entry.msg.role}
+              data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
+            >
+              <AttentionLedgerRow
+                record={record}
+                sessionId={sessionId}
+                currentThreadKey={currentThreadKey}
+                onSelectThread={onSelectThread}
+              />
+            </div>,
+          );
+          i++;
           continue;
         }
       }
@@ -457,7 +834,10 @@ export const FeedEntries = memo(function FeedEntries({
           />,
         );
       } else if (isTimedChatMessage(entry.msg)) {
-        if (isEmptyAssistantMessage(entry.msg)) continue;
+        if (isEmptyAssistantMessage(entry.msg)) {
+          i++;
+          continue;
+        }
         const markerLabel = minuteBoundaryLabels?.get(entry.msg.id);
         const showTimestamp = entry.msg.role === "assistant" && typeof entry.msg.turnDurationMs === "number";
         result.push(
@@ -468,7 +848,13 @@ export const FeedEntries = memo(function FeedEntries({
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
-            <MessageBubble message={entry.msg} sessionId={sessionId} showTimestamp={showTimestamp} />
+            <MessageBubble
+              message={entry.msg}
+              sessionId={sessionId}
+              showTimestamp={showTimestamp}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+            />
           </div>,
         );
       } else {
@@ -479,14 +865,28 @@ export const FeedEntries = memo(function FeedEntries({
             data-message-role={entry.msg.role}
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
-            <MessageBubble message={entry.msg} sessionId={sessionId} />
+            <MessageBubble
+              message={entry.msg}
+              sessionId={sessionId}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+            />
           </div>,
         );
       }
       i++;
     }
     return result;
-  }, [activeCodexTerminalIds, entries, isCodexSession, minuteBoundaryLabels, onOpenCodexTerminal, sessionId]);
+  }, [
+    activeCodexTerminalIds,
+    entries,
+    isCodexSession,
+    currentThreadKey,
+    minuteBoundaryLabels,
+    onOpenCodexTerminal,
+    onSelectThread,
+    sessionId,
+  ]);
 
   return <>{rendered}</>;
 });
@@ -494,12 +894,15 @@ export const FeedEntries = memo(function FeedEntries({
 const CollapsedActivityBar = memo(function CollapsedActivityBar({
   stats,
   durationMs,
+  leaderMode,
   onClick,
 }: {
   stats: TurnStats;
   durationMs: number | null;
+  leaderMode: boolean;
   onClick: () => void;
 }) {
+  const hasStats = hasTurnSummaryStats(stats, durationMs);
   return (
     <button
       onClick={onClick}
@@ -508,6 +911,12 @@ const CollapsedActivityBar = memo(function CollapsedActivityBar({
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 shrink-0 text-cc-muted/60">
         <path d="M6 4l4 4-4 4" />
       </svg>
+      {leaderMode && (
+        <>
+          <span>Leader activity</span>
+          {hasStats && <span className="text-cc-muted/40">·</span>}
+        </>
+      )}
       <TurnSummaryStats stats={stats} durationMs={durationMs} separatorClass="text-cc-muted/40" />
     </button>
   );
@@ -542,21 +951,25 @@ function TurnCollapseBar({
 export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   turn,
   sessionId,
+  currentThreadKey,
   durationMs,
   onCollapse,
   minuteBoundaryLabels,
   isCodexSession,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
+  onSelectThread,
 }: {
   turn: Turn;
   sessionId: string;
+  currentThreadKey: string;
   durationMs: number | null;
   onCollapse: () => void;
   minuteBoundaryLabels: Map<string, string>;
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
+  onSelectThread?: (threadKey: string) => void;
 }) {
   const headerRef = useRef<HTMLButtonElement>(null);
 
@@ -568,10 +981,12 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
       <FeedEntries
         entries={turn.allEntries}
         sessionId={sessionId}
+        currentThreadKey={currentThreadKey}
         minuteBoundaryLabels={minuteBoundaryLabels}
         isCodexSession={isCodexSession}
         activeCodexTerminalIds={activeCodexTerminalIds}
         onOpenCodexTerminal={onOpenCodexTerminal}
+        onSelectThread={onSelectThread}
       />
       {turn.agentEntries.length > 0 && <TurnCollapseFooter headerRef={headerRef} onCollapse={onCollapse} />}
     </>
@@ -981,7 +1396,13 @@ function SubagentResult({
   );
 }
 
-export const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: string }) {
+export const FeedFooter = memo(function FeedFooter({
+  sessionId,
+  visibleToolUseIds,
+}: {
+  sessionId: string;
+  visibleToolUseIds?: Set<string>;
+}) {
   const toolProgress = useStore((s) => s.toolProgress.get(sessionId));
   const rawStreamingText = useStore((s) => s.streaming.get(sessionId));
   const rawThinkingText = useStore((s) => s.streamingThinking.get(sessionId));
@@ -1009,7 +1430,10 @@ export const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: s
         !rawStreamingText &&
         !isCodexSession &&
         (() => {
-          const nonTaskProgress = Array.from(toolProgress.values()).filter((p) => !isSubagentToolName(p.toolName));
+          const nonTaskProgress = Array.from(toolProgress.entries())
+            .filter(([toolUseId]) => !visibleToolUseIds || visibleToolUseIds.has(toolUseId))
+            .map(([, progress]) => progress)
+            .filter((p) => !isSubagentToolName(p.toolName));
           if (nonTaskProgress.length === 0) return null;
           return (
             <div
@@ -1070,19 +1494,23 @@ export const FeedFooter = memo(function FeedFooter({ sessionId }: { sessionId: s
 export const TurnEntries = memo(function TurnEntries({
   sections,
   sessionId,
+  currentThreadKey,
   leaderMode,
   isCodexSession,
   activeCodexTerminalIds,
   onOpenCodexTerminal,
+  onSelectThread,
   turnStates,
   toggleTurn,
 }: {
   sections: FeedSection[];
   sessionId: string;
+  currentThreadKey: string;
   leaderMode: boolean;
   isCodexSession: boolean;
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
+  onSelectThread?: (threadKey: string) => void;
   turnStates: Array<{ isActivityExpanded: boolean } | undefined>;
   toggleTurn: (turnId: string) => void;
 }) {
@@ -1131,10 +1559,12 @@ export const TurnEntries = memo(function TurnEntries({
                       <FeedEntries
                         entries={[turn.userEntry]}
                         sessionId={sessionId}
+                        currentThreadKey={currentThreadKey}
                         minuteBoundaryLabels={minuteBoundaryLabels}
                         isCodexSession={isCodexSession}
                         activeCodexTerminalIds={activeCodexTerminalIds}
                         onOpenCodexTerminal={onOpenCodexTerminal}
+                        onSelectThread={onSelectThread}
                       />
                     )}
 
@@ -1143,11 +1573,13 @@ export const TurnEntries = memo(function TurnEntries({
                         <TurnEntriesExpanded
                           turn={turn}
                           sessionId={sessionId}
+                          currentThreadKey={currentThreadKey}
                           durationMs={turnSummaryDuration}
                           minuteBoundaryLabels={minuteBoundaryLabels}
                           isCodexSession={isCodexSession}
                           activeCodexTerminalIds={activeCodexTerminalIds}
                           onOpenCodexTerminal={onOpenCodexTerminal}
+                          onSelectThread={onSelectThread}
                           onCollapse={() => toggleTurn(turn.id)}
                         />
                       )
@@ -1157,10 +1589,12 @@ export const TurnEntries = memo(function TurnEntries({
                           <FeedEntries
                             entries={turn.systemEntries}
                             sessionId={sessionId}
+                            currentThreadKey={currentThreadKey}
                             minuteBoundaryLabels={minuteBoundaryLabels}
                             isCodexSession={isCodexSession}
                             activeCodexTerminalIds={activeCodexTerminalIds}
                             onOpenCodexTerminal={onOpenCodexTerminal}
+                            onSelectThread={onSelectThread}
                           />
                         )}
                         {(turn.agentEntries.length > 0 ||
@@ -1173,6 +1607,7 @@ export const TurnEntries = memo(function TurnEntries({
                                 <CollapsedActivityBar
                                   stats={turn.stats}
                                   durationMs={turnSummaryDuration}
+                                  leaderMode={leaderMode}
                                   onClick={() => toggleTurn(turn.id)}
                                 />
                               )}
@@ -1184,9 +1619,11 @@ export const TurnEntries = memo(function TurnEntries({
                                         key={scIdx}
                                         entries={[sc.entry]}
                                         sessionId={sessionId}
+                                        currentThreadKey={currentThreadKey}
                                         isCodexSession={isCodexSession}
                                         activeCodexTerminalIds={activeCodexTerminalIds}
                                         onOpenCodexTerminal={onOpenCodexTerminal}
+                                        onSelectThread={onSelectThread}
                                       />
                                     ))}
                                   </HidePawContext.Provider>
@@ -1198,10 +1635,12 @@ export const TurnEntries = memo(function TurnEntries({
                                     <FeedEntries
                                       entries={turn.notificationEntries}
                                       sessionId={sessionId}
+                                      currentThreadKey={currentThreadKey}
                                       minuteBoundaryLabels={minuteBoundaryLabels}
                                       isCodexSession={isCodexSession}
                                       activeCodexTerminalIds={activeCodexTerminalIds}
                                       onOpenCodexTerminal={onOpenCodexTerminal}
+                                      onSelectThread={onSelectThread}
                                     />
                                   </HidePawContext.Provider>
                                 </div>
@@ -1212,9 +1651,11 @@ export const TurnEntries = memo(function TurnEntries({
                                     <FeedEntries
                                       entries={[turn.responseEntry]}
                                       sessionId={sessionId}
+                                      currentThreadKey={currentThreadKey}
                                       isCodexSession={isCodexSession}
                                       activeCodexTerminalIds={activeCodexTerminalIds}
                                       onOpenCodexTerminal={onOpenCodexTerminal}
+                                      onSelectThread={onSelectThread}
                                     />
                                   </HidePawContext.Provider>
                                 </div>

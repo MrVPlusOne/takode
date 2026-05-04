@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
+import type {
+  SessionState,
+  PermissionRequest,
+  ContentBlock,
+  BrowserIncomingMessage,
+  SessionAttentionRecord,
+} from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 
@@ -122,6 +128,29 @@ function fireMessage(data: Record<string, unknown>) {
   lastWs.onmessage!({ data: JSON.stringify(data) });
 }
 
+function attentionRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
+  return {
+    id: "attention-1",
+    leaderSessionId: "s1",
+    type: "needs_input",
+    source: { kind: "manual", id: "attention-1" },
+    questId: "q-983",
+    threadKey: "q-983",
+    title: "Need decision",
+    summary: "Need decision summary",
+    actionLabel: "Answer",
+    priority: "needs_input",
+    state: "seen",
+    createdAt: 100,
+    updatedAt: 200,
+    route: { threadKey: "q-983", questId: "q-983" },
+    chipEligible: true,
+    ledgerEligible: true,
+    dedupeKey: "attention-1",
+    ...overrides,
+  };
+}
+
 // ===========================================================================
 // Connection
 // ===========================================================================
@@ -193,5 +222,82 @@ describe("handleMessage: state_snapshot", () => {
     });
     expect(useStore.getState().cliConnected.get("s1")).toBe(false);
     expect(useStore.getState().sessionStatus.get("s1")).toBeNull();
+  });
+
+  it("does not let an older state snapshot restore stale notification status", () => {
+    // A reconnect snapshot can arrive after a newer global notification-status
+    // update. Version ordering prevents the older inbox from reviving an amber dot.
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 1,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      },
+    ]);
+    useStore.setState({ sessionAttention: new Map([["s1", null]]) });
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "default",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: true,
+      attentionReason: "action",
+      notifications: [{ id: "n1", category: "needs-input", timestamp: 1000, messageId: null, done: false }],
+      notificationStatusVersion: 4,
+      notificationStatusUpdatedAt: 4000,
+    });
+
+    const sdkSession = useStore.getState().sdkSessions.find((session) => session.sessionId === "s1")!;
+    expect(sdkSession.notificationUrgency).toBeNull();
+    expect(sdkSession.activeNotificationCount).toBe(0);
+    expect(useStore.getState().sessionNotifications.get("s1")).toBeUndefined();
+    expect(useStore.getState().sessionAttention.get("s1")).toBeNull();
+  });
+
+  it("hydrates and replaces server-authoritative attention records from snapshots and live updates", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "default",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: true,
+      attentionRecords: [attentionRecord({ state: "seen" })],
+    });
+    expect(useStore.getState().sessionAttentionRecords.get("s1")?.[0]?.state).toBe("seen");
+
+    fireMessage({
+      type: "attention_records_update",
+      attentionRecords: [attentionRecord({ id: "attention-2", state: "dismissed", dedupeKey: "attention-2" })],
+    });
+    expect(
+      useStore
+        .getState()
+        .sessionAttentionRecords.get("s1")
+        ?.map((record) => record.state),
+    ).toEqual(["dismissed"]);
+
+    fireMessage({
+      type: "state_snapshot",
+      sessionStatus: "idle",
+      permissionMode: "default",
+      backendConnected: true,
+      uiMode: null,
+      askPermission: true,
+      attentionRecords: [],
+    });
+    expect(useStore.getState().sessionAttentionRecords.get("s1")).toBeUndefined();
   });
 });

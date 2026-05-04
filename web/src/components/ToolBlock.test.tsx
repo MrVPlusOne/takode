@@ -9,6 +9,7 @@ import {
   formatDuration,
   EDIT_BLOCKS_EXPANDED_KEY,
   extractFirstJsonObject,
+  parseTakodeBoardCommand,
   parseBoardFromResult,
 } from "./ToolBlock.js";
 import { useStore } from "../store.js";
@@ -341,105 +342,6 @@ describe("ToolBlock", () => {
     expect(dollarSpan?.textContent).toBe("$ ");
   });
 
-  it("does not render a notification chip when takode notify text is only quoted inside another command", () => {
-    // Regression for q-325: leader-side Bash commands like `takode send ...`
-    // can quote the literal text `takode notify review` inside their message
-    // body, but that should still render as a normal tool row, not a
-    // notification marker.
-    render(
-      <ToolBlock
-        name="Bash"
-        input={{ command: 'takode send 17 "If this looks good, later run takode notify review"' }}
-        toolUseId="tool-notify-quoted"
-      />,
-    );
-
-    expect(screen.getByText(/takode send 17 "If this looks good, later run takode notify/)).toBeTruthy();
-    expect(screen.queryByText("Ready for review")).toBeNull();
-    expect(screen.queryByText("Needs input")).toBeNull();
-  });
-
-  it("does not render a notification chip when takode notify text is embedded in another top-level command", () => {
-    // The parser should only match a real top-level `takode notify` command.
-    // Other commands that merely echo or mention that text must remain normal
-    // Bash tool rows.
-    render(<ToolBlock name="Bash" input={{ command: "echo takode notify review" }} toolUseId="tool-notify-embedded" />);
-
-    expect(screen.getByText("echo takode notify review")).toBeTruthy();
-    expect(screen.queryByText("Ready for review")).toBeNull();
-    expect(screen.queryByText("Needs input")).toBeNull();
-  });
-
-  it("renders a notification chip for an actual takode notify review command", () => {
-    // Real `takode notify review` Bash tool calls should keep the inline marker
-    // so the UI still shows immediate notification state before inbox hydration.
-    render(
-      <ToolBlock
-        name="Bash"
-        input={{ command: 'TAKODE_API_PORT=3455 takode notify review "q-325 ready"' }}
-        toolUseId="tool-notify-real"
-        sessionId="review-session"
-        parentMessageId="asst-review-tool"
-      />,
-    );
-
-    expect(screen.getByText("Ready for review")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark as reviewed" }).hasAttribute("disabled")).toBe(true);
-  });
-
-  it("renders a notification chip for an actual takode notify needs-input command", () => {
-    // The shared parser also supports the needs-input category, so keep a
-    // direct behavior test for that branch of the notification marker.
-    render(
-      <ToolBlock
-        name="Bash"
-        input={{ command: 'TAKODE_API_PORT=3455 takode notify needs-input "Need a decision"' }}
-        toolUseId="tool-notify-needs-input"
-        sessionId="needs-input-session"
-        parentMessageId="asst-needs-input-tool"
-      />,
-    );
-
-    expect(screen.getByText("Needs input")).toBeTruthy();
-    expect(screen.getByRole("button", { name: "Mark handled" }).hasAttribute("disabled")).toBe(true);
-  });
-
-  it("uses the anchored store summary for a lagged takode notify tool marker", () => {
-    // q-568: if the inbox notification is already anchored to this message
-    // before `msg.notification` lands, ToolBlock should still surface the rich
-    // summary instead of a generic "Ready for review" placeholder.
-    const previousNotifications = useStore.getState().sessionNotifications;
-    const sessionNotifications = new Map(previousNotifications);
-    sessionNotifications.set("review-session", [
-      {
-        id: "n-review-lagged",
-        category: "review",
-        timestamp: Date.now(),
-        messageId: "asst-review-lagged",
-        summary: "q-568 single rich chip",
-        done: false,
-      },
-    ]);
-    useStore.setState({ sessionNotifications });
-
-    try {
-      render(
-        <ToolBlock
-          name="Bash"
-          input={{ command: 'TAKODE_API_PORT=3455 takode notify review "q-568 single rich chip"' }}
-          toolUseId="tool-notify-lagged"
-          sessionId="review-session"
-          parentMessageId="asst-review-lagged"
-        />,
-      );
-
-      expect(screen.getByText("q-568 single rich chip")).toBeTruthy();
-      expect(screen.queryByText("Ready for review")).toBeNull();
-    } finally {
-      useStore.setState({ sessionNotifications: previousNotifications });
-    }
-  });
-
   it("renders a lightweight raw affordance for takode board tool blocks", async () => {
     const boardOutput = [
       JSON.stringify(
@@ -488,7 +390,7 @@ describe("ToolBlock", () => {
 
   it("falls back to authoritative session board state for plain-text board output", async () => {
     const boardOutput = [
-      "QUEST    TITLE                    WORKER",
+      "QUEST    TITLE                    WORKER / REVIEWER              STATE              WAIT-FOR",
       "q-412    Inspect original boa…   #5 idle",
       "",
       "BOARD OUTPUT MARKER",
@@ -526,6 +428,55 @@ describe("ToolBlock", () => {
     expect(screen.queryByText(/BOARD OUTPUT MARKER/)).toBeNull();
     expect(screen.getByText("Work Board")).toBeTruthy();
     expect(screen.getByText("Inspect original board command")).toBeTruthy();
+  });
+
+  it("keeps non-table board subcommands as terminal rows", async () => {
+    const output = "q-412 -- Inspect original board command\nstatus: PLANNING\nworker: #5";
+    const sessionResults = new Map();
+    sessionResults.set("tool-board-detail", {
+      content: output,
+      is_error: false,
+      is_truncated: false,
+      total_size: output.length,
+    });
+    const toolResults = new Map();
+    toolResults.set("board-session-detail", sessionResults);
+    const sessionBoards = new Map();
+    sessionBoards.set("board-session-detail", [
+      { questId: "q-412", title: "Should not render as Work Board", status: "PLANNING", updatedAt: 100 },
+    ]);
+    useStore.setState({ toolResults, sessionBoards, latestBoardToolUseId: new Map() });
+
+    render(
+      <ToolBlock
+        name="Bash"
+        input={{ command: "takode board detail q-412" }}
+        toolUseId="tool-board-detail"
+        sessionId="board-session-detail"
+        defaultOpen
+      />,
+    );
+
+    await waitFor(() => expect(screen.queryByText("Work Board")).toBeNull());
+    expect(screen.getByText(/q-412 -- Inspect original board command/)).toBeTruthy();
+    expect(parseTakodeBoardCommand("takode board detail q-412")?.canUseLiveBoardFallback).toBe(false);
+    expect(parseTakodeBoardCommand("takode board advance --help")?.canUseLiveBoardFallback).toBe(false);
+    expect(parseTakodeBoardCommand("quest transition q-412 && takode board set q-412")?.canUseLiveBoardFallback).toBe(
+      true,
+    );
+  });
+
+  it("allows table-producing board mutation subcommands to use live board fallback", () => {
+    for (const command of [
+      "takode board propose q-412 --preset full-code",
+      "takode board promote q-412 --worker 5",
+      "takode board note q-412 2 --text done",
+      "takode board present q-412",
+      "quest show q-412 && takode board promote q-412",
+      "takode board --full",
+    ]) {
+      expect(parseTakodeBoardCommand(command)?.canUseLiveBoardFallback).toBe(true);
+    }
   });
 
   it("does not render a board card for failed plain-text board commands", async () => {
@@ -1986,5 +1937,43 @@ describe("parseBoardFromResult", () => {
     const json = JSON.stringify({ __takode_board__: true, board, queueWarnings });
     const result = parseBoardFromResult(json);
     expect(result).toEqual({ board, operation: undefined, queueWarnings });
+  });
+
+  it("extracts proposal review payloads when present", () => {
+    const board = [{ questId: "q-942", title: "Draft workflow", updatedAt: 100 }];
+    const proposalReview = {
+      questId: "q-942",
+      title: "Draft workflow",
+      status: "PROPOSED",
+      presentedAt: 123,
+      journey: {
+        mode: "proposed",
+        phaseIds: ["alignment", "implement"],
+      },
+    };
+    const json = JSON.stringify({ __takode_board__: true, board, proposalReview });
+
+    expect(parseBoardFromResult(json)).toEqual({
+      board,
+      operation: undefined,
+      proposalReview,
+    });
+  });
+
+  it("extracts row session statuses when present", () => {
+    const board = [{ questId: "q-42", title: "Test", updatedAt: 100 }];
+    const rowSessionStatuses = {
+      "q-42": {
+        worker: { sessionId: "worker-1", sessionNum: 11, status: "running" },
+        reviewer: { sessionId: "reviewer-1", sessionNum: 12, status: "idle" },
+      },
+    };
+    const json = JSON.stringify({ __takode_board__: true, board, rowSessionStatuses });
+
+    expect(parseBoardFromResult(json)).toEqual({
+      board,
+      rowSessionStatuses,
+      operation: undefined,
+    });
   });
 });

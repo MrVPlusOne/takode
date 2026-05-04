@@ -1,40 +1,71 @@
 import {
   mkdir,
   access,
+  chmod,
   copyFile,
   cp,
+  lstat,
   readFile,
+  readlink,
   realpath,
+  rm,
+  symlink,
   writeFile,
   unlink,
   open,
   readdir,
   stat,
 } from "node:fs/promises";
-import { join, resolve, relative, dirname } from "node:path";
-import { homedir } from "node:os";
+import { join, resolve, relative, dirname, basename } from "node:path";
+import { homedir, hostname } from "node:os";
 import { getLegacyCodexHome, resolveCompanionCodexHome, resolveCompanionCodexSessionHome } from "./codex-home.js";
-import { resolveBinary, getEnrichedPath, captureUserShellEnv, captureUserShellPath } from "./path-resolver.js";
+import {
+  NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS,
+  stripInheritedTelemetryEnv,
+  withNonInteractiveGitEditorEnv,
+} from "./cli-launcher-env.js";
+import { resolveBinary, getEnrichedPath, captureUserShellEnv } from "./path-resolver.js";
 import { sessionTag } from "./session-tag.js";
 
 const shellEnvPolicySection = "shell_environment_policy";
 const shellEnvPolicyHeader = `[${shellEnvPolicySection}]`;
 const codexFeaturesHeader = "[features]";
 const codexMultiAgentFeature = "multi_agent";
+const codexImageGenerationFeature = "image_generation";
 const dotslashShebang = "#!/usr/bin/env dotslash";
 const codexBootstrapCacheMarker = 'CACHE_DIR = os.path.expanduser("~/.cache/codex")';
 const nodeShebangRe = /^#!.*\bnode(?:\s|$)/;
+const hostCodexShellEnvVars = ["LITELLM_API_KEY", "LITELLM_PROXY_URL", "LITELLM_BASE_URL"] as const;
+const maiWrapperRootMarker = ".mai-agents-root";
+const maiWrapperEnvHostPrefix = "companion-codex-home-";
+const maiWrapperHostnameShimDirName = ".mai-wrapper-bin";
+const imagegenSkillRelativePath = ".system/imagegen";
+const agentsSkillsHome = join(homedir(), ".agents", "skills");
+const deprecatedCodexSkillsDirName = "skills";
+const defaultCodexEffectiveContextWindowPercent = 95;
+const defaultCodexNonLeaderAutoCompactThresholdPercent = 90;
 
 type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
+interface MaiWrapperSessionLaunchSpec {
+  hostnameShimDir: string;
+}
+
+interface MaiWrapperHostSpec {
+  hostCodexHome?: string;
+  hostEnvRaw: string;
+  wrapperRoot: string;
+}
 
 export class MissingCodexBinaryError extends Error {}
 
 interface CodexLaunchInfo {
   cwd: string;
   cliSessionId?: string;
+  isOrchestrator?: boolean;
 }
 
 interface CodexLaunchOptions {
+  model?: string;
   codexBinary?: string;
   permissionMode?: string;
   askPermission?: boolean;
@@ -45,6 +76,8 @@ interface CodexLaunchOptions {
   containerId?: string;
   env?: Record<string, string>;
   resumeCliSessionId?: string;
+  codexLeaderContextWindowOverrideTokens?: number;
+  codexNonLeaderAutoCompactThresholdPercent?: number;
 }
 
 export interface CodexSpawnSpec {
@@ -117,6 +150,115 @@ function mergePathStrings(paths: Array<string | undefined>): string {
   return merged.join(":");
 }
 
+function normalizeMaiHostname(input: string): string {
+  let normalized = input.replace(/[^A-Za-z0-9._-]/g, "-");
+  while (normalized.length > 0 && /^[._-]/.test(normalized)) normalized = normalized.slice(1);
+  while (normalized.length > 0 && /[._-]$/.test(normalized)) normalized = normalized.slice(0, -1);
+  if (normalized.length > 64) {
+    normalized = normalized.slice(0, 64);
+    while (normalized.length > 0 && /[._-]$/.test(normalized)) normalized = normalized.slice(0, -1);
+  }
+  return normalized || "host";
+}
+
+function quoteShellEnvValue(value: string): string {
+  return `'${value.replace(/'/g, `'\\''`)}'`;
+}
+
+function readShellEnvAssignment(raw: string, key: string): string | undefined {
+  const match = raw.match(new RegExp(`^${escapeRegExp(key)}=(.*)$`, "m"));
+  if (!match) return undefined;
+  const value = match[1]?.trim() || "";
+  if (value.length >= 2 && value.startsWith('"') && value.endsWith('"')) {
+    return value.slice(1, -1).replace(/\\"/g, '"').replace(/\\\\/g, "\\");
+  }
+  if (value.length >= 2 && value.startsWith("'") && value.endsWith("'")) {
+    return value.slice(1, -1).replace(/'\\\\''/g, "'");
+  }
+  return value;
+}
+function isCodexLeaderLaunch(info: CodexLaunchInfo, options: CodexLaunchOptions): boolean {
+  return info.isOrchestrator === true || options.env?.TAKODE_ROLE === "orchestrator";
+}
+
+async function readMaiWrapperHostEnv(wrapperRoot: string): Promise<string> {
+  const currentHostname = hostname();
+  const shortHostname = currentHostname.split(".")[0] || currentHostname;
+  const candidates = Array.from(
+    new Set([normalizeMaiHostname(currentHostname), normalizeMaiHostname(shortHostname)]).values(),
+  ).filter(Boolean);
+
+  for (const candidate of candidates) {
+    const hostEnvPath = join(wrapperRoot, ".run", `.env-${candidate}`);
+    const hostEnvRaw = await readFile(hostEnvPath, "utf-8").catch(() => "");
+    if (hostEnvRaw) return hostEnvRaw;
+  }
+  return "";
+}
+
+async function resolveMaiWrapperHostSpec(binary: string): Promise<MaiWrapperHostSpec | null> {
+  if (basename(binary) !== "codex.sh") return null;
+
+  let resolvedBinary = binary;
+  try {
+    resolvedBinary = await realpath(binary);
+  } catch {
+    resolvedBinary = binary;
+  }
+
+  const wrapperRoot = dirname(resolvedBinary);
+  if (!(await fileExists(join(wrapperRoot, maiWrapperRootMarker)))) {
+    return null;
+  }
+
+  const hostEnvRaw = await readMaiWrapperHostEnv(wrapperRoot);
+  return {
+    hostCodexHome: readShellEnvAssignment(hostEnvRaw, "CODEX_HOME"),
+    hostEnvRaw,
+    wrapperRoot,
+  };
+}
+
+function renderMaiWrapperSessionEnv(hostEnvRaw: string, codexHome: string, options: CodexLaunchOptions): string {
+  let out = hostEnvRaw;
+  if (out.length > 0 && !out.endsWith("\n")) out += "\n";
+  out += "# Takode session overrides\n";
+  out += `CODEX_HOME=${quoteShellEnvValue(codexHome)}\n`;
+
+  for (const key of hostCodexShellEnvVars) {
+    const value = options.env?.[key];
+    if (value) out += `${key}=${quoteShellEnvValue(value)}\n`;
+  }
+
+  return out;
+}
+
+async function ensureMaiWrapperHostnameShim(shimDir: string, hostnameValue: string): Promise<void> {
+  await mkdir(shimDir, { recursive: true });
+  const shimPath = join(shimDir, "hostname");
+  const shimContents = `#!/usr/bin/env bash
+printf '%s\\n' ${quoteShellEnvValue(hostnameValue)}
+`;
+  await writeFile(shimPath, shimContents, "utf-8");
+  await chmod(shimPath, 0o755);
+}
+
+async function resolveMaiWrapperSessionLaunchSpec(
+  hostSpec: MaiWrapperHostSpec,
+  sessionId: string,
+  codexHome: string,
+  options: CodexLaunchOptions,
+): Promise<MaiWrapperSessionLaunchSpec | null> {
+  const overlayHostname = normalizeMaiHostname(`${maiWrapperEnvHostPrefix}${sessionId}`);
+  const overlayEnvPath = join(hostSpec.wrapperRoot, ".run", `.env-${overlayHostname}`);
+  const overlayEnv = renderMaiWrapperSessionEnv(hostSpec.hostEnvRaw, codexHome, options);
+  await mkdir(dirname(overlayEnvPath), { recursive: true });
+  await writeFile(overlayEnvPath, overlayEnv, "utf-8");
+
+  const hostnameShimDir = join(codexHome, maiWrapperHostnameShimDirName);
+  await ensureMaiWrapperHostnameShim(hostnameShimDir, overlayHostname);
+  return { hostnameShimDir };
+}
 function upsertShellEnvironmentIncludeOnly(configToml: string, requiredVars: string[]): string {
   if (requiredVars.length === 0) return configToml;
   const normalizedRequired = Array.from(new Set(requiredVars)).sort();
@@ -206,6 +348,209 @@ function upsertBooleanSettingInSection(configToml: string, sectionHeader: string
     out[keyIndex] = renderedLine;
   }
   return out.join("\n") + (endsWithNewline ? "\n" : "");
+}
+
+function upsertTopLevelNumberSetting(configToml: string, key: string, value: number): string {
+  const endsWithNewline = configToml.endsWith("\n");
+  const lines = configToml.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  const renderedLine = `${key} = ${Math.floor(value)}`;
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
+  let insertAt = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
+      insertAt = i;
+      break;
+    }
+    if (keyPattern.test(lines[i])) {
+      const out = [...lines];
+      out[i] = renderedLine;
+      return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
+    }
+  }
+
+  const out = [...lines];
+  out.splice(insertAt, 0, renderedLine);
+  return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
+}
+
+function readTopLevelStringSetting(configToml: string, key: string): string | undefined {
+  const lines = configToml.split("\n");
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=\\s*(.+?)\\s*$`);
+
+  for (const line of lines) {
+    if (/^\s*\[[^\]]+\]\s*$/.test(line)) break;
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const match = line.match(keyPattern);
+    if (!match?.[1]) continue;
+    const value = match[1].trim();
+    if (value.startsWith('"') && value.endsWith('"')) {
+      try {
+        return JSON.parse(value);
+      } catch {
+        return value.slice(1, -1);
+      }
+    }
+    if (value.startsWith("'") && value.endsWith("'")) {
+      return value.slice(1, -1).replace(/'\\\\''/g, "'");
+    }
+    return value;
+  }
+
+  return undefined;
+}
+
+function usesMaiLitellmProvider(configToml: string): boolean {
+  return readTopLevelStringSetting(configToml, "model_provider")?.trim().toLowerCase() === "mai-litellm";
+}
+
+function upsertTopLevelStringSetting(configToml: string, key: string, value: string): string {
+  const endsWithNewline = configToml.endsWith("\n");
+  const lines = configToml.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
+
+  const renderedLine = `${key} = ${JSON.stringify(value)}`;
+  const keyPattern = new RegExp(`^\\s*${escapeRegExp(key)}\\s*=`);
+  let insertAt = lines.length;
+
+  for (let i = 0; i < lines.length; i++) {
+    const trimmed = lines[i].trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    if (/^\s*\[[^\]]+\]\s*$/.test(lines[i])) {
+      insertAt = i;
+      break;
+    }
+    if (keyPattern.test(lines[i])) {
+      const out = [...lines];
+      out[i] = renderedLine;
+      return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
+    }
+  }
+
+  const out = [...lines];
+  out.splice(insertAt, 0, renderedLine);
+  return out.join("\n") + (endsWithNewline || configToml.length === 0 ? "\n" : "");
+}
+
+function resolveConfigPathValue(configDir: string, rawPath: string): string {
+  if (rawPath.startsWith("~/")) {
+    return join(homedir(), rawPath.slice(2));
+  }
+  return resolve(configDir, rawPath);
+}
+
+function coercePositiveNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
+}
+
+async function ensureCodexLeaderModelCatalogOverride(
+  codexHome: string,
+  configToml: string,
+  leaderContextWindowOverrideTokens: number,
+  options?: { model?: string; modelCatalogConfigPath?: string },
+): Promise<{ catalogJson?: string; configToml: string }> {
+  return ensureCodexModelCatalogOverride(codexHome, configToml, {
+    model: options?.model,
+    modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    catalogFilename: "takode-leader-model-catalog.json",
+    mutateModelEntry: (modelEntry) => {
+      const effectivePercent =
+        coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
+      const rawContextWindow = Math.ceil((leaderContextWindowOverrideTokens * 100) / effectivePercent);
+      const nextAutoCompactTokenLimit = leaderContextWindowOverrideTokens;
+      const changed =
+        modelEntry.context_window !== rawContextWindow ||
+        modelEntry.max_context_window !== rawContextWindow ||
+        modelEntry.auto_compact_token_limit !== nextAutoCompactTokenLimit;
+      modelEntry.context_window = rawContextWindow;
+      modelEntry.max_context_window = rawContextWindow;
+      modelEntry.auto_compact_token_limit = nextAutoCompactTokenLimit;
+      return changed;
+    },
+  });
+}
+
+async function ensureCodexNonLeaderModelCatalogOverride(
+  codexHome: string,
+  configToml: string,
+  autoCompactThresholdPercent: number,
+  options?: { model?: string; modelCatalogConfigPath?: string },
+): Promise<{ catalogJson?: string; configToml: string }> {
+  return ensureCodexModelCatalogOverride(codexHome, configToml, {
+    model: options?.model,
+    modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    catalogFilename: "takode-model-catalog.json",
+    mutateModelEntry: (modelEntry) => {
+      const effectivePercent =
+        coercePositiveNumber(modelEntry.effective_context_window_percent) || defaultCodexEffectiveContextWindowPercent;
+      const rawContextWindow =
+        coercePositiveNumber(modelEntry.context_window) || coercePositiveNumber(modelEntry.max_context_window);
+      if (!rawContextWindow) return false;
+      const effectiveContextWindow = Math.floor((rawContextWindow * effectivePercent) / 100);
+      if (effectiveContextWindow < 1) return false;
+      const nextAutoCompactTokenLimit = Math.floor((effectiveContextWindow * autoCompactThresholdPercent) / 100);
+      if (nextAutoCompactTokenLimit < 1) return false;
+      if (modelEntry.auto_compact_token_limit === nextAutoCompactTokenLimit) return false;
+      modelEntry.auto_compact_token_limit = nextAutoCompactTokenLimit;
+      return true;
+    },
+  });
+}
+
+async function ensureCodexModelCatalogOverride(
+  codexHome: string,
+  configToml: string,
+  options: {
+    model?: string;
+    modelCatalogConfigPath?: string;
+    catalogFilename: string;
+    mutateModelEntry: (modelEntry: Record<string, any>) => boolean;
+  },
+): Promise<{ catalogJson?: string; configToml: string }> {
+  const modelSlug = options?.model || readTopLevelStringSetting(configToml, "model");
+  if (!modelSlug) return { configToml };
+
+  const existingCatalogPathValue = readTopLevelStringSetting(configToml, "model_catalog_json");
+  const sourceCatalogCandidates = [
+    existingCatalogPathValue ? resolveConfigPathValue(codexHome, existingCatalogPathValue) : undefined,
+    join(codexHome, "models_cache.json"),
+    join(getLegacyCodexHome(), "models_cache.json"),
+  ].filter((candidate, index, all): candidate is string => !!candidate && all.indexOf(candidate) === index);
+
+  let parsedCatalog: any = null;
+  for (const sourceCatalogPath of sourceCatalogCandidates) {
+    if (!(await fileExists(sourceCatalogPath))) continue;
+    try {
+      parsedCatalog = JSON.parse(await readFile(sourceCatalogPath, "utf-8"));
+      if (Array.isArray(parsedCatalog?.models)) break;
+    } catch (error) {
+      console.warn(`[cli-launcher] Failed to parse Codex model catalog ${sourceCatalogPath}:`, error);
+      parsedCatalog = null;
+    }
+  }
+  if (!Array.isArray(parsedCatalog?.models)) return { configToml };
+
+  const modelEntries = parsedCatalog.models as any[];
+  const modelEntry = modelEntries.find((entry: any) => entry?.slug === modelSlug);
+  if (!modelEntry || typeof modelEntry !== "object") return { configToml };
+  const changed = options.mutateModelEntry(modelEntry);
+  if (!changed) return { configToml };
+
+  const catalogJson = JSON.stringify(parsedCatalog, null, 2) + "\n";
+  const catalogPath = join(codexHome, options.catalogFilename);
+  await writeFile(catalogPath, catalogJson, "utf-8");
+
+  const nextConfigToml = upsertTopLevelStringSetting(
+    configToml,
+    "model_catalog_json",
+    options?.modelCatalogConfigPath || catalogPath,
+  );
+  return { configToml: nextConfigToml, catalogJson };
 }
 
 async function readFilePrefix(path: string, maxBytes = 4096): Promise<string> {
@@ -346,62 +691,231 @@ async function seedCodexResumeRollout(codexHome: string, threadId?: string): Pro
   await copyFile(rolloutPath, destPath);
 }
 
-async function pruneBrokenSymlinks(root: string): Promise<void> {
-  const entries = await readdir(root, { withFileTypes: true }).catch(() => []);
-  for (const entry of entries) {
-    const fullPath = join(root, entry.name);
-    if (entry.isSymbolicLink()) {
-      try {
-        await realpath(fullPath);
-      } catch {
-        await unlink(fullPath).catch(() => {});
+function resolveSymlinkTargetPath(linkPath: string, targetPath: string): string {
+  return resolve(dirname(linkPath), targetPath);
+}
+
+async function syncSeededDirectory(src: string, dest: string): Promise<"missing" | "unchanged" | "created"> {
+  if (!(await fileExists(src))) return "missing";
+
+  const srcStat = await lstat(src).catch(() => null);
+  if (!srcStat) {
+    if (await fileExists(dest)) return "unchanged";
+    await cp(src, dest, { recursive: true });
+    return "created";
+  }
+
+  if (srcStat.isSymbolicLink()) {
+    const srcTargetRaw = await readlink(src).catch(() => null);
+    if (!srcTargetRaw) return "unchanged";
+
+    const desiredTarget = resolveSymlinkTargetPath(src, srcTargetRaw);
+    const destStat = await lstat(dest).catch(() => null);
+    if (destStat?.isSymbolicLink()) {
+      const destTargetRaw = await readlink(dest).catch(() => null);
+      if (destTargetRaw && resolveSymlinkTargetPath(dest, destTargetRaw) === desiredTarget) {
+        return "unchanged";
       }
-      continue;
     }
-    if (entry.isDirectory()) {
-      await pruneBrokenSymlinks(fullPath);
+
+    await rm(dest, { recursive: true, force: true }).catch(() => {});
+    await symlink(desiredTarget, dest);
+    return "created";
+  }
+
+  if (await fileExists(dest)) return "unchanged";
+  await cp(src, dest, { recursive: true });
+  return "created";
+}
+
+function normalizeRelativeSeedPath(path: string): string {
+  return path
+    .replace(/\\/g, "/")
+    .replace(/^\.\/+/, "")
+    .replace(/\/+/g, "/")
+    .replace(/\/$/, "");
+}
+
+function isExcludedSeedPath(path: string, excludedRelativePaths: Set<string>): boolean {
+  const normalized = normalizeRelativeSeedPath(path);
+  if (!normalized) return false;
+  for (const excluded of excludedRelativePaths) {
+    if (normalized === excluded || normalized.startsWith(`${excluded}/`)) return true;
+  }
+  return false;
+}
+
+async function mergeSkillDirectory(
+  src: string,
+  dest: string,
+  options: { overwriteExisting: boolean; excludedRelativePaths?: Set<string> },
+): Promise<"missing" | "unchanged" | "created"> {
+  if (!(await fileExists(src))) return "missing";
+
+  const sourceRoot = await realpath(src).catch(() => src);
+  const entries = await readdir(sourceRoot, { withFileTypes: true }).catch(() => []);
+  let copied = false;
+
+  await mkdir(dest, { recursive: true });
+  for (const entry of entries) {
+    const entrySrc = join(sourceRoot, entry.name);
+    const entryDest = join(dest, entry.name);
+    const relativePath = normalizeRelativeSeedPath(relative(sourceRoot, entrySrc));
+    if (options.excludedRelativePaths && isExcludedSeedPath(relativePath, options.excludedRelativePaths)) continue;
+
+    if (!options.overwriteExisting && (await fileExists(entryDest))) continue;
+    await removeBrokenSymlink(entryDest);
+    if (options.overwriteExisting) {
+      await rm(entryDest, { recursive: true, force: true }).catch(() => {});
+    }
+    await copySeedEntry(entrySrc, entryDest, sourceRoot, options.excludedRelativePaths);
+    copied = true;
+  }
+
+  return copied ? "created" : "unchanged";
+}
+
+async function removeBrokenSymlink(path: string): Promise<void> {
+  const pathStat = await lstat(path).catch(() => null);
+  if (!pathStat?.isSymbolicLink()) return;
+
+  if (await fileExists(path)) return;
+  await unlink(path).catch(() => {});
+}
+
+async function copySeedEntry(
+  entrySrc: string,
+  entryDest: string,
+  sourceRoot: string,
+  excludedRelativePaths?: Set<string>,
+): Promise<void> {
+  const entryStat = await lstat(entrySrc).catch(() => null);
+  if (!entryStat || !entryStat.isDirectory() || entryStat.isSymbolicLink()) {
+    await cp(entrySrc, entryDest, { recursive: true });
+    return;
+  }
+
+  await mkdir(entryDest, { recursive: true });
+  const stack: Array<{ srcDir: string; destDir: string }> = [{ srcDir: entrySrc, destDir: entryDest }];
+  while (stack.length > 0) {
+    const current = stack.pop();
+    if (!current) continue;
+
+    const entries = await readdir(current.srcDir, { withFileTypes: true }).catch(() => []);
+    for (const child of entries) {
+      const childSrc = join(current.srcDir, child.name);
+      const childDest = join(current.destDir, child.name);
+      const relativePath = normalizeRelativeSeedPath(relative(sourceRoot, childSrc));
+      if (excludedRelativePaths && isExcludedSeedPath(relativePath, excludedRelativePaths)) continue;
+
+      if (child.isDirectory() && !child.isSymbolicLink()) {
+        await mkdir(childDest, { recursive: true });
+        stack.push({ srcDir: childSrc, destDir: childDest });
+        continue;
+      }
+
+      await cp(childSrc, childDest, { recursive: true });
     }
   }
 }
 
-async function prepareCodexHome(codexHome: string, resumeCliSessionId?: string): Promise<void> {
+async function migrateLegacyCodexSkillsToAgentsHome(
+  sourceHome: string,
+  options?: { filterImagegenSkill?: boolean },
+): Promise<void> {
+  const dest = agentsSkillsHome;
+  const excludedRelativePaths = options?.filterImagegenSkill ? new Set([imagegenSkillRelativePath]) : undefined;
+
+  const legacyCandidates = Array.from(
+    new Set([join(sourceHome, "skills"), join(getLegacyCodexHome(), "skills")].map((candidate) => resolve(candidate))),
+  );
+  for (const legacySkillsHome of legacyCandidates) {
+    if (legacySkillsHome === resolve(dest)) continue;
+    await mergeSkillDirectory(legacySkillsHome, dest, {
+      overwriteExisting: false,
+      excludedRelativePaths,
+    });
+  }
+}
+
+async function removeDeprecatedCodexHomeSkills(codexHome: string): Promise<void> {
+  // Skills are discovered from ~/.agents/skills. Remove old per-session copies
+  // so stale CODEX_HOME/skills content cannot act like an active skill root.
+  await rm(join(codexHome, deprecatedCodexSkillsDirName), { recursive: true, force: true });
+}
+
+async function prepareCodexHome(
+  codexHome: string,
+  resumeCliSessionId?: string,
+  seedSourceHome?: string,
+  options?: { filterImagegenSkill?: boolean; allowLegacyAuthFallback?: boolean },
+): Promise<void> {
   await mkdir(codexHome, { recursive: true });
 
-  const legacyHome = getLegacyCodexHome();
-  if (resolve(legacyHome) === resolve(codexHome) || !(await fileExists(legacyHome))) {
-    return;
-  }
+  const sourceHome = resolve(seedSourceHome || getLegacyCodexHome());
+  const canSeedSourceHome = sourceHome !== resolve(codexHome) && (await fileExists(sourceHome));
 
   const fileSeeds = ["auth.json", "config.toml", "models_cache.json", "version.json"];
-  for (const name of fileSeeds) {
-    try {
-      const src = join(legacyHome, name);
-      const dest = join(codexHome, name);
-      if (!(await fileExists(src))) continue;
-      if (name === "auth.json" || !(await fileExists(dest))) {
-        await copyFile(src, dest);
+  if (canSeedSourceHome) {
+    for (const name of fileSeeds) {
+      try {
+        const candidateSources = [join(sourceHome, name)];
+        const legacyCodexHome = resolve(getLegacyCodexHome());
+        const mayFallbackToLegacyAuth = name !== "auth.json" || options?.allowLegacyAuthFallback !== false;
+        if (
+          (name === "auth.json" || name === "models_cache.json") &&
+          legacyCodexHome !== sourceHome &&
+          mayFallbackToLegacyAuth
+        ) {
+          candidateSources.push(join(legacyCodexHome, name));
+        }
+
+        let src: string | null = null;
+        for (const candidate of candidateSources) {
+          if (await fileExists(candidate)) {
+            src = candidate;
+            break;
+          }
+        }
+
+        const dest = join(codexHome, name);
+        if (!src) {
+          if (name === "auth.json" && options?.allowLegacyAuthFallback === false) {
+            await unlink(dest).catch(() => {});
+          }
+          continue;
+        }
+        if (name === "auth.json") {
+          await linkCodexAuthFile(src, dest);
+          continue;
+        }
+        if (!(await fileExists(dest))) {
+          await copyFile(src, dest);
+        }
+      } catch (error) {
+        console.warn(`[cli-launcher] Failed to bootstrap ${name} from legacy home:`, error);
       }
-    } catch (error) {
-      console.warn(`[cli-launcher] Failed to bootstrap ${name} from legacy home:`, error);
     }
   }
 
-  const dirSeeds = ["skills", "vendor_imports", "prompts", "rules"];
-  for (const name of dirSeeds) {
-    try {
-      const src = join(legacyHome, name);
-      const dest = join(codexHome, name);
-      let copied = false;
-      if (!(await fileExists(dest)) && (await fileExists(src))) {
-        await cp(src, dest, { recursive: true });
-        copied = true;
+  if (canSeedSourceHome) {
+    const dirSeeds = ["vendor_imports", "prompts", "rules"];
+    for (const name of dirSeeds) {
+      try {
+        const src = join(sourceHome, name);
+        const dest = join(codexHome, name);
+        await syncSeededDirectory(src, dest);
+      } catch (error) {
+        console.warn(`[cli-launcher] Failed to bootstrap ${name}/ from legacy home:`, error);
       }
-      if (name === "skills" && (copied || (await fileExists(dest)))) {
-        await pruneBrokenSymlinks(dest);
-      }
-    } catch (error) {
-      console.warn(`[cli-launcher] Failed to bootstrap ${name}/ from legacy home:`, error);
     }
+  }
+
+  try {
+    await removeDeprecatedCodexHomeSkills(codexHome);
+    await migrateLegacyCodexSkillsToAgentsHome(sourceHome, { filterImagegenSkill: options?.filterImagegenSkill });
+  } catch (error) {
+    console.warn(`[cli-launcher] Failed to migrate legacy Codex skills into ~/.agents/skills:`, error);
   }
 
   try {
@@ -411,7 +925,29 @@ async function prepareCodexHome(codexHome: string, resumeCliSessionId?: string):
   }
 }
 
-async function ensureCodexSessionConfig(codexHome: string, envVars: string[]): Promise<void> {
+async function linkCodexAuthFile(src: string, dest: string): Promise<void> {
+  await unlink(dest).catch(() => {});
+  try {
+    await symlink(src, dest);
+  } catch (error) {
+    // Prefer a live link so Codex's rotating refresh token stays shared across
+    // session homes. Copying is only a fallback for filesystems that disallow
+    // symlinks.
+    await copyFile(src, dest);
+    console.warn(`[cli-launcher] Failed to symlink Codex auth.json into session home; copied instead:`, error);
+  }
+}
+
+async function ensureCodexSessionConfig(
+  codexHome: string,
+  envVars: string[],
+  options?: {
+    leaderContextWindowOverrideTokens?: number;
+    nonLeaderAutoCompactThresholdPercent?: number;
+    model?: string;
+    modelCatalogConfigPath?: string;
+  },
+): Promise<{ configToml: string; modelCatalogJson?: string }> {
   const configPath = join(codexHome, "config.toml");
   let current = "";
   try {
@@ -421,10 +957,64 @@ async function ensureCodexSessionConfig(codexHome: string, envVars: string[]): P
   }
 
   let next = upsertBooleanSettingInSection(current, codexFeaturesHeader, codexMultiAgentFeature, true);
-  next = upsertShellEnvironmentIncludeOnly(next, ["PATH", ...envVars]);
+  if (usesMaiLitellmProvider(next)) {
+    next = upsertBooleanSettingInSection(next, codexFeaturesHeader, codexImageGenerationFeature, false);
+  }
+  next = upsertShellEnvironmentIncludeOnly(next, ["PATH", ...NON_INTERACTIVE_GIT_EDITOR_ENV_KEYS, ...envVars]);
+  const leaderContextWindowOverrideTokens = options?.leaderContextWindowOverrideTokens;
+  const nonLeaderAutoCompactThresholdPercent = options?.nonLeaderAutoCompactThresholdPercent;
+  let modelCatalogJson: string | undefined;
+  if (leaderContextWindowOverrideTokens && leaderContextWindowOverrideTokens > 0) {
+    const override = await ensureCodexLeaderModelCatalogOverride(codexHome, next, leaderContextWindowOverrideTokens, {
+      model: options?.model,
+      modelCatalogConfigPath: options?.modelCatalogConfigPath,
+    });
+    next = override.configToml;
+    modelCatalogJson = override.catalogJson;
+    next = upsertTopLevelNumberSetting(next, "model_context_window", leaderContextWindowOverrideTokens);
+    next = upsertTopLevelNumberSetting(next, "model_auto_compact_token_limit", leaderContextWindowOverrideTokens);
+  } else if (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0) {
+    const override = await ensureCodexNonLeaderModelCatalogOverride(
+      codexHome,
+      next,
+      nonLeaderAutoCompactThresholdPercent,
+      {
+        model: options?.model,
+        modelCatalogConfigPath: options?.modelCatalogConfigPath,
+      },
+    );
+    next = override.configToml;
+    modelCatalogJson = override.catalogJson;
+  }
   if (next !== current) {
     await writeFile(configPath, next, "utf-8");
   }
+  return { configToml: next, modelCatalogJson };
+}
+
+function renderContainerCodexFileWrite(path: string, contents: string, heredocMarker: string): string {
+  const normalizedContents = contents.replace(/\r\n/g, "\n");
+  const fileBody = normalizedContents.endsWith("\n") ? normalizedContents.slice(0, -1) : normalizedContents;
+  return [
+    `mkdir -p ${JSON.stringify(dirname(path))}`,
+    `cat > ${JSON.stringify(path)} <<'${heredocMarker}'`,
+    fileBody,
+    heredocMarker,
+  ].join("\n");
+}
+
+function renderContainerCodexConfigWrite(configToml: string): string {
+  return renderContainerCodexFileWrite("/root/.codex/config.toml", configToml, "__COMPANION_CODEX_CONFIG__");
+}
+
+function renderContainerCodexAuthRefresh(): string {
+  return [
+    "if [ -f /companion-host-codex/auth.json ]; then",
+    "mkdir -p /root/.codex",
+    "rm -f /root/.codex/auth.json",
+    "cp /companion-host-codex/auth.json /root/.codex/auth.json 2>/dev/null || true",
+    "fi",
+  ].join("\n");
 }
 
 async function resolveHostCodexLaunchBinary(
@@ -467,6 +1057,7 @@ export async function prepareCodexSpawn(
   const serverId = options.env?.COMPANION_SERVER_ID;
   const isContainerized = !!options.containerId;
   const codexHomeRoot = resolveCompanionCodexHome(options.codexHome);
+  const leaderLaunch = isCodexLeaderLaunch(info, options);
 
   let binary = options.codexBinary || "codex";
   if (!isContainerized) {
@@ -486,34 +1077,88 @@ export async function prepareCodexSpawn(
 
   const approvalPolicy = mapCodexApprovalPolicy(options.permissionMode, options.askPermission);
   const sandboxMode = resolveCodexSandbox(options.permissionMode, options.codexSandbox);
-  const args: string[] = ["-a", approvalPolicy, "-s", sandboxMode, "app-server"];
+
+  const codexHome = resolveCompanionCodexSessionHome(sessionId, codexHomeRoot);
+  const maiWrapperHostSpec = !isContainerized ? await resolveMaiWrapperHostSpec(binary) : null;
+  const shellEnvVars = Object.keys(options.env || {}).filter(
+    (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
+  );
+  const leaderContextWindowOverrideTokens = leaderLaunch ? options.codexLeaderContextWindowOverrideTokens : undefined;
+  const nonLeaderAutoCompactThresholdPercent = !leaderLaunch
+    ? options.codexNonLeaderAutoCompactThresholdPercent || defaultCodexNonLeaderAutoCompactThresholdPercent
+    : undefined;
+  let containerLeaderConfigToml: string | undefined;
+  let containerModelCatalogJson: string | undefined;
+  const containerModelCatalogPath = leaderLaunch
+    ? "/root/.codex/takode-leader-model-catalog.json"
+    : "/root/.codex/takode-model-catalog.json";
+
+  if (!isContainerized) {
+    await prepareCodexHome(
+      codexHome,
+      options.resumeCliSessionId || info.cliSessionId,
+      maiWrapperHostSpec?.hostCodexHome,
+      {
+        allowLegacyAuthFallback: !maiWrapperHostSpec,
+        filterImagegenSkill: !!maiWrapperHostSpec,
+      },
+    );
+    await ensureCodexSessionConfig(codexHome, shellEnvVars, {
+      leaderContextWindowOverrideTokens,
+      nonLeaderAutoCompactThresholdPercent,
+      model: options.model,
+    });
+  } else if (
+    (leaderContextWindowOverrideTokens && leaderContextWindowOverrideTokens > 0) ||
+    (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0)
+  ) {
+    await prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId);
+    const containerConfig = await ensureCodexSessionConfig(codexHome, shellEnvVars, {
+      leaderContextWindowOverrideTokens,
+      nonLeaderAutoCompactThresholdPercent,
+      model: options.model,
+      modelCatalogConfigPath: containerModelCatalogPath,
+    });
+    containerLeaderConfigToml = containerConfig.configToml;
+    containerModelCatalogJson = containerConfig.modelCatalogJson;
+  }
+
+  const maiWrapperLaunchSpec =
+    !isContainerized && leaderLaunch && maiWrapperHostSpec
+      ? await resolveMaiWrapperSessionLaunchSpec(maiWrapperHostSpec, sessionId, codexHome, options)
+      : null;
+  const args: string[] = [];
   args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
   if (options.codexReasoningEffort) {
     args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
   }
-
-  const codexHome = resolveCompanionCodexSessionHome(sessionId, codexHomeRoot);
-  const shellEnvVars = Object.keys(options.env || {}).filter(
-    (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
-  );
-
-  if (!isContainerized) {
-    await prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId);
-    await ensureCodexSessionConfig(codexHome, shellEnvVars);
-  }
+  args.push("-a", approvalPolicy, "-s", sandboxMode, "app-server");
 
   if (isContainerized) {
     const dockerArgs = ["docker", "exec", "-i"];
-    if (options.env) {
-      for (const [key, value] of Object.entries(options.env)) {
-        dockerArgs.push("-e", `${key}=${value}`);
-      }
+    const containerEnv = withNonInteractiveGitEditorEnv(options.env ?? {});
+    for (const [key, value] of Object.entries(containerEnv)) {
+      dockerArgs.push("-e", `${key}=${value}`);
     }
     dockerArgs.push("-e", "CLAUDECODE=");
     dockerArgs.push("-e", "CODEX_HOME=/root/.codex");
     dockerArgs.push(options.containerId!);
     const innerCmd = [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" ");
-    dockerArgs.push("bash", "-lc", innerCmd);
+    const shellCommands: string[] = [renderContainerCodexAuthRefresh()];
+    if (containerModelCatalogJson) {
+      shellCommands.push(
+        renderContainerCodexFileWrite(
+          containerModelCatalogPath,
+          containerModelCatalogJson,
+          "__COMPANION_CODEX_MODEL_CATALOG__",
+        ),
+      );
+    }
+    if (containerLeaderConfigToml) {
+      shellCommands.push(renderContainerCodexConfigWrite(containerLeaderConfigToml));
+    }
+    shellCommands.push(`exec ${innerCmd}`);
+    dockerArgs.push("bash", "-lc", shellCommands.join("\n"));
 
     return {
       spawnCmd: dockerArgs,
@@ -529,8 +1174,14 @@ export async function prepareCodexSpawn(
   const localBinDir = join(homedir(), ".local", "bin");
   const bunBinDir = join(homedir(), ".bun", "bin");
   const enrichedPath = getEnrichedPath({ serverId });
-  const userShellPath = captureUserShellPath();
-  const spawnPath = mergePathStrings([binaryDir, companionBinDir, localBinDir, bunBinDir, userShellPath, enrichedPath]);
+  const spawnPath = mergePathStrings([
+    maiWrapperLaunchSpec?.hostnameShimDir,
+    binaryDir,
+    companionBinDir,
+    localBinDir,
+    bunBinDir,
+    enrichedPath,
+  ]);
 
   let spawnCmd: string[];
   if ((await fileExists(siblingNode)) && (await shouldInvokeCodexWithSiblingNode(binary))) {
@@ -545,12 +1196,12 @@ export async function prepareCodexSpawn(
     spawnCmd = [binary, ...args];
   }
 
-  const shellEnv = captureUserShellEnv(["LITELLM_API_KEY", "LITELLM_PROXY_URL", "LITELLM_BASE_URL"]);
+  const shellEnv = captureUserShellEnv([...hostCodexShellEnvVars], { allowShellSpawn: false });
 
   return {
     spawnCmd,
-    spawnEnv: {
-      ...process.env,
+    spawnEnv: withNonInteractiveGitEditorEnv({
+      ...stripInheritedTelemetryEnv(process.env),
       ...shellEnv,
       CLAUDECODE: undefined,
       MAI_CODEX_DEBUG_WRAPPER: "1",
@@ -558,7 +1209,7 @@ export async function prepareCodexSpawn(
       CODEX_HOME: codexHome,
       ...(dotslashCache ? { DOTSLASH_CACHE: dotslashCache } : {}),
       PATH: spawnPath,
-    },
+    }),
     spawnCwd: info.cwd,
     sandboxMode,
   };

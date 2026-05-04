@@ -387,16 +387,24 @@ describe("getOrchestratorGuardrails", () => {
     // CLI, quest, and leader-dispatch references point to skills loaded on startup
     expect(guardrails).toContain("takode-orchestration");
     expect(guardrails).toContain("leader-dispatch");
+    expect(guardrails).toContain("confirm");
     expect(guardrails).toContain("quest");
+    expect(guardrails).toContain("/quest-design");
     expect(guardrails).toContain("sub-agent");
     // Core leader behaviors remain inline
     expect(guardrails).toContain("Create a quest for any non-trivial work");
     expect(guardrails).toContain("Never implement non-trivial changes yourself");
-    // Quest Journey stage table kept inline as quick reference
+    // Quest Journey phase table kept inline as quick reference
     expect(guardrails).toContain("Quest Journey");
     expect(guardrails).toContain("QUEUED");
     expect(guardrails).toContain("IMPLEMENTING");
-    expect(guardrails).toContain("Skeptic Review");
+    expect(guardrails).toContain("Code Review");
+    expect(guardrails).toContain("BOOKKEEPING");
+    expect(guardrails).toContain("~/.companion/quest-journey-phases/<phase-id>/");
+    expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/leader.md`");
+    expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/assignee.md`");
+    expect(guardrails).toContain("one confirmation can approve quest text, Journey, and dispatch plan");
+    expect(guardrails).toContain("board-owned draft-or-active state for the quest");
     expect(guardrails).toContain("Work Board");
     // Spawn backend default note
     expect(guardrails).toContain("default to your own backend type");
@@ -406,9 +414,15 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("/leader-dispatch");
     expect(guardrails).toContain("quest-journey.md");
     expect(guardrails).toContain("board-usage.md");
-    // Leader discipline: wait for user answer, no skipping stages
-    expect(guardrails).toContain("WAIT for their answer");
-    expect(guardrails).toContain("Never skip quest journey stages");
+    // Leader discipline: wait for user answer, follow the board-approved Journey
+    expect(guardrails).toContain("wait only on the affected scope");
+    expect(guardrails).toContain("Follow the board-approved Quest Journey");
+    expect(guardrails).toContain("recommended, not mandatory");
+    expect(guardrails).toContain("ask what it contributes over merging that work into a later phase");
+    expect(guardrails).toContain("`implement` includes normal investigation, root-cause analysis");
+    expect(guardrails).toContain("routine `explore -> implement`");
+    expect(guardrails).toContain("User Checkpoint is an intermediate user-participation stop");
+    expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
     expect(guardrails).toContain("Do not use sleep-based waits");
     expect(guardrails).toContain("repeated `takode peek` / `takode scan` checks");
     expect(guardrails).toContain("wait for the next herd event");
@@ -417,14 +431,28 @@ describe("getOrchestratorGuardrails", () => {
       "prefer the plain-text forms of `takode info`, `takode peek`, `takode scan`, and `quest show`",
     );
     expect(guardrails).toContain("Use `--json` only when you need exact structured fields");
-    expect(guardrails).toContain("feedback `addressed` flags");
+    expect(guardrails).toContain("quest feedback list --json");
+    expect(guardrails).toContain("quest feedback list/latest/show");
     expect(guardrails).toContain("`commitShas`");
-    expect(guardrails).toContain("Make every worker instruction stage-explicit");
-    expect(guardrails).toContain("Initial dispatch authorizes **planning only**");
+    expect(guardrails).toContain("Make every worker instruction phase-explicit");
+    expect(guardrails).toContain("Initial dispatch authorizes **alignment only**");
+    expect(guardrails).toContain("Initial Journey approval comes before dispatch");
+    expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
+    expect(guardrails).toContain(
+      "The worker alignment phase then returns a lightweight read-in inside that approved Journey",
+    );
+    expect(guardrails).toContain("not a routine second user-approval gate");
+    expect(guardrails).toContain("Alignment approval is leader-owned by default");
+    expect(guardrails).toContain("Escalate alignment back to the user only");
+    expect(guardrails).toContain("significant ambiguity, scope change, Journey revision, user-visible tradeoff");
+    expect(guardrails).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(guardrails).toContain("Fresh human feedback resets the active cycle");
     expect(guardrails).toContain("do not let stale old-scope completions advance the quest");
-    expect(guardrails).toContain("Zero-code quests do not need port noise");
+    expect(guardrails).toContain("Zero-tracked-change quests still use explicit Journey phases");
     expect(guardrails).toContain("zero git-tracked changes");
+    expect(guardrails).toContain("Initial pre-dispatch approval is a combined contract");
+    expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
+    expect(guardrails).toContain("spawn fresh and dispatch immediately if approved");
     expect(guardrails).toContain(
       "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
     );
@@ -434,16 +462,31 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain("implement, update the user-oriented quest summary comment, and stop when done");
-    expect(guardrails).toContain("what changed, why it matters, and what verification passed");
+    expect(guardrails).toContain("Every active phase needs durable quest documentation");
+    expect(guardrails).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
+    expect(guardrails).toContain("Phase-note TLDRs should preserve conclusions, decisions, evidence, blockers, risks");
+    expect(guardrails).toContain("raw SHAs, branch names, exhaustive command lists");
+    expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
+    expect(guardrails).toContain("Every completed non-cancelled quest needs final debrief metadata");
+    expect(guardrails).toContain("Completion without both a final debrief and debrief TLDR is incomplete");
+    expect(guardrails).toContain("leader-owned completion follows Outcome Review");
+    expect(guardrails).toContain("final debrief metadata after port when the port worker could not reliably create it");
+    expect(guardrails).toContain("Port handoff must also settle final debrief ownership");
+    expect(guardrails).toContain("perform exactly the approved next phase, document the current phase on the quest");
+    expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
-    expect(guardrails).toContain("investigation, design, or other no-code quests");
     expect(guardrails).toContain(
-      "address reviewer-groom findings, update the user-oriented quest summary comment, and stop",
+      "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense",
     );
+    expect(guardrails).toContain("reviewers may do only small bounded reruns or repros");
+    expect(guardrails).toContain("approval-gated runs rather than a reviewer acceptance pass");
+    expect(guardrails).toContain("route back deliberately: `implement`");
+    expect(guardrails).toContain("investigation, design, or other zero-tracked-change quests");
+    expect(guardrails).toContain("address code-review findings");
+    expect(guardrails).toContain("Leaders may revise the remaining Journey");
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
-    expect(guardrails).toContain("`--no-code` only affects the local CLI reminder text");
-    expect(guardrails).toContain("send a separate explicit port instruction when ready");
+    expect(guardrails).toContain("omit `port` from the Journey instead of using a separate board shortcut");
+    expect(guardrails).toContain("send an explicit **port now** instruction");
     expect(guardrails).toContain("prefer `quest grep <pattern>` over manually scanning many `quest show` results");
     expect(guardrails).toContain("Use `quest list --text` for broad list filtering and `quest grep`");
     expect(guardrails).toContain("takode notify");
@@ -454,14 +497,16 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("After the user answers a same-session `takode notify needs-input` prompt");
     expect(guardrails).toContain("Use this only for notifications created by your current session");
     expect(guardrails).toContain("Do not rely on deprecated leader reply suffixes");
-    expect(guardrails).toContain("use normal assistant text plus `takode notify` instead");
+    expect(guardrails).toContain("use marked leader responses plus `takode notify`");
     expect(guardrails).toContain("Every time you ask the user a question");
-    expect(guardrails).toContain("also call `takode notify needs-input`");
+    expect(guardrails).toContain("First send the detailed question or decision text");
+    expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");
+    expect(guardrails).toContain("then call `takode notify needs-input`");
     expect(guardrails).toContain("takode notify list");
     expect(guardrails).toContain("takode notify resolve <notification-id>");
     expect(guardrails).toContain("After the user answers a same-session `takode notify needs-input` prompt");
     expect(guardrails).toContain("Use this only for notifications created by your current session");
-    expect(guardrails).toContain("so the user never misses the leader's question");
+    expect(guardrails).toContain("so the user never misses it");
     expect(guardrails).toContain("Fresh human feedback outranks stale completions");
     expect(guardrails).toContain("Do **not** call `takode notify review` for quest completion");
     expect(guardrails).toContain("Takode already sends that review notification automatically");
@@ -471,7 +516,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).not.toContain("Maintain at most 5 sessions");
     // Worker selection details now in /leader-dispatch skill
     expect(guardrails).not.toContain("Queue if the best worker is busy");
-    // Full stage transitions now in quest-journey.md
+    // Full phase transitions now in quest-journey.md
     expect(guardrails).not.toContain("QUEUED -> PLANNING");
   });
 
@@ -481,10 +526,14 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Delegate all major work");
     // Skill references for detailed workflows
     expect(guardrails).toContain("/leader-dispatch");
+    expect(guardrails).toContain("/quest-design");
     expect(guardrails).toContain("quest-journey.md");
-    // Quest Journey stage table inline as quick reference
+    // Quest Journey phase table inline as quick reference
     expect(guardrails).toContain("Quest Journey");
-    expect(guardrails).toContain("Skeptic Review");
+    expect(guardrails).toContain("Code Review");
+    expect(guardrails).toContain("~/.companion/quest-journey-phases/<phase-id>/");
+    expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/leader.md`");
+    expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/assignee.md`");
     // CLI reference delegated to skill
     expect(guardrails).toContain("takode-orchestration");
     expect(guardrails).toContain("default to your own backend type");
@@ -492,23 +541,46 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("archiving reviewers does not free worker-slot capacity");
     expect(guardrails).toContain("Do not use sleep-based waits");
     expect(guardrails).toContain("wait for the next herd event");
-    expect(guardrails).toContain("Make every worker instruction stage-explicit");
-    expect(guardrails).toContain("Initial dispatch authorizes **planning only**");
+    expect(guardrails).toContain("Make every worker instruction phase-explicit");
+    expect(guardrails).toContain("Initial dispatch authorizes **alignment only**");
+    expect(guardrails).toContain("Initial Journey approval comes before dispatch");
+    expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
+    expect(guardrails).toContain("Follow the board-approved Quest Journey");
+    expect(guardrails).toContain("ask what it contributes over merging that work into a later phase");
+    expect(guardrails).toContain("USER_CHECKPOINTING");
+    expect(guardrails).toContain("User Checkpoint");
+    expect(guardrails).toContain("not a routine second user-approval gate");
+    expect(guardrails).toContain("Alignment approval is leader-owned by default");
+    expect(guardrails).toContain("Escalate alignment back to the user only");
+    expect(guardrails).toContain("board-owned draft-or-active state for the quest");
+    expect(guardrails).toContain("point the worker at the exact prior messages, quests, or discussions");
+    expect(guardrails).toContain("Initial pre-dispatch approval is a combined contract");
+    expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
+    expect(guardrails).toContain("spawn fresh and dispatch immediately if approved");
     expect(guardrails).toContain("Leaders do not own worker quests");
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
     expect(guardrails).toContain("Archiving a worktree worker removes its worktree and any uncommitted changes");
     expect(guardrails).toContain("ported, committed, or otherwise synced");
-    expect(guardrails).toContain("implement, update the user-oriented quest summary comment, and stop when done");
-    expect(guardrails).toContain("what changed, why it matters, and what verification passed");
+    expect(guardrails).toContain("Every active phase needs durable quest documentation");
+    expect(guardrails).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
+    expect(guardrails).toContain("Phase-note TLDRs should preserve conclusions, decisions, evidence, blockers, risks");
+    expect(guardrails).toContain("raw SHAs, branch names, exhaustive command lists");
+    expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
+    expect(guardrails).toContain("perform exactly the approved next phase, document the current phase on the quest");
+    expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
-    expect(guardrails).toContain(
-      "address reviewer-groom findings, update the user-oriented quest summary comment, and stop",
-    );
+    expect(guardrails).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
+    expect(guardrails).toContain("small bounded reruns or repros");
+    expect(guardrails).toContain("approval-gated runs rather than a reviewer acceptance pass");
+    expect(guardrails).toContain("address code-review findings");
+    expect(guardrails).toContain("Leaders may revise the remaining Journey");
     expect(guardrails).toContain("what artifact to produce and to stop afterward");
-    expect(guardrails).toContain("send a separate explicit port instruction when ready");
+    expect(guardrails).toContain("send an explicit **port now** instruction");
     expect(guardrails).toContain("Every time you ask the user a question");
-    expect(guardrails).toContain("also call `takode notify needs-input`");
-    expect(guardrails).toContain("so the user never misses the leader's question");
+    expect(guardrails).toContain("First send the detailed question or decision text");
+    expect(guardrails).toContain("`[thread:main]` or `[thread:q-N]`");
+    expect(guardrails).toContain("then call `takode notify needs-input`");
+    expect(guardrails).toContain("so the user never misses it");
     expect(guardrails).toContain("Do not rely on deprecated leader reply suffixes");
     expect(guardrails).toContain("Do **not** call `takode notify review` for quest completion");
     expect(guardrails).toContain("Takode already sends that review notification automatically");

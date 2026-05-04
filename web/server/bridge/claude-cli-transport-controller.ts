@@ -67,6 +67,7 @@ export interface ClaudeCliTransportDeps {
   markRunningFromUserDispatch: (
     session: ClaudeCliTransportSessionLike,
     reason: string,
+    userMessageHistoryIndex?: number,
   ) => UserDispatchTurnTarget | null;
   isCliUserMessagePayload: (ndjson: string) => boolean;
 }
@@ -368,13 +369,14 @@ export function sendToCLI(
     | {
         deferUntilCliReady?: boolean;
         skipUserDispatchLifecycle?: boolean;
+        userMessageHistoryIndex?: number;
       }
     | undefined,
   deps: ClaudeCliTransportDeps,
 ): UserDispatchTurnTarget | null {
   let turnTarget: UserDispatchTurnTarget | null = null;
   if (!opts?.skipUserDispatchLifecycle && deps.isCliUserMessagePayload(ndjson)) {
-    turnTarget = deps.markRunningFromUserDispatch(session, "user_message_dispatch");
+    turnTarget = deps.markRunningFromUserDispatch(session, "user_message_dispatch", opts?.userMessageHistoryIndex);
   }
   if (!session.backendSocket) {
     console.log(`[ws-bridge] CLI not yet connected for session ${sessionTag(session.id)}, queuing message`);

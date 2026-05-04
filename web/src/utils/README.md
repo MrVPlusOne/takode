@@ -29,6 +29,10 @@ local persistence helpers, and feature-specific pure calculations.
   - Session grouping/ordering helpers used by sidebar views.
 - `scoped-storage.ts`
   - Server-ID-scoped localStorage access helpers.
+- `leader-open-thread-tabs.ts`
+  - Legacy migration helper for pre-server-owned leader tab storage. Leader
+    open-tab set/order is authoritative in server session state; browser
+    localStorage may only seed a one-time migration when no server state exists.
 - `backends.ts`
   - Backend/mode/model mapping and permission-mode translation helpers.
 - `path-display.ts`, `highlight.ts`, `copy-utils.ts`
@@ -39,6 +43,17 @@ local persistence helpers, and feature-specific pure calculations.
 - Components call utility modules to avoid duplicating formatting and adapter logic.
 - Hooks use utils for pure transformations; hooks retain stateful behavior.
 - Store and websocket handlers use utilities for consistent parsing and persistence keys.
+
+## Browser Storage Policy
+
+- Keep `localStorage` limited to tiny browser-owned preferences, server-scoped
+  creation defaults, and bounded UI restore hints.
+- Do not use `localStorage` as the source of truth for server/session-derived
+  workflow state such as messages, notifications, permissions, feed windows, or
+  leader open-thread-tab decisions.
+- Dynamic keys must be schema-normalized, bounded, and non-throwing on corrupt
+  or quota-failing storage. Prefer server state plus a one-time migration path
+  when the value affects cross-browser workflow behavior.
 
 ## Conventions
 

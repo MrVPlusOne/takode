@@ -59,6 +59,7 @@ vi.mock("./api.js", async (importOriginal) => {
 });
 
 import { resetQuestRefreshStateForTests, reconcileQuestList, useStore } from "./store.js";
+import { setSdkSessionsWithNotificationFreshness } from "./notification-status.js";
 import type { SessionState, PermissionRequest, ChatMessage, TaskItem, SdkSessionInfo } from "./types.js";
 
 function makeSession(id: string): SessionState {
@@ -368,6 +369,81 @@ describe("Session management", () => {
     expect(state.sdkSessions[0]?.pendingTimerCount).toBe(1);
   });
 
+  it("setSdkSessions: updates sdkSessions when only notification summary changes", () => {
+    // Non-selected sidebar rows derive restored notification markers from the
+    // polled sdkSessions snapshot, so a summary-only change must trigger
+    // reconciliation even when the full notification inbox is not loaded.
+    useStore.getState().setCurrentSession("current");
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        cliConnected: true,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+      },
+    ]);
+    const previousRef = useStore.getState().sdkSessions;
+
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        cliConnected: true,
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+      },
+    ]);
+
+    const state = useStore.getState();
+    expect(state.sdkSessions).not.toBe(previousRef);
+    expect(state.sdkSessions[0]).toMatchObject({
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+    });
+  });
+
+  it("setSdkSessionsWithNotificationFreshness: keeps newer cleared notification status over stale REST data", () => {
+    // A slow /api/sessions response may contain an older needs-input summary.
+    // The freshness wrapper must preserve the newer resolved status already in the store.
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      },
+    ]);
+
+    setSdkSessionsWithNotificationFreshness([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 4,
+        notificationStatusUpdatedAt: 4000,
+      },
+    ]);
+
+    expect(useStore.getState().sdkSessions[0]).toMatchObject({
+      notificationUrgency: null,
+      activeNotificationCount: 0,
+      notificationStatusVersion: 5,
+      notificationStatusUpdatedAt: 5000,
+    });
+  });
+
   it("setSessionTaskHistory: preserves the existing map when tasks are unchanged", () => {
     const tasks = [{ title: "Task", action: "new", timestamp: 1, triggerMessageId: "m1" }] as const;
     useStore.getState().setSessionTaskHistory("s1", [...tasks]);
@@ -407,6 +483,56 @@ describe("Session management", () => {
     useStore.getState().setCurrentSession(null);
     expect(useStore.getState().currentSessionId).toBeNull();
     expect(localStorage.getItem("test-server:cc-current-session")).toBeNull();
+  });
+});
+
+describe("Side panel collapse storage", () => {
+  it("keeps collapse and expand state in memory when scoped localStorage writes fail", () => {
+    // Side-panel collapse state is a tiny UI restore hint. Quota/full/blocked
+    // storage must not break sidebar navigation or discard the in-memory toggle.
+    const originalSetItem = Storage.prototype.setItem;
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const setItemSpy = vi.spyOn(Storage.prototype, "setItem").mockImplementation(function (this: Storage, key, value) {
+      if (
+        key.includes("cc-collapsed-tree-groups") ||
+        key.includes("cc-collapsed-tree-nodes") ||
+        key.includes("cc-expanded-herd-nodes")
+      ) {
+        throw new DOMException("Storage quota exceeded", "QuotaExceededError");
+      }
+      return originalSetItem.call(this, key, value);
+    });
+
+    expect(() => useStore.getState().toggleTreeGroupCollapse("group-a")).not.toThrow();
+    expect(() => useStore.getState().toggleTreeNodeCollapse("session-a")).not.toThrow();
+    expect(() => useStore.getState().toggleHerdNodeExpand("leader-a")).not.toThrow();
+
+    expect(useStore.getState().collapsedTreeGroups.has("group-a")).toBe(true);
+    expect(useStore.getState().collapsedTreeNodes.has("session-a")).toBe(true);
+    expect(useStore.getState().expandedHerdNodes.has("leader-a")).toBe(true);
+    expect(localStorage.getItem("test-server:cc-collapsed-tree-groups")).toBeNull();
+    expect(localStorage.getItem("test-server:cc-collapsed-tree-nodes")).toBeNull();
+    expect(localStorage.getItem("test-server:cc-expanded-herd-nodes")).toBeNull();
+    expect(warnSpy).toHaveBeenCalledTimes(3);
+
+    setItemSpy.mockRestore();
+    warnSpy.mockRestore();
+  });
+
+  it("bounds persisted side-panel restore hints while preserving full in-memory state", () => {
+    // Persisted collapse/expand IDs are only restore hints. The current page can
+    // keep the full set in memory, but localStorage should stay bounded.
+    useStore.setState({ expandedHerdNodes: new Set() });
+
+    for (let index = 0; index < 505; index += 1) {
+      useStore.getState().toggleHerdNodeExpand(`leader-${index}`);
+    }
+
+    const stored = JSON.parse(localStorage.getItem("test-server:cc-expanded-herd-nodes") || "[]") as string[];
+    expect(useStore.getState().expandedHerdNodes.size).toBe(505);
+    expect(stored).toHaveLength(500);
+    expect(stored[0]).toBe("leader-5");
+    expect(stored[stored.length - 1]).toBe("leader-504");
   });
 });
 
@@ -813,6 +939,46 @@ describe("UI state", () => {
 
     expect(useStore.getState().currentSessionId).toBeNull();
     expect(localStorage.getItem("test-server:cc-current-session")).toBeNull();
+  });
+});
+
+// ─── Board block registration ──────────────────────────────────────────────
+
+describe("Board block registration", () => {
+  it("setLatestBoardToolUseId is a no-op when the same board is already latest", () => {
+    useStore.getState().setLatestBoardToolUseId("s1", "tool-1");
+    const previousMap = useStore.getState().latestBoardToolUseId;
+
+    useStore.getState().setLatestBoardToolUseId("s1", "tool-1");
+
+    expect(useStore.getState().latestBoardToolUseId).toBe(previousMap);
+  });
+});
+
+// ─── Collapsible turn registration ────────────────────────────────────────
+
+describe("Collapsible turn registration", () => {
+  it("setCollapsibleTurnIds is a no-op when derived turn IDs are unchanged", () => {
+    useStore.getState().setCollapsibleTurnIds("s1", ["turn-1", "turn-2"]);
+    const previousMap = useStore.getState().collapsibleTurnIds;
+
+    // MessageFeed derives a fresh array on render; identical contents should not churn store subscribers.
+    useStore.getState().setCollapsibleTurnIds("s1", ["turn-1", "turn-2"]);
+
+    expect(useStore.getState().collapsibleTurnIds).toBe(previousMap);
+  });
+
+  it("setCollapsibleTurnIds removes empty registrations without writing on cold empty feeds", () => {
+    const initialMap = useStore.getState().collapsibleTurnIds;
+
+    useStore.getState().setCollapsibleTurnIds("s1", []);
+
+    expect(useStore.getState().collapsibleTurnIds).toBe(initialMap);
+
+    useStore.getState().setCollapsibleTurnIds("s1", ["turn-1"]);
+    useStore.getState().setCollapsibleTurnIds("s1", []);
+
+    expect(useStore.getState().collapsibleTurnIds.has("s1")).toBe(false);
   });
 });
 

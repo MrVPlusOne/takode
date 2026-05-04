@@ -2,6 +2,10 @@ import { useEffect } from "react";
 import { useStore } from "../../store.js";
 import type { SessionState } from "../../types.js";
 import {
+  THREAD_ROUTING_REMINDER_SOURCE_ID,
+  THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+} from "../../../shared/thread-routing-reminder.js";
+import {
   MOCK_SESSION_ID,
   PLAYGROUND_BROKEN_SESSION_ID,
   PLAYGROUND_CODEX_PENDING_SESSION_ID,
@@ -11,6 +15,7 @@ import {
   PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_SECTIONED_SESSION_ID,
   PLAYGROUND_STARTING_SESSION_ID,
+  PLAYGROUND_THREAD_PANEL_SESSION_ID,
   MSG_ASSISTANT,
   MSG_ASSISTANT_TOOLS,
   MSG_TOOL_ERROR,
@@ -37,6 +42,7 @@ export function usePlaygroundSeed() {
       PLAYGROUND_STARTING_SESSION_ID,
       PLAYGROUND_RESUMING_SESSION_ID,
       PLAYGROUND_BROKEN_SESSION_ID,
+      PLAYGROUND_THREAD_PANEL_SESSION_ID,
       questInProgressId,
       questVerificationId,
     ];
@@ -48,11 +54,23 @@ export function usePlaygroundSeed() {
     const prevCliEver = new Map(demoSessionIds.map((id) => [id, snapshot.cliEverConnected.get(id)]));
     const prevCliDisconnectReason = new Map(demoSessionIds.map((id) => [id, snapshot.cliDisconnectReason.get(id)]));
     const prevStatus = new Map(demoSessionIds.map((id) => [id, snapshot.sessionStatus.get(id)]));
+    const prevActiveTurnRoutes = new Map(demoSessionIds.map((id) => [id, snapshot.activeTurnRoutes.get(id)]));
     const prevStreaming = new Map(demoSessionIds.map((id) => [id, snapshot.streaming.get(id)]));
     const prevStreamingStartedAt = new Map(demoSessionIds.map((id) => [id, snapshot.streamingStartedAt.get(id)]));
     const prevStreamingOutputTokens = new Map(demoSessionIds.map((id) => [id, snapshot.streamingOutputTokens.get(id)]));
     const prevFeedScrollPositions = new Map(demoSessionIds.map((id) => [id, snapshot.feedScrollPosition.get(id)]));
     const prevHistoryLoading = new Map(demoSessionIds.map((id) => [id, snapshot.historyLoading.get(id)]));
+    const prevSessionBoards = new Map(demoSessionIds.map((id) => [id, snapshot.sessionBoards.get(id)]));
+    const prevSessionBoardRowStatuses = new Map(
+      demoSessionIds.map((id) => [id, snapshot.sessionBoardRowStatuses.get(id)]),
+    );
+    const prevSessionCompletedBoards = new Map(
+      demoSessionIds.map((id) => [id, snapshot.sessionCompletedBoards.get(id)]),
+    );
+    const prevSessionNotifications = new Map(demoSessionIds.map((id) => [id, snapshot.sessionNotifications.get(id)]));
+    const prevSessionAttentionRecords = new Map(
+      demoSessionIds.map((id) => [id, snapshot.sessionAttentionRecords.get(id)]),
+    );
     const prevPendingCodexInputs = new Map(demoSessionIds.map((id) => [id, snapshot.pendingCodexInputs.get(id)]));
     const prevToolProgress = new Map(demoSessionIds.map((id) => [id, snapshot.toolProgress.get(id)]));
     const prevToolResults = new Map(demoSessionIds.map((id) => [id, snapshot.toolResults.get(id)]));
@@ -94,7 +112,27 @@ export function usePlaygroundSeed() {
     store.setConnectionStatus(sessionId, "connected");
     store.setCliConnected(sessionId, true);
     store.setSessionStatus(sessionId, "running");
-    store.setMessages(sessionId, [MSG_USER, MSG_ASSISTANT, MSG_ASSISTANT_TOOLS, MSG_TOOL_ERROR]);
+    store.setMessages(sessionId, [
+      MSG_USER,
+      makePlaygroundMessage({
+        id: "playground-thread-routing-reminder",
+        role: "user",
+        content: [
+          "[Thread routing reminder]",
+          "Missing thread marker. Your previous leader response was not assigned to a thread.",
+          "Resend user-visible leader text with `[thread:main]` or `[thread:q-N]` as the first line.",
+          "For leader shell commands, put `# thread:main` or `# thread:q-N` as the first non-empty command line.",
+        ].join("\n"),
+        timestamp: Date.now() - 55_000,
+        agentSource: {
+          sessionId: THREAD_ROUTING_REMINDER_SOURCE_ID,
+          sessionLabel: THREAD_ROUTING_REMINDER_SOURCE_LABEL,
+        },
+      }),
+      MSG_ASSISTANT,
+      MSG_ASSISTANT_TOOLS,
+      MSG_TOOL_ERROR,
+    ]);
     store.setStreaming(sessionId, "I'm updating tests and then I'll run the full suite.");
     store.setStreamingStats(sessionId, { startedAt: Date.now() - 12000, outputTokens: 1200 });
     store.addPermission(sessionId, PERM_BASH);
@@ -133,6 +171,298 @@ export function usePlaygroundSeed() {
     store.setSessionStatus(PLAYGROUND_LOADING_SESSION_ID, "idle");
     store.setHistoryLoading(PLAYGROUND_LOADING_SESSION_ID, true);
 
+    const threadPanelSession: SessionState = {
+      ...session,
+      session_id: PLAYGROUND_THREAD_PANEL_SESSION_ID,
+      backend_type: "codex",
+      model: "gpt-5.5",
+      cwd: "/Users/stan/Dev/takode/thread-panel",
+      is_containerized: false,
+      isOrchestrator: true,
+    };
+    store.addSession(threadPanelSession);
+    store.setConnectionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_THREAD_PANEL_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "running");
+    store.setActiveTurnRoute(PLAYGROUND_THREAD_PANEL_SESSION_ID, { threadKey: "q-961", questId: "q-961" });
+    store.setStreamingStats(PLAYGROUND_THREAD_PANEL_SESSION_ID, { startedAt: Date.now() - 42_000, outputTokens: 1280 });
+    store.setMessages(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
+      makePlaygroundMessage({
+        id: "playground-thread-main",
+        role: "user",
+        content: "Coordinate the active Journey board.",
+        timestamp: Date.now() - 180_000,
+        historyIndex: 0,
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-attached-history",
+        role: "assistant",
+        content: "Earlier context attached to the implementation quest.",
+        timestamp: Date.now() - 150_000,
+        historyIndex: 1,
+        metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "backfill" }] },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-attachment-marker",
+        role: "system",
+        content: "1 message moved to q-961",
+        timestamp: Date.now() - 149_000,
+        historyIndex: 2,
+        variant: "info",
+        metadata: {
+          threadAttachmentMarker: {
+            type: "thread_attachment_marker",
+            id: "playground-thread-attachment-marker",
+            timestamp: Date.now() - 149_000,
+            markerKey: "thread-attachment:q-961:playground-thread-attached-history",
+            threadKey: "q-961",
+            questId: "q-961",
+            attachedAt: Date.now() - 149_000,
+            attachedBy: "playground",
+            messageIds: ["playground-thread-attached-history"],
+            messageIndices: [1],
+            ranges: ["1"],
+            count: 1,
+            firstMessageId: "playground-thread-attached-history",
+            firstMessageIndex: 1,
+          },
+        },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-transition-marker",
+        role: "system",
+        content: "Work continued from Main to thread:q-962",
+        timestamp: Date.now() - 145_000,
+        historyIndex: 3,
+        variant: "info",
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "playground-thread-transition-marker",
+            timestamp: Date.now() - 145_000,
+            markerKey: "thread-transition:main->q-962:0",
+            sourceThreadKey: "main",
+            threadKey: "q-962",
+            questId: "q-962",
+            transitionedAt: Date.now() - 145_000,
+            reason: "route_switch",
+            sourceMessageIndex: 0,
+          },
+        },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-q961",
+        role: "assistant",
+        content: "Implementation is underway.",
+        timestamp: Date.now() - 120_000,
+        historyIndex: 4,
+        metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-q961-assistant",
+        role: "assistant",
+        content: "Tool calls and implementation notes are continuing in q-961.",
+        timestamp: Date.now() - 110_000,
+        historyIndex: 5,
+        metadata: { threadRefs: [{ threadKey: "q-961", questId: "q-961", source: "explicit" }] },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-q962",
+        role: "assistant",
+        content: "Queued until the dependency finishes.",
+        timestamp: Date.now() - 90_000,
+        historyIndex: 6,
+        metadata: { threadRefs: [{ threadKey: "q-962", questId: "q-962", source: "explicit" }] },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-q963",
+        role: "assistant",
+        content: "Waiting for a free worker before dispatch.",
+        timestamp: Date.now() - 60_000,
+        historyIndex: 7,
+        metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-q964",
+        role: "assistant",
+        content: "Completed Journey is ready for review without active phase cues.",
+        timestamp: Date.now() - 30_000,
+        historyIndex: 8,
+        metadata: { threadRefs: [{ threadKey: "q-964", questId: "q-964", source: "explicit" }] },
+      }),
+      makePlaygroundMessage({
+        id: "playground-thread-q965-recovered-source",
+        role: "assistant",
+        content:
+          "Approval plan for q-965: run the focused worker, then hold at Code Review for the thumbnail evidence.",
+        timestamp: Date.now() - 20_000,
+        historyIndex: 9,
+      }),
+    ]);
+    store.setSessionNotifications(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
+      {
+        id: "playground-attention-input",
+        category: "needs-input",
+        summary: "Choose whether q-961 should proceed to review",
+        timestamp: Date.now() - 104_000,
+        messageId: "playground-thread-q961-assistant",
+        threadKey: "q-961",
+        questId: "q-961",
+        done: false,
+      },
+      {
+        id: "playground-missing-user-decision",
+        category: "needs-input",
+        summary: "Approve dispatching the q-963 follow-up worker",
+        timestamp: Date.now() - 64_000,
+        messageId: null,
+        threadKey: "q-963",
+        questId: "q-963",
+        done: false,
+      },
+      {
+        id: "playground-routed-source-decision",
+        category: "needs-input",
+        summary: "Approve the q-965 plan/description",
+        timestamp: Date.now() - 24_000,
+        messageId: "playground-thread-q965-recovered-source",
+        threadKey: "q-965",
+        questId: "q-965",
+        done: false,
+      },
+      {
+        id: "playground-attention-reviewed",
+        category: "review",
+        summary: "q-962 review already handled",
+        timestamp: Date.now() - 84_000,
+        messageId: null,
+        threadKey: "q-962",
+        questId: "q-962",
+        done: true,
+      },
+    ]);
+    store.setSessionBoard(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
+      {
+        questId: "q-961",
+        title: "Finish data-flow cleanup",
+        status: "IMPLEMENTING",
+        updatedAt: Date.now() - 120_000,
+        createdAt: Date.now() - 240_000,
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "implement", "code-review"],
+          activePhaseIndex: 1,
+          currentPhaseId: "implement",
+          phaseTimings: {
+            "0": { startedAt: Date.now() - 240_000, endedAt: Date.now() - 180_000 },
+            "1": { startedAt: Date.now() - 180_000 },
+          },
+        },
+      },
+      {
+        questId: "q-962",
+        title: "Add queued thread wait chip",
+        status: "QUEUED",
+        waitFor: ["q-961"],
+        updatedAt: Date.now() - 90_000,
+        createdAt: Date.now() - 210_000,
+        journey: { mode: "active", phaseIds: ["alignment", "implement", "code-review"] },
+      },
+      {
+        questId: "q-963",
+        title: "Dispatch follow-up worker",
+        status: "QUEUED",
+        waitForInput: ["playground-missing-user-decision"],
+        updatedAt: Date.now() - 60_000,
+        createdAt: Date.now() - 180_000,
+        journey: { mode: "active", phaseIds: ["alignment", "implement", "code-review"] },
+      },
+      {
+        questId: "q-965",
+        title: "Recover approval source message",
+        status: "QUEUED",
+        waitForInput: ["playground-routed-source-decision"],
+        updatedAt: Date.now() - 24_000,
+        createdAt: Date.now() - 150_000,
+        journey: { mode: "active", phaseIds: ["alignment", "implement", "code-review"] },
+      },
+    ]);
+    store.setSessionBoardRowStatuses(PLAYGROUND_THREAD_PANEL_SESSION_ID, {
+      "q-961": {
+        worker: { sessionId: "playground-thread-worker", sessionNum: 1321, name: "Clear Mesa", status: "running" },
+        reviewer: { sessionId: "playground-thread-reviewer", sessionNum: 1306, status: "idle" },
+      },
+      "q-962": {
+        worker: { sessionId: "playground-thread-worker-queued", sessionNum: 1320, status: "idle" },
+        reviewer: null,
+      },
+      "q-963": {
+        worker: { sessionId: "playground-thread-worker-dispatch", sessionNum: 1305, status: "disconnected" },
+        reviewer: null,
+      },
+    });
+    store.setSessionCompletedBoard(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
+      {
+        questId: "q-964",
+        title: "Finish completed Journey display",
+        status: "PORTING",
+        updatedAt: Date.now() - 30_000,
+        completedAt: Date.now() - 20_000,
+        createdAt: Date.now() - 150_000,
+        journey: {
+          mode: "active",
+          phaseIds: ["alignment", "implement", "code-review", "port"],
+          currentPhaseId: "port",
+          phaseTimings: {
+            "0": { startedAt: Date.now() - 150_000, endedAt: Date.now() - 120_000 },
+            "1": { startedAt: Date.now() - 120_000, endedAt: Date.now() - 80_000 },
+            "2": { startedAt: Date.now() - 80_000, endedAt: Date.now() - 40_000 },
+            "3": { startedAt: Date.now() - 40_000, endedAt: Date.now() - 20_000 },
+          },
+        },
+      },
+    ]);
+    store.setSessionAttentionRecords(PLAYGROUND_THREAD_PANEL_SESSION_ID, [
+      {
+        id: "playground-chip-needs-input",
+        leaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
+        type: "needs_input",
+        source: { kind: "notification", id: "playground-chip-needs-input", questId: "q-961" },
+        questId: "q-961",
+        threadKey: "q-961",
+        title: "Answer q-961 worker",
+        summary: "Implementation is waiting for a concrete user answer in the quest thread.",
+        actionLabel: "Answer",
+        priority: "needs_input",
+        state: "unresolved",
+        createdAt: Date.now() - 100_000,
+        updatedAt: Date.now() - 80_000,
+        route: { threadKey: "q-961", questId: "q-961", messageId: "playground-thread-q961-assistant" },
+        chipEligible: true,
+        ledgerEligible: true,
+        dedupeKey: "playground-chip-needs-input",
+      },
+      {
+        id: "playground-chip-seen",
+        leaderSessionId: PLAYGROUND_THREAD_PANEL_SESSION_ID,
+        type: "blocked_user_resolvable",
+        source: { kind: "manual", id: "playground-chip-seen", questId: "q-963" },
+        questId: "q-963",
+        threadKey: "q-963",
+        title: "Unblock dispatch",
+        summary: "This item has been seen but still needs a user-resolvable action.",
+        actionLabel: "Unblock",
+        priority: "blocked",
+        state: "seen",
+        createdAt: Date.now() - 70_000,
+        updatedAt: Date.now() - 50_000,
+        route: { threadKey: "q-963", questId: "q-963" },
+        chipEligible: true,
+        ledgerEligible: true,
+        dedupeKey: "playground-chip-seen",
+      },
+    ]);
+
     const codexTerminalSession: SessionState = {
       ...session,
       session_id: PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
@@ -143,12 +473,12 @@ export function usePlaygroundSeed() {
       skill_metadata: [
         {
           name: "doc-coauthoring",
-          path: "/Users/stan/.codex/skills/doc-coauthoring/SKILL.md",
+          path: "/Users/stan/.agents/skills/doc-coauthoring/SKILL.md",
           description: "Draft and edit design docs",
         },
         {
           name: "frontend-design",
-          path: "/Users/stan/.codex/skills/frontend-design/SKILL.md",
+          path: "/Users/stan/.agents/skills/frontend-design/SKILL.md",
           description: "Polish React UI states",
         },
       ],
@@ -210,6 +540,23 @@ export function usePlaygroundSeed() {
           },
         ],
       },
+      {
+        id: "playground-codex-terminal-bash-orphaned",
+        role: "assistant",
+        content: "",
+        timestamp: Date.now() - 18_000,
+        model: "gpt-5.3-codex",
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "playground-codex-orphaned-bash",
+            name: "Bash",
+            input: {
+              command: "git status --short",
+            },
+          },
+        ],
+      },
     ]);
     store.setToolStartTimestamps(PLAYGROUND_CODEX_TERMINAL_SESSION_ID, {
       "playground-codex-live-bash": Date.now() - 49_000,
@@ -241,6 +588,16 @@ export function usePlaygroundSeed() {
       total_size: 53,
       is_truncated: false,
       duration_seconds: 14.1,
+    });
+    store.setToolResult(PLAYGROUND_CODEX_TERMINAL_SESSION_ID, "playground-codex-orphaned-bash", {
+      tool_use_id: "playground-codex-orphaned-bash",
+      content: "Terminal command did not deliver a final result after a later tool completed.",
+      is_error: false,
+      total_size: 77,
+      is_truncated: false,
+      duration_seconds: 121.7,
+      synthetic_reason: "superseded_by_later_completed_tool",
+      retained_output: false,
     });
 
     store.addSession({
@@ -413,7 +770,12 @@ export function usePlaygroundSeed() {
     // Seed quest-named state for sidebar quest demo rows.
     // SessionItem reads isQuestNamed + claimedQuestStatus from the store.
     store.addSession({ ...session, session_id: questInProgressId, claimedQuestStatus: "in_progress" });
-    store.addSession({ ...session, session_id: questVerificationId, claimedQuestStatus: "needs_verification" });
+    store.addSession({
+      ...session,
+      session_id: questVerificationId,
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
     store.markQuestNamed(questInProgressId);
     store.markQuestNamed(questVerificationId);
     store.setSessionTimers("leader-alpha", [
@@ -439,12 +801,18 @@ export function usePlaygroundSeed() {
         const cliConnected = new Map(s.cliConnected);
         const cliEverConnected = new Map(s.cliEverConnected);
         const sessionStatus = new Map(s.sessionStatus);
+        const activeTurnRoutes = new Map(s.activeTurnRoutes);
         const streaming = new Map(s.streaming);
         const streamingStartedAt = new Map(s.streamingStartedAt);
         const streamingOutputTokens = new Map(s.streamingOutputTokens);
         const cliDisconnectReason = new Map(s.cliDisconnectReason);
         const feedScrollPosition = new Map(s.feedScrollPosition);
         const historyLoading = new Map(s.historyLoading);
+        const sessionBoards = new Map(s.sessionBoards);
+        const sessionBoardRowStatuses = new Map(s.sessionBoardRowStatuses);
+        const sessionCompletedBoards = new Map(s.sessionCompletedBoards);
+        const sessionNotifications = new Map(s.sessionNotifications);
+        const sessionAttentionRecords = new Map(s.sessionAttentionRecords);
         const pendingCodexInputs = new Map(s.pendingCodexInputs);
         const sessionTimers = new Map(s.sessionTimers);
         const toolProgress = new Map(s.toolProgress);
@@ -461,15 +829,19 @@ export function usePlaygroundSeed() {
           const prevCliSeen = prevCliEver.get(demoId);
           const prevDisconnectReason = prevCliDisconnectReason.get(demoId);
           const prevSessionState = prevStatus.get(demoId);
+          const prevActiveTurnRoute = prevActiveTurnRoutes.get(demoId);
           const prevStream = prevStreaming.get(demoId);
           const prevStreamStarted = prevStreamingStartedAt.get(demoId);
           const prevStreamTokens = prevStreamingOutputTokens.get(demoId);
           const prevFeedScrollPosition = prevFeedScrollPositions.get(demoId);
           const prevLoading = prevHistoryLoading.get(demoId);
           const prevPendingCodex = prevPendingCodexInputs.get(demoId);
+          const prevBoardRowStatuses = prevSessionBoardRowStatuses.get(demoId);
+          const prevCompletedBoard = prevSessionCompletedBoards.get(demoId);
           const prevSessionToolProgress = prevToolProgress.get(demoId);
           const prevSessionToolResults = prevToolResults.get(demoId);
           const prevSessionToolStarts = prevToolStartTimestamps.get(demoId);
+          const prevAttentionRecords = prevSessionAttentionRecords.get(demoId);
 
           if (prevSession) sessions.set(demoId, prevSession);
           else sessions.delete(demoId);
@@ -487,6 +859,8 @@ export function usePlaygroundSeed() {
           else cliDisconnectReason.delete(demoId);
           if (prevSessionState) sessionStatus.set(demoId, prevSessionState);
           else sessionStatus.delete(demoId);
+          if (prevActiveTurnRoute !== undefined) activeTurnRoutes.set(demoId, prevActiveTurnRoute);
+          else activeTurnRoutes.delete(demoId);
           if (typeof prevStream === "string") streaming.set(demoId, prevStream);
           else streaming.delete(demoId);
           if (typeof prevStreamStarted === "number") streamingStartedAt.set(demoId, prevStreamStarted);
@@ -497,6 +871,18 @@ export function usePlaygroundSeed() {
           else feedScrollPosition.delete(demoId);
           if (prevLoading) historyLoading.set(demoId, true);
           else historyLoading.delete(demoId);
+          const prevBoard = prevSessionBoards.get(demoId);
+          const prevNotifications = prevSessionNotifications.get(demoId);
+          if (prevBoard) sessionBoards.set(demoId, prevBoard);
+          else sessionBoards.delete(demoId);
+          if (prevBoardRowStatuses) sessionBoardRowStatuses.set(demoId, prevBoardRowStatuses);
+          else sessionBoardRowStatuses.delete(demoId);
+          if (prevNotifications) sessionNotifications.set(demoId, prevNotifications);
+          else sessionNotifications.delete(demoId);
+          if (prevAttentionRecords) sessionAttentionRecords.set(demoId, prevAttentionRecords);
+          else sessionAttentionRecords.delete(demoId);
+          if (prevCompletedBoard) sessionCompletedBoards.set(demoId, prevCompletedBoard);
+          else sessionCompletedBoards.delete(demoId);
           if (prevPendingCodex) pendingCodexInputs.set(demoId, prevPendingCodex);
           else pendingCodexInputs.delete(demoId);
           if (prevSessionToolProgress) toolProgress.set(demoId, prevSessionToolProgress);
@@ -525,11 +911,17 @@ export function usePlaygroundSeed() {
           cliEverConnected,
           cliDisconnectReason,
           sessionStatus,
+          activeTurnRoutes,
           streaming,
           streamingStartedAt,
           streamingOutputTokens,
           feedScrollPosition,
           historyLoading,
+          sessionBoards,
+          sessionBoardRowStatuses,
+          sessionCompletedBoards,
+          sessionNotifications,
+          sessionAttentionRecords,
           pendingCodexInputs,
           sessionTimers,
           toolProgress,

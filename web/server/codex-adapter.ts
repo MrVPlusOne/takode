@@ -40,11 +40,14 @@ import type {
   TurnStartedAwareAdapter,
   TurnStartFailedAwareAdapter,
 } from "./bridge/adapter-interface.js";
-import { computeContextUsedPercent, type TokenUsage } from "./bridge/context-usage.js";
+import { computeContextTokensUsed, computeContextUsedPercent, type TokenUsage } from "./bridge/context-usage.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
 import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
 
 const TURN_START_ACK_TIMEOUT_MS = 60_000;
+const STDERR_ROUTER_LINE_BUFFER_MAX = 64 * 1024;
+
+type RouterFailureToolName = "write_stdin";
 
 // ─── Adapter Options ──────────────────────────────────────────────────────────
 
@@ -108,7 +111,7 @@ export class CodexAdapter
   private browserMessageCb: ((msg: BrowserIncomingMessage) => void) | null = null;
   private sessionMetaCb: ((meta: CodexSessionMeta) => void) | null = null;
   private disconnectCb: (() => void) | null = null;
-  private initErrorCb: ((error: string) => void) | null = null;
+  private initErrorCbs = new Set<(error: string) => void>();
   private turnStartFailedCb: ((msg: BrowserOutgoingMessage) => void) | null = null;
   private turnStartedCb: ((turnId: string) => void) | null = null;
   private turnSteeredCb: ((turnId: string, pendingInputIds: string[]) => void) | null = null;
@@ -118,6 +121,9 @@ export class CodexAdapter
   private threadId: string | null = null;
   private currentTurnId: string | null = null;
   private suppressedTurnResultIds = new Set<string>();
+  private toolRouterErrorByTurnId = new Map<string, string>();
+  private handledWriteStdinRouterErrorByTurnId = new Map<string, string>();
+  private suppressedWriteStdinRouterCompletionByTurnId = new Map<string, string>();
   private connected = false;
   private initialized = false;
   private initFailed = false;
@@ -126,6 +132,7 @@ export class CodexAdapter
   // Last few raw JSON-RPC messages for debugging unexpected disconnects
   private recentRawMessages: string[] = [];
   private static readonly RAW_MESSAGE_RING_SIZE = 5;
+  private processStderrLineBuffer = "";
 
   private itemEventManager: CodexItemEventManager;
   private mcpManager: CodexMcpManager;
@@ -397,7 +404,7 @@ export class CodexAdapter
   }
 
   onInitError(cb: (error: string) => void): void {
-    this.initErrorCb = cb;
+    this.initErrorCbs.add(cb);
   }
 
   onTurnStartFailed(cb: (msg: BrowserOutgoingMessage) => void): void {
@@ -434,6 +441,12 @@ export class CodexAdapter
 
   getCurrentTurnId(): string | null {
     return this.currentTurnId;
+  }
+
+  handleProcessStderr(text: string): void {
+    for (const message of this.extractWriteStdinRouterFailuresFromStderrChunk(text)) {
+      this.handleToolRouterFailureMessage(message);
+    }
   }
 
   async rollbackTurns(numTurns: number): Promise<void> {
@@ -613,8 +626,13 @@ export class CodexAdapter
       this.connected = false;
       // Discard any messages queued during the failed init attempt
       this.pendingOutgoing.length = 0;
-      this.emit({ type: "error", message: errorMsg });
-      this.initErrorCb?.(errorMsg);
+      for (const cb of this.initErrorCbs) {
+        try {
+          cb(errorMsg);
+        } catch (callbackErr) {
+          console.error("[codex-adapter] init-error listener failed:", callbackErr);
+        }
+      }
     }
   }
 
@@ -854,9 +872,48 @@ export class CodexAdapter
       })) as { turnId: string };
       this.turnSteeredCb?.(result.turnId, msg.pendingInputIds);
     } catch (err) {
+      const recoveredStaleTurn = this.recoverStaleTurnSteerFailure(msg.expectedTurnId, err);
       this.turnSteerFailedCb?.(msg.pendingInputIds);
+      if (recoveredStaleTurn) return;
       this.emit({ type: "error", message: `Failed to steer active Codex turn: ${err}` });
     }
+  }
+
+  private recoverStaleTurnSteerFailure(expectedTurnId: string, err: unknown): boolean {
+    if (!this.isNoActiveTurnToSteerError(err)) return false;
+    if (this.currentTurnId && this.currentTurnId !== expectedTurnId) return false;
+
+    if (this.currentTurnId === expectedTurnId) {
+      console.log(
+        `[codex-adapter] Codex rejected turn/steer for stale turn ${expectedTurnId}; clearing current turn for session ${this.sessionId}`,
+      );
+      this.currentTurnId = null;
+      for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+      if (this.emitCompletedResultForHandledWriteStdinRouterError(expectedTurnId)) {
+        return true;
+      }
+      const routerError = this.toolRouterErrorByTurnId.get(expectedTurnId);
+      if (routerError) {
+        this.toolRouterErrorByTurnId.delete(expectedTurnId);
+        this.suppressedTurnResultIds.add(expectedTurnId);
+        this.emitTurnResult({
+          turnId: expectedTurnId,
+          status: "failed",
+          errorMessage: routerError,
+        });
+      }
+    } else {
+      console.log(
+        `[codex-adapter] Codex rejected turn/steer for already-cleared turn ${expectedTurnId}; suppressing stale steer error for session ${this.sessionId}`,
+      );
+    }
+
+    return true;
+  }
+
+  private isNoActiveTurnToSteerError(err: unknown): boolean {
+    const message = err instanceof Error ? err.message : String(err);
+    return /\bno active turn to steer\b/i.test(message);
   }
 
   private async handleOutgoingPermissionResponse(msg: {
@@ -1031,7 +1088,7 @@ export class CodexAdapter
           const msg = params.msg as { message?: string } | undefined;
           if (msg?.message) {
             console.error(`[codex-adapter] Codex error: ${msg.message}`);
-            this.emit({ type: "error", message: msg.message });
+            this.handleToolRouterFailureMessage(msg.message);
           }
           break;
         }
@@ -1089,11 +1146,25 @@ export class CodexAdapter
     if (threadId && this.threadId && threadId !== this.threadId) return;
 
     if (status.type === "idle" && this.currentTurnId) {
+      const staleTurnId = this.currentTurnId;
       console.log(
-        `[codex-adapter] Thread reported idle while currentTurnId=${this.currentTurnId} is set; clearing stale turn for session ${this.sessionId}`,
+        `[codex-adapter] Thread reported idle while currentTurnId=${staleTurnId} is set; clearing stale turn for session ${this.sessionId}`,
       );
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+      if (this.emitCompletedResultForHandledWriteStdinRouterError(staleTurnId)) {
+        return;
+      }
+      const routerError = this.toolRouterErrorByTurnId.get(staleTurnId);
+      if (routerError) {
+        this.toolRouterErrorByTurnId.delete(staleTurnId);
+        this.suppressedTurnResultIds.add(staleTurnId);
+        this.emitTurnResult({
+          turnId: staleTurnId,
+          status: "failed",
+          errorMessage: routerError,
+        });
+      }
     }
   }
 
@@ -1105,37 +1176,158 @@ export class CodexAdapter
     }
 
     this.currentTurnId = null;
+    const turnId = typeof turn?.id === "string" ? turn.id : null;
+    if (turnId) {
+      this.toolRouterErrorByTurnId.delete(turnId);
+    }
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
 
-    if (typeof turn?.id === "string" && this.suppressedTurnResultIds.delete(turn.id)) {
+    if (turnId && this.suppressedTurnResultIds.delete(turnId)) {
+      this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
+      this.suppressedWriteStdinRouterCompletionByTurnId.delete(turnId);
       return;
+    }
+
+    if (turnId) {
+      const suppressedWriteStdinRouterError = this.suppressedWriteStdinRouterCompletionByTurnId.get(turnId);
+      if (suppressedWriteStdinRouterError) {
+        this.suppressedWriteStdinRouterCompletionByTurnId.delete(turnId);
+        this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
+        if (
+          !turn?.error?.message ||
+          this.isSameWriteStdinRouterFailure(turn.error.message, suppressedWriteStdinRouterError)
+        ) {
+          return;
+        }
+      }
+
+      const handledWriteStdinRouterError = this.handledWriteStdinRouterErrorByTurnId.get(turnId);
+      if (
+        handledWriteStdinRouterError &&
+        this.isSameWriteStdinRouterFailure(turn?.error?.message, handledWriteStdinRouterError)
+      ) {
+        this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
+        this.emitTurnResult({
+          turnId,
+          status: "completed",
+        });
+        return;
+      }
+      this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
     }
 
     // Always emit a result — even for interrupted turns — so the server
     // transitions to idle. For internal interrupts (new message while a turn
     // was active), the next turn/start will immediately set generating=true
     // again, so the brief idle flash is imperceptible.
+    this.emitTurnResult({
+      turnId,
+      status: turn?.status || "end_turn",
+      errorMessage: turn?.error?.message,
+    });
+  }
 
-    // Synthesize a CLIResultMessage-like structure
-    const isSuccess = turn?.status === "completed" || turn?.status === "interrupted";
+  private emitCompletedResultForHandledWriteStdinRouterError(turnId: string): boolean {
+    const handledMessage = this.handledWriteStdinRouterErrorByTurnId.get(turnId);
+    if (!handledMessage) return false;
+    this.suppressedWriteStdinRouterCompletionByTurnId.set(turnId, handledMessage);
+    this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
+    this.toolRouterErrorByTurnId.delete(turnId);
+    this.emitTurnResult({
+      turnId,
+      status: "completed",
+    });
+    return true;
+  }
+
+  private isSameWriteStdinRouterFailure(errorMessage: string | undefined, handledMessage: string): boolean {
+    if (!errorMessage) return false;
+    const normalizedError = errorMessage.trim();
+    const normalizedHandled = handledMessage.trim();
+    return normalizedError === normalizedHandled || normalizedError.includes(normalizedHandled);
+  }
+
+  private emitTurnResult(args: { turnId?: string | null; status: string; errorMessage?: string }): void {
+    const isSuccess = args.status === "completed" || args.status === "interrupted";
     const result: CLIResultMessage = {
       type: "result",
       subtype: isSuccess ? "success" : "error_during_execution",
       is_error: !isSuccess,
-      result: turn?.error?.message,
+      result: args.errorMessage,
       duration_ms: 0,
       duration_api_ms: 0,
       num_turns: 1,
       total_cost_usd: 0,
-      stop_reason: turn?.status || "end_turn",
+      stop_reason: args.status,
       usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
-      ...(typeof turn?.id === "string" ? { codex_turn_id: turn.id } : {}),
+      ...(typeof args.turnId === "string" ? { codex_turn_id: args.turnId } : {}),
       uuid: randomUUID(),
       session_id: this.sessionId,
     };
 
     this.emit({ type: "result", data: result });
+  }
+
+  private isToolRouterFailureMessage(message: string): boolean {
+    return [
+      /\bapply_patch verification failed\b/i,
+      /\b(?:exec_command|write_stdin|view_image|spawn_agent|send_input|resume_agent|wait_agent|close_agent)\s+failed\b/i,
+      /\btool(?:\s+call)?\s+failed\b/i,
+    ].some((pattern) => pattern.test(message));
+  }
+
+  private getRouterFailureToolName(message: string): RouterFailureToolName | null {
+    if (/\bwrite_stdin\s+failed\b/i.test(message)) return "write_stdin";
+    return null;
+  }
+
+  private handleToolRouterFailureMessage(message: string): void {
+    const isToolRouterFailure = this.isToolRouterFailureMessage(message);
+    const routerFailureToolName = this.getRouterFailureToolName(message);
+    const renderedAsToolResult = isToolRouterFailure
+      ? this.itemEventManager.handleToolRouterError(
+          message,
+          routerFailureToolName ?? undefined,
+          this.currentTurnId ?? undefined,
+        )
+      : false;
+    if (this.currentTurnId && isToolRouterFailure) {
+      if (renderedAsToolResult && routerFailureToolName === "write_stdin") {
+        this.handledWriteStdinRouterErrorByTurnId.set(this.currentTurnId, message);
+        this.toolRouterErrorByTurnId.delete(this.currentTurnId);
+      } else {
+        this.handledWriteStdinRouterErrorByTurnId.delete(this.currentTurnId);
+        this.toolRouterErrorByTurnId.set(this.currentTurnId, message);
+      }
+    }
+    if (!renderedAsToolResult) {
+      this.emit({ type: "error", message });
+    }
+  }
+
+  private extractWriteStdinRouterFailuresFromStderrChunk(text: string): string[] {
+    if (!text) return [];
+    this.processStderrLineBuffer += text;
+    const lines = this.processStderrLineBuffer.split(/\r?\n/);
+    this.processStderrLineBuffer = lines.pop() ?? "";
+    if (this.processStderrLineBuffer.length > STDERR_ROUTER_LINE_BUFFER_MAX) {
+      this.processStderrLineBuffer = this.processStderrLineBuffer.slice(-STDERR_ROUTER_LINE_BUFFER_MAX);
+    }
+
+    const messages: string[] = [];
+    for (const line of lines) {
+      const message = this.extractWriteStdinRouterFailureFromStderrLine(line);
+      if (message) messages.push(message);
+    }
+    return messages;
+  }
+
+  private extractWriteStdinRouterFailureFromStderrLine(line: string): string | null {
+    const normalized = line.replace(/\x1b\[[0-9;]*m/g, "").trim();
+    if (!normalized.includes("codex_core::tools::router")) return null;
+    const match = normalized.match(/\berror\s*=\s*(write_stdin failed:.*)$/i);
+    return match?.[1]?.trim() || null;
   }
 
   private updateRateLimits(data: Record<string, unknown>): void {
@@ -1237,7 +1429,20 @@ export class CodexAdapter
         input_tokens: last.inputTokens || 0,
         cache_read_input_tokens: last.cachedInputTokens || 0,
       };
+      const contextTokensUsed = computeContextTokensUsed(usage);
       const pct = computeContextUsedPercent(usage, contextWindow);
+      if (typeof contextTokensUsed === "number") {
+        updates.codex_token_details = {
+          ...(updates.codex_token_details ?? {
+            inputTokens: total?.inputTokens || 0,
+            outputTokens: total?.outputTokens || 0,
+            cachedInputTokens: total?.cachedInputTokens || 0,
+            reasoningOutputTokens: total?.reasoningOutputTokens || 0,
+            modelContextWindow: contextWindow || 0,
+          }),
+          contextTokensUsed,
+        };
+      }
       if (typeof pct === "number") {
         updates.context_used_percent = pct;
       }
@@ -1246,6 +1451,7 @@ export class CodexAdapter
     // Forward cumulative token breakdown for display in the UI
     if (total) {
       updates.codex_token_details = {
+        contextTokensUsed: updates.codex_token_details?.contextTokensUsed,
         inputTokens: total.inputTokens || 0,
         outputTokens: total.outputTokens || 0,
         cachedInputTokens: total.cachedInputTokens || 0,

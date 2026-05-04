@@ -174,4 +174,69 @@ describe("handleMessage: backend_disconnected/connected", () => {
     expect(useStore.getState().cliConnected.get("s1")).toBe(true);
     expect(useStore.getState().sessionStatus.get("s1")).toBe("idle");
   });
+
+  it("clears stale retryable Codex init errors after recovery connects", () => {
+    // Mirrors the q-949/#1132 race: a retryable init failure may have reached
+    // the browser before bridge recovery proved the session was still alive.
+    // Once recovery connects, that stale terminal-looking bubble should go away.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+    fireMessage({
+      type: "error",
+      message:
+        "Codex initialization failed: Transport closed. Stderr: [mai-codex-wrapper] " +
+        "wrapper_pid=63170 ppid=61864 companion_session=s1 cwd=/repo",
+    });
+    expect(
+      useStore
+        .getState()
+        .messages.get("s1")
+        ?.map((msg) => msg.content),
+    ).toContain(
+      "Codex initialization failed: Transport closed. Stderr: [mai-codex-wrapper] " +
+        "wrapper_pid=63170 ppid=61864 companion_session=s1 cwd=/repo",
+    );
+
+    fireMessage({ type: "session_update", session: { backend_state: "recovering", backend_error: null } });
+    fireMessage({ type: "backend_disconnected" });
+    fireMessage({ type: "session_update", session: { backend_state: "connected", backend_error: null } });
+    fireMessage({ type: "backend_connected" });
+    vi.advanceTimersByTime(300);
+
+    const contents =
+      useStore
+        .getState()
+        .messages.get("s1")
+        ?.map((msg) => msg.content) ?? [];
+    expect(contents.some((content) => content.includes("Codex initialization failed: Transport closed"))).toBe(false);
+    expect(useStore.getState().cliConnected.get("s1")).toBe(true);
+  });
+
+  it.each([
+    "Error: error loading default config after config error: No such file or directory (os error 2)",
+    'MCP server "codex_apps" startup failed during initialize',
+    "rmcp::transport::worker quit with fatal: Transport channel closed",
+    "TokenRefreshFailed while starting MCP server",
+    "OAuth refresh failed: invalid_grant",
+  ])("preserves actionable Codex init errors after backend connects: %s", (stderr) => {
+    // Config/auth/MCP failures can also arrive wrapped in Transport closed.
+    // Those remain visible because they are actionable terminal errors, not
+    // transient post-restart startup closes.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+    fireMessage({
+      type: "error",
+      message: `Codex initialization failed: Transport closed. Stderr: ${stderr}`,
+    });
+
+    fireMessage({ type: "session_update", session: { backend_state: "connected", backend_error: null } });
+    fireMessage({ type: "backend_connected" });
+
+    const contents =
+      useStore
+        .getState()
+        .messages.get("s1")
+        ?.map((msg) => msg.content) ?? [];
+    expect(contents.some((content) => content.includes(stderr))).toBe(true);
+  });
 });

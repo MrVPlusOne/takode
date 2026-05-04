@@ -1,8 +1,9 @@
 import { mkdtempSync, rmSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { SessionStore, type PersistedSession } from "./session-store.js";
+import { searchSessionDocuments } from "./session-search.js";
 
 let tempDir: string;
 let store: SessionStore;
@@ -228,9 +229,10 @@ describe("saveSync / load", () => {
     expect(hotRaw.eventBuffer).toEqual([{ seq: 1, message: { type: "backend_connected" } }]);
   });
 
-  it("keeps replayable legacy eventBuffer entries when sanitizing persisted buffers", async () => {
-    // The sanitizer is intentionally narrow: normal replayable events remain
-    // persisted so browser reconnect semantics do not change in this pass.
+  it("drops quest invalidations but keeps replayable legacy eventBuffer entries when sanitizing persisted buffers", async () => {
+    // Quest list invalidations are global cache-bust signals, not per-session
+    // replay state. Normal replayable events remain persisted so browser
+    // reconnect semantics do not change in this pass.
     const session = makeSession("replayable-buffer", {
       eventBuffer: [
         { seq: 1, message: { type: "quest_list_updated" } },
@@ -242,7 +244,49 @@ describe("saveSync / load", () => {
 
     const loaded = await store.load("replayable-buffer");
 
-    expect(loaded!.eventBuffer).toEqual(session.eventBuffer);
+    expect(loaded!.eventBuffer).toEqual([
+      { seq: 2, message: { type: "pr_status_update", pr: null, available: false } },
+      { seq: 3, message: { type: "session_created", session_id: "created-session" } },
+    ]);
+  });
+
+  it("drops legacy top-level leader text stream deltas while keeping worker/nested stream deltas", async () => {
+    const base = makeSession("leader-replay-buffer");
+    const session: PersistedSession = {
+      ...base,
+      state: { ...base.state, isOrchestrator: true },
+      eventBuffer: [
+        {
+          seq: 1,
+          message: {
+            type: "stream_event",
+            parent_tool_use_id: null,
+            event: { type: "content_block_delta", delta: { type: "text_delta", text: "[thread:main] " } },
+          },
+        },
+        {
+          seq: 2,
+          message: {
+            type: "stream_event",
+            parent_tool_use_id: "agent-1",
+            event: { type: "content_block_delta", delta: { type: "text_delta", text: "nested" } },
+          },
+        },
+        {
+          seq: 3,
+          message: {
+            type: "stream_event",
+            parent_tool_use_id: null,
+            event: { type: "content_block_delta", delta: { type: "thinking_delta", thinking: "reasoning" } },
+          },
+        },
+      ] as PersistedSession["eventBuffer"],
+    };
+    writeFileSync(join(tempDir, "leader-replay-buffer.json"), JSON.stringify(session), "utf-8");
+
+    const loaded = await store.load("leader-replay-buffer");
+
+    expect(loaded!.eventBuffer).toEqual([session.eventBuffer![1], session.eventBuffer![2]]);
   });
 
   it("saveSync/load preserves codexFreshTurnRequiredUntilTurnId", async () => {
@@ -421,6 +465,141 @@ describe("loadAll", () => {
 
     const repairedHot = JSON.parse(readFileSync(join(tempDir, "active-metrics.json"), "utf-8"));
     expect(repairedHot.eventBuffer).toEqual([{ seq: 1, message: { type: "backend_connected" } }]);
+  });
+
+  it("treats launcher-archived Codex sessions as search-only even when hot JSON lacks archived flag", async () => {
+    // Regression coverage for stale Codex pending delivery warnings: launcher
+    // archive state is authoritative when older hot session JSON missed the
+    // archived flag, so stale pending inputs do not restore as active sessions.
+    const launcherArchived = makeSession("launcher-archived-codex", {
+      state: {
+        ...makeSession("launcher-archived-codex").state,
+        backend_type: "codex",
+      },
+      messageHistory: [{ type: "user_message", content: "old archived turn", timestamp: 1 }],
+      pendingCodexInputs: [
+        {
+          id: "pending-archived",
+          content: "stale archived input",
+          timestamp: 1,
+          cancelable: true,
+        },
+      ],
+    });
+    const exitedButActive = makeSession("exited-but-active-codex", {
+      state: {
+        ...makeSession("exited-but-active-codex").state,
+        backend_type: "codex",
+      },
+      messageHistory: [{ type: "user_message", content: "active tail", timestamp: 2 }],
+      pendingCodexInputs: [
+        {
+          id: "pending-active",
+          content: "still active input",
+          timestamp: 2,
+          cancelable: true,
+        },
+      ],
+    });
+
+    store.saveSync(launcherArchived);
+    store.saveSync(exitedButActive);
+    store.saveLauncher([
+      {
+        sessionId: "launcher-archived-codex",
+        state: "exited",
+        archived: true,
+        archivedAt: 1700000000000,
+      },
+      {
+        sessionId: "exited-but-active-codex",
+        state: "exited",
+        archived: false,
+      },
+    ]);
+    await store.flushAll();
+
+    const all = await store.loadAll();
+
+    const archived = all.find((session) => session.id === "launcher-archived-codex")!;
+    expect(archived.archived).toBe(true);
+    expect(archived.archivedAt).toBe(1700000000000);
+    expect(archived._searchDataOnly).toBe(true);
+    expect(archived.messageHistory).toEqual([]);
+    expect(archived.pendingCodexInputs).toBeUndefined();
+
+    const active = all.find((session) => session.id === "exited-but-active-codex")!;
+    expect(active._searchDataOnly).toBeUndefined();
+    expect(active.pendingCodexInputs).toHaveLength(1);
+  });
+
+  it("extracts search excerpts for launcher-archived sessions that never persisted archive excerpts", async () => {
+    // Launcher archive state can predate hot JSON archived metadata. When that
+    // happens, search-only restore must still preserve message-content search.
+    const session = makeSession("launcher-archived-without-excerpts", {
+      state: {
+        ...makeSession("launcher-archived-without-excerpts").state,
+        backend_type: "codex",
+      },
+      messageHistory: [
+        {
+          type: "user_message",
+          id: "user-needle",
+          content: "legacy archived needle message",
+          timestamp: 1700000000123,
+        },
+      ],
+      pendingCodexInputs: [
+        {
+          id: "pending-archived",
+          content: "stale archived input",
+          timestamp: 1,
+          cancelable: true,
+        },
+      ],
+    });
+
+    store.saveSync(session);
+    store.saveLauncher([
+      {
+        sessionId: session.id,
+        state: "exited",
+        archived: true,
+        archivedAt: 1700000000000,
+      },
+    ]);
+    await store.flushAll();
+
+    const all = await store.loadAll();
+    const archived = all.find((candidate) => candidate.id === session.id)!;
+
+    expect(archived._searchDataOnly).toBe(true);
+    expect(archived.messageHistory).toEqual([]);
+    expect(archived.pendingCodexInputs).toBeUndefined();
+    expect(archived._searchExcerpts).toEqual([
+      {
+        type: "user_message",
+        id: "user-needle",
+        content: "legacy archived needle message",
+        timestamp: 1700000000123,
+      },
+    ]);
+
+    const search = searchSessionDocuments(
+      [
+        {
+          sessionId: archived.id,
+          archived: true,
+          createdAt: 0,
+          lastActivityAt: 1700000000123,
+          messageHistory: archived.messageHistory,
+          searchExcerpts: archived._searchExcerpts,
+        },
+      ],
+      { query: "archived needle" },
+    );
+    expect(search.results[0]?.sessionId).toBe(session.id);
+    expect(search.results[0]?.matchedField).toBe("user_message");
   });
 });
 
@@ -959,6 +1138,8 @@ describe("append-only frozen history", () => {
 // tests might miss.
 
 describe("property-based: frozen history correctness", () => {
+  const PROPERTY_TEST_TIMEOUT_MS = 30_000;
+
   // ── Seeded PRNG (Mulberry32) ────────────────────────────────────────────
   // Deterministic 32-bit PRNG so test failures are reproducible. Pass any
   // integer seed. Returns a function producing numbers in [0, 1).
@@ -1173,99 +1354,107 @@ describe("property-based: frozen history correctness", () => {
   // ── P2: Incremental freeze is append-only ───────────────────────────────
   // After each save, the JSONL content from the previous save must be a
   // prefix of the current content (existing lines are never modified).
-  it("P2: JSONL is append-only — content from previous save is a prefix", async () => {
-    for (let seed = 1; seed <= ITERATIONS; seed++) {
-      const rng = mulberry32(seed + 10000);
-      const sessionId = `p2-${seed}`;
+  it(
+    "P2: JSONL is append-only — content from previous save is a prefix",
+    async () => {
+      for (let seed = 1; seed <= ITERATIONS; seed++) {
+        const rng = mulberry32(seed + 10000);
+        const sessionId = `p2-${seed}`;
 
-      // Build turns incrementally: start with T1, then add T2, etc.
-      const totalTurns = 1 + Math.floor(rng() * 5);
-      let allMessages: PersistedSession["messageHistory"] = [];
-      let allToolResults: NonNullable<PersistedSession["toolResults"]> = [];
-      let prevLogContent = "";
+        // Build turns incrementally: start with T1, then add T2, etc.
+        const totalTurns = 1 + Math.floor(rng() * 5);
+        let allMessages: PersistedSession["messageHistory"] = [];
+        let allToolResults: NonNullable<PersistedSession["toolResults"]> = [];
+        let prevLogContent = "";
 
-      for (let t = 0; t < totalTurns; t++) {
-        const { messages: turnMsgs, toolResults: turnTr } = realisticSequence(rng, 1, 0);
-        allMessages = [...allMessages, ...turnMsgs];
-        allToolResults = [...allToolResults, ...turnTr];
+        for (let t = 0; t < totalTurns; t++) {
+          const { messages: turnMsgs, toolResults: turnTr } = realisticSequence(rng, 1, 0);
+          allMessages = [...allMessages, ...turnMsgs];
+          allToolResults = [...allToolResults, ...turnTr];
 
-        const session = makeSession(sessionId, {
-          messageHistory: [...allMessages],
-          toolResults: [...allToolResults],
-        });
+          const session = makeSession(sessionId, {
+            messageHistory: [...allMessages],
+            toolResults: [...allToolResults],
+          });
 
-        store.saveSync(session);
-        await store.flushAll();
+          store.saveSync(session);
+          await store.flushAll();
 
-        const logPath = join(tempDir, `${sessionId}.history.jsonl`);
-        if (existsSync(logPath)) {
-          const currentLog = readFileSync(logPath, "utf-8");
-          if (prevLogContent) {
-            expect(
-              currentLog.startsWith(prevLogContent),
-              `seed=${seed}, turn=${t}: JSONL is not append-only — previous content not a prefix`,
-            ).toBe(true);
+          const logPath = join(tempDir, `${sessionId}.history.jsonl`);
+          if (existsSync(logPath)) {
+            const currentLog = readFileSync(logPath, "utf-8");
+            if (prevLogContent) {
+              expect(
+                currentLog.startsWith(prevLogContent),
+                `seed=${seed}, turn=${t}: JSONL is not append-only — previous content not a prefix`,
+              ).toBe(true);
+            }
+            prevLogContent = currentLog;
           }
-          prevLogContent = currentLog;
         }
-      }
 
-      store.remove(sessionId);
-      await store.flushAll();
-    }
-  });
+        store.remove(sessionId);
+        await store.flushAll();
+      }
+    },
+    PROPERTY_TEST_TIMEOUT_MS,
+  );
 
   // ── P4: Tool results are never lost ─────────────────────────────────────
   // For any sequence of saves, all tool results present in the input must
   // be present in the loaded output.
-  it("P4: tool results are never lost across save/load", async () => {
-    for (let seed = 1; seed <= ITERATIONS; seed++) {
-      const rng = mulberry32(seed + 30000);
-      const sessionId = `p4-${seed}`;
-      const totalTurns = 1 + Math.floor(rng() * 5);
-      let allMessages: PersistedSession["messageHistory"] = [];
-      let allToolResults: NonNullable<PersistedSession["toolResults"]> = [];
+  it(
+    "P4: tool results are never lost across save/load",
+    async () => {
+      for (let seed = 1; seed <= ITERATIONS; seed++) {
+        const rng = mulberry32(seed + 30000);
+        const sessionId = `p4-${seed}`;
+        const totalTurns = 1 + Math.floor(rng() * 5);
+        let allMessages: PersistedSession["messageHistory"] = [];
+        let allToolResults: NonNullable<PersistedSession["toolResults"]> = [];
 
-      // Build up incrementally — save after each turn
-      for (let t = 0; t < totalTurns; t++) {
-        const { messages: turnMsgs, toolResults: turnTr } = realisticSequence(rng, 1, 0);
-        allMessages = [...allMessages, ...turnMsgs];
-        allToolResults = [...allToolResults, ...turnTr];
+        // Build up incrementally — save after each turn
+        for (let t = 0; t < totalTurns; t++) {
+          const { messages: turnMsgs, toolResults: turnTr } = realisticSequence(rng, 1, 0);
+          allMessages = [...allMessages, ...turnMsgs];
+          allToolResults = [...allToolResults, ...turnTr];
 
-        const session = makeSession(sessionId, {
+          const session = makeSession(sessionId, {
+            messageHistory: [...allMessages],
+            toolResults: [...allToolResults],
+          });
+          store.saveSync(session);
+          await store.flushAll();
+        }
+
+        // Add some in-progress messages (no new tool results)
+        const ipCount = Math.floor(rng() * 5);
+        for (let i = 0; i < ipCount; i++) {
+          allMessages = [...allMessages, makeMsg("stream_event", 9000 + i)];
+        }
+        const finalSession = makeSession(sessionId, {
           messageHistory: [...allMessages],
           toolResults: [...allToolResults],
         });
-        store.saveSync(session);
+        store.saveSync(finalSession);
+        await store.flushAll();
+
+        const loaded = await store.load(sessionId);
+        expect(loaded, `seed=${seed}: null`).not.toBeNull();
+
+        // Every tool result key must be present
+        const loadedKeys = new Set((loaded!.toolResults ?? []).map(([k]) => k));
+        for (const [key] of allToolResults) {
+          expect(loadedKeys.has(key), `seed=${seed}: missing tool result "${key}"`).toBe(true);
+        }
+        expect(loaded!.toolResults ?? []).toHaveLength(allToolResults.length);
+
+        store.remove(sessionId);
         await store.flushAll();
       }
-
-      // Add some in-progress messages (no new tool results)
-      const ipCount = Math.floor(rng() * 5);
-      for (let i = 0; i < ipCount; i++) {
-        allMessages = [...allMessages, makeMsg("stream_event", 9000 + i)];
-      }
-      const finalSession = makeSession(sessionId, {
-        messageHistory: [...allMessages],
-        toolResults: [...allToolResults],
-      });
-      store.saveSync(finalSession);
-      await store.flushAll();
-
-      const loaded = await store.load(sessionId);
-      expect(loaded, `seed=${seed}: null`).not.toBeNull();
-
-      // Every tool result key must be present
-      const loadedKeys = new Set((loaded!.toolResults ?? []).map(([k]) => k));
-      for (const [key] of allToolResults) {
-        expect(loadedKeys.has(key), `seed=${seed}: missing tool result "${key}"`).toBe(true);
-      }
-      expect(loaded!.toolResults ?? []).toHaveLength(allToolResults.length);
-
-      store.remove(sessionId);
-      await store.flushAll();
-    }
-  });
+    },
+    PROPERTY_TEST_TIMEOUT_MS,
+  );
 
   // ── P5: Freeze boundary is correct ──────────────────────────────────────
   // The number of frozen messages (recorded in hot JSON) equals the index
@@ -1376,50 +1565,54 @@ describe("property-based: frozen history correctness", () => {
   // ── P8: Multiple save-load cycles are idempotent ────────────────────────
   // Repeated save → load → save → load cycles must not cause data growth
   // (no duplicate freezing) or corruption.
-  it("P8: repeated save → load → save → load cycles are idempotent", async () => {
-    for (let seed = 1; seed <= ITERATIONS; seed++) {
-      const rng = mulberry32(seed + 70000);
-      const sessionId = `p8-${seed}`;
+  it(
+    "P8: repeated save → load → save → load cycles are idempotent",
+    async () => {
+      for (let seed = 1; seed <= ITERATIONS; seed++) {
+        const rng = mulberry32(seed + 70000);
+        const sessionId = `p8-${seed}`;
 
-      const completedTurns = 1 + Math.floor(rng() * 4);
-      const inProgress = Math.floor(rng() * 5);
-      const { messages, toolResults } = realisticSequence(rng, completedTurns, inProgress);
+        const completedTurns = 1 + Math.floor(rng() * 4);
+        const inProgress = Math.floor(rng() * 5);
+        const { messages, toolResults } = realisticSequence(rng, completedTurns, inProgress);
 
-      // First save
-      const session = makeSession(sessionId, {
-        messageHistory: [...messages],
-        toolResults: [...toolResults],
-      });
-      store.saveSync(session);
-      await store.flushAll();
+        // First save
+        const session = makeSession(sessionId, {
+          messageHistory: [...messages],
+          toolResults: [...toolResults],
+        });
+        store.saveSync(session);
+        await store.flushAll();
 
-      // Read the JSONL after first save
-      const logPath = join(tempDir, `${sessionId}.history.jsonl`);
-      const logAfterFirst = existsSync(logPath) ? readFileSync(logPath, "utf-8") : "";
+        // Read the JSONL after first save
+        const logPath = join(tempDir, `${sessionId}.history.jsonl`);
+        const logAfterFirst = existsSync(logPath) ? readFileSync(logPath, "utf-8") : "";
 
-      // N cycles of load → save
-      const cycles = 2 + Math.floor(rng() * 3);
-      for (let c = 0; c < cycles; c++) {
-        const loaded = await store.load(sessionId);
-        expect(loaded, `seed=${seed}, cycle=${c}: null`).not.toBeNull();
+        // N cycles of load → save
+        const cycles = 2 + Math.floor(rng() * 3);
+        for (let c = 0; c < cycles; c++) {
+          const loaded = await store.load(sessionId);
+          expect(loaded, `seed=${seed}, cycle=${c}: null`).not.toBeNull();
 
-        // Verify message count is stable
-        expect(loaded!.messageHistory, `seed=${seed}, cycle=${c}: msg count`).toHaveLength(messages.length);
-        expect(loaded!.toolResults ?? [], `seed=${seed}, cycle=${c}: tr count`).toHaveLength(toolResults.length);
+          // Verify message count is stable
+          expect(loaded!.messageHistory, `seed=${seed}, cycle=${c}: msg count`).toHaveLength(messages.length);
+          expect(loaded!.toolResults ?? [], `seed=${seed}, cycle=${c}: tr count`).toHaveLength(toolResults.length);
 
-        // Re-save the loaded session (this must not re-freeze)
-        store.saveSync(loaded!);
+          // Re-save the loaded session (this must not re-freeze)
+          store.saveSync(loaded!);
+          await store.flushAll();
+        }
+
+        // JSONL must not have grown (no duplicate appends)
+        const logAfterCycles = existsSync(logPath) ? readFileSync(logPath, "utf-8") : "";
+        expect(logAfterCycles, `seed=${seed}: JSONL grew after ${cycles} cycles`).toBe(logAfterFirst);
+
+        store.remove(sessionId);
         await store.flushAll();
       }
-
-      // JSONL must not have grown (no duplicate appends)
-      const logAfterCycles = existsSync(logPath) ? readFileSync(logPath, "utf-8") : "";
-      expect(logAfterCycles, `seed=${seed}: JSONL grew after ${cycles} cycles`).toBe(logAfterFirst);
-
-      store.remove(sessionId);
-      await store.flushAll();
-    }
-  });
+    },
+    PROPERTY_TEST_TIMEOUT_MS,
+  );
 
   describe("search-data-only archived sessions", () => {
     it("extractSearchExcerpts returns user_message, assistant, and compact_marker content", () => {

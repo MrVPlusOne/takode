@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -947,7 +958,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2", "q-3"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2", "q-3"] });
     const board = bridge.getBoard("s1");
     expect(board[0].waitFor).toEqual(["q-2", "q-3"]);
   });
@@ -957,7 +968,7 @@ describe("work board", () => {
     bridge.handleBrowserOpen(browser, "s1");
 
     // Set initial waitFor
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2"] });
     expect(bridge.getBoard("s1")[0].waitFor).toEqual(["q-2"]);
 
     // Clear with empty array
@@ -969,7 +980,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2"] });
     // Update title without touching waitFor
     bridge.upsertBoardRow("s1", { questId: "q-1", title: "Updated" });
     const row = bridge.getBoard("s1")[0];
@@ -981,10 +992,10 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2", "#5"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2", "#5"] });
     bridge.upsertBoardRow("s1", { questId: "q-2", title: "Dependency quest" });
-    bridge.upsertBoardRow("s1", { questId: "q-3", waitFor: ["q-2", "q-99"] });
-    bridge.upsertBoardRow("s1", { questId: "q-4", waitFor: ["q-2"] });
+    bridge.upsertBoardRow("s1", { questId: "q-3", status: "QUEUED", waitFor: ["q-2", "q-99"] });
+    bridge.upsertBoardRow("s1", { questId: "q-4", status: "QUEUED", waitFor: ["q-2"] });
 
     bridge.removeBoardRows("s1", ["q-2"]);
 
@@ -998,7 +1009,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2", "#7"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2", "#7"] });
     bridge.upsertBoardRow("s1", { questId: "q-2", title: "Dependency quest" });
 
     bridge.removeBoardRowFromAll("q-2");
@@ -1010,7 +1021,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2"] });
     bridge.upsertBoardRow("s1", { questId: "q-2", title: "Dependency quest" });
 
     bridge.removeBoardRowFromAll("q-2");
@@ -1143,39 +1154,42 @@ describe("work board", () => {
     expect(notifUpdates).toHaveLength(0);
   });
 
-  it("advanceBoardRowNoGroom completes a true zero-code quest from SKEPTIC_REVIEWING", () => {
+  it("advanceBoardRow completes a zero-tracked-change Journey from its final non-port phase", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     const session = (bridge as any).sessions.get("s1");
     session.messageHistory.push({
       type: "assistant",
-      message: { id: "asst-no-groom", content: [{ type: "text", text: "Investigation finished" }] },
+      message: { id: "asst-final-phase", content: [{ type: "text", text: "Investigation finished" }] },
       timestamp: Date.now(),
     });
 
     bridge.upsertBoardRow("s1", {
       questId: "q-1",
       title: "Investigate flaky session auth",
-      noCode: true,
-      status: "SKEPTIC_REVIEWING",
+      journey: {
+        presetId: "investigation",
+        phaseIds: ["planning", "explore", "outcome-review"],
+        currentPhaseId: "outcome-review",
+      },
+      status: "OUTCOME_REVIEWING",
     });
     browser.send.mockClear();
 
-    const result = bridge.advanceBoardRowNoGroom("s1", "q-1");
+    const result = bridge.advanceBoardRow("s1", "q-1");
 
     expect(result).toEqual(
       expect.objectContaining({
         removed: true,
-        previousState: "SKEPTIC_REVIEWING",
-        skippedStates: ["GROOM_REVIEWING", "PORTING"],
+        previousState: "OUTCOME_REVIEWING",
       }),
     );
     expect(result?.board).toHaveLength(0);
     expect(bridge.getCompletedBoard("s1")).toEqual([
       expect.objectContaining({
         questId: "q-1",
-        status: "SKEPTIC_REVIEWING",
+        status: "OUTCOME_REVIEWING",
       }),
     ]);
     expect(session.notifications).toHaveLength(1);
@@ -1183,12 +1197,12 @@ describe("work board", () => {
       expect.objectContaining({
         category: "review",
         summary: "q-1 ready for review: Investigate flaky session auth",
-        messageId: "asst-no-groom",
+        messageId: "asst-final-phase",
       }),
     );
   });
 
-  it("advanceBoardRowNoGroom rejects non-skeptic stages even for explicitly marked no-code rows", () => {
+  it("advanceBoardRow ignores legacy noCode metadata when explicit phases omit port", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -1196,27 +1210,73 @@ describe("work board", () => {
       questId: "q-1",
       title: "Investigate board command",
       noCode: true,
-      status: "IMPLEMENTING",
+      journey: {
+        presetId: "investigation",
+        phaseIds: ["planning", "explore", "outcome-review"],
+        currentPhaseId: "outcome-review",
+      },
+      status: "OUTCOME_REVIEWING",
     });
 
-    const result = bridge.advanceBoardRowNoGroom("s1", "q-1");
+    const result = bridge.advanceBoardRow("s1", "q-1");
 
     expect(result).toEqual(
       expect.objectContaining({
-        error: expect.stringContaining("only allowed from SKEPTIC_REVIEWING"),
-        previousState: "IMPLEMENTING",
+        removed: true,
+        previousState: "OUTCOME_REVIEWING",
       }),
     );
+    expect(bridge.getBoard("s1")).toHaveLength(0);
+    expect(bridge.getCompletedBoard("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-1",
+        status: "OUTCOME_REVIEWING",
+      }),
+    ]);
+  });
+
+  it("advanceBoardRow treats legacy noCode rows without explicit phases as port-free compatibility plans", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      title: "Legacy zero-change quest",
+      noCode: true,
+      status: "CODE_REVIEWING",
+    });
+
     expect(bridge.getBoard("s1")).toEqual([
       expect.objectContaining({
         questId: "q-1",
-        status: "IMPLEMENTING",
+        noCode: true,
+        journey: expect.objectContaining({
+          phaseIds: ["alignment", "implement", "code-review"],
+          currentPhaseId: "code-review",
+        }),
+        status: "CODE_REVIEWING",
       }),
     ]);
-    expect(bridge.getCompletedBoard("s1")).toHaveLength(0);
+
+    const result = bridge.advanceBoardRow("s1", "q-1");
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        removed: true,
+        previousState: "CODE_REVIEWING",
+      }),
+    );
+    expect(bridge.getBoard("s1")).toHaveLength(0);
+    expect(bridge.getCompletedBoard("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-1",
+        noCode: true,
+        status: "CODE_REVIEWING",
+      }),
+    ]);
   });
 
-  it("advanceBoardRowNoGroom rejects a code-changing quest already in SKEPTIC_REVIEWING", () => {
+  it("advanceBoardRowNoGroom returns migration guidance without mutating the board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -1224,22 +1284,21 @@ describe("work board", () => {
       questId: "q-1",
       title: "Implement board command",
       noCode: false,
-      status: "SKEPTIC_REVIEWING",
+      status: "CODE_REVIEWING",
     });
 
     const result = bridge.advanceBoardRowNoGroom("s1", "q-1");
 
     expect(result).toEqual(
       expect.objectContaining({
-        error: expect.stringContaining("explicitly marked no-code"),
-        previousState: "SKEPTIC_REVIEWING",
+        error: expect.stringContaining("no-code board shortcut was removed"),
+        previousState: "CODE_REVIEWING",
       }),
     );
     expect(bridge.getBoard("s1")).toEqual([
       expect.objectContaining({
         questId: "q-1",
-        noCode: false,
-        status: "SKEPTIC_REVIEWING",
+        status: "CODE_REVIEWING",
       }),
     ]);
     expect(bridge.getCompletedBoard("s1")).toHaveLength(0);
@@ -1281,6 +1340,37 @@ describe("work board", () => {
     expect(bridge.getCompletedBoardCount("s1")).toBe(1);
   });
 
+  it("advanceBoardRow rejects proposed rows until they are promoted", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      title: "Draft Journey proposal",
+      status: "PROPOSED",
+      waitForInput: ["n-3"],
+      journey: {
+        mode: "proposed",
+        phaseIds: ["alignment", "implement", "code-review", "port"],
+      },
+    });
+
+    const result = bridge.advanceBoardRow("s1", "q-1");
+
+    expect(result).toEqual(
+      expect.objectContaining({
+        error: expect.stringContaining("must be promoted before execution"),
+        previousState: "PROPOSED",
+      }),
+    );
+    expect(bridge.getBoard("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-1",
+        status: "PROPOSED",
+      }),
+    ]);
+  });
+
   it("preserves full takode board previews so dependent rows stay visible to the agent", () => {
     // Regression for q-466: the bridge state was intact, but the 300-char tail
     // preview for `takode board advance` hid q-461 and made the model think the
@@ -1308,7 +1398,7 @@ describe("work board", () => {
       "",
       "QUEST    TITLE                WORKER / REVIEWER               STATE              WAIT-FOR         ACTION",
       "--------------------------------------------------------------------------------------------------------------",
-      "q-460    Re-unroll Frank d…   #618 running / #647 idle       IMPLEMENTING       --               wait for turn_end, then spawn skeptic reviewer",
+      "q-460    Re-unroll Frank d…   #618 running / #647 idle       IMPLEMENTING       --               wait for the worker report, then choose the next review or bookkeeping phase",
       "q-461    Launch Nex AGI da…   #618 running / #647 idle       QUEUED             wait q-460       wait for q-460",
       "",
       "1 quest completed",
@@ -1331,7 +1421,7 @@ describe("work board", () => {
     expect(previews[0].content).toContain("1 quest completed");
   });
 
-  it("advanceBoardRow walks through all Quest Journey stages", () => {
+  it("advanceBoardRow walks through all built-in Quest Journey phases", () => {
     // Validates the full state machine progression
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -1341,9 +1431,8 @@ describe("work board", () => {
     const expectedTransitions = [
       ["QUEUED", "PLANNING"],
       ["PLANNING", "IMPLEMENTING"],
-      ["IMPLEMENTING", "SKEPTIC_REVIEWING"],
-      ["SKEPTIC_REVIEWING", "GROOM_REVIEWING"],
-      ["GROOM_REVIEWING", "PORTING"],
+      ["IMPLEMENTING", "CODE_REVIEWING"],
+      ["CODE_REVIEWING", "PORTING"],
     ];
 
     for (const [from, to] of expectedTransitions) {
@@ -1360,7 +1449,96 @@ describe("work board", () => {
     expect(final!.board).toHaveLength(0);
   });
 
-  it("advanceBoardRow removes row at final stage PORTING", () => {
+  it("initializes default phase bookkeeping for the built-in full-code Quest Journey", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "PLANNING" });
+
+    expect(bridge.getBoard("s1")[0]).toEqual(
+      expect.objectContaining({
+        status: "PLANNING",
+        journey: expect.objectContaining({
+          presetId: "full-code",
+          phaseIds: ["alignment", "implement", "code-review", "port"],
+          currentPhaseId: "alignment",
+          nextLeaderAction: expect.stringContaining("alignment leader brief"),
+        }),
+      }),
+    );
+  });
+
+  it("advanceBoardRow follows a custom planned phase sequence", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      status: "PLANNING",
+      journey: {
+        presetId: "lightweight",
+        phaseIds: ["planning", "implement", "port"],
+        currentPhaseId: "planning",
+      },
+    });
+
+    const implementation = bridge.advanceBoardRow("s1", "q-1");
+    expect(implementation?.newState).toBe("IMPLEMENTING");
+    expect(implementation?.board[0].journey).toEqual(
+      expect.objectContaining({
+        phaseIds: ["alignment", "implement", "port"],
+        currentPhaseId: "implement",
+      }),
+    );
+
+    const porting = bridge.advanceBoardRow("s1", "q-1");
+    expect(porting?.newState).toBe("PORTING");
+    expect(porting?.board[0].journey).toEqual(
+      expect.objectContaining({
+        currentPhaseId: "port",
+        nextLeaderAction: expect.stringContaining("sync confirmation"),
+      }),
+    );
+
+    const final = bridge.advanceBoardRow("s1", "q-1");
+    expect(final?.removed).toBe(true);
+    expect(final?.previousState).toBe("PORTING");
+  });
+
+  it("advanceBoardRow fails closed when a repeated current phase lacks an active index", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      status: "MENTAL_SIMULATING",
+      journey: {
+        presetId: "simulation-loop",
+        phaseIds: [
+          "alignment",
+          "implement",
+          "mental-simulation",
+          "implement",
+          "mental-simulation",
+          "code-review",
+          "port",
+        ],
+        currentPhaseId: "mental-simulation",
+      },
+    });
+
+    const row = (bridge as any).sessions.get("s1").board.get("q-1");
+    delete row.journey.activePhaseIndex;
+    row.journey.currentPhaseId = "mental-simulation";
+
+    const result = bridge.advanceBoardRow("s1", "q-1");
+    expect(result).toMatchObject({
+      error: expect.stringContaining("lacks journey.activePhaseIndex"),
+      previousState: "MENTAL_SIMULATING",
+    });
+  });
+
+  it("advanceBoardRow removes row at final phase PORTING", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
@@ -1371,8 +1549,8 @@ describe("work board", () => {
     expect(result!.board).toHaveLength(0);
   });
 
-  it("advanceBoardRow sends a review notification when completing the final stage", () => {
-    // Advancing off the final board stage is the explicit completion path for
+  it("advanceBoardRow sends a review notification when completing the final phase", () => {
+    // Advancing off the final board phase is the explicit completion path for
     // Quest Journey-driven work and should notify exactly once.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -1399,6 +1577,38 @@ describe("work board", () => {
       }),
     );
     expect(session.attentionReason).toBe("review");
+  });
+
+  it("advanceBoardRow resolves linked wait-for-input notifications when completing the final phase", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const session = (bridge as any).sessions.get("s1");
+    session.notifications = [
+      { id: "n-1", category: "needs-input", summary: "Need answer", timestamp: 1, messageId: null, done: false },
+      {
+        id: "n-2",
+        category: "needs-input",
+        summary: "Need another answer",
+        timestamp: 2,
+        messageId: null,
+        done: false,
+      },
+    ];
+    session.notificationCounter = 2;
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1",
+      title: "Quest 1",
+      status: "PORTING",
+      waitForInput: ["n-1", "n-2"],
+    });
+
+    const result = bridge.advanceBoardRow("s1", "q-1");
+
+    expect(result?.removed).toBe(true);
+    expect(session.notifications.find((notification: any) => notification.id === "n-1")?.done).toBe(true);
+    expect(session.notifications.find((notification: any) => notification.id === "n-2")?.done).toBe(true);
   });
 
   it("advanceBoardRow sets QUEUED when status is unrecognized", () => {
@@ -1447,8 +1657,8 @@ describe("work board", () => {
     expect(completed[0].completedAt).toBeGreaterThan(0);
   });
 
-  it("advanceBoardRow at final stage moves item to completedBoard", () => {
-    // Advancing past PORTING (final stage) should move the row to completed
+  it("advanceBoardRow at final phase moves item to completedBoard", () => {
+    // Advancing past PORTING (final phase) should move the row to completed
     // history, not delete it.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -1485,6 +1695,28 @@ describe("work board", () => {
     // removeBoardRowFromAll should delete from active
     bridge.removeBoardRowFromAll("q-2");
     expect(bridge.getBoard("s1")).toHaveLength(0);
+  });
+
+  it("removeBoardRowFromAll resolves linked wait-for-input notifications", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    const session = (bridge as any).sessions.get("s1");
+    session.notifications = [
+      { id: "n-4", category: "needs-input", summary: "Need answer", timestamp: 4, messageId: null, done: false },
+    ];
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-2",
+      title: "Quest 2",
+      status: "IMPLEMENTING",
+      waitForInput: ["n-4"],
+    });
+
+    bridge.removeBoardRowFromAll("q-2");
+
+    expect(bridge.getBoard("s1")).toHaveLength(0);
+    expect(session.notifications).toMatchObject([{ id: "n-4", done: true }]);
   });
 
   it("getCompletedBoard returns empty for unknown session", () => {
@@ -1546,7 +1778,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", waitFor: ["q-2", "#9"] });
+    bridge.upsertBoardRow("s1", { questId: "q-1", status: "QUEUED", waitFor: ["q-2", "#9"] });
     bridge.upsertBoardRow("s1", { questId: "q-2", title: "Dependency quest" });
     browser.send.mockClear();
 

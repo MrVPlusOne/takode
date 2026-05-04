@@ -29,6 +29,8 @@ export function buildUserMessageTakodeEventData(
     ...(options.turnTarget !== undefined ? { turn_target: options.turnTarget } : {}),
     ...(typeof options.turnId === "string" && options.turnId ? { turn_id: options.turnId } : {}),
     ...(entry.agentSource ? { agentSource: entry.agentSource } : {}),
+    threadKey: entry.threadKey ?? "main",
+    ...(entry.questId ? { questId: entry.questId } : {}),
   };
 }
 

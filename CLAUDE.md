@@ -13,29 +13,53 @@ Use Questmaster to track project progress for this repository. Treat project tas
 
 ## Skills (Auto-Installed)
 
-The Takode server symlinks project skills into global skill directories at startup (see `web/server/skill-symlink.ts` and `web/server/index.ts`). Each skill is symlinked into three locations: `~/.claude/skills/` (Claude Code), `~/.codex/skills/` (legacy Codex), and `~/.agents/skills/` (new agents format). The canonical source is `.claude/skills/` in the project repo -- edit skills there, not in the global directories. If a backend-specific override exists (e.g. `.codex/skills/<slug>/`), that version is used for that backend instead.
+The Takode server symlinks project skills into global skill directories at startup (see `web/server/skill-symlink.ts` and `web/server/index.ts`). Claude-facing skills are installed into `~/.claude/skills/`; Codex/new-agent skills are installed into `~/.agents/skills/`. The canonical Claude-facing project source remains `.claude/skills/` in the repo, while `.agents/skills/` is the single non-Claude project skill source. Legacy `.codex/skills/` content is compatibility-only and may be migrated into `.agents`; do not add new project skills there.
 
 | Skill | Source | Purpose |
 |-------|--------|---------|
 | `takode-orchestration` | `.claude/skills/takode-orchestration/` | Cross-session orchestration: CLI reference, quest journey, board, herd events |
 | `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
+| `confirm` | `.claude/skills/confirm/` | Confirmation workflow for instruction-scoped `/confirm` requests |
+| `quest-journey-planning` | `.claude/skills/quest-journey-planning/` | Quest Journey phase: planning-only worker dispatch |
+| `quest-journey-explore` | `.claude/skills/quest-journey-explore/` | Quest Journey phase: evidence gathering before deciding the next action |
+| `quest-journey-implement` | `.claude/skills/quest-journey-implement/` | Quest Journey phase: approved code/docs/prompt/config/artifact changes |
+| `quest-journey-code-review` | `.claude/skills/quest-journey-code-review/` | Quest Journey phase: tracked artifact quality and landing-risk review |
+| `quest-journey-mental-simulation` | `.claude/skills/quest-journey-mental-simulation/` | Quest Journey phase: scenario-based workflow/design replay |
+| `quest-journey-execute` | `.claude/skills/quest-journey-execute/` | Quest Journey phase: high-stakes or externally consequential execution |
+| `quest-journey-outcome-review` | `.claude/skills/quest-journey-outcome-review/` | Quest Journey phase: external-result review |
+| `quest-journey-user-checkpoint` | `.claude/skills/quest-journey-user-checkpoint/` | Quest Journey phase: user decision checkpoint with findings, options, tradeoffs, recommendation, notification, and Journey revision |
+| `quest-journey-bookkeeping` | `.claude/skills/quest-journey-bookkeeping/` | Quest Journey phase: durable shared-state updates |
+| `quest-journey-port` | `.claude/skills/quest-journey-port/` | Quest Journey phase: sync accepted tracked changes back to main |
 | `quest-design` | `.claude/skills/quest-design/` | Confirmation workflow before creating or refining quests |
 | `self-groom` | `.claude/skills/self-groom/` | Multi-perspective self-review via parallel subagents |
 | `reviewer-groom` | `.claude/skills/reviewer-groom/` | Reviewer-owned quality review for another agent's change |
 | `skeptic-review` | `.claude/skills/skeptic-review/` | Adversarial work integrity review of worker output |
 | `worktree-rules` (`/port-changes`) | `.claude/skills/worktree-rules/` | Worktree-to-main-repo porting workflow; `worktree-rules` is the underlying skill slug and `/port-changes` is the user-facing command/alias |
-| `playwright-e2e-tester` | `.claude/skills/playwright-e2e-tester/` | E2E browser testing via Playwright MCP |
+| `takode-ui-e2e-validation` | `.agents/skills/takode-ui-e2e-validation/` | Takode UI/E2E validation with `agent-browser`, leases, persistent validation profiles or isolated state, Playground coverage, and screenshot evidence |
 
-Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) into both Claude and Codex skill directories at startup.
+Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) into the Claude and `.agents` skill directories at startup.
+Legacy compatibility aliases also remain installed for older references: `quest-journey-implementation`, `quest-journey-skeptic-review`, `quest-journey-reviewer-groom`, and `quest-journey-porting`. New work should use the canonical phase skills above.
 
 ## Development Commands
 
 ```bash
-# Dev server (Hono backend on :3456 + Vite HMR on :5174)
-cd web && bun install && bun run dev
+# Install web dependencies once before the first local dev run,
+# and rerun after pulling dependency changes
+bun install --cwd web
 
-# Or from repo root
+# Dev server (Hono backend on :3456 + Vite HMR on :5174)
 make dev
+
+# Shared resource coordination
+# Before starting or using shared dev servers, Agent Browser, or E2E/browser workflows,
+# inspect current lease state, then acquire the relevant Takode lease before use:
+takode lease status dev-server:companion
+takode lease acquire dev-server:companion --purpose "Run local UI verification" --ttl 30m
+takode lease renew dev-server:companion
+takode lease release dev-server:companion
+
+# Direct web runner
+cd web && bun run dev
 
 # Type checking
 cd web && bun run typecheck
@@ -47,6 +71,9 @@ cd web && bun run build && bun run start
 # IMPORTANT: Always use this script to run the landing page. Never cd into landing/ and run bun/vite manually.
 ./scripts/landing-start.sh          # start
 ./scripts/landing-start.sh --stop   # stop
+
+# Offline injected system prompt inspection, no live server required
+cd web && bun -e 'import { buildInjectedSystemPromptForDebug } from "./server/cli-launcher-instructions.ts"; console.log(buildInjectedSystemPromptForDebug({ sessionNum: 1, backend: "claude", isOrchestrator: true }))'
 ```
 
 ## Codex Shell PATH Note
@@ -72,8 +99,8 @@ cd web && bun run format:check
 
 - All new backend (`web/server/`) and frontend (`web/src/`) code **must** include tests when possible.
 - Tests use Vitest. Server tests live alongside source files (e.g. `routes.test.ts` next to `routes.ts`).
-- A husky pre-commit hook runs typecheck and tests automatically before each commit.
-- For refactor quests, the current full pre-commit-equivalent automated gate before merge or final acceptance is:
+- A husky pre-commit hook runs staged formatting, the staged file line-limit guard, and typecheck automatically before each commit. It does not run the full test suite.
+- For refactor quests, the current full automated gate before merge or final acceptance is:
   - `cd web && bun run typecheck`
   - `cd web && bun run test`
   - `cd web && bun run format:check`
@@ -81,6 +108,7 @@ cd web && bun run format:check
 - If a full run is infeasible, document the exception explicitly in your quest summary, review handoff, or other acceptance notes before asking for merge or final acceptance.
 - **Never remove or delete existing tests.** If a test is failing, fix the code or the test. If you believe a test should be removed, you must first explain to the user why and get explicit approval before removing it.
 - When creating test, make sure to document what the test is validating, and any important context or edge cases in comments within the test code.
+- For chat feed, thread-window, notification, or selected-thread rendering changes, apply the [Feed and Thread Debugging Guardrails](docs/feed-thread-debugging.md). In particular, manual render/model loops must have an explicit progress invariant, and tests should use producer-shaped thread/window payloads instead of frontend-invented shapes.
 
 ## File Size Guardrail
 
@@ -285,6 +313,7 @@ Git worktrees are the preferred isolation model for this project. Container supp
 - **Resume replay must be idempotent for history-backed messages.** CLI `--resume` and reconnect replay can resend historical `assistant`, `result`, `compact_marker`, and `tool_result_preview` payloads. Any server path that appends to `session.messageHistory` for replayable messages must deduplicate against existing history first; otherwise replay artifacts become permanently persisted hot-tail growth and later inflate `history_sync`/session-store costs.
 - **`messageHistory` is browser-only.** The server's `session.messageHistory` array is only used for replaying history to browsers on (re)connect. It is never sent to the CLI. Compaction only affects the CLI's internal context — changes to `messageHistory` (like appending compact markers) don't interfere with Claude Code's session.
 - **CLI protocol types can diverge from TypeScript definitions.** The CLI sometimes sends fields in unexpected formats (e.g. compaction summary as a plain `string` instead of `ContentBlock[]`). Always handle both forms defensively and update the types in `session-types.ts` to match observed behavior. Protocol recordings in `~/.companion/recordings/` are the ground truth.
+- **Backend tool failures must not become session failures.** Treat model-backend tool-call or router failures from Codex or Claude Code, such as Codex `write_stdin failed`, as scoped tool-call/data-plane failures. Surface failed tool output or a scoped diagnostic, preserve raw logs for debugging, clear turn/generation state coherently, and keep pending delivery plus later user/leader input deliverable. Do not convert recognized tool failures into top-level session failures unless the backend itself is unrecoverable; if a failure may leave stale turn state or pending delivery, use it as an explicit recovery signal.
 - **Use `process.execPath` in tests**, not `"bun"`. Bun may not be on the default PATH (e.g. installed in `~/.bun/bin`). `process.execPath` resolves to whatever runtime is executing the tests.
 - **Browser localStorage is scoped per server instance.** Each server has a stable UUID (`serverId`) in `~/.companion/settings.json`, exposed via `GET /api/settings`. The frontend caches this in `localStorage["cc-server-id"]` and uses `web/src/utils/scoped-storage.ts` to prefix all server-specific keys (sessions, selected backend, recent dirs, etc.) with `{serverId}:`. Global user preferences (dark mode, zoom, notifications, telemetry) are never prefixed. When adding new localStorage keys, use `scopedGetItem`/`scopedSetItem`/`scopedRemoveItem` for server-specific state, or raw `localStorage` for global preferences. Add new global keys to the `GLOBAL_KEYS` set in `scoped-storage.ts`.
 - **Minimize localStorage for session-derived state.** localStorage should only store purely local UI preferences (dark mode, zoom, sidebar state, composer drafts) and session creation defaults (selected backend, recent dirs). Any state derived from session activity (attention/unread badges, pending permissions, session names) must be reset from the server on every reconnect — never trust localStorage as the source of truth for these. When `message_history` arrives, it signals a fresh state delivery; clear all browser-side derived state for that session before processing. This prevents stale data from surviving server restarts or multi-browser usage.
@@ -307,7 +336,13 @@ Git worktrees are the preferred isolation model for this project. Container supp
 
 ## Browser Exploration
 
-Always use `agent-browser` CLI command to explore the browser. Never use playwright or other browser automation libraries.
+For Takode UI/E2E validation workflows, use the `takode-ui-e2e-validation` skill.
+
+Before browser/E2E work, you must acquire the appropriate resource lease. Full browser validation usually needs both `dev-server:companion` and `agent-browser`; server-only work needs `dev-server:companion`; browser-only inspection of an already-authorized server needs `agent-browser`. Use `takode lease status <resource>` only to inspect current ownership before acquiring; it is not a substitute for holding the lease. If a lease command queues you, wait for the Resource Lease promotion message instead of polling. Heartbeat while using the resource and release it promptly when done.
+
+When representative Takode state matters, prefer an authorized persistent validation profile with documented URL/ports and retention expectations. Use isolated temp HOME/state, Playground/browser fixtures, or sanitized copied-live snapshots when isolation, frontend-only repeatability, or a specific copied history is the better fit. Always document the profile/state strategy, scenario provenance, and cleanup/retention decision in Execute or validation notes.
+
+Always use the `agent-browser` CLI command to explore the browser.
 When running E2E tests, use the dark theme, as it is the primary theme of this app.
 When running E2E tests, use a viewport at least as large as a normal iPhone Pro/Max screen (for example `430x932`).
 

@@ -126,6 +126,54 @@ function fireMessage(data: Record<string, unknown>) {
 // Connection
 // ===========================================================================
 describe("handleMessage: assistant", () => {
+  it("renders explicit leader user-visible messages in the feed", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "leader_user_message",
+      id: "leader-user-1",
+      content: "Visible leader Markdown",
+      timestamp: 1234,
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({
+      id: "leader-user-1",
+      role: "assistant",
+      content: "Visible leader Markdown",
+      timestamp: 1234,
+      metadata: { leaderUserMessage: true },
+    });
+  });
+
+  it("repairs live leader user-visible thread prefixes the same way history reload does", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "leader_user_message",
+      id: "leader-user-thread-1",
+      content: "[thread:q-966]\nVisible routed leader Markdown",
+      timestamp: 1234,
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({
+      id: "leader-user-thread-1",
+      role: "assistant",
+      content: "Visible routed leader Markdown",
+      metadata: {
+        leaderUserMessage: true,
+        threadKey: "q-966",
+        questId: "q-966",
+        threadRefs: [{ threadKey: "q-966", questId: "q-966", source: "explicit" }],
+      },
+    });
+  });
+
   it("appends a chat message and clears streaming", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -155,6 +203,68 @@ describe("handleMessage: assistant", () => {
     expect(msgs[0].id).toBe("msg-1");
     expect(state.streaming.has("s1")).toBe(false);
     expect(state.sessionStatus.get("s1")).toBe("running");
+  });
+
+  it("repairs live assistant thread prefixes when server metadata is missing", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "assistant",
+      timestamp: 1000,
+      message: {
+        id: "msg-thread-live-1",
+        type: "message",
+        role: "assistant",
+        model: "claude-opus-4-20250514",
+        content: [{ type: "text", text: "[thread:q-966] Live repaired route" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs).toHaveLength(1);
+    expect(msgs[0]).toMatchObject({
+      content: "Live repaired route",
+      contentBlocks: [{ type: "text", text: "Live repaired route" }],
+      metadata: {
+        threadKey: "q-966",
+        questId: "q-966",
+        threadRefs: [{ threadKey: "q-966", questId: "q-966", source: "explicit" }],
+      },
+    });
+    expect(msgs[0].content).not.toContain("[thread:q-966]");
+  });
+
+  it("repairs standalone live assistant thread prefixes before quest-feed projection", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "assistant",
+      timestamp: 1000,
+      message: {
+        id: "msg-thread-live-2",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.5",
+        content: [{ type: "text", text: "[thread:q-966]\nStandalone live route" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    const questProjected = msgs.filter((msg) =>
+      (msg.metadata?.threadRefs ?? []).some((ref) => ref.threadKey === "q-966"),
+    );
+
+    expect(questProjected).toHaveLength(1);
+    expect(questProjected[0].content).toBe("Standalone live route");
+    expect(msgs.map((msg) => msg.content)).toEqual(["Standalone live route"]);
   });
 
   it("ignores deprecated leader_user_addressed metadata from assistant messages", () => {

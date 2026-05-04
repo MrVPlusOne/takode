@@ -1,6 +1,12 @@
 // @vitest-environment jsdom
 
-import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
+import type {
+  SessionState,
+  PermissionRequest,
+  ContentBlock,
+  BrowserIncomingMessage,
+  SessionNotification,
+} from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
 
@@ -118,6 +124,10 @@ function makeSession(id: string): SessionState {
   };
 }
 
+function needsInputNotification(): SessionNotification {
+  return { id: "n1", category: "needs-input", summary: "Need answer", timestamp: 1000, messageId: null, done: false };
+}
+
 function fireMessage(data: Record<string, unknown>) {
   lastWs.onmessage!({ data: JSON.stringify(data) });
 }
@@ -143,14 +153,24 @@ describe("handleMessage: session_activity_update", () => {
         pendingPermissionSummary: "pending plan",
         attentionReason: "action",
         status: "running",
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 2,
+        notificationStatusUpdatedAt: 2000,
       },
     });
 
     const worker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
     expect(worker.pendingPermissionCount).toBe(1);
     expect(worker.pendingPermissionSummary).toBe("pending plan");
+    expect(worker.notificationUrgency).toBe("needs-input");
+    expect(worker.activeNotificationCount).toBe(1);
+    expect(worker.notificationStatusVersion).toBe(2);
     expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
     expect(useStore.getState().sessionStatus.get("worker")).toBe("running");
+    useStore.setState({
+      sessionNotifications: new Map([["worker", [needsInputNotification()]]]),
+    });
 
     fireMessage({
       type: "session_activity_update",
@@ -160,13 +180,131 @@ describe("handleMessage: session_activity_update", () => {
         pendingPermissionSummary: null,
         attentionReason: null,
         status: "idle",
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 3,
+        notificationStatusUpdatedAt: 3000,
       },
     });
 
     const updatedWorker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
     expect(updatedWorker.pendingPermissionCount).toBe(0);
     expect(updatedWorker.pendingPermissionSummary).toBeNull();
+    expect(updatedWorker.notificationUrgency).toBeNull();
+    expect(updatedWorker.activeNotificationCount).toBe(0);
+    expect(updatedWorker.notificationStatusVersion).toBe(3);
     expect(useStore.getState().sessionAttention.get("worker")).toBeNull();
+    expect(useStore.getState().sessionNotifications.get("worker")).toBeUndefined();
     expect(useStore.getState().sessionStatus.get("worker")).toBe("idle");
+  });
+
+  it("does not clear cached full notifications for summary-only active updates", () => {
+    // Global fanout carries only summary fields. Active summaries must not erase
+    // the full inbox that a browser may already have for an opened session.
+    wsModule.connectSession("leader");
+    fireMessage({ type: "session_init", session: makeSession("leader") });
+    useStore.getState().setCurrentSession("leader");
+    useStore
+      .getState()
+      .setSdkSessions([{ sessionId: "worker", state: "connected", cwd: "/home/user", createdAt: 2, archived: false }]);
+    const cached = [needsInputNotification()];
+    useStore.setState({ sessionNotifications: new Map([["worker", cached]]) });
+
+    fireMessage({
+      type: "session_activity_update",
+      session_id: "worker",
+      session: {
+        attentionReason: "action",
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 2,
+        notificationStatusUpdatedAt: 2000,
+      },
+    });
+
+    expect(useStore.getState().sessionNotifications.get("worker")).toBe(cached);
+    expect(
+      useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")?.activeNotificationCount,
+    ).toBe(1);
+  });
+
+  it("rejects older notification status updates for inactive sidebar rows", () => {
+    // Notification status broadcasts and REST snapshots can cross in flight.
+    // The sidebar must keep the newer clear instead of restoring an older amber marker.
+    wsModule.connectSession("leader");
+    fireMessage({ type: "session_init", session: makeSession("leader") });
+    useStore.getState().setCurrentSession("leader");
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/home/user",
+        createdAt: 2,
+        archived: false,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      },
+    ]);
+    useStore.setState({ sessionAttention: new Map([["worker", null]]) });
+
+    fireMessage({
+      type: "session_activity_update",
+      session_id: "worker",
+      session: {
+        attentionReason: "action",
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 4,
+        notificationStatusUpdatedAt: 4000,
+      },
+    });
+
+    const worker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
+    expect(worker.notificationUrgency).toBeNull();
+    expect(worker.activeNotificationCount).toBe(0);
+    expect(worker.notificationStatusVersion).toBe(5);
+    expect(useStore.getState().sessionAttention.get("worker")).toBeNull();
+  });
+
+  it("preserves permission-derived action attention even when notification status is older", () => {
+    // Pending permissions also use action attention. Those should keep their
+    // badge even if an older notification summary is present on the same update.
+    wsModule.connectSession("leader");
+    fireMessage({ type: "session_init", session: makeSession("leader") });
+    useStore.getState().setCurrentSession("leader");
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/home/user",
+        createdAt: 2,
+        archived: false,
+        notificationUrgency: null,
+        activeNotificationCount: 0,
+        notificationStatusVersion: 5,
+        notificationStatusUpdatedAt: 5000,
+      },
+    ]);
+
+    fireMessage({
+      type: "session_activity_update",
+      session_id: "worker",
+      session: {
+        pendingPermissionCount: 1,
+        attentionReason: "action",
+        notificationUrgency: "needs-input",
+        activeNotificationCount: 1,
+        notificationStatusVersion: 4,
+        notificationStatusUpdatedAt: 4000,
+      },
+    });
+
+    const worker = useStore.getState().sdkSessions.find((session) => session.sessionId === "worker")!;
+    expect(worker.notificationUrgency).toBeNull();
+    expect(worker.activeNotificationCount).toBe(0);
+    expect(worker.pendingPermissionCount).toBe(1);
+    expect(useStore.getState().sessionAttention.get("worker")).toBe("action");
   });
 });

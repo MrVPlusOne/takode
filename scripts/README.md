@@ -7,7 +7,10 @@ Run these from the repository root unless noted otherwise.
 ## Shell scripts
 
 - [`dev-start.sh`](./dev-start.sh)
-  - Idempotent local dev bootstrap for backend + frontend.
+  - Idempotent local dev bootstrap for backend + frontend after the `web/`
+    dependencies are installed.
+  - Fails fast with setup guidance when `bun install --cwd web` has not been
+    run yet.
   - Supports:
     - `./scripts/dev-start.sh`
     - `./scripts/dev-start.sh --status`
@@ -35,6 +38,20 @@ Run these from the repository root unless noted otherwise.
     - `bun run scripts/audit-recordings.ts --latest`
     - `bun run scripts/audit-recordings.ts --session <session-id>`
 
+- [`migrate-prod-port-3455-to-3456.ts`](./migrate-prod-port-3455-to-3456.ts)
+  - One-off operator-run migration for the current local prod state takeover from port `3455` to `3456`.
+  - Dry-run / preflight:
+    - `bun run scripts/migrate-prod-port-3455-to-3456.ts`
+  - Apply after stopping the live `3455` server:
+    - `PORT_MIGRATION_APPLY=1 bun run scripts/migrate-prod-port-3455-to-3456.ts`
+  - Writes timestamped backups under `~/.companion/port-migrations/` and generates a rollback script alongside the manifest.
+  - After restarting prod on `3456`, validate:
+    - `3455` is down and `3456` is listening
+    - `/api/settings` reports the reused `3455` serverId on `3456`
+    - the expected tree groups still appear on `3456` instead of a default-only fallback
+    - from a representative existing worktree, `quest status q-922` succeeds without setting `COMPANION_PORT`
+  - If any validation fails, stop `3456` and run the generated rollback script.
+
 ## When to use this directory
 
 - Use these scripts for reproducible local workflows and protocol maintenance.
@@ -54,6 +71,7 @@ Run these from the repository root unless noted otherwise.
 ## Typical maintenance workflows
 
 - "Bring up local app stack":
+  - `bun install --cwd web` (first local setup, or after dependency changes)
   - `./scripts/dev-start.sh`
 - "Run landing page":
   - `./scripts/landing-start.sh`
@@ -61,6 +79,9 @@ Run these from the repository root unless noted otherwise.
   - `./scripts/sync-codex-protocol.sh`
 - "Audit real protocol traces to identify parser/UI gaps":
   - `bun run scripts/audit-recordings.ts --latest`
+- "Prepare or run the one-off 3455 -> 3456 prod state migration":
+  - `bun run scripts/migrate-prod-port-3455-to-3456.ts`
+  - `PORT_MIGRATION_APPLY=1 bun run scripts/migrate-prod-port-3455-to-3456.ts`
 
 ## Adding a new script
 

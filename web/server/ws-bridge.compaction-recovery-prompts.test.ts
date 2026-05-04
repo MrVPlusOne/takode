@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -584,6 +595,7 @@ describe("Compaction recovery prompts", () => {
         permissionMode: "default",
       },
     });
+    (bridge.getSession("s1") as any).sessionNum = 42;
 
     // Mark session as orchestrator
     bridge.setLauncher({
@@ -604,15 +616,60 @@ describe("Compaction recovery prompts", () => {
     );
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("/takode-orchestration");
+    expect(recoveryCalls[0][1]).toContain("takode leader-context-resume 42");
     expect(recoveryCalls[0][1]).toContain("takode board show");
-    expect(recoveryCalls[0][1]).toContain("takode scan <your-session-number>");
+    expect(recoveryCalls[0][1]).toContain("takode scan 42");
+    expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
+    expect(recoveryCalls[0][1]).toContain("takode list");
+    expect(recoveryCalls[0][1]).not.toContain("takode board show && takode list");
     expect(recoveryCalls[0][1]).toContain("recover enough earlier context");
-    expect(recoveryCalls[0][1]).toContain("Inspect your own session history with Takode tools before resuming");
-    expect(recoveryCalls[0][1]).toContain("stage-explicit");
+    expect(recoveryCalls[0][1]).toContain("first pass");
+    expect(recoveryCalls[0][1]).toContain("summary is stale, insufficient");
+    expect(recoveryCalls[0][1]).toContain("Hard stop");
+    expect(recoveryCalls[0][1]).toContain("unresolved user decisions");
+    expect(recoveryCalls[0][1]).toContain("needs-input");
+    expect(recoveryCalls[0][1]).toContain("do not dispatch, advance quests");
+    expect(recoveryCalls[0][1]).toContain("phase-explicit");
     expect(recoveryCalls[0][1]).toContain("plan only");
-    expect(recoveryCalls[0][1]).toContain("implement and stop");
-    expect(recoveryCalls[0][1]).toContain("reviewer-groom/rework and report back");
+    expect(recoveryCalls[0][1]).toContain("approved next phase and stop");
+    expect(recoveryCalls[0][1]).toContain("review/rework and report back");
     expect(recoveryCalls[0][1]).toContain("port only when explicitly told");
+  });
+
+  it("clears stale Codex compaction on reconnect and injects recovery once", () => {
+    const sid = "s-codex-stale-compaction";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-codex-stale-compaction-1" });
+
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: true })),
+    } as any);
+
+    const spy = vi.spyOn(bridge, "injectUserMessage");
+
+    adapter1.emitBrowserMessage({ type: "status_change", status: "compacting" });
+    const compactingSession = bridge.getSession(sid)!;
+    expect(compactingSession.state.is_compacting).toBe(true);
+    expect(compactingSession.messageHistory.some((entry: any) => entry.type === "compact_marker")).toBe(true);
+
+    adapter1.emitDisconnect("turn-compaction-stale");
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    emitCodexSessionReady(adapter2, { cliSessionId: "thread-codex-stale-compaction-2" });
+
+    const session = bridge.getSession(sid)!;
+    expect(session.state.is_compacting).toBe(false);
+
+    const recoveryCalls = spy.mock.calls.filter(
+      ([targetSid, , source]) =>
+        targetSid === sid && source?.sessionId === "system" && source?.sessionLabel === "System",
+    );
+    expect(recoveryCalls).toHaveLength(1);
+    expect(recoveryCalls[0][1]).toContain("/takode-orchestration");
   });
 
   it("does not inject recovery for Claude WebSocket leaders when compact_boundary never arrived", () => {
@@ -749,6 +806,7 @@ describe("Compaction recovery prompts", () => {
         permissionMode: "default",
       },
     });
+    (bridge.getSession("s1") as any).sessionNum = 42;
 
     // Not an orchestrator
     bridge.setLauncher({
@@ -767,9 +825,10 @@ describe("Compaction recovery prompts", () => {
     );
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("recover enough context from your own session history");
-    expect(recoveryCalls[0][1]).toContain("takode scan <your-session-number>");
-    expect(recoveryCalls[0][1]).toContain("takode peek <your-session-number>");
-    expect(recoveryCalls[0][1]).toContain("takode read <your-session-number>");
+    expect(recoveryCalls[0][1]).toContain("takode scan 42");
+    expect(recoveryCalls[0][1]).toContain("takode peek 42");
+    expect(recoveryCalls[0][1]).toContain("takode read 42");
+    expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
     expect(recoveryCalls[0][1]).toContain("Keep your current role");
     expect(recoveryCalls[0][1]).not.toContain("/takode-orchestration");
   });

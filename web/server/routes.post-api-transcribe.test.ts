@@ -124,6 +124,8 @@ vi.mock("./settings-manager.js", () => ({
     sleepInhibitorEnabled: false,
     sleepInhibitorDurationMinutes: 5,
     questmasterViewMode: "cards",
+    codexLeaderContextWindowOverrideTokens: 1_000_000,
+    codexLeaderRecycleThresholdTokens: 260_000,
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -564,6 +566,8 @@ describe("POST /api/transcribe", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 123,
     });
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -598,6 +602,62 @@ describe("POST /api/transcribe", () => {
     expect((uploadedFile as File).name).toBe("recording.mp4");
   });
 
+  it("uses the configured custom STT model for OpenAI transcription requests", async () => {
+    vi.mocked(settingsManager.getSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "transcription-secret",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: false,
+        enhancementModel: "gpt-5-mini",
+        sttModel: "whisper-large-v3",
+      },
+      editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
+      sleepInhibitorEnabled: false,
+      sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      updatedAt: 123,
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ text: "transcribed text" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const form = new FormData();
+    form.append("audio", new File([new Uint8Array([0x52, 0x49, 0x46, 0x46])], "recording.wav", { type: "audio/wav" }));
+    form.append("backend", "openai");
+
+    const res = await app.request("/api/transcribe", { method: "POST", body: form });
+
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(fetch).toHaveBeenCalledOnce();
+
+    const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const outboundForm = init.body as FormData;
+    expect(outboundForm.get("model")).toBe("whisper-large-v3");
+  });
+
   it("records pre-stream upload time separately from STT timing for raw dictation uploads", async () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
@@ -627,6 +687,8 @@ describe("POST /api/transcribe", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 123,
     });
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -652,8 +714,18 @@ describe("POST /api/transcribe", () => {
         uploadDurationMs: expect.any(Number),
         sttDurationMs: expect.any(Number),
         rawTranscript: "timed transcript",
+        audioMimeType: "audio/wav",
+        audioFileName: "recording.wav",
+        audioUrl: expect.stringMatching(/^\/api\/transcription-logs\/\d+\/audio$/),
       }),
     );
+
+    // The debug panel should be able to inspect the exact source audio behind a transcript.
+    const logEntry = transcriptionEnhancer.getTranscriptionLogIndex()[0];
+    const audioRes = await app.request(logEntry.audioUrl);
+    expect(audioRes.status).toBe(200);
+    expect(audioRes.headers.get("Content-Type")).toBe("audio/wav");
+    expect(new Uint8Array(await audioRes.arrayBuffer())).toEqual(new Uint8Array([0x52, 0x49, 0x46, 0x46]));
 
     const [, init] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     const outboundForm = init.body as FormData;
@@ -692,6 +764,8 @@ describe("POST /api/transcribe", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 123,
     });
     vi.mocked(fetch).mockResolvedValueOnce(
@@ -714,6 +788,88 @@ describe("POST /api/transcribe", () => {
     expect(phaseIndex).toBeGreaterThanOrEqual(0);
     expect(resultIndex).toBeGreaterThan(phaseIndex);
     expect(body).toContain('"phase":"transcribing"');
+  });
+
+  it("passes custom vocabulary through to the post-STT dictation enhancer", async () => {
+    vi.mocked(settingsManager.getSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "transcription-secret",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+        customVocabulary: "Claude, Claude Code, Jiayi, codex.sh",
+      },
+      editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
+      sleepInhibitorEnabled: false,
+      sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      updatedAt: 123,
+    });
+    vi.mocked(sessionNames.getName).mockReturnValue("Voice input debug");
+    ensureBridgeSession(bridge, "session-1", {
+      taskHistory: [{ title: "Improve voice prompt enhancer" }],
+      messageHistory: [{ type: "user_message", content: "Does this affect Claude Code sessions?" }],
+    });
+
+    const rawTranscript =
+      "As you can see in my screenshot, after your changes, I restarted the server and then your own session broke with this image gen error. But your session is not even a leader session, and directly running the codex.sh file works fine.";
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ text: rawTranscript }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [{ message: { content: "Enhanced transcript mentioning Claude Code and codex.sh." } }],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/wav",
+        "X-Companion-Audio-Filename": "recording.wav",
+      },
+      body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    });
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('"enhanced":true');
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    const [, enhanceInit] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
+    const enhanceBody = JSON.parse(String(enhanceInit.body));
+    expect(enhanceBody.messages[1].content).toContain("<CUSTOM_VOCABULARY>");
+    expect(enhanceBody.messages[1].content).toContain("Important Vocabulary: Claude, Claude Code, Jiayi, codex.sh");
+    expect(enhanceBody.messages[1].content).toContain("</CUSTOM_VOCABULARY>");
   });
 
   it("supports voice-edit mode by transcribing the instruction then applying it to the current draft", async () => {
@@ -746,6 +902,8 @@ describe("POST /api/transcribe", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 123,
     });
     vi.mocked(sessionNames.getName).mockReturnValue("Voice edit session");

@@ -27,9 +27,13 @@ import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { deriveSessionStatus } from "./SessionStatusDot.js";
 import type { SessionTaskEntry, SdkSessionInfo } from "../types.js";
+import {
+  setSdkSessionsWithNotificationFreshness,
+  shouldApplyAttentionReasonWithNotificationFreshness,
+} from "../notification-status.js";
 
-import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { buildSidebarVisibleSessions } from "../utils/sidebar-visible-sessions.js";
+import { buildReviewerByParent } from "../utils/reviewer-by-parent.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
 import { questOwnsSessionName } from "../utils/quest-helpers.js";
 import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
@@ -45,6 +49,9 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
   ...transform,
   x: 0,
 });
+
+const SIDEBAR_SESSION_POLL_INTERVAL_MS = 5_000;
+const SIDEBAR_SESSION_STALE_REFRESH_MS = 3 * 60_000;
 
 function sessionTaskHistoryEqual(a: SessionTaskEntry[] | undefined, b: SessionTaskEntry[] | undefined): boolean {
   if (a === b) return true;
@@ -94,7 +101,7 @@ function buildMoveToSubmenu(
   if (otherGroups.length === 0) return [];
   return [
     {
-      label: "Move to...",
+      label: "Move to Session Space...",
       onClick: () => {},
       children: otherGroups.map((g) => ({
         label: g.name,
@@ -183,6 +190,11 @@ export function Sidebar() {
   const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
+  const [bulkSelectionGroupId, setBulkSelectionGroupId] = useState<string | null>(null);
+  const [bulkSelectedSessionIds, setBulkSelectedSessionIds] = useState<Set<string>>(new Set());
+  const [bulkTargetGroupId, setBulkTargetGroupId] = useState("");
+  const [bulkAssigning, setBulkAssigning] = useState(false);
+  const [bulkSourceMenuOpen, setBulkSourceMenuOpen] = useState(false);
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sessionScrollerRef = useRef<HTMLDivElement>(null);
   const route = parseHash(hash);
@@ -190,93 +202,144 @@ export function Sidebar() {
   const isTerminalPage = route.page === "terminal";
   const isScheduledPage = route.page === "scheduled";
   const isQuestmasterPage = route.page === "questmaster";
+  const isStreamsPage = route.page === "streams";
   const isDesktopLayout = isDesktopShellLayout(zoomLevel);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
-  // Poll for SDK sessions on mount
+  const refreshTreeGroups = useCallback(async () => {
+    const tgs = await api.getTreeGroups();
+    useStore.getState().setTreeGroups(tgs.groups, tgs.assignments, tgs.nodeOrder ?? {});
+    return tgs;
+  }, []);
+
+  const nextAutoGroupName = useCallback(() => {
+    const existing = new Set(treeGroups.map((g) => g.name));
+    let n = 1;
+    while (existing.has(`Session Space ${n}`)) n++;
+    return `Session Space ${n}`;
+  }, [treeGroups]);
+
+  // Refresh sidebar session snapshots. The fixed 5s poll is existing behavior;
+  // focus/pageshow only adds a stale-gated one-shot for mobile/background restores.
   useEffect(() => {
     let active = true;
-    async function poll() {
-      try {
-        const list = await api.listSessions();
-        if (active) {
-          const store = useStore.getState();
-          store.setSdkSessions(list.map(stripSearchMetadata));
-          // Hydrate session names from server (server is source of truth for auto-generated names)
-          let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
-          for (const s of list) {
-            if (s.name) {
-              const currentStoreName = store.sessionNames.get(s.sessionId);
-              if (currentStoreName !== s.name) {
-                const hadRandomName = !!currentStoreName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentStoreName);
-                store.setSessionName(s.sessionId, s.name);
-                if (hadRandomName) {
-                  store.markRecentlyRenamed(s.sessionId);
-                }
-              }
+    let refreshInFlight: Promise<void> | null = null;
+    let lastRefreshStartedAt = 0;
+
+    function hydrateSessionList(list: SdkSessionInfo[]) {
+      const store = useStore.getState();
+      setSdkSessionsWithNotificationFreshness(list.map(stripSearchMetadata));
+      // Hydrate session names from server (server is source of truth for auto-generated names)
+      let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
+      for (const s of list) {
+        if (s.name) {
+          const currentStoreName = store.sessionNames.get(s.sessionId);
+          if (currentStoreName !== s.name) {
+            const hadRandomName = !!currentStoreName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentStoreName);
+            store.setSessionName(s.sessionId, s.name);
+            if (hadRandomName) {
+              store.markRecentlyRenamed(s.sessionId);
             }
-            if (!s.isOrchestrator && questOwnsSessionName(s.claimedQuestStatus ?? undefined)) {
-              store.markQuestNamed(s.sessionId);
-            } else {
-              store.clearQuestNamed(s.sessionId);
-            }
-            // Hydrate last message preview from server (only if client doesn't have one yet)
-            if (s.lastMessagePreview && !store.sessionPreviews.has(s.sessionId)) {
-              store.setSessionPreview(s.sessionId, s.lastMessagePreview);
-            }
-            // Hydrate task history and keywords from server for search
-            const nextTaskHistory = s.taskHistory ?? [];
-            const currentTaskHistory = store.sessionTaskHistory.get(s.sessionId);
-            if (!sessionTaskHistoryEqual(currentTaskHistory, nextTaskHistory)) {
-              store.setSessionTaskHistory(s.sessionId, nextTaskHistory);
-            }
-            const nextKeywords = s.keywords ?? [];
-            const currentKeywords = store.sessionKeywords.get(s.sessionId);
-            if (!stringArrayEqual(currentKeywords, nextKeywords)) {
-              store.setSessionKeywords(s.sessionId, nextKeywords);
-            }
-            // Batch server-authoritative attention state changes
-            if (s.attentionReason !== undefined) {
-              const currentAttention = store.sessionAttention.get(s.sessionId);
-              if (currentAttention !== s.attentionReason) {
-                // Suppress attention for the session the user is currently viewing
-                if (store.currentSessionId === s.sessionId && s.attentionReason) {
-                  api.markSessionRead(s.sessionId).catch(() => {});
-                } else {
-                  if (!batchedAttention) batchedAttention = new Map(store.sessionAttention);
-                  batchedAttention.set(s.sessionId, s.attentionReason ?? null);
-                }
-              }
-            }
-          }
-          if (batchedAttention) {
-            useStore.setState({ sessionAttention: batchedAttention });
           }
         }
-      } catch (e) {
-        console.warn("[sidebar] session poll failed:", e);
+        if (
+          !s.isOrchestrator &&
+          questOwnsSessionName(s.claimedQuestStatus ?? undefined, s.claimedQuestVerificationInboxUnread)
+        ) {
+          store.markQuestNamed(s.sessionId);
+        } else {
+          store.clearQuestNamed(s.sessionId);
+        }
+        // Hydrate last message preview from server (only if client doesn't have one yet)
+        if (s.lastMessagePreview && !store.sessionPreviews.has(s.sessionId)) {
+          store.setSessionPreview(s.sessionId, s.lastMessagePreview);
+        }
+        // Hydrate task history and keywords from server for search
+        const nextTaskHistory = s.taskHistory ?? [];
+        const currentTaskHistory = store.sessionTaskHistory.get(s.sessionId);
+        if (!sessionTaskHistoryEqual(currentTaskHistory, nextTaskHistory)) {
+          store.setSessionTaskHistory(s.sessionId, nextTaskHistory);
+        }
+        const nextKeywords = s.keywords ?? [];
+        const currentKeywords = store.sessionKeywords.get(s.sessionId);
+        if (!stringArrayEqual(currentKeywords, nextKeywords)) {
+          store.setSessionKeywords(s.sessionId, nextKeywords);
+        }
+        // Batch server-authoritative attention state changes
+        if (s.attentionReason !== undefined) {
+          const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(
+            s.sessionId,
+            s.attentionReason,
+            s,
+          );
+          if (!shouldApplyAttention) continue;
+          const currentAttention = store.sessionAttention.get(s.sessionId);
+          if (currentAttention !== s.attentionReason) {
+            // Suppress attention for the session the user is currently viewing
+            if (store.currentSessionId === s.sessionId && s.attentionReason) {
+              api.markSessionRead(s.sessionId).catch(() => {});
+            } else {
+              if (!batchedAttention) batchedAttention = new Map(store.sessionAttention);
+              batchedAttention.set(s.sessionId, s.attentionReason ?? null);
+            }
+          }
+        }
+      }
+      if (batchedAttention) {
+        useStore.setState({ sessionAttention: batchedAttention });
       }
     }
-    poll();
-    const interval = setInterval(poll, 5000);
+
+    function refreshSessionList(force: boolean) {
+      const now = Date.now();
+      if (!force && now - lastRefreshStartedAt < SIDEBAR_SESSION_STALE_REFRESH_MS) {
+        return refreshInFlight ?? Promise.resolve();
+      }
+      if (refreshInFlight) return refreshInFlight;
+      lastRefreshStartedAt = now;
+      refreshInFlight = (async () => {
+        try {
+          const list = await api.listSessions();
+          if (active) hydrateSessionList(list);
+        } catch (e) {
+          console.warn("[sidebar] session poll failed:", e);
+        } finally {
+          refreshInFlight = null;
+        }
+      })();
+      return refreshInFlight;
+    }
+
+    function refreshIfVisibleAndStale() {
+      if (document.visibilityState === "hidden") return;
+      refreshSessionList(false);
+    }
+
+    refreshSessionList(true);
+    const interval = setInterval(() => refreshSessionList(true), SIDEBAR_SESSION_POLL_INTERVAL_MS);
+    window.addEventListener("focus", refreshIfVisibleAndStale);
+    window.addEventListener("pageshow", refreshIfVisibleAndStale);
+    document.addEventListener("visibilitychange", refreshIfVisibleAndStale);
     return () => {
       active = false;
       clearInterval(interval);
+      window.removeEventListener("focus", refreshIfVisibleAndStale);
+      window.removeEventListener("pageshow", refreshIfVisibleAndStale);
+      document.removeEventListener("visibilitychange", refreshIfVisibleAndStale);
     };
   }, []);
 
   // Hydrate tree groups on mount so sidebar renders correct grouping immediately.
   // After this initial fetch, WebSocket tree_groups_update keeps groups in sync.
   useEffect(() => {
-    api
-      .getTreeGroups()
+    refreshTreeGroups()
       .then((tgs) => {
-        useStore.getState().setTreeGroups(tgs.groups, tgs.assignments, tgs.nodeOrder ?? {});
+        return tgs;
       })
       .catch((e) => {
         console.warn("[sidebar] tree group hydration failed:", e);
       });
-  }, []);
+  }, [refreshTreeGroups]);
 
   // Fetch server settings (name + ID) on mount
   useEffect(() => {
@@ -405,13 +468,6 @@ export function Sidebar() {
     setSearchPreviewSessionId(sessionId);
   }
 
-  function handleNewSession() {
-    useStore.getState().openNewSessionModal();
-    if (!isDesktopLayout) {
-      useStore.getState().setSidebarOpen(false);
-    }
-  }
-
   useEffect(() => {
     function handleFocusGlobalSearch() {
       requestAnimationFrame(() => {
@@ -439,12 +495,71 @@ export function Sidebar() {
   }
 
   function handleCreateTreeGroup() {
-    // Auto-increment: "Group 1", "Group 2", etc.
-    const existing = new Set(treeGroups.map((g) => g.name));
-    let n = 1;
-    while (existing.has(`Group ${n}`)) n++;
-    api.createTreeGroup(`Group ${n}`).catch(console.error);
+    api
+      .createTreeGroup(nextAutoGroupName())
+      .then(() => refreshTreeGroups())
+      .catch(console.error);
   }
+
+  const startBulkSelection = useCallback(
+    (groupId: string, _sessionIds?: string[]) => {
+      if (collapsedTreeGroups.has(groupId)) {
+        toggleTreeGroupCollapse(groupId);
+      }
+      setBulkSourceMenuOpen(false);
+      setBulkSelectionGroupId(groupId);
+      setBulkSelectedSessionIds(new Set());
+      const firstTarget = treeGroups.find((group) => group.id !== groupId)?.id || "";
+      setBulkTargetGroupId(firstTarget);
+    },
+    [collapsedTreeGroups, toggleTreeGroupCollapse, treeGroups],
+  );
+
+  const cancelBulkSelection = useCallback(() => {
+    setBulkSelectionGroupId(null);
+    setBulkSelectedSessionIds(new Set());
+    setBulkTargetGroupId("");
+    setBulkAssigning(false);
+  }, []);
+
+  const toggleBulkSession = useCallback((sessionId: string) => {
+    setBulkSelectedSessionIds((current) => {
+      const next = new Set(current);
+      if (next.has(sessionId)) next.delete(sessionId);
+      else next.add(sessionId);
+      return next;
+    });
+  }, []);
+
+  const toggleBulkSelectAll = useCallback((sessionIds: string[]) => {
+    setBulkSelectedSessionIds((current) => {
+      const allSelected = sessionIds.length > 0 && sessionIds.every((sessionId) => current.has(sessionId));
+      return allSelected ? new Set() : new Set(sessionIds);
+    });
+  }, []);
+
+  const createGroupForBulkAssignment = useCallback(async () => {
+    try {
+      const created = await api.createTreeGroup(nextAutoGroupName());
+      await refreshTreeGroups();
+      setBulkTargetGroupId(created.group.id);
+    } catch (err) {
+      console.warn("[sidebar] failed to create bulk target Session Space:", err);
+    }
+  }, [nextAutoGroupName, refreshTreeGroups]);
+
+  const applyBulkAssignment = useCallback(async () => {
+    if (!bulkSelectionGroupId || bulkSelectedSessionIds.size === 0 || !bulkTargetGroupId) return;
+    setBulkAssigning(true);
+    try {
+      await api.assignSessionsToTreeGroup([...bulkSelectedSessionIds], bulkTargetGroupId);
+      await refreshTreeGroups();
+      cancelBulkSelection();
+    } catch (err) {
+      console.warn("[sidebar] failed to bulk assign sessions:", err);
+      setBulkAssigning(false);
+    }
+  }, [bulkSelectedSessionIds, bulkSelectionGroupId, bulkTargetGroupId, cancelBulkSelection, refreshTreeGroups]);
 
   // Focus edit input when entering edit mode
   useEffect(() => {
@@ -554,7 +669,7 @@ export function Sidebar() {
     }
     try {
       const list = await api.listSessions();
-      useStore.getState().setSdkSessions(list);
+      setSdkSessionsWithNotificationFreshness(list);
     } catch {
       // best-effort
     }
@@ -597,7 +712,7 @@ export function Sidebar() {
       }
       try {
         const list = await api.listSessions();
-        useStore.getState().setSdkSessions(list);
+        setSdkSessionsWithNotificationFreshness(list);
       } catch {
         // best-effort
       }
@@ -628,7 +743,7 @@ export function Sidebar() {
     }
     try {
       const list = await api.listSessions();
-      useStore.getState().setSdkSessions(list);
+      setSdkSessionsWithNotificationFreshness(list);
     } catch {
       // best-effort
     }
@@ -673,16 +788,10 @@ export function Sidebar() {
     ],
   );
 
-  // Map: parentSessionNum → active reviewer SessionItem (for inline badge on parent row)
-  const activeReviewerByParent = useMemo(() => {
-    const map = new Map<number, SessionItemType>();
-    for (const s of allSessionList) {
-      if (s.reviewerOf !== undefined && !s.archived) {
-        map.set(s.reviewerOf, s);
-      }
-    }
-    return map;
-  }, [allSessionList]);
+  // Map: parentSessionNum -> reviewer SessionItem (for inline badge on parent row).
+  // Includes archived reviewers so historical review trajectories stay inspectable
+  // from their parent without becoming standalone sidebar clutter.
+  const reviewerByParent = useMemo(() => buildReviewerByParent(allSessionList), [allSessionList]);
   const currentSession = currentSessionId ? allSessionList.find((s) => s.id === currentSessionId) : null;
   const logoSrc = currentSession?.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
   const [showCronSessions, setShowCronSessions] = useState(true);
@@ -770,6 +879,7 @@ export function Sidebar() {
       try {
         const resp = await api.searchSessions(q, {
           includeArchived: false,
+          includeReviewers: false,
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
@@ -789,6 +899,12 @@ export function Sidebar() {
       clearTimeout(timer);
       controller.abort();
     };
+  }, [searchQuery]);
+
+  useEffect(() => {
+    if (searchQuery.trim()) {
+      setBulkSourceMenuOpen(false);
+    }
   }, [searchQuery]);
 
   // Search filtering: map server-side results back to current session rows.
@@ -848,6 +964,11 @@ export function Sidebar() {
 
   // Show sort/reorder controls when the session list is visible and has multiple sessions.
   const showSortControls = !searchFocused && !searchQuery && !filteredSessions && activeSessions.length > 1;
+  const bulkSourceGroups = treeViewGroups.filter((group) => group.nodes.length > 0);
+  const activeBulkSourceGroup = bulkSelectionGroupId
+    ? treeViewGroups.find((group) => group.id === bulkSelectionGroupId)
+    : undefined;
+  const bulkDisabledBySearch = searchQuery.trim().length > 0;
 
   const herdHoverHighlights = useMemo(() => new Map<string, "leader" | "worker">(), []);
   const herdGroupBadgeThemes = useMemo(() => {
@@ -937,17 +1058,6 @@ export function Sidebar() {
             </span>
           )}
         </div>
-
-        <button
-          onClick={handleNewSession}
-          title={getShortcutTitle("New session", shortcutSettings, "new_session", shortcutPlatform)}
-          className="w-full py-2 px-3 text-sm font-medium rounded-[10px] bg-cc-primary hover:bg-cc-primary-hover text-white transition-colors duration-150 flex items-center justify-center gap-1.5 cursor-pointer"
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="2" className="w-3.5 h-3.5">
-            <path d="M8 3v10M3 8h10" />
-          </svg>
-          New Session
-        </button>
       </div>
 
       {/* Session list */}
@@ -1038,6 +1148,35 @@ export function Sidebar() {
                 </button>
               )}
             </div>
+            {bulkSourceGroups.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (bulkDisabledBySearch) return;
+                  setBulkSourceMenuOpen((open) => !open);
+                }}
+                disabled={bulkDisabledBySearch}
+                title={
+                  bulkDisabledBySearch
+                    ? "Clear search to bulk organize Session Spaces"
+                    : activeBulkSourceGroup
+                      ? `Bulk organizing ${activeBulkSourceGroup.name} Session Space`
+                      : "Bulk organize sessions by source Session Space"
+                }
+                aria-label={
+                  bulkDisabledBySearch
+                    ? "Clear search to bulk organize Session Spaces"
+                    : "Bulk organize sessions by source Session Space"
+                }
+                className={`shrink-0 h-7 px-2 inline-flex items-center justify-center rounded-md text-[10px] font-semibold transition-colors ${
+                  bulkSelectionGroupId
+                    ? "bg-cc-primary/15 text-cc-primary"
+                    : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+                } ${bulkDisabledBySearch ? "opacity-45 cursor-not-allowed" : "cursor-pointer"}`}
+              >
+                Bulk
+              </button>
+            )}
             {/* Edit/Done reorder toggle — mobile only, hidden in activity sort mode */}
             {showSortControls && sessionSortMode !== "activity" && (
               <button
@@ -1049,11 +1188,11 @@ export function Sidebar() {
                 {reorderMode ? "Done" : "Edit"}
               </button>
             )}
-            {/* Sort mode toggle — switches between creation time and last activity */}
+            {/* Sort mode toggle -- switches between creation time and last user message */}
             {showSortControls && (
               <button
                 onClick={() => setSessionSortMode(sessionSortMode === "created" ? "activity" : "created")}
-                title={sessionSortMode === "activity" ? "Sorted by recent activity" : "Sorted by creation time"}
+                title={sessionSortMode === "activity" ? "Sorted by last user message" : "Sorted by creation time"}
                 className={`text-[10px] font-medium px-1.5 py-1 rounded-md transition-colors cursor-pointer shrink-0 ${
                   sessionSortMode === "activity"
                     ? "bg-cc-primary/10 text-cc-primary"
@@ -1072,6 +1211,34 @@ export function Sidebar() {
                 )}
               </button>
             )}
+          </div>
+        )}
+
+        {bulkSourceMenuOpen && !bulkDisabledBySearch && bulkSourceGroups.length > 0 && (
+          <div className="mx-2 mb-1.5 rounded-md border border-cc-border/70 bg-cc-card/70 p-1.5 shadow-sm">
+            <div className="px-1 pb-1 text-[10px] font-medium text-cc-muted">Choose source Session Space</div>
+            <div className="space-y-1">
+              {bulkSourceGroups.map((group) => {
+                const rootSessionIds = group.nodes.map((node) => node.leader.id);
+                const sessionCount = rootSessionIds.length;
+                return (
+                  <button
+                    key={group.id}
+                    type="button"
+                    onClick={() => startBulkSelection(group.id, rootSessionIds)}
+                    className="w-full min-w-0 rounded px-2 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                    aria-label={`Bulk organize ${group.name} Session Space`}
+                  >
+                    <span className="flex items-center gap-2">
+                      <span className="min-w-0 flex-1 truncate">{group.name}</span>
+                      <span className="shrink-0 text-[10px] text-cc-muted">
+                        {sessionCount} {sessionCount === 1 ? "session" : "sessions"}
+                      </span>
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
           </div>
         )}
 
@@ -1105,7 +1272,10 @@ export function Sidebar() {
               ))}
             </div>
           )
-        ) : activeSessions.length === 0 && cronSessions.length === 0 && archivedSessions.length === 0 ? (
+        ) : treeViewGroups.length === 0 &&
+          activeSessions.length === 0 &&
+          cronSessions.length === 0 &&
+          archivedSessions.length === 0 ? (
           <p className="px-3 py-8 text-xs text-cc-muted text-center leading-relaxed">No sessions yet.</p>
         ) : (
           <>
@@ -1129,17 +1299,19 @@ export function Sidebar() {
             )}
 
             <DndContext
-              sensors={sessionSortMode === "activity" ? [] : groupSensors}
+              sensors={sessionSortMode === "activity" || bulkSelectionGroupId ? [] : groupSensors}
               collisionDetection={closestCenter}
-              onDragEnd={sessionSortMode === "activity" ? undefined : handleTreeGroupDragEnd}
+              onDragEnd={sessionSortMode === "activity" || bulkSelectionGroupId ? undefined : handleTreeGroupDragEnd}
               modifiers={[restrictToVerticalAxis]}
             >
               <SortableContext items={treeGroupIds} strategy={verticalListSortingStrategy}>
                 {/* Session-level DndContext enables cross-group drag-and-drop */}
                 <DndContext
-                  sensors={sessionSortMode === "activity" ? [] : sessionSensors}
+                  sensors={sessionSortMode === "activity" || bulkSelectionGroupId ? [] : sessionSensors}
                   collisionDetection={closestCenter}
-                  onDragEnd={sessionSortMode === "activity" ? undefined : handleTreeSessionDragEnd}
+                  onDragEnd={
+                    sessionSortMode === "activity" || bulkSelectionGroupId ? undefined : handleTreeSessionDragEnd
+                  }
                   modifiers={[restrictToVerticalAxis]}
                 >
                   <SortableContext items={allTreeSessionIds} strategy={verticalListSortingStrategy}>
@@ -1163,7 +1335,7 @@ export function Sidebar() {
                               groupDragging={isDragging}
                               onMobileReorderHandleActiveChange={setMobileReorderHandleActive}
                               groupDragHandleProps={
-                                treeViewGroups.length > 1 && sessionSortMode !== "activity"
+                                treeViewGroups.length > 1 && sessionSortMode !== "activity" && !bulkSelectionGroupId
                                   ? {
                                       listeners: listeners as Record<string, unknown> | undefined,
                                       attributes: attributes as unknown as Record<string, unknown>,
@@ -1171,6 +1343,17 @@ export function Sidebar() {
                                   : undefined
                               }
                               herdGroupBadgeThemes={herdGroupBadgeThemes}
+                              bulkSelectionActive={bulkSelectionGroupId === group.id}
+                              bulkSelectedSessionIds={bulkSelectedSessionIds}
+                              bulkTargetGroupId={bulkTargetGroupId}
+                              bulkAssigning={bulkAssigning}
+                              availableBulkTargetGroups={treeGroups.filter((candidate) => candidate.id !== group.id)}
+                              onCancelBulkSelection={cancelBulkSelection}
+                              onToggleBulkSession={toggleBulkSession}
+                              onToggleBulkSelectAll={toggleBulkSelectAll}
+                              onBulkTargetGroupChange={setBulkTargetGroupId}
+                              onApplyBulkAssignment={applyBulkAssignment}
+                              onCreateGroupForBulkAssignment={createGroupForBulkAssignment}
                               {...sessionItemProps}
                             />
                           </div>
@@ -1188,7 +1371,7 @@ export function Sidebar() {
               <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="w-3 h-3">
                 <path d="M8 3.5v9M3.5 8h9" strokeLinecap="round" />
               </svg>
-              <span className="font-medium">New Group</span>
+              <span className="font-medium">New Session Space</span>
             </button>
 
             {cronSessions.length > 0 && (
@@ -1221,7 +1404,7 @@ export function Sidebar() {
                         isRecentlyRenamed={recentlyRenamed.has(s.id)}
                         herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
                         herdHoverHighlight={herdHoverHighlights.get(s.id)}
-                        reviewerSession={s.sessionNum != null ? activeReviewerByParent.get(s.sessionNum) : undefined}
+                        reviewerSession={s.sessionNum != null ? reviewerByParent.get(s.sessionNum) : undefined}
                         useStatusBar
                         {...sessionItemProps}
                       />
@@ -1260,7 +1443,7 @@ export function Sidebar() {
                           isRecentlyRenamed={recentlyRenamed.has(s.id)}
                           herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}
                           herdHoverHighlight={herdHoverHighlights.get(s.id)}
-                          reviewerSession={s.sessionNum != null ? activeReviewerByParent.get(s.sessionNum) : undefined}
+                          reviewerSession={s.sessionNum != null ? reviewerByParent.get(s.sessionNum) : undefined}
                           useStatusBar
                           {...sessionItemProps}
                         />
@@ -1331,6 +1514,33 @@ export function Sidebar() {
           >
             <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
               <path d="M8 2a6 6 0 100 12A6 6 0 008 2zM0 8a8 8 0 1116 0A8 8 0 010 8zm9-3a1 1 0 10-2 0v3a1 1 0 00.293.707l2 2a1 1 0 001.414-1.414L9 7.586V5z" />
+            </svg>
+          </button>
+          <button
+            title="Streams"
+            onClick={() => {
+              if (isStreamsPage) {
+                const sessionId = useStore.getState().currentSessionId;
+                if (sessionId) {
+                  navigateToSession(sessionId);
+                } else {
+                  navigateToMostRecentSession();
+                }
+              } else {
+                window.location.hash = "#/streams";
+              }
+              if (!isDesktopLayout) {
+                useStore.getState().setSidebarOpen(false);
+              }
+            }}
+            className={`p-2 rounded-lg transition-colors cursor-pointer ${
+              isStreamsPage ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+            }`}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
+              <path d="M3 4.5h4.5M8.5 4.5H13M3 8h10M3 11.5h3.5M7.5 11.5H13" strokeLinecap="round" />
+              <circle cx="8" cy="4.5" r="1" fill="currentColor" stroke="none" />
+              <circle cx="7" cy="11.5" r="1" fill="currentColor" stroke="none" />
             </svg>
           </button>
           <button
@@ -1434,7 +1644,7 @@ export function Sidebar() {
                   {
                     label: "Copy Session Number",
                     onClick: () => {
-                      writeClipboardText(String(sessionNum)).catch(console.error);
+                      writeClipboardText(`#${sessionNum}`).catch(console.error);
                     },
                   },
                 ]

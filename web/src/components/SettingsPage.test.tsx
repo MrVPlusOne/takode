@@ -64,6 +64,7 @@ function createMockState(overrides: Partial<MockStoreState> = {}): MockStoreStat
 const mockApi = {
   getSettings: vi.fn(),
   updateSettings: vi.fn(),
+  restartServer: vi.fn(),
   getNamerLogs: vi.fn(),
   getNamerLogEntry: vi.fn(),
   testPushover: vi.fn(),
@@ -77,10 +78,25 @@ const mockApi = {
   getAutoApprovalLogEntry: vi.fn(),
 };
 
+const mockApiErrorClass = vi.hoisted(
+  () =>
+    class ApiError extends Error {
+      constructor(
+        message: string,
+        public readonly status: number,
+        public readonly body: unknown,
+      ) {
+        super(message);
+        this.name = "ApiError";
+      }
+    },
+);
+
 vi.mock("../api.js", () => ({
   api: {
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     updateSettings: (...args: unknown[]) => mockApi.updateSettings(...args),
+    restartServer: (...args: unknown[]) => mockApi.restartServer(...args),
     getNamerLogs: (...args: unknown[]) => mockApi.getNamerLogs(...args),
     getNamerLogEntry: (...args: unknown[]) => mockApi.getNamerLogEntry(...args),
     testPushover: (...args: unknown[]) => mockApi.testPushover(...args),
@@ -92,6 +108,12 @@ vi.mock("../api.js", () => ({
     deleteAutoApprovalConfig: (...args: unknown[]) => mockApi.deleteAutoApprovalConfig(...args),
     getAutoApprovalLogs: (...args: unknown[]) => mockApi.getAutoApprovalLogs(...args),
     getAutoApprovalLogEntry: (...args: unknown[]) => mockApi.getAutoApprovalLogEntry(...args),
+  },
+  ApiError: mockApiErrorClass,
+  isInterruptRestartBlockersResponse: (value: unknown) => {
+    if (!value || typeof value !== "object") return false;
+    const candidate = value as { mode?: unknown; herdDelivery?: unknown };
+    return (candidate.mode === "standalone" || candidate.mode === "restart") && !!candidate.herdDelivery;
   },
 }));
 
@@ -141,12 +163,19 @@ beforeEach(() => {
     pushoverEventFilters: { needsInput: true, review: true, error: true },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
+    restartSupported: true,
+    namerConfig: { backend: "claude" },
     claudeBinary: "",
     codexBinary: "",
+    codexLeaderContextWindowOverrideTokens: 1_000_000,
+    codexNonLeaderAutoCompactThresholdPercent: 90,
+    codexLeaderRecycleThresholdTokens: 260_000,
+    codexLeaderRecycleThresholdTokensByModel: {},
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
     editorConfig: { editor: "none" },
   });
+  mockApi.restartServer.mockResolvedValue({ ok: true });
   mockApi.updateSettings.mockResolvedValue({
     serverName: "",
     serverId: "test-id",
@@ -155,8 +184,14 @@ beforeEach(() => {
     pushoverEventFilters: { needsInput: true, review: true, error: true },
     pushoverDelaySeconds: 30,
     pushoverBaseUrl: "",
+    restartSupported: true,
+    namerConfig: { backend: "claude" },
     claudeBinary: "",
     codexBinary: "",
+    codexLeaderContextWindowOverrideTokens: 1_000_000,
+    codexNonLeaderAutoCompactThresholdPercent: 90,
+    codexLeaderRecycleThresholdTokens: 260_000,
+    codexLeaderRecycleThresholdTokensByModel: {},
     maxKeepAlive: 0,
     heavyRepoModeEnabled: false,
     editorConfig: { editor: "none" },
@@ -184,6 +219,51 @@ describe("SettingsPage", () => {
     expect(mockApi.getSettings).toHaveBeenCalledTimes(1);
     // Wait for loading to complete — section headings are visible
     await waitForSettingsPage();
+  });
+
+  it("surfaces rich restart-prep details when Restart Server auto-prep fails", async () => {
+    const restartPrepResult = {
+      ok: false,
+      operationId: "prep-restart",
+      mode: "restart",
+      restartRequested: false,
+      timedOut: true,
+      interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
+      skipped: [],
+      failures: [],
+      protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
+      unresolvedBlockers: [{ sessionId: "approval-1", label: "Approval session", reasons: ["1 pending permission"] }],
+      herdDelivery: {
+        suppressed: 0,
+        held: 0,
+        trackingActive: true,
+        countsFinal: false,
+        detail:
+          "Restart-prep herd delivery tracking is active. Counts are current as of this response and may increase as worker events settle.",
+      },
+    };
+    mockApi.restartServer.mockRejectedValue(
+      new mockApiErrorClass(
+        "Cannot restart while 1 session(s) are still blocking restart readiness: Approval session",
+        409,
+        {
+          error: "Cannot restart while 1 session(s) are still blocking restart readiness: Approval session",
+          result: restartPrepResult,
+        },
+      ),
+    );
+    vi.spyOn(window, "confirm").mockReturnValue(true);
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    fireEvent.click(screen.getByRole("button", { name: "Restart Server" }));
+
+    expect(await screen.findByText("Restart Prep Result")).toBeInTheDocument();
+    expect(screen.getByText("Worker session")).toBeInTheDocument();
+    expect(screen.getByText("Approval session")).toBeInTheDocument();
+    expect(screen.getByText("Leader session")).toBeInTheDocument();
+    expect(screen.getByText(/Current suppressed prep events: 0/)).toBeInTheDocument();
   });
 
   it("shows shortcuts disabled by default in a compact state", async () => {
@@ -302,6 +382,72 @@ describe("SettingsPage", () => {
     await waitFor(() => {
       expect(screen.getByLabelText("Custom Vocabulary")).toHaveValue("Takode, WsBridge, Questmaster");
     });
+  });
+
+  it("loads and saves a custom voice transcription model", async () => {
+    // A saved non-built-in STT model should reopen the selector in Custom Model mode.
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      editorConfig: { editor: "none" },
+      transcriptionConfig: {
+        apiKey: "***",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+        sttModel: "whisper-large-v3",
+      },
+    });
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const voiceSection = settingsSection("Voice Transcription");
+    await waitFor(() => {
+      expect(within(voiceSection).getByLabelText("STT Model")).toHaveValue("__custom__");
+      expect(within(voiceSection).getByLabelText("Custom STT Model")).toHaveValue("whisper-large-v3");
+    });
+
+    fireEvent.change(within(voiceSection).getByLabelText("Custom STT Model"), {
+      target: { value: " custom-whisper-v2 " },
+    });
+    fireEvent.click(within(voiceSection).getByRole("button", { name: "Save" }));
+
+    await waitFor(() => {
+      expect(mockApi.updateSettings).toHaveBeenCalledWith(
+        expect.objectContaining({
+          transcriptionConfig: expect.objectContaining({
+            sttModel: "custom-whisper-v2",
+          }),
+        }),
+      );
+    });
+  });
+
+  it("requires a model name before saving Custom Model transcription settings", async () => {
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const voiceSection = settingsSection("Voice Transcription");
+    await waitFor(() => {
+      expect(within(voiceSection).getByLabelText("STT Model")).toBeInTheDocument();
+    });
+
+    fireEvent.change(within(voiceSection).getByLabelText("STT Model"), { target: { value: "__custom__" } });
+    fireEvent.click(within(voiceSection).getByRole("button", { name: "Save" }));
+
+    expect(await within(voiceSection).findByText("Custom STT model is required.")).toBeInTheDocument();
+    expect(mockApi.updateSettings).not.toHaveBeenCalled();
   });
 
   it("loads and saves pushover event filters", async () => {
@@ -753,6 +899,217 @@ describe("SettingsPage", () => {
     expect(settingsSection("Appearance & Display")).not.toBeVisible();
     expect(within(cliSection).getByLabelText("Editor")).toBeVisible();
     expect(within(cliSection).getByLabelText("Claude Code")).not.toBeVisible();
+  });
+
+  it("loads and saves the Codex leader recycle controls", async () => {
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      codexLeaderContextWindowOverrideTokens: 1_100_000,
+      codexNonLeaderAutoCompactThresholdPercent: 85,
+      codexLeaderRecycleThresholdTokens: 275_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      editorConfig: { editor: "none" },
+    });
+    mockApi.updateSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      codexLeaderContextWindowOverrideTokens: 1_200_000,
+      codexNonLeaderAutoCompactThresholdPercent: 88,
+      codexLeaderRecycleThresholdTokens: 280_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      editorConfig: { editor: "none" },
+    });
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const cliSection = settingsSection("CLI & Backends");
+    const autoCompactInput = within(cliSection).getByLabelText(
+      "Codex Non-Leader Auto-Compact Threshold",
+    ) as HTMLInputElement;
+    const windowInput = within(cliSection).getByLabelText("Codex Leader Context Window") as HTMLInputElement;
+    const thresholdInput = within(cliSection).getByLabelText(
+      "Codex Leader Default Recycle Threshold",
+    ) as HTMLInputElement;
+    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1") as HTMLInputElement;
+    const overrideInput = within(cliSection).getByLabelText(
+      "Codex Leader Recycle Threshold Tokens 1",
+    ) as HTMLInputElement;
+
+    expect(autoCompactInput.value).toBe("85");
+    expect(windowInput.value).toBe("1100000");
+    expect(thresholdInput.value).toBe("275000");
+    expect(modelInput.value).toBe("gpt-5.4");
+    expect(overrideInput.value).toBe("430000");
+
+    vi.useFakeTimers();
+    try {
+      fireEvent.change(autoCompactInput, { target: { value: "88" } });
+      fireEvent.change(windowInput, { target: { value: "1200000" } });
+      fireEvent.change(thresholdInput, { target: { value: "280000" } });
+      fireEvent.click(within(cliSection).getByRole("button", { name: "Add Override" }));
+      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 2"), {
+        target: { value: "gpt-5.5" },
+      });
+      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Tokens 1"), {
+        target: { value: "440000" },
+      });
+      fireEvent.change(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Tokens 2"), {
+        target: { value: "320000" },
+      });
+      await vi.advanceTimersByTimeAsync(900);
+
+      expect(mockApi.updateSettings).toHaveBeenLastCalledWith({
+        codexLeaderContextWindowOverrideTokens: 1_200_000,
+        codexNonLeaderAutoCompactThresholdPercent: 88,
+        codexLeaderRecycleThresholdTokens: 280_000,
+        codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 440_000, "gpt-5.5": 320_000 },
+      });
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the same override row input mounted while typing a model id", async () => {
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      editorConfig: { editor: "none" },
+    });
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const cliSection = settingsSection("CLI & Backends");
+    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1") as HTMLInputElement;
+
+    modelInput.focus();
+    expect(document.activeElement).toBe(modelInput);
+
+    fireEvent.change(modelInput, { target: { value: "gpt-5.4." } });
+    expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1")).toBe(modelInput);
+    expect(document.activeElement).toBe(modelInput);
+
+    fireEvent.change(modelInput, { target: { value: "gpt-5.4.1" } });
+    expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1")).toBe(modelInput);
+    expect(document.activeElement).toBe(modelInput);
+    expect(modelInput.value).toBe("gpt-5.4.1");
+  });
+
+  it("preserves the same override row through normalized save reconciliation", async () => {
+    mockApi.getSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      editorConfig: { editor: "none" },
+    });
+    mockApi.updateSettings.mockResolvedValue({
+      serverName: "",
+      serverId: "test-id",
+      pushoverConfigured: false,
+      pushoverEnabled: true,
+      pushoverEventFilters: { needsInput: true, review: true, error: true },
+      pushoverDelaySeconds: 30,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      editorConfig: { editor: "none" },
+    });
+
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    const cliSection = settingsSection("CLI & Backends");
+    const modelInput = within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1") as HTMLInputElement;
+    const thresholdInput = within(cliSection).getByLabelText(
+      "Codex Leader Recycle Threshold Tokens 1",
+    ) as HTMLInputElement;
+
+    vi.useFakeTimers();
+    try {
+      modelInput.focus();
+      fireEvent.change(modelInput, { target: { value: " gpt-5.4 " } });
+      fireEvent.change(thresholdInput, { target: { value: "0430000" } });
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(900);
+      });
+
+      expect(mockApi.updateSettings).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
+        }),
+      );
+
+      expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Model 1")).toBe(modelInput);
+      expect(within(cliSection).getByLabelText("Codex Leader Recycle Threshold Tokens 1")).toBe(thresholdInput);
+      expect(document.activeElement).toBe(modelInput);
+      expect(modelInput.value).toBe("gpt-5.4");
+      expect(thresholdInput.value).toBe("430000");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("keeps the model override surface discoverable in Settings search", async () => {
+    render(<SettingsPage />);
+    await waitForSettingsPage();
+
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), {
+      target: { value: "gpt-5.4" },
+    });
+
+    const cliSection = settingsSection("CLI & Backends");
+    expect(within(cliSection).getByText("Codex Leader Model Threshold Overrides")).toBeVisible();
+    expect(within(cliSection).getByRole("button", { name: "Add Override" })).toBeVisible();
+    expect(within(cliSection).getByLabelText("Codex Leader Default Recycle Threshold")).not.toBeVisible();
   });
 
   it("shows an empty state when no settings match", async () => {

@@ -59,7 +59,31 @@ You are checking the quality of the resulting code:
 
 Later, you may be asked to review the worker's follow-up changes and decide whether they addressed your required findings.
 
-When the scope includes quest rework or human feedback, also check quest comment hygiene. The worker should keep one substantive user-oriented quest summary/comment current by default, covering what changed, why it matters, and what verification passed. It should read as an outcome note rather than a review/rework timeline, and should consolidate feedback-addressing details into that comment when clear. Do not require separate summary and addressed-feedback comments unless the updates are materially different or separate comments make the quest easier to read.
+When the scope includes quest rework or human feedback, also check quest comment
+hygiene. The worker should keep one substantive user-oriented quest
+summary/comment current by default, covering what changed, why it matters, and
+what verification passed. It should read as an outcome note rather than a
+review/rework timeline, and should consolidate feedback-addressing details into
+that comment when clear. Do not require separate summary and addressed-feedback
+comments unless the updates are materially different or separate comments make
+the quest easier to read.
+
+You own straightforward quest hygiene fixes during reviewer-groom. If the
+evidence is clear and the fix is available through the Quest CLI, fix it
+directly instead of sending it back through leader -> worker -> reviewer. This
+includes marking clearly resolved human feedback addressed with `quest address`,
+adding or refreshing a consolidated summary with `quest feedback add`, checking
+verification items you personally verified with `quest check`, and correcting
+obvious structured metadata omissions when the current handoff supports it.
+Report any direct hygiene fixes in your review output. If the hygiene issue is
+real but there is no safe CLI operation for the current quest state, make it a
+finding instead.
+
+Still escalate real ambiguity and substantive failures. Do not guess about user
+intent, do not paper over missing or dishonest work with quest bookkeeping, and
+do not make code changes for the worker. If the quest hygiene issue depends on
+unclear intent, missing evidence, unsupported tooling, or a critical worker
+misunderstanding, make it a finding instead of mutating the quest.
 
 ## Required Review Workflow
 
@@ -89,7 +113,7 @@ Takode tracks work in sessions.
 - A **quest** is the persistent task record for that work.
 - `takode info <session>` shows metadata about a session, including its worktree path.
 - `takode peek <session>` shows recent conversation context from that session.
-- `quest show <id>` shows the quest details.
+- `quest show <id>` shows the quest details; `quest status <id>` gives compact state and next action; `quest feedback list/latest/show` inspect feedback by the same zero-based indices used by `quest address`.
 
 You do not need the full Takode workflow to use this skill.
 You only need enough context to identify the worker, inspect the diff, and review the code.
@@ -127,7 +151,7 @@ Usually the leader's message immediately before this skill invocation gives you 
 In practice, the best scope strings often name the quest, the worker, and the message range containing the worker's follow-up.
 
 If you cannot tell which worker or which change is being referenced, stop and ask for clarification instead of guessing.
-If the scope is nominally clear but you still see real misunderstanding risk, ask the leader immediately in plain text, call `takode notify needs-input` with a short summary, and stop until you get an answer.
+If the scope is nominally clear but you still see real misunderstanding risk, ask the leader immediately in plain text first, then call `takode notify needs-input` with a short summary, optionally using one to three short `--suggest <answer>` choices for obvious answers, and stop until you get an answer.
 
 Scope resolution is still part of context gathering, not evaluation.
 Do not start writing findings during this step.
@@ -273,6 +297,9 @@ If the quest ID is available, read it:
 
 ```bash
 quest show <quest_id>
+quest status <quest_id>
+quest feedback list <quest_id> --author human --unaddressed
+quest feedback latest <quest_id> --author agent --full
 ```
 
 Only fall back to `takode info <worker_session> --json` if you need exact structured fields that the plain-text view does not answer cleanly.
@@ -417,15 +444,20 @@ Re-check the worker's response against the same checklist mindset:
 - unresolved `Suggestions` are only blocking if they expose a deeper required issue
 - any newly introduced relevant review aspect must also be checked instead of being silently ignored
 - for quest feedback follow-up, the quest should not accumulate multiple duplicated or overly similar worker comments; require consolidation if readability regressed
+- if a quest hygiene issue is clear and directly fixable, fix it yourself and
+  report the hygiene fix instead of returning `CHALLENGE` only for bookkeeping
 
 For a follow-up review, return exactly one of:
 
 **ACCEPT**: The worker addressed all Critical and Recommended findings, or justified any intentional skips.
-[1-2 sentence justification]
+[1-2 sentence justification. Include `Hygiene fixes: ...` if you directly
+updated quest feedback, addressed flags, checklist checks, commit metadata, or
+other quest bookkeeping; otherwise say `Hygiene fixes: none`.]
 
 **CHALLENGE**: The worker did not address the required follow-up.
 - [file.ts:10](file:path/to/file.ts:10) Remaining issue
 - Missing explanation for skipped recommendation: ...
+- Hygiene fixes: none
 
 ## Output Format For The Initial Review
 
@@ -437,6 +469,7 @@ For a follow-up review, return exactly one of:
 - Not relevant: performance, security
 - Review order: repo instruction compliance -> complexity/design quality -> test coverage -> correctness
 - Findings came from: test coverage, correctness
+- Hygiene fixes: none
 
 ### Critical
 - [TopBar.tsx:162](file:web/src/components/TopBar.tsx:162) Issue

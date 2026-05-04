@@ -4,8 +4,18 @@ import type {
   CLIResultMessage,
   ContentBlock,
   PermissionRequest,
+  ThreadRef,
 } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
+import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
+import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
+import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
+import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
+import {
+  appendThreadTransitionMarkerForRouteSwitch,
+  normalizeThreadRoute,
+  type ThreadRouteMetadata,
+} from "../thread-routing-metadata.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 
@@ -14,7 +24,85 @@ type CodexBrowserMessageAdapterLike = {
   sendBrowserMessage(msg: unknown): void;
 };
 
+function isLeaderSessionForAssistantRouting(
+  session: CodexBrowserMessageSessionLike,
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
+): boolean {
+  if (session.state?.isOrchestrator === true) return true;
+  if (launcherInfo?.isOrchestrator !== true) return false;
+  session.state = { ...session.state, isOrchestrator: true };
+  return true;
+}
+
+function routeFromLeaderAssistantResult(routed: {
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
+}): ThreadRouteMetadata | undefined {
+  if (!routed.threadKey) return undefined;
+  return {
+    threadKey: routed.threadKey,
+    ...(routed.questId ? { questId: routed.questId } : {}),
+    ...(routed.threadRefs?.length ? { threadRefs: routed.threadRefs } : {}),
+  };
+}
+
+type CodexLeaderRecycleLauncherInfo = {
+  isOrchestrator?: boolean;
+  codexLeaderRecycleLineage?: {
+    recycleEvents?: Array<{
+      trigger?: "manual_compact" | "threshold";
+      tokenUsage?: {
+        contextTokensUsed?: number;
+      };
+    }>;
+  };
+};
+
+function withCodexLeaderRecycleThreshold(
+  session: CodexBrowserMessageSessionLike,
+  patch: Record<string, unknown>,
+  deps: Pick<CodexAdapterBrowserMessageDeps, "getCodexLeaderRecycleThresholdTokens" | "getLauncherSessionInfo">,
+): Record<string, unknown> {
+  const launcherInfo = deps.getLauncherSessionInfo(session.id);
+  if (launcherInfo?.isOrchestrator !== true) return patch;
+  const modelId =
+    typeof patch.model === "string" ? patch.model : typeof session.state?.model === "string" ? session.state.model : "";
+  const thresholdTokens = deps.getCodexLeaderRecycleThresholdTokens(modelId);
+  if (thresholdTokens < 1) return patch;
+  return { ...patch, codex_leader_recycle_threshold_tokens: thresholdTokens };
+}
+
+function getLatestThresholdRecycleWatermark(
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
+): number | null {
+  const recycleEvents = launcherInfo?.codexLeaderRecycleLineage?.recycleEvents;
+  if (!Array.isArray(recycleEvents) || recycleEvents.length === 0) return null;
+  for (let index = recycleEvents.length - 1; index >= 0; index -= 1) {
+    const recycleEvent = recycleEvents[index];
+    const watermark = recycleEvent?.tokenUsage?.contextTokensUsed;
+    if (recycleEvent?.trigger !== "threshold" || typeof watermark !== "number") continue;
+    return watermark;
+  }
+  return null;
+}
+
+function shouldTriggerCodexLeaderThresholdRecycle(
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
+  contextTokensUsed: number | undefined,
+  recycleThresholdTokens: number,
+): boolean {
+  if (!launcherInfo?.isOrchestrator) return false;
+  if (typeof contextTokensUsed !== "number") return false;
+  if (recycleThresholdTokens <= 0 || contextTokensUsed < recycleThresholdTokens) return false;
+  const latestThresholdWatermark = getLatestThresholdRecycleWatermark(launcherInfo);
+  if (latestThresholdWatermark !== null && contextTokensUsed <= latestThresholdWatermark) return false;
+  return true;
+}
+
 export interface CodexAdapterBrowserMessageDeps {
+  getCodexLeaderRecycleThresholdTokens: (modelId?: string) => number;
+  getLauncherSessionInfo: (sessionId: string) => CodexLeaderRecycleLauncherInfo | null | undefined;
   touchActivity: (sessionId: string) => void;
   clearOptimisticRunningTimer: (session: CodexBrowserMessageSessionLike, reason: string) => void;
   setCodexImageSendStage: (
@@ -72,6 +160,10 @@ export interface CodexAdapterBrowserMessageDeps {
     session: CodexBrowserMessageSessionLike,
     permission: PermissionRequest,
   ) => Promise<void> | void;
+  requestCodexLeaderRecycle: (
+    session: CodexBrowserMessageSessionLike,
+    trigger: "manual_compact" | "threshold",
+  ) => Promise<{ ok: boolean; error?: string }>;
 }
 
 export async function handleCodexAdapterBrowserMessage(
@@ -90,16 +182,31 @@ export async function handleCodexAdapterBrowserMessage(
 
   if (msg.type === "session_init") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
-    session.state = { ...session.state, ...sanitized, backend_type: "codex" };
+    const enriched = withCodexLeaderRecycleThreshold(session, { ...sanitized, backend_type: "codex" }, deps);
+    session.state = { ...session.state, ...enriched };
     session.cliInitReceived = true;
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
     deps.persistSession(session);
+    outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;
   } else if (msg.type === "session_update") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
-    session.state = { ...session.state, ...sanitized, backend_type: "codex" };
-    outgoing = { ...msg, session: sanitized as unknown as typeof msg.session } as BrowserIncomingMessage;
-    deps.cacheSlashCommandState(session, sanitized);
+    const enriched = withCodexLeaderRecycleThreshold(session, { ...sanitized, backend_type: "codex" }, deps);
+    session.state = { ...session.state, ...enriched };
+    outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;
+    deps.cacheSlashCommandState(session, enriched);
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
+    const launcherInfo = deps.getLauncherSessionInfo(session.id);
+    const recycleThresholdTokens = deps.getCodexLeaderRecycleThresholdTokens(session.state.model);
+    const contextTokensUsed = session.state.codex_token_details?.contextTokensUsed;
+    if (shouldTriggerCodexLeaderThresholdRecycle(launcherInfo, contextTokensUsed, recycleThresholdTokens)) {
+      const recycle = await deps.requestCodexLeaderRecycle(session, "threshold");
+      if (!recycle.ok) {
+        deps.broadcastToBrowsers(session, {
+          type: "error",
+          message: recycle.error || "Failed to recycle Codex leader session",
+        });
+      }
+    }
     deps.persistSession(session);
   } else if (msg.type === "status_change") {
     const wasCompacting = session.state.is_compacting;
@@ -118,14 +225,24 @@ export async function handleCodexAdapterBrowserMessage(
         timestamp: ts,
         id: markerId,
       });
+      recordCompactionStarted(session, { id: markerId, timestamp: ts });
       deps.freezeHistoryThroughCurrentTail(session);
       deps.broadcastToBrowsers(session, {
         type: "compact_boundary",
         id: markerId,
         timestamp: ts,
       } as BrowserIncomingMessage);
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { lifecycle_events: session.state.lifecycle_events },
+      } as BrowserIncomingMessage);
     }
     if (wasCompacting && msg.status !== "compacting") {
+      recordCompactionFinished(session);
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { lifecycle_events: session.state.lifecycle_events },
+      } as BrowserIncomingMessage);
       deps.emitTakodeEvent(session.id, "compaction_finished", {
         ...(typeof session.state.context_used_percent === "number"
           ? { context_used_percent: session.state.context_used_percent }
@@ -135,10 +252,35 @@ export async function handleCodexAdapterBrowserMessage(
     }
     deps.persistSession(session);
   } else if (msg.type === "assistant") {
-    const content = msg.message.content || [];
+    const launcherInfo = deps.getLauncherSessionInfo(session.id);
+    const isLeaderSession = isLeaderSessionForAssistantRouting(session, launcherInfo);
+    const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content || [], msg.parent_tool_use_id);
+    if (routed.questThreadReminders?.length) {
+      queueQuestThreadRemindersForCompletedTurn(
+        session,
+        routed.questThreadReminders,
+        routeFromLeaderAssistantResult(routed),
+      );
+    }
+    const routedMsg = {
+      ...msg,
+      message: { ...msg.message, content: routed.content },
+      ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
+      ...(routed.questId ? { questId: routed.questId } : {}),
+      ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
+      ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+    };
+    msg = routedMsg;
+    outgoing = routedMsg;
+    const content: ContentBlock[] = routedMsg.message.content || [];
     const now = Date.now();
     for (const block of content) {
-      if (block.type === "tool_use" && block.id && !session.toolStartTimes.has(block.id)) {
+      if (
+        block.type === "tool_use" &&
+        block.id &&
+        shouldTrackCodexToolResultRecovery(block) &&
+        !session.toolStartTimes.has(block.id)
+      ) {
         session.toolStartTimes.set(block.id, now);
         session.toolProgressOutput.delete(block.id);
       }
@@ -164,13 +306,13 @@ export async function handleCodexAdapterBrowserMessage(
         deps.finalizeSupersededCodexTerminalTools(session, completedToolStartTimes);
       }
 
-      const nonResult = content.filter((block) => block.type !== "tool_result");
+      const nonResult = content.filter((block: ContentBlock) => block.type !== "tool_result");
       if (nonResult.length === 0) {
         outgoing = null;
       } else {
         outgoing = {
-          ...msg,
-          message: { ...msg.message, content: nonResult },
+          ...routedMsg,
+          message: { ...routedMsg.message, content: nonResult },
         } as BrowserIncomingMessage;
       }
     }
@@ -197,6 +339,11 @@ export async function handleCodexAdapterBrowserMessage(
   }
 
   if (outgoing?.type === "assistant") {
+    const transitionMarker = appendThreadTransitionMarkerForRouteSwitch(
+      session.messageHistory,
+      normalizeThreadRoute(outgoing.threadKey, outgoing.questId),
+    );
+    if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(outgoing);
     deps.persistSession(session);
   } else if (outgoing?.type === "result") {

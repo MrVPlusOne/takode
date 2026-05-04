@@ -3,14 +3,28 @@ import { writeClipboardText } from "./copy-utils.js";
 import type { QuestmasterTask, QuestVerificationItem } from "../types.js";
 
 /** Prefix a session name with ☐/☑ based on quest status, or return it unmodified for non-quest sessions. */
-export function questLabel(name: string, isQuestNamed: boolean, questStatus: string | undefined): string {
+export function questLabel(
+  name: string,
+  isQuestNamed: boolean,
+  questStatus: string | undefined,
+  verificationInboxUnread?: boolean | null,
+): string {
   if (!isQuestNamed) return name;
-  return questStatus === "needs_verification" ? `☑ ${name}` : `☐ ${name}`;
+  return questStatus === "needs_verification" || (questStatus === "done" && verificationInboxUnread !== undefined)
+    ? `☑ ${name}`
+    : `☐ ${name}`;
 }
 
 /** Quest-owned session titles stay sticky through review handoff until the claim is cleared. */
-export function questOwnsSessionName(questStatus: string | undefined): boolean {
-  return questStatus === "in_progress" || questStatus === "needs_verification";
+export function questOwnsSessionName(
+  questStatus: string | undefined,
+  verificationInboxUnread?: boolean | null,
+): boolean {
+  return (
+    questStatus === "in_progress" ||
+    questStatus === "needs_verification" ||
+    (questStatus === "done" && verificationInboxUnread !== undefined)
+  );
 }
 
 /** Relative time display (e.g. "5m ago", "2h ago", "3d ago"). */
@@ -48,6 +62,14 @@ export function getQuestOwnerSessionId(quest: QuestmasterTask): string | null {
     if (trimmed) return trimmed;
   }
   return null;
+}
+
+/** Get the quest's orchestrating leader session ID, when it was recorded. */
+export function getQuestLeaderSessionId(quest: QuestmasterTask): string | null {
+  const raw = (quest as { leaderSessionId?: unknown }).leaderSessionId;
+  if (typeof raw !== "string") return null;
+  const trimmed = raw.trim();
+  return trimmed || null;
 }
 
 /** Click-to-copy quest ID with brief visual confirmation. */

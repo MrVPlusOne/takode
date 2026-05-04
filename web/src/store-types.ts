@@ -1,10 +1,14 @@
 import type { PRStatusResponse, CreateSessionOpts, CreationProgressEvent } from "./api.js";
 import type { BoardRowData } from "./components/BoardTable.js";
 import type { SearchMatch, SessionSearchCategory, SessionSearchState } from "./store-session-search.js";
+import type { ReplyContext } from "../shared/reply-context.js";
+import type { FeedWindowSync } from "../shared/feed-window-sync.js";
 import type {
+  BoardRowSessionStatus,
   ChatMessage,
   ComposerDraftImage,
   HistoryWindowState,
+  LeaderProjectionSnapshot,
   McpServerDetail,
   PendingCodexInput,
   PendingUserUpload,
@@ -13,8 +17,10 @@ import type {
   SdkSessionInfo,
   SessionTaskEntry,
   SessionState,
+  ActiveTurnRoute,
   TaskItem,
   ToolResultPreview,
+  ThreadWindowState,
   VsCodeSelectionState,
 } from "./types.js";
 
@@ -29,6 +35,7 @@ export interface PendingSession {
   cwd: string | null;
   groupKey?: string | null;
   treeGroupId?: string | null;
+  recentDirsKey?: string | null;
   createdAt: number;
 }
 
@@ -42,6 +49,12 @@ export interface AppState {
   messageFrozenRevisions: Map<string, number>;
   historyLoading: Map<string, boolean>;
   historyWindows: Map<string, HistoryWindowState>;
+  threadWindows: Map<string, Map<string, ThreadWindowState>>;
+  threadWindowMessages: Map<string, Map<string, ChatMessage[]>>;
+  feedWindowSyncs: Map<string, FeedWindowSync>;
+  threadFeedWindowSyncs: Map<string, Map<string, FeedWindowSync>>;
+  leaderProjections: Map<string, LeaderProjectionSnapshot>;
+  setLeaderProjection: (sessionId: string, projection: LeaderProjectionSnapshot | null) => void;
   streaming: Map<string, string>;
   streamingByParentToolUseId: Map<string, Map<string, string>>;
   streamingThinking: Map<string, string>;
@@ -56,6 +69,7 @@ export interface AppState {
   cliEverConnected: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
+  activeTurnRoutes: Map<string, ActiveTurnRoute | null>;
   sessionStuck: Map<string, boolean>;
   previousPermissionMode: Map<string, string>;
   askPermission: Map<string, boolean>;
@@ -64,6 +78,8 @@ export interface AppState {
   setSessionTimers: (sessionId: string, timers: import("./types.js").SessionTimer[]) => void;
   sessionNotifications: Map<string, import("./types.js").SessionNotification[]>;
   setSessionNotifications: (sessionId: string, notifications: import("./types.js").SessionNotification[]) => void;
+  sessionAttentionRecords: Map<string, import("./types.js").SessionAttentionRecord[]>;
+  setSessionAttentionRecords: (sessionId: string, records: import("./types.js").SessionAttentionRecord[]) => void;
   changedFiles: Map<string, Set<string>>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   sessionNames: Map<string, string>;
@@ -94,6 +110,8 @@ export interface AppState {
   setLatestBoardToolUseId: (sessionId: string, toolUseId: string) => void;
   sessionBoards: Map<string, BoardRowData[]>;
   setSessionBoard: (sessionId: string, board: BoardRowData[]) => void;
+  sessionBoardRowStatuses: Map<string, Record<string, BoardRowSessionStatus>>;
+  setSessionBoardRowStatuses: (sessionId: string, statuses: Record<string, BoardRowSessionStatus>) => void;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
   setSessionCompletedBoard: (sessionId: string, board: BoardRowData[]) => void;
   backgroundAgentNotifs: Map<string, Map<string, { status: string; outputFile?: string; summary?: string }>>;
@@ -151,9 +169,11 @@ export interface AppState {
   questmasterSearchQuery: string;
   questmasterSelectedTags: string[];
   questmasterViewMode: import("./api.js").QuestmasterViewMode | null;
+  questmasterCompactSort: import("./api.js").QuestmasterCompactSort | null;
   setQuestmasterSearchQuery: (query: string) => void;
   setQuestmasterSelectedTags: (tags: string[]) => void;
   setQuestmasterViewMode: (mode: import("./api.js").QuestmasterViewMode) => void;
+  setQuestmasterCompactSort: (sort: import("./api.js").QuestmasterCompactSort) => void;
   activeTab: "chat" | "diff";
   diffPanelSelectedFile: Map<string, string>;
   vscodeSelectionContext: VsCodeSelectionState | null;
@@ -206,6 +226,13 @@ export interface AppState {
   ) => void;
   setHistoryLoading: (sessionId: string, loading: boolean) => void;
   setHistoryWindow: (sessionId: string, window: HistoryWindowState | null) => void;
+  setThreadWindow: (
+    sessionId: string,
+    threadKey: string,
+    window: ThreadWindowState | null,
+    messages?: ChatMessage[],
+  ) => void;
+  setFeedWindowSync: (sessionId: string, sync: FeedWindowSync | null) => void;
   setPendingCodexInputs: (sessionId: string, inputs: PendingCodexInput[]) => void;
   updateMessage: (sessionId: string, msgId: string, updates: Partial<ChatMessage>) => void;
   updateQuestTitleInMessages: (sessionId: string, questId: string, newTitle: string) => void;
@@ -295,6 +322,7 @@ export interface AppState {
   setCliEverConnected: (sessionId: string) => void;
   setCliDisconnectReason: (sessionId: string, reason: "idle_limit" | "broken" | null) => void;
   setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | "reverting" | null) => void;
+  setActiveTurnRoute: (sessionId: string, route: ActiveTurnRoute | null | undefined) => void;
   setSessionStuck: (sessionId: string, stuck: boolean) => void;
   feedScrollPosition: Map<
     string,
@@ -332,8 +360,8 @@ export interface AppState {
   removePendingUserUpload: (sessionId: string, uploadId: string) => void;
   consumePendingUserUpload: (sessionId: string, uploadId: string) => PendingUserUpload | null;
   getPendingUserUploadRestoration: (sessionId: string, uploadId: string) => PendingUserUpload | null;
-  replyContexts: Map<string, { messageId: string; previewText: string }>;
-  setReplyContext: (sessionId: string, context: { messageId: string; previewText: string } | null) => void;
+  replyContexts: Map<string, ReplyContext>;
+  setReplyContext: (sessionId: string, context: ReplyContext | null) => void;
   focusComposerTrigger: number;
   focusComposer: () => void;
   turnActivityOverrides: Map<string, Map<string, boolean>>;

@@ -1,12 +1,34 @@
 import { randomUUID } from "node:crypto";
 import { resolve } from "node:path";
-import { computeHistoryMessagesSyncHash, computeHistoryPrefixSyncHash } from "../../shared/history-sync-hash.js";
+import {
+  buildHistoryFeedWindowSync,
+  buildThreadFeedWindowSync,
+  supportsFeedWindowSync,
+  type FeedWindowSync,
+} from "../../shared/feed-window-sync.js";
+import {
+  applyLeaderThreadTabUpdate,
+  normalizeLeaderOpenThreadTabsState,
+} from "../../shared/leader-open-thread-tabs.js";
+import {
+  computeHistoryMessagesSyncHash,
+  computeHistoryPayloadSyncHash,
+  computeHistoryPrefixSyncHash,
+} from "../../shared/history-sync-hash.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
+import { buildLeaderProjectionSnapshot } from "../../shared/leader-projection.js";
+import { buildThreadWindowSync, getThreadWindowItemCount } from "../../shared/thread-window.js";
+import { deriveWindowAvailability } from "../../shared/window-availability.js";
 import { sessionTag } from "../session-tag.js";
 import { findTurnBoundaries } from "../takode-messages.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
-import { shouldBufferForReplay } from "./replay-buffer-policy.js";
+import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
+import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
+import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import type {
+  ActiveTurnRoute,
+  BoardRow,
+  BoardRowSessionStatus,
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
   BufferedBrowserEvent,
@@ -14,9 +36,12 @@ import type {
   PendingCodexInput,
   PermissionRequest,
   ReplayableBrowserIncomingMessage,
+  SessionAttentionRecord,
+  SessionNotification,
   SessionTaskEntry,
   SessionState,
   TakodeHerdBatchSnapshot,
+  ToolResultPreview,
   VsCodeOpenFileCommand,
   VsCodeSelectionState,
   VsCodeWindowState,
@@ -41,15 +66,29 @@ export interface BrowserTransportSessionLike {
   pendingPermissions: Map<string, PermissionRequest>;
   pendingCodexInputs: PendingCodexInput[];
   pendingCodexTurns: CodexOutboundTurn[];
+  claudeSdkAdapter?: unknown | null;
   taskHistory: SessionTaskEntry[];
   eventBuffer: BufferedBrowserEvent[];
   lastReadAt: number;
   attentionReason: "action" | "error" | "review" | null;
   generationStartedAt: number | null;
+  isGenerating?: boolean;
+  userMessageIdsThisTurn?: number[];
+  activeTurnRoute?: ActiveTurnRoute | null;
   notifications: unknown[];
+  attentionRecords: unknown[];
+  notificationStatusVersion?: number;
+  notificationStatusUpdatedAt?: number;
   processedClientMessageIds: string[];
   processedClientMessageIdSet: Set<string>;
 }
+
+interface CachedLeaderProjection {
+  key: string;
+  projection: NonNullable<Extract<BrowserIncomingMessage, { type: "leader_projection_snapshot" }>["projection"]>;
+}
+
+const leaderProjectionCache = new WeakMap<BrowserTransportSessionLike, CachedLeaderProjection>();
 
 export interface BrowserTransportStateLike {
   vscodeSelectionState: VsCodeSelectionState | null;
@@ -106,6 +145,11 @@ export interface BrowserTransportDeps {
   deriveBackendState: (session: BrowserTransportSessionLike) => NonNullable<SessionState["backend_state"]>;
   getBoard: (sessionId: string) => unknown[];
   getCompletedBoard: (sessionId: string) => unknown[];
+  getBoardRowSessionStatuses: (
+    sessionId: string,
+    board: unknown[],
+    completedBoard: unknown[],
+  ) => Record<string, BoardRowSessionStatus>;
   recoverToolStartTimesFromHistory: (session: BrowserTransportSessionLike) => void;
   finalizeRecoveredDisconnectedTerminalTools: (session: BrowserTransportSessionLike, reason: string) => void;
   scheduleCodexToolResultWatchdogs: (session: BrowserTransportSessionLike, reason: string) => void;
@@ -131,7 +175,12 @@ const BROWSER_ACTIVITY_TYPES: ReadonlySet<string> = new Set([
   "set_model",
   "set_permission_mode",
   "set_codex_reasoning_effort",
+  "leader_thread_tabs_update",
 ]);
+
+const LOCAL_IDEMPOTENT_BROWSER_MESSAGE_TYPES: ReadonlySet<string> = new Set(["leader_thread_tabs_update"]);
+
+const queuedCodexHerdRouteKeys = new WeakMap<BrowserTransportSessionLike, Set<string>>();
 
 export function handleBrowserOpen(
   session: BrowserTransportSessionLike,
@@ -320,6 +369,7 @@ export function handleBrowserProtocolMessage(
       msg.known_frozen_hash,
       msg.history_window_section_turn_count,
       msg.history_window_visible_section_count,
+      msg.feed_window_sync_version,
       deps,
     ).then(() => true);
   }
@@ -331,6 +381,22 @@ export function handleBrowserProtocolMessage(
       turnCount: msg.turn_count,
       sectionTurnCount: msg.section_turn_count,
       visibleSectionCount: msg.visible_section_count,
+      cachedWindowHash: msg.cached_window_hash,
+      feedWindowSyncVersion: msg.feed_window_sync_version,
+    });
+    return true;
+  }
+
+  if (msg.type === "thread_window_request") {
+    if (!ws) return true;
+    sendThreadWindowSync(session, ws, {
+      threadKey: msg.thread_key,
+      fromItem: msg.from_item,
+      itemCount: msg.item_count,
+      sectionItemCount: msg.section_item_count,
+      visibleItemCount: msg.visible_item_count,
+      cachedWindowHash: msg.cached_window_hash,
+      feedWindowSyncVersion: msg.feed_window_sync_version,
     });
     return true;
   }
@@ -370,7 +436,12 @@ export function handleBrowserProtocolMessage(
     return true;
   }
 
-  if (deps.idempotentMessageTypes.has(msg.type) && "client_msg_id" in msg && msg.client_msg_id) {
+  if (msg.type === "leader_thread_tabs_update" && isObsoleteLeaderThreadTabOperation(msg.operation)) {
+    deps.touchActivity?.(session.id);
+    return true;
+  }
+
+  if (isIdempotentBrowserMessage(msg.type, deps) && "client_msg_id" in msg && msg.client_msg_id) {
     if (session.processedClientMessageIdSet.has(msg.client_msg_id)) return true;
     session.processedClientMessageIds.push(msg.client_msg_id);
     session.processedClientMessageIdSet.add(msg.client_msg_id);
@@ -382,6 +453,12 @@ export function handleBrowserProtocolMessage(
       }
     }
     deps.persistSession(session);
+  }
+
+  if (msg.type === "leader_thread_tabs_update") {
+    deps.touchActivity?.(session.id);
+    handleLeaderThreadTabsUpdate(session, msg.operation, deps);
+    return true;
   }
 
   if (BROWSER_ACTIVITY_TYPES.has(msg.type)) {
@@ -397,15 +474,69 @@ export function handleBrowserProtocolMessage(
   return false;
 }
 
+function handleLeaderThreadTabsUpdate(
+  session: BrowserTransportSessionLike,
+  operation: Extract<BrowserOutgoingMessage, { type: "leader_thread_tabs_update" }>["operation"],
+  deps: BrowserTransportDeps,
+): void {
+  const existingState = normalizeLeaderOpenThreadTabsState(session.state.leaderOpenThreadTabs);
+  if (operation.type === "migrate" && existingState) return;
+
+  const nextState = applyLeaderThreadTabUpdate(existingState, operation);
+  if (statesEqual(existingState, nextState)) return;
+
+  session.state.leaderOpenThreadTabs = nextState;
+  deps.persistSession(session);
+  deps.broadcastToBrowsers(session, {
+    type: "session_update",
+    session: { leaderOpenThreadTabs: nextState },
+  });
+}
+
+function isObsoleteLeaderThreadTabOperation(
+  operation: Extract<BrowserOutgoingMessage, { type: "leader_thread_tabs_update" }>["operation"] | { type?: unknown },
+): boolean {
+  if (!operation || typeof operation !== "object") return true;
+  return operation.type === "auto_close" || !["migrate", "open", "close"].includes(String(operation.type));
+}
+
+function statesEqual(
+  left: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
+  right: ReturnType<typeof normalizeLeaderOpenThreadTabsState>,
+): boolean {
+  if (!left || !right) return left === right;
+  return (
+    left.updatedAt === right.updatedAt &&
+    left.migratedFromLocalStorageAt === right.migratedFromLocalStorageAt &&
+    arraysEqual(left.orderedOpenThreadKeys, right.orderedOpenThreadKeys) &&
+    left.closedThreadTombstones.length === right.closedThreadTombstones.length &&
+    left.closedThreadTombstones.every(
+      (entry, index) =>
+        entry.threadKey === right.closedThreadTombstones[index]?.threadKey &&
+        entry.closedAt === right.closedThreadTombstones[index]?.closedAt,
+    )
+  );
+}
+
+function arraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
+  return left.length === right.length && left.every((value, index) => value === right[index]);
+}
+
+function isIdempotentBrowserMessage(type: BrowserOutgoingMessage["type"], deps: BrowserTransportDeps): boolean {
+  return deps.idempotentMessageTypes.has(type) || LOCAL_IDEMPOTENT_BROWSER_MESSAGE_TYPES.has(type);
+}
+
 export function injectUserMessage(
   session: BrowserTransportSessionLike,
   content: string,
   agentSource: AgentSource | undefined,
   takodeHerdBatch: TakodeHerdBatchSnapshot | undefined,
   deps: BrowserTransportDeps,
+  threadRoute?: ThreadRouteMetadata,
 ): "sent" | "queued" {
+  const backendLive = deps.backendConnected(session);
   if (isHerdEventSource(agentSource) && session.backendType === "codex") {
-    const existing = findMatchingPendingCodexInput(session, content, agentSource);
+    const existing = findMatchingPendingCodexInput(session, content, agentSource, threadRoute);
     if (existing) {
       if (existing.cancelable) {
         deps.queueCodexPendingStartBatch(session, "inject_herd_event_retry");
@@ -414,7 +545,7 @@ export function injectUserMessage(
     }
   }
 
-  const backendLive = deps.backendConnected(session);
+  const sdkAdapterMissingBeforeRoute = session.backendType === "claude-sdk" && !session.claudeSdkAdapter;
   const pendingCodexCountBefore = session.pendingCodexInputs.length;
   const hadRouteInFlight = hasSessionRouteInFlight(session.id, deps);
   const browserMessage: BrowserOutgoingMessage = {
@@ -422,16 +553,41 @@ export function injectUserMessage(
     content,
     ...(agentSource ? { agentSource } : {}),
     ...(takodeHerdBatch ? { takodeHerdBatch } : {}),
+    ...(threadRoute ? { threadKey: threadRoute.threadKey } : {}),
+    ...(threadRoute?.questId ? { questId: threadRoute.questId } : {}),
+    ...(threadRoute?.threadRefs?.length ? { threadRefs: threadRoute.threadRefs } : {}),
   };
 
   if (hadRouteInFlight) {
+    if (isHerdEventSource(agentSource) && session.backendType === "codex") {
+      const queuedKey = getCodexHerdRouteQueueKey(content, agentSource, threadRoute);
+      const queuedKeys = getQueuedCodexHerdRouteKeys(session);
+      if (queuedKeys.has(queuedKey)) {
+        return "queued";
+      }
+      queuedKeys.add(queuedKey);
+      void enqueueSessionRoute(session.id, () => deps.routeBrowserMessage(session, browserMessage), deps)
+        .finally(() => {
+          queuedKeys.delete(queuedKey);
+          if (queuedKeys.size === 0) {
+            queuedCodexHerdRouteKeys.delete(session);
+          }
+        })
+        .catch(() => {});
+      return "queued";
+    }
     void enqueueSessionRoute(session.id, () => deps.routeBrowserMessage(session, browserMessage), deps);
   } else {
     void deps.routeBrowserMessage(session, browserMessage);
     if (isHerdEventSource(agentSource) && session.backendType === "codex") {
       const pending = session.pendingCodexInputs
         .slice(pendingCodexCountBefore)
-        .find((input) => input.content === content && sameAgentSource(input.agentSource, agentSource));
+        .find(
+          (input) =>
+            input.content === content &&
+            sameAgentSource(input.agentSource, agentSource) &&
+            samePendingThreadRoute(input, threadRoute),
+        );
       if (pending) {
         return getPendingCodexInputDeliveryState(session, pending.id);
       }
@@ -446,6 +602,12 @@ export function injectUserMessage(
       launcherInfo.state === "exited" &&
       session.state.backend_state !== "broken"
     ) {
+      // Claude SDK's missing-adapter route already queues the message and
+      // requests relaunch. The post-route fallback remains needed when an SDK
+      // adapter object exists but is disconnected and queues internally.
+      if (sdkAdapterMissingBeforeRoute) {
+        return "queued";
+      }
       if (launcherInfo.killedByIdleManager) {
         launcherInfo.killedByIdleManager = false;
         console.log(`[ws-bridge] Clearing idle-killed flag for session ${sessionTag(session.id)} (message inject)`);
@@ -479,15 +641,21 @@ export function findMatchingPendingCodexInput(
   session: BrowserTransportSessionLike,
   content: string,
   agentSource?: AgentSource,
+  threadRoute?: ThreadRouteMetadata,
 ): PendingCodexInput | null {
   const normalizedContent = normalizePendingCodexDedupContent(content, agentSource);
   for (let i = session.pendingCodexInputs.length - 1; i >= 0; i--) {
     const pending = session.pendingCodexInputs[i];
     if (normalizePendingCodexDedupContent(pending.content, pending.agentSource) !== normalizedContent) continue;
     if (!sameAgentSource(pending.agentSource, agentSource)) continue;
+    if (!samePendingThreadRoute(pending, threadRoute)) continue;
     return pending;
   }
   return null;
+}
+
+function samePendingThreadRoute(pending: PendingCodexInput, threadRoute?: ThreadRouteMetadata): boolean {
+  return (pending.threadKey ?? "main").toLowerCase() === (threadRoute?.threadKey ?? "main").toLowerCase();
 }
 
 export function getPendingCodexInputDeliveryState(
@@ -504,6 +672,28 @@ export function getPendingCodexInputDeliveryState(
   return "queued";
 }
 
+function getQueuedCodexHerdRouteKeys(session: BrowserTransportSessionLike): Set<string> {
+  let keys = queuedCodexHerdRouteKeys.get(session);
+  if (!keys) {
+    keys = new Set<string>();
+    queuedCodexHerdRouteKeys.set(session, keys);
+  }
+  return keys;
+}
+
+function getCodexHerdRouteQueueKey(
+  content: string,
+  agentSource: AgentSource | undefined,
+  threadRoute?: ThreadRouteMetadata,
+): string {
+  return JSON.stringify({
+    content: normalizePendingCodexDedupContent(content, agentSource),
+    sessionId: agentSource?.sessionId ?? "",
+    sessionLabel: agentSource?.sessionLabel ?? "",
+    threadKey: (threadRoute?.threadKey ?? "main").toLowerCase(),
+  });
+}
+
 export function deriveSessionStatus(
   session: BrowserTransportSessionLike,
   deps: Pick<BrowserTransportDeps, "backendConnected">,
@@ -514,11 +704,126 @@ export function deriveSessionStatus(
   return "idle";
 }
 
+export function deriveActiveTurnRoute(session: BrowserTransportSessionLike): ActiveTurnRoute | null {
+  if (!session.isGenerating) return null;
+  if (session.activeTurnRoute) {
+    return session.activeTurnRoute;
+  }
+  const userMessageIdsThisTurn = session.userMessageIdsThisTurn ?? [];
+  for (let i = userMessageIdsThisTurn.length - 1; i >= 0; i--) {
+    const historyIndex = userMessageIdsThisTurn[i];
+    const route = routeFromHistoryEntry(session.messageHistory[historyIndex]);
+    if (!route || route.threadKey === "main") return { threadKey: "main" };
+    return {
+      threadKey: route.threadKey,
+      ...(route.questId ? { questId: route.questId } : {}),
+    };
+  }
+  return { threadKey: "main" };
+}
+
+export function isLeaderSession(
+  session: BrowserTransportSessionLike,
+  deps: Pick<BrowserTransportDeps, "getLauncherSessionInfo">,
+): boolean {
+  if ((session.state as { isOrchestrator?: boolean }).isOrchestrator === true) return true;
+  return deps.getLauncherSessionInfo(session.id)?.isOrchestrator === true;
+}
+
+export function buildLeaderProjectionSnapshotForSession(
+  session: BrowserTransportSessionLike,
+  deps: Pick<BrowserTransportDeps, "getBoard" | "getCompletedBoard" | "getBoardRowSessionStatuses">,
+): CachedLeaderProjection["projection"] {
+  const board = deps.getBoard(session.id) as BoardRow[];
+  const completedBoard = deps.getCompletedBoard(session.id) as BoardRow[];
+  const rowSessionStatuses = deps.getBoardRowSessionStatuses(session.id, board, completedBoard);
+  const key = leaderProjectionCacheKey(session, board, completedBoard, rowSessionStatuses);
+  const cached = leaderProjectionCache.get(session);
+  if (cached?.key === key) return cached.projection;
+
+  const projection = buildLeaderProjectionSnapshot({
+    leaderSessionId: session.id,
+    messageHistory: session.messageHistory,
+    activeBoard: board,
+    completedBoard,
+    rowSessionStatuses,
+    notifications: session.notifications as SessionNotification[],
+    attentionRecords: session.attentionRecords as SessionAttentionRecord[],
+  });
+  leaderProjectionCache.set(session, { key, projection });
+  return projection;
+}
+
+export function sendLeaderProjectionSnapshot(
+  session: BrowserTransportSessionLike,
+  ws: BrowserTransportSocketLike,
+  deps: Pick<
+    BrowserTransportDeps,
+    "getLauncherSessionInfo" | "getBoard" | "getCompletedBoard" | "getBoardRowSessionStatuses"
+  >,
+): void {
+  if (!isLeaderSession(session, deps)) return;
+  sendToBrowser(ws, {
+    type: "leader_projection_snapshot",
+    projection: buildLeaderProjectionSnapshotForSession(session, deps),
+  } as BrowserIncomingMessage);
+}
+
+function leaderProjectionCacheKey(
+  session: BrowserTransportSessionLike,
+  board: BoardRow[],
+  completedBoard: BoardRow[],
+  rowSessionStatuses: Record<string, BoardRowSessionStatus>,
+): string {
+  const lastHistoryEntry = session.messageHistory[session.messageHistory.length - 1] as
+    | (BrowserIncomingMessage & { id?: string; message?: { id?: string } })
+    | undefined;
+  return JSON.stringify({
+    historyLength: session.messageHistory.length,
+    lastHistoryId: lastHistoryEntry?.id ?? lastHistoryEntry?.message?.id ?? null,
+    board: board.map(boardRowProjectionKey),
+    completedBoard: completedBoard.map(boardRowProjectionKey),
+    rowSessionStatuses,
+    notificationStatusVersion: session.notificationStatusVersion ?? 0,
+    notifications: (session.notifications as SessionNotification[]).map((notification) => [
+      notification.id,
+      notification.done,
+      notification.timestamp,
+      notification.threadKey,
+      notification.questId,
+      notification.summary,
+    ]),
+    attentionRecords: (session.attentionRecords as SessionAttentionRecord[]).map((record) => [
+      record.id,
+      record.updatedAt,
+      record.state,
+      record.threadKey,
+      record.questId,
+    ]),
+  });
+}
+
+function boardRowProjectionKey(row: BoardRow): unknown[] {
+  return [
+    row.questId,
+    row.title,
+    row.status,
+    row.createdAt,
+    row.updatedAt,
+    row.completedAt,
+    row.waitForInput?.join(",") ?? "",
+    row.worker,
+    row.workerNum,
+  ];
+}
+
 export function sendStateSnapshot(
   session: BrowserTransportSessionLike,
   ws: BrowserTransportSocketLike,
   deps: BrowserTransportDeps,
 ): void {
+  const board = deps.getBoard(session.id);
+  const completedBoard = deps.getCompletedBoard(session.id);
   sendToBrowser(ws, {
     type: "state_snapshot",
     sessionStatus: deriveSessionStatus(session, deps),
@@ -531,9 +836,14 @@ export function sendStateSnapshot(
     lastReadAt: session.lastReadAt,
     attentionReason: session.attentionReason,
     generationStartedAt: session.generationStartedAt ?? null,
-    board: deps.getBoard(session.id),
-    completedBoard: deps.getCompletedBoard(session.id),
+    activeTurnRoute: deriveActiveTurnRoute(session),
+    board,
+    completedBoard,
+    rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
     notifications: session.notifications,
+    attentionRecords: session.attentionRecords,
+    notificationStatusVersion: session.notificationStatusVersion,
+    notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
   } as BrowserIncomingMessage);
 }
 
@@ -643,6 +953,8 @@ export function sendHistoryWindowSync(
     turnCount: number;
     sectionTurnCount: number;
     visibleSectionCount: number;
+    cachedWindowHash?: string;
+    feedWindowSyncVersion?: number;
   },
 ): void {
   const normalizedSectionTurnCount = Math.max(1, Math.floor(options.sectionTurnCount));
@@ -657,29 +969,164 @@ export function sendHistoryWindowSync(
   const totalTurns = turns.length;
   let fromTurn = 0;
   let turnCount = 0;
+  let startIdx = 0;
   let messages: BrowserIncomingMessage[] = session.messageHistory.slice();
 
   if (totalTurns > 0) {
-    fromTurn = Math.max(0, Math.min(Math.floor(options.fromTurn), totalTurns - 1));
+    const requestedFromTurn = Math.floor(options.fromTurn);
+    fromTurn =
+      requestedFromTurn < 0
+        ? Math.max(0, totalTurns - normalizedTurnCount)
+        : Math.max(0, Math.min(requestedFromTurn, totalTurns - 1));
     const endTurnExclusive = Math.min(totalTurns, fromTurn + normalizedTurnCount);
     turnCount = Math.max(0, endTurnExclusive - fromTurn);
-    const startIdx = turns[fromTurn]?.startIdx ?? 0;
+    startIdx = turns[fromTurn]?.startIdx ?? 0;
     const lastTurn = turns[endTurnExclusive - 1];
     const endIdx = lastTurn && lastTurn.endIdx >= 0 ? lastTurn.endIdx : Math.max(0, session.messageHistory.length - 1);
     messages = session.messageHistory.slice(startIdx, endIdx + 1);
   }
+  messages = appendResolvedToolResultPreviewsForWindow(messages, session.messageHistory);
+  const windowHash = computeHistoryPayloadSyncHash({ startIdx, messages });
+  const cacheHit = options.cachedWindowHash === windowHash;
+
+  const window = {
+    from_turn: fromTurn,
+    turn_count: totalTurns === 0 ? 0 : turnCount,
+    total_turns: totalTurns,
+    ...deriveWindowAvailability({
+      from: fromTurn,
+      count: totalTurns === 0 ? 0 : turnCount,
+      total: totalTurns,
+    }),
+    start_index: startIdx,
+    section_turn_count: normalizedSectionTurnCount,
+    visible_section_count: normalizedVisibleSectionCount,
+    window_hash: windowHash,
+  };
 
   sendToBrowser(ws, {
     type: "history_window_sync",
-    messages,
-    window: {
-      from_turn: fromTurn,
-      turn_count: totalTurns === 0 ? 0 : turnCount,
-      total_turns: totalTurns,
-      section_turn_count: normalizedSectionTurnCount,
-      visible_section_count: normalizedVisibleSectionCount,
-    },
+    messages: cacheHit ? [] : messages,
+    window,
+    ...(cacheHit ? { cache_hit: true } : {}),
   } as BrowserIncomingMessage);
+
+  sendFeedWindowSyncIfSupported(ws, options.feedWindowSyncVersion, buildHistoryFeedWindowSync({ messages, window }));
+}
+
+function appendResolvedToolResultPreviewsForWindow(
+  windowMessages: BrowserIncomingMessage[],
+  fullHistory: BrowserIncomingMessage[],
+): BrowserIncomingMessage[] {
+  const visibleToolUseIds: string[] = [];
+  const seenToolUseIds = new Set<string>();
+  const resolvedInWindow = new Set<string>();
+
+  for (const msg of windowMessages) {
+    if (msg.type === "assistant") {
+      const content = msg.message?.content;
+      if (!Array.isArray(content)) continue;
+      for (const block of content) {
+        if (block.type !== "tool_use" || !block.id || seenToolUseIds.has(block.id)) continue;
+        seenToolUseIds.add(block.id);
+        visibleToolUseIds.push(block.id);
+      }
+      continue;
+    }
+    if (msg.type === "tool_result_preview") {
+      for (const preview of msg.previews || []) {
+        if (typeof preview.tool_use_id === "string") resolvedInWindow.add(preview.tool_use_id);
+      }
+    }
+  }
+
+  if (visibleToolUseIds.length === 0) return windowMessages;
+
+  const latestPreviewByToolUseId = new Map<string, ToolResultPreview>();
+  for (const msg of fullHistory) {
+    if (msg.type !== "tool_result_preview") continue;
+    for (const preview of msg.previews || []) {
+      if (seenToolUseIds.has(preview.tool_use_id) && !resolvedInWindow.has(preview.tool_use_id)) {
+        latestPreviewByToolUseId.set(preview.tool_use_id, preview);
+      }
+    }
+  }
+
+  const supplementalPreviews = visibleToolUseIds
+    .filter((toolUseId) => !resolvedInWindow.has(toolUseId))
+    .map((toolUseId) => latestPreviewByToolUseId.get(toolUseId))
+    .filter((preview): preview is ToolResultPreview => preview != null);
+  if (supplementalPreviews.length === 0) return windowMessages;
+
+  return [
+    ...windowMessages,
+    {
+      type: "tool_result_preview",
+      previews: supplementalPreviews,
+    },
+  ];
+}
+
+export function sendThreadWindowSync(
+  session: BrowserTransportSessionLike,
+  ws: BrowserTransportSocketLike,
+  options: {
+    threadKey: string;
+    fromItem: number;
+    itemCount?: number;
+    sectionItemCount: number;
+    visibleItemCount: number;
+    cachedWindowHash?: string;
+    feedWindowSyncVersion?: number;
+  },
+): void {
+  const normalizedSectionItemCount = Math.max(1, Math.floor(options.sectionItemCount));
+  const normalizedVisibleItemCount = Math.max(1, Math.floor(options.visibleItemCount));
+  const normalizedItemCount = Math.max(
+    1,
+    Math.floor(options.itemCount || getThreadWindowItemCount(normalizedVisibleItemCount, normalizedSectionItemCount)),
+  );
+  const sync = buildThreadWindowSync({
+    messageHistory: session.messageHistory,
+    threadKey: options.threadKey,
+    fromItem: options.fromItem,
+    itemCount: normalizedItemCount,
+    sectionItemCount: normalizedSectionItemCount,
+    visibleItemCount: normalizedVisibleItemCount,
+  });
+  const windowHash = computeHistoryPayloadSyncHash({
+    threadKey: sync.threadKey,
+    entries: sync.entries,
+  });
+  const cacheHit = options.cachedWindowHash === windowHash;
+
+  const window = {
+    ...sync.window,
+    window_hash: windowHash,
+  };
+
+  sendToBrowser(ws, {
+    type: "thread_window_sync",
+    thread_key: sync.threadKey,
+    entries: cacheHit ? [] : sync.entries,
+    window,
+    ...(cacheHit ? { cache_hit: true } : {}),
+  } as BrowserIncomingMessage);
+
+  sendFeedWindowSyncIfSupported(
+    ws,
+    options.feedWindowSyncVersion,
+    buildThreadFeedWindowSync({ threadKey: sync.threadKey, entries: sync.entries, window }),
+  );
+}
+
+function sendFeedWindowSyncIfSupported(
+  ws: BrowserTransportSocketLike,
+  requestedVersion: number | undefined,
+  sync: FeedWindowSync,
+): void {
+  if (!supportsFeedWindowSync(requestedVersion)) return;
+  sendToBrowser(ws, { type: "feed_window_sync", sync } as BrowserIncomingMessage);
 }
 
 export async function handleSessionSubscribe(
@@ -690,6 +1137,7 @@ export async function handleSessionSubscribe(
   knownFrozenHash: string | undefined,
   historyWindowSectionTurnCount: number | undefined,
   historyWindowVisibleSectionCount: number | undefined,
+  feedWindowSyncVersion: number | undefined,
   deps: BrowserTransportDeps,
 ): Promise<void> {
   if (!ws) return;
@@ -731,6 +1179,7 @@ export async function handleSessionSubscribe(
   if (cleanedStale) deps.persistSession(session);
 
   if (lastAckSeq === 0) {
+    sendLeaderProjectionSnapshot(session, ws, deps);
     if (session.messageHistory.length > 0) {
       if (
         typeof historyWindowSectionTurnCount === "number" &&
@@ -747,12 +1196,13 @@ export async function handleSessionSubscribe(
           turnCount: getHistoryWindowTurnCount(historyWindowVisibleSectionCount, historyWindowSectionTurnCount),
           sectionTurnCount: historyWindowSectionTurnCount,
           visibleSectionCount: historyWindowVisibleSectionCount,
+          feedWindowSyncVersion,
         });
       } else {
         await sendHistorySync(session, ws, knownFrozenCount ?? 0, knownFrozenHash);
       }
     }
-    if (session.eventBuffer.length > 0) {
+    if (deriveSessionStatus(session, deps) === "running" && session.eventBuffer.length > 0) {
       const transient = session.eventBuffer.filter(
         (evt) => !isHistoryBackedEvent(evt.message as ReplayableBrowserIncomingMessage),
       );
@@ -837,12 +1287,13 @@ export function isHistoryBackedEvent(msg: ReplayableBrowserIncomingMessage): boo
 export function broadcastToBrowsers(
   session: BrowserTransportSessionLike,
   msg: BrowserIncomingMessage,
-  deps: Pick<BrowserTransportDeps, "eventBufferLimit" | "persistSession" | "recordOutgoingRaw">,
+  deps: Pick<BrowserTransportDeps, "eventBufferLimit" | "persistSession" | "recordOutgoingRaw"> &
+    Partial<Pick<BrowserTransportDeps, "getLauncherSessionInfo">>,
   options?: { skipBuffer?: boolean },
 ): void {
-  if (session.browserSockets.size === 0 && (msg.type === "assistant" || msg.type === "result")) {
+  if (session.browserSockets.size === 0 && msg.type === "result") {
     console.log(
-      `[ws-bridge] ⚠ Broadcasting ${msg.type} to 0 browsers for session ${sessionTag(session.id)} (stored in history: ${msg.type === "assistant" || msg.type === "result"})`,
+      `[ws-bridge] ⚠ Broadcasting result to 0 browsers for session ${sessionTag(session.id)} (stored in history: true)`,
     );
   }
   const serStart = performance.now();
@@ -932,12 +1383,16 @@ function enqueueSessionRoute(
 function sequenceEvent(
   session: BrowserTransportSessionLike,
   msg: BrowserIncomingMessage,
-  deps: Pick<BrowserTransportDeps, "eventBufferLimit" | "persistSession">,
+  deps: Pick<BrowserTransportDeps, "eventBufferLimit" | "persistSession"> &
+    Partial<Pick<BrowserTransportDeps, "getLauncherSessionInfo">>,
   options?: { skipBuffer?: boolean },
 ): BrowserIncomingMessage {
   const seq = session.nextEventSeq++;
   const sequenced = { ...msg, seq };
-  if (!options?.skipBuffer && shouldBufferForReplay(msg)) {
+  const isLeader =
+    (session.state as { isOrchestrator?: boolean }).isOrchestrator === true ||
+    deps.getLauncherSessionInfo?.(session.id)?.isOrchestrator === true;
+  if (!options?.skipBuffer && shouldBufferForReplayWithContext(msg, { isLeaderSession: isLeader })) {
     session.eventBuffer.push({ seq, message: msg });
     if (session.eventBuffer.length > deps.eventBufferLimit) {
       session.eventBuffer.splice(0, session.eventBuffer.length - deps.eventBufferLimit);

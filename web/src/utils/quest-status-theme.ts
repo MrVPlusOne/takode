@@ -30,13 +30,6 @@ export const QUEST_STATUS_THEME: Record<QuestStatus, QuestStatusTheme> = {
     text: "text-green-400",
     border: "border-green-500/20",
   },
-  needs_verification: {
-    label: "Verification",
-    dot: "bg-blue-400",
-    bg: "bg-blue-500/10",
-    text: "text-blue-400",
-    border: "border-blue-500/20",
-  },
   done: {
     label: "Done",
     dot: "bg-purple-400",

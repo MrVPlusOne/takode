@@ -1,4 +1,4 @@
-import type { SdkSessionInfo, TreeGroup, ChatMessage, BrowserIncomingMessage } from "./types.js";
+import type { SdkSessionInfo, TreeGroup, ChatMessage, BrowserIncomingMessage, StreamRecord } from "./types.js";
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
@@ -7,6 +7,17 @@ const BASE = "/api";
 const TRANSCRIPTION_REQUEST_BASE_TIMEOUT_MS = 45_000;
 const TRANSCRIPTION_REQUEST_TIMEOUT_CAP_MS = 180_000;
 const TRANSCRIPTION_REQUEST_BYTES_PER_EXTRA_SECOND = 64 * 1024;
+
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly body: unknown,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
 
 /**
  * The transcription route does not start streaming SSE until after the browser
@@ -55,7 +66,11 @@ async function post<T = unknown>(path: string, body?: object): Promise<T> {
   });
   if (!res.ok) {
     const err = await res.json().catch(() => ({ error: res.statusText }));
-    throw new Error(err.error || res.statusText);
+    throw new ApiError(
+      typeof err.error === "string" && err.error.length > 0 ? err.error : res.statusText,
+      res.status,
+      err,
+    );
   }
   return res.json();
 }
@@ -154,6 +169,35 @@ export interface CloudProviderPlan {
   commandPreview: string;
 }
 
+export interface StreamGroupView {
+  group: TreeGroup;
+  scope: string;
+  streams: StreamRecord[];
+  counts: {
+    total: number;
+    active: number;
+    archived: number;
+    blocked: number;
+    risk: number;
+    alerts: number;
+    contradictions: number;
+    handoffs: number;
+  };
+}
+
+export interface StreamGroupsResponse {
+  serverId: string;
+  includeArchived: boolean;
+  query: string;
+  groups: StreamGroupView[];
+}
+
+export interface StreamDetailResponse {
+  scope: string;
+  stream: StreamRecord;
+  children: StreamRecord[];
+}
+
 export interface CreateSessionOpts {
   model?: string;
   permissionMode?: string;
@@ -173,8 +217,29 @@ export interface CreateSessionOpts {
   askPermission?: boolean;
   /** Session role: "orchestrator" gets TAKODE_ROLE + TAKODE_API_PORT env vars */
   role?: "worker" | "orchestrator";
+  /** Server-side session group assignment for durable group membership. */
+  treeGroupId?: string;
   /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
   resumeCliSessionId?: string;
+}
+
+export interface ServerNewSessionDefaults {
+  backend: "claude" | "codex";
+  model: string;
+  mode: string;
+  askPermission: boolean;
+  sessionRole: "worker" | "leader";
+  envSlug: string;
+  cwd: string;
+  useWorktree: boolean;
+  codexInternetAccess: boolean;
+  codexReasoningEffort: string;
+}
+
+export interface ServerNewSessionDefaultsResponse {
+  key: string;
+  defaults: ServerNewSessionDefaults | null;
+  updatedAt: number | null;
 }
 
 export interface CliSession {
@@ -188,7 +253,15 @@ export interface CliSession {
   backend?: "claude" | "codex";
 }
 
-export type SessionSearchMatchedField = "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message";
+export type SessionSearchMatchedField =
+  | "session_number"
+  | "name"
+  | "task"
+  | "keyword"
+  | "branch"
+  | "path"
+  | "repo"
+  | "user_message";
 
 export interface SessionSearchResult {
   sessionId: string;
@@ -355,6 +428,11 @@ export interface AppSettings {
   sleepInhibitorEnabled: boolean;
   sleepInhibitorDurationMinutes: number;
   questmasterViewMode: QuestmasterViewMode;
+  questmasterCompactSort: QuestmasterCompactSort;
+  codexLeaderContextWindowOverrideTokens: number;
+  codexNonLeaderAutoCompactThresholdPercent?: number;
+  codexLeaderRecycleThresholdTokens: number;
+  codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -367,6 +445,45 @@ export interface PushoverEventFilters {
 }
 
 export type QuestmasterViewMode = "cards" | "compact";
+export type QuestmasterCompactSortColumn =
+  | "quest"
+  | "title"
+  | "owner"
+  | "leader"
+  | "status"
+  | "verify"
+  | "feedback"
+  | "updated";
+export type QuestmasterCompactSortDirection = "asc" | "desc";
+export interface QuestmasterCompactSort {
+  column: QuestmasterCompactSortColumn;
+  direction: QuestmasterCompactSortDirection;
+}
+
+export interface QuestListPage {
+  quests: import("./types.js").QuestmasterTask[];
+  total: number;
+  offset: number;
+  limit: number;
+  hasMore: boolean;
+  nextOffset: number | null;
+  previousOffset: number | null;
+  counts: Record<import("./types.js").QuestStatus | "all", number>;
+  allTags: string[];
+}
+
+export interface QuestListPageOptions {
+  offset?: number;
+  limit?: number;
+  status?: string;
+  session?: string;
+  sessionId?: string;
+  tags?: string[];
+  excludeTags?: string[];
+  text?: string;
+  sortColumn?: QuestmasterCompactSortColumn | "cards";
+  sortDirection?: QuestmasterCompactSortDirection;
+}
 
 /** Discriminated union for session auto-namer backend. */
 export type NamerConfig =
@@ -508,6 +625,9 @@ export interface TranscriptionLogIndexEntry {
   sttDurationMs: number;
   rawTranscript: string;
   audioSizeBytes: number;
+  audioMimeType?: string | null;
+  audioFileName?: string | null;
+  audioUrl?: string;
   enhancement: {
     model: string;
     enhancedText: string | null;
@@ -634,6 +754,59 @@ export async function createSessionStream(
   return result;
 }
 
+export interface ServerInterruptResultItem {
+  sessionId: string;
+  label: string;
+  reasons: string[];
+  detail?: string;
+}
+
+export interface InterruptRestartBlockersResponse {
+  ok: boolean;
+  operationId: string | null;
+  mode: "standalone" | "restart";
+  restartRequested: boolean;
+  timedOut: boolean;
+  interrupted: ServerInterruptResultItem[];
+  skipped: ServerInterruptResultItem[];
+  failures: ServerInterruptResultItem[];
+  protectedLeaders: Array<{ sessionId: string; label: string }>;
+  unresolvedBlockers: ServerInterruptResultItem[];
+  herdDelivery: {
+    suppressed: number;
+    held: number;
+    trackingActive: boolean;
+    countsFinal: boolean;
+    detail?: string;
+  };
+}
+
+export function isInterruptRestartBlockersResponse(value: unknown): value is InterruptRestartBlockersResponse {
+  if (!value || typeof value !== "object") return false;
+  const candidate = value as Partial<InterruptRestartBlockersResponse>;
+  const herdDelivery =
+    candidate.herdDelivery && typeof candidate.herdDelivery === "object"
+      ? (candidate.herdDelivery as Partial<InterruptRestartBlockersResponse["herdDelivery"]>)
+      : null;
+  return (
+    typeof candidate.ok === "boolean" &&
+    (candidate.operationId === null || typeof candidate.operationId === "string") &&
+    (candidate.mode === "standalone" || candidate.mode === "restart") &&
+    typeof candidate.restartRequested === "boolean" &&
+    typeof candidate.timedOut === "boolean" &&
+    Array.isArray(candidate.interrupted) &&
+    Array.isArray(candidate.skipped) &&
+    Array.isArray(candidate.failures) &&
+    Array.isArray(candidate.protectedLeaders) &&
+    Array.isArray(candidate.unresolvedBlockers) &&
+    herdDelivery !== null &&
+    typeof herdDelivery.suppressed === "number" &&
+    typeof herdDelivery.held === "number" &&
+    typeof herdDelivery.trackingActive === "boolean" &&
+    typeof herdDelivery.countsFinal === "boolean"
+  );
+}
+
 export const api = {
   createSession: (opts?: CreateSessionOpts) =>
     post<{ sessionId: string; state: string; cwd: string }>("/sessions/create", opts),
@@ -645,6 +818,7 @@ export const api = {
     options?: {
       limit?: number;
       includeArchived?: boolean;
+      includeReviewers?: boolean;
       messageLimitPerSession?: number;
       signal?: AbortSignal;
     },
@@ -656,6 +830,9 @@ export const api = {
     }
     if (typeof options?.includeArchived === "boolean") {
       params.set("includeArchived", options.includeArchived ? "true" : "false");
+    }
+    if (typeof options?.includeReviewers === "boolean") {
+      params.set("includeReviewers", options.includeReviewers ? "true" : "false");
     }
     if (typeof options?.messageLimitPerSession === "number") {
       params.set("messageLimitPerSession", String(options.messageLimitPerSession));
@@ -687,7 +864,7 @@ export const api = {
 
   prepareUserMessageImages: async (
     sessionId: string,
-    images: Array<{ mediaType: string; data: string }>,
+    images: Array<{ mediaType: string; data: string; filename?: string }>,
     signal?: AbortSignal,
   ) => {
     const res = await fetch(`${BASE}/sessions/${encodeURIComponent(sessionId)}/images/prepare-user-message`, {
@@ -797,8 +974,34 @@ export const api = {
   assignSessionToTreeGroup: (sessionId: string, groupId: string) =>
     patch<{ ok: boolean }>("/tree-groups/assign", { sessionId, groupId }),
 
+  assignSessionsToTreeGroup: (sessionIds: string[], groupId: string) =>
+    patch<{ ok: boolean }>("/tree-groups/assign", { sessionIds, groupId }),
+
   updateTreeNodeOrder: (groupId: string, orderedIds: string[]) =>
     patch<{ ok: boolean }>("/tree-groups/node-order", { groupId, orderedIds }),
+
+  getNewSessionDefaults: (key: string) =>
+    get<ServerNewSessionDefaultsResponse>(`/new-session-defaults?key=${encodeURIComponent(key)}`),
+
+  saveNewSessionDefaults: (key: string, defaults: ServerNewSessionDefaults) =>
+    put<{ ok: boolean } & ServerNewSessionDefaultsResponse>(`/new-session-defaults?key=${encodeURIComponent(key)}`, {
+      defaults,
+    }),
+
+  // Streams (session-group observability/debugging)
+  listStreamGroups: (opts?: { includeArchived?: boolean; query?: string }) => {
+    const params = new URLSearchParams();
+    if (opts?.includeArchived) params.set("includeArchived", "1");
+    const query = opts?.query?.trim();
+    if (query) params.set("q", query);
+    const qs = params.toString();
+    return get<StreamGroupsResponse>(`/streams/groups${qs ? `?${qs}` : ""}`);
+  },
+
+  getStreamDetail: (scope: string, ref: string) => {
+    const params = new URLSearchParams({ scope });
+    return get<StreamDetailResponse>(`/streams/${encodeURIComponent(ref)}?${params.toString()}`);
+  },
 
   getHerdDiagnostics: (sessionId: string) =>
     get<Record<string, unknown>>(`/sessions/${encodeURIComponent(sessionId)}/herd-diagnostics`),
@@ -855,6 +1058,7 @@ export const api = {
 
   // Server control
   restartServer: () => post<{ ok: boolean }>("/server/restart", {}),
+  interruptRestartBlockers: () => post<InterruptRestartBlockersResponse>("/server/interrupt-all", {}),
 
   openVsCodeRemoteFile: (target: VsCodeRemoteOpenFileTarget) =>
     post<VsCodeRemoteOpenFileResponse>("/vscode/open-file", target),
@@ -890,6 +1094,11 @@ export const api = {
     sleepInhibitorEnabled?: boolean;
     sleepInhibitorDurationMinutes?: number;
     questmasterViewMode?: QuestmasterViewMode;
+    questmasterCompactSort?: QuestmasterCompactSort;
+    codexLeaderContextWindowOverrideTokens?: number;
+    codexNonLeaderAutoCompactThresholdPercent?: number;
+    codexLeaderRecycleThresholdTokens?: number;
+    codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   }) => put<AppSettings>("/settings", data),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),
@@ -1207,17 +1416,33 @@ export const api = {
     get<{ sessions: CliSession[] }>(`/cli-sessions${backend ? `?backend=${backend}` : ""}`),
 
   // Questmaster
-  listQuests: (filters?: { status?: string; parentId?: string; sessionId?: string }) => {
+  listQuests: (filters?: { status?: string; parentId?: string; sessionId?: string; verification?: string }) => {
     const params = new URLSearchParams();
     if (filters?.status) params.set("status", filters.status);
     if (filters?.parentId) params.set("parentId", filters.parentId);
     if (filters?.sessionId) params.set("sessionId", filters.sessionId);
+    if (filters?.verification) params.set("verification", filters.verification);
     const qs = params.toString();
     return get<import("./types.js").QuestmasterTask[]>(`/quests${qs ? `?${qs}` : ""}`);
   },
+  listQuestPage: (options?: QuestListPageOptions) => {
+    const params = new URLSearchParams();
+    if (typeof options?.offset === "number") params.set("offset", String(options.offset));
+    if (typeof options?.limit === "number") params.set("limit", String(options.limit));
+    if (options?.status) params.set("status", options.status);
+    if (options?.session) params.set("session", options.session);
+    if (options?.sessionId) params.set("sessionId", options.sessionId);
+    if (options?.tags?.length) params.set("tags", options.tags.join(","));
+    if (options?.excludeTags?.length) params.set("excludeTags", options.excludeTags.join(","));
+    if (options?.text) params.set("text", options.text);
+    if (options?.sortColumn) params.set("sortColumn", options.sortColumn);
+    if (options?.sortDirection) params.set("sortDirection", options.sortDirection);
+    const qs = params.toString();
+    return get<QuestListPage>(`/quests/_page${qs ? `?${qs}` : ""}`);
+  },
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
   getQuestHistory: (id: string) =>
-    get<import("./types.js").QuestmasterTask[]>(`/quests/${encodeURIComponent(id)}/history`),
+    get<import("./types.js").QuestHistoryView>(`/quests/${encodeURIComponent(id)}/history`),
   getQuestCommit: (id: string, sha: string) =>
     get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}`),
   createQuest: (input: import("./types.js").QuestCreateInput) =>
@@ -1229,16 +1454,26 @@ export const api = {
   deleteQuest: (id: string) => del(`/quests/${encodeURIComponent(id)}`),
   claimQuest: (id: string, sessionId: string) =>
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/claim`, { sessionId }),
-  completeQuest: (id: string, verificationItems: import("./types.js").QuestVerificationItem[], commitShas?: string[]) =>
+  completeQuest: (
+    id: string,
+    verificationItems: import("./types.js").QuestVerificationItem[],
+    commitShas?: string[],
+    debrief?: string,
+    debriefTldr?: string,
+  ) =>
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/complete`, {
       verificationItems,
       ...(commitShas?.length ? { commitShas } : {}),
+      ...(debrief !== undefined ? { debrief } : {}),
+      ...(debriefTldr !== undefined ? { debriefTldr } : {}),
     }),
   markQuestDone: (
     id: string,
     input?: {
       verificationItems?: import("./types.js").QuestVerificationItem[];
       notes?: string;
+      debrief?: string;
+      debriefTldr?: string;
       cancelled?: boolean;
     },
   ) =>
@@ -1257,12 +1492,18 @@ export const api = {
     text: string,
     author: "human" | "agent" = "human",
     images?: import("./types.js").QuestImage[],
+    tldr?: string,
   ) =>
-    post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/feedback`, { text, author, images }),
+    post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/feedback`, {
+      text,
+      author,
+      images,
+      ...(tldr ? { tldr } : {}),
+    }),
   editQuestFeedback: (
     id: string,
     index: number,
-    updates: { text?: string; images?: import("./types.js").QuestImage[] },
+    updates: { text?: string; tldr?: string; images?: import("./types.js").QuestImage[] },
   ) => patch<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/feedback/${index}`, updates),
   deleteQuestFeedback: (id: string, index: number) =>
     del<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/feedback/${index}`),

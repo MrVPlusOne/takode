@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // Mock env-manager and git-utils modules before any imports
 vi.mock("./env-manager.js", () => ({
@@ -28,7 +28,11 @@ vi.mock("node:child_process", () => {
       if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
     }
   });
-  return { execSync: execSyncMock, exec: execMock };
+  const execFileMock = vi.fn((_file?: string, _args?: string[], _options?: any, callback?: any) => {
+    if (typeof _options === "function") callback = _options;
+    if (callback) callback(null, { stdout: "", stderr: "" });
+  });
+  return { execSync: execSyncMock, exec: execMock, execFile: execFileMock };
 });
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
@@ -171,7 +175,7 @@ vi.mock("./usage-limits.js", () => ({
 
 import { Hono } from "hono";
 import { execSync } from "node:child_process";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
@@ -186,6 +190,7 @@ import * as questStore from "./quest-store.js";
 import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
+import * as treeGroupStore from "./tree-group-store.js";
 import { containerManager } from "./container-manager.js";
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
@@ -471,8 +476,11 @@ let sessionStore: ReturnType<typeof createMockStore>;
 let tracker: ReturnType<typeof createMockTracker>;
 let recorder: ReturnType<typeof createMockRecorder>;
 let timerManager: ReturnType<typeof createMockTimerManager>;
+let treeGroupTempDir: string;
+let homeDir: string;
+let streamsDir: string;
 
-beforeEach(() => {
+beforeEach(async () => {
   vi.clearAllMocks();
   trafficStats.reset();
   _resetServerLoggerForTest();
@@ -484,12 +492,18 @@ beforeEach(() => {
     "fetch",
     vi.fn(() => Promise.reject(new Error("no proxy in tests"))),
   );
+  homeDir = mkdtempSync(join(tmpdir(), "routes-create-home-"));
+  vi.stubEnv("HOME", homeDir);
   launcher = createMockLauncher();
   bridge = createMockBridge();
   sessionStore = createMockStore();
   tracker = createMockTracker();
   recorder = createMockRecorder();
   timerManager = createMockTimerManager();
+  treeGroupTempDir = mkdtempSync(join(tmpdir(), "routes-create-tree-groups-"));
+  treeGroupStore._resetForTest(join(treeGroupTempDir, "tree-groups.json"));
+  streamsDir = (await import("./stream-store.js")).getStreamsDir();
+  rmSync(streamsDir, { recursive: true, force: true });
   app = new Hono();
   const terminalManager = { getInfo: () => null, spawn: () => "", kill: () => {} } as any;
   app.route(
@@ -510,6 +524,14 @@ beforeEach(() => {
   // Default no-op mocks for container workspace isolation (called during container session creation)
   vi.spyOn(containerManager, "copyWorkspaceToContainer").mockResolvedValue(undefined);
   vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
+});
+
+afterEach(async () => {
+  await treeGroupStore._flushForTest();
+  vi.unstubAllEnvs();
+  rmSync(treeGroupTempDir, { recursive: true, force: true });
+  rmSync(homeDir, { recursive: true, force: true });
+  rmSync(streamsDir, { recursive: true, force: true });
 });
 
 // ─── Sessions ────────────────────────────────────────────────────────────────
@@ -548,6 +570,150 @@ describe("POST /api/sessions/create", () => {
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({ model: "claude-sonnet-4-5-20250929", cwd: "/test" }),
     );
+  });
+
+  it("persists explicit default tree group metadata during session creation", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ treeGroupId: "default" }),
+    );
+    expect(await treeGroupStore.getGroupForSession("session-1")).toBe("default");
+  });
+
+  it("persists tree group assignment during session creation", async () => {
+    // The server must persist group membership as part of creation so a restart
+    // cannot drop a newly-created grouped session back into Default.
+    const group = await treeGroupStore.createGroup("Takode");
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", treeGroupId: group.id }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ treeGroupId: group.id }),
+    );
+    expect(await treeGroupStore.getGroupForSession("session-1")).toBe(group.id);
+    await treeGroupStore._flushForTest();
+
+    treeGroupStore._resetForTest(join(treeGroupTempDir, "tree-groups.json"));
+    expect(await treeGroupStore.getGroupForSession("session-1")).toBe(group.id);
+  });
+
+  it("syncs session metadata and assignment index on manual reassignment", async () => {
+    const group = await treeGroupStore.createGroup("Reassigned");
+    ensureBridgeSession(bridge, "s1", { state: { treeGroupId: "default" } });
+    await treeGroupStore.assignSession("s1", "default");
+    const streamStore = await import("./stream-store.js");
+    const defaultScope = streamStore.streamScopeForSessionGroup("default", "test-server-id");
+    const destinationScope = streamStore.streamScopeForSessionGroup(group.id, "test-server-id");
+    await streamStore.createStream({ title: "Shared memory", scope: defaultScope, summary: "Source stream" });
+    await streamStore.createStream({ title: "Shared memory", scope: destinationScope, summary: "Collision target" });
+
+    const res = await app.request("/api/tree-groups/assign", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "s1", groupId: group.id }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["s1"].state.treeGroupId).toBe(group.id);
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("s1");
+    expect(await treeGroupStore.getGroupForSession("s1")).toBe(group.id);
+    expect(await streamStore.listStreams({ scope: defaultScope, includeArchived: true })).toEqual([]);
+    expect(
+      (await streamStore.listStreams({ scope: destinationScope, includeArchived: true }))
+        .map((stream) => stream.title)
+        .sort(),
+    ).toEqual(["Default-Shared memory", "Shared memory"]);
+  });
+
+  it("syncs session metadata and assignment index on bulk reassignment", async () => {
+    const group = await treeGroupStore.createGroup("Bulk Reassigned");
+    ensureBridgeSession(bridge, "s1", { state: { treeGroupId: "default" } });
+    ensureBridgeSession(bridge, "s2", { state: { treeGroupId: "default" } });
+    await treeGroupStore.assignSession("s1", "default");
+    await treeGroupStore.assignSession("s2", "default");
+
+    const res = await app.request("/api/tree-groups/assign", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionIds: ["s1", "s2"], groupId: group.id }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["s1"].state.treeGroupId).toBe(group.id);
+    expect(bridge._sessions["s2"].state.treeGroupId).toBe(group.id);
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("s1");
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("s2");
+    expect(await treeGroupStore.getGroupForSession("s1")).toBe(group.id);
+    expect(await treeGroupStore.getGroupForSession("s2")).toBe(group.id);
+    await treeGroupStore._flushForTest();
+
+    treeGroupStore._resetForTest(join(treeGroupTempDir, "tree-groups.json"));
+    expect(await treeGroupStore.getGroupForSession("s1")).toBe(group.id);
+    expect(await treeGroupStore.getGroupForSession("s2")).toBe(group.id);
+  });
+
+  it("keeps existing shared-group streams in the source group when another session remains", async () => {
+    const group = await treeGroupStore.createGroup("Reassigned");
+    ensureBridgeSession(bridge, "s1", { state: { treeGroupId: "default" } });
+    ensureBridgeSession(bridge, "s2", { state: { treeGroupId: "default" } });
+    await treeGroupStore.assignSession("s1", "default");
+    await treeGroupStore.assignSession("s2", "default");
+    const streamStore = await import("./stream-store.js");
+    const defaultScope = streamStore.streamScopeForSessionGroup("default", "test-server-id");
+    const destinationScope = streamStore.streamScopeForSessionGroup(group.id, "test-server-id");
+    await streamStore.createStream({ title: "Shared memory", scope: defaultScope, summary: "Shared source stream" });
+
+    const res = await app.request("/api/tree-groups/assign", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: "s1", groupId: group.id }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["s1"].state.treeGroupId).toBe(group.id);
+    expect(await treeGroupStore.getGroupForSession("s1")).toBe(group.id);
+    expect(await treeGroupStore.getGroupForSession("s2")).toBe("default");
+    expect(
+      (await streamStore.listStreams({ scope: defaultScope, includeArchived: true })).map((stream) => stream.title),
+    ).toEqual(["Shared memory"]);
+    expect(await streamStore.listStreams({ scope: destinationScope, includeArchived: true })).toEqual([]);
+    expect(await streamStore.defaultStreamScope("/tmp/moved-session", "test-server-id", "s1")).toBe(destinationScope);
+  });
+
+  it("reassigns affected sessions to explicit default when deleting a group", async () => {
+    const group = await treeGroupStore.createGroup("To Delete");
+    ensureBridgeSession(bridge, "s1", { state: { treeGroupId: group.id } });
+    launcher.listSessions.mockReturnValue([{ sessionId: "s1" }]);
+    await treeGroupStore.assignSession("s1", group.id);
+    const streamStore = await import("./stream-store.js");
+    const sourceScope = streamStore.streamScopeForSessionGroup(group.id, "test-server-id");
+    const defaultScope = streamStore.streamScopeForSessionGroup("default", "test-server-id");
+    await streamStore.createStream({ title: "Keep me", scope: sourceScope, summary: "Migrated on delete" });
+
+    const res = await app.request(`/api/tree-groups/groups/${group.id}`, {
+      method: "DELETE",
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge._sessions["s1"].state.treeGroupId).toBe("default");
+    expect(await treeGroupStore.getGroupForSession("s1")).toBe("default");
+    expect(await streamStore.listStreams({ scope: sourceScope, includeArchived: true })).toEqual([]);
+    expect(
+      (await streamStore.listStreams({ scope: defaultScope, includeArchived: true })).map((stream) => stream.title),
+    ).toEqual(["Keep me"]);
   });
 
   it("injects environment variables when envSlug is provided", async () => {

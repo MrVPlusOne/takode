@@ -12,6 +12,9 @@ export function SessionInlineLink({
   children,
   className,
   missingClassName,
+  ariaLabel,
+  title,
+  dataTestId,
 }: {
   sessionId: string | null;
   sessionNum?: number | null;
@@ -19,6 +22,9 @@ export function SessionInlineLink({
   children: ReactNode;
   className?: string;
   missingClassName?: string;
+  ariaLabel?: string;
+  title?: string;
+  dataTestId?: string;
 }) {
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
@@ -134,7 +140,7 @@ export function SessionInlineLink({
       : sessionHash(resolvedSessionNum ?? routeSessionRefForId(resolvedSessionId, sdkSessions))
     : "#";
   const sessionLabel = resolvedSessionNum != null ? `#${resolvedSessionNum}` : "session";
-  const title = resolvedSessionId
+  const defaultTitle = resolvedSessionId
     ? messageIndex != null
       ? `Open session ${sessionLabel}, message ${messageIndex}`
       : `Open session ${sessionLabel}`
@@ -158,7 +164,9 @@ export function SessionInlineLink({
         className={
           resolvedSessionId ? (className ?? "text-cc-primary hover:underline") : (missingClassName ?? "text-cc-muted")
         }
-        title={title}
+        title={title ?? defaultTitle}
+        aria-label={ariaLabel}
+        data-testid={dataTestId}
       >
         {children}
       </a>

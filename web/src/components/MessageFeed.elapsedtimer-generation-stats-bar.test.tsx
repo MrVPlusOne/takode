@@ -77,6 +77,7 @@ vi.mock("../store.js", () => {
       streamingPausedDuration: mockStoreValues.streamingPausedDuration ?? new Map(),
       streamingPauseStartedAt: mockStoreValues.streamingPauseStartedAt ?? new Map(),
       sessionStatus: mockStoreValues.sessionStatus ?? new Map(),
+      activeTurnRoutes: mockStoreValues.activeTurnRoutes ?? new Map(),
       sessionStuck: mockStoreValues.sessionStuck ?? new Map(),
       sessions: mockStoreValues.sessions ?? new Map(),
       toolProgress: mockStoreValues.toolProgress ?? new Map(),
@@ -101,6 +102,7 @@ vi.mock("../store.js", () => {
       setActiveTaskTurnId: mockSetActiveTaskTurnId,
       backgroundAgentNotifs: mockStoreValues.backgroundAgentNotifs ?? new Map(),
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
+      sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
     };
     return selector(state);
@@ -296,6 +298,12 @@ function setStoreStatus(sessionId: string, status: string | null) {
   const statusMap = new Map();
   if (status) statusMap.set(sessionId, status);
   mockStoreValues.sessionStatus = statusMap;
+}
+
+function setStoreActiveTurnRoute(sessionId: string, route: { threadKey: string; questId?: string } | null) {
+  const routeMap = new Map();
+  routeMap.set(sessionId, route);
+  mockStoreValues.activeTurnRoutes = routeMap;
 }
 
 function setStoreSessionBackend(sessionId: string, backend: "claude" | "codex") {
@@ -530,5 +538,27 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getByText("Purring...")).toBeTruthy();
     // Should show "2.5k" token count
     expect(screen.getByText(/2\.5k/)).toBeTruthy();
+  });
+
+  it("labels running turns as active here when the visible thread matches", () => {
+    const sid = "test-active-here";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+
+    render(<ElapsedTimer sessionId={sid} currentThreadKey="q-975" />);
+
+    expect(screen.getByText("Active here")).toBeTruthy();
+  });
+
+  it("labels running turns with the active quest when another thread is visible", () => {
+    const sid = "test-active-elsewhere";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+
+    render(<ElapsedTimer sessionId={sid} currentThreadKey="main" />);
+
+    expect(screen.getByText("Active in q-975")).toBeTruthy();
   });
 });

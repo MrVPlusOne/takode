@@ -1,6 +1,7 @@
 export interface SidebarSessionItem {
   id: string;
   claimedQuestStatus?: string;
+  claimedQuestVerificationInboxUnread?: boolean;
   model: string;
   cwd: string;
   gitBranch: string;
@@ -19,6 +20,10 @@ export interface SidebarSessionItem {
   repoRoot: string;
   permCount: number;
   pendingTimerCount?: number;
+  notificationUrgency?: "needs-input" | "review" | null;
+  activeNotificationCount?: number;
+  notificationStatusVersion?: number;
+  notificationStatusUpdatedAt?: number;
   cronJobId?: string;
   cronJobName?: string;
   isWorktree?: boolean;

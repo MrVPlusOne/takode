@@ -2,9 +2,11 @@ import { describe, expect, it } from "vitest";
 import {
   extractActivityPreview,
   getAssistantContentAppendBlocks,
+  handleAssistantMessage,
   handleAssistantMessageWithRuntime,
   type AssistantMessageSessionLike,
 } from "./claude-message-controller.js";
+import type { BrowserIncomingMessage, CLIAssistantMessage, ContentBlock } from "../session-types.js";
 
 function makeSession(): AssistantMessageSessionLike {
   return {
@@ -24,6 +26,44 @@ function makeSession(): AssistantMessageSessionLike {
       context_used_percent: 0,
     },
   };
+}
+
+function makeAssistant(
+  content: ContentBlock[],
+  id = `assistant-${Math.random().toString(36).slice(2)}`,
+): CLIAssistantMessage {
+  return {
+    type: "assistant",
+    parent_tool_use_id: null,
+    uuid: `${id}-uuid`,
+    session_id: "s-assistant",
+    message: {
+      id,
+      type: "message",
+      role: "assistant",
+      model: "claude-sonnet-4-5-20250929",
+      content,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    },
+  };
+}
+
+function routeAssistantMessage(
+  session: AssistantMessageSessionLike,
+  content: ContentBlock[],
+  overrides: Partial<Parameters<typeof handleAssistantMessage>[2]> = {},
+): BrowserIncomingMessage {
+  const broadcasts: BrowserIncomingMessage[] = [];
+  handleAssistantMessage(session, makeAssistant(content), {
+    hasAssistantReplay: () => false,
+    getLauncherSessionInfo: () => null,
+    broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+    persistSession: () => {},
+    ...overrides,
+  });
+  expect(broadcasts).toHaveLength(1);
+  return broadcasts[0];
 }
 
 describe("assistant-message-controller", () => {
@@ -171,5 +211,239 @@ describe("assistant-message-controller", () => {
     );
 
     expect(session.messageHistory).toHaveLength(0);
+  });
+
+  it("strips leader thread text prefixes and persists quest thread metadata", () => {
+    // The controller path, not only the parser, must store the routed body and
+    // metadata that drive quest-thread projections in the UI.
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nRouted update" }]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
+      { type: "text", text: "Routed update" },
+    ]);
+    expect(session.messageHistory[0]).toMatchObject(msg);
+  });
+
+  it("updates the active running route when leader assistant output is routed to a quest thread", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.isGenerating = true;
+    session.activeTurnRoute = { threadKey: "main" };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941]\nRouted update" }]), {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+      persistSession: () => {},
+    });
+
+    expect(session.activeTurnRoute).toEqual({ threadKey: "q-941", questId: "q-941" });
+    expect(broadcasts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ type: "assistant", threadKey: "q-941", questId: "q-941" }),
+        expect.objectContaining({
+          type: "status_change",
+          status: "running",
+          activeTurnRoute: { threadKey: "q-941", questId: "q-941" },
+        }),
+      ]),
+    );
+  });
+
+  it("persists source-thread transition markers before routed quest handoffs", () => {
+    // When a leader thread moves from one quest to another, the source thread
+    // needs a durable handoff marker so the UI does not look like it stopped.
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "previous-q940", content: [] } as any,
+      threadKey: "q-940",
+      questId: "q-940",
+      threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }],
+    });
+    session.messageHistory.push({ type: "tool_result_preview", previews: [] });
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941]\nDispatching worker" }]), {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+      persistSession: () => {},
+    });
+
+    expect(broadcasts).toHaveLength(2);
+    expect(broadcasts[0]).toMatchObject({
+      type: "thread_transition_marker",
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      threadKey: "q-941",
+      questId: "q-941",
+      reason: "route_switch",
+    });
+    expect(broadcasts[1]).toMatchObject({ type: "assistant", threadKey: "q-941", questId: "q-941" });
+    expect(session.messageHistory).toHaveLength(4);
+    expect(session.messageHistory[2]).toMatchObject({ type: "thread_transition_marker" });
+  });
+
+  it("does not infer source-thread transition markers across Main assistant boundaries", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.messageHistory.push({
+      type: "assistant",
+      parent_tool_use_id: null,
+      message: { id: "previous-q940", content: [] } as any,
+      threadKey: "q-940",
+      questId: "q-940",
+      threadRefs: [{ threadKey: "q-940", questId: "q-940", source: "explicit" }],
+    });
+
+    routeAssistantMessage(session, [{ type: "text", text: "Global Main update" }]);
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]\nSeparate quest update" }]);
+
+    expect(msg).toMatchObject({ type: "assistant", threadKey: "q-941", questId: "q-941" });
+    expect(session.messageHistory).toHaveLength(3);
+    expect(session.messageHistory.some((entry) => entry.type === "thread_transition_marker")).toBe(false);
+  });
+
+  it("strips same-line leader thread prefixes and persists quest thread metadata", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941] Same-line routed update" }]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
+      { type: "text", text: "Same-line routed update" },
+    ]);
+  });
+
+  it("routes leader text when launcher info says orchestrator and session state has not caught up", () => {
+    const session = makeSession();
+    delete session.state.isOrchestrator;
+
+    const msg = routeAssistantMessage(
+      session,
+      [{ type: "text", text: "[thread:q-966] Launcher-derived Claude route" }],
+      { getLauncherSessionInfo: () => ({ isOrchestrator: true }) },
+    );
+
+    expect(session.state.isOrchestrator).toBe(true);
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-966",
+      questId: "q-966",
+      threadRefs: [{ threadKey: "q-966", questId: "q-966", source: "explicit" }],
+    });
+    expect(msg.type === "assistant" ? msg.message.content : []).toMatchObject([
+      { type: "text", text: "Launcher-derived Claude route" },
+    ]);
+  });
+
+  it("strips quest thread reminders from leader assistant text and queues a synthetic reminder", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [
+      {
+        type: "text",
+        text: [
+          "[thread:main]",
+          "Created q-1025 with the approved scope.",
+          "",
+          "Thread reminder: attach any prior messages that clearly belong to q-1025 with `takode thread attach`.",
+        ].join("\n"),
+      },
+    ]);
+
+    const content = msg.type === "assistant" ? msg.message.content : [];
+    expect(content).toHaveLength(1);
+    expect(content[0]).toMatchObject({ type: "text", text: "Created q-1025 with the approved scope." });
+    expect(session.questThreadRemindersThisTurn).toMatchObject([
+      {
+        content:
+          "Thread reminder: attach any prior messages that clearly belong to q-1025 with `takode thread attach`.",
+        route: { threadKey: "main" },
+        agentSource: {
+          sessionId: "system:quest-thread-reminder",
+          sessionLabel: "Quest Thread Reminder",
+        },
+      },
+    ]);
+  });
+
+  it("preserves unrouted leader text and records missing prefix metadata", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "Unmarked leader text" }]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadRoutingError: { reason: "missing", rawContent: "Unmarked leader text" },
+    });
+    const content = msg.type === "assistant" ? msg.message.content : [];
+    expect(content).toHaveLength(1);
+    expect(content[0]).toMatchObject({ type: "text", text: "Unmarked leader text" });
+  });
+
+  it("preserves unrouted leader text and records invalid prefix metadata", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:side]\nWrong marker" }]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadRoutingError: { reason: "invalid", marker: "[thread:side]" },
+    });
+    const content = msg.type === "assistant" ? msg.message.content : [];
+    expect(content[0].type === "text" ? content[0].text : "").toBe("[thread:side]\nWrong marker");
+  });
+
+  it("rejects no-space same-line leader thread prefixes", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [{ type: "text", text: "[thread:q-941]No separator" }]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadRoutingError: { reason: "invalid", marker: "[thread:q-941]" },
+    });
+    const content = msg.type === "assistant" ? msg.message.content : [];
+    expect(content[0].type === "text" ? content[0].text : "").toBe("[thread:q-941]No separator");
+  });
+
+  it("strips Bash command thread comments and persists command thread metadata", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [
+      { type: "tool_use", id: "tool-1", name: "Bash", input: { command: "# thread:q-941\npwd" } },
+    ]);
+
+    expect(msg).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    const block = msg.type === "assistant" ? msg.message.content[0] : null;
+    expect(block).toMatchObject({ type: "tool_use", input: { command: "pwd" } });
   });
 });

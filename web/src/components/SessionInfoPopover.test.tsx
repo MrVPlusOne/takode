@@ -18,8 +18,20 @@ interface MockStoreState {
       context_used_percent?: number;
       message_history_bytes?: number;
       codex_retained_payload_bytes?: number;
-      codex_token_details?: { modelContextWindow?: number };
+      codex_token_details?: { modelContextWindow?: number; contextTokensUsed?: number };
+      codex_leader_recycle_threshold_tokens?: number;
       claude_token_details?: { modelContextWindow?: number };
+      isOrchestrator?: boolean;
+      lifecycle_events?: Array<{
+        type: "compaction";
+        id: string;
+        timestamp: number;
+        backendType?: "claude" | "codex" | "claude-sdk";
+        trigger?: "auto" | "manual";
+        before?: { contextTokensUsed?: number; contextUsedPercent?: number; source: string; capturedAt: number };
+        after?: { contextTokensUsed?: number; contextUsedPercent?: number; source: string; capturedAt: number };
+        finishedAt?: number;
+      }>;
       git_branch?: string | null;
       is_worktree?: boolean;
       git_ahead?: number;
@@ -34,8 +46,30 @@ interface MockStoreState {
     cwd?: string;
     backendType?: "claude" | "codex" | "claude-sdk";
     contextUsedPercent?: number;
-    codexTokenDetails?: { modelContextWindow?: number };
+    codexTokenDetails?: { modelContextWindow?: number; contextTokensUsed?: number };
+    codexLeaderRecycleThresholdTokens?: number;
     claudeTokenDetails?: { modelContextWindow?: number };
+    sessionLifecycleEvents?: Array<{
+      type: "compaction";
+      id: string;
+      timestamp: number;
+      backendType?: "claude" | "codex" | "claude-sdk";
+      before?: { contextTokensUsed?: number; source: string; capturedAt: number };
+      after?: { contextTokensUsed?: number; source: string; capturedAt: number };
+    }>;
+    codexLeaderRecycleLineage?: {
+      cliSessionIds: string[];
+      recycleEvents: Array<{
+        trigger: "threshold" | "manual_compact";
+        requestedAt: number;
+        tokenUsage?: { contextTokensUsed?: number };
+      }>;
+    };
+    codexLeaderRecyclePending?: {
+      eventIndex: number;
+      trigger: "threshold" | "manual_compact";
+      requestedAt: number;
+    } | null;
     sessionNum?: number | null;
     herdedBy?: string;
     isOrchestrator?: boolean;
@@ -82,13 +116,25 @@ vi.mock("../store.js", () => ({
   useStore: (selector: (s: MockStoreState) => unknown) => selector(storeState),
 }));
 
-vi.mock("./TaskPanel.js", () => ({
-  GitHubPRSection: () => null,
-  McpCollapsible: () => null,
-  ClaudeMdCollapsible: () => null,
-  HerdDiagnosticsSection: () => null,
-  SystemPromptCollapsible: () => null,
-}));
+vi.mock("./TaskPanel.js", async () => {
+  const React = await vi.importActual<typeof import("react")>("react");
+  return {
+    GitHubPRSection: () => null,
+    McpCollapsible: () => null,
+    ClaudeMdCollapsible: () => null,
+    HerdDiagnosticsSection: () => null,
+    SystemPromptCollapsible: () => null,
+    SectionHeader: ({ title, collapsed, onToggle }: { title: string; collapsed: boolean; onToggle: () => void }) => (
+      <button type="button" aria-expanded={!collapsed} onClick={onToggle}>
+        {title}
+      </button>
+    ),
+    usePersistedCollapse: (_key: string, defaultCollapsed = false) => {
+      const [collapsed, setCollapsed] = React.useState(defaultCollapsed);
+      return [collapsed, () => setCollapsed((value) => !value)] as const;
+    },
+  };
+});
 
 vi.mock("../ws.js", () => ({
   sendToSession: vi.fn(),
@@ -97,6 +143,7 @@ vi.mock("../ws.js", () => ({
 vi.mock("../api.js", () => ({
   api: {
     getSettings: vi.fn(),
+    listSessions: vi.fn(),
   },
 }));
 
@@ -113,6 +160,8 @@ describe("SessionInfoPopover", () => {
     vi.mocked(api.getSettings).mockResolvedValue({ editorConfig: { editor: "cursor" } } as Awaited<
       ReturnType<typeof api.getSettings>
     >);
+    vi.mocked(api.listSessions).mockReset();
+    vi.mocked(api.listSessions).mockResolvedValue([]);
     vi.mocked(openPathWithEditorPreference).mockReset();
     vi.mocked(openPathWithEditorPreference).mockResolvedValue(true);
   });
@@ -415,6 +464,44 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByText("258 K tokens")).toBeInTheDocument();
   });
 
+  it("uses the Codex leader recycle threshold as the effective context window", () => {
+    // Codex leader sessions intentionally use a large provider window to avoid
+    // provider auto-compaction; the UI should show the Takode recycle threshold
+    // and compute context usage against that threshold instead.
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.isOrchestrator = true;
+    session.context_used_percent = 6;
+    session.codex_token_details = { contextTokensUsed: 57_000, modelContextWindow: 950_000 };
+    session.codex_leader_recycle_threshold_tokens = 260_000;
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("22% context")).toBeInTheDocument();
+    expect(screen.getByText("260 K tokens")).toBeInTheDocument();
+    expect(screen.queryByText("6% context")).toBeNull();
+    expect(screen.queryByText("950 K tokens")).toBeNull();
+  });
+
+  it("keeps non-leader Codex sessions on provider context metrics", () => {
+    // The recycle threshold is leader-only metadata; a control Codex session
+    // should keep the server-reported context percent and model window.
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.context_used_percent = 6;
+    session.codex_token_details = { contextTokensUsed: 57_000, modelContextWindow: 950_000 };
+    session.codex_leader_recycle_threshold_tokens = 260_000;
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("6% context")).toBeInTheDocument();
+    expect(screen.getByText("950 K tokens")).toBeInTheDocument();
+    expect(screen.queryByText("22% context")).toBeNull();
+    expect(screen.queryByText("260 K tokens")).toBeNull();
+  });
+
   it("keeps non-Codex sessions on history wording and hides retained payload", () => {
     // Claude-family sessions should keep the generic history label and should
     // not render the Codex-only retained payload metric.
@@ -449,6 +536,162 @@ describe("SessionInfoPopover", () => {
 
     expect(screen.getByText("73% context")).toBeInTheDocument();
     expect(screen.getByText("258 K tokens")).toBeInTheDocument();
+  });
+
+  it("uses sdk session recycle threshold metadata for restored Codex leaders", () => {
+    resetStore([]);
+    storeState.sessions = new Map();
+    storeState.sdkSessions = [
+      {
+        sessionId: "s1",
+        cwd: "/repo",
+        backendType: "codex",
+        isOrchestrator: true,
+        contextUsedPercent: 6,
+        codexTokenDetails: { contextTokensUsed: 57_000, modelContextWindow: 950_000 },
+        codexLeaderRecycleThresholdTokens: 260_000,
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("22% context")).toBeInTheDocument();
+    expect(screen.getByText("260 K tokens")).toBeInTheDocument();
+    expect(screen.queryByText("950 K tokens")).toBeNull();
+  });
+
+  it("shows Codex leader recycle lineage and pending recycle state", () => {
+    resetStore([]);
+    storeState.sdkSessions = [
+      {
+        sessionId: "s1",
+        cwd: "/repo",
+        backendType: "codex",
+        isOrchestrator: true,
+        codexLeaderRecyclePending: {
+          eventIndex: 1,
+          trigger: "manual_compact",
+          requestedAt: 1_746_000_000_000,
+        },
+        codexLeaderRecycleLineage: {
+          cliSessionIds: ["thread-a", "thread-b"],
+          recycleEvents: [
+            {
+              trigger: "threshold",
+              requestedAt: 1_745_999_000_000,
+              tokenUsage: { contextTokensUsed: 270_000 },
+            },
+            {
+              trigger: "manual_compact",
+              requestedAt: 1_746_000_000_000,
+              tokenUsage: { contextTokensUsed: 180_000 },
+            },
+          ],
+        },
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const section = screen.getByTestId("session-lifecycle-debug");
+    expect(within(section).getByRole("button", { name: "Session Lifecycle" })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+    expect(within(section).queryByText("Pending manual /compact recycle")).not.toBeInTheDocument();
+
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
+    expect(within(section).getByText("Pending manual /compact recycle")).toBeInTheDocument();
+    expect(within(section).getByText("thread-a")).toBeInTheDocument();
+    expect(within(section).getByText("thread-b")).toBeInTheDocument();
+    expect(within(section).getByText("Threshold recycle")).toBeInTheDocument();
+    expect(within(section).getByText("Manual /compact recycle")).toBeInTheDocument();
+    expect(within(section).getByText(/270K context/)).toBeInTheDocument();
+    expect(within(section).getByText(/180K context/)).toBeInTheDocument();
+  });
+
+  it("loads Codex leader recycle lineage from listSessions when sdkSessions are missing", async () => {
+    resetStore([]);
+    storeState.sdkSessions = [];
+    vi.mocked(api.listSessions).mockResolvedValue([
+      {
+        sessionId: "s1",
+        cwd: "/repo",
+        backendType: "codex",
+        isOrchestrator: true,
+        codexLeaderRecycleLineage: {
+          cliSessionIds: ["thread-a", "thread-b"],
+          recycleEvents: [
+            {
+              trigger: "manual_compact",
+              requestedAt: 1_746_000_000_000,
+              tokenUsage: { contextTokensUsed: 180_000 },
+            },
+          ],
+        },
+        codexLeaderRecyclePending: null,
+      },
+    ] as Awaited<ReturnType<typeof api.listSessions>>);
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const section = await screen.findByTestId("session-lifecycle-debug");
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
+    expect(within(section).getByText("thread-a")).toBeInTheDocument();
+    expect(within(section).getByText("thread-b")).toBeInTheDocument();
+    expect(within(section).getByText("Manual /compact recycle")).toBeInTheDocument();
+    expect(within(section).getByText(/180K context/)).toBeInTheDocument();
+  });
+
+  it("renders compaction lifecycle events with known and unknown context lengths", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.lifecycle_events = [
+      {
+        type: "compaction",
+        id: "compact-boundary-1",
+        timestamp: 1_746_000_000_000,
+        backendType: "claude",
+        trigger: "auto",
+        before: {
+          contextTokensUsed: 180_000,
+          contextUsedPercent: 90,
+          source: "compact_boundary",
+          capturedAt: 1_746_000_000_000,
+        },
+      },
+      {
+        type: "compaction",
+        id: "compact-boundary-2",
+        timestamp: 1_746_000_100_000,
+        backendType: "codex",
+        before: {
+          contextTokensUsed: 270_000,
+          source: "codex_token_details",
+          capturedAt: 1_746_000_100_000,
+        },
+        after: {
+          contextTokensUsed: 95_000,
+          source: "codex_token_details",
+          capturedAt: 1_746_000_110_000,
+        },
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const section = screen.getByTestId("session-lifecycle-debug");
+    fireEvent.click(within(section).getByRole("button", { name: "Session Lifecycle" }));
+
+    expect(within(section).getByText("Claude compaction • auto")).toBeInTheDocument();
+    expect(within(section).getByText("Before 180K context (90%)")).toBeInTheDocument();
+    expect(within(section).getByText("After unknown")).toBeInTheDocument();
+    expect(within(section).getByText("Codex compaction")).toBeInTheDocument();
+    expect(within(section).getByText("Before 270K context")).toBeInTheDocument();
+    expect(within(section).getByText("After 95K context")).toBeInTheDocument();
   });
 
   it("shows turns, context, and context window for Claude SDK sessions (no cost)", () => {

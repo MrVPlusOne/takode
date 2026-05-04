@@ -72,6 +72,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
   let server: ReturnType<typeof createServer>;
   let port: number;
   let capturedBodies: JsonObject[];
+  let nextBoardResponse: JsonObject | null;
 
   beforeAll(async () => {
     capturedBodies = [];
@@ -86,7 +87,12 @@ describe("takode board set --worker auto-clears waitFor", () => {
         const body = await readJson(req);
         capturedBodies.push(body);
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(JSON.stringify({ board: [{ questId: body.questId, status: body.status ?? "PLANNING" }] }));
+        res.end(
+          JSON.stringify({
+            board: [{ questId: body.questId, status: body.status ?? "PLANNING" }],
+            ...(nextBoardResponse ?? {}),
+          }),
+        );
         return;
       }
       // Worker info lookup -- return a resolved session
@@ -109,6 +115,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
   beforeEach(() => {
     capturedBodies = [];
+    nextBoardResponse = null;
   });
 
   it("sends waitFor: [] when --worker is provided without --wait-for", async () => {
@@ -163,31 +170,373 @@ describe("takode board set --worker auto-clears waitFor", () => {
     expect(capturedBodies[0].waitFor).toEqual([]);
   });
 
-  it("sends noCode: true when --no-code is provided", async () => {
+  it("rejects removed --no-code flag", async () => {
     const result = await runTakode(["board", "set", "q-1", "--no-code", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
       COMPANION_AUTH_TOKEN: "auth-1",
     });
 
-    expect(result.status).toBe(0);
-    expect(capturedBodies).toHaveLength(1);
-    expect(capturedBodies[0].noCode).toBe(true);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Board no-code flags were removed");
+    expect(capturedBodies).toHaveLength(0);
   });
 
-  it("sends noCode: false when --code-change is provided", async () => {
+  it("rejects removed --code-change flag", async () => {
     const result = await runTakode(["board", "set", "q-1", "--code-change", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
       COMPANION_AUTH_TOKEN: "auth-1",
     });
 
-    expect(result.status).toBe(0);
-    expect(capturedBodies).toHaveLength(1);
-    expect(capturedBodies[0].noCode).toBe(false);
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Board no-code flags were removed");
+    expect(capturedBodies).toHaveLength(0);
   });
 
-  it("rejects --no-code and --code-change together", async () => {
+  it("sends planned Quest Journey phases and preset metadata", async () => {
+    const result = await runTakode(
+      [
+        "board",
+        "set",
+        "q-1",
+        "--worker",
+        "3",
+        "--phases",
+        "planning,implement,code-review",
+        "--preset",
+        "lightweight-code",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies).toHaveLength(1);
+    expect(capturedBodies[0].worker).toBe("worker-session-abc");
+    expect(capturedBodies[0].workerNum).toBe(3);
+    expect(capturedBodies[0].phases).toEqual(["alignment", "implement", "code-review"]);
+    expect(capturedBodies[0].presetId).toBe("lightweight-code");
+  });
+
+  it("posts proposed Journey rows with explicit proposal mode and approval hold", async () => {
+    const result = await runTakode(
+      [
+        "board",
+        "propose",
+        "q-1",
+        "--phases",
+        "alignment,implement,code-review,port",
+        "--preset",
+        "full-code",
+        "--wait-for-input",
+        "3",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      journeyMode: "proposed",
+      status: "PROPOSED",
+      phases: ["alignment", "implement", "code-review", "port"],
+      presetId: "full-code",
+      waitForInput: ["n-3"],
+    });
+  });
+
+  it("posts proposed Journey spec files as one batch phase and note update", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "takode-board-spec-"));
+    const specPath = join(dir, "proposal.json");
+    writeFileSync(
+      specPath,
+      JSON.stringify({
+        title: "Draft proposal workflow",
+        presetId: "proposal-flow",
+        phases: [
+          { id: "alignment" },
+          { id: "explore", note: "Classify the noisy log source before implementation." },
+          { id: "implement" },
+          { id: "code-review", note: "" },
+          { id: "port" },
+        ],
+        presentation: {
+          summary: "Proposed Journey for approval",
+          scheduling: { intent: "dispatch-after-approval" },
+        },
+      }),
+    );
+
+    const result = await runTakode(
+      ["board", "propose", "q-1", "--spec-file", specPath, "--revise-reason", "Batch draft", "--port", String(port)],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      title: "Draft proposal workflow",
+      journeyMode: "proposed",
+      status: "PROPOSED",
+      phases: ["alignment", "explore", "implement", "code-review", "port"],
+      presetId: "proposal-flow",
+      revisionReason: "Batch draft",
+      phaseNoteEdits: [
+        { index: 0, note: null },
+        { index: 1, note: "Classify the noisy log source before implementation." },
+        { index: 2, note: null },
+        { index: 3, note: null },
+        { index: 4, note: null },
+      ],
+      presentation: {
+        summary: "Proposed Journey for approval",
+        scheduling: { intent: "dispatch-after-approval" },
+      },
+    });
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("presents proposed Journey drafts as explicit proposal review output", async () => {
+    nextBoardResponse = {
+      proposalReview: {
+        questId: "q-1",
+        title: "Draft proposal workflow",
+        status: "PROPOSED",
+        presentedAt: 123,
+        summary: "Proposed Journey for approval",
+        journey: {
+          mode: "proposed",
+          phaseIds: ["alignment", "implement"],
+        },
+      },
+    };
+
+    const result = await runTakode(
+      [
+        "board",
+        "present",
+        "q-1",
+        "--summary",
+        "Proposed Journey for approval",
+        "--wait-for-input",
+        "3",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      presentProposal: true,
+      waitForInput: ["n-3"],
+      presentation: {
+        summary: "Proposed Journey for approval",
+      },
+    });
+    expect(JSON.parse(result.stdout)).toMatchObject({
+      __takode_board__: true,
+      operation: "present q-1",
+      proposalReview: {
+        questId: "q-1",
+        summary: "Proposed Journey for approval",
+      },
+    });
+  });
+
+  it("promotes proposed rows into active mode and clears approval hold by default", async () => {
+    const result = await runTakode(["board", "promote", "q-1", "--worker", "3", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      journeyMode: "active",
+      worker: "worker-session-abc",
+      workerNum: 3,
+      clearWaitForInput: true,
+    });
+    expect(capturedBodies[0].phases).toBeUndefined();
+  });
+
+  it("sends explicit force-promote override only when requested", async () => {
+    const result = await runTakode(["board", "promote", "q-1", "--force-promote-unpresented", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      journeyMode: "active",
+      forcePromoteUnpresented: true,
+      clearWaitForInput: true,
+    });
+  });
+
+  it("sends board note edits keyed by 1-based phase positions", async () => {
+    const result = await runTakode(
+      ["board", "note", "q-1", "4", "--text", "Inspect only the follow-up diff", "--port", String(port)],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      phaseNoteEdits: [{ index: 3, note: "Inspect only the follow-up diff" }],
+    });
+  });
+
+  it("sends explicit active phase positions as zero-based activePhaseIndex", async () => {
+    nextBoardResponse = {
+      board: [
+        {
+          questId: "q-1",
+          status: "MENTAL_SIMULATING",
+          createdAt: 1,
+          updatedAt: 2,
+          journey: {
+            phaseIds: [
+              "alignment",
+              "implement",
+              "mental-simulation",
+              "implement",
+              "mental-simulation",
+              "code-review",
+              "port",
+            ],
+            activePhaseIndex: 4,
+            currentPhaseId: "mental-simulation",
+          },
+        },
+      ],
+    };
+
+    const result = await runTakode(
+      [
+        "board",
+        "set",
+        "q-1",
+        "--status",
+        "MENTAL_SIMULATING",
+        "--active-phase-position",
+        "5",
+        "--phases",
+        "alignment,implement,mental-simulation,implement,mental-simulation,code-review,port",
+        "--full",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toMatchObject({
+      questId: "q-1",
+      status: "MENTAL_SIMULATING",
+      activePhaseIndex: 4,
+      phases: ["alignment", "implement", "mental-simulation", "implement", "mental-simulation", "code-review", "port"],
+    });
+    expect(result.stdout).toContain(
+      "journey: 1. Alignment -> 2. Implement -> 3. Mental Simulation -> 4. Implement -> [5. Mental Simulation] -> 6. Code Review -> 7. Port",
+    );
+  });
+
+  it("prints explicit warnings when a Journey revision drops rebased notes", async () => {
+    nextBoardResponse = {
+      phaseNoteRebaseWarnings: [
+        {
+          previousIndex: 4,
+          previousPhaseId: "mental-simulation",
+          previousOccurrence: 1,
+          note: "Replay turns 116/120/121/122-123 before dispatching this phase",
+        },
+      ],
+    };
+
+    const result = await runTakode(
+      [
+        "board",
+        "set",
+        "q-1",
+        "--phases",
+        "alignment,implement,code-review,implement,port",
+        "--revise-reason",
+        "Simulation is no longer needed after the narrowed fix",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Mental Simulation occurrence 1 was dropped during revision");
+    expect(result.stdout).toContain("Replay turns 116/120/121/122-123 before dispatching this phase");
+  });
+
+  it("rejects unknown planned Quest Journey phase IDs before posting", async () => {
+    const result = await runTakode(["board", "set", "q-1", "--phases", "planning,unknown", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Invalid Quest Journey phase");
+    expect(capturedBodies).toHaveLength(0);
+  });
+
+  it("requires --phases when setting a Quest Journey preset", async () => {
+    const result = await runTakode(["board", "set", "q-1", "--preset", "lightweight-code", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Use --preset only with --phases");
+    expect(capturedBodies).toHaveLength(0);
+  });
+
+  it("rejects removed no-code flags even when both are supplied", async () => {
     const result = await runTakode(["board", "set", "q-1", "--no-code", "--code-change", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "leader-1",
@@ -195,6 +544,6 @@ describe("takode board set --worker auto-clears waitFor", () => {
     });
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Use either --no-code or --code-change");
+    expect(result.stderr).toContain("Board no-code flags were removed");
   });
 });

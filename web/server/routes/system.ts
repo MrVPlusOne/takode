@@ -16,7 +16,11 @@ import { getLogPath } from "../server-logger.js";
 import { getUsageLimits } from "../usage-limits.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { getLegacyCodexHome } from "../codex-home.js";
-import { getTranscriptionLogIndex, getTranscriptionLogEntry } from "../transcription-enhancer.js";
+import {
+  getTranscriptionLogIndex,
+  getTranscriptionLogEntry,
+  getTranscriptionLogAudio,
+} from "../transcription-enhancer.js";
 import type { RouteContext } from "./context.js";
 import {
   getVsCodeSelectionState as getVsCodeSelectionStateController,
@@ -807,7 +811,7 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   type SkillBackend = "claude" | "codex" | "both";
   const CLAUDE_SKILLS_DIR = join(homedir(), ".claude", "skills");
-  const CODEX_SKILLS_DIR = join(getLegacyCodexHome(), "skills");
+  const AGENTS_SKILLS_DIR = join(homedir(), ".agents", "skills");
 
   function parseSkillBackend(raw: string | undefined): SkillBackend | null {
     if (!raw || raw === "both") return "both";
@@ -817,10 +821,10 @@ export function createSystemRoutes(ctx: RouteContext) {
 
   function getSkillRoots(backend: SkillBackend): Array<{ backend: "claude" | "codex"; dir: string }> {
     if (backend === "claude") return [{ backend: "claude", dir: CLAUDE_SKILLS_DIR }];
-    if (backend === "codex") return [{ backend: "codex", dir: CODEX_SKILLS_DIR }];
+    if (backend === "codex") return [{ backend: "codex", dir: AGENTS_SKILLS_DIR }];
     return [
       { backend: "claude", dir: CLAUDE_SKILLS_DIR },
-      { backend: "codex", dir: CODEX_SKILLS_DIR },
+      { backend: "codex", dir: AGENTS_SKILLS_DIR },
     ];
   }
 
@@ -1104,6 +1108,21 @@ export function createSystemRoutes(ctx: RouteContext) {
     const entry = getTranscriptionLogEntry(id);
     if (!entry) return c.json({ error: "Not found" }, 404);
     return c.json(entry);
+  });
+
+  api.get("/transcription-logs/:id/audio", (c) => {
+    const id = Number(c.req.param("id"));
+    if (Number.isNaN(id)) return c.json({ error: "Invalid ID" }, 400);
+    const audio = getTranscriptionLogAudio(id);
+    if (!audio) return c.json({ error: "Not found" }, 404);
+    const headers: Record<string, string> = {
+      "Content-Type": audio.mimeType,
+      "Cache-Control": "no-store",
+    };
+    if (audio.fileName) {
+      headers["Content-Disposition"] = `inline; filename="${audio.fileName.replace(/["\\\r\n]/g, "_")}"`;
+    }
+    return c.body(new Uint8Array(audio.data), 200, headers);
   });
 
   // ─── Session Namer Debug Logs ─────────────────────────────────────

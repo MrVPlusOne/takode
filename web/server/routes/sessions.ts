@@ -1,7 +1,7 @@
 import { Hono } from "hono";
 import { streamSSE, type SSEStreamingApi } from "hono/streaming";
 import { resolveBinary, expandTilde } from "../path-resolver.js";
-import { readFile, writeFile, stat, readdir, access as accessAsync } from "node:fs/promises";
+import { readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { resolve, join } from "node:path";
 import { homedir } from "node:os";
 import type { CliLauncher, LaunchOptions } from "../cli-launcher.js";
@@ -9,12 +9,12 @@ import * as envManager from "../env-manager.js";
 import * as gitUtils from "../git-utils.js";
 import * as sessionNames from "../session-names.js";
 import * as treeGroupStore from "../tree-group-store.js";
+import * as newSessionDefaultsStore from "../new-session-defaults-store.js";
 import { containerManager, ContainerManager, type ContainerConfig, type ContainerInfo } from "../container-manager.js";
 import type { CreationStepId, TakodeSessionArchivedEventData } from "../session-types.js";
 import { hasContainerClaudeAuth } from "../claude-container-auth.js";
 import { hasContainerCodexAuth } from "../codex-container-auth.js";
-import { getSettings, getClaudeUserDefaultModel } from "../settings-manager.js";
-import { searchSessionDocuments, type SessionSearchDocument } from "../session-search.js";
+import { getSettings, getClaudeUserDefaultModel, getServerId } from "../settings-manager.js";
 import { buildReadResponse } from "../takode-messages.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { trafficStats } from "../traffic-stats.js";
@@ -26,9 +26,7 @@ import { resolveSessionCreateModel } from "./session-create-model.js";
 import {
   applyInitialSessionState as applyInitialSessionStateController,
   clearAttentionAndMarkRead as clearAttentionAndMarkReadController,
-  countPendingUserPermissions,
   markSessionUnread as markSessionUnreadController,
-  summarizePendingPermissions,
 } from "../bridge/session-registry-controller.js";
 import {
   refreshGitInfoPublic as refreshGitInfoPublicController,
@@ -50,6 +48,9 @@ import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
 import { createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
+import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
+import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
+import { registerSessionSearchRoute } from "./session-search-route.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -188,18 +189,148 @@ export function createSessionsRoutes(ctx: RouteContext) {
     fixedName?: string;
     /** Session number of the parent worker this reviewer is reviewing */
     reviewerOf?: number;
+    treeGroupId?: string;
     worktreeInfo?: WorktreeSessionInfo;
     containerInfo?: ContainerInfo;
     resumeCliSessionId?: string;
   }
 
+  const resolveCodexSandboxForInitialMode = (
+    backend: SessionBackend,
+    initialModeState: ReturnType<RouteContext["resolveInitialModeState"]>,
+  ): LaunchOptions["codexSandbox"] => {
+    if (backend !== "codex") return undefined;
+    return initialModeState.permissionMode === "bypassPermissions" ? "danger-full-access" : "workspace-write";
+  };
+
   const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
     markOrchestratorSessionAfterConnect({ launcher, wsBridge }, sessionId, buildOrchestratorSystemPrompt(backend));
 
-  const applySessionPostLaunch = (
+  /** Helper: broadcast current tree group state to all browsers. */
+  async function broadcastTreeGroups() {
+    const tgs = await treeGroupStore.getState();
+    wsBridge.broadcastGlobal({
+      type: "tree_groups_update",
+      treeGroups: tgs.groups,
+      treeAssignments: tgs.assignments,
+      treeNodeOrder: tgs.nodeOrder,
+    } as any);
+  }
+
+  const normalizeTreeGroupId = (value: unknown): string | undefined => {
+    if (typeof value !== "string") return undefined;
+    const trimmed = value.trim();
+    return trimmed || undefined;
+  };
+
+  const normalizeDurableTreeGroupId = (value: unknown): string => normalizeTreeGroupId(value) || "default";
+
+  const validateRequestedTreeGroupId = async (value: unknown): Promise<string | undefined> => {
+    const requestedGroupId = normalizeTreeGroupId(value);
+    if (!requestedGroupId || requestedGroupId === "default") return requestedGroupId;
+    const treeState = await treeGroupStore.getState();
+    if (!treeState.groups.some((group) => group.id === requestedGroupId)) {
+      throwPreparationError(`Tree group not found: ${requestedGroupId}`, 400, "resolving_env");
+    }
+    return requestedGroupId;
+  };
+
+  const updateSessionTreeGroupMetadata = async (
+    sessionId: string,
+    groupId: string,
+    options?: { broadcastSession?: boolean; persist?: boolean },
+  ): Promise<void> => {
+    const session = wsBridge.getSession(sessionId);
+    if (!session) return;
+    const normalizedGroupId = normalizeDurableTreeGroupId(groupId);
+    if (session.state.treeGroupId === normalizedGroupId) return;
+    session.state.treeGroupId = normalizedGroupId;
+    if (options?.persist !== false) {
+      if ((session as any).searchDataOnly) {
+        const persisted = await sessionStore.load(sessionId);
+        if (persisted) {
+          persisted.state.treeGroupId = normalizedGroupId;
+          sessionStore.saveSync(persisted);
+        }
+      } else {
+        wsBridge.persistSessionById(sessionId);
+      }
+    }
+    if (options?.broadcastSession !== false) {
+      wsBridge.broadcastToSession(sessionId, {
+        type: "session_update",
+        session: { treeGroupId: normalizedGroupId },
+      } as any);
+    }
+  };
+
+  const assignDurableSessionTreeGroup = async (
+    sessionId: string,
+    groupId: string,
+    options?: { broadcastSession?: boolean; broadcastTreeGroups?: boolean; persist?: boolean },
+  ): Promise<string> => {
+    const normalizedGroupId = normalizeDurableTreeGroupId(groupId);
+    await treeGroupStore.assignSession(sessionId, normalizedGroupId);
+    await updateSessionTreeGroupMetadata(sessionId, normalizedGroupId, {
+      broadcastSession: options?.broadcastSession,
+      persist: options?.persist,
+    });
+    if (options?.broadcastTreeGroups !== false) {
+      await broadcastTreeGroups();
+    }
+    return normalizedGroupId;
+  };
+
+  const syncRestoredSessionMetadataFromAssignments = async (): Promise<void> => {
+    const treeState = await treeGroupStore.getState();
+    for (const info of launcher.listSessions()) {
+      await updateSessionTreeGroupMetadata(info.sessionId, treeState.assignments[info.sessionId] || "default");
+    }
+  };
+
+  const getTreeGroupDisplayName = (groups: Array<{ id: string; name: string }>, groupId: string): string =>
+    groups.find((group) => group.id === groupId)?.name || (groupId === "default" ? "Default" : groupId);
+
+  const getCurrentSessionTreeGroupId = async (sessionId: string): Promise<string | undefined> => {
+    const session = wsBridge.getSession(sessionId);
+    const metadataGroupId = normalizeTreeGroupId(session?.state.treeGroupId);
+    if (metadataGroupId) return metadataGroupId;
+    const assignedGroupId = await treeGroupStore.getGroupForSession(sessionId);
+    return normalizeTreeGroupId(assignedGroupId);
+  };
+
+  const migrateStreamsForTreeGroupChange = async (
+    sourceGroupId: string,
+    destinationGroupId: string,
+    sourceGroupName?: string,
+  ): Promise<void> => {
+    const normalizedSourceGroupId = normalizeDurableTreeGroupId(sourceGroupId);
+    const normalizedDestinationGroupId = normalizeDurableTreeGroupId(destinationGroupId);
+    if (normalizedSourceGroupId === normalizedDestinationGroupId) return;
+    const { migrateSessionGroupStreams } = await import("../stream-store.js");
+    await migrateSessionGroupStreams({
+      serverId: getServerId(),
+      sourceGroupId: normalizedSourceGroupId,
+      destinationGroupId: normalizedDestinationGroupId,
+      sourceGroupName,
+    });
+  };
+
+  const shouldMigrateSourceGroupStreamsOnReassign = (
+    treeState: Awaited<ReturnType<typeof treeGroupStore.getState>>,
+    sessionId: string,
+    sourceGroupId: string,
+  ): boolean =>
+    !Object.entries(treeState.assignments).some(
+      ([candidateSessionId, candidateGroupId]) =>
+        candidateSessionId !== sessionId && candidateGroupId === sourceGroupId,
+    );
+
+  const applySessionPostLaunch = async (
     session: Awaited<ReturnType<CliLauncher["launch"]>>,
     sessionConfig: SessionConfig,
   ) => {
+    const initialTreeGroupId = normalizeDurableTreeGroupId(sessionConfig.treeGroupId);
     if (sessionConfig.containerInfo) {
       containerManager.retrack(sessionConfig.containerInfo.containerId, session.sessionId);
     }
@@ -218,6 +349,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     applyInitialSessionState(session.sessionId, {
       ...(sessionConfig.containerInfo ? { containerizedHostCwd: sessionConfig.initialCwd } : {}),
       cwd: sessionConfig.initialCwd,
+      treeGroupId: initialTreeGroupId,
       askPermission: sessionConfig.initialModeState.askPermission,
       uiMode: sessionConfig.initialModeState.uiMode,
       ...(sessionConfig.resumeCliSessionId ? { resumedFromExternal: true } : {}),
@@ -255,26 +387,23 @@ export function createSessionsRoutes(ctx: RouteContext) {
       sessionNames.setName(session.sessionId, generateUniqueSessionName(existingNames));
     }
 
+    await assignDurableSessionTreeGroup(session.sessionId, initialTreeGroupId, { broadcastSession: false });
+
     if (sessionConfig.createdBy) {
       const creatorId = resolveId(String(sessionConfig.createdBy));
       const creator = creatorId ? launcher.getSession(creatorId) : null;
       if (creator?.isOrchestrator) {
         launcher.herdSessions(creator.sessionId, [session.sessionId]);
         // Auto-assign new worker to leader's tree group
-        treeGroupStore
-          .getGroupForSession(creator.sessionId)
+        Promise.resolve(wsBridge.getSession(creator.sessionId)?.state.treeGroupId)
+          .then((leaderGroupFromState) => leaderGroupFromState || treeGroupStore.getGroupForSession(creator.sessionId))
           .then((leaderGroup) => {
-            if (leaderGroup) {
-              treeGroupStore
-                .assignSession(session.sessionId, leaderGroup)
-                .then(() => broadcastTreeGroups())
-                .catch((err) => {
-                  console.warn("[tree-group] failed to assign worker to leader group:", err);
-                });
-            }
+            return assignDurableSessionTreeGroup(session.sessionId, leaderGroup || "default", {
+              broadcastSession: false,
+            });
           })
           .catch((err) => {
-            console.warn("[tree-group] failed to lookup leader group:", err);
+            console.warn("[tree-group] failed to assign worker to leader group:", err);
           });
       }
     }
@@ -320,10 +449,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
       };
       const initialCwd = body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd();
       const binarySettings = getSettings();
+      const requestedTreeGroupId = await validateRequestedTreeGroupId(body.treeGroupId);
       const launchOptions: LaunchOptions = {
         cwd: initialCwd,
         claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
         codexBinary: body.codexBinary || binarySettings.codexBinary || undefined,
+        codexLeaderContextWindowOverrideTokens: binarySettings.codexLeaderContextWindowOverrideTokens,
+        codexNonLeaderAutoCompactThresholdPercent: binarySettings.codexNonLeaderAutoCompactThresholdPercent,
         env: envVars,
         backendType: backend,
         resumeCliSessionId: body.resumeCliSessionId,
@@ -339,6 +471,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         envSlug: body.envSlug,
         createdBy: body.createdBy,
         resumeCliSessionId: body.resumeCliSessionId,
+        treeGroupId: requestedTreeGroupId,
       };
     }
 
@@ -627,6 +760,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
 
     const askPermissionRequested = body.askPermission !== false;
+    const requestedTreeGroupId = await validateRequestedTreeGroupId(body.treeGroupId);
     const initialModeState = resolveInitialModeState(backend, body.permissionMode, askPermissionRequested);
     const model = await resolveSessionCreateModel({
       backend,
@@ -650,8 +784,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
       cwd: initialCwd,
       claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
       codexBinary: body.codexBinary || binarySettings.codexBinary || undefined,
+      codexLeaderContextWindowOverrideTokens: binarySettings.codexLeaderContextWindowOverrideTokens,
+      codexNonLeaderAutoCompactThresholdPercent: binarySettings.codexNonLeaderAutoCompactThresholdPercent,
       codexInternetAccess: backend === "codex" && body.codexInternetAccess === true,
-      codexSandbox: backend === "codex" && body.codexInternetAccess === true ? "danger-full-access" : "workspace-write",
+      codexSandbox: resolveCodexSandboxForInitialMode(backend, initialModeState),
       codexReasoningEffort,
       allowedTools: body.allowedTools,
       env: envVars,
@@ -674,6 +810,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       noAutoName: body.noAutoName === true,
       fixedName: typeof body.fixedName === "string" ? body.fixedName.trim() : undefined,
       reviewerOf: typeof body.reviewerOf === "number" ? body.reviewerOf : undefined,
+      treeGroupId: requestedTreeGroupId,
       worktreeInfo,
       containerInfo,
     };
@@ -704,7 +841,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
       const sessionConfig = await prepareSession(body, applyDefaultClaudeBackend(backend));
       const session = await launcher.launch(sessionConfig.launchOptions);
-      applySessionPostLaunch(session, sessionConfig);
+      await applySessionPostLaunch(session, sessionConfig);
       return c.json(session);
     } catch (e: unknown) {
       if (e instanceof SessionPreparationError) {
@@ -765,7 +902,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
           },
           () => launcher.launch(sessionConfig.launchOptions),
         );
-        applySessionPostLaunch(session, sessionConfig);
+        await applySessionPostLaunch(session, sessionConfig);
 
         await emitProgress(
           stream,
@@ -980,101 +1117,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
   });
 
-  const buildEnrichedSessions = async (filterFn?: (s: ReturnType<CliLauncher["listSessions"]>[number]) => boolean) => {
-    const sessions = launcher.listSessions();
-    const names = sessionNames.getAllNames();
-    const pool = filterFn ? sessions.filter(filterFn) : sessions;
-    const heavyRepoModeEnabled = getSettings().heavyRepoModeEnabled;
-    return Promise.all(
-      pool.map(async (s) => {
-        const pendingTimerCount = ctx.timerManager?.listTimers(s.sessionId).length ?? 0;
-        try {
-          if (s.worktreeCleanupStatus === "pending" && !pendingWorktreeCleanups.has(s.sessionId)) {
-            launcher.setWorktreeCleanupState(s.sessionId, {
-              status: "failed",
-              error: s.worktreeCleanupError || "Cleanup was interrupted before completion.",
-              startedAt: s.worktreeCleanupStartedAt,
-              finishedAt: Date.now(),
-            });
-            s = launcher.getSession(s.sessionId) ?? s;
-          }
-
-          const { sessionAuthToken: _token, injectedSystemPrompt: _prompt, ...safeSession } = s;
-          const bridgeSession = wsBridge.getSession(s.sessionId);
-          if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
-            await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
-              broadcastUpdate: true,
-              notifyPoller: true,
-            });
-          }
-          const currentBridgeSession = wsBridge.getSession(s.sessionId) ?? bridgeSession;
-          const bridge = currentBridgeSession?.state;
-          const attention = currentBridgeSession
-            ? {
-                lastReadAt: currentBridgeSession.lastReadAt,
-                attentionReason: currentBridgeSession.attentionReason,
-                pendingPermissionCount: countPendingUserPermissions(currentBridgeSession),
-                pendingPermissionSummary: summarizePendingPermissions(currentBridgeSession),
-              }
-            : null;
-          const cliConnected = wsBridge.isBackendConnected(s.sessionId);
-          const effectiveState = cliConnected && currentBridgeSession?.isGenerating ? "running" : safeSession.state;
-          let gitAhead = bridge?.git_ahead || 0;
-          let gitBehind = bridge?.git_behind || 0;
-          // Worktree sessions are force-refreshed above so external git resets
-          // clear stale +/- stats; non-worktree sessions still use cached bridge
-          // values to avoid expensive git calls on every sidebar poll.
-          return {
-            ...safeSession,
-            // Bridge model (from system.init) is more accurate than launcher model
-            // (creation-time value, often empty for "default").
-            model: bridge?.model || safeSession.model,
-            state: effectiveState,
-            sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
-            name: names[s.sessionId] ?? s.name,
-            gitBranch: bridge?.git_branch || "",
-            gitDefaultBranch: bridge?.git_default_branch || "",
-            diffBaseBranch: bridge?.diff_base_branch || "",
-            gitAhead,
-            gitBehind,
-            totalLinesAdded: bridge?.total_lines_added || 0,
-            totalLinesRemoved: bridge?.total_lines_removed || 0,
-            numTurns: bridge?.num_turns || 0,
-            contextUsedPercent: bridge?.context_used_percent || 0,
-            messageHistoryBytes: bridge?.message_history_bytes || 0,
-            codexRetainedPayloadBytes: bridge?.codex_retained_payload_bytes || 0,
-            ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
-            ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
-            lastMessagePreview: currentBridgeSession?.lastUserMessage || "",
-            cliConnected,
-            taskHistory: currentBridgeSession?.taskHistory ?? [],
-            keywords: currentBridgeSession?.keywords ?? [],
-            claimedQuestId: bridge?.claimedQuestId ?? null,
-            claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
-            pendingTimerCount,
-            ...(attention ?? {}),
-            // Worktree liveness status for archived worktree sessions
-            // Only check existence (one async access() call), skip expensive git status
-            ...(s.isWorktree && s.archived
-              ? await (async () => {
-                  let exists = false;
-                  try {
-                    await accessAsync(s.cwd);
-                    exists = true;
-                  } catch {
-                    /* not found */
-                  }
-                  return { worktreeExists: exists };
-                })()
-              : {}),
-          };
-        } catch (e) {
-          console.warn(`[routes] Failed to enrich session ${s.sessionId}:`, e);
-          return { ...s, name: names[s.sessionId] ?? s.name, pendingTimerCount };
-        }
-      }),
+  const buildEnrichedSessions = (filterFn?: (s: ReturnType<CliLauncher["listSessions"]>[number]) => boolean) =>
+    buildEnrichedSessionsSnapshot(
+      { launcher, wsBridge, timerManager: ctx.timerManager, pendingWorktreeCleanups },
+      filterFn,
     );
-  };
 
   const backfillSessionProjectMeta = async (
     info: { cwd: string; repoRoot?: string },
@@ -1097,59 +1144,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const enriched = await buildEnrichedSessions();
     return c.json(enriched);
   });
-  api.get("/sessions/search", (c) => {
-    const rawQuery = (c.req.query("q") || "").trim();
-    if (!rawQuery) {
-      return c.json({ error: "q is required" }, 400);
-    }
-
-    const limitParam = Number.parseInt(c.req.query("limit") || "50", 10);
-    const limit = Number.isFinite(limitParam) ? Math.max(1, Math.min(limitParam, 200)) : 50;
-
-    const msgLimitParam = Number.parseInt(c.req.query("messageLimitPerSession") || "400", 10);
-    const messageLimitPerSession = Number.isFinite(msgLimitParam) ? Math.max(50, Math.min(msgLimitParam, 2000)) : 400;
-
-    const includeArchivedRaw = c.req.query("includeArchived");
-    const includeArchived =
-      includeArchivedRaw === undefined ? true : !["0", "false", "no"].includes(includeArchivedRaw.toLowerCase());
-
-    const startedAt = Date.now();
-    const sessions = launcher.listSessions();
-    const names = sessionNames.getAllNames();
-
-    const docs: SessionSearchDocument[] = sessions.map((s) => {
-      const bridgeSession = wsBridge.getSession(s.sessionId);
-      const bridge = bridgeSession?.state;
-      return {
-        sessionId: s.sessionId,
-        archived: !!s.archived,
-        createdAt: s.createdAt || 0,
-        lastActivityAt: s.lastActivityAt,
-        name: names[s.sessionId] ?? s.name ?? "",
-        taskHistory: bridgeSession?.taskHistory ?? [],
-        keywords: bridgeSession?.keywords ?? [],
-        gitBranch: bridge?.git_branch || "",
-        cwd: bridge?.cwd || s.cwd || "",
-        repoRoot: bridge?.repo_root || s.repoRoot || "",
-        messageHistory: bridgeSession?.messageHistory || [],
-        searchExcerpts: bridgeSession?.searchExcerpts ?? [],
-      };
-    });
-
-    const { results, totalMatches } = searchSessionDocuments(docs, {
-      query: rawQuery,
-      limit,
-      includeArchived,
-      messageLimitPerSession,
-    });
-
-    return c.json({
-      query: rawQuery,
-      tookMs: Date.now() - startedAt,
-      totalMatches,
-      results,
-    });
-  });
+  registerSessionSearchRoute(api, { launcher, wsBridge });
   api.get("/sessions/:id", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
@@ -1159,6 +1154,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const { injectedSystemPrompt: _prompt, ...rest } = session;
     return c.json({
       ...rest,
+      sessionLifecycleEvents: bridgeSession?.state.lifecycle_events ?? [],
       isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
     });
   });
@@ -1212,26 +1208,43 @@ export function createSessionsRoutes(ctx: RouteContext) {
   });
   // ─── Tree Groups (herd-centric grouping) ─────────────────────────────
 
-  /** Helper: broadcast current tree group state to all browsers. */
-  async function broadcastTreeGroups() {
-    const tgs = await treeGroupStore.getState();
-    wsBridge.broadcastGlobal({
-      type: "tree_groups_update",
-      treeGroups: tgs.groups,
-      treeAssignments: tgs.assignments,
-      treeNodeOrder: tgs.nodeOrder,
-    } as any);
-  }
   api.get("/tree-groups", async (c) => {
     const state = await treeGroupStore.getState();
     return c.json(state);
   });
+
+  api.get("/new-session-defaults", async (c) => {
+    const key = typeof c.req.query("key") === "string" ? c.req.query("key")!.trim() : "";
+    if (!key) return c.json({ error: "key is required" }, 400);
+    const entry = await newSessionDefaultsStore.getDefaults(key);
+    return c.json({
+      key,
+      defaults: entry?.defaults ?? null,
+      updatedAt: entry?.updatedAt ?? null,
+    });
+  });
+
+  api.put("/new-session-defaults", async (c) => {
+    const key = typeof c.req.query("key") === "string" ? c.req.query("key")!.trim() : "";
+    if (!key) return c.json({ error: "key is required" }, 400);
+    const body = await c.req.json().catch(() => ({}));
+    const entry = await newSessionDefaultsStore.saveDefaults(key, body?.defaults);
+    if (!entry) return c.json({ error: "valid defaults are required" }, 400);
+    return c.json({
+      ok: true,
+      key,
+      defaults: entry.defaults,
+      updatedAt: entry.updatedAt,
+    });
+  });
+
   api.put("/tree-groups", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     if (!body || typeof body !== "object") {
       return c.json({ error: "Invalid body" }, 400);
     }
     await treeGroupStore.setState(body);
+    await syncRestoredSessionMetadataFromAssignments();
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
@@ -1259,19 +1272,53 @@ export function createSessionsRoutes(ctx: RouteContext) {
   });
   api.delete("/tree-groups/groups/:id", async (c) => {
     const id = c.req.param("id");
+    const treeState = await treeGroupStore.getState();
+    const group = treeState.groups.find((candidate) => candidate.id === id);
+    if (!group && id !== "default") {
+      return c.json({ error: "Group not found" }, 404);
+    }
+    await migrateStreamsForTreeGroupChange(id, "default", group?.name);
     const ok = await treeGroupStore.deleteGroup(id);
     if (!ok) return c.json({ error: "Cannot delete default group" }, 400);
+    await syncRestoredSessionMetadataFromAssignments();
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
   api.patch("/tree-groups/assign", async (c) => {
     const body = await c.req.json().catch(() => ({}));
-    const sessionId = typeof body.sessionId === "string" ? body.sessionId : "";
-    const groupId = typeof body.groupId === "string" ? body.groupId : "";
-    if (!sessionId || !groupId) {
-      return c.json({ error: "sessionId and groupId are required" }, 400);
+    const sessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const sessionIds = Array.isArray(body.sessionIds)
+      ? [
+          ...new Set(
+            body.sessionIds.map((value: unknown) => (typeof value === "string" ? value.trim() : "")).filter(Boolean),
+          ),
+        ]
+      : [];
+    const groupId = typeof body.groupId === "string" ? body.groupId.trim() : "";
+    const targetSessionIds = sessionIds.length > 0 ? sessionIds : sessionId ? [sessionId] : [];
+    if (targetSessionIds.length === 0 || !groupId) {
+      return c.json({ error: "sessionId/sessionIds and groupId are required" }, 400);
     }
-    await treeGroupStore.assignSession(sessionId, groupId);
+    const treeState = await treeGroupStore.getState();
+    if (!treeState.groups.some((group) => group.id === groupId)) {
+      return c.json({ error: "Group not found" }, 404);
+    }
+    for (const targetSessionId of targetSessionIds) {
+      const latestTreeState = await treeGroupStore.getState();
+      const sourceGroupId = await getCurrentSessionTreeGroupId(targetSessionId);
+      if (
+        sourceGroupId &&
+        sourceGroupId !== groupId &&
+        shouldMigrateSourceGroupStreamsOnReassign(latestTreeState, targetSessionId, sourceGroupId)
+      ) {
+        await migrateStreamsForTreeGroupChange(
+          sourceGroupId,
+          groupId,
+          getTreeGroupDisplayName(latestTreeState.groups, sourceGroupId),
+        );
+      }
+      await assignDurableSessionTreeGroup(targetSessionId, groupId, { broadcastTreeGroups: false });
+    }
     await broadcastTreeGroups();
     return c.json({ ok: true });
   });
@@ -1379,12 +1426,11 @@ export function createSessionsRoutes(ctx: RouteContext) {
       wsBridge.broadcastToSession(id, historyEntry as any);
     }
 
-    const targetSession = session || wsBridge.getOrCreateSession(id, workerInfo.backendType || "claude");
-    if (typeof bridgeAny.routeBrowserMessage === "function") {
-      await bridgeAny.routeBrowserMessage(targetSession, { type: "interrupt", interruptSource: "leader" });
-    } else {
-      await bridgeAny.routeExternalInterrupt?.(targetSession, "leader");
+    if (!session) {
+      wsBridge.getOrCreateSession(id, workerInfo.backendType || "claude");
     }
+    const interrupted = await wsBridge.interruptSession(id, "leader");
+    if (!interrupted) return c.json({ error: "Session not found" }, 404);
 
     return c.json({ ok: true, sessionId: id, interruptedBy: callerSessionId });
   };
@@ -1532,8 +1578,17 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
+    if (info.backendType === "codex") {
+      if (!info.isOrchestrator) {
+        return c.json({ error: "Force compact is only supported for Codex leaders" }, 400);
+      }
+      const recycle = await wsBridge.recycleCodexLeaderSession(id, "manual_compact");
+      if (!recycle.ok) {
+        return c.json({ error: recycle.error || "Failed to recycle Codex leader session" }, 503);
+      }
+      return c.json({ ok: true });
+    }
     if (!info.cliSessionId) return c.json({ error: "No CLI session to resume" }, 400);
-    if (info.backendType === "codex") return c.json({ error: "Force compact not supported for Codex" }, 400);
 
     const queued = wsBridge.queueForceCompactForRelaunch(id);
     if (!queued.ok) return c.json({ error: queued.error }, 400);
@@ -1867,7 +1922,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     const body = await c.req.json().catch(() => null);
     const images = Array.isArray((body as { images?: unknown[] } | null)?.images)
-      ? ((body as { images: Array<{ mediaType?: unknown; data?: unknown }> }).images ?? [])
+      ? ((body as { images: Array<{ mediaType?: unknown; data?: unknown; filename?: unknown }> }).images ?? [])
       : [];
     if (images.length === 0) {
       return c.json({ error: "images must be a non-empty array" }, 400);
@@ -1880,9 +1935,19 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.json({ error: "Each image must include mediaType and data" }, 400);
     }
 
-    const imageRefs = await Promise.all(
-      images.map((img) => imageStore.store(id, img.data as string, img.mediaType as string)),
-    );
+    let imageRefs;
+    try {
+      imageRefs = await Promise.all(
+        images.map((img) =>
+          imageStore.store(id, img.data as string, img.mediaType as string, getImageUploadSourceName(img)),
+        ),
+      );
+    } catch (error) {
+      if (isSharpUnavailableError(error)) {
+        return c.json({ error: SHARP_UNAVAILABLE_MESSAGE }, 503);
+      }
+      throw error;
+    }
     const paths = deriveAttachmentPaths(id, imageRefs);
     return c.json({
       imageRefs,

@@ -32,11 +32,13 @@ describe("grepQuests", () => {
         version: 3,
         title: "Feedback quest",
         createdAt: 3,
-        status: "needs_verification",
+        status: "done",
         description: "Needs review",
         sessionId: "session-3",
         claimedAt: 3,
+        completedAt: 4,
         verificationItems: [{ text: "Visual pass", checked: false }],
+        verificationInboxUnread: true,
         feedback: [
           { author: "human", text: "Please verify the beta warning copy inside the modal.", ts: 3 },
           { author: "agent", text: "Summary: updated wording", ts: 4 },
@@ -102,5 +104,75 @@ describe("grepQuests", () => {
     // Limiting the response must not hide the fact that more total matches exist.
     expect(result.totalMatches).toBe(4);
     expect(result.matches).toHaveLength(2);
+  });
+
+  it("prefers TLDR snippets when TLDR metadata matches", () => {
+    const quests: QuestmasterTask[] = [
+      {
+        id: "q-1-v1",
+        questId: "q-1",
+        version: 1,
+        title: "Long content",
+        createdAt: 1,
+        status: "refined",
+        description: "The full description also mentions alpha but should not be the preview source.",
+        tldr: "Alpha summary for humans.",
+        feedback: [
+          {
+            author: "agent",
+            kind: "phase_summary",
+            text: "The detailed feedback also mentions beta in a much longer agent-dense note.",
+            tldr: "Beta feedback summary.",
+            ts: 1,
+            journeyRunId: "run-1",
+            phaseOccurrenceId: "run-1:p2",
+            phaseId: "implement",
+            phasePosition: 2,
+            phaseOccurrence: 1,
+          },
+        ],
+      },
+    ];
+
+    const result = grepQuests(quests, "alpha|beta");
+
+    expect(result.matches.map((match) => match.matchedField)).toEqual(["description.tldr", "feedback[0].tldr"]);
+    expect(result.matches[0].snippet).toBe("Alpha summary for humans.");
+    expect(result.matches[1].snippet).toBe("Beta feedback summary.");
+    expect(result.matches[1]).toMatchObject({
+      feedbackKind: "phase_summary",
+      journeyRunId: "run-1",
+      phaseOccurrenceId: "run-1:p2",
+      phaseId: "implement",
+      phasePosition: 2,
+      phaseOccurrence: 1,
+    });
+  });
+
+  it("searches final debrief text and prefers debrief TLDR snippets", () => {
+    const quests: QuestmasterTask[] = [
+      {
+        id: "q-8-v2",
+        questId: "q-8",
+        version: 2,
+        title: "Completed quest",
+        createdAt: 1,
+        status: "done",
+        description: "Initial request.",
+        completedAt: 2,
+        verificationItems: [{ text: "Verify", checked: true }],
+        debrief: "Final debrief contains deployment details in full.",
+        debriefTldr: "Deployment details summary.",
+      },
+    ];
+
+    const result = grepQuests(quests, "deployment");
+
+    expect(result.totalMatches).toBe(1);
+    expect(result.matches[0]).toMatchObject({
+      questId: "q-8",
+      matchedField: "debrief.tldr",
+      snippet: "Deployment details summary.",
+    });
   });
 });

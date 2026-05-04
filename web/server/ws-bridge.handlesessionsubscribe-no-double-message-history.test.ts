@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -774,8 +785,10 @@ describe("handleSessionSubscribe — no double message_history", () => {
       from_turn: 2,
       turn_count: 2,
       total_turns: 4,
+      start_index: 6,
       section_turn_count: 1,
       visible_section_count: 2,
+      window_hash: expect.any(String),
     });
     expect(windowSync.messages.map((m: any) => m.id || m.message?.id)).toEqual([
       "u3",
@@ -824,8 +837,10 @@ describe("handleSessionSubscribe — no double message_history", () => {
       from_turn: 0,
       turn_count: 2,
       total_turns: 3,
+      start_index: 0,
       section_turn_count: 1,
       visible_section_count: 2,
+      window_hash: expect.any(String),
     });
     expect(windowSync.messages.map((m: any) => m.id)).toEqual(["u1", undefined, "u2", undefined]);
   });

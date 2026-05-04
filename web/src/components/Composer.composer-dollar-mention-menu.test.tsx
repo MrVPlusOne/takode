@@ -541,7 +541,7 @@ describe("Composer dollar mention menu", () => {
         skill_metadata: [
           {
             name: "review",
-            path: "/Users/test/.codex/skills/review/SKILL.md",
+            path: "/Users/test/.agents/skills/review/SKILL.md",
             description: "Review code changes",
           },
         ],
@@ -599,7 +599,7 @@ describe("Composer dollar mention menu", () => {
         skill_metadata: [
           {
             name: "review",
-            path: "/Users/test/.codex/skills/review/SKILL.md",
+            path: "/Users/test/.agents/skills/review/SKILL.md",
             description: "Review code changes",
           },
         ],
@@ -611,7 +611,7 @@ describe("Composer dollar mention menu", () => {
     fireEvent.change(textarea, { target: { value: "Run $rev", selectionStart: "Run $rev".length } });
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
 
-    expect(textarea.value).toBe("Run [$review](/Users/test/.codex/skills/review/SKILL.md) ");
+    expect(textarea.value).toBe("Run [$review](/Users/test/.agents/skills/review/SKILL.md) ");
   });
 
   it("accepts the highlighted skill after arrow navigation and keyup selection refresh", () => {
@@ -645,7 +645,7 @@ describe("Composer dollar mention menu", () => {
         skill_metadata: [
           {
             name: "review",
-            path: "/Users/test/.codex/skills/review/SKILL.md",
+            path: "/Users/test/.agents/skills/review/SKILL.md",
             description: "Review code changes",
           },
         ],
@@ -660,7 +660,7 @@ describe("Composer dollar mention menu", () => {
     });
     fireEvent.keyDown(textarea, { key: "Enter", code: "Enter" });
 
-    expect(textarea.value).toBe("Run [$review](/Users/test/.codex/skills/review/SKILL.md) now");
+    expect(textarea.value).toBe("Run [$review](/Users/test/.agents/skills/review/SKILL.md) now");
   });
 
   it("does not accept a stale skill mention after the caret leaves the active word", () => {
@@ -681,6 +681,25 @@ describe("Composer dollar mention menu", () => {
 
     expect(textarea.value).toBe(fullText);
     expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
+  it("treats the current input as fresher than prior dollar skill mentions", () => {
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        skills: ["review", "recap"],
+      },
+      messages: [makeMessage({ id: "m1", content: "Earlier use $review to inspect the diff." })],
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+    const value = "Reuse $recap and then $r";
+
+    fireEvent.change(textarea, { target: { value, selectionStart: value.length } });
+
+    const suggestions = Array.from(container.querySelectorAll("[data-dollar-index]"));
+    expect(suggestions).toHaveLength(2);
+    expect(within(suggestions[0] as HTMLElement).getByText("$recap")).toBeTruthy();
   });
 
   it("inserts an app mention link when selecting an app", () => {

@@ -1,6 +1,8 @@
 import { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
+import { hasQuestReviewMetadata } from "../quest-types.js";
+import { applyQuestListFilters, getQuestListPage, type QuestListSortColumn } from "../quest-list-filters.js";
 import { SERVER_GIT_CMD } from "../constants.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -8,7 +10,15 @@ import {
   updateQuestTaskEntries as updateQuestTaskEntriesController,
 } from "../bridge/session-registry-controller.js";
 import { broadcastQuestUpdate } from "./quest-helpers.js";
-import type { RouteContext } from "./context.js";
+import type { OptionalAuthResult, RouteContext } from "./context.js";
+import { isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
+import { normalizeTldr, QUEST_TLDR_WARNING_HEADER, tldrWarningForContent } from "../quest-tldr.js";
+import {
+  QUEST_PHASE_DOCUMENTATION_WARNING_HEADER,
+  resolveQuestFeedbackDocumentation,
+  sameQuestFeedbackDocumentationScope,
+  type QuestBoardRowCandidate,
+} from "../quest-phase-docs.js";
 
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
@@ -38,13 +48,77 @@ function isAgentSummaryFeedback(text: string): boolean {
   return SUMMARY_FEEDBACK_PREFIXES.some((prefix) => normalized.startsWith(prefix));
 }
 
-function findLatestAgentSummaryFeedbackIndex(entries: QuestFeedbackEntry[]): number {
+function findLatestAgentSummaryFeedbackIndex(entries: QuestFeedbackEntry[], target?: QuestFeedbackEntry): number {
   for (let index = entries.length - 1; index >= 0; index -= 1) {
     const entry = entries[index];
     if (entry?.author !== "agent") continue;
+    if (target && !sameQuestFeedbackDocumentationScope(entry, target)) continue;
     if (isAgentSummaryFeedback(entry.text)) return index;
   }
   return -1;
+}
+
+function setTldrWarningHeader(c: { header: (name: string, value: string) => void }, warning: string | null): void {
+  if (warning) c.header(QUEST_TLDR_WARNING_HEADER, warning);
+}
+
+function isAuthenticatedCompanionCaller(
+  auth: OptionalAuthResult,
+): auth is Exclude<OptionalAuthResult, null | { response: Response }> {
+  return auth !== null && !("response" in auth);
+}
+
+function setDescriptionTldrWarningHeaderForAgentWrite(
+  c: { header: (name: string, value: string) => void },
+  auth: OptionalAuthResult,
+  description: unknown,
+  tldr: unknown,
+): void {
+  if (!isAuthenticatedCompanionCaller(auth)) return;
+  setTldrWarningHeader(c, tldrWarningForContent("description", description, tldr));
+}
+
+function setDebriefTldrWarningHeaderForAgentWrite(
+  c: { header: (name: string, value: string) => void },
+  auth: OptionalAuthResult,
+  debrief: unknown,
+  debriefTldr: unknown,
+): void {
+  if (!isAuthenticatedCompanionCaller(auth)) return;
+  setTldrWarningHeader(c, tldrWarningForContent("debrief", debrief, debriefTldr));
+}
+
+function parseIntegerQuery(value: string | undefined): number | undefined {
+  if (!value) return undefined;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function normalizeQuestListSortColumn(value: string | undefined): QuestListSortColumn | undefined {
+  switch (value) {
+    case "cards":
+    case "quest":
+    case "title":
+    case "owner":
+    case "leader":
+    case "status":
+    case "verify":
+    case "feedback":
+    case "updated":
+      return value;
+    default:
+      return undefined;
+  }
+}
+
+function normalizeQuestListSortDirection(value: string | undefined): "asc" | "desc" | undefined {
+  if (value === "asc" || value === "desc") return value;
+  return undefined;
+}
+
+function feedbackEntryWithoutTldr(entry: QuestFeedbackEntry): QuestFeedbackEntry {
+  const { tldr: _tldr, ...rest } = entry;
+  return rest;
 }
 
 function questRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["launcher"]): string[] {
@@ -68,11 +142,40 @@ function questRepoCandidates(quest: QuestmasterTask, launcher: RouteContext["lau
   return paths;
 }
 
+function resolveClaimLeaderSessionId(
+  launcher: RouteContext["launcher"],
+  workerSession: { herdedBy?: string } | null | undefined,
+): string | undefined {
+  const leaderSessionId = typeof workerSession?.herdedBy === "string" ? workerSession.herdedBy.trim() : "";
+  if (!leaderSessionId) return undefined;
+  const leaderSession = launcher.getSession(leaderSessionId);
+  return leaderSession?.isOrchestrator === true ? leaderSessionId : undefined;
+}
+
+function resolveSubmittedSessionId(
+  rawSessionId: unknown,
+  resolveId: RouteContext["resolveId"],
+): { raw: string; sessionId: string } {
+  const raw = typeof rawSessionId === "string" ? rawSessionId.trim() : "";
+  if (!raw) return { raw: "", sessionId: "" };
+  return { raw, sessionId: resolveId(raw) ?? "" };
+}
+
 export function createQuestRoutes(ctx: RouteContext) {
   const api = new Hono();
-  const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional, execCaptureStdoutAsync } = ctx;
+  const { launcher, wsBridge, imageStore, authenticateCompanionCallerOptional, execCaptureStdoutAsync, resolveId } =
+    ctx;
 
-  const setClaimedQuest = (sessionId: string, quest: { id: string; title: string; status?: string } | null) => {
+  const setClaimedQuest = (
+    sessionId: string,
+    quest: {
+      id: string;
+      title: string;
+      status?: string;
+      verificationInboxUnread?: boolean;
+      leaderSessionId?: string;
+    } | null,
+  ) => {
     const session = wsBridge.getSession(sessionId);
     if (!session) return;
     setSessionClaimedQuestController(session, quest, {
@@ -82,6 +185,29 @@ export function createQuestRoutes(ctx: RouteContext) {
       onSessionNamedByQuest: (targetSessionId, title) =>
         (wsBridge as any).onSessionNamedByQuest?.(targetSessionId, title),
     });
+  };
+  const claimedQuestEvent = (quest: QuestmasterTask) => ({
+    id: quest.questId,
+    title: quest.title,
+    status: quest.status,
+    ...(hasQuestReviewMetadata(quest) ? { verificationInboxUnread: quest.verificationInboxUnread } : {}),
+    ...(quest.leaderSessionId ? { leaderSessionId: quest.leaderSessionId } : {}),
+  });
+  const boardRowCandidatesForQuest = (quest: QuestmasterTask): QuestBoardRowCandidate[] => {
+    const leaderIds = new Set<string>();
+    if (quest.leaderSessionId) leaderIds.add(quest.leaderSessionId);
+    for (const session of launcher.listSessions()) {
+      const sessionId = typeof session.sessionId === "string" ? session.sessionId : undefined;
+      if (sessionId && session.isOrchestrator === true && session.archived !== true) leaderIds.add(sessionId);
+    }
+    const candidates: QuestBoardRowCandidate[] = [];
+    for (const leaderSessionId of leaderIds) {
+      const leaderSession = launcher.getSession(leaderSessionId);
+      if (leaderSession?.archived === true) continue;
+      const row = wsBridge.getSession(leaderSessionId)?.board?.get(quest.questId);
+      if (row) candidates.push({ leaderSessionId, row });
+    }
+    return candidates;
   };
 
   const persistSessionTaskHistory = (sessionId: string) => {
@@ -107,6 +233,9 @@ export function createQuestRoutes(ctx: RouteContext) {
       const image = await questStore.saveQuestImage(file.name, buf, file.type);
       return c.json(image, 201);
     } catch (e: unknown) {
+      if (isSharpUnavailableError(e)) {
+        return c.json({ error: SHARP_UNAVAILABLE_MESSAGE }, 503);
+      }
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   });
@@ -136,6 +265,10 @@ export function createQuestRoutes(ctx: RouteContext) {
     const current = await questStore.getQuest(questId);
     const currentSessionId =
       current && "sessionId" in current && typeof current.sessionId === "string" ? current.sessionId : null;
+    const currentReviewOwnerSessionId =
+      current && hasQuestReviewMetadata(current)
+        ? (current.previousOwnerSessionIds?.[current.previousOwnerSessionIds.length - 1] ?? null)
+        : null;
     const quest = await questStore.transitionQuest(questId, input);
     if (!quest) return null;
 
@@ -143,12 +276,16 @@ export function createQuestRoutes(ctx: RouteContext) {
     if (currentSessionId && currentSessionId !== nextSessionId) {
       setClaimedQuest(currentSessionId, null);
     }
+    if (currentReviewOwnerSessionId && !hasQuestReviewMetadata(quest)) {
+      setClaimedQuest(currentReviewOwnerSessionId, null);
+    }
     if (nextSessionId) {
-      setClaimedQuest(nextSessionId, {
-        id: quest.questId,
-        title: quest.title,
-        status: quest.status,
-      });
+      setClaimedQuest(nextSessionId, claimedQuestEvent(quest));
+    } else if (hasQuestReviewMetadata(quest)) {
+      const reviewOwner = quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1];
+      if (reviewOwner) {
+        setClaimedQuest(reviewOwner, claimedQuestEvent(quest));
+      }
     }
 
     broadcastQuestUpdate(wsBridge);
@@ -156,15 +293,40 @@ export function createQuestRoutes(ctx: RouteContext) {
   };
 
   api.get("/quests", async (c) => {
-    const statusFilter = c.req.query("status")?.split(",") as import("../quest-types.js").QuestStatus[] | undefined;
     const parentId = c.req.query("parentId");
     const sessionId = c.req.query("sessionId");
-    let quests = await questStore.listQuests();
-    if (statusFilter?.length) quests = quests.filter((q) => statusFilter.includes(q.status));
+    let quests = applyQuestListFilters(await questStore.listQuests(), {
+      status: c.req.query("status"),
+      verification: c.req.query("verification"),
+      tags: c.req.query("tags"),
+      tag: c.req.query("tag"),
+      text: c.req.query("text"),
+    });
     if (parentId) quests = quests.filter((q) => q.parentId === parentId);
     if (sessionId)
-      quests = quests.filter((q) => "sessionId" in q && (q as { sessionId: string }).sessionId === sessionId);
+      quests = quests.filter((q) => {
+        const activeOwner = "sessionId" in q ? (q as { sessionId?: string }).sessionId : undefined;
+        const previousOwners = Array.isArray(q.previousOwnerSessionIds) ? q.previousOwnerSessionIds : [];
+        return activeOwner === sessionId || previousOwners.includes(sessionId);
+      });
     return c.json(quests);
+  });
+
+  api.get("/quests/_page", async (c) => {
+    const page = getQuestListPage(await questStore.listQuests(), {
+      status: c.req.query("status"),
+      tags: c.req.query("tags"),
+      tag: c.req.query("tag"),
+      excludeTags: c.req.query("excludeTags"),
+      session: c.req.query("session") ?? c.req.query("sessionId"),
+      text: c.req.query("text"),
+      verification: c.req.query("verification"),
+      offset: parseIntegerQuery(c.req.query("offset")),
+      limit: parseIntegerQuery(c.req.query("limit")),
+      sortColumn: normalizeQuestListSortColumn(c.req.query("sortColumn")),
+      sortDirection: normalizeQuestListSortDirection(c.req.query("sortDirection")),
+    });
+    return c.json(page);
   });
 
   api.get("/quests/:questId", async (c) => {
@@ -174,7 +336,7 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.get("/quests/:questId/history", async (c) => {
-    const history = await questStore.getQuestHistory(c.req.param("questId"));
+    const history = await questStore.getQuestHistoryView(c.req.param("questId"));
     return c.json(history);
   });
 
@@ -248,10 +410,13 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.post("/quests", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     const body = await c.req.json().catch(() => ({}));
     try {
       const quest = await questStore.createQuest(body);
       broadcastQuestUpdate(wsBridge);
+      setDescriptionTldrWarningHeaderForAgentWrite(c, auth, body.description, body.tldr);
       return c.json(quest, 201);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -259,6 +424,8 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.patch("/quests/:questId", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     const body = await c.req.json().catch(() => ({}));
     try {
       const quest = await questStore.patchQuest(c.req.param("questId"), body);
@@ -273,11 +440,7 @@ export function createQuestRoutes(ctx: RouteContext) {
         // Keep quest-owned session names in sync when a claimed quest is retitled.
         // setSessionClaimedQuest broadcasts session_quest_claimed + session_name_update
         // source:quest, and persists the name via callback.
-        setClaimedQuest(quest.sessionId, {
-          id: quest.questId,
-          title: quest.title,
-          status: quest.status,
-        });
+        setClaimedQuest(quest.sessionId, claimedQuestEvent(quest));
         // Update task history entries that reference this quest
         const session = wsBridge.getSession(quest.sessionId);
         if (session) {
@@ -288,6 +451,26 @@ export function createQuestRoutes(ctx: RouteContext) {
         }
       }
       broadcastQuestUpdate(wsBridge);
+      if (body.description !== undefined || body.tldr !== undefined) {
+        const warningTldr =
+          body.tldr !== undefined ? body.tldr : body.description !== undefined ? undefined : quest.tldr;
+        const warningDescription =
+          body.description !== undefined ? body.description : "description" in quest ? quest.description : undefined;
+        setDescriptionTldrWarningHeaderForAgentWrite(c, auth, warningDescription, warningTldr);
+      }
+      if (body.debrief !== undefined || body.debriefTldr !== undefined) {
+        const warningDebrief =
+          body.debrief !== undefined ? body.debrief : quest.status === "done" ? quest.debrief : undefined;
+        const warningDebriefTldr =
+          body.debriefTldr !== undefined
+            ? body.debriefTldr
+            : body.debrief !== undefined
+              ? undefined
+              : quest.status === "done"
+                ? quest.debriefTldr
+                : undefined;
+        setDebriefTldrWarningHeaderForAgentWrite(c, auth, warningDebrief, warningDebriefTldr);
+      }
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -295,11 +478,20 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.post("/quests/:questId/transition", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     const body = await c.req.json().catch(() => ({}));
     try {
       const questId = c.req.param("questId");
       const quest = await transitionQuestAndSync(questId, body);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
+      if (body.description !== undefined || body.tldr !== undefined) {
+        const warningTldr =
+          body.tldr !== undefined ? body.tldr : body.description !== undefined ? undefined : quest.tldr;
+        const warningDescription =
+          body.description !== undefined ? body.description : "description" in quest ? quest.description : undefined;
+        setDescriptionTldrWarningHeaderForAgentWrite(c, auth, warningDescription, warningTldr);
+      }
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -319,13 +511,22 @@ export function createQuestRoutes(ctx: RouteContext) {
     const auth = authenticateCompanionCallerOptional(c);
     if (auth && "response" in auth) return auth.response;
     const body = await c.req.json().catch(() => ({}));
-    const rawSessionId = body.sessionId as string | undefined;
-    const bodySessionId = typeof rawSessionId === "string" ? rawSessionId.trim() : "";
+    const bodySession = resolveSubmittedSessionId(body.sessionId, resolveId);
     const authSessionId = auth ? auth.callerId : "";
-    if (authSessionId && bodySessionId && bodySessionId !== authSessionId) {
+    if (bodySession.raw && !bodySession.sessionId) {
+      return c.json(
+        {
+          error:
+            `Unknown sessionId: ${bodySession.raw}. ` +
+            "Claim a quest from an active Companion session or choose a valid session in Questmaster.",
+        },
+        400,
+      );
+    }
+    if (authSessionId && bodySession.sessionId && bodySession.sessionId !== authSessionId) {
       return c.json({ error: "sessionId does not match authenticated caller" }, 403);
     }
-    const sessionId = bodySessionId || authSessionId;
+    const sessionId = bodySession.sessionId || authSessionId;
     if (!sessionId) {
       return c.json({ error: "sessionId is required (or provide Companion auth headers)" }, 400);
     }
@@ -344,16 +545,18 @@ export function createQuestRoutes(ctx: RouteContext) {
     if (knownSession.isOrchestrator) {
       return c.json({ error: "Leader sessions cannot claim quests. Dispatch to a worker instead." }, 403);
     }
+    const leaderSessionId = resolveClaimLeaderSessionId(launcher, knownSession);
     try {
       const quest = await questStore.claimQuest(c.req.param("questId"), sessionId, {
         allowArchivedOwnerTakeover: true,
         isSessionArchived: (sid: string) => !!launcher.getSession(sid)?.archived,
+        ...(leaderSessionId ? { leaderSessionId } : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
       // setSessionClaimedQuest broadcasts session_quest_claimed + session_name_update
       // source:quest, cancels in-flight namers, and persists the name via callback.
-      setClaimedQuest(sessionId, { id: quest.questId, title: quest.title, status: quest.status });
+      setClaimedQuest(sessionId, claimedQuestEvent(quest));
       console.log(`[quest-claim] Setting session name for ${sessionId} to "${quest.title}" (quest ${quest.questId})`);
       // Use the last user message as trigger so clicking the quest chip scrolls
       // to the user message that initiated the claim (matches auto-namer behavior).
@@ -393,19 +596,58 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.post("/quests/:questId/complete", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     const body = await c.req.json().catch(() => ({}));
     const items = body.verificationItems as import("../quest-types.js").QuestVerificationItem[] | undefined;
     if (!items || !Array.isArray(items)) return c.json({ error: "verificationItems array is required" }, 400);
+    const bodySession = resolveSubmittedSessionId(body.sessionId, resolveId);
+    const authSessionId = auth ? auth.callerId : "";
+    const authIsOrchestrator = auth ? auth.caller.isOrchestrator : false;
+    if (bodySession.raw && !bodySession.sessionId) {
+      return c.json({ error: "sessionId does not belong to a known companion session" }, 400);
+    }
+    if (authSessionId && bodySession.sessionId && bodySession.sessionId !== authSessionId && !authIsOrchestrator) {
+      return c.json({ error: "sessionId does not match authenticated caller" }, 403);
+    }
+    const targetSessionId = bodySession.sessionId;
+    if (targetSessionId && !launcher.getSession(targetSessionId)) {
+      return c.json({ error: "sessionId does not belong to a known companion session" }, 400);
+    }
     try {
+      if (authSessionId && !targetSessionId) {
+        const currentQuest = await questStore.getQuest(c.req.param("questId"));
+        if (!currentQuest) return c.json({ error: "Quest not found" }, 404);
+        const currentOwnerSessionId =
+          "sessionId" in currentQuest && typeof currentQuest.sessionId === "string" ? currentQuest.sessionId : "";
+        if (currentOwnerSessionId && currentOwnerSessionId !== authSessionId && !authIsOrchestrator) {
+          return c.json({ error: "Only leader sessions can complete a quest owned by another session" }, 403);
+        }
+      }
+      const currentQuest = await questStore.getQuest(c.req.param("questId"));
+      const currentOwnerSessionId =
+        currentQuest && "sessionId" in currentQuest && typeof currentQuest.sessionId === "string"
+          ? currentQuest.sessionId
+          : "";
       const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
-      const quest = await questStore.completeQuest(c.req.param("questId"), items, { commitShas });
+      const quest = await questStore.completeQuest(c.req.param("questId"), items, {
+        commitShas,
+        ...(targetSessionId ? { sessionId: targetSessionId } : {}),
+        ...(typeof body.debrief === "string" ? { debrief: body.debrief } : {}),
+        ...(typeof body.debriefTldr === "string" ? { debriefTldr: body.debriefTldr } : {}),
+      });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
-      // Update session's quest status so browsers can show "pending review" badge
-      if ("sessionId" in quest) {
-        const sid = (quest as { sessionId: string }).sessionId;
-        setClaimedQuest(sid, { id: quest.questId, title: quest.title, status: quest.status });
+      // Update session's quest status so browsers can show review-pending state.
+      const reviewOwnerSessionId =
+        targetSessionId ||
+        currentOwnerSessionId ||
+        quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1] ||
+        "";
+      if (reviewOwnerSessionId && hasQuestReviewMetadata(quest)) {
+        setClaimedQuest(reviewOwnerSessionId, claimedQuestEvent(quest));
       }
+      setDebriefTldrWarningHeaderForAgentWrite(c, auth, body.debrief, body.debriefTldr);
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -414,14 +656,22 @@ export function createQuestRoutes(ctx: RouteContext) {
 
   api.post("/quests/:questId/done", async (c) => {
     try {
-      const body = (await c.req.json().catch(() => ({}))) as { notes?: string; cancelled?: boolean };
+      const body = (await c.req.json().catch(() => ({}))) as {
+        notes?: string;
+        cancelled?: boolean;
+        debrief?: string;
+        debriefTldr?: string;
+      };
       const quest = await transitionQuestAndSync(c.req.param("questId"), {
         status: "done",
         ...(body.notes ? { notes: body.notes } : {}),
+        ...(body.debrief !== undefined ? { debrief: body.debrief } : {}),
+        ...(body.debriefTldr !== undefined ? { debriefTldr: body.debriefTldr } : {}),
         ...(body.cancelled ? { cancelled: true } : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       c.header("X-Companion-Deprecated", 'Use /api/quests/:questId/transition with {status:"done"}');
+      setDebriefTldrWarningHeaderForAgentWrite(c, null, body.debrief, body.debriefTldr);
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -438,6 +688,10 @@ export function createQuestRoutes(ctx: RouteContext) {
       // Clear the claimed quest from the active owner session since it's now cancelled.
       if (current && "sessionId" in current && typeof current.sessionId === "string") {
         setClaimedQuest(current.sessionId, null);
+      }
+      if (current && hasQuestReviewMetadata(current)) {
+        const reviewOwner = current.previousOwnerSessionIds?.[current.previousOwnerSessionIds.length - 1];
+        if (reviewOwner) setClaimedQuest(reviewOwner, null);
       }
       wsBridge.removeBoardRowFromAll(c.req.param("questId"));
       return c.json(quest);
@@ -465,6 +719,12 @@ export function createQuestRoutes(ctx: RouteContext) {
       const quest = await questStore.markQuestVerificationRead(c.req.param("questId"));
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
+      if (hasQuestReviewMetadata(quest)) {
+        const reviewOwner = quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1];
+        if (reviewOwner) {
+          setClaimedQuest(reviewOwner, claimedQuestEvent(quest));
+        }
+      }
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -476,6 +736,12 @@ export function createQuestRoutes(ctx: RouteContext) {
       const quest = await questStore.markQuestVerificationInboxUnread(c.req.param("questId"));
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
+      if (hasQuestReviewMetadata(quest)) {
+        const reviewOwner = quest.previousOwnerSessionIds?.[quest.previousOwnerSessionIds.length - 1];
+        if (reviewOwner) {
+          setClaimedQuest(reviewOwner, claimedQuestEvent(quest));
+        }
+      }
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -488,13 +754,23 @@ export function createQuestRoutes(ctx: RouteContext) {
     if (auth && "response" in auth) return auth.response;
     const body = await c.req.json().catch(() => ({}));
     const text = body.text;
+    const tldr = normalizeTldr(body.tldr);
     const author = body.author === "agent" ? "agent" : "human";
-    const rawAuthorSessionId = typeof body.sessionId === "string" ? body.sessionId.trim() : "";
+    const bodySession = resolveSubmittedSessionId(body.sessionId, resolveId);
     const authSessionId = auth ? auth.callerId : "";
-    if (authSessionId && rawAuthorSessionId && rawAuthorSessionId !== authSessionId) {
+    if (bodySession.raw && !bodySession.sessionId) {
+      return c.json(
+        {
+          error:
+            `Unknown sessionId: ${bodySession.raw}. ` + "Agent feedback must include a valid Companion session ID.",
+        },
+        400,
+      );
+    }
+    if (authSessionId && bodySession.sessionId && bodySession.sessionId !== authSessionId) {
       return c.json({ error: "sessionId does not match authenticated caller" }, 403);
     }
-    const resolvedAuthorSessionId = rawAuthorSessionId || authSessionId;
+    const resolvedAuthorSessionId = bodySession.sessionId || authSessionId;
     if (author === "agent" && resolvedAuthorSessionId.length === 0) {
       return c.json({ error: "sessionId is required for agent feedback (or provide Companion auth headers)" }, 400);
     }
@@ -519,28 +795,56 @@ export function createQuestRoutes(ctx: RouteContext) {
           ? ((current as { feedback?: import("../quest-types.js").QuestFeedbackEntry[] }).feedback ?? [])
           : [];
       const entry: import("../quest-types.js").QuestFeedbackEntry = { author, text: text.trim(), ts: Date.now() };
+      if (tldr) entry.tldr = tldr;
       if (authorSessionId) entry.authorSessionId = authorSessionId;
       const hasImagesField = body.images !== undefined;
       if (Array.isArray(body.images) && body.images.length > 0) entry.images = body.images;
+      const documentation = resolveQuestFeedbackDocumentation({
+        quest: current,
+        authorSessionId,
+        request: body,
+        boardRows: boardRowCandidatesForQuest(current),
+      });
+      if (documentation.error)
+        return c.json({ error: documentation.error }, (documentation.status ?? 400) as 400 | 409);
+      Object.assign(entry, documentation.entryPatch);
+      if (documentation.warning) c.header(QUEST_PHASE_DOCUMENTATION_WARNING_HEADER, documentation.warning);
 
       let nextFeedback = [...existing, entry];
+      let entryForWarning = entry;
       if (author === "agent" && isAgentSummaryFeedback(entry.text)) {
-        const summaryIndex = findLatestAgentSummaryFeedbackIndex(existing);
+        const summaryIndex = findLatestAgentSummaryFeedbackIndex(existing, entry);
         if (summaryIndex !== -1) {
           nextFeedback = [...existing];
           const previousEntry = nextFeedback[summaryIndex]!;
-          nextFeedback[summaryIndex] = {
-            ...previousEntry,
+          const hasTldrField = body.tldr !== undefined;
+          const shouldCarryPreviousTldr = !hasTldrField && previousEntry.text === entry.text;
+          const previousBase = shouldCarryPreviousTldr ? previousEntry : feedbackEntryWithoutTldr(previousEntry);
+          const updatedEntry = {
+            ...previousBase,
             text: entry.text,
+            ...(hasTldrField && entry.tldr ? { tldr: entry.tldr } : {}),
             ts: entry.ts,
             ...(authorSessionId ? { authorSessionId } : {}),
             ...(hasImagesField ? { images: entry.images } : {}),
           };
+          nextFeedback[summaryIndex] = updatedEntry;
+          entryForWarning = updatedEntry;
         }
       }
 
-      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: nextFeedback });
+      const quest = await questStore.patchQuest(
+        c.req.param("questId"),
+        {
+          feedback: nextFeedback,
+          ...(documentation.journeyRuns ? { journeyRuns: documentation.journeyRuns } : {}),
+        },
+        { current },
+      );
       if (!quest) return c.json({ error: "Quest not found" }, 404);
+      if (author === "agent") {
+        setTldrWarningHeader(c, tldrWarningForContent("feedback", entryForWarning.text, entryForWarning.tldr));
+      }
       broadcastQuestUpdate(wsBridge);
       return c.json(quest);
     } catch (e: unknown) {
@@ -561,17 +865,22 @@ export function createQuestRoutes(ctx: RouteContext) {
           ? ((current as { feedback?: import("../quest-types.js").QuestFeedbackEntry[] }).feedback ?? [])
           : [];
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
-      if (existing[index]?.author !== "agent") return c.json({ error: "Only agent feedback can be edited" }, 400);
       const updated = [...existing];
       if (typeof body.text === "string" && body.text.trim())
         updated[index] = { ...updated[index], text: body.text.trim() };
+      if (body.tldr !== undefined) {
+        updated[index] = { ...updated[index], tldr: normalizeTldr(body.tldr) };
+      }
       if (body.images !== undefined)
         updated[index] = {
           ...updated[index],
           images: Array.isArray(body.images) && body.images.length > 0 ? body.images : undefined,
         };
-      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated });
+      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated }, { current });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
+      if (updated[index]?.author === "agent") {
+        setTldrWarningHeader(c, tldrWarningForContent("feedback", updated[index]?.text, updated[index]?.tldr));
+      }
       broadcastQuestUpdate(wsBridge);
       return c.json(quest);
     } catch (e: unknown) {
@@ -593,7 +902,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
       if (existing[index]?.author !== "agent") return c.json({ error: "Only agent feedback can be deleted" }, 400);
       const updated = existing.filter((_, feedbackIndex) => feedbackIndex !== index);
-      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated });
+      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated }, { current });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
       return c.json(quest);
@@ -616,7 +925,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       if (index >= existing.length) return c.json({ error: "Index out of range" }, 400);
       const updated = [...existing];
       updated[index] = { ...updated[index], addressed: !updated[index].addressed };
-      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated });
+      const quest = await questStore.patchQuest(c.req.param("questId"), { feedback: updated }, { current });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
       return c.json(quest);
@@ -639,6 +948,9 @@ export function createQuestRoutes(ctx: RouteContext) {
       broadcastQuestUpdate(wsBridge);
       return c.json(quest);
     } catch (e: unknown) {
+      if (isSharpUnavailableError(e)) {
+        return c.json({ error: SHARP_UNAVAILABLE_MESSAGE }, 503);
+      }
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 500);
     }
   });

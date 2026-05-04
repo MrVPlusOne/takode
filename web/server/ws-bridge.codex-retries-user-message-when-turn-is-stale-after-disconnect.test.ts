@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -623,6 +634,77 @@ describe("Codex retries user message when turn is stale after disconnect", () =>
     expect(firstRetryCall).toBeDefined();
     const retried = (firstRetryCall as unknown as [any])[0] as any;
     expect(getCodexStartPendingInputs(retried)[0]?.content).toBe("implement the feature and run tests");
+  });
+
+  it("retries a stale acknowledged head turn so post-relaunch user input can drain", async () => {
+    const sid = "s-stale-ack-followup";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-stale-ack-1" });
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "process the herd event batch",
+      }),
+    );
+
+    adapter1.emitTurnStarted("turn-stale-ack");
+
+    const disconnectedSession = bridge.getSession(sid)!;
+    disconnectedSession.isGenerating = false;
+    disconnectedSession.generationStartedAt = null;
+    adapter1.emitDisconnect("turn-stale-ack");
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    emitCodexSessionReady(adapter2, { cliSessionId: "thread-stale-ack-2" });
+
+    const retriedHeadCall = adapter2.sendBrowserMessage.mock.calls[0];
+    expect(retriedHeadCall).toBeDefined();
+    expect(getCodexStartPendingInputs((retriedHeadCall as unknown as [any])[0])[0]?.content).toBe(
+      "process the herd event batch",
+    );
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "hello after relaunch",
+      }),
+    );
+
+    const queuedSession = bridge.getSession(sid)!;
+    expect(queuedSession.pendingCodexInputs.map((input: any) => input.content)).toContain("hello after relaunch");
+
+    adapter2.emitBrowserMessage({
+      type: "result",
+      data: {
+        subtype: "success",
+        is_error: false,
+        duration_ms: 1,
+        duration_api_ms: 1,
+        num_turns: 1,
+        total_cost_usd: 0,
+        usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        result: "Recovered after relaunch",
+        session_id: sid,
+        stop_reason: "end_turn",
+      },
+    } as any);
+
+    const followUpCall = adapter2.sendBrowserMessage.mock.calls.find((call) => {
+      const msg = call[0] as any;
+      return (
+        msg?.type === "codex_start_pending" &&
+        getCodexStartPendingInputs(msg).some((input) => input.content === "hello after relaunch")
+      );
+    });
+    expect(followUpCall).toBeDefined();
   });
 
   it("retries image user message when resumed turn is inProgress but thread is idle", async () => {

@@ -48,6 +48,10 @@ export function findVisibleSectionEndIndex(
   return Math.min(sections.length, normalizedStartIndex + Math.max(1, visibleSectionCount));
 }
 
+export function findPreviousSectionStartIndex(sections: FeedSection[], fromIndex: number): number | null {
+  return fromIndex > 0 ? Math.min(fromIndex - 1, sections.length - 1) : null;
+}
+
 export function findSectionWindowStartIndexForTarget(
   sections: FeedSection[],
   targetIndex: number,

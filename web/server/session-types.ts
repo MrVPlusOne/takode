@@ -1,3 +1,7 @@
+import type { ReplyContext } from "../shared/reply-context.js";
+import type { FeedWindowSync } from "../shared/feed-window-sync.js";
+import type { LeaderOpenThreadTabsState, LeaderThreadTabUpdate } from "../shared/leader-open-thread-tabs.js";
+
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
 // ─── CLI Message Types (NDJSON from Claude Code CLI) ──────────────────────────
@@ -242,6 +246,10 @@ export interface ToolResultPreview {
   is_truncated: boolean;
   /** Wall-clock duration in seconds (tool_use → tool_result), rounded to 0.1s. Omitted if unknown. */
   duration_seconds?: number;
+  /** Present when the server synthesized this preview to resolve an orphaned Codex tool call. */
+  synthetic_reason?: string;
+  /** Whether retained live terminal output was available for a synthesized preview. */
+  retained_output?: boolean;
 }
 
 export const TOOL_RESULT_PREVIEW_LIMIT = 300;
@@ -261,6 +269,99 @@ export interface VsCodeSelectionMetadata {
   startLine: number;
   endLine: number;
   lineCount: number;
+}
+
+export type ThreadRefSource = "explicit" | "inferred" | "backfill";
+
+export interface ThreadRef {
+  threadKey: string;
+  questId?: string;
+  source: ThreadRefSource;
+  attachedAt?: number;
+  attachedBy?: string;
+}
+
+export interface ThreadAttachmentMarker {
+  type: "thread_attachment_marker";
+  id: string;
+  timestamp: number;
+  markerKey: string;
+  sourceThreadKey?: string;
+  sourceQuestId?: string;
+  threadKey: string;
+  questId?: string;
+  attachedAt: number;
+  attachedBy: string;
+  messageIds: string[];
+  messageIndices: number[];
+  ranges: string[];
+  count: number;
+  firstMessageId?: string;
+  firstMessageIndex?: number;
+}
+
+export interface ThreadAttachmentMovementSummary {
+  threadKey: string;
+  questId?: string;
+  count: number;
+  details: string[];
+  markerIds: string[];
+}
+
+export interface ThreadAttachmentUpdateChangedMessage {
+  historyIndex: number;
+  messageId: string;
+  threadRefs: ThreadRef[];
+}
+
+export interface ThreadAttachmentUpdateEntry {
+  target: { threadKey: string; questId?: string };
+  source?: { threadKey: string; questId?: string };
+  markers: ThreadAttachmentMarker[];
+  markerHistoryIndices: number[];
+  changedMessages: ThreadAttachmentUpdateChangedMessage[];
+  ranges: string[];
+  count: number;
+}
+
+export interface ThreadAttachmentUpdate {
+  type: "thread_attachment_update";
+  version: 1;
+  updateId: string;
+  timestamp: number;
+  attachedAt: number;
+  attachedBy: string;
+  historyLength: number;
+  affectedThreadKeys: string[];
+  maxDistanceFromTail: number;
+  maxChangedMessages: number;
+  updates: ThreadAttachmentUpdateEntry[];
+}
+
+export interface ThreadTransitionMarker {
+  type: "thread_transition_marker";
+  id: string;
+  timestamp: number;
+  markerKey: string;
+  sourceThreadKey: string;
+  sourceQuestId?: string;
+  threadKey: string;
+  questId?: string;
+  transitionedAt: number;
+  reason: "route_switch";
+  sourceMessageIndex?: number;
+}
+
+export interface ActiveTurnRoute {
+  threadKey: string;
+  questId?: string;
+}
+
+export interface ThreadRoutingError {
+  reason: "missing" | "invalid";
+  expected: string;
+  rawContent?: string;
+  marker?: string;
 }
 
 /**
@@ -330,10 +431,14 @@ export interface PendingCodexInput {
   imageRefs?: import("./image-store.js").ImageRef[];
   draftImages?: PendingCodexInputImageDraft[];
   deliveryContent?: string;
+  replyContext?: ReplyContext;
   needsInputReminderText?: string;
   agentSource?: { sessionId: string; sessionLabel?: string };
   takodeHerdBatch?: TakodeHerdBatchSnapshot;
   vscodeSelection?: VsCodeSelectionMetadata;
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
 }
 
 export interface CodexPendingBatchInput {
@@ -352,8 +457,13 @@ export type BrowserOutgoingMessage =
       images?: { media_type: string; data: string }[];
       imageRefs?: import("./image-store.js").ImageRef[];
       deliveryContent?: string;
+      replyContext?: ReplyContext;
       vscodeSelection?: VsCodeSelectionMetadata;
       client_msg_id?: string;
+      /** UI-only thread routing metadata. Main is implicit; quest threads are optional projections. */
+      threadKey?: string;
+      questId?: string;
+      threadRefs?: ThreadRef[];
       /** Present when the message was injected programmatically (e.g. via takode CLI or cron). */
       agentSource?: { sessionId: string; sessionLabel?: string };
       /** Server-only metadata for rebuilding/pruning queued herd batches before delivery. */
@@ -397,6 +507,7 @@ export type BrowserOutgoingMessage =
       known_frozen_hash?: string;
       history_window_section_turn_count?: number;
       history_window_visible_section_count?: number;
+      feed_window_sync_version?: number;
     }
   | {
       type: "history_window_request";
@@ -404,6 +515,23 @@ export type BrowserOutgoingMessage =
       turn_count: number;
       section_turn_count: number;
       visible_section_count: number;
+      cached_window_hash?: string;
+      feed_window_sync_version?: number;
+    }
+  | {
+      type: "thread_window_request";
+      thread_key: string;
+      from_item: number;
+      item_count: number;
+      section_item_count: number;
+      visible_item_count: number;
+      cached_window_hash?: string;
+      feed_window_sync_version?: number;
+    }
+  | {
+      type: "leader_thread_tabs_update";
+      operation: LeaderThreadTabUpdate;
+      client_msg_id?: string;
     }
   | {
       type: "history_sync_mismatch";
@@ -428,7 +556,7 @@ export type BrowserOutgoingMessage =
 
 // Quest Journey state machine -- canonical source in shared/quest-journey.ts
 export { QUEST_JOURNEY_STATES, QUEST_JOURNEY_HINTS } from "../shared/quest-journey.js";
-export type { QuestJourneyState } from "../shared/quest-journey.js";
+export type { QuestJourneyPlanState, QuestJourneyState } from "../shared/quest-journey.js";
 
 /** A single row on the leader's work board. */
 export interface BoardRow {
@@ -439,12 +567,16 @@ export interface BoardRow {
   worker?: string;
   /** Session number of the assigned worker (optional, cached for display). */
   workerNum?: number;
-  /** True when the leader explicitly marked this row as a zero-code / no-code quest. */
+  /** Legacy metadata from the removed board no-code path. Ignored by active workflow logic. */
   noCode?: boolean;
-  /** Quest Journey state -- each state = a leader action that just happened. */
+  /** Active Quest Journey phase plan for this board row. */
+  journey?: import("../shared/quest-journey.js").QuestJourneyPlanState;
+  /** Legacy board state for compatibility; derived from the current Quest Journey phase. */
   status?: string;
-  /** Quest IDs (q-N) or session numbers (#N) this quest is blocked on. */
+  /** Queue-only dependencies: quest IDs (q-N), session numbers (#N), or free-worker. */
   waitFor?: string[];
+  /** Linked same-session needs-input notification IDs that intentionally pause active work. */
+  waitForInput?: string[];
   /** Epoch ms when this row was first added to the board. Used for stable sort. */
   createdAt: number;
   /** Epoch ms when this row was last updated. */
@@ -453,12 +585,95 @@ export interface BoardRow {
   completedAt?: number;
 }
 
+export interface BoardParticipantStatus {
+  sessionId: string;
+  sessionNum?: number | null;
+  name?: string;
+  status: "running" | "idle" | "disconnected" | "archived";
+}
+
+export interface BoardRowSessionStatus {
+  worker?: BoardParticipantStatus;
+  reviewer?: BoardParticipantStatus | null;
+}
+
 export interface HistoryWindowState {
   from_turn: number;
   turn_count: number;
   total_turns: number;
+  has_older_items?: boolean;
+  has_newer_items?: boolean;
+  /** Raw session.messageHistory index of the first message in this window. */
+  start_index?: number;
   section_turn_count: number;
   visible_section_count: number;
+  window_hash?: string;
+}
+
+export interface ThreadWindowState {
+  thread_key: string;
+  from_item: number;
+  item_count: number;
+  total_items: number;
+  has_older_items?: boolean;
+  has_newer_items?: boolean;
+  source_history_length: number;
+  section_item_count: number;
+  visible_item_count: number;
+  window_hash?: string;
+}
+
+export interface ThreadWindowEntry {
+  message: BrowserIncomingMessage;
+  history_index: number;
+  synthetic?: boolean;
+}
+
+export interface LeaderProjectionThreadSummary {
+  threadKey: string;
+  questId?: string;
+  messageCount: number;
+  firstMessageAt?: number;
+  lastMessageAt?: number;
+  firstHistoryIndex?: number;
+  lastHistoryIndex?: number;
+}
+
+export interface LeaderProjectionThreadRow {
+  threadKey: string;
+  questId?: string;
+  title: string;
+  status?: string;
+  boardStatus?: string;
+  journey?: import("../shared/quest-journey.js").QuestJourneyPlanState;
+  boardRow?: BoardRow;
+  rowStatus?: BoardRowSessionStatus;
+  section?: "active" | "done";
+  messageCount: number;
+  createdAt: number;
+}
+
+export interface LeaderProjectionSnapshot {
+  schemaVersion: 1;
+  revision: number;
+  sourceHistoryLength: number;
+  generatedAt: number;
+  threadSummaries: LeaderProjectionThreadSummary[];
+  threadRows: LeaderProjectionThreadRow[];
+  workBoardThreadRows: Array<{
+    threadKey: string;
+    questId?: string;
+    title: string;
+    messageCount?: number;
+    section?: "active" | "done";
+  }>;
+  messageAttentionRecords: SessionAttentionRecord[];
+  attentionRecords: SessionAttentionRecord[];
+  rawTurnBoundaries: Array<{
+    turnIndex: number;
+    startHistoryIndex: number;
+    endHistoryIndex: number | null;
+  }>;
 }
 
 /** High-level task recognized by the session auto-namer. */
@@ -474,6 +689,17 @@ export interface SessionTaskEntry {
   questId?: string;
 }
 
+export interface TakodeNotificationPayload {
+  id?: string;
+  category: "needs-input" | "review";
+  summary?: string;
+  suggestedAnswers?: string[];
+  timestamp: number;
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
+}
+
 /** Messages the bridge sends to the browser */
 export type BrowserIncomingMessageBase =
   | { type: "session_init"; session: SessionState; nextEventSeq?: number }
@@ -486,7 +712,7 @@ export type BrowserIncomingMessageBase =
       uuid?: string;
       tool_start_times?: Record<string, number>;
       turn_duration_ms?: number;
-      notification?: { category: "needs-input" | "review"; timestamp: number };
+      notification?: TakodeNotificationPayload;
     }
   | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }
   | { type: "result"; data: CLIResultMessage; interrupted?: boolean }
@@ -501,7 +727,11 @@ export type BrowserIncomingMessageBase =
       output_delta?: string;
     }
   | { type: "tool_use_summary"; summary: string; tool_use_ids: string[] }
-  | { type: "status_change"; status: "compacting" | "reverting" | "idle" | "running" | null }
+  | {
+      type: "status_change";
+      status: "compacting" | "reverting" | "idle" | "running" | null;
+      activeTurnRoute?: ActiveTurnRoute | null;
+    }
   | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
   | { type: "error"; message: string }
@@ -516,13 +746,40 @@ export type BrowserIncomingMessageBase =
       client_msg_id?: string;
       cliUuid?: string;
       images?: import("./image-store.js").ImageRef[];
+      replyContext?: ReplyContext;
       agentSource?: { sessionId: string; sessionLabel?: string };
       vscodeSelection?: VsCodeSelectionMetadata;
+      threadKey?: string;
+      questId?: string;
+      threadRefs?: ThreadRef[];
+      threadRoutingError?: ThreadRoutingError;
+      takodeHerdEventKeys?: string[];
+    }
+  | {
+      type: "leader_user_message";
+      content: string;
+      timestamp: number;
+      id: string;
+      notification?: TakodeNotificationPayload;
+      threadKey?: string;
+      questId?: string;
+      threadRefs?: ThreadRef[];
+      threadRoutingError?: ThreadRoutingError;
     }
   | { type: "codex_pending_inputs"; inputs: PendingCodexInput[] }
   | { type: "codex_pending_input_cancelled"; input: PendingCodexInput }
   | { type: "message_history"; messages: BrowserIncomingMessage[] }
-  | { type: "history_window_sync"; messages: BrowserIncomingMessage[]; window: HistoryWindowState }
+  | ThreadAttachmentUpdate
+  | { type: "feed_window_sync"; sync: FeedWindowSync }
+  | { type: "history_window_sync"; messages: BrowserIncomingMessage[]; window: HistoryWindowState; cache_hit?: boolean }
+  | {
+      type: "thread_window_sync";
+      thread_key: string;
+      entries: ThreadWindowEntry[];
+      window: ThreadWindowState;
+      cache_hit?: boolean;
+    }
+  | { type: "leader_projection_snapshot"; projection: LeaderProjectionSnapshot }
   | {
       type: "history_sync";
       frozen_base_count: number;
@@ -549,6 +806,22 @@ export type BrowserIncomingMessageBase =
     }
   | { type: "compact_summary"; summary: string }
   | { type: "tool_result_preview"; previews: ToolResultPreview[] }
+  | ThreadAttachmentMarker
+  | ThreadTransitionMarker
+  | {
+      type: "cross_thread_activity_marker";
+      id: string;
+      timestamp: number;
+      threadKey: string;
+      questId?: string;
+      count: number;
+      firstMessageId: string;
+      lastMessageId: string;
+      firstHistoryIndex?: number;
+      lastHistoryIndex?: number;
+      startedAt: number;
+      updatedAt: number;
+    }
   | {
       type: "permission_denied";
       id: string;
@@ -607,14 +880,28 @@ export type BrowserIncomingMessageBase =
       lastReadAt?: number;
       attentionReason?: "action" | "error" | "review" | null;
       generationStartedAt?: number | null;
+      activeTurnRoute?: ActiveTurnRoute | null;
       board?: BoardRow[];
       completedBoard?: BoardRow[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       notifications?: SessionNotification[];
+      attentionRecords?: SessionAttentionRecord[];
+      notificationStatusVersion?: number;
+      notificationStatusUpdatedAt?: number;
     }
   | { type: "session_stuck" }
   | { type: "session_unstuck" }
   | { type: "quest_list_updated" }
-  | { type: "session_quest_claimed"; quest: { id: string; title: string; status?: string } | null }
+  | {
+      type: "session_quest_claimed";
+      quest: {
+        id: string;
+        title: string;
+        status?: string;
+        verificationInboxUnread?: boolean;
+        leaderSessionId?: string;
+      } | null;
+    }
   | {
       type: "task_notification";
       task_id: string;
@@ -628,10 +915,24 @@ export type BrowserIncomingMessageBase =
   | {
       type: "notification_anchored";
       messageId: string | null;
-      notification: { category: "needs-input" | "review"; timestamp: number; summary?: string };
+      notification: TakodeNotificationPayload;
     }
-  | { type: "board_updated"; board: BoardRow[]; completedBoard: BoardRow[] }
-  | { type: "notification_update"; notifications: SessionNotification[] }
+  | {
+      type: "board_updated";
+      board: BoardRow[];
+      completedBoard: BoardRow[];
+      rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
+    }
+  | {
+      type: "notification_update";
+      notifications: SessionNotification[];
+      notificationStatusVersion?: number;
+      notificationStatusUpdatedAt?: number;
+    }
+  | {
+      type: "attention_records_update";
+      attentionRecords: SessionAttentionRecord[];
+    }
   | { type: "timer_update"; timers: import("./timer-types.js").SessionTimer[] }
   | {
       type: "session_activity_update";
@@ -642,6 +943,10 @@ export type BrowserIncomingMessageBase =
         lastReadAt?: number;
         pendingPermissionCount?: number;
         pendingPermissionSummary?: string | null;
+        notificationUrgency?: NotificationUrgency;
+        activeNotificationCount?: number;
+        notificationStatusVersion?: number;
+        notificationStatusUpdatedAt?: number;
       };
     }
   | {
@@ -651,7 +956,14 @@ export type BrowserIncomingMessageBase =
       treeNodeOrder: Record<string, string[]>;
     };
 
-export type BrowserIncomingMessage = BrowserIncomingMessageBase & { seq?: number };
+export type BrowserIncomingMessage = BrowserIncomingMessageBase & {
+  seq?: number;
+  /** Optional quest/thread memberships. Main is implicit for every history entry. */
+  threadRefs?: ThreadRef[];
+  threadKey?: string;
+  questId?: string;
+  threadRoutingError?: ThreadRoutingError;
+};
 
 export type ReplayableBrowserIncomingMessage = Exclude<BrowserIncomingMessageBase, { type: "event_replay" }>;
 
@@ -701,8 +1013,12 @@ export interface CodexOutboundTurn {
 
 export interface SessionState {
   session_id: string;
+  /** Durable Takode session-group identity. Explicitly set to "default" when ungrouped. */
+  treeGroupId?: string;
   /** Whether this session is an orchestrator/leader session. */
   isOrchestrator?: boolean;
+  /** Server-owned leader quest/thread tab state. Browsers must treat this as authoritative. */
+  leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
   backend_type?: BackendType;
   /** Server-authored backend lifecycle state. */
   backend_state?: "initializing" | "resuming" | "recovering" | "connected" | "disconnected" | "broken";
@@ -750,12 +1066,15 @@ export interface SessionState {
   total_lines_removed: number;
   // Codex-specific token details (forwarded from thread/tokenUsage/updated)
   codex_token_details?: {
+    contextTokensUsed?: number;
     inputTokens: number;
     outputTokens: number;
     cachedInputTokens: number;
     reasoningOutputTokens: number;
     modelContextWindow: number;
   };
+  /** Resolved Codex leader recycle threshold for display-only effective context metrics. */
+  codex_leader_recycle_threshold_tokens?: number;
   // Claude/CloudCode token details (forwarded from result.modelUsage)
   claude_token_details?: {
     inputTokens: number;
@@ -763,6 +1082,8 @@ export interface SessionState {
     cachedInputTokens: number;
     modelContextWindow: number;
   };
+  /** Debug lifecycle events for the session info panel. */
+  lifecycle_events?: SessionLifecycleEvent[];
   // Codex-specific rate limits (forwarded from account/rateLimits/updated)
   codex_rate_limits?: {
     primary: { usedPercent: number; windowDurationMins: number; resetsAt: number } | null;
@@ -788,10 +1109,79 @@ export interface SessionState {
   claimedQuestTitle?: string;
   /** Questmaster: current status of the claimed quest */
   claimedQuestStatus?: string;
+  /** Questmaster: present while a completed claimed quest is still in review workflow */
+  claimedQuestVerificationInboxUnread?: boolean;
+  /** Questmaster: orchestrating leader session for the claimed quest, when known */
+  claimedQuestLeaderSessionId?: string;
   /** Codex-only visual stage for image-attached user sends. */
   codex_image_send_stage?: "uploading" | "processing" | "responding" | null;
   /** Per-session notification inbox entries (server-only, never from CLI) */
   notifications?: SessionNotification[];
+  /** Server-authoritative attention records for Main ledger rows and top chips. */
+  attentionRecords?: SessionAttentionRecord[];
+}
+
+export type NotificationUrgency = "needs-input" | "review" | null;
+
+export type SessionAttentionRecordType =
+  | "needs_input"
+  | "review_ready"
+  | "blocked_user_resolvable"
+  | "quest_journey_started"
+  | "quest_thread_created"
+  | "quest_completed_recent"
+  | "quest_reopened_or_rework"
+  | "attention_summary";
+
+export type SessionAttentionRecordPriority =
+  | "needs_input"
+  | "review"
+  | "blocked"
+  | "created"
+  | "completed"
+  | "milestone";
+
+export type SessionAttentionRecordState = "unresolved" | "seen" | "resolved" | "dismissed" | "reopened" | "superseded";
+
+export interface SessionAttentionRecordRoute {
+  threadKey: string;
+  questId?: string;
+  messageId?: string;
+  messageIndex?: number;
+  bannerId?: string;
+  questOverlay?: string;
+}
+
+export interface SessionAttentionRecord {
+  id: string;
+  leaderSessionId: string;
+  type: SessionAttentionRecordType;
+  source: {
+    kind: "notification" | "board" | "quest" | "herd" | "message" | "manual";
+    id?: string;
+    questId?: string;
+    messageId?: string | null;
+    signature?: string;
+  };
+  questId?: string;
+  threadKey: string;
+  title: string;
+  summary: string;
+  actionLabel: "Answer" | "Review" | "Unblock" | "Open" | "Jump";
+  priority: SessionAttentionRecordPriority;
+  state: SessionAttentionRecordState;
+  journeyLifecycleStatus?: "active" | "completed";
+  createdAt: number;
+  updatedAt: number;
+  resolvedAt?: number;
+  dismissedAt?: number;
+  reopenedAt?: number;
+  route: SessionAttentionRecordRoute;
+  chipEligible: boolean;
+  ledgerEligible: boolean;
+  dedupeKey: string;
+  supersedesDedupeKeys?: string[];
+  threadAttachmentSummary?: ThreadAttachmentMovementSummary;
 }
 
 /** A notification collected when `takode notify` fires. Persisted per session. */
@@ -799,10 +1189,62 @@ export interface SessionNotification {
   id: string;
   category: "needs-input" | "review";
   summary?: string;
+  suggestedAnswers?: string[];
   timestamp: number;
   /** Assistant message ID for jump-to-message links (null if no message was anchored) */
   messageId: string | null;
+  /** Thread route for same-thread prompt matching. Main is explicit for new notifications. */
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
   done: boolean;
+}
+
+export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact";
+
+export interface SessionContextLengthSnapshot {
+  /** Known context length in tokens. Omitted when only percentage/window data is known. */
+  contextTokensUsed?: number;
+  contextUsedPercent?: number;
+  modelContextWindow?: number;
+  source: "compact_boundary" | "codex_token_details";
+  capturedAt: number;
+}
+
+export interface SessionCompactionLifecycleEvent {
+  type: "compaction";
+  id: string;
+  timestamp: number;
+  backendType?: BackendType;
+  trigger?: "auto" | "manual";
+  before?: SessionContextLengthSnapshot;
+  after?: SessionContextLengthSnapshot;
+  finishedAt?: number;
+}
+
+export type SessionLifecycleEvent = SessionCompactionLifecycleEvent;
+
+export interface CodexLeaderRecycleTokenSnapshot {
+  contextTokensUsed?: number;
+  contextUsedPercent?: number;
+  modelContextWindow?: number;
+  inputTokens?: number;
+  cachedInputTokens?: number;
+  outputTokens?: number;
+  reasoningOutputTokens?: number;
+}
+
+export interface CodexLeaderRecycleEvent {
+  trigger: CodexLeaderRecycleTrigger;
+  requestedAt: number;
+  previousCliSessionId?: string;
+  nextCliSessionId?: string;
+  tokenUsage?: CodexLeaderRecycleTokenSnapshot;
+}
+
+export interface CodexLeaderRecycleLineage {
+  cliSessionIds: string[];
+  recycleEvents: CodexLeaderRecycleEvent[];
 }
 
 // ─── MCP Types ───────────────────────────────────────────────────────────────
@@ -873,6 +1315,10 @@ export interface PermissionRequest {
   /** Set when the LLM auto-approver deferred this permission to the human.
    *  Explains why: LLM rationale (for "defer"), "evaluation timed out", or "evaluation failed". */
   deferralReason?: string;
+  /** Thread route used by leader/user prompt matching. Main is explicit for new prompt records. */
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: ThreadRef[];
 }
 
 // ─── Session Creation Progress (SSE streaming) ──────────────────────────────
@@ -901,6 +1347,7 @@ export interface CreationProgressEvent {
 
 export type TakodeEventType =
   | "turn_end"
+  | "worker_stream"
   | "turn_start"
   | "compaction_started"
   | "compaction_finished"
@@ -943,6 +1390,8 @@ export interface TakodeTurnEndEventData {
   is_error?: boolean;
   interrupted?: boolean;
   interrupt_source?: "user" | "leader" | "system";
+  interrupt_origin?: "restart_prep";
+  restart_prep_operation_id?: string;
   compacted?: boolean;
   tools?: Record<string, number>;
   resultPreview?: string;
@@ -952,6 +1401,25 @@ export interface TakodeTurnEndEventData {
   /** Who triggered this turn: "user" (direct chat), "leader" (orchestrator),
    *  "system" (internal injection), or "unknown" (no user message tracked). */
   turn_source?: "user" | "leader" | "system" | "unknown";
+  /** Explicit route for the user message that drove this turn, when known. */
+  threadKey?: string;
+  questId?: string;
+}
+
+export interface TakodeWorkerStreamEventData
+  extends Pick<
+    TakodeTurnEndEventData,
+    | "duration_ms"
+    | "tools"
+    | "resultPreview"
+    | "msgRange"
+    | "questChange"
+    | "userMsgs"
+    | "turn_source"
+    | "threadKey"
+    | "questId"
+  > {
+  reason?: "checkpoint";
 }
 
 export interface TakodeCompactionEventData {
@@ -970,6 +1438,8 @@ export interface TakodePermissionRequestEventData {
   turn_source?: "user" | "leader" | "system" | "unknown";
   /** Index of the last assistant message in messageHistory when the permission was emitted. */
   msg_index?: number;
+  threadKey?: string;
+  questId?: string;
 }
 
 export interface TakodePermissionResolvedEventData {
@@ -1015,13 +1485,18 @@ export interface TakodeUserMessageEventData {
     sessionId: string;
     sessionLabel?: string;
   };
+  threadKey?: string;
+  questId?: string;
 }
 
 export interface TakodeNotificationNeedsInputEventData {
   summary?: string;
+  suggestedAnswers?: string[];
   notificationId?: string;
   messageId?: string | null;
   msg_index?: number;
+  threadKey?: string;
+  questId?: string;
 }
 
 export interface TakodeBoardStalledEventData {
@@ -1049,10 +1524,12 @@ export interface TakodeBoardDispatchableEventData {
 export interface TakodeHerdBatchSnapshot {
   events: TakodeEvent[];
   renderedLines: string[];
+  eventKeys?: string[];
 }
 
 export interface TakodeEventDataByType {
   turn_end: TakodeTurnEndEventData;
+  worker_stream: TakodeWorkerStreamEventData;
   turn_start: TakodeTurnStartEventData;
   compaction_started: TakodeCompactionEventData;
   compaction_finished: TakodeCompactionEventData;

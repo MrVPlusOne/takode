@@ -545,9 +545,28 @@ describe("Composer sending messages", () => {
         type: "user_message",
         content: "test message",
         session_id: "s1",
+        threadKey: "main",
       }),
     );
     expect(mockRequestBottomAlignOnNextUserMessage).toHaveBeenCalledWith("s1");
+  });
+
+  it("sends the selected quest thread key with user messages", () => {
+    const { container } = render(<Composer sessionId="s1" threadKey="q-941" questId="q-941" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "thread reply" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "thread reply",
+        threadKey: "q-941",
+        questId: "q-941",
+      }),
+    );
   });
 
   it("pressing Shift+Enter does NOT send the message", () => {
@@ -598,6 +617,31 @@ describe("Composer sending messages", () => {
       expect.objectContaining({
         type: "user_message",
         content: "click send",
+      }),
+    );
+  });
+
+  it("sends reply metadata in history content and concise delivery content to the assistant", () => {
+    (mockStoreState.replyContexts as Map<string, { messageId: string; previewText: string }>).set("s1", {
+      messageId: "codex-agent-long-random-id",
+      previewText: "Original answer",
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "continue the work" } });
+    fireEvent.click(screen.getByTitle("Send message"));
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "continue the work",
+        deliveryContent: "[reply] Original answer\n\ncontinue the work",
+        replyContext: {
+          messageId: "codex-agent-long-random-id",
+          previewText: "Original answer",
+        },
       }),
     );
   });

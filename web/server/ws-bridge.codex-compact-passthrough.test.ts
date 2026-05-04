@@ -3,8 +3,17 @@ import { vi } from "vitest";
 const mockExecSync = vi.hoisted(() => vi.fn());
 const mockExec = vi.hoisted(() => vi.fn());
 const mockShouldSettingsRuleApprove = vi.hoisted(() => vi.fn().mockResolvedValue(null));
+const mockGetSettings = vi.hoisted(() =>
+  vi.fn(() => ({
+    codexLeaderRecycleThresholdTokens: 260_000,
+    codexLeaderRecycleThresholdTokensByModel: {},
+  })),
+);
 vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec }));
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
+vi.mock("./settings-manager.js", () => ({
+  getSettings: mockGetSettings,
+}));
 // Mock settings rule loading so real user ~/.claude/settings.json rules don't
 // interfere with tests. Tests that need specific rules override this per-call.
 vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
@@ -395,7 +404,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -526,6 +546,10 @@ beforeEach(() => {
   bridge.resetTrafficStats();
   mockExecSync.mockReset();
   mockExec.mockReset();
+  mockGetSettings.mockReset().mockReturnValue({
+    codexLeaderRecycleThresholdTokens: 260_000,
+    codexLeaderRecycleThresholdTokensByModel: {},
+  });
   mockShouldSettingsRuleApprove.mockReset().mockResolvedValue(null);
   // Default: mockExec delegates to mockExecSync so tests that set up
   // mockExecSync automatically work for async computeDiffStatsAsync too.
@@ -619,5 +643,340 @@ describe("Codex /compact passthrough", () => {
       expect(compactVariationMsg).toBeDefined();
       expect(getCodexStartPendingInputs(compactVariationMsg)[0]?.content).toBe(content);
     }
+  });
+
+  it("recycles Codex leaders on /compact instead of forwarding to the adapter", async () => {
+    const browser = makeBrowserSocket("leader-compact");
+    const adapter = makeCodexAdapterMock();
+    const launcher = {
+      getSession: vi.fn((sessionId: string) =>
+        sessionId === "leader-compact"
+          ? {
+              sessionId,
+              backendType: "codex",
+              isOrchestrator: true,
+              cliSessionId: "thread-leader",
+              codexLeaderRecyclePending: null,
+            }
+          : null,
+      ),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-compact", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-leader" });
+    bridge.handleBrowserOpen(browser, "leader-compact");
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "/compact",
+      }),
+    );
+
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalled();
+    expect(launcher.prepareCodexLeaderRecycle).toHaveBeenCalledWith(
+      "leader-compact",
+      expect.objectContaining({ trigger: "manual_compact" }),
+    );
+    expect(launcher.relaunch).toHaveBeenCalledWith("leader-compact");
+
+    const session = bridge.getSession("leader-compact")!;
+    const userMsgs = session.messageHistory.filter((m: any) => m.type === "user_message");
+    expect(userMsgs).toHaveLength(1);
+    expect((userMsgs[0] as any).content).toBe("/compact");
+  });
+
+  it("recycles Codex leaders when tracked context tokens cross the threshold", async () => {
+    const browser = makeBrowserSocket("leader-threshold");
+    const adapter = makeCodexAdapterMock();
+    const launcher = {
+      getSession: vi.fn((sessionId: string) =>
+        sessionId === "leader-threshold"
+          ? {
+              sessionId,
+              backendType: "codex",
+              isOrchestrator: true,
+              cliSessionId: "thread-threshold",
+              codexLeaderRecyclePending: null,
+            }
+          : null,
+      ),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-threshold", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-threshold" });
+    bridge.handleBrowserOpen(browser, "leader-threshold");
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 27,
+        codex_token_details: {
+          contextTokensUsed: 270_000,
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 1_000_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).toHaveBeenCalledWith(
+      "leader-threshold",
+      expect.objectContaining({ trigger: "threshold" }),
+    );
+    expect(launcher.relaunch).toHaveBeenCalledWith("leader-threshold");
+  });
+
+  it("uses exact-model Codex leader recycle threshold overrides before the default fallback", async () => {
+    mockGetSettings.mockReturnValue({
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: { "gpt-5.4": 430_000 },
+    });
+    const browser = makeBrowserSocket("leader-threshold-per-model");
+    const adapter = makeCodexAdapterMock();
+    const launcher = {
+      getSession: vi.fn((sessionId: string) =>
+        sessionId === "leader-threshold-per-model"
+          ? {
+              sessionId,
+              backendType: "codex",
+              isOrchestrator: true,
+              cliSessionId: "thread-threshold-per-model",
+              codexLeaderRecyclePending: null,
+            }
+          : null,
+      ),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-threshold-per-model", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-threshold-per-model", model: "gpt-5.4" });
+    bridge.handleBrowserOpen(browser, "leader-threshold-per-model");
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 31,
+        codex_token_details: {
+          contextTokensUsed: 300_000,
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 1_000_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).not.toHaveBeenCalled();
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 43,
+        codex_token_details: {
+          contextTokensUsed: 430_000,
+          inputTokens: 2,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 1_000_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).toHaveBeenCalledWith(
+      "leader-threshold-per-model",
+      expect.objectContaining({ trigger: "threshold" }),
+    );
+    expect(launcher.relaunch).toHaveBeenCalledWith("leader-threshold-per-model");
+  });
+
+  it("treats inherited over-threshold usage as informational after resume until it rises past the last threshold recycle", async () => {
+    const browser = makeBrowserSocket("leader-threshold-resume");
+    const adapter = makeCodexAdapterMock();
+    const launcher = {
+      getSession: vi.fn((sessionId: string) =>
+        sessionId === "leader-threshold-resume"
+          ? {
+              sessionId,
+              backendType: "codex",
+              isOrchestrator: true,
+              cliSessionId: "thread-resumed",
+              codexLeaderRecyclePending: null,
+              codexLeaderRecycleLineage: {
+                cliSessionIds: ["thread-before", "thread-resumed"],
+                recycleEvents: [
+                  {
+                    trigger: "threshold",
+                    requestedAt: 1,
+                    previousCliSessionId: "thread-before",
+                    nextCliSessionId: "thread-resumed",
+                    tokenUsage: {
+                      contextTokensUsed: 428_284,
+                      contextUsedPercent: 45,
+                      modelContextWindow: 950_000,
+                    },
+                  },
+                ],
+              },
+            }
+          : null,
+      ),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-threshold-resume", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-resumed" });
+    bridge.handleBrowserOpen(browser, "leader-threshold-resume");
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 45,
+        codex_token_details: {
+          contextTokensUsed: 428_284,
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 950_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+  });
+
+  it("does not retrigger immediately after reconnect clears a pending threshold recycle, but re-arms once usage grows", async () => {
+    const browser = makeBrowserSocket("leader-threshold-reconnect");
+    const adapter = makeCodexAdapterMock();
+    const launcherSession: any = {
+      sessionId: "leader-threshold-reconnect",
+      backendType: "codex",
+      isOrchestrator: true,
+      cliSessionId: "thread-before",
+      codexLeaderRecyclePending: {
+        eventIndex: 0,
+        trigger: "threshold" as const,
+        requestedAt: 1,
+      },
+      codexLeaderRecycleLineage: {
+        cliSessionIds: ["thread-before"],
+        recycleEvents: [
+          {
+            trigger: "threshold" as const,
+            requestedAt: 1,
+            previousCliSessionId: "thread-before",
+            tokenUsage: {
+              contextTokensUsed: 428_284,
+              contextUsedPercent: 45,
+              modelContextWindow: 950_000,
+            },
+          },
+        ],
+      },
+    };
+    const launcher = {
+      getSession: vi.fn((sessionId: string) => (sessionId === launcherSession.sessionId ? launcherSession : null)),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(() => {
+        launcherSession.codexLeaderRecyclePending = null;
+      }),
+      setCLISessionId: vi.fn((_sessionId: string, cliSessionId: string) => {
+        launcherSession.cliSessionId = cliSessionId;
+        if (!launcherSession.codexLeaderRecycleLineage.cliSessionIds.includes(cliSessionId)) {
+          launcherSession.codexLeaderRecycleLineage.cliSessionIds.push(cliSessionId);
+        }
+        const recycleEvent = launcherSession.codexLeaderRecycleLineage.recycleEvents[0];
+        if (recycleEvent && !recycleEvent.nextCliSessionId) {
+          recycleEvent.nextCliSessionId = cliSessionId;
+        }
+      }),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-threshold-reconnect", adapter as any);
+    bridge.handleBrowserOpen(browser, "leader-threshold-reconnect");
+
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-after" });
+
+    expect(launcher.completeCodexLeaderRecycle).toHaveBeenCalledWith("leader-threshold-reconnect");
+    expect(launcherSession.codexLeaderRecyclePending).toBeNull();
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 45,
+        codex_token_details: {
+          contextTokensUsed: 428_284,
+          inputTokens: 1,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 950_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(launcher.relaunch).not.toHaveBeenCalled();
+
+    adapter.emitBrowserMessage({
+      type: "session_update",
+      session: {
+        context_used_percent: 46,
+        codex_token_details: {
+          contextTokensUsed: 428_285,
+          inputTokens: 2,
+          outputTokens: 1,
+          cachedInputTokens: 1,
+          reasoningOutputTokens: 0,
+          modelContextWindow: 950_000,
+        },
+      },
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).toHaveBeenCalledWith(
+      "leader-threshold-reconnect",
+      expect.objectContaining({ trigger: "threshold" }),
+    );
+    expect(launcher.relaunch).toHaveBeenCalledWith("leader-threshold-reconnect");
   });
 });

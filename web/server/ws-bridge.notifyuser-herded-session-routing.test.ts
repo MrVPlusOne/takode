@@ -395,7 +395,18 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       ? advanceBoardRowController(
           bridge.getSession(sessionId)!,
           questId,
-          ["QUEUED", "PLANNING", "IMPLEMENTING", "SKEPTIC_REVIEWING", "GROOM_REVIEWING", "PORTING"],
+          [
+            "QUEUED",
+            "PLANNING",
+            "EXPLORING",
+            "IMPLEMENTING",
+            "CODE_REVIEWING",
+            "MENTAL_SIMULATING",
+            "EXECUTING",
+            "OUTCOME_REVIEWING",
+            "BOOKKEEPING",
+            "PORTING",
+          ],
           workBoardStateDeps,
         )
       : null;
@@ -675,6 +686,7 @@ describe("notifyUser herded session routing", () => {
       "needs-input",
       "Need decision on auth",
       getNotificationTestDeps(bridge),
+      { suggestedAnswers: ["yes", "no"] },
     );
     expect(result.ok).toBe(true);
 
@@ -685,6 +697,8 @@ describe("notifyUser herded session routing", () => {
     expect(needsInputEvents[0].data.notificationId).toBe("n-1");
     expect(needsInputEvents[0].data.messageId).toBe("asst-1");
     expect(needsInputEvents[0].data.msg_index).toBe(0);
+    expect(needsInputEvents[0].data.suggestedAnswers).toEqual(["yes", "no"]);
+    expect(session.notifications[0].suggestedAnswers).toEqual(["yes", "no"]);
     expect((session.messageHistory[0] as any).notification).toBeUndefined();
 
     // Attention should NOT be set for herded session

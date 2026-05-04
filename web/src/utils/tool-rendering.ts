@@ -17,11 +17,45 @@ export interface ParseEditToolInputOptions {
   fallbackToFirstChangePath?: boolean;
 }
 
+export function getDistinctChangeFilePaths(input: Record<string, unknown>): string[] {
+  const changes = Array.isArray(input.changes) ? (input.changes as Array<Record<string, unknown>>) : [];
+  const paths: string[] = [];
+  const seen = new Set<string>();
+
+  for (const change of changes) {
+    const path = getChangeFilePath(change);
+    if (!path || seen.has(path)) continue;
+    seen.add(path);
+    paths.push(path);
+  }
+
+  return paths;
+}
+
 export function getChangePatch(change: Record<string, unknown>): string {
   const candidates = [change.diff, change.unified_diff, change.unifiedDiff, change.patch];
   for (const candidate of candidates) {
-    if (typeof candidate === "string" && candidate.trim()) return candidate.trim();
+    if (typeof candidate === "string" && isPatchLikeChangeText(candidate, change)) return candidate.trim();
   }
+  return "";
+}
+
+export function getChangeFilePath(change: Record<string, unknown>): string {
+  return firstNonEmptyString(change, ["path", "file_path", "filePath", "filename"]);
+}
+
+export function getChangeContent(change: Record<string, unknown>): string {
+  const explicitContent = extractChangeContent(change);
+  if (explicitContent) return explicitContent;
+
+  if (!isWriteLikeChangeKind(change)) return "";
+
+  const candidates = [change.diff, change.unified_diff, change.unifiedDiff, change.patch];
+  for (const candidate of candidates) {
+    if (typeof candidate !== "string" || !candidate.trim()) continue;
+    if (!isPatchLikeChangeText(candidate, change)) return candidate;
+  }
+
   return "";
 }
 
@@ -43,6 +77,19 @@ function isWriteLikeChangeKind(change: Record<string, unknown>): boolean {
 
 function extractChangeContent(change: Record<string, unknown>): string {
   return firstNonEmptyString(change, ["content", "text", "new_string", "newText", "new_content", "newContent"]);
+}
+
+function isPatchLikeChangeText(text: string, change: Record<string, unknown>): boolean {
+  const normalized = text.replace(/\r\n?/g, "\n");
+  if (!normalized.trim()) return false;
+  if (/^(diff --git|diff --cc|--- |\+\+\+ |@@\s)/m.test(normalized)) return true;
+
+  const nonEmptyLines = normalized.split("\n").filter((line) => line.trim().length > 0);
+  if (isWriteLikeChangeKind(change)) {
+    return nonEmptyLines.length > 0 && nonEmptyLines.every((line) => line.startsWith("+"));
+  }
+
+  return nonEmptyLines.some((line) => line.startsWith("+") || line.startsWith("-"));
 }
 
 function extractNewTextFromPatch(patch: string): string {
@@ -89,7 +136,7 @@ export function parseEditToolInput(
   options: ParseEditToolInputOptions = {},
 ): ParsedEditToolInput {
   const changes = Array.isArray(input.changes) ? (input.changes as Array<Record<string, unknown>>) : [];
-  const firstChangePath = changes.find((c) => typeof c.path === "string")?.path as string | undefined;
+  const firstChangePath = changes.map((change) => getChangeFilePath(change)).find(Boolean);
   const filePath = options.fallbackToFirstChangePath
     ? String(input.file_path || firstChangePath || "")
     : String(input.file_path || "");
@@ -110,7 +157,7 @@ export function parseEditToolInput(
     .map((change) => {
       if (!isWriteLikeChangeKind(change)) return "";
       if (getChangePatch(change)) return "";
-      return extractChangeContent(change);
+      return getChangeContent(change);
     })
     .find(Boolean);
   const newText = String(input.new_string || "") || topLevelContent || createChangeContent || "";
@@ -126,7 +173,7 @@ export function parseEditToolInput(
 
 export function parseWriteToolInput(input: Record<string, unknown>): ParsedWriteToolInput {
   const changes = Array.isArray(input.changes) ? (input.changes as Array<Record<string, unknown>>) : [];
-  const firstChangePath = changes.find((c) => typeof c.path === "string")?.path as string | undefined;
+  const firstChangePath = changes.map((change) => getChangeFilePath(change)).find(Boolean);
   const filePath = String(input.file_path || firstChangePath || "");
   const unifiedDiff = changes
     .map((change) => getChangePatch(change))
@@ -138,7 +185,7 @@ export function parseWriteToolInput(input: Record<string, unknown>): ParsedWrite
       .map((change) => {
         if (!isWriteLikeChangeKind(change)) return "";
         if (getChangePatch(change)) return "";
-        return extractChangeContent(change);
+        return getChangeContent(change);
       })
       .find(Boolean) ||
     "";

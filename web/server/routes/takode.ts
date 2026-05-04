@@ -3,7 +3,7 @@ import { access as accessAsync } from "node:fs/promises";
 import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
-import { FREE_WORKER_WAIT_FOR_TOKEN, isValidQuestId, isValidWaitForRef } from "../../shared/quest-journey.js";
+import { isValidQuestId } from "../../shared/quest-journey.js";
 import {
   buildPeekResponse,
   buildPeekDefault,
@@ -14,6 +14,7 @@ import {
   grepMessageHistory,
   exportSessionAsText,
 } from "../takode-messages.js";
+import { buildLeaderContextResume } from "../takode-leader-context-resume.js";
 import {
   getHerdDiagnostics as getHerdDiagnosticsController,
   markAllNotificationsDone as markAllNotificationsDoneController,
@@ -21,40 +22,189 @@ import {
   notifyUser as notifyUserController,
   summarizePendingPermissions,
 } from "../bridge/session-registry-controller.js";
-import {
-  advanceBoardRow as advanceBoardRowController,
-  advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
-  getBoard as getBoardController,
-  getBoardQueueWarnings as getBoardQueueWarningsController,
-  getBoardWorkerSlotUsage as getBoardWorkerSlotUsageController,
-  getCompletedBoard as getCompletedBoardController,
-  removeBoardRows as removeBoardRowsController,
-  upsertBoardRow as upsertBoardRowController,
-} from "../bridge/board-watchdog-controller.js";
+import { getBoard as getBoardController } from "../bridge/board-watchdog-controller.js";
 import {
   refreshGitInfoPublic as refreshGitInfoPublicController,
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "../bridge/session-git-state.js";
+import { buildBoardRowSessionStatuses as buildBoardRowSessionStatusesController } from "../board-row-session-status.js";
 import { getSettings } from "../settings-manager.js";
-import { QUEST_JOURNEY_STATES, type BrowserOutgoingMessage } from "../session-types.js";
+import {
+  type BrowserIncomingMessage,
+  type BrowserOutgoingMessage,
+  type ThreadAttachmentUpdate,
+  type ThreadAttachmentUpdateEntry,
+  type ThreadRef,
+} from "../session-types.js";
+import {
+  buildThreadAttachmentSelection,
+  hasThreadAttachmentMarker,
+  inferThreadAttachmentSourceRoute,
+  inferThreadRouteFromTextContent,
+  messageIdForThreadAttachment,
+  routeKey,
+  sameThreadRoute,
+  threadRouteForTarget,
+} from "../thread-routing-metadata.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
+import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
+import { registerTakodeBoardRoutes } from "./takode-board.js";
+
+const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
+const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
+const THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT = 300;
+const THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES = 100;
+const pendingThreadAttachmentHistoryBroadcasts = new Map<string, ReturnType<typeof setTimeout>>();
+const pendingThreadAttachmentUpdates = new Map<
+  string,
+  { timer: ReturnType<typeof setTimeout>; changedCount: number; updates: ThreadAttachmentUpdateEntry[] }
+>();
+
+function scheduleThreadAttachmentHistoryBroadcast(wsBridge: RouteContext["wsBridge"], sessionId: string): void {
+  const existing = pendingThreadAttachmentHistoryBroadcasts.get(sessionId);
+  if (existing) clearTimeout(existing);
+
+  const timer = setTimeout(() => {
+    pendingThreadAttachmentHistoryBroadcasts.delete(sessionId);
+    const session = wsBridge.getSession(sessionId);
+    if (!session) return;
+    wsBridge.broadcastToSession(sessionId, { type: "message_history", messages: session.messageHistory });
+  }, THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS);
+  pendingThreadAttachmentHistoryBroadcasts.set(sessionId, timer);
+}
+
+function normalizeAffectedThreadKey(threadKey: string | undefined): string | null {
+  const normalized = threadKey?.trim().toLowerCase();
+  if (!normalized) return null;
+  return normalized;
+}
+
+function pendingThreadAttachmentChangedCount(sessionId: string): number {
+  return pendingThreadAttachmentUpdates.get(sessionId)?.changedCount ?? 0;
+}
+
+function threadAttachmentEntryAttachedAt(update: ThreadAttachmentUpdateEntry): number | undefined {
+  const markerAttachedAt = update.markers[0]?.attachedAt;
+  if (typeof markerAttachedAt === "number") return markerAttachedAt;
+  for (const message of update.changedMessages) {
+    const refAttachedAt = message.threadRefs.find((ref) => typeof ref.attachedAt === "number")?.attachedAt;
+    if (typeof refAttachedAt === "number") return refAttachedAt;
+  }
+  return undefined;
+}
+
+function threadAttachmentEntryAttachedBy(update: ThreadAttachmentUpdateEntry): string | undefined {
+  const markerAttachedBy = update.markers[0]?.attachedBy;
+  if (markerAttachedBy) return markerAttachedBy;
+  for (const message of update.changedMessages) {
+    const refAttachedBy = message.threadRefs.find((ref) => ref.attachedBy)?.attachedBy;
+    if (refAttachedBy) return refAttachedBy;
+  }
+  return undefined;
+}
+
+function buildThreadAttachmentBoundError(input: {
+  questId: string;
+  historyLength: number;
+  selectedIndices: number[];
+  changedCount: number;
+  pendingChangedCount: number;
+}): Record<string, unknown> | null {
+  const minAllowedIndex = Math.max(0, input.historyLength - THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT);
+  const validSelectedIndices = input.selectedIndices.filter((index) => index >= 0 && index < input.historyLength);
+  const minSelectedIndex = validSelectedIndices[0];
+  const maxSelectedIndex = validSelectedIndices[validSelectedIndices.length - 1];
+  if (typeof minSelectedIndex === "number" && minSelectedIndex < minAllowedIndex) {
+    return {
+      error: "Thread attach range is outside the recent bounded update window",
+      code: "THREAD_ATTACH_OUTSIDE_RECENT_WINDOW",
+      questId: input.questId,
+      historyLength: input.historyLength,
+      minSelectedIndex,
+      maxSelectedIndex,
+      minAllowedIndex,
+      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
+      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
+      suggestion: "Attach recent messages only.",
+    };
+  }
+  if (input.pendingChangedCount + input.changedCount > THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES) {
+    return {
+      error: "Thread attach selection exceeds the bounded update message limit",
+      code: "THREAD_ATTACH_TOO_MANY_MESSAGES",
+      questId: input.questId,
+      changedMessages: input.changedCount,
+      pendingChangedMessages: input.pendingChangedCount,
+      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
+      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
+      suggestion: "Attach fewer messages in this recent burst.",
+    };
+  }
+  return null;
+}
+
+function scheduleThreadAttachmentUpdateBroadcast(
+  wsBridge: RouteContext["wsBridge"],
+  sessionId: string,
+  update: ThreadAttachmentUpdateEntry,
+): void {
+  const existing = pendingThreadAttachmentUpdates.get(sessionId);
+  if (existing) clearTimeout(existing.timer);
+
+  const updates = [...(existing?.updates ?? []), update];
+  const changedCount = (existing?.changedCount ?? 0) + update.changedMessages.length;
+  const timer = setTimeout(() => {
+    pendingThreadAttachmentUpdates.delete(sessionId);
+    const session = wsBridge.getSession(sessionId);
+    if (!session) return;
+    const timestamp = Date.now();
+    const affectedThreadKeys = new Set<string>(["main"]);
+    for (const item of updates) {
+      const target = normalizeAffectedThreadKey(item.target.threadKey);
+      const targetQuest = normalizeAffectedThreadKey(item.target.questId);
+      const source = normalizeAffectedThreadKey(item.source?.threadKey);
+      const sourceQuest = normalizeAffectedThreadKey(item.source?.questId);
+      if (target) affectedThreadKeys.add(target);
+      if (targetQuest) affectedThreadKeys.add(targetQuest);
+      if (source) affectedThreadKeys.add(source);
+      if (sourceQuest) affectedThreadKeys.add(sourceQuest);
+    }
+    const markerIds = updates.flatMap((item) => item.markers.map((marker) => marker.id));
+    const event: ThreadAttachmentUpdate = {
+      type: "thread_attachment_update",
+      version: THREAD_ATTACHMENT_UPDATE_VERSION,
+      updateId: `thread-attachment-update:${timestamp}:${markerIds.join(",") || changedCount}`,
+      timestamp,
+      attachedAt: threadAttachmentEntryAttachedAt(updates[0]!) ?? timestamp,
+      attachedBy: threadAttachmentEntryAttachedBy(updates[0]!) ?? "",
+      historyLength: session.messageHistory.length,
+      affectedThreadKeys: [...affectedThreadKeys],
+      maxDistanceFromTail: THREAD_ATTACHMENT_RECENT_HISTORY_LIMIT,
+      maxChangedMessages: THREAD_ATTACHMENT_MAX_CHANGED_MESSAGES,
+      updates,
+    };
+    wsBridge.broadcastToSession(sessionId, event);
+  }, THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS);
+  pendingThreadAttachmentUpdates.set(sessionId, { timer, changedCount, updates });
+}
+
+export function _resetThreadAttachmentHistoryBroadcastsForTest(): void {
+  for (const timer of pendingThreadAttachmentHistoryBroadcasts.values()) {
+    clearTimeout(timer);
+  }
+  pendingThreadAttachmentHistoryBroadcasts.clear();
+  for (const pending of pendingThreadAttachmentUpdates.values()) {
+    clearTimeout(pending.timer);
+  }
+  pendingThreadAttachmentUpdates.clear();
+}
 
 export function createTakodeRoutes(ctx: RouteContext) {
   const api = new Hono();
   const bridgeAny = ctx.wsBridge as any;
   const { launcher, wsBridge, authenticateTakodeCaller, resolveId, timerManager, pushoverNotifier } = ctx;
   type BridgeSession = NonNullable<ReturnType<typeof wsBridge.getSession>>;
-  type BoardParticipantStatus = {
-    sessionId: string;
-    sessionNum?: number | null;
-    name?: string;
-    status: "running" | "idle" | "disconnected" | "archived";
-  };
-  type BoardRowSessionStatus = {
-    worker?: BoardParticipantStatus;
-    reviewer?: BoardParticipantStatus | null;
-  };
   type LeaderAnswerTarget =
     | {
         kind: "permission";
@@ -62,6 +212,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
         tool_name: string;
         timestamp: number;
         msg_index?: number;
+        threadKey?: string;
+        questId?: string;
         input: Record<string, unknown>;
         questions?: unknown;
         plan?: unknown;
@@ -73,13 +225,17 @@ export function createTakodeRoutes(ctx: RouteContext) {
         tool_name: "takode.notify";
         timestamp: number;
         msg_index?: number;
+        threadKey?: string;
+        questId?: string;
         summary?: string;
+        suggestedAnswers?: string[];
         messageId: string | null;
       };
   type LeaderAnswerTargetSelection =
     | { kind: "oldest" }
     | { kind: "msg_index"; msg_index: number }
-    | { kind: "target_id"; target_id: string };
+    | { kind: "target_id"; target_id: string }
+    | { kind: "thread"; threadKey: string };
   type LeaderPermissionResponse = Extract<BrowserOutgoingMessage, { type: "permission_response" }>;
 
   const resolveReportedPermissionMode = (
@@ -124,6 +280,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
   };
   const notificationRouteDeps = {
     isHerdedWorkerSession: (session: BridgeSession) => !!launcher.getSession(session.id)?.herdedBy,
+    getLauncherSessionInfo: (sessionId: string) => launcher.getSession(sessionId),
     broadcastToBrowsers: (session: BridgeSession, msg: unknown) => wsBridge.broadcastToSession(session.id, msg as any),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
@@ -137,6 +294,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
   };
   const notificationPersistDeps = {
     broadcastToBrowsers: (session: BridgeSession, msg: unknown) => wsBridge.broadcastToSession(session.id, msg as any),
+    broadcastBoard: (
+      session: BridgeSession,
+      board: import("../session-types.js").BoardRow[],
+      completedBoard: import("../session-types.js").BoardRow[],
+    ) => broadcastBoardUpdate(session, board, completedBoard),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
   };
   const boardWatchdogDeps = {
@@ -168,8 +330,19 @@ export function createTakodeRoutes(ctx: RouteContext) {
     getBoardDispatchableSignature: (session: BridgeSession, questId: string) =>
       wsBridge.getBoardDispatchableSignature(session.id, questId),
     markNotificationDone: boardWatchdogDeps.markNotificationDone,
-    broadcastBoard: (session: BridgeSession, board: unknown[], completedBoard: unknown[]) =>
-      wsBridge.broadcastToSession(session.id, { type: "board_updated", board, completedBoard } as any),
+    broadcastBoard: (
+      session: BridgeSession,
+      board: import("../session-types.js").BoardRow[],
+      completedBoard: import("../session-types.js").BoardRow[],
+    ) => broadcastBoardUpdate(session, board, completedBoard),
+    broadcastAttentionRecords: (
+      session: BridgeSession,
+      attentionRecords: import("../session-types.js").SessionAttentionRecord[],
+    ) =>
+      wsBridge.broadcastToSession(session.id, {
+        type: "attention_records_update",
+        attentionRecords,
+      } as any),
     persistSession: (session: BridgeSession) => wsBridge.persistSessionById(session.id),
     notifyReview: (sessionId: string, summary: string) => {
       const session = wsBridge.getSession(sessionId);
@@ -246,6 +419,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
             keywords: currentBridgeSession?.keywords ?? [],
             claimedQuestId: bridge?.claimedQuestId ?? null,
             claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
+            claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
             ...(attention ?? {}),
             ...(s.isWorktree && s.archived
               ? await (async () => {
@@ -269,12 +443,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
   };
   type EnrichedSession = Awaited<ReturnType<typeof buildEnrichedSessions>>[number];
 
-  const deriveSessionStatusLabel = (session: { archived?: boolean; cliConnected?: boolean; state?: string | null }) => {
-    if (session.archived) return "archived" as const;
-    if (session.cliConnected) return session.state === "running" ? ("running" as const) : ("idle" as const);
-    return "disconnected" as const;
-  };
-
   const findMessageIndexById = (session: BridgeSession, messageId: string | null | undefined): number | undefined => {
     if (!messageId) return undefined;
     for (let i = session.messageHistory.length - 1; i >= 0; i--) {
@@ -289,11 +457,54 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return match ? Number.parseInt(match[1], 10) : null;
   };
 
+  const normalizeNeedsInputNotificationId = (value: unknown): string | null => {
+    if (typeof value === "number" && Number.isInteger(value) && value > 0) {
+      return `n-${value}`;
+    }
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+    if (/^\d+$/.test(trimmed)) {
+      const numericId = Number.parseInt(trimmed, 10);
+      return numericId > 0 ? `n-${numericId}` : null;
+    }
+    const numericId = parseNotificationNumericId(trimmed.toLowerCase());
+    return numericId !== null ? `n-${numericId}` : null;
+  };
+
+  const normalizeSuggestedAnswers = (
+    value: unknown,
+    category: "needs-input" | "review",
+  ): { ok: true; answers: string[] } | { ok: false; error: string } => {
+    if (value === undefined || value === null) return { ok: true, answers: [] };
+    if (!Array.isArray(value)) return { ok: false, error: "suggestedAnswers must be an array of strings" };
+    if (value.length === 0) return { ok: true, answers: [] };
+    if (category !== "needs-input") {
+      return { ok: false, error: "suggestedAnswers are only supported for needs-input notifications" };
+    }
+    if (value.length > 3) return { ok: false, error: "suggestedAnswers may include at most 3 options" };
+
+    const seen = new Set<string>();
+    const answers: string[] = [];
+    for (const entry of value) {
+      if (typeof entry !== "string") return { ok: false, error: "suggestedAnswers must be strings" };
+      const answer = entry.trim().replace(/\s+/g, " ");
+      if (!answer) return { ok: false, error: "suggestedAnswers entries must be nonempty" };
+      if (answer.length > 32) return { ok: false, error: "suggestedAnswers entries must be 32 characters or less" };
+      const key = answer.toLocaleLowerCase();
+      if (seen.has(key)) return { ok: false, error: "suggestedAnswers entries must be unique" };
+      seen.add(key);
+      answers.push(answer);
+    }
+    return { ok: true, answers };
+  };
+
   const buildSelfNeedsInputNotifications = (session: BridgeSession) => {
     const unresolved: Array<{
       notificationId: number;
       rawNotificationId: string;
       summary?: string;
+      suggestedAnswers?: string[];
       timestamp: number;
       messageId: string | null;
     }> = [];
@@ -311,6 +522,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         notificationId: numericId,
         rawNotificationId: notification.id,
         summary: notification.summary,
+        ...(notification.suggestedAnswers?.length ? { suggestedAnswers: notification.suggestedAnswers } : {}),
         timestamp: notification.timestamp,
         messageId: notification.messageId,
       });
@@ -320,54 +532,40 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return { notifications: unresolved, resolvedCount };
   };
 
-  const toBoardParticipantStatus = (
-    session: Pick<EnrichedSession, "sessionId" | "sessionNum" | "name" | "archived" | "state"> & {
-      cliConnected?: boolean;
-    },
-  ): BoardParticipantStatus => ({
-    sessionId: session.sessionId,
-    sessionNum: session.sessionNum,
-    name: session.name,
-    status: deriveSessionStatusLabel(session),
-  });
-
-  const buildBoardRowSessionStatuses = async (
-    rows: import("../session-types.js").BoardRow[],
-  ): Promise<Record<string, BoardRowSessionStatus>> => {
-    if (rows.length === 0) return {};
-
-    const sessions = await buildEnrichedSessions();
-    const sessionsById = new Map(sessions.map((session) => [session.sessionId, session]));
-    const sessionsByNum = new Map<number, EnrichedSession>();
-    const activeReviewersByParent = new Map<number, EnrichedSession>();
-
-    for (const session of sessions) {
-      if (session.sessionNum != null) sessionsByNum.set(session.sessionNum, session);
-      if (!session.archived && session.reviewerOf != null && !activeReviewersByParent.has(session.reviewerOf)) {
-        activeReviewersByParent.set(session.reviewerOf, session);
-      }
-    }
-
-    const statuses: Record<string, BoardRowSessionStatus> = {};
-    for (const row of rows) {
-      const workerSession =
-        (row.worker ? sessionsById.get(row.worker) : undefined) ??
-        (row.workerNum != null ? sessionsByNum.get(row.workerNum) : undefined);
-      const reviewerSession =
-        row.workerNum != null
-          ? activeReviewersByParent.get(row.workerNum)
-          : workerSession?.sessionNum != null
-            ? activeReviewersByParent.get(workerSession.sessionNum)
-            : undefined;
-
-      statuses[row.questId] = {
-        ...(workerSession ? { worker: toBoardParticipantStatus(workerSession) } : {}),
-        reviewer: reviewerSession ? toBoardParticipantStatus(reviewerSession) : null,
+  const getBoardStatusSessions = () =>
+    launcher.listSessions().map((session) => {
+      const bridgeSession = wsBridge.getSession(session.sessionId);
+      const cliConnected = wsBridge.isBackendConnected(session.sessionId);
+      return {
+        sessionId: session.sessionId,
+        sessionNum: launcher.getSessionNum(session.sessionId) ?? null,
+        reviewerOf: session.reviewerOf,
+        archived: session.archived,
+        state: cliConnected && bridgeSession?.isGenerating ? "running" : session.state,
+        cliConnected,
+        name: sessionNames.getName(session.sessionId) ?? session.name,
       };
-    }
+    });
 
-    return statuses;
+  const buildBoardRowSessionStatuses = async (rows: import("../session-types.js").BoardRow[]) => {
+    if (rows.length === 0) return {};
+    return buildBoardRowSessionStatusesController(rows, getBoardStatusSessions());
   };
+
+  const broadcastBoardUpdate = (
+    session: BridgeSession,
+    board: import("../session-types.js").BoardRow[],
+    completedBoard: import("../session-types.js").BoardRow[],
+  ) =>
+    wsBridge.broadcastToSession(session.id, {
+      type: "board_updated",
+      board,
+      completedBoard,
+      rowSessionStatuses: buildBoardRowSessionStatusesController(
+        [...board, ...completedBoard],
+        getBoardStatusSessions(),
+      ),
+    } as any);
 
   api.get("/takode/me", (c) => {
     const auth = authenticateTakodeCaller(c);
@@ -379,6 +577,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
       state: auth.caller.state,
       backendType: auth.caller.backendType || "claude",
     });
+  });
+
+  api.get("/takode/quest-journey-phases", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
+    const phases = await loadQuestJourneyPhaseCatalog();
+    return c.json({ phases });
   });
 
   api.get("/takode/sessions", async (c) => {
@@ -451,12 +657,100 @@ export function createTakodeRoutes(ctx: RouteContext) {
       claimedQuestId: bridge?.claimedQuestId ?? null,
       claimedQuestTitle: bridge?.claimedQuestTitle ?? null,
       claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
+      claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
       uiMode: bridge?.uiMode ?? null,
       pendingTimerCount: timerManager?.listTimers(sessionId).length ?? 0,
       ...(attention ?? {}),
       taskHistory: currentBridgeSession?.taskHistory ?? [],
       keywords: currentBridgeSession?.keywords ?? [],
     });
+  });
+
+  api.get("/sessions/:id/leader-context-resume", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
+    const sessionId = resolveId(c.req.param("id"));
+    if (!sessionId) return c.json({ error: "Session not found" }, 404);
+
+    const launcherSession = launcher.getSession(sessionId);
+    const bridgeSession = wsBridge.getSession(sessionId);
+    if (!launcherSession || !bridgeSession) return c.json({ error: "Session not found" }, 404);
+
+    const isLeaderSession = launcherSession.isOrchestrator === true || bridgeSession.state?.isOrchestrator === true;
+    if (!isLeaderSession) {
+      return c.json(
+        {
+          error:
+            "Session is not recognized as a leader/orchestrator session; takode leader-context-resume only supports leader sessions.",
+        },
+        409,
+      );
+    }
+
+    const board = getBoardController(bridgeSession);
+    const rowSessionStatuses = await buildBoardRowSessionStatuses(board);
+    const participantIds = new Set<string>();
+    for (const row of board) {
+      if (row.worker) participantIds.add(row.worker);
+      const status = rowSessionStatuses[row.questId];
+      if (status?.worker?.sessionId) participantIds.add(status.worker.sessionId);
+      if (status?.reviewer?.sessionId) participantIds.add(status.reviewer.sessionId);
+    }
+
+    const participants = new Map<string, import("../takode-leader-context-resume.js").LeaderContextResumeParticipant>();
+    for (const participantId of participantIds) {
+      const participantLauncher = launcher.getSession(participantId);
+      if (!participantLauncher) continue;
+      const participantBridge = wsBridge.getSession(participantId);
+      const participantStatus = participantBridge
+        ? wsBridge.isBackendConnected(participantId)
+          ? participantBridge.isGenerating
+            ? "running"
+            : "idle"
+          : "disconnected"
+        : participantLauncher.archived
+          ? "archived"
+          : "missing";
+      const participantSessionNum = launcher.getSessionNum(participantId) ?? null;
+      const participantState =
+        (participantBridge?.state as
+          | {
+              claimedQuestId?: string | null;
+              claimedQuestStatus?: string | null;
+              claimedQuestVerificationInboxUnread?: boolean;
+            }
+          | undefined) ?? {};
+      const role = participantLauncher.reviewerOf != null ? "reviewer" : "worker";
+      participants.set(participantId, {
+        sessionId: participantId,
+        sessionNum: participantSessionNum,
+        name: sessionNames.getName(participantId) ?? participantLauncher.name ?? null,
+        role,
+        status: participantStatus,
+        claimedQuestId: participantState.claimedQuestId ?? null,
+        claimedQuestStatus: participantState.claimedQuestStatus ?? null,
+        verificationInboxUnread: participantState.claimedQuestVerificationInboxUnread,
+        messageHistory: participantBridge?.messageHistory ?? [],
+      });
+    }
+
+    const model = await buildLeaderContextResume({
+      leader: {
+        sessionId,
+        sessionNum: launcher.getSessionNum(sessionId) ?? null,
+        name: sessionNames.getName(sessionId) ?? launcherSession.name ?? null,
+        isOrchestrator: true,
+        messageHistory: bridgeSession.messageHistory ?? [],
+        notifications: bridgeSession.notifications ?? [],
+        board,
+      },
+      rowSessionStatuses,
+      participants,
+      loadQuest: (questId: string) => questStore.getQuest(questId),
+    });
+
+    return c.json(model);
   });
 
   // ─── Takode: Message Peek & Read ────────────────────────────
@@ -489,6 +783,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
           id: sessionState.claimedQuestId,
           title: sessionState.claimedQuestTitle || "",
           status: sessionState.claimedQuestStatus || "",
+          verificationInboxUnread: sessionState.claimedQuestVerificationInboxUnread,
         }
       : null;
 
@@ -530,9 +825,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
       const turn = allTurns[turnNum];
       const endIdx = turn.endIdx >= 0 ? turn.endIdx : history.length - 1;
-      const count = endIdx - turn.startIdx + 1;
       const showTools = c.req.query("showTools") === "true";
-      return c.json({ ...base, ...buildPeekRange(history, { from: turn.startIdx, count, showTools }, sessionId) });
+      return c.json({
+        ...base,
+        ...buildPeekRange(history, { from: turn.startIdx, until: endIdx, showTools }, sessionId),
+      });
     }
 
     if (fromParam !== undefined || untilParam !== undefined) {
@@ -655,6 +952,19 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (typeof body.content !== "string" || !body.content.trim()) {
       return c.json({ error: "content is required" }, 400);
     }
+    const rawThreadKey =
+      typeof body.threadKey === "string"
+        ? body.threadKey.trim()
+        : typeof body.thread_key === "string"
+          ? body.thread_key.trim()
+          : typeof body.questId === "string"
+            ? body.questId.trim()
+            : "";
+    const explicitRoute = rawThreadKey ? threadRouteForTarget(rawThreadKey) : null;
+    if (rawThreadKey && routeKey(explicitRoute) === "main" && rawThreadKey.trim().toLowerCase() !== "main") {
+      return c.json({ error: "threadKey must be main or q-N" }, 400);
+    }
+    const threadRoute = explicitRoute ?? inferThreadRouteFromTextContent(body.content) ?? undefined;
     // Validate optional agentSource label from callers.
     let sessionLabel: string | undefined;
     if (body.agentSource && typeof body.agentSource === "object") {
@@ -676,9 +986,194 @@ export function createTakodeRoutes(ctx: RouteContext) {
         return c.json({ error: "Session is herded — only its leader can send messages" }, 403);
       }
     }
-    const delivery = wsBridge.injectUserMessage(id, body.content, agentSource);
+    const delivery = wsBridge.injectUserMessage(id, body.content, agentSource, undefined, threadRoute);
     if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
     return c.json({ ok: true, sessionId: id, delivery });
+  });
+
+  api.post("/sessions/:id/user-message", async (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    if (id !== auth.callerId) {
+      return c.json({ error: "Can only publish a user-visible message from your own session" }, 403);
+    }
+    const launcherSession = launcher.getSession(id);
+    if (!launcherSession) return c.json({ error: "Session not found" }, 404);
+    if (!launcherSession.isOrchestrator) {
+      return c.json({ error: "Session is not an orchestrator" }, 403);
+    }
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    if (typeof body.content !== "string" || !body.content.trim()) {
+      return c.json({ error: "content is required" }, 400);
+    }
+
+    const timestamp = Date.now();
+    const message: BrowserIncomingMessage = {
+      type: "leader_user_message",
+      id: `leader-user-${timestamp}-${session.messageHistory.length}`,
+      content: body.content,
+      timestamp,
+    };
+    session.messageHistory.push(message);
+    wsBridge.broadcastToSession(id, message);
+    wsBridge.persistSessionById(id);
+    return c.json({ ok: true, sessionId: id, messageId: message.id });
+  });
+
+  api.post("/sessions/:id/thread/attach", async (c) => {
+    const auth = authenticateTakodeCaller(c, { requireOrchestrator: true });
+    if ("response" in auth) return auth.response;
+
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    if (id !== auth.callerId) {
+      return c.json({ error: "Can only attach thread history from your own leader session" }, 403);
+    }
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+
+    const body = await c.req.json().catch(() => ({}));
+    const questId = typeof body.questId === "string" ? body.questId.trim().toLowerCase() : "";
+    if (!isValidQuestId(questId)) {
+      return c.json({ error: "questId must match q-N format" }, 400);
+    }
+
+    const indices = new Set<number>();
+    if (Number.isInteger(body.message)) indices.add(body.message);
+    if (Array.isArray(body.messages)) {
+      for (const message of body.messages) {
+        if (!Number.isInteger(message)) return c.json({ error: "messages must contain integer message indices" }, 400);
+        indices.add(message);
+      }
+    }
+    if (typeof body.range === "string") {
+      const match = /^(\d+)-(\d+)$/.exec(body.range.trim());
+      if (!match) return c.json({ error: "range must use start-end message indices" }, 400);
+      const start = Number(match[1]);
+      const end = Number(match[2]);
+      if (end < start) return c.json({ error: "range end must be greater than or equal to start" }, 400);
+      for (let index = start; index <= end; index++) indices.add(index);
+    }
+    if (Number.isInteger(body.turn)) {
+      const turn = findTurnBoundaries(session.messageHistory)[body.turn];
+      if (!turn) {
+        return c.json({ error: "turn is out of range" }, 400);
+      }
+      const end = turn.endIdx >= 0 ? turn.endIdx : session.messageHistory.length - 1;
+      for (let index = turn.startIdx; index <= end; index++) indices.add(index);
+    }
+    if (indices.size === 0) {
+      return c.json({ error: "Provide --message <index>, --range <start-end>, or --turn <turn>" }, 400);
+    }
+
+    const sortedIndices = [...indices].sort((a, b) => a - b);
+    const sourceRoute = inferThreadAttachmentSourceRoute(session.messageHistory, questId, sortedIndices);
+    const ref: ThreadRef = {
+      threadKey: questId,
+      questId,
+      source: "backfill",
+      attachedAt: Date.now(),
+      attachedBy: auth.callerId,
+    };
+    const attached: number[] = [];
+    const alreadyAttached: number[] = [];
+    const outOfRange: number[] = [];
+    for (const index of sortedIndices) {
+      const entry = session.messageHistory[index];
+      if (!entry) {
+        outOfRange.push(index);
+        continue;
+      }
+      const existing = entry.threadRefs ?? [];
+      if (!existing.some((item) => item.threadKey.toLowerCase() === questId)) {
+        attached.push(index);
+      } else {
+        alreadyAttached.push(index);
+      }
+    }
+    if (attached.length === 0 && alreadyAttached.length === 0) {
+      return c.json({ error: "No message indices were in range", outOfRange }, 400);
+    }
+    const boundError = buildThreadAttachmentBoundError({
+      questId,
+      historyLength: session.messageHistory.length,
+      selectedIndices: sortedIndices,
+      changedCount: attached.length,
+      pendingChangedCount: pendingThreadAttachmentChangedCount(id),
+    });
+    if (boundError) {
+      return c.json(boundError, 400);
+    }
+
+    for (const index of attached) {
+      const entry = session.messageHistory[index];
+      if (!entry) continue;
+      entry.threadRefs = [...(entry.threadRefs ?? []), ref];
+    }
+
+    let marker: BrowserIncomingMessage | undefined;
+    let markerHistoryIndex: number | undefined;
+    if (attached.length > 0) {
+      const selection = buildThreadAttachmentSelection(session.messageHistory, questId, attached);
+      if (!hasThreadAttachmentMarker(session.messageHistory, selection.markerKey)) {
+        const timestamp = Date.now();
+        markerHistoryIndex = session.messageHistory.length;
+        marker = {
+          type: "thread_attachment_marker",
+          id: `thread-attachment-${timestamp}-${markerHistoryIndex}`,
+          timestamp,
+          markerKey: selection.markerKey,
+          ...(sourceRoute ? { sourceThreadKey: sourceRoute.threadKey } : {}),
+          ...(sourceRoute?.questId ? { sourceQuestId: sourceRoute.questId } : {}),
+          threadKey: questId,
+          questId,
+          attachedAt: timestamp,
+          attachedBy: auth.callerId,
+          messageIds: selection.messageIds,
+          messageIndices: selection.indices,
+          ranges: selection.ranges,
+          count: selection.indices.length,
+          firstMessageId: selection.firstMessageId,
+          firstMessageIndex: selection.firstMessageIndex,
+        };
+        session.messageHistory.push(marker);
+      }
+    }
+
+    if (attached.length > 0) {
+      const changedMessages = attached.map((historyIndex) => {
+        const entry = session.messageHistory[historyIndex]!;
+        return {
+          historyIndex,
+          messageId: messageIdForThreadAttachment(entry, historyIndex),
+          threadRefs: entry.threadRefs ?? [],
+        };
+      });
+      scheduleThreadAttachmentUpdateBroadcast(wsBridge, id, {
+        target: { threadKey: questId, questId },
+        ...(sourceRoute
+          ? {
+              source: {
+                threadKey: sourceRoute.threadKey,
+                ...(sourceRoute.questId ? { questId: sourceRoute.questId } : {}),
+              },
+            }
+          : {}),
+        markers: marker && marker.type === "thread_attachment_marker" ? [marker] : [],
+        markerHistoryIndices: typeof markerHistoryIndex === "number" ? [markerHistoryIndex] : [],
+        changedMessages,
+        ranges: marker && marker.type === "thread_attachment_marker" ? marker.ranges : [],
+        count: attached.length,
+      });
+      wsBridge.persistSessionById(id);
+    }
+    return c.json({ ok: true, sessionId: id, questId, attached, alreadyAttached, outOfRange, marker });
   });
 
   // ─── Cat herding (orchestrator→worker relationships) ──────────────
@@ -796,6 +1291,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
         timestamp: perm.timestamp,
         input: perm.input,
         ...(msg_index !== undefined ? { msg_index } : {}),
+        threadKey: perm.threadKey ?? "main",
+        ...(perm.questId ? { questId: perm.questId } : {}),
         ...(perm.tool_name === "AskUserQuestion" ? { questions: perm.input.questions } : {}),
         ...(perm.tool_name === "ExitPlanMode"
           ? { plan: perm.input.plan, allowedPrompts: perm.input.allowedPrompts }
@@ -812,7 +1309,10 @@ export function createTakodeRoutes(ctx: RouteContext) {
         tool_name: "takode.notify",
         timestamp: notif.timestamp,
         ...(msg_index !== undefined ? { msg_index } : {}),
+        threadKey: notif.threadKey ?? "main",
+        ...(notif.questId ? { questId: notif.questId } : {}),
         ...(notif.summary ? { summary: notif.summary } : {}),
+        ...(notif.suggestedAnswers?.length ? { suggestedAnswers: notif.suggestedAnswers } : {}),
         messageId: notif.messageId,
       });
     }
@@ -825,6 +1325,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     selection: Exclude<LeaderAnswerTargetSelection, { kind: "oldest" }>,
   ): boolean => {
     if (selection.kind === "msg_index") return target.msg_index === selection.msg_index;
+    if (selection.kind === "thread") return sameThreadRoute(target, selection);
     return target.kind === "permission"
       ? target.request_id === selection.target_id
       : target.notification_id === selection.target_id;
@@ -900,6 +1401,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
         : typeof body.msg_index === "number"
           ? body.msg_index
           : undefined;
+    const rawThreadKey =
+      typeof body.threadKey === "string"
+        ? body.threadKey.trim()
+        : typeof body.thread_key === "string"
+          ? body.thread_key.trim()
+          : typeof body.questId === "string"
+            ? body.questId.trim()
+            : "";
     if (rawMsgIndex !== undefined && !Number.isInteger(rawMsgIndex)) {
       return c.json({ error: "msgIndex must be an integer" }, 400);
     }
@@ -920,12 +1429,18 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
 
     const targets = buildLeaderAnswerTargets(session);
+    const threadTarget = rawThreadKey ? threadRouteForTarget(rawThreadKey) : null;
+    if (rawThreadKey && routeKey(threadTarget) === "main" && rawThreadKey.trim().toLowerCase() !== "main") {
+      return c.json({ error: "threadKey must be main or q-N" }, 400);
+    }
     const selection: LeaderAnswerTargetSelection =
       rawMsgIndex !== undefined
         ? { kind: "msg_index", msg_index: rawMsgIndex }
         : rawTargetId
           ? { kind: "target_id", target_id: rawTargetId }
-          : { kind: "oldest" };
+          : threadTarget
+            ? { kind: "thread", threadKey: threadTarget.threadKey }
+            : { kind: "oldest" };
     const selected = selectLeaderAnswerTarget(targets, selection);
     if (!selected.ok) return c.json({ error: selected.error }, selected.status);
     const target = selected.target;
@@ -933,10 +1448,16 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (target.kind === "notification") {
       const callerInfo = launcher.getSession(auth.callerId);
       const sessionLabel = callerInfo?.sessionNum !== undefined ? `#${callerInfo.sessionNum}` : undefined;
-      const delivery = wsBridge.injectUserMessage(id, response, {
-        sessionId: auth.callerId,
-        ...(sessionLabel ? { sessionLabel } : {}),
-      });
+      const delivery = wsBridge.injectUserMessage(
+        id,
+        response,
+        {
+          sessionId: auth.callerId,
+          ...(sessionLabel ? { sessionLabel } : {}),
+        },
+        undefined,
+        threadRouteForTarget(target.threadKey ?? "main"),
+      );
       if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
       markNotificationDoneController(session, target.notification_id, true, notificationPersistDeps);
       return c.json({
@@ -1142,6 +1663,39 @@ export function createTakodeRoutes(ctx: RouteContext) {
     });
   });
 
+  // ─── Worker stream checkpoints ─────────────────────────────────────────
+
+  api.post("/sessions/:id/worker-stream", async (c) => {
+    const auth = authenticateTakodeCaller(c);
+    if ("response" in auth) return auth.response;
+
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    if (id !== auth.callerId) {
+      return c.json({ error: "Can only stream checkpoints from your own session" }, 403);
+    }
+
+    const launcherSession = launcher.getSession(id);
+    if (!launcherSession) return c.json({ error: "Session not found" }, 404);
+    if (!launcherSession.herdedBy) {
+      return c.json({ error: "worker-stream requires a herded worker or reviewer session" }, 409);
+    }
+
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+    if (typeof bridgeAny.emitWorkerStreamCheckpoint !== "function") {
+      return c.json({ error: "worker-stream is unavailable" }, 500);
+    }
+
+    const result = bridgeAny.emitWorkerStreamCheckpoint(id) as {
+      ok: boolean;
+      streamed: boolean;
+      reason: string;
+      msgRange?: { from: number; to: number };
+    };
+    return c.json(result);
+  });
+
   // ─── User notifications ──────────────────────────────────────────────
 
   api.post("/sessions/:id/notify", async (c) => {
@@ -1165,16 +1719,23 @@ export function createTakodeRoutes(ctx: RouteContext) {
       return c.json({ error: "summary is required" }, 400);
     }
     const summary = rawSummary;
+    const suggestedAnswersResult = normalizeSuggestedAnswers(body.suggestedAnswers, category);
+    if (!suggestedAnswersResult.ok) {
+      return c.json({ error: suggestedAnswersResult.error }, 400);
+    }
 
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
-    const result = notifyUserController(session, category, summary, notificationRouteDeps);
+    const result = notifyUserController(session, category, summary, notificationRouteDeps, {
+      suggestedAnswers: suggestedAnswersResult.answers,
+    });
     return c.json({
       ok: true,
       category,
       anchoredMessageId: result.anchoredMessageId,
       notificationId: parseNotificationNumericId(result.notificationId),
       rawNotificationId: result.notificationId,
+      ...(suggestedAnswersResult.answers.length ? { suggestedAnswers: suggestedAnswersResult.answers } : {}),
     });
   });
 
@@ -1278,235 +1839,15 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return resolved;
   }
 
-  api.get("/sessions/:id/board", async (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
-
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    // Only the session owner can read their own board
-    if (id !== auth.callerId) {
-      return c.json({ error: "Can only read your own board" }, 403);
-    }
-
-    const bridgeSession = wsBridge.getSession(id);
-    const board = bridgeSession ? getBoardController(bridgeSession) : [];
-    const resolve = c.req.query("resolve") === "true";
-    const includeCompleted = c.req.query("include_completed") === "true";
-    const completedBoard = includeCompleted && bridgeSession ? getCompletedBoardController(bridgeSession) : [];
-    const rowSessionStatuses = await buildBoardRowSessionStatuses([...board, ...completedBoard]);
-
-    return c.json({
-      board,
-      completedCount: bridgeSession?.completedBoard.size ?? 0,
-      rowSessionStatuses,
-      queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],
-      workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
-      ...(includeCompleted ? { completedBoard } : {}),
-      ...(resolve ? { resolvedSessionDeps: resolveSessionDeps(board) } : {}),
-    });
-  });
-
-  api.post("/sessions/:id/board", async (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
-
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    if (id !== auth.callerId) {
-      return c.json({ error: "Can only modify your own board" }, 403);
-    }
-
-    const body = await c.req.json().catch(() => ({}));
-    const questId = typeof body.questId === "string" ? body.questId.trim() : "";
-    if (!questId) return c.json({ error: "questId is required" }, 400);
-    if (!isValidQuestId(questId)) {
-      return c.json({ error: `Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)` }, 400);
-    }
-
-    // Auto-populate title from quest store if not explicitly provided
-    let title: string | undefined = typeof body.title === "string" ? body.title : undefined;
-    if (title === undefined) {
-      try {
-        const quest = await questStore.getQuest(questId);
-        if (quest) title = quest.title;
-      } catch (e) {
-        console.warn(`[routes] Failed to fetch quest title for ${questId}:`, e);
-      }
-    }
-
-    // Validate and normalize waitFor entries
-    let waitFor: string[] | undefined;
-    if (Array.isArray(body.waitFor)) {
-      const parsed = body.waitFor
-        .filter((s: unknown) => typeof s === "string" && s.trim())
-        .map((s: string) => s.trim());
-      const invalid = parsed.filter((ref: string) => !isValidWaitForRef(ref));
-      if (invalid.length > 0) {
-        return c.json(
-          {
-            error: `Invalid wait-for value(s): ${invalid.join(", ")} -- use q-N for quests, #N for sessions, or ${FREE_WORKER_WAIT_FOR_TOKEN}`,
-          },
-          400,
-        );
-      }
-      waitFor = parsed;
-    }
-
-    const bridgeSession = wsBridge.getSession(id);
-    const existingRow = bridgeSession?.board.get(questId) ?? null;
-    const implicitQueuedStatus =
-      typeof body.status !== "string" &&
-      typeof body.worker !== "string" &&
-      waitFor !== undefined &&
-      !existingRow?.status
-        ? "QUEUED"
-        : undefined;
-    const mergedStatus =
-      typeof body.status === "string"
-        ? body.status.trim() || undefined
-        : (implicitQueuedStatus ?? existingRow?.status?.trim() ?? undefined);
-    const mergedWaitFor = waitFor !== undefined ? waitFor : existingRow?.waitFor;
-    if (mergedStatus === "QUEUED" && (!mergedWaitFor || mergedWaitFor.length === 0)) {
-      return c.json(
-        {
-          error: `Queued rows require an explicit wait-for reason -- use q-N, #N, or ${FREE_WORKER_WAIT_FOR_TOKEN}`,
-        },
-        400,
-      );
-    }
-
-    const noCode =
-      typeof body.noCode === "boolean"
-        ? body.noCode
-        : existingRow && "noCode" in existingRow
-          ? existingRow.noCode
-          : undefined;
-
-    const board = bridgeSession
-      ? upsertBoardRowController(
-          bridgeSession,
-          {
-            questId,
-            title,
-            worker: typeof body.worker === "string" ? body.worker : undefined,
-            workerNum: typeof body.workerNum === "number" ? body.workerNum : undefined,
-            noCode,
-            status: typeof body.status === "string" ? body.status : implicitQueuedStatus,
-            waitFor,
-          },
-          workBoardStateDeps,
-        )
-      : null;
-    if (!board) return c.json({ error: "Session not found in bridge" }, 404);
-    return c.json({
-      board,
-      rowSessionStatuses: await buildBoardRowSessionStatuses(board),
-      queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],
-      workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
-      resolvedSessionDeps: resolveSessionDeps(board),
-    });
-  });
-
-  api.delete("/sessions/:id/board/:questId", async (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
-
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    if (id !== auth.callerId) {
-      return c.json({ error: "Can only modify your own board" }, 403);
-    }
-
-    const questIds = c.req
-      .param("questId")
-      .split(",")
-      .map((s) => s.trim())
-      .filter(Boolean);
-    if (questIds.length === 0) return c.json({ error: "questId is required" }, 400);
-    const invalid = questIds.filter((qid) => !isValidQuestId(qid));
-    if (invalid.length > 0) {
-      return c.json(
-        { error: `Invalid quest ID(s): ${invalid.join(", ")} -- must match q-NNN format (e.g., q-1, q-42)` },
-        400,
-      );
-    }
-
-    const bridgeSession = wsBridge.getSession(id);
-    const board = bridgeSession ? removeBoardRowsController(bridgeSession, questIds, workBoardStateDeps) : null;
-    if (!board) return c.json({ error: "Session not found in bridge" }, 404);
-    return c.json({
-      board,
-      completedCount: bridgeSession?.completedBoard.size ?? 0,
-      rowSessionStatuses: await buildBoardRowSessionStatuses(board),
-      queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],
-      workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
-      resolvedSessionDeps: resolveSessionDeps(board),
-    });
-  });
-
-  api.post("/sessions/:id/board/:questId/advance", async (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
-
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    if (id !== auth.callerId) {
-      return c.json({ error: "Can only modify your own board" }, 403);
-    }
-
-    const questId = c.req.param("questId").trim();
-    if (!questId) return c.json({ error: "questId is required" }, 400);
-    if (!isValidQuestId(questId)) {
-      return c.json({ error: `Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)` }, 400);
-    }
-
-    const bridgeSession = wsBridge.getSession(id);
-    const result = bridgeSession
-      ? advanceBoardRowController(bridgeSession, questId, QUEST_JOURNEY_STATES, workBoardStateDeps)
-      : null;
-    if (!result) return c.json({ error: "Quest not found on board" }, 404);
-    return c.json({
-      ...result,
-      completedCount: bridgeSession?.completedBoard.size ?? 0,
-      rowSessionStatuses: await buildBoardRowSessionStatuses(result.board),
-      queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],
-      workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
-      resolvedSessionDeps: resolveSessionDeps(result.board),
-    });
-  });
-
-  api.post("/sessions/:id/board/:questId/advance-no-groom", async (c) => {
-    const auth = authenticateTakodeCaller(c);
-    if ("response" in auth) return auth.response;
-
-    const id = resolveId(c.req.param("id"));
-    if (!id) return c.json({ error: "Session not found" }, 404);
-    if (id !== auth.callerId) {
-      return c.json({ error: "Can only modify your own board" }, 403);
-    }
-
-    const questId = c.req.param("questId").trim();
-    if (!questId) return c.json({ error: "questId is required" }, 400);
-    if (!isValidQuestId(questId)) {
-      return c.json({ error: `Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)` }, 400);
-    }
-
-    const bridgeSession = wsBridge.getSession(id);
-    const result = bridgeSession ? advanceBoardRowNoGroomController(bridgeSession, questId, workBoardStateDeps) : null;
-    if (!result) return c.json({ error: "Quest not found on board" }, 404);
-    if ("error" in result) {
-      return c.json({ error: result.error, previousState: result.previousState }, 409);
-    }
-
-    return c.json({
-      ...result,
-      completedCount: bridgeSession?.completedBoard.size ?? 0,
-      rowSessionStatuses: await buildBoardRowSessionStatuses(result.board),
-      queueWarnings: bridgeSession ? getBoardQueueWarningsController(bridgeSession, boardWatchdogDeps) : [],
-      workerSlotUsage: getBoardWorkerSlotUsageController(id, boardWatchdogDeps),
-      resolvedSessionDeps: resolveSessionDeps(result.board),
-    });
+  registerTakodeBoardRoutes(api, {
+    launcher,
+    wsBridge,
+    authenticateTakodeCaller,
+    resolveId,
+    boardWatchdogDeps,
+    workBoardStateDeps,
+    buildBoardRowSessionStatuses,
+    resolveSessionDeps,
   });
 
   return api;

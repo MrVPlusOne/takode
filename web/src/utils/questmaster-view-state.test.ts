@@ -3,7 +3,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { loadQuestmasterViewState, saveQuestmasterViewState, toggleStatusFilter } from "./questmaster-view-state.js";
 import type { QuestStatus } from "../types.js";
 
-const ALL: QuestStatus[] = ["idea", "refined", "in_progress", "needs_verification", "done"];
+const ALL: QuestStatus[] = ["idea", "refined", "in_progress", "done"];
 
 describe("questmaster-view-state", () => {
   beforeEach(() => {

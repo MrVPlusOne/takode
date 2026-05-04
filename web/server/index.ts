@@ -32,18 +32,23 @@ import { homedir } from "node:os";
 import { TerminalManager } from "./terminal-manager.js";
 import { generateFirstName, evaluateSessionName } from "./session-namer.js";
 import * as sessionNames from "./session-names.js";
-import { getActiveQuestForSession, getQuest } from "./quest-store.js";
+import { bootstrapQuestStore, getActiveQuestForSession, getQuest } from "./quest-store.js";
 import { getServerId, getSettings, getServerName, initWithPort } from "./settings-manager.js";
 import { PushoverNotifier } from "./pushover.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
 import { CronScheduler } from "./cron-scheduler.js";
 import { TimerManager } from "./timer-manager.js";
+import { ResourceLeaseManager } from "./resource-lease-manager.js";
+import { ResourceLeaseStore } from "./resource-lease-store.js";
 import { ImageStore } from "./image-store.js";
 import { IdleManager } from "./idle-manager.js";
 import { SleepInhibitor } from "./sleep-inhibitor.js";
 import { HerdEventDispatcher } from "./herd-event-dispatcher.js";
+import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchestrator-recovery.js";
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
+import { resumeRestartContinuations } from "./restart-continuation-store.js";
+import { runStartupRecovery } from "./startup-recovery.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -53,6 +58,7 @@ import {
 import * as envManager from "./env-manager.js";
 import { ensureQuestmasterIntegration } from "./quest-integration.js";
 import { ensureTakodeIntegration } from "./takode-integration.js";
+import { ensureBuiltInQuestJourneyPhaseData } from "./quest-journey-phases.js";
 import { ensureSkillSymlinks } from "./skill-symlink.js";
 import { recreateWorktreeIfMissing } from "./migration.js";
 import { access } from "node:fs/promises";
@@ -70,6 +76,8 @@ const packageRoot = process.env.__COMPANION_PACKAGE_ROOT || resolve(__dirname, "
 
 import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD, RESTART_EXIT_CODE } from "./constants.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
+import { initTreeGroupStoreForServer, reconcileSessionTreeGroups } from "./tree-group-store.js";
+import { initNewSessionDefaultsStoreForServer } from "./new-session-defaults-store.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
@@ -79,7 +87,12 @@ initServerLogger(port);
 const serverLog = createLogger("server");
 
 await initWithPort(port);
+await bootstrapQuestStore({
+  log: (message) => serverLog.info(message),
+});
 const serverId = getServerId();
+initTreeGroupStoreForServer({ serverId, port });
+initNewSessionDefaultsStoreForServer({ serverId });
 const sessionStore = new SessionStore(undefined, port);
 const wsBridge = new WsBridge();
 const launcher = new CliLauncher(port, { serverId });
@@ -91,6 +104,7 @@ const recorder = new RecorderManager();
 const imageStore = new ImageStore();
 const cronScheduler = new CronScheduler(launcher, wsBridge);
 const timerManager = new TimerManager(wsBridge);
+const resourceLeaseManager = new ResourceLeaseManager(wsBridge, new ResourceLeaseStore(serverId));
 
 // ── Performance tracer — event loop lag + slow request/message tracking ──
 import { PerfTracer } from "./perf-tracer.js";
@@ -152,6 +166,7 @@ wsBridge.imageStore = imageStore;
 wsBridge.timerManager = timerManager;
 wsBridge.pushoverNotifier = pushoverNotifier;
 wsBridge.launcher = launcher;
+const bridgeAny = wsBridge as any;
 wsBridge.sessionNameGetter = (sessionId) => sessionNames.getName(sessionId) || sessionId.slice(0, 8);
 wsBridge.resolveQuestTitle = async (questId) => (await getQuest(questId))?.title ?? null;
 wsBridge.resolveQuestStatus = async (questId) => (await getQuest(questId))?.status ?? null;
@@ -163,11 +178,48 @@ launcher.setEnvResolver(async (slug) => {
 });
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
+{
+  const restoredSessions = (
+    Array.from(bridgeAny.sessions.values()) as Array<{
+      id: string;
+      state: { treeGroupId?: string };
+    }>
+  ).map((session) => ({
+    sessionId: session.id,
+    treeGroupId: session.state.treeGroupId,
+  }));
+  const reconciliation = await reconcileSessionTreeGroups(restoredSessions);
+  for (const update of reconciliation.sessionMetadataUpdates) {
+    const session = wsBridge.getSession(update.sessionId);
+    if (session) {
+      session.state.treeGroupId = update.treeGroupId;
+    }
+    const persisted = await sessionStore.load(update.sessionId);
+    if (!persisted) continue;
+    persisted.state.treeGroupId = update.treeGroupId;
+    sessionStore.saveSync(persisted);
+  }
+  if (reconciliation.changed || reconciliation.sessionMetadataUpdates.length > 0) {
+    serverLog.info(
+      `Reconciled session tree groups for ${restoredSessions.length} session(s): ` +
+        `metadataUpdates=${reconciliation.sessionMetadataUpdates.length}, ` +
+        `legacyAssignments=${reconciliation.importedLegacyAssignments.length}, ` +
+        `legacyGroups=${reconciliation.importedLegacyGroups.length}`,
+    );
+  }
+}
 containerManager.restoreState(CONTAINER_STATE_PATH);
 
 // Push-based herd event delivery: wire dispatcher after bridge + launcher are ready
-const bridgeAny = wsBridge as any;
-const herdEventDispatcher = new HerdEventDispatcher(wsBridge, launcher, {
+const herdBridge = Object.assign(wsBridge, {
+  wakeUnavailableOrchestratorForPendingEvents: createUnavailableOrchestratorRecoveryWake({
+    getSession: (sessionId) => wsBridge.getSession(sessionId),
+    getLauncherSessionInfo: (sessionId) => launcher.getSession(sessionId),
+    requestCodexAutoRecovery: (session, reason) => bridgeAny.requestCodexAutoRecovery(session, reason),
+    requestCliRelaunch: (sessionId) => wsBridge.onCLIRelaunchNeeded?.(sessionId),
+  }),
+});
+const herdEventDispatcher = new HerdEventDispatcher(herdBridge, launcher, {
   requestCliRelaunch: (sessionId) => wsBridge.onCLIRelaunchNeeded?.(sessionId),
   getSessionNum: (sessionId) => launcher.getSessionNum(sessionId),
   getSessionName: (sessionId) => sessionNames.getName(sessionId),
@@ -407,13 +459,15 @@ async function getClaimedQuestForNamer(sessionId: string): Promise<{ id: string;
 
 /** Check whether a quest owns the session name (suppresses auto-namer).
  *  Checks both the quest store (in_progress quests) AND the session's claimedQuestId
- *  (which persists through needs_verification until done/cancelled). */
+ *  (which persists through review handoff until final done/cancelled). */
 async function isQuestOwningSessionName(sessionId: string): Promise<boolean> {
   if (await getActiveQuestForSession(sessionId)) return true;
   const state = wsBridge.getSession(sessionId)?.state;
   return (
     !!state?.claimedQuestId &&
-    (state?.claimedQuestStatus === "in_progress" || state?.claimedQuestStatus === "needs_verification")
+    (state?.claimedQuestStatus === "in_progress" ||
+      state?.claimedQuestStatus === "needs_verification" ||
+      (state?.claimedQuestStatus === "done" && state.claimedQuestVerificationInboxUnread !== undefined))
   );
 }
 
@@ -688,6 +742,7 @@ app.route(
     { requestRestart },
     perfTracer,
     sleepInhibitor,
+    resourceLeaseManager,
   ),
 );
 
@@ -836,19 +891,77 @@ await cronScheduler.startAll();
 // ── Session timers ─────────────────────────────────────────────────────────
 await timerManager.startAll();
 
+// ── Global resource leases ─────────────────────────────────────────────────
+await resourceLeaseManager.startAll();
+
 // ── Questmaster CLI integration ─────────────────────────────────────────────
 await ensureQuestmasterIntegration(port, packageRoot);
 await ensureTakodeIntegration(packageRoot);
+await ensureBuiltInQuestJourneyPhaseData({ packageRoot });
 await ensureSkillSymlinks([
   "takode-orchestration",
   "leader-dispatch",
+  "confirm",
   "self-groom",
   "reviewer-groom",
   "skeptic-review",
   "worktree-rules",
-  "playwright-e2e-tester",
   "random-memory-ideas",
 ]);
+
+const startupInjectedRelaunchSessionIds = new Set<string>();
+async function captureStartupInjectedRelaunches<T>(operation: () => Promise<T>): Promise<T> {
+  const original = wsBridge.onCLIRelaunchNeeded;
+  wsBridge.onCLIRelaunchNeeded = (sessionId) => {
+    startupInjectedRelaunchSessionIds.add(sessionId);
+    original?.(sessionId);
+  };
+  try {
+    return await operation();
+  } finally {
+    wsBridge.onCLIRelaunchNeeded = original;
+  }
+}
+
+const restartContinuationSessionIds: string[] = [];
+await captureStartupInjectedRelaunches(async () => {
+  const resumed = await resumeRestartContinuations(sessionStore.directory, wsBridge);
+  if (resumed.plan) {
+    restartContinuationSessionIds.push(...resumed.plan.sessions.map((session) => session.sessionId));
+    serverLog.info("Resumed restart-interrupted sessions", {
+      operationId: resumed.plan.operationId,
+      sessions: resumed.plan.sessions.length,
+      sent: resumed.sent,
+      queued: resumed.queued,
+      dropped: resumed.dropped,
+      noSession: resumed.noSession,
+    });
+  }
+});
+
+await captureStartupInjectedRelaunches(async () => {
+  const recovery = await runStartupRecovery({
+    listLauncherSessions: () => launcher.listSessions(),
+    getSession: (sessionId) => wsBridge.getSession(sessionId),
+    isBackendConnected: (sessionId) => wsBridge.isBackendConnected(sessionId),
+    requestCliRelaunch: (sessionId) => wsBridge.onCLIRelaunchNeeded?.(sessionId),
+    timerManager,
+    restartContinuationSessionIds,
+    alreadyRequestedRelaunchSessionIds: startupInjectedRelaunchSessionIds,
+    log: (message, data) => serverLog.info(message, data),
+  });
+  if (recovery.recovered.length > 0) {
+    serverLog.info("Startup recovery requested backend relaunch for server-owned work", {
+      sessions: recovery.recovered.map((session) => ({
+        sessionId: session.sessionId,
+        reasons: session.reasons,
+        requestedRelaunch: session.requestedRelaunch,
+        clearedIdleKilled: session.clearedIdleKilled,
+        skippedReason: session.skippedReason,
+      })),
+    });
+  }
+});
 
 // ── Idle session manager — enforce maxKeepAlive ─────────────────────────────
 const idleManager = new IdleManager(launcher, wsBridge, getSettings);
@@ -866,6 +979,7 @@ async function performShutdown() {
   containerManager.persistState(CONTAINER_STATE_PATH);
   pushoverNotifier.destroy();
   timerManager.destroy();
+  resourceLeaseManager.destroy();
   cronScheduler.destroy();
   await flushServerLogger();
 }

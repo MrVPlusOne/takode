@@ -48,6 +48,12 @@ describe("ensureTakodeIntegration", () => {
     expect(sharedWrapper).toContain('exec bun "/repo/web/bin/takode.ts" "$@"');
     expect(sharedWrapper).toContain('exec "$HOME/.bun/bin/bun" "/repo/web/bin/takode.ts" "$@"');
     expect(sharedWrapper).not.toContain("/repo/worktrees/wt-1/web/bin/takode.ts");
+
+    const agentBrowserWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.companion/bin/agent-browser",
+    );
+    expect(agentBrowserWrite).toBeDefined();
+    expect(String(agentBrowserWrite?.[1] ?? "")).toContain('exec bun "/repo/web/bin/agent-browser.ts" "$@"');
   });
 
   it("keeps copied takode wrappers identical across worktrees of the same repo", async () => {

@@ -4,6 +4,7 @@ import { scopedSetItem } from "./scoped-storage.js";
 import {
   getGlobalNewSessionDefaults,
   getGroupNewSessionDefaults,
+  getCachedGroupNewSessionDefaults,
   getLastSessionCreationContext,
   saveLastSessionCreationContext,
   getTreeGroupNewSessionDefaultsKey,
@@ -40,6 +41,10 @@ describe("new-session-defaults", () => {
     });
   });
 
+  it("returns null for cached group defaults when a group has no saved config", () => {
+    expect(getCachedGroupNewSessionDefaults("tree-group:missing")).toBeNull();
+  });
+
   it("falls back to the global defaults when a group has no saved config", () => {
     scopedSetItem("cc-backend", "claude");
     scopedSetItem("cc-model-claude", "claude-opus-4-6");
@@ -63,6 +68,8 @@ describe("new-session-defaults", () => {
     scopedSetItem("cc-backend", "claude");
     scopedSetItem("cc-model-claude", "claude-opus-4-6");
 
+    // The Leader toggle is intentionally not remembered. A saved leader
+    // selection should not make future sessions in the group default to leader.
     saveGroupNewSessionDefaults("/repo-a", {
       backend: "codex",
       model: "gpt-5.4",
@@ -81,12 +88,17 @@ describe("new-session-defaults", () => {
       model: "gpt-5.4",
       mode: "agent",
       askPermission: false,
-      sessionRole: "leader",
+      sessionRole: "worker",
       envSlug: "sandbox",
       cwd: "/repo-a/worktrees/feature-x",
       useWorktree: true,
       codexInternetAccess: true,
       codexReasoningEffort: "medium",
+    });
+    expect(getCachedGroupNewSessionDefaults("/repo-a")).toMatchObject({
+      backend: "codex",
+      cwd: "/repo-a/worktrees/feature-x",
+      sessionRole: "worker",
     });
 
     expect(getGlobalNewSessionDefaults()).toEqual({

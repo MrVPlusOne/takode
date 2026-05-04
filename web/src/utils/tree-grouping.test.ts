@@ -92,17 +92,18 @@ describe("buildTreeViewGroups", () => {
     expect(groupA!.nodes[0].workers).toHaveLength(1);
     expect(groupA!.nodes[0].workers[0].id).toBe("worker-1");
 
-    // Default should be empty (filtered out)
+    // Default stays visible even when empty so there is always a creation path.
     const defaultGroup = result.find((g) => g.id === "default");
-    expect(defaultGroup).toBeUndefined(); // empty groups are excluded
+    expect(defaultGroup).toBeTruthy();
+    expect(defaultGroup!.nodes).toHaveLength(0);
   });
 
-  it("includes empty non-default groups so newly created groups are visible", () => {
+  it("includes empty Session Spaces so creation controls stay visible", () => {
     // When a user creates a new group before assigning any sessions to it,
     // it should still appear in the result so the UI can render its header.
     const groups: TreeGroup[] = [
       { id: "default", name: "Default" },
-      { id: "empty-group", name: "My New Group" },
+      { id: "empty-group", name: "My New Session Space" },
     ];
     const sessions = [makeSession({ id: "s1", sessionNum: 1 })];
 
@@ -111,6 +112,21 @@ describe("buildTreeViewGroups", () => {
     expect(emptyGroup).toBeTruthy();
     expect(emptyGroup!.nodes).toHaveLength(0);
     expect(emptyGroup!.runningCount).toBe(0);
+  });
+
+  it("includes the default Session Space when no sessions exist", () => {
+    const result = buildTreeViewGroups([], defaultGroups, emptyAssignments);
+
+    expect(result).toEqual([
+      {
+        id: "default",
+        name: "Default",
+        nodes: [],
+        runningCount: 0,
+        permCount: 0,
+        unreadCount: 0,
+      },
+    ]);
   });
 
   it("reviewers are collected as chips, not separate tree nodes", () => {
@@ -178,6 +194,18 @@ describe("buildTreeViewGroups", () => {
     const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments, undefined, "activity");
     expect(result[0].nodes[0].leader.id).toBe("recent");
     expect(result[0].nodes[1].leader.id).toBe("old");
+  });
+
+  it("falls back to creation time in activity mode when sessions have no user message timestamp", () => {
+    const now = Date.now();
+    const sessions = [
+      makeSession({ id: "older-empty", sessionNum: 1, createdAt: now - 2000 }),
+      makeSession({ id: "newer-empty", sessionNum: 2, createdAt: now - 1000 }),
+    ];
+
+    const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments, undefined, "activity");
+    expect(result[0].nodes[0].leader.id).toBe("newer-empty");
+    expect(result[0].nodes[1].leader.id).toBe("older-empty");
   });
 
   it("sorts by creation time by default", () => {
@@ -274,7 +302,7 @@ describe("buildTreeViewGroups", () => {
 
     // In activity mode, nodeOrder should be ignored
     const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments, undefined, "activity", nodeOrder);
-    expect(result[0].nodes[0].leader.id).toBe("old-active"); // more recent activity wins
+    expect(result[0].nodes[0].leader.id).toBe("old-active"); // more recent user message wins
   });
 
   it("accepts reviewerSessions as a separate parameter (Sidebar pre-filters reviewers)", () => {
@@ -352,6 +380,28 @@ describe("buildTreeViewGroups", () => {
     expect(withEmpty[0].nodes[0].reviewers).toHaveLength(0);
     // Both should produce identical node structure
     expect(withEmpty[0].nodes).toHaveLength(withUndefined[0].nodes.length);
+  });
+
+  it("orders active reviewers before archived historical reviewer records", () => {
+    const sessions = [makeSession({ id: "worker-1", sessionNum: 5 })];
+    const reviewerSessions = [
+      makeSession({ id: "archived-reviewer", sessionNum: 21, reviewerOf: 5, archived: true, createdAt: 300 }),
+      makeSession({ id: "active-reviewer", sessionNum: 20, reviewerOf: 5, archived: false, createdAt: 200 }),
+    ];
+
+    const result = buildTreeViewGroups(
+      sessions,
+      defaultGroups,
+      emptyAssignments,
+      undefined,
+      undefined,
+      undefined,
+      reviewerSessions,
+    );
+
+    // Parent rows use the first reviewer as their compact badge target, so an
+    // active reviewer should win over an archived record when both exist.
+    expect(result[0].nodes[0].reviewers.map((r) => r.id)).toEqual(["active-reviewer", "archived-reviewer"]);
   });
 
   it("reviewers are isolated to their parent's group (no cross-group bleed)", () => {

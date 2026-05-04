@@ -1,7 +1,14 @@
 import { Hono } from "hono";
 import { exec as execCb } from "node:child_process";
+import { randomUUID } from "node:crypto";
 import { promisify } from "node:util";
 import { resolveBinary, getEnrichedPath } from "../path-resolver.js";
+import type { RestartPrepOperationSnapshot, RestartPrepSessionSummary } from "../herd-event-dispatcher.js";
+import {
+  buildRestartContinuationPlan,
+  saveRestartContinuationPlan,
+  type RestartContinuationTarget,
+} from "../restart-continuation-store.js";
 import {
   getSettings,
   updateSettings,
@@ -10,13 +17,16 @@ import {
   getServerId,
   getClaudeUserDefaultModel,
   getCodexUserDefaultModel,
-  STT_MODELS,
+  QUESTMASTER_COMPACT_SORT_COLUMNS,
+  DEFAULT_QUESTMASTER_COMPACT_SORT,
   type NamerConfig,
   type TranscriptionConfig,
   type SttModel,
   type EditorConfig,
   type EnhancementMode,
   type QuestmasterViewMode,
+  type QuestmasterCompactSort,
+  type QuestmasterCompactSortColumn,
 } from "../settings-manager.js";
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "../pushover.js";
 import { getLogPath } from "../server-logger.js";
@@ -24,35 +34,415 @@ import type { RouteContext } from "./context.js";
 
 export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
-  const { launcher, wsBridge, options, pushoverNotifier } = ctx;
+  const { launcher, wsBridge, sessionStore, options, pushoverNotifier } = ctx;
   const execPromise = promisify(execCb);
+  const restartPrepTimeoutMs = Number(process.env.COMPANION_RESTART_PREP_TIMEOUT_MS || "8000");
+
+  interface RestartBlockingSession {
+    sessionId: string;
+    label: string;
+    herdedBy: string | null;
+    reasons: string[];
+    originalIndex: number;
+  }
+
+  interface RestartPrepResult {
+    ok: boolean;
+    operationId: string | null;
+    mode: "standalone" | "restart";
+    restartRequested: boolean;
+    timedOut: boolean;
+    interrupted: Array<{ sessionId: string; label: string; reasons: string[] }>;
+    skipped: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }>;
+    failures: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }>;
+    protectedLeaders: RestartPrepSessionSummary[];
+    unresolvedBlockers: Array<{ sessionId: string; label: string; reasons: string[]; detail?: string }>;
+    herdDelivery: {
+      suppressed: number;
+      held: number;
+      trackingActive: boolean;
+      countsFinal: boolean;
+      detail?: string;
+    };
+  }
+
+  interface RestartPrepCoordinator {
+    beginRestartPrepOperation: (options: {
+      operationId: string;
+      mode: "standalone" | "restart";
+      targetSessions: RestartPrepSessionSummary[];
+      protectedLeaders: RestartPrepSessionSummary[];
+      timeoutMs: number;
+      suppressionTtlMs?: number;
+    }) => RestartPrepOperationSnapshot;
+    updateRestartPrepUnresolvedBlockers: (operationId: string, blockers: RestartPrepSessionSummary[]) => void;
+    getRestartPrepOperationSnapshot: (operationId: string) => RestartPrepOperationSnapshot | null;
+  }
+
+  function getRestartBlockingSessions(): RestartBlockingSession[] {
+    return launcher.listSessions().flatMap((sessionInfo, originalIndex) => {
+      if (sessionInfo.state === "exited") return [];
+      const bridgeSession = wsBridge.getSession(sessionInfo.sessionId);
+      if (!bridgeSession) return [];
+
+      const reasons: string[] = [];
+      if (bridgeSession.isGenerating) reasons.push("running");
+      const pendingPermissionCount = bridgeSession.pendingPermissions.size;
+      if (pendingPermissionCount > 0) {
+        reasons.push(
+          pendingPermissionCount === 1 ? "1 pending permission" : `${pendingPermissionCount} pending permissions`,
+        );
+      }
+      if (reasons.length === 0) return [];
+
+      const sessionNum =
+        typeof launcher.getSessionNum === "function" ? launcher.getSessionNum(sessionInfo.sessionId) : null;
+      const label = sessionInfo.name || (sessionNum != null ? `#${sessionNum}` : sessionInfo.sessionId.slice(0, 8));
+      return [
+        {
+          sessionId: sessionInfo.sessionId,
+          label,
+          herdedBy: sessionInfo.herdedBy ?? null,
+          reasons,
+          originalIndex,
+        },
+      ];
+    });
+  }
+
+  function sortInterruptSessionsByDependency(blockers: RestartBlockingSession[]): RestartBlockingSession[] {
+    const blockerById = new Map(blockers.map((blocker) => [blocker.sessionId, blocker]));
+    const depthMemo = new Map<string, number>();
+
+    const getDepth = (sessionId: string): number => {
+      const cached = depthMemo.get(sessionId);
+      if (cached !== undefined) return cached;
+
+      let depth = 0;
+      const seen = new Set<string>([sessionId]);
+      let parentId = blockerById.get(sessionId)?.herdedBy ?? null;
+      while (parentId) {
+        const parent = blockerById.get(parentId);
+        if (!parent || seen.has(parentId)) break;
+        seen.add(parentId);
+        depth += 1;
+        parentId = parent.herdedBy;
+      }
+      depthMemo.set(sessionId, depth);
+      return depth;
+    };
+
+    return [...blockers].sort((left, right) => {
+      const depthDiff = getDepth(right.sessionId) - getDepth(left.sessionId);
+      if (depthDiff !== 0) return depthDiff;
+      return left.originalIndex - right.originalIndex;
+    });
+  }
+
+  function getRestartPrepCoordinator(): RestartPrepCoordinator | null {
+    return (
+      ((wsBridge as unknown as { herdEventDispatcher?: unknown }).herdEventDispatcher as RestartPrepCoordinator) ?? null
+    );
+  }
+
+  function summarizeSession(sessionId: string, fallbackLabel?: string): RestartPrepSessionSummary {
+    const sessionInfo = launcher.getSession(sessionId);
+    const sessionNum = typeof launcher.getSessionNum === "function" ? launcher.getSessionNum(sessionId) : null;
+    return {
+      sessionId,
+      label: sessionInfo?.name || fallbackLabel || (sessionNum != null ? `#${sessionNum}` : sessionId.slice(0, 8)),
+    };
+  }
+
+  function getProtectedLeaders(blockers: RestartBlockingSession[]): RestartPrepSessionSummary[] {
+    const protectedById = new Map<string, RestartPrepSessionSummary>();
+    const launcherSessions = new Map(
+      launcher.listSessions().map((sessionInfo) => [sessionInfo.sessionId, sessionInfo]),
+    );
+
+    for (const blocker of blockers) {
+      const blockerInfo = launcherSessions.get(blocker.sessionId);
+      if (blockerInfo?.isOrchestrator) {
+        protectedById.set(blocker.sessionId, summarizeSession(blocker.sessionId, blocker.label));
+      }
+
+      const seen = new Set<string>([blocker.sessionId]);
+      let leaderId = blocker.herdedBy;
+      while (leaderId && !seen.has(leaderId)) {
+        seen.add(leaderId);
+        protectedById.set(leaderId, summarizeSession(leaderId));
+        leaderId = launcherSessions.get(leaderId)?.herdedBy ?? null;
+      }
+    }
+
+    return [...protectedById.values()];
+  }
+
+  function blockerToResultItem(blocker: RestartBlockingSession): {
+    sessionId: string;
+    label: string;
+    reasons: string[];
+    detail?: string;
+  } {
+    const permissionReason = blocker.reasons.find((reason) => reason.includes("pending permission"));
+    return {
+      sessionId: blocker.sessionId,
+      label: blocker.label,
+      reasons: blocker.reasons,
+      ...(permissionReason
+        ? {
+            detail:
+              "Pending permission blockers remain unresolved until the backend reports cancellation or resolution.",
+          }
+        : {}),
+    };
+  }
+
+  function snapshotHerdDelivery(operationId: string | null): RestartPrepResult["herdDelivery"] {
+    if (!operationId) {
+      return {
+        suppressed: 0,
+        held: 0,
+        trackingActive: false,
+        countsFinal: true,
+        detail: "No restart-prep herd delivery operation was created.",
+      };
+    }
+    const snapshot = getRestartPrepCoordinator()?.getRestartPrepOperationSnapshot(operationId);
+    if (!snapshot) {
+      return {
+        suppressed: 0,
+        held: 0,
+        trackingActive: false,
+        countsFinal: true,
+        detail: "Restart-prep herd delivery tracking is no longer active.",
+      };
+    }
+    return {
+      suppressed: snapshot.suppressedHerdEvents,
+      held: snapshot.heldHerdEvents,
+      trackingActive: true,
+      countsFinal: false,
+      detail:
+        "Restart-prep herd delivery tracking is active. Counts are current as of this response and may increase as worker events settle.",
+    };
+  }
+
+  function beginRestartPrepOperation(
+    blockers: RestartBlockingSession[],
+    mode: "standalone" | "restart",
+    timeoutMs: number,
+  ): string | null {
+    if (blockers.length === 0) return null;
+    const coordinator = getRestartPrepCoordinator();
+    if (!coordinator) return null;
+
+    const operationId = randomUUID();
+    coordinator.beginRestartPrepOperation({
+      operationId,
+      mode,
+      targetSessions: blockers.map((blocker) => ({ sessionId: blocker.sessionId, label: blocker.label })),
+      protectedLeaders: getProtectedLeaders(blockers),
+      timeoutMs,
+    });
+    return operationId;
+  }
+
+  async function interruptRestartBlockers(
+    blockers: RestartBlockingSession[],
+    operationId: string | null,
+  ): Promise<Pick<RestartPrepResult, "interrupted" | "skipped" | "failures">> {
+    const interrupted: RestartPrepResult["interrupted"] = [];
+    const skipped: RestartPrepResult["skipped"] = [];
+    const failures: RestartPrepResult["failures"] = [];
+
+    for (const blocker of sortInterruptSessionsByDependency(blockers)) {
+      try {
+        const routed = await wsBridge.interruptSession(
+          blocker.sessionId,
+          "user",
+          operationId ? { interruptOrigin: "restart_prep", restartPrepOperationId: operationId } : undefined,
+        );
+        if (!routed) {
+          skipped.push({
+            sessionId: blocker.sessionId,
+            label: blocker.label,
+            reasons: blocker.reasons,
+            detail: "Session was no longer loaded when interrupts were dispatched.",
+          });
+          continue;
+        }
+        interrupted.push({
+          sessionId: blocker.sessionId,
+          label: blocker.label,
+          reasons: blocker.reasons,
+        });
+      } catch (error) {
+        failures.push({
+          sessionId: blocker.sessionId,
+          label: blocker.label,
+          reasons: blocker.reasons,
+          detail: error instanceof Error ? error.message : String(error),
+        });
+      }
+    }
+
+    return { interrupted, skipped, failures };
+  }
+
+  async function waitForRestartReadiness(
+    timeoutMs: number,
+  ): Promise<{ timedOut: boolean; blockers: RestartBlockingSession[] }> {
+    const deadline = Date.now() + timeoutMs;
+    while (Date.now() < deadline) {
+      const blockers = getRestartBlockingSessions();
+      if (blockers.length === 0) return { timedOut: false, blockers: [] };
+      await new Promise((resolve) => setTimeout(resolve, 100));
+    }
+    const blockers = getRestartBlockingSessions();
+    return { timedOut: blockers.length > 0, blockers };
+  }
+
+  function buildRestartPrepResult(options: {
+    mode: "standalone" | "restart";
+    operationId: string | null;
+    restartRequested: boolean;
+    timedOut: boolean;
+    interrupted: RestartPrepResult["interrupted"];
+    skipped: RestartPrepResult["skipped"];
+    failures: RestartPrepResult["failures"];
+    protectedLeaders: RestartPrepSessionSummary[];
+    unresolvedBlockers: RestartBlockingSession[];
+  }): RestartPrepResult {
+    const unresolvedBlockers = options.unresolvedBlockers.map(blockerToResultItem);
+    if (options.operationId) {
+      getRestartPrepCoordinator()?.updateRestartPrepUnresolvedBlockers(options.operationId, unresolvedBlockers);
+    }
+    return {
+      ok: options.failures.length === 0 && unresolvedBlockers.length === 0,
+      operationId: options.operationId,
+      mode: options.mode,
+      restartRequested: options.restartRequested,
+      timedOut: options.timedOut,
+      interrupted: options.interrupted,
+      skipped: options.skipped,
+      failures: options.failures,
+      protectedLeaders: options.protectedLeaders,
+      unresolvedBlockers,
+      herdDelivery: snapshotHerdDelivery(options.operationId),
+    };
+  }
+
+  async function queueRestartContinuations(options: {
+    operationId: string | null;
+    interrupted: RestartPrepResult["interrupted"];
+  }): Promise<{ ok: true } | { ok: false; error: string }> {
+    if (!options.operationId) return { ok: true };
+
+    const sessions: RestartContinuationTarget[] = options.interrupted
+      .filter((item) => item.reasons.includes("running"))
+      .map((item) => ({ sessionId: item.sessionId, label: item.label }));
+    if (sessions.length === 0) return { ok: true };
+
+    try {
+      await saveRestartContinuationPlan(
+        sessionStore.directory,
+        buildRestartContinuationPlan({ operationId: options.operationId, sessions }),
+      );
+      return { ok: true };
+    } catch (error) {
+      return {
+        ok: false,
+        error: `Restart continuation queue could not be saved: ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+      };
+    }
+  }
 
   // ─── Server restart ───────────────────────────────────────────────
 
-  api.post("/server/restart", (c) => {
+  api.post("/server/restart", async (c) => {
     if (!options?.requestRestart) {
       return c.json({ error: "Restart not supported in this mode" }, 503);
     }
-    // Block restart while sessions are actively running to prevent stuck sessions
-    const busySessions = launcher.listSessions().filter((s) => {
-      if (s.state === "exited") return false;
-      const bridgeSession = wsBridge.getSession(s.sessionId);
-      return !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size);
-    });
+    // Block restart while sessions are still holding the restart readiness gate.
+    const busySessions = getRestartBlockingSessions();
     if (busySessions.length > 0) {
-      const names = busySessions.map((s) => {
-        const num = launcher.getSessionNum(s.sessionId);
-        return s.name || (num != null ? `#${num}` : s.sessionId.slice(0, 8));
+      const timeoutMs = restartPrepTimeoutMs;
+      const operationId = beginRestartPrepOperation(busySessions, "restart", timeoutMs);
+      const protectedLeaders = getProtectedLeaders(busySessions);
+      const { interrupted, skipped, failures } = await interruptRestartBlockers(busySessions, operationId);
+      const readiness =
+        failures.length === 0
+          ? await waitForRestartReadiness(timeoutMs)
+          : { timedOut: false, blockers: getRestartBlockingSessions() };
+      if (readiness.blockers.length > 0 || failures.length > 0) {
+        const result = buildRestartPrepResult({
+          mode: "restart",
+          operationId,
+          restartRequested: false,
+          timedOut: readiness.timedOut,
+          interrupted,
+          skipped,
+          failures,
+          protectedLeaders,
+          unresolvedBlockers: readiness.blockers,
+        });
+        return c.json(
+          {
+            error: `Cannot restart while ${readiness.blockers.length} session(s) are still blocking restart readiness: ${readiness.blockers
+              .map((session) => session.label)
+              .join(", ")}`,
+            result,
+          },
+          409,
+        );
+      }
+      const continuation = await queueRestartContinuations({ operationId, interrupted });
+      const result = buildRestartPrepResult({
+        mode: "restart",
+        operationId,
+        restartRequested: continuation.ok,
+        timedOut: false,
+        interrupted,
+        skipped,
+        failures,
+        protectedLeaders,
+        unresolvedBlockers: [],
       });
-      return c.json(
-        {
-          error: `Cannot restart while ${busySessions.length} session(s) are running. Please stop them first: ${names.join(", ")}`,
-        },
-        409,
-      );
+      if (!continuation.ok) {
+        return c.json({ error: continuation.error, result }, 500);
+      }
+
+      options.requestRestart();
+      return c.json(result);
     }
     options.requestRestart();
-    return c.json({ ok: true });
+    return c.json({ ok: true, restartRequested: true });
+  });
+
+  api.post("/server/interrupt-all", async (c) => {
+    const blockers = getRestartBlockingSessions();
+    const timeoutMs = restartPrepTimeoutMs;
+    const operationId = beginRestartPrepOperation(blockers, "standalone", timeoutMs);
+    const protectedLeaders = getProtectedLeaders(blockers);
+    const { interrupted, skipped, failures } = await interruptRestartBlockers(blockers, operationId);
+    const unresolvedBlockers = getRestartBlockingSessions();
+
+    return c.json(
+      buildRestartPrepResult({
+        mode: "standalone",
+        operationId,
+        restartRequested: false,
+        timedOut: false,
+        interrupted,
+        skipped,
+        failures,
+        protectedLeaders,
+        unresolvedBlockers,
+      }),
+    );
   });
 
   // ─── Settings (~/.companion/settings-{port}.json; migrates legacy settings.json) ────────────────────────
@@ -84,6 +474,38 @@ export function createSettingsRoutes(ctx: RouteContext) {
     return { backend: "claude" };
   }
 
+  function parseCodexLeaderRecycleThresholdTokensByModelFromBody(
+    raw: unknown,
+  ): { ok: true; value: Record<string, number> } | { ok: false; error: string } {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) {
+      return { ok: false, error: "codexLeaderRecycleThresholdTokensByModel must be an object" };
+    }
+    const normalizedEntries: Array<[string, number]> = [];
+    const seenModelIds = new Set<string>();
+    for (const [rawModelId, rawThreshold] of Object.entries(raw as Record<string, unknown>)) {
+      const modelId = rawModelId.trim();
+      if (!modelId) {
+        return { ok: false, error: "codexLeaderRecycleThresholdTokensByModel keys must be non-empty strings" };
+      }
+      if (seenModelIds.has(modelId)) {
+        return {
+          ok: false,
+          error: `codexLeaderRecycleThresholdTokensByModel contains duplicate model key after trimming: ${modelId}`,
+        };
+      }
+      if (typeof rawThreshold !== "number" || rawThreshold < 1 || !Number.isInteger(rawThreshold)) {
+        return {
+          ok: false,
+          error: `codexLeaderRecycleThresholdTokensByModel.${modelId} must be a positive integer`,
+        };
+      }
+      seenModelIds.add(modelId);
+      normalizedEntries.push([modelId, rawThreshold]);
+    }
+    normalizedEntries.sort(([left], [right]) => left.localeCompare(right));
+    return { ok: true, value: Object.fromEntries(normalizedEntries) };
+  }
+
   /** Mask sensitive fields in TranscriptionConfig for API responses. */
   function maskTranscriptionConfig(config: TranscriptionConfig): TranscriptionConfig {
     return { ...config, apiKey: config.apiKey ? "***" : "" };
@@ -107,9 +529,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       customVocabulary:
         typeof tc.customVocabulary === "string" ? tc.customVocabulary.trim() : current.customVocabulary || "",
       sttModel:
-        typeof tc.sttModel === "string" && (STT_MODELS as readonly string[]).includes(tc.sttModel)
-          ? (tc.sttModel as SttModel)
-          : current.sttModel,
+        typeof tc.sttModel === "string" && tc.sttModel.trim() ? (tc.sttModel.trim() as SttModel) : current.sttModel,
       enhancementMode:
         typeof tc.enhancementMode === "string" && (tc.enhancementMode === "default" || tc.enhancementMode === "bullet")
           ? (tc.enhancementMode as EnhancementMode)
@@ -132,6 +552,18 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
   function normalizeQuestmasterViewMode(mode: unknown): QuestmasterViewMode {
     return mode === "compact" ? "compact" : "cards";
+  }
+
+  function normalizeQuestmasterCompactSort(sort: unknown): QuestmasterCompactSort {
+    if (!sort || typeof sort !== "object" || Array.isArray(sort)) return DEFAULT_QUESTMASTER_COMPACT_SORT;
+    const raw = sort as Record<string, unknown>;
+    if (
+      !QUESTMASTER_COMPACT_SORT_COLUMNS.includes(raw.column as QuestmasterCompactSortColumn) ||
+      (raw.direction !== "asc" && raw.direction !== "desc")
+    ) {
+      return DEFAULT_QUESTMASTER_COMPACT_SORT;
+    }
+    return { column: raw.column as QuestmasterCompactSortColumn, direction: raw.direction };
   }
 
   function normalizePushoverEventFilters(filters: unknown): PushoverEventFilters {
@@ -179,6 +611,13 @@ export function createSettingsRoutes(ctx: RouteContext) {
       sleepInhibitorEnabled: settings.sleepInhibitorEnabled,
       sleepInhibitorDurationMinutes: settings.sleepInhibitorDurationMinutes,
       questmasterViewMode: normalizeQuestmasterViewMode(settings.questmasterViewMode),
+      questmasterCompactSort: normalizeQuestmasterCompactSort(settings.questmasterCompactSort),
+      codexLeaderContextWindowOverrideTokens: settings.codexLeaderContextWindowOverrideTokens,
+      ...(typeof settings.codexNonLeaderAutoCompactThresholdPercent === "number"
+        ? { codexNonLeaderAutoCompactThresholdPercent: settings.codexNonLeaderAutoCompactThresholdPercent }
+        : {}),
+      codexLeaderRecycleThresholdTokens: settings.codexLeaderRecycleThresholdTokens,
+      codexLeaderRecycleThresholdTokensByModel: settings.codexLeaderRecycleThresholdTokensByModel ?? {},
       ...(extras?.includeRuntimeInfo
         ? {
             restartSupported: !!process.env.COMPANION_SUPERVISED,
@@ -211,6 +650,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
 
   api.put("/settings", async (c) => {
     const body = await c.req.json().catch(() => ({}));
+    const parsedCodexLeaderRecycleThresholdTokensByModel =
+      body.codexLeaderRecycleThresholdTokensByModel !== undefined
+        ? parseCodexLeaderRecycleThresholdTokensByModelFromBody(body.codexLeaderRecycleThresholdTokensByModel)
+        : null;
     if (body.serverName !== undefined && typeof body.serverName !== "string") {
       return c.json({ error: "serverName must be a string" }, 400);
     }
@@ -335,6 +778,54 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: 'questmasterViewMode must be "cards" or "compact"' }, 400);
     }
+    if (body.questmasterCompactSort !== undefined) {
+      if (
+        typeof body.questmasterCompactSort !== "object" ||
+        body.questmasterCompactSort === null ||
+        Array.isArray(body.questmasterCompactSort)
+      ) {
+        return c.json({ error: "questmasterCompactSort must be an object" }, 400);
+      }
+      const sort = body.questmasterCompactSort as Record<string, unknown>;
+      if (!QUESTMASTER_COMPACT_SORT_COLUMNS.includes(sort.column as QuestmasterCompactSortColumn)) {
+        return c.json({ error: "questmasterCompactSort.column is invalid" }, 400);
+      }
+      if (sort.direction !== "asc" && sort.direction !== "desc") {
+        return c.json({ error: 'questmasterCompactSort.direction must be "asc" or "desc"' }, 400);
+      }
+    }
+    if (
+      body.codexLeaderContextWindowOverrideTokens !== undefined &&
+      (typeof body.codexLeaderContextWindowOverrideTokens !== "number" ||
+        body.codexLeaderContextWindowOverrideTokens < 1 ||
+        !Number.isInteger(body.codexLeaderContextWindowOverrideTokens))
+    ) {
+      return c.json({ error: "codexLeaderContextWindowOverrideTokens must be a positive integer" }, 400);
+    }
+    if (
+      body.codexNonLeaderAutoCompactThresholdPercent !== undefined &&
+      (typeof body.codexNonLeaderAutoCompactThresholdPercent !== "number" ||
+        body.codexNonLeaderAutoCompactThresholdPercent < 1 ||
+        body.codexNonLeaderAutoCompactThresholdPercent > 100 ||
+        !Number.isInteger(body.codexNonLeaderAutoCompactThresholdPercent))
+    ) {
+      return c.json({ error: "codexNonLeaderAutoCompactThresholdPercent must be an integer between 1 and 100" }, 400);
+    }
+    if (
+      body.codexLeaderRecycleThresholdTokens !== undefined &&
+      (typeof body.codexLeaderRecycleThresholdTokens !== "number" ||
+        body.codexLeaderRecycleThresholdTokens < 1 ||
+        !Number.isInteger(body.codexLeaderRecycleThresholdTokens))
+    ) {
+      return c.json({ error: "codexLeaderRecycleThresholdTokens must be a positive integer" }, 400);
+    }
+    if (
+      body.codexLeaderRecycleThresholdTokensByModel !== undefined &&
+      parsedCodexLeaderRecycleThresholdTokensByModel &&
+      !parsedCodexLeaderRecycleThresholdTokensByModel.ok
+    ) {
+      return c.json({ error: parsedCodexLeaderRecycleThresholdTokensByModel.error }, 400);
+    }
 
     // Check that at least one known field is present
     const knownFields = [
@@ -359,6 +850,11 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "sleepInhibitorEnabled",
       "sleepInhibitorDurationMinutes",
       "questmasterViewMode",
+      "questmasterCompactSort",
+      "codexLeaderContextWindowOverrideTokens",
+      "codexNonLeaderAutoCompactThresholdPercent",
+      "codexLeaderRecycleThresholdTokens",
+      "codexLeaderRecycleThresholdTokensByModel",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -400,6 +896,23 @@ export function createSettingsRoutes(ctx: RouteContext) {
         body.questmasterViewMode === "cards" || body.questmasterViewMode === "compact"
           ? body.questmasterViewMode
           : undefined,
+      questmasterCompactSort:
+        body.questmasterCompactSort && typeof body.questmasterCompactSort === "object"
+          ? normalizeQuestmasterCompactSort(body.questmasterCompactSort)
+          : undefined,
+      codexLeaderContextWindowOverrideTokens:
+        typeof body.codexLeaderContextWindowOverrideTokens === "number"
+          ? body.codexLeaderContextWindowOverrideTokens
+          : undefined,
+      codexNonLeaderAutoCompactThresholdPercent:
+        typeof body.codexNonLeaderAutoCompactThresholdPercent === "number"
+          ? body.codexNonLeaderAutoCompactThresholdPercent
+          : undefined,
+      codexLeaderRecycleThresholdTokens:
+        typeof body.codexLeaderRecycleThresholdTokens === "number" ? body.codexLeaderRecycleThresholdTokens : undefined,
+      codexLeaderRecycleThresholdTokensByModel: parsedCodexLeaderRecycleThresholdTokensByModel?.ok
+        ? parsedCodexLeaderRecycleThresholdTokensByModel.value
+        : undefined,
     });
 
     return c.json(buildSettingsResponse(settings));

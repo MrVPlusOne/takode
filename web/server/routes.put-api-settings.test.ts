@@ -94,6 +94,8 @@ vi.mock("./session-names.js", () => ({
 }));
 
 vi.mock("./settings-manager.js", () => ({
+  QUESTMASTER_COMPACT_SORT_COLUMNS: ["quest", "title", "owner", "leader", "status", "verify", "feedback", "updated"],
+  DEFAULT_QUESTMASTER_COMPACT_SORT: { column: "updated", direction: "desc" },
   getSettings: vi.fn(() => ({
     serverName: "",
     serverId: "",
@@ -124,6 +126,9 @@ vi.mock("./settings-manager.js", () => ({
     sleepInhibitorEnabled: false,
     sleepInhibitorDurationMinutes: 5,
     questmasterViewMode: "cards",
+    questmasterCompactSort: { column: "updated", direction: "desc" },
+    codexLeaderContextWindowOverrideTokens: 1_000_000,
+    codexLeaderRecycleThresholdTokens: 260_000,
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -156,6 +161,9 @@ vi.mock("./settings-manager.js", () => ({
     sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
     sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
     questmasterViewMode: patch.questmasterViewMode ?? "cards",
+    questmasterCompactSort: patch.questmasterCompactSort ?? { column: "updated", direction: "desc" },
+    codexLeaderContextWindowOverrideTokens: patch.codexLeaderContextWindowOverrideTokens ?? 1_000_000,
+    codexLeaderRecycleThresholdTokens: patch.codexLeaderRecycleThresholdTokens ?? 260_000,
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -565,6 +573,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 456,
     });
 
@@ -596,6 +606,9 @@ describe("PUT /api/settings", () => {
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
       questmasterViewMode: undefined,
+      questmasterCompactSort: undefined,
+      codexLeaderContextWindowOverrideTokens: undefined,
+      codexLeaderRecycleThresholdTokens: undefined,
     });
     const json = await res.json();
     expect(json).toEqual({
@@ -625,6 +638,10 @@ describe("PUT /api/settings", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
+      questmasterCompactSort: { column: "updated", direction: "desc" },
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: {},
     });
   });
 
@@ -658,6 +675,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 456,
     });
 
@@ -689,6 +708,9 @@ describe("PUT /api/settings", () => {
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
       questmasterViewMode: undefined,
+      questmasterCompactSort: undefined,
+      codexLeaderContextWindowOverrideTokens: undefined,
+      codexLeaderRecycleThresholdTokens: undefined,
       herdLeaderFirstEnabled: undefined,
     });
   });
@@ -723,6 +745,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 789,
     });
 
@@ -754,6 +778,9 @@ describe("PUT /api/settings", () => {
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
       questmasterViewMode: undefined,
+      questmasterCompactSort: undefined,
+      codexLeaderContextWindowOverrideTokens: undefined,
+      codexLeaderRecycleThresholdTokens: undefined,
     });
   });
 
@@ -787,6 +814,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: Date.now(),
     });
     vi.mocked(settingsManager.getServerName).mockReturnValue("My Backend");
@@ -894,6 +923,9 @@ describe("PUT /api/settings", () => {
       sleepInhibitorEnabled: undefined,
       sleepInhibitorDurationMinutes: undefined,
       questmasterViewMode: undefined,
+      questmasterCompactSort: undefined,
+      codexLeaderContextWindowOverrideTokens: undefined,
+      codexLeaderRecycleThresholdTokens: undefined,
     });
   });
 
@@ -926,6 +958,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: Date.now(),
     });
 
@@ -1032,6 +1066,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: Date.now(),
     });
 
@@ -1076,6 +1112,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: Date.now(),
     });
 
@@ -1126,6 +1164,39 @@ describe("PUT /api/settings", () => {
     expect(json).toEqual({ error: 'questmasterViewMode must be "cards" or "compact"' });
   });
 
+  it("updates Questmaster compact sort setting", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      questmasterCompactSort: { column: "feedback", direction: "desc" },
+      updatedAt: Date.now(),
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ questmasterCompactSort: { column: "feedback", direction: "desc" } }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({ questmasterCompactSort: { column: "feedback", direction: "desc" } }),
+    );
+    const json = await res.json();
+    expect(json.questmasterCompactSort).toEqual({ column: "feedback", direction: "desc" });
+  });
+
+  it("returns 400 for invalid Questmaster compact sort", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ questmasterCompactSort: { column: "bogus", direction: "desc" } }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json).toEqual({ error: "questmasterCompactSort.column is invalid" });
+  });
+
   it("preserves custom transcription vocabulary when saving settings", async () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
@@ -1156,6 +1227,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 123,
     });
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
@@ -1187,6 +1260,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 456,
     });
 
@@ -1228,6 +1303,160 @@ describe("PUT /api/settings", () => {
     expect(JSON.stringify(json)).not.toContain("persisted-transcription-secret");
   });
 
+  it("updates per-model Codex leader recycle thresholds", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
+      sleepInhibitorEnabled: false,
+      sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: {
+        "gpt-5.4": 430_000,
+        "gpt-5.5": 320_000,
+      },
+      updatedAt: 456,
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codexLeaderRecycleThresholdTokens: 260_000,
+        codexLeaderRecycleThresholdTokensByModel: {
+          " gpt-5.4 ": 430_000,
+          "gpt-5.5": 320_000,
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codexLeaderRecycleThresholdTokens: 260_000,
+        codexLeaderRecycleThresholdTokensByModel: {
+          "gpt-5.4": 430_000,
+          "gpt-5.5": 320_000,
+        },
+      }),
+    );
+
+    const json = await res.json();
+    expect(json.codexLeaderRecycleThresholdTokensByModel).toEqual({
+      "gpt-5.4": 430_000,
+      "gpt-5.5": 320_000,
+    });
+  });
+
+  it("updates the non-leader Codex auto-compact threshold percent", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      serverName: "",
+      serverId: "",
+      pushoverUserKey: "",
+      pushoverApiToken: "",
+      pushoverDelaySeconds: 30,
+      pushoverEnabled: true,
+      pushoverBaseUrl: "",
+      claudeBinary: "",
+      codexBinary: "",
+      maxKeepAlive: 0,
+      heavyRepoModeEnabled: false,
+      autoApprovalEnabled: false,
+      autoApprovalModel: "haiku",
+      autoApprovalMaxConcurrency: 4,
+      autoApprovalTimeoutSeconds: 45,
+      namerConfig: { backend: "claude" },
+      autoNamerEnabled: true,
+      transcriptionConfig: {
+        apiKey: "",
+        baseUrl: "https://api.openai.com/v1",
+        enhancementEnabled: true,
+        enhancementModel: "gpt-5-mini",
+      },
+      editorConfig: { editor: "none" },
+      defaultClaudeBackend: "claude",
+      sleepInhibitorEnabled: false,
+      sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexNonLeaderAutoCompactThresholdPercent: 88,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      updatedAt: 456,
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codexNonLeaderAutoCompactThresholdPercent: 88,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(
+      expect.objectContaining({
+        codexNonLeaderAutoCompactThresholdPercent: 88,
+      }),
+    );
+
+    const json = await res.json();
+    expect(json.codexNonLeaderAutoCompactThresholdPercent).toBe(88);
+  });
+
+  it("rejects invalid per-model Codex leader recycle thresholds", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codexLeaderRecycleThresholdTokensByModel: {
+          "gpt-5.4": "430000",
+        },
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "codexLeaderRecycleThresholdTokensByModel.gpt-5.4 must be a positive integer",
+    });
+  });
+
+  it("rejects invalid non-leader Codex auto-compact threshold percent", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        codexNonLeaderAutoCompactThresholdPercent: 101,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toEqual({
+      error: "codexNonLeaderAutoCompactThresholdPercent must be an integer between 1 and 100",
+    });
+  });
+
   it("updates editorConfig setting", async () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
@@ -1257,6 +1486,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: Date.now(),
     });
 
@@ -1308,6 +1539,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 123,
     });
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
@@ -1343,6 +1576,8 @@ describe("PUT /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 456,
     });
 

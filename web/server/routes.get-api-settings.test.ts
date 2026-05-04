@@ -94,6 +94,8 @@ vi.mock("./session-names.js", () => ({
 }));
 
 vi.mock("./settings-manager.js", () => ({
+  QUESTMASTER_COMPACT_SORT_COLUMNS: ["quest", "title", "owner", "leader", "status", "verify", "feedback", "updated"],
+  DEFAULT_QUESTMASTER_COMPACT_SORT: { column: "updated", direction: "desc" },
   getSettings: vi.fn(() => ({
     serverName: "",
     serverId: "",
@@ -124,6 +126,9 @@ vi.mock("./settings-manager.js", () => ({
     sleepInhibitorEnabled: false,
     sleepInhibitorDurationMinutes: 5,
     questmasterViewMode: "cards",
+    questmasterCompactSort: { column: "updated", direction: "desc" },
+    codexLeaderContextWindowOverrideTokens: 1_000_000,
+    codexLeaderRecycleThresholdTokens: 260_000,
     updatedAt: 0,
   })),
   updateSettings: vi.fn((patch) => ({
@@ -156,6 +161,7 @@ vi.mock("./settings-manager.js", () => ({
     sleepInhibitorEnabled: patch.sleepInhibitorEnabled ?? false,
     sleepInhibitorDurationMinutes: patch.sleepInhibitorDurationMinutes ?? 5,
     questmasterViewMode: patch.questmasterViewMode ?? "cards",
+    questmasterCompactSort: patch.questmasterCompactSort ?? { column: "updated", direction: "desc" },
     updatedAt: Date.now(),
   })),
   getServerName: vi.fn(() => ""),
@@ -565,6 +571,9 @@ describe("GET /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      questmasterCompactSort: { column: "updated", direction: "desc" },
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 123,
     });
 
@@ -599,6 +608,10 @@ describe("GET /api/settings", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
+      questmasterCompactSort: { column: "updated", direction: "desc" },
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: {},
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),
@@ -635,6 +648,9 @@ describe("GET /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      questmasterCompactSort: { column: "updated", direction: "desc" },
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 123,
     });
 
@@ -669,6 +685,10 @@ describe("GET /api/settings", () => {
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
+      questmasterCompactSort: { column: "updated", direction: "desc" },
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
+      codexLeaderRecycleThresholdTokensByModel: {},
       restartSupported: expect.any(Boolean),
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),
@@ -706,6 +726,9 @@ describe("GET /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      questmasterCompactSort: { column: "updated", direction: "desc" },
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 0,
     });
 
@@ -752,6 +775,9 @@ describe("GET /api/settings", () => {
       defaultClaudeBackend: "claude",
       sleepInhibitorEnabled: false,
       sleepInhibitorDurationMinutes: 5,
+      questmasterCompactSort: { column: "updated", direction: "desc" },
+      codexLeaderContextWindowOverrideTokens: 1_000_000,
+      codexLeaderRecycleThresholdTokens: 260_000,
       updatedAt: 123,
     });
 

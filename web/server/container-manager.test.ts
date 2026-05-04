@@ -88,7 +88,7 @@ describe("ContainerManager Codex file seeding", () => {
     expect(commands.some((cmd) => cmd.includes("/companion-host-codex") && cmd.includes("/root/.codex"))).toBe(true);
   });
 
-  it("copies auth.json, config.toml, and directory seeds for Codex", () => {
+  it("copies auth/config from Codex home and skills into the official agents path", () => {
     mockExecSync.mockImplementation((..._args: unknown[]) => "");
 
     const manager = new ContainerManager();
@@ -101,8 +101,14 @@ describe("ContainerManager Codex file seeding", () => {
     expect(seedCmd).toContain("auth.json");
     expect(seedCmd).toContain("config.toml");
     expect(seedCmd).toContain("models_cache.json");
-    // Verify it copies directories
-    expect(seedCmd).toContain("skills");
+    // Verify skills come from .agents first and legacy .codex skills only fill missing slugs.
+    expect(seedCmd).toContain("/companion-host-agents/skills");
+    expect(seedCmd).toContain("cp -RL /companion-host-agents/skills/.");
+    expect(seedCmd).toContain("/root/.agents/skills");
+    expect(seedCmd).not.toContain("/root/.codex/skills");
+    expect(seedCmd).toContain('[ -L "$target" ] && [ ! -e "$target" ] && rm -f "$target"');
+    expect(seedCmd).toContain('[ -e "$target" ] || cp -RL "$s" "$target"');
+    // Verify non-skill Codex directories still come from .codex.
     expect(seedCmd).toContain("prompts");
     expect(seedCmd).toContain("rules");
   });

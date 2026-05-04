@@ -11,16 +11,30 @@ export function getQuestDescription(quest: QuestmasterTask): string | undefined 
   return "description" in quest ? quest.description : undefined;
 }
 
+export function getQuestTldr(quest: QuestmasterTask): string | undefined {
+  return quest.tldr?.trim() || undefined;
+}
+
 export function getQuestNotes(quest: QuestmasterTask): string | undefined {
   return "notes" in quest ? (quest as { notes?: string }).notes : undefined;
+}
+
+export function getQuestDebrief(quest: QuestmasterTask): string | undefined {
+  if (quest.status !== "done" || isQuestCancelled(quest)) return undefined;
+  return (quest as { debrief?: string }).debrief?.trim() || undefined;
+}
+
+export function getQuestDebriefTldr(quest: QuestmasterTask): string | undefined {
+  if (quest.status !== "done" || isQuestCancelled(quest)) return undefined;
+  return (quest as { debriefTldr?: string }).debriefTldr?.trim() || undefined;
 }
 
 export function getQuestFeedback(quest: QuestmasterTask): QuestFeedbackEntry[] {
   return "feedback" in quest ? ((quest as { feedback?: QuestFeedbackEntry[] }).feedback ?? []) : [];
 }
 
-export function getQuestUpdatedAt(quest: QuestmasterTask): number {
-  return (quest as { updatedAt?: number }).updatedAt ?? quest.createdAt;
+export function getQuestRecencyTs(quest: QuestmasterTask): number {
+  return Math.max(quest.createdAt, (quest as { updatedAt?: number }).updatedAt ?? 0, quest.statusChangedAt ?? 0);
 }
 
 // ─── Clipboard helpers ──────────────────────────────────────────────────────
@@ -67,8 +81,14 @@ export function findHashtagTokenAtCursor(
 
 /** Check whether a quest is an unread verification inbox item. */
 export function isVerificationInboxUnread(quest: QuestmasterTask): boolean {
+  return !!(quest as { verificationInboxUnread?: boolean }).verificationInboxUnread;
+}
+
+/** Check whether a completed quest is still in the human review workflow. */
+export function isQuestUnderReview(quest: QuestmasterTask): boolean {
   return (
-    quest.status === "needs_verification" && !!(quest as { verificationInboxUnread?: boolean }).verificationInboxUnread
+    quest.status === "done" &&
+    typeof (quest as { verificationInboxUnread?: boolean }).verificationInboxUnread === "boolean"
   );
 }
 

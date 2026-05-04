@@ -14,5 +14,11 @@ export async function ensureTakodeIntegration(packageRoot: string): Promise<void
   writeFileSync(sharedWrapperPath, sharedWrapper, "utf-8"); // sync-ok: startup cold path
   chmodSync(sharedWrapperPath, 0o755); // sync-ok: startup cold path
 
+  const agentBrowserWrapperPath = join(COMPANION_BIN_DIR, "agent-browser");
+  const stableAgentBrowserScript = await resolveStableWrapperScriptPath(packageRoot, "agent-browser");
+  const agentBrowserWrapper = buildInstalledCliWrapper("agent-browser", stableAgentBrowserScript);
+  writeFileSync(agentBrowserWrapperPath, agentBrowserWrapper, "utf-8"); // sync-ok: startup cold path
+  chmodSync(agentBrowserWrapperPath, 0o755); // sync-ok: startup cold path
+
   console.log("[takode-integration] CLI wrappers installed");
 }

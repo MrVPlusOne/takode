@@ -59,6 +59,9 @@ interface MockStoreState {
       claude_token_details?: Omit<CodexTokenDetails, "reasoningOutputTokens">;
       codex_rate_limits?: CodexRateLimits;
       context_used_percent?: number;
+      claimedQuestId?: string;
+      claimedQuestTitle?: string;
+      claimedQuestStatus?: string;
     }
   >;
   sdkSessions: {
@@ -69,10 +72,24 @@ interface MockStoreState {
     gitBranch?: string;
     codexTokenDetails?: CodexTokenDetails;
     claudeTokenDetails?: Omit<CodexTokenDetails, "reasoningOutputTokens">;
+    sessionNum?: number | null;
+    state?: "starting" | "connected" | "running" | "exited";
+    createdAt?: number;
+    cliConnected?: boolean;
+    repoRoot?: string;
   }[];
   taskPanelOpen: boolean;
   setTaskPanelOpen: ReturnType<typeof vi.fn>;
   prStatus: Map<string, { available: boolean; pr?: unknown } | null>;
+  quests: Array<any>;
+  sessionBoards: Map<string, Array<any>>;
+  sessionNames: Map<string, string>;
+  sessionPreviews: Map<string, string>;
+  pendingPermissions: Map<string, Map<string, unknown>>;
+  cliConnected: Map<string, boolean>;
+  askPermission: Map<string, boolean>;
+  cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
+  openQuestOverlay: ReturnType<typeof vi.fn>;
 }
 
 let mockState: MockStoreState;
@@ -88,12 +105,22 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     taskPanelOpen: true,
     setTaskPanelOpen: vi.fn(),
     prStatus: new Map(),
+    quests: [],
+    sessionBoards: new Map(),
+    sessionNames: new Map(),
+    sessionPreviews: new Map(),
+    pendingPermissions: new Map(),
+    cliConnected: new Map(),
+    askPermission: new Map(),
+    cliDisconnectReason: new Map(),
+    openQuestOverlay: vi.fn(),
     ...overrides,
   };
 }
 
 vi.mock("../store.js", () => ({
   useStore: (selector: (s: MockStoreState) => unknown) => selector(mockState),
+  countUserPermissions: () => 0,
 }));
 
 import { TaskPanel, CodexRateLimitsSection, CodexTokenDetailsSection, ClaudeMdCollapsible } from "./TaskPanel.js";
@@ -143,6 +170,132 @@ describe("TaskPanel", () => {
     expect(screen.getByTestId("mcp-section")).toBeInTheDocument();
     expect(screen.getByTestId("task-panel-content")).toHaveClass("overflow-y-auto");
     expect(container.querySelectorAll(".overflow-y-auto")).toHaveLength(1);
+  });
+
+  it("renders the selected session claimed quest with verification, feedback, and owner details", () => {
+    // The right panel should make current quest facts visible so leader prose
+    // can focus on decisions and reasoning instead of restating this state.
+    resetStore({
+      sessions: new Map([
+        [
+          "s1",
+          {
+            backend_type: "codex",
+            claimedQuestId: "q-42",
+            claimedQuestTitle: "Fallback claimed title",
+            claimedQuestStatus: "done",
+          },
+        ],
+        ["worker-1", { backend_type: "codex" }],
+      ]),
+      sdkSessions: [
+        {
+          sessionId: "worker-1",
+          sessionNum: 7,
+          state: "running",
+          cwd: "/repo",
+          createdAt: 1,
+          backendType: "codex",
+        },
+      ],
+      quests: [
+        {
+          id: "q-42-v3",
+          questId: "q-42",
+          version: 3,
+          title: "Verify right panel quest status",
+          status: "done",
+          description: "Show the accepted quest status facts.",
+          createdAt: 1,
+          sessionId: "worker-1",
+          claimedAt: 2,
+          verificationInboxUnread: true,
+          verificationItems: [
+            { text: "Quest card is visible", checked: true },
+            { text: "Detail panel opens", checked: false },
+          ],
+          feedback: [
+            { author: "human", text: "Please check the wait state.", ts: 3, addressed: false },
+            { author: "human", text: "Earlier note handled.", ts: 4, addressed: true },
+          ],
+          commitShas: ["abc1234", "def5678"],
+        },
+      ],
+    });
+
+    render(<TaskPanel sessionId="s1" />);
+
+    expect(screen.getByText("Selected session quest")).toBeInTheDocument();
+    expect(screen.getByText("q-42")).toBeInTheDocument();
+    expect(screen.getByText("Verify right panel quest status")).toBeInTheDocument();
+    expect(screen.getByText("Done")).toBeInTheDocument();
+    expect(screen.getByText("Verify")).toBeInTheDocument();
+    expect(screen.getByText("1/2")).toBeInTheDocument();
+    expect(screen.getByText("unread")).toBeInTheDocument();
+    expect(screen.getByText("1 open")).toBeInTheDocument();
+    expect(screen.getByText("1 done")).toBeInTheDocument();
+    expect(screen.getByText("Commits")).toBeInTheDocument();
+    expect(screen.getByText("1 unaddressed human feedback")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "#7" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open details" }));
+
+    expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-42");
+  });
+
+  it("renders a leader board attention row with wait state and compact Journey context", () => {
+    resetStore({
+      sessions: new Map([["leader", { backend_type: "codex" }]]),
+      sdkSessions: [
+        { sessionId: "leader", isOrchestrator: true, state: "running", cwd: "/repo", createdAt: 1 },
+        { sessionId: "worker-2", sessionNum: 12, state: "running", cwd: "/repo", createdAt: 1 },
+      ],
+      quests: [
+        {
+          id: "q-77-v1",
+          questId: "q-77",
+          version: 1,
+          title: "Port accepted quest status",
+          status: "in_progress",
+          description: "Port the accepted changes.",
+          createdAt: 1,
+          sessionId: "worker-2",
+          claimedAt: 2,
+        },
+      ],
+      sessionBoards: new Map([
+        [
+          "leader",
+          [
+            {
+              questId: "q-77",
+              title: "Port accepted quest status",
+              worker: "worker-2",
+              workerNum: 12,
+              status: "PORTING",
+              waitForInput: ["n-4"],
+              updatedAt: 10,
+              journey: {
+                phaseIds: ["alignment", "implement", "code-review", "port"],
+                mode: "active",
+                currentPhaseId: "port",
+                activePhaseIndex: 3,
+              },
+            },
+          ],
+        ],
+      ]),
+    });
+
+    render(<TaskPanel sessionId="leader" />);
+
+    expect(screen.getByText("Board attention row")).toBeInTheDocument();
+    expect(screen.getByText("Port accepted quest status")).toBeInTheDocument();
+    expect(screen.getByText("Waiting for input: n-4")).toBeInTheDocument();
+    expect(screen.getByTestId("quest-journey-compact-summary")).toHaveAttribute("data-journey-mode", "active");
+    expect(screen.getByText("Port")).toBeInTheDocument();
+    expect(screen.getByText("4/4")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "#12" })).toBeInTheDocument();
   });
 
   it("shows Auto-Approval Rules in CLAUDE.md section when config exists", async () => {

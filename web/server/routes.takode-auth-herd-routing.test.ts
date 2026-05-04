@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // Mock env-manager and git-utils modules before any imports
 vi.mock("./env-manager.js", () => ({
@@ -177,6 +177,7 @@ import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
 import { _resetModelCache } from "./routes/system.js";
+import { _resetThreadAttachmentHistoryBroadcastsForTest } from "./routes/takode.js";
 import { trafficStats } from "./traffic-stats.js";
 import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
 import * as serverLoggerModule from "./server-logger.js";
@@ -357,26 +358,7 @@ function createMockBridge() {
     emitTakodeEvent: vi.fn(),
     subscribeTakodeEvents: vi.fn(() => () => {}),
     routeExternalPermissionResponse: vi.fn(),
-    routeExternalInterrupt: vi.fn(async () => {}),
-    routeBrowserMessage: vi.fn(function (this: any, session: any, msg: any) {
-      if (msg?.type === "permission_response") {
-        return this.routeExternalPermissionResponse(
-          session,
-          {
-            type: "permission_response",
-            request_id: msg.request_id,
-            behavior: msg.behavior,
-            ...(msg.updated_input ? { updated_input: msg.updated_input } : {}),
-            ...(msg.message ? { message: msg.message } : {}),
-          },
-          msg.actorSessionId,
-        );
-      }
-      if (msg?.type === "interrupt") {
-        return this.routeExternalInterrupt(session, msg.interruptSource);
-      }
-      return undefined;
-    }),
+    interruptSession: vi.fn(async () => true),
     getTrafficStatsSnapshot: vi.fn(() => ({
       windowStartedAt: 1000,
       capturedAt: 2000,
@@ -512,6 +494,11 @@ beforeEach(() => {
   vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
 });
 
+afterEach(() => {
+  _resetThreadAttachmentHistoryBroadcastsForTest();
+  vi.useRealTimers();
+});
+
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
 // ─── SSE Session Creation Streaming ──────────────────────────────────────────
@@ -625,6 +612,280 @@ describe("Takode server-authoritative auth", () => {
     const workerJson = await workerAllowed.json();
     expect(Array.isArray(workerJson)).toBe(true);
     expect(workerJson).toHaveLength(3);
+  });
+
+  it("attaches existing Main history entries to a quest thread without moving history", async () => {
+    // Backfill must only add projection metadata. Main remains the flat
+    // authoritative transcript, while quest threads filter over threadRefs.
+    vi.useFakeTimers();
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory = [
+      { type: "assistant", message: { id: "a1", content: [] } },
+      { type: "assistant", message: { id: "a2", content: [] } },
+      { type: "assistant", message: { id: "a3", content: [] } },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", range: "1-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, questId: "q-941", attached: [1, 2], outOfRange: [] });
+    expect(bridge._sessions["orch-1"].messageHistory).toHaveLength(4);
+    expect(bridge._sessions["orch-1"].messageHistory[0].threadRefs).toBeUndefined();
+    expect(bridge._sessions["orch-1"].messageHistory[1].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[2].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[3]).toMatchObject({
+      type: "thread_attachment_marker",
+      threadKey: "q-941",
+      questId: "q-941",
+      attachedBy: "orch-1",
+      messageIndices: [1, 2],
+      ranges: ["1-2"],
+      count: 2,
+    });
+    expect(bridge.broadcastToSession).not.toHaveBeenCalledWith("orch-1", {
+      type: "message_history",
+      messages: bridge._sessions["orch-1"].messageHistory,
+    });
+    vi.advanceTimersByTime(100);
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
+      "orch-1",
+      expect.objectContaining({
+        type: "thread_attachment_update",
+        affectedThreadKeys: expect.arrayContaining(["main", "q-941"]),
+        updates: [
+          expect.objectContaining({
+            target: { threadKey: "q-941", questId: "q-941" },
+            markerHistoryIndices: [3],
+            changedMessages: [
+              expect.objectContaining({ historyIndex: 1, messageId: "a2" }),
+              expect.objectContaining({ historyIndex: 2, messageId: "a3" }),
+            ],
+          }),
+        ],
+      }),
+    );
+    expect(bridge.persistSessionById).toHaveBeenCalledWith("orch-1");
+  });
+
+  it("records source route metadata on moved-message attachment markers", async () => {
+    // Source metadata lets the original quest thread keep a visible handoff row
+    // after messages are attached to a different destination quest.
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory = [
+      { type: "assistant", message: { id: "a1", content: [] }, threadKey: "q-940", questId: "q-940" },
+      { type: "assistant", message: { id: "a2", content: [] }, threadKey: "q-940", questId: "q-940" },
+      { type: "assistant", message: { id: "a3", content: [] }, threadKey: "q-940", questId: "q-940" },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", range: "1-2" }),
+    });
+
+    expect(res.status).toBe(200);
+    const marker = bridge._sessions["orch-1"].messageHistory[3];
+    expect(marker).toMatchObject({
+      type: "thread_attachment_marker",
+      sourceThreadKey: "q-940",
+      sourceQuestId: "q-940",
+      threadKey: "q-941",
+      questId: "q-941",
+      messageIndices: [1, 2],
+    });
+  });
+
+  it("does not duplicate thread attachment markers for repeated or overlapping attach requests", async () => {
+    // Re-attaching an identical selection should be idempotent. Overlapping
+    // selections should only hide newly attached messages and create a marker
+    // for that new hidden subset.
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory = [
+      { type: "assistant", message: { id: "a1", content: [] } },
+      { type: "assistant", message: { id: "a2", content: [] } },
+      { type: "assistant", message: { id: "a3", content: [] } },
+      { type: "assistant", message: { id: "a4", content: [] } },
+    ];
+
+    const first = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", range: "1-2" }),
+    });
+    expect(first.status).toBe(200);
+    expect(await first.json()).toMatchObject({
+      ok: true,
+      attached: [1, 2],
+      alreadyAttached: [],
+      marker: { type: "thread_attachment_marker", messageIndices: [1, 2], ranges: ["1-2"] },
+    });
+    expect(bridge._sessions["orch-1"].messageHistory).toHaveLength(5);
+
+    const repeat = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", range: "1-2" }),
+    });
+    expect(repeat.status).toBe(200);
+    expect(await repeat.json()).toMatchObject({
+      ok: true,
+      attached: [],
+      alreadyAttached: [1, 2],
+    });
+    expect(bridge._sessions["orch-1"].messageHistory).toHaveLength(5);
+
+    const overlap = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", range: "2-3" }),
+    });
+    expect(overlap.status).toBe(200);
+    expect(await overlap.json()).toMatchObject({
+      ok: true,
+      attached: [3],
+      alreadyAttached: [2],
+      marker: { type: "thread_attachment_marker", messageIndices: [3], ranges: ["3"] },
+    });
+    expect(
+      bridge._sessions["orch-1"].messageHistory.filter(
+        (entry: { type?: string }) => entry.type === "thread_attachment_marker",
+      ),
+    ).toHaveLength(2);
+  });
+
+  it("attaches multiple explicit Main message indices to a quest thread", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory = [
+      { type: "assistant", message: { id: "a1", content: [] } },
+      { type: "assistant", message: { id: "a2", content: [] } },
+      { type: "assistant", message: { id: "a3", content: [] } },
+      { type: "assistant", message: { id: "a4", content: [] } },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", messages: [0, 2] }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, questId: "q-941", attached: [0, 2], outOfRange: [] });
+    expect(bridge._sessions["orch-1"].messageHistory[0].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[1].threadRefs).toBeUndefined();
+    expect(bridge._sessions["orch-1"].messageHistory[2].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+  });
+
+  it("attaches an existing Main turn to a quest thread", async () => {
+    // The user-visible attach path should work with turn numbers from
+    // takode scan/peek, not only raw messageHistory array indices.
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory = [
+      { type: "user_message", content: "first turn", timestamp: 1 },
+      { type: "assistant", message: { id: "a1", content: [] }, parent_tool_use_id: null },
+      { type: "result", data: { duration_ms: 10, is_error: false } },
+      { type: "user_message", content: "second turn", timestamp: 2 },
+      { type: "assistant", message: { id: "a2", content: [] }, parent_tool_use_id: null },
+      { type: "result", data: { duration_ms: 20, is_error: false } },
+    ];
+
+    const res = await app.request("/api/sessions/orch-1/thread/attach", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-941", turn: 1 }),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({ ok: true, questId: "q-941", attached: [3, 4, 5], outOfRange: [] });
+    expect(bridge._sessions["orch-1"].messageHistory[2].threadRefs).toBeUndefined();
+    expect(bridge._sessions["orch-1"].messageHistory[3].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[4].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[5].threadRefs).toMatchObject([
+      { threadKey: "q-941", questId: "q-941", source: "backfill", attachedBy: "orch-1" },
+    ]);
+  });
+
+  it("answers a pending prompt through an exact quest thread selector", async () => {
+    // Thread selectors are explicit override contracts: they may cross thread
+    // boundaries only when exactly one pending prompt exists in that target.
+    setupTakodeSessions();
+    const worker = bridge._sessions["worker-1"];
+    worker.pendingPermissions.set("req-q101", {
+      request_id: "req-q101",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Main or q101?" }] },
+      tool_use_id: "tool-q101",
+      timestamp: 1,
+      threadKey: "q-101",
+      questId: "q-101",
+    });
+    worker.pendingPermissions.set("req-q202", {
+      request_id: "req-q202",
+      tool_name: "AskUserQuestion",
+      input: { questions: [{ question: "Main or q202?" }] },
+      tool_use_id: "tool-q202",
+      timestamp: 2,
+      threadKey: "q-202",
+      questId: "q-202",
+    });
+
+    const res = await app.request("/api/sessions/worker-1/answer", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ response: "Use q202", questId: "q-202" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, kind: "permission", tool_name: "AskUserQuestion" });
+    expect(bridge.routeExternalPermissionResponse).toHaveBeenCalledWith(
+      worker,
+      expect.objectContaining({ request_id: "req-q202" }),
+      "orch-1",
+    );
+  });
+
+  it("rejects ambiguous quest thread selectors for pending prompts", async () => {
+    setupTakodeSessions();
+    const worker = bridge._sessions["worker-1"];
+    for (const requestId of ["req-a", "req-b"]) {
+      worker.pendingPermissions.set(requestId, {
+        request_id: requestId,
+        tool_name: "AskUserQuestion",
+        input: { questions: [{ question: "Ambiguous?" }] },
+        tool_use_id: `tool-${requestId}`,
+        timestamp: requestId === "req-a" ? 1 : 2,
+        threadKey: "q-303",
+        questId: "q-303",
+      });
+    }
+
+    const res = await app.request("/api/sessions/worker-1/answer", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ response: "Use one", threadKey: "q-303" }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({ error: "Target selector matched multiple pending prompts" });
+    expect(bridge.routeExternalPermissionResponse).not.toHaveBeenCalled();
   });
 
   it("returns cached takode worktree rows in heavy repo mode without scheduling git refreshes", async () => {
@@ -843,7 +1104,7 @@ describe("Takode server-authoritative auth", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.routeExternalInterrupt).toHaveBeenCalledWith(expect.objectContaining({ id: "worker-1" }), "leader");
+    expect(bridge.interruptSession).toHaveBeenCalledWith("worker-1", "leader");
     expect(launcher.kill).not.toHaveBeenCalled();
     expect(sessions["worker-1"].repoRoot).toBe("/repo");
   });
@@ -868,10 +1129,7 @@ describe("Takode server-authoritative auth", () => {
 
     expect(res.status).toBe(200);
     expect(bridge.getOrCreateSession).toHaveBeenCalledWith("worker-1", "codex");
-    expect(bridge.routeExternalInterrupt).toHaveBeenCalledWith(
-      expect.objectContaining({ id: "worker-1", backendType: "codex" }),
-      "leader",
-    );
+    expect(bridge.interruptSession).toHaveBeenCalledWith("worker-1", "leader");
     expect(launcher.kill).not.toHaveBeenCalled();
   });
 });

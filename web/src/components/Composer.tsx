@@ -17,6 +17,7 @@ import {
 import { isTouchDevice } from "../utils/mobile.js";
 import { ComposerMenus } from "./ComposerMenus.js";
 import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
+import { ComposerReferencePreview } from "./ComposerReferencePreview.js";
 import { CollapseAllButton } from "./ComposerCollapseAllButton.js";
 import { CollapsedComposerBar, ComposerInputSurface } from "./ComposerSurface.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
@@ -29,7 +30,7 @@ import {
   nextPendingUploadId,
   readFileAsBase64,
 } from "./composer-image-utils.js";
-import { parseCodexModeSlashCommand } from "./composer-reference-utils.js";
+import { collectPlainTakodeReferences, parseCodexModeSlashCommand } from "./composer-reference-utils.js";
 import { useComposerAutocomplete } from "./use-composer-autocomplete.js";
 import type { FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
@@ -44,14 +45,8 @@ import {
   type VsCodeSelectionContextPayload,
 } from "../utils/vscode-context.js";
 import { isNarrowComposerLayout } from "../utils/layout.js";
-import { injectReplyContext } from "../utils/reply-context.js";
-import type {
-  ChatMessage,
-  CodexAppReference,
-  CodexSkillReference,
-  ComposerDraftImage,
-  PendingUserUpload,
-} from "../types.js";
+import { formatReplyContentForAssistant } from "../utils/reply-context.js";
+import type { CodexAppReference, CodexSkillReference, ComposerDraftImage, PendingUserUpload } from "../types.js";
 import {
   abortPendingUserUpload,
   clearPendingUserUploadController,
@@ -63,11 +58,18 @@ export { ReplyChip } from "./ReplyChip.js";
 const EMPTY_STRING_ARRAY: string[] = [];
 const EMPTY_SKILL_REFERENCES: CodexSkillReference[] = [];
 const EMPTY_APP_REFERENCES: CodexAppReference[] = [];
-const EMPTY_CHAT_MESSAGES: ChatMessage[] = [];
 const EMPTY_PENDING_USER_UPLOADS: PendingUserUpload[] = [];
 const EMPTY_COMPOSER_IMAGES: ComposerDraftImage[] = [];
 
-export function Composer({ sessionId }: { sessionId: string }) {
+export function Composer({
+  sessionId,
+  threadKey = "main",
+  questId,
+}: {
+  sessionId: string;
+  threadKey?: string;
+  questId?: string;
+}) {
   const draft = useStore((s) => s.composerDrafts.get(sessionId));
   const pendingUserUploads = useStore((s) => s.pendingUserUploads.get(sessionId)) ?? EMPTY_PENDING_USER_UPLOADS;
   const replyContext = useStore((s) => s.replyContexts.get(sessionId));
@@ -430,7 +432,14 @@ export function Composer({ sessionId }: { sessionId: string }) {
     }),
   );
   const vscodeSelectionState = useStore((s) => s.vscodeSelectionContext);
-  const sessionMessages = useStore((s) => s.messages.get(sessionId) ?? EMPTY_CHAT_MESSAGES);
+  const previewQuestIds = useStore(useShallow((s) => s.quests.map((quest) => quest.questId.toLowerCase())));
+  const previewSessionNums = useStore(
+    useShallow((s) =>
+      s.sdkSessions
+        .map((sdkSession) => sdkSession.sessionNum)
+        .filter((sessionNum): sessionNum is number => Number.isFinite(sessionNum)),
+    ),
+  );
 
   const isConnected = sessionView.isConnected;
   const currentMode = sessionView.permissionMode;
@@ -473,10 +482,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
     setText,
     textareaRef,
     sessionId,
+    threadKey,
     isCodex,
     isConnected,
     sessionView,
-    messages: sessionMessages,
   });
   const {
     slashMenuOpen,
@@ -670,11 +679,12 @@ export function Composer({ sessionId }: { sessionId: string }) {
       }
     }
 
-    // Prepend reply context if the user is replying to a specific message
+    // Keep reply metadata separate from stored user text; send concise context to the assistant.
     const currentReplyContext = useStore.getState().replyContexts.get(sessionId);
-    const finalContent = currentReplyContext
-      ? injectReplyContext(currentReplyContext.previewText, msg, currentReplyContext.messageId)
-      : msg;
+    const finalContent = msg;
+    const replyDeliveryContent = currentReplyContext
+      ? formatReplyContentForAssistant(finalContent, currentReplyContext)
+      : finalContent;
 
     const clearComposerUi = () => {
       closeAutocompleteMenus();
@@ -692,9 +702,11 @@ export function Composer({ sessionId }: { sessionId: string }) {
     };
 
     const finalizeReplyNotification = () => {
-      if (!currentReplyContext?.messageId) return;
-      const notifications = useStore.getState().sessionNotifications.get(sessionId);
-      const notif = notifications?.find((n) => n.messageId === currentReplyContext.messageId && !n.done);
+      if (!currentReplyContext?.messageId && !currentReplyContext?.notificationId) return;
+      const notifications = useStore.getState().sessionNotifications?.get(sessionId);
+      const notif = currentReplyContext.notificationId
+        ? notifications?.find((n) => n.id === currentReplyContext.notificationId && !n.done)
+        : notifications?.find((n) => n.messageId === currentReplyContext.messageId && !n.done);
       if (notif) {
         api.markNotificationDone(sessionId, notif.id, true).catch(() => {});
       }
@@ -712,7 +724,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
               .map((path, index) => `Attachment ${index + 1}: ${path}`)
               .join("\n")}]`
           : "";
-      const deliveryContent = `${finalContent}${attachmentAnnotation}`;
+      const deliveryContent = `${replyDeliveryContent}${attachmentAnnotation}`;
 
       store.addPendingUserUpload(sessionId, {
         id: pendingId,
@@ -720,7 +732,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
         images,
         timestamp: Date.now(),
         stage: "delivering",
+        ...(currentReplyContext ? { replyContext: currentReplyContext } : {}),
         ...(vscodeSelectionPayload ? { vscodeSelection: vscodeSelectionPayload } : {}),
+        threadKey,
+        ...(threadKey !== "main" ? { questId: questId ?? threadKey } : {}),
         prepared: {
           deliveryContent,
           imageRefs,
@@ -734,9 +749,12 @@ export function Composer({ sessionId }: { sessionId: string }) {
         type: "user_message",
         content: finalContent,
         deliveryContent,
+        ...(currentReplyContext ? { replyContext: currentReplyContext } : {}),
         imageRefs,
         session_id: sessionId,
         client_msg_id: pendingId,
+        threadKey,
+        ...(threadKey !== "main" ? { questId: questId ?? threadKey } : {}),
         ...(vscodeSelectionPayload ? { vscodeSelection: vscodeSelectionPayload } : {}),
       });
 
@@ -753,7 +771,10 @@ export function Composer({ sessionId }: { sessionId: string }) {
     const sent = sendToSession(sessionId, {
       type: "user_message",
       content: finalContent,
+      ...(currentReplyContext ? { deliveryContent: replyDeliveryContent, replyContext: currentReplyContext } : {}),
       session_id: sessionId,
+      threadKey,
+      ...(threadKey !== "main" ? { questId: questId ?? threadKey } : {}),
       ...(vscodeSelectionPayload ? { vscodeSelection: vscodeSelectionPayload } : {}),
     });
 
@@ -893,7 +914,7 @@ export function Composer({ sessionId }: { sessionId: string }) {
       try {
         const prepared = await api.prepareUserMessageImages(
           sessionId,
-          [{ mediaType: image.mediaType, data: image.base64 }],
+          [{ mediaType: image.mediaType, data: image.base64, filename: image.name }],
           uploadController.signal,
         );
         const imageRef = prepared.imageRefs[0];
@@ -1339,6 +1360,16 @@ export function Composer({ sessionId }: { sessionId: string }) {
   const compactVoiceButtonDisabled = voiceButtonDisabled;
   const sendButtonTitle =
     attachmentBlockReason || (activePendingUserUpload ? "Delivering pending message" : "Send message");
+  const plainReferencePreviews = useMemo(() => {
+    const questIds = new Set(previewQuestIds);
+    const sessionNums = new Set(previewSessionNums);
+
+    return collectPlainTakodeReferences(text).filter((reference) =>
+      reference.kind === "quest"
+        ? questIds.has(reference.questId.toLowerCase())
+        : sessionNums.has(reference.sessionNum),
+    );
+  }, [previewQuestIds, previewSessionNums, text]);
 
   useEffect(() => {
     if (voiceSupported || isRecording || isTranscribing) {
@@ -1475,54 +1506,57 @@ export function Composer({ sessionId }: { sessionId: string }) {
                   persistPreferredVoiceMode("append");
                 }}
               />
+              <ComposerReferencePreview references={plainReferencePreviews} />
             </>
           }
           bottomChildren={
-            <ComposerMetaToolbar
-              sessionId={sessionId}
-              sessionView={sessionView}
-              diffLinesAdded={diffLinesAdded}
-              diffLinesRemoved={diffLinesRemoved}
-              isCodex={isCodex}
-              isConnected={isConnected}
-              showModelDropdown={showModelDropdown}
-              setShowModelDropdown={setShowModelDropdown}
-              modelDropdownRef={modelDropdownRef}
-              claudeModelOptions={claudeModelOptions}
-              codexModelOptions={codexModelOptions}
-              onSelectModel={(model) => sendToSession(sessionId, { type: "set_model", model })}
-              showCodexReasoningDropdown={showCodexReasoningDropdown}
-              setShowCodexReasoningDropdown={setShowCodexReasoningDropdown}
-              codexReasoningDropdownRef={codexReasoningDropdownRef}
-              codexReasoningEffort={codexReasoningEffort}
-              onSelectCodexReasoning={(effort) =>
-                sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort })
-              }
-              isPlan={isPlan}
-              cycleMode={cycleMode}
-              askConfirmRef={askConfirmRef}
-              toggleAskPermission={toggleAskPermission}
-              askPermission={askPermission}
-              showAskConfirm={showAskConfirm}
-              setShowAskConfirm={setShowAskConfirm}
-              confirmAskPermissionChange={confirmAskPermissionChange}
-              collapseAllButton={<CollapseAllButton sessionId={sessionId} />}
-              onOpenFilePicker={() => fileInputRef.current?.click()}
-              warmMicrophone={warmMicrophone}
-              voiceSupported={voiceSupported}
-              toggleVoiceUnsupportedInfo={toggleVoiceUnsupportedInfo}
-              handleMicClick={handleMicClick}
-              voiceButtonDisabled={voiceButtonDisabled}
-              isPreparing={isPreparing}
-              isRecording={isRecording}
-              voiceButtonTitle={voiceButtonTitle}
-              canSend={canSend}
-              isRunning={isRunning}
-              handleInterrupt={handleInterrupt}
-              handleSend={handleSend}
-              sendButtonTitle={sendButtonTitle}
-              sendPressing={sendPressing}
-            />
+            <>
+              <ComposerMetaToolbar
+                sessionId={sessionId}
+                sessionView={sessionView}
+                diffLinesAdded={diffLinesAdded}
+                diffLinesRemoved={diffLinesRemoved}
+                isCodex={isCodex}
+                isConnected={isConnected}
+                showModelDropdown={showModelDropdown}
+                setShowModelDropdown={setShowModelDropdown}
+                modelDropdownRef={modelDropdownRef}
+                claudeModelOptions={claudeModelOptions}
+                codexModelOptions={codexModelOptions}
+                onSelectModel={(model) => sendToSession(sessionId, { type: "set_model", model })}
+                showCodexReasoningDropdown={showCodexReasoningDropdown}
+                setShowCodexReasoningDropdown={setShowCodexReasoningDropdown}
+                codexReasoningDropdownRef={codexReasoningDropdownRef}
+                codexReasoningEffort={codexReasoningEffort}
+                onSelectCodexReasoning={(effort) =>
+                  sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort })
+                }
+                isPlan={isPlan}
+                cycleMode={cycleMode}
+                askConfirmRef={askConfirmRef}
+                toggleAskPermission={toggleAskPermission}
+                askPermission={askPermission}
+                showAskConfirm={showAskConfirm}
+                setShowAskConfirm={setShowAskConfirm}
+                confirmAskPermissionChange={confirmAskPermissionChange}
+                collapseAllButton={<CollapseAllButton sessionId={sessionId} />}
+                onOpenFilePicker={() => fileInputRef.current?.click()}
+                warmMicrophone={warmMicrophone}
+                voiceSupported={voiceSupported}
+                toggleVoiceUnsupportedInfo={toggleVoiceUnsupportedInfo}
+                handleMicClick={handleMicClick}
+                voiceButtonDisabled={voiceButtonDisabled}
+                isPreparing={isPreparing}
+                isRecording={isRecording}
+                voiceButtonTitle={voiceButtonTitle}
+                canSend={canSend}
+                isRunning={isRunning}
+                handleInterrupt={handleInterrupt}
+                handleSend={handleSend}
+                sendButtonTitle={sendButtonTitle}
+                sendPressing={sendPressing}
+              />
+            </>
           }
         />
       </div>

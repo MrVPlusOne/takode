@@ -542,7 +542,7 @@ describe("POST /api/quests/:questId/verification/read", () => {
       id: "q-1-v4",
       questId: "q-1",
       title: "Quest",
-      status: "needs_verification",
+      status: "done",
       createdAt: Date.now(),
       updatedAt: Date.now(),
       sessionId: "session-1",

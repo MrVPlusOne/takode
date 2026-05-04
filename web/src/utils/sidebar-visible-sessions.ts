@@ -111,6 +111,10 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
         repoRoot: bridgeState?.repo_root || sdkInfo?.repoRoot || "",
         permCount: countUserPermissions(pendingPermissions.get(id)),
         pendingTimerCount: sdkInfo?.pendingTimerCount ?? 0,
+        notificationUrgency: sdkInfo?.notificationUrgency ?? null,
+        activeNotificationCount: sdkInfo?.activeNotificationCount ?? 0,
+        notificationStatusVersion: sdkInfo?.notificationStatusVersion,
+        notificationStatusUpdatedAt: sdkInfo?.notificationStatusUpdatedAt,
         cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
         cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
         isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,
@@ -132,6 +136,7 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     (session) => !session.archived && !session.cronJobId && session.reviewerOf === undefined,
   );
   const activeReviewers = allSessionList.filter((session) => !session.archived && session.reviewerOf !== undefined);
+  const attachedReviewers = allSessionList.filter((session) => session.reviewerOf !== undefined && !session.cronJobId);
   const cronSessions = allSessionList.filter((session) => !session.archived && !!session.cronJobId);
   const archivedSessions = allSessionList
     .filter((session) => session.archived && session.reviewerOf === undefined)
@@ -144,7 +149,7 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
     sessionAttention,
     sessionSortMode,
     treeNodeOrder,
-    activeReviewers,
+    attachedReviewers,
   );
   const orderedVisibleSessionIds = treeViewGroups.flatMap((group) => {
     if (collapsedTreeGroups.has(group.id)) return [];

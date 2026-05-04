@@ -176,6 +176,85 @@ describe("handleMessage: message_history", () => {
     expect(useStore.getState().historyLoading.has("s1")).toBe(false);
   });
 
+  it("records message_history apply diagnostics for attach-history freeze analysis", async () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        { type: "user_message", id: "u1", content: "Attach this to [q-1084](quest:q-1084)", timestamp: 1000 },
+        { type: "thread_attachment_marker", threadKey: "q-1084", questId: "q-1084", count: 1, messageIndices: [0] },
+      ],
+    });
+
+    const { getFrontendPerfEntries } = await import("./utils/frontend-perf-recorder.js");
+    expect(getFrontendPerfEntries()).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: "message_history_apply",
+          sessionId: "s1",
+          rawMessageCount: 2,
+          chatMessageCount: 2,
+          frozenCount: 0,
+        }),
+        expect.objectContaining({
+          kind: "ws_message",
+          sessionId: "s1",
+          messageType: "message_history",
+          payloadBytes: expect.any(Number),
+        }),
+      ]),
+    );
+  });
+
+  it("resolves pending deep-link indexes against raw messageHistory indexes when entries are skipped", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    useStore.getState().setPendingScrollToMessageIndex("s1", 2);
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        { type: "user_message", id: "u-raw-0", content: "Run the tool", timestamp: 1000 },
+        {
+          type: "tool_result_preview",
+          previews: [
+            {
+              tool_use_id: "tool-1",
+              content: "Hidden preview",
+              is_error: false,
+              total_size: 14,
+              is_truncated: false,
+            },
+          ],
+        },
+        {
+          type: "assistant",
+          timestamp: 2000,
+          parent_tool_use_id: null,
+          message: {
+            id: "a-raw-2",
+            type: "message",
+            role: "assistant",
+            model: "claude-opus-4-20250514",
+            content: [{ type: "text", text: "Visible answer" }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+        },
+      ],
+    });
+
+    const msgs = useStore.getState().messages.get("s1")!;
+    expect(msgs.map((msg) => ({ id: msg.id, historyIndex: msg.historyIndex }))).toEqual([
+      { id: "u-raw-0", historyIndex: 0 },
+      { id: "a-raw-2", historyIndex: 2 },
+    ]);
+    expect(useStore.getState().scrollToMessageId.get("s1")).toBe("a-raw-2");
+    expect(useStore.getState().expandAllInTurn.get("s1")).toBe("a-raw-2");
+  });
+
   it("clears stale todo state on history replay once a result is encountered", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

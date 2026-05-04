@@ -187,6 +187,7 @@ import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
 import { containerManager } from "./container-manager.js";
+import { SHARP_UNAVAILABLE_MESSAGE, SharpUnavailableError } from "./image-store.js";
 
 // ─── Mock factories ──────────────────────────────────────────────────────────
 
@@ -569,13 +570,99 @@ describe("POST /api/sessions/:id/images/prepare-user-message", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(imageStore.store).toHaveBeenCalledWith(sid, "abc123base64", "image/png");
+    expect(imageStore.store).toHaveBeenCalledWith(sid, "abc123base64", "image/png", undefined);
     const json = await res.json();
     expect(json.imageRefs).toEqual([{ imageId: "img-1", media_type: "image/png" }]);
     expect(json.paths).toEqual([join(homedir(), ".companion", "images", sid, "img-1.orig.png")]);
     expect(json.attachmentAnnotation).toContain(
       `Attachment 1: ${join(homedir(), ".companion", "images", sid, "img-1.orig.png")}`,
     );
+  });
+
+  it("returns .takode-agent attachment paths for optimized prepared composer images", async () => {
+    const imageStore = {
+      store: vi.fn().mockResolvedValue({
+        imageId: "img-1",
+        media_type: "image/jpeg",
+        optimized: true,
+        sourceName: "screenshot.png",
+      }),
+    } as any;
+
+    const imageApp = new Hono();
+    imageApp.route(
+      "/api",
+      createRoutes(
+        launcher,
+        bridge,
+        sessionStore,
+        tracker,
+        { getInfo: () => null, spawn: () => "", kill: () => {} } as any,
+        undefined,
+        recorder,
+        undefined,
+        timerManager,
+        imageStore,
+      ),
+    );
+
+    const sid = "sess-upload-optimized";
+    bridge.getOrCreateSession(sid, "codex");
+
+    const res = await imageApp.request(`/api/sessions/${sid}/images/prepare-user-message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        images: [{ mediaType: "image/png", data: "abc123base64", filename: "screenshot.png" }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(imageStore.store).toHaveBeenCalledWith(sid, "abc123base64", "image/png", "screenshot.png");
+    const json = await res.json();
+    const expectedPath = join(homedir(), ".companion", "images", sid, "img-1.takode-agent.jpeg");
+    expect(json.imageRefs).toEqual([
+      { imageId: "img-1", media_type: "image/jpeg", optimized: true, sourceName: "screenshot.png" },
+    ]);
+    expect(json.paths).toEqual([expectedPath]);
+    expect(json.attachmentAnnotation).toContain(`Attachment 1: ${expectedPath}`);
+  });
+
+  it("returns 503 when sharp is unavailable during image preparation", async () => {
+    const imageStore = {
+      store: vi.fn().mockRejectedValue(new SharpUnavailableError("store session images")),
+    } as any;
+
+    const imageApp = new Hono();
+    imageApp.route(
+      "/api",
+      createRoutes(
+        launcher,
+        bridge,
+        sessionStore,
+        tracker,
+        { getInfo: () => null, spawn: () => "", kill: () => {} } as any,
+        undefined,
+        recorder,
+        undefined,
+        timerManager,
+        imageStore,
+      ),
+    );
+
+    const sid = "sess-upload-sharp-down";
+    bridge.getOrCreateSession(sid, "codex");
+
+    const res = await imageApp.request(`/api/sessions/${sid}/images/prepare-user-message`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        images: [{ mediaType: "image/png", data: "abc123base64" }],
+      }),
+    });
+
+    expect(res.status).toBe(503);
+    await expect(res.json()).resolves.toEqual({ error: SHARP_UNAVAILABLE_MESSAGE });
   });
 
   it("deletes a prepared image when the composer discards it before send", async () => {

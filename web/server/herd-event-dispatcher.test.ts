@@ -85,6 +85,7 @@ function createMocks() {
   } satisfies WsBridgeHandle;
   const launcher: LauncherHandle = {
     getHerdedSessions: vi.fn(() => [{ sessionId: "worker-1" }, { sessionId: "worker-2" }]),
+    getSession: vi.fn(() => undefined),
   };
   return { bridge, launcher };
 }
@@ -188,6 +189,389 @@ describe("HerdEventDispatcher", () => {
     // All 3 events in one message
     const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
     expect(content).toContain("3 events");
+
+    dispatcher.destroy();
+  });
+
+  it("groups injected herd batches by quest route metadata", () => {
+    // A single debounce flush can contain work from several quests. The leader
+    // should receive one injected herd message per quest thread so Main stays
+    // reserved for unassociated/global events.
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(launcher.getSession!).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? { claimedQuestId: "q-101" }
+        : sessionId === "worker-2"
+          ? { claimedQuestId: "q-202" }
+          : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(makeEvent({ id: 1, sessionId: "worker-1", sessionNum: 1, sessionName: "worker-one" }));
+    triggerEvent(makeEvent({ id: 2, sessionId: "worker-2", sessionNum: 2, sessionName: "worker-two" }));
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls.map((call) => call[4]?.threadKey)).toEqual([
+      "q-101",
+      "q-202",
+    ]);
+
+    dispatcher.destroy();
+  });
+
+  it("prefers event-time quest metadata over the source session claim for herd routing", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(launcher.getSession!).mockReturnValue({ claimedQuestId: "q-101" });
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "board_stalled",
+        data: {
+          questId: "q-303",
+          stage: "IMPLEMENTING",
+          stalledForMs: 120_000,
+          reason: "No activity",
+          signature: "sig-1",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-303",
+      questId: "q-303",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("routes turn_end events using active route metadata before source session claim", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(launcher.getSession!).mockReturnValue({ claimedQuestId: "q-101" });
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          threadKey: "q-404",
+          questId: "q-404",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-404",
+      questId: "q-404",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("routes worker_stream events using active route metadata before source session claim", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(launcher.getSession!).mockReturnValue({ claimedQuestId: "q-101" });
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "worker_stream",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 1000,
+          threadKey: "q-505",
+          questId: "q-505",
+          msgRange: { from: 10, to: 12 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-505",
+      questId: "q-505",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("infers turn_end quest routing from persisted user-message history after restart", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              { type: "user_message", id: "u-main", content: "main", timestamp: 1, threadKey: "main" },
+              {
+                type: "user_message",
+                id: "u-q998",
+                content: "review q-998",
+                timestamp: 2,
+                threadKey: "q-998",
+                questId: "q-998",
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          msgRange: { from: 1, to: 1 },
+          userMsgs: { count: 1, ids: [1] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-998",
+      questId: "q-998",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("infers worker_stream quest routing from persisted user-message history after restart", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              { type: "user_message", id: "u-main", content: "main", timestamp: 1, threadKey: "main" },
+              {
+                type: "user_message",
+                id: "u-q606",
+                content: "checkpoint q-606",
+                timestamp: 2,
+                threadKey: "q-606",
+                questId: "q-606",
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "worker_stream",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 1000,
+          msgRange: { from: 1, to: 1 },
+          userMsgs: { count: 1, ids: [1] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-606",
+      questId: "q-606",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("infers turn_end quest routing from unambiguous agent-sourced quest prompts", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              {
+                type: "user_message",
+                id: "u-review",
+                content: "Review [q-1009](quest:q-1009) in the repeated Mental Simulation phase.",
+                timestamp: 1,
+                agentSource: { sessionId: "leader-1", sessionLabel: "#1286" },
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          msgRange: { from: 0, to: 0 },
+          userMsgs: { count: 1, ids: [0] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-1009",
+      questId: "q-1009",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("infers turn_end quest routing from a leading target when later context mentions other quests", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              {
+                type: "user_message",
+                id: "u-port",
+                content: "Advance [q-1009](quest:q-1009) to Port.\n\nDo not include [q-1010](quest:q-1010).",
+                timestamp: 1,
+                agentSource: { sessionId: "leader-1", sessionLabel: "#1286" },
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          msgRange: { from: 0, to: 0 },
+          userMsgs: { count: 1, ids: [0] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-1009",
+      questId: "q-1009",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("infers turn_end quest routing from a transcript leader target before later quest context", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              {
+                type: "user_message",
+                id: "u-outcome-review",
+                content: [
+                  "1 event from 1 session",
+                  "",
+                  "#1323 | turn_end | ✓ 1m 52s | tools: 29 | [350]-[414] | 1 user msg [350]",
+                  '[350] leader: "Review [q-1005](quest:q-1005) in the Outcome Review phase.',
+                  '[414] "ACCEPT: screenshots show `q-99` inserted after Main for [q-1005](quest:q-1005)."',
+                ].join("\n"),
+                timestamp: 1,
+                agentSource: { sessionId: "leader-1", sessionLabel: "#1286" },
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          msgRange: { from: 0, to: 0 },
+          userMsgs: { count: 1, ids: [0] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({
+      threadKey: "q-1005",
+      questId: "q-1005",
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("keeps ambiguous multi-quest turn_end prompts in Main", () => {
+    const { bridge, launcher } = createMocks();
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1"
+        ? {
+            messageHistory: [
+              {
+                type: "user_message",
+                id: "u-ambiguous",
+                content: "Compare [q-1009](quest:q-1009) with [q-1010](quest:q-1010).",
+                timestamp: 1,
+                agentSource: { sessionId: "leader-1", sessionLabel: "#1286" },
+              },
+            ] as any,
+          }
+        : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    triggerEvent(
+      makeEvent({
+        event: "turn_end",
+        data: {
+          duration_ms: 1000,
+          reason: "result",
+          msgRange: { from: 0, to: 0 },
+          userMsgs: { count: 1, ids: [0] },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(bridge.injectUserMessage).mock.calls[0][4]).toMatchObject({ threadKey: "main" });
 
     dispatcher.destroy();
   });
@@ -353,11 +737,12 @@ describe("HerdEventDispatcher", () => {
 
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
     const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
-    expect(content).toContain("user_message [User]");
+    expect(content).toContain("user_message | user sent to [#5](session:5)");
     expect(content).toContain("msg [42]");
     expect(content).toContain("id user-42");
     expect(content).toContain("turn current");
     expect(content).toContain("please check latest logs");
+    expect(content).toContain("---\nThe worker should be reacting to this user message now.");
 
     dispatcher.destroy();
   });
@@ -383,10 +768,11 @@ describe("HerdEventDispatcher", () => {
 
     expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
     const content = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
-    expect(content).toContain("#7 | user_message [User]");
+    expect(content).toContain("#7 | user_message | user sent to [#7](session:7)");
     expect(content).toContain("msg [12]");
     expect(content).toContain("turn queued");
     expect(content).toContain("please review the patch");
+    expect(content).toContain("---\nThe worker should be reacting to this user message now.");
 
     dispatcher.destroy();
   });
@@ -636,6 +1022,115 @@ describe("HerdEventDispatcher", () => {
     dispatcher.destroy();
   });
 
+  it("confirms queued Codex herd events once they are committed to leader history", () => {
+    // Regression for q-998: Codex herd injection initially reports "queued".
+    // If that queued message is committed and handled before the dispatcher
+    // retries, the dispatcher must acknowledge the exact event keys instead
+    // of re-sending the already-handled completion on the next leader turn.
+    const { bridge, launcher } = createMocks();
+    const leaderHistory: NonNullable<ReturnType<WsBridgeHandle["getSession"]>>["messageHistory"] = [];
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "orch-1" ? { messageHistory: leaderHistory } : undefined,
+    );
+    vi.mocked(bridge.injectUserMessage).mockImplementation((sessionId, content, agentSource, takodeHerdBatch) => {
+      leaderHistory.push({
+        type: "user_message",
+        content,
+        timestamp: Date.now(),
+        ...(agentSource ? { agentSource } : {}),
+        ...(takodeHerdBatch?.eventKeys?.length ? { takodeHerdEventKeys: takodeHerdBatch.eventKeys } : {}),
+      });
+      return "queued";
+    });
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    const staleCompletion = makeEvent({
+      id: 1,
+      sessionId: "worker-1",
+      sessionNum: 1306,
+      sessionName: "Mental Simulation",
+      data: { duration_ms: 51_700, msgRange: { from: 178, to: 200 }, userMsgs: { count: 1, ids: [178] } },
+    });
+    triggerEvent(staleCompletion);
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+    vi.advanceTimersByTime(2100);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(dispatcher._getInbox("orch-1")?.entries).toHaveLength(0);
+
+    dispatcher.destroy();
+
+    const replayDispatcher = new HerdEventDispatcher(bridge, launcher);
+    replayDispatcher.setupForOrchestrator("orch-1");
+    triggerEvent({ ...staleCompletion, id: 2, ts: staleCompletion.ts + 1000 });
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    replayDispatcher.destroy();
+  });
+
+  it("uses delivered worker_stream checkpoints to avoid duplicate final turn activity", () => {
+    const { bridge, launcher } = createMocks();
+    const workerHistory = Array.from({ length: 15 }, (_value, index) => ({
+      type: "user_message",
+      content: `activity ${index}`,
+      timestamp: Date.now(),
+    }));
+    vi.mocked(bridge.getSession).mockImplementation((sessionId) =>
+      sessionId === "worker-1" ? ({ messageHistory: workerHistory } as any) : undefined,
+    );
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        event: "worker_stream",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 10, to: 12 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    const checkpointContent = vi.mocked(bridge.injectUserMessage).mock.calls[0][1];
+    expect(checkpointContent).toContain('user: "activity 10"');
+    expect(checkpointContent).toContain('user: "activity 12"');
+
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "turn_end",
+        data: {
+          duration_ms: 8000,
+          msgRange: { from: 10, to: 14 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+    const finalContent = vi.mocked(bridge.injectUserMessage).mock.calls[1][1];
+    expect(finalContent).toContain("turn_end");
+    expect(finalContent).not.toContain('user: "activity 10"');
+    expect(finalContent).not.toContain('user: "activity 12"');
+    expect(finalContent).toContain('user: "activity 13"');
+    expect(finalContent).toContain('user: "activity 14"');
+
+    dispatcher.destroy();
+  });
+
   it("wakes idle-killed leader when herd event arrives", () => {
     // When a leader session was stopped by idle-manager (killedByIdleManager=true),
     // new herd events should wake it up by calling wakeIdleKilledSession.
@@ -705,6 +1200,145 @@ describe("HerdEventDispatcher", () => {
     expect(bridge.wakeIdleKilledSession).toHaveBeenCalledWith("orch-1");
     // No injection (CLI is dead, will deliver after reconnect)
     expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    dispatcher.destroy();
+  });
+
+  it("suppresses restart-prep target events before enqueue or idle-killed wake", () => {
+    // Restart-prep worker interruptions should not wake an idle-killed leader
+    // through the normal herd delivery path.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "standalone",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    vi.mocked(bridge.wakeIdleKilledSession).mockReturnValue(true);
+
+    triggerEvent(makeEvent({ event: "turn_end", sessionId: "worker-1" }));
+
+    expect(bridge.wakeIdleKilledSession).not.toHaveBeenCalled();
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(dispatcher._getInbox("orch-1")?.entries).toHaveLength(0);
+    expect(dispatcher.getRestartPrepOperationSnapshot("prep-1")?.suppressedHerdEvents).toBe(1);
+
+    dispatcher.destroy();
+  });
+
+  it("holds unrelated protected-leader events during standalone prep and releases them after timeout", () => {
+    // Unrelated herd events should not wake the leader during restart prep, but
+    // they can be delivered after the standalone prep window expires.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "standalone",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    triggerEvent(makeEvent({ event: "permission_request", sessionId: "worker-2", sessionName: "other-worker" }));
+
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(dispatcher._getInbox("orch-1")?.deliveryHistory[0]?.status).toBe("held");
+
+    vi.advanceTimersByTime(1000);
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(dispatcher.getRestartPrepOperationSnapshot("prep-1")?.heldHerdEvents).toBe(1);
+
+    dispatcher.destroy();
+  });
+
+  it("wakes an idle-killed protected leader only after unrelated held events are released", () => {
+    // Held unrelated events should not wake a protected leader during prep, but
+    // after the hold window expires they return to the normal delivery policy.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "standalone",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    vi.mocked(bridge.wakeIdleKilledSession).mockReturnValue(true);
+    triggerEvent(makeEvent({ event: "permission_request", sessionId: "worker-2", sessionName: "other-worker" }));
+
+    expect(bridge.wakeIdleKilledSession).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1000);
+
+    expect(bridge.wakeIdleKilledSession).toHaveBeenCalledWith("orch-1");
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+
+    dispatcher.destroy();
+  });
+
+  it("suppresses late target events after blocker timeout while suppression is still active", () => {
+    // The blocker wait timeout should not become the herd suppression lifetime:
+    // late prep-target turn_end events must still avoid leader wakeups.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "restart",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.advanceTimersByTime(1500);
+    triggerEvent(makeEvent({ event: "turn_end", sessionId: "worker-1" }));
+    vi.advanceTimersByTime(600);
+
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(dispatcher.getRestartPrepOperationSnapshot("prep-1")?.suppressedHerdEvents).toBe(1);
+
+    dispatcher.destroy();
+  });
+
+  it("does not force-flush held or suppressed restart-prep events", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+    dispatcher.beginRestartPrepOperation({
+      operationId: "prep-1",
+      mode: "restart",
+      targetSessions: [{ sessionId: "worker-1", label: "Worker" }],
+      protectedLeaders: [{ sessionId: "orch-1", label: "Leader" }],
+      timeoutMs: 1000,
+      suppressionTtlMs: 5000,
+    });
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(false);
+    triggerEvent(makeEvent({ event: "permission_request", sessionId: "worker-2", sessionName: "other-worker" }));
+    triggerEvent(makeEvent({ event: "turn_end", sessionId: "worker-1" }));
+
+    const flushed = dispatcher.forceFlushPendingEvents("orch-1");
+
+    expect(flushed).toBe(0);
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(dispatcher.getRestartPrepOperationSnapshot("prep-1")?.suppressedHerdEvents).toBe(1);
 
     dispatcher.destroy();
   });
@@ -1010,6 +1644,277 @@ describe("HerdEventDispatcher", () => {
 
     dispatcher.destroy();
   });
+
+  it("suppresses duplicate turn_end events with the same message range", () => {
+    // A replayed worker completion with the same message range is stale even if
+    // its event id or relative-age rendering changes.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        id: 1,
+        event: "turn_end",
+        ts: 1000,
+        data: { duration_ms: 5000, msgRange: { from: 1957, to: 1967 } },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "turn_end",
+        ts: 2000,
+        data: { duration_ms: 5000, msgRange: { from: 1957, to: 1967 } },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    triggerEvent(
+      makeEvent({
+        id: 3,
+        event: "turn_end",
+        ts: 3000,
+        data: { duration_ms: 5000, msgRange: { from: 1970, to: 1971 } },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+
+    dispatcher.destroy();
+  });
+
+  it("delivers same-range turn_end events when material payload fields change", () => {
+    // Same message range alone is not enough to prove staleness: corrected
+    // outcome, tools, quest change, user-message, or preview payloads matter.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        id: 1,
+        event: "turn_end",
+        data: {
+          duration_ms: 5000,
+          msgRange: { from: 1957, to: 1967 },
+          tools: { Edit: 1 },
+          resultPreview: "alive for q-968",
+          userMsgs: { count: 1, ids: [1957] },
+          questChange: { questId: "q-968", from: "IMPLEMENTING", to: "PORTING" },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "turn_end",
+        data: {
+          duration_ms: 5000,
+          is_error: true,
+          compacted: true,
+          msgRange: { from: 1957, to: 1967 },
+          tools: { Edit: 1, Bash: 1 },
+          resultPreview: "failed while validating q-968",
+          userMsgs: { count: 2, ids: [1957, 1958] },
+          questChange: { questId: "q-968", from: "PORTING", to: "IMPLEMENTING" },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+
+    dispatcher.destroy();
+  });
+
+  it("suppresses duplicate worker_stream events with the same message range", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        id: 1,
+        event: "worker_stream",
+        ts: 1000,
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 1957, to: 1967 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "worker_stream",
+        ts: 2000,
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 1957, to: 1967 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    triggerEvent(
+      makeEvent({
+        id: 3,
+        event: "worker_stream",
+        ts: 3000,
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 1970, to: 1971 },
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+
+    dispatcher.destroy();
+  });
+
+  it("suppresses duplicate board_stalled events when only age fields change", () => {
+    // A still-stalled row should not keep notifying just because stalledForMs
+    // or the rendered relative age changed. A changed reason remains deliverable.
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+    vi.mocked(bridge.getBoardRow!).mockReturnValue({ status: "EXPLORING" });
+
+    triggerEvent(
+      makeEvent({
+        id: 1,
+        event: "board_stalled",
+        ts: 1000,
+        data: {
+          questId: "q-975",
+          title: "Add lightweight cross-thread activity markers",
+          stage: "EXPLORING",
+          signature: "sig-1",
+          workerStatus: "disconnected",
+          reviewerStatus: "missing",
+          stalledForMs: 571 * 60_000,
+          reason: "worker disconnected",
+          action: "inspect worker; review findings or revise the Journey",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "board_stalled",
+        ts: 2000,
+        data: {
+          questId: "q-975",
+          title: "Add lightweight cross-thread activity markers",
+          stage: "EXPLORING",
+          signature: "sig-1",
+          workerStatus: "disconnected",
+          reviewerStatus: "missing",
+          stalledForMs: 572 * 60_000,
+          reason: "worker disconnected",
+          action: "inspect worker; review findings or revise the Journey",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    triggerEvent(
+      makeEvent({
+        id: 3,
+        event: "board_stalled",
+        ts: 3000,
+        data: {
+          questId: "q-975",
+          title: "Add lightweight cross-thread activity markers",
+          stage: "EXPLORING",
+          signature: "sig-1",
+          workerStatus: "disconnected",
+          reviewerStatus: "missing",
+          stalledForMs: 573 * 60_000,
+          reason: "worker missing",
+          action: "inspect worker; review findings or revise the Journey",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+
+    dispatcher.destroy();
+  });
+
+  it("delivers board_dispatchable events when the next action changes", () => {
+    const { bridge, launcher } = createMocks();
+    const dispatcher = new HerdEventDispatcher(bridge, launcher);
+    dispatcher.setupForOrchestrator("orch-1");
+
+    vi.mocked(bridge.isSessionIdle).mockReturnValue(true);
+
+    triggerEvent(
+      makeEvent({
+        id: 1,
+        event: "board_dispatchable",
+        data: {
+          questId: "q-77",
+          title: "Dispatch queued follow-up",
+          signature: "dispatchable-sig-1",
+          summary: "q-77 can be dispatched now: wait-for resolved (q-76).",
+          action: "Dispatch it now.",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+
+    dispatcher.onOrchestratorTurnEnd("orch-1");
+    triggerEvent(
+      makeEvent({
+        id: 2,
+        event: "board_dispatchable",
+        data: {
+          questId: "q-77",
+          title: "Dispatch queued follow-up",
+          signature: "dispatchable-sig-1",
+          summary: "q-77 can be dispatched now: wait-for resolved (q-76).",
+          action: "Replace QUEUED with IMPLEMENTING before dispatch.",
+        },
+      }),
+    );
+    vi.advanceTimersByTime(600);
+    expect(bridge.injectUserMessage).toHaveBeenCalledTimes(2);
+
+    dispatcher.destroy();
+  });
 });
 
 // ─── formatHerdEventBatch ───────────────────────────────────────────────────────
@@ -1029,6 +1934,34 @@ describe("formatHerdEventBatch", () => {
     expect(result).toContain("12.3s");
     expect(result).toContain("tools: 5");
     expect(result).toContain("Added JWT validation");
+  });
+
+  it("formats worker_stream checkpoint events with a distinct label and activity fields", () => {
+    const events = [
+      makeEvent({
+        event: "worker_stream",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 12300,
+          tools: { Edit: 3, Bash: 2 },
+          resultPreview: "Phase findings are ready",
+          msgRange: { from: 169, to: 281 },
+          userMsgs: { count: 2, ids: [172, 240] },
+          turn_source: "user",
+          questChange: { questId: "q-1010", from: "EXPLORING", to: "IMPLEMENTING" },
+        },
+      }),
+    ];
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain("worker_stream");
+    expect(result).toContain("checkpoint 12.3s");
+    expect(result).toContain("(user-initiated)");
+    expect(result).toContain("tools: 5");
+    expect(result).toContain("[169]-[281]");
+    expect(result).toContain("2 user msgs [172, 240]");
+    expect(result).toContain("q-1010: EXPLORING");
+    expect(result).toContain("IMPLEMENTING");
+    expect(result).toContain("Phase findings are ready");
   });
 
   it("formats permission_request events", () => {
@@ -1151,12 +2084,13 @@ describe("formatHerdEventBatch", () => {
     const events = [
       makeEvent({
         event: "notification_needs_input",
-        data: { summary: "Need decision on rollout", msg_index: 18 },
+        data: { summary: "Need decision on rollout", suggestedAnswers: ["ship", "hold"], msg_index: 18 },
       }),
     ];
     const result = formatHerdEventBatch(events);
     expect(result).toContain("notification_needs_input");
     expect(result).toContain("msg [18]");
+    expect(result).toContain("Suggestions: ship, hold");
     expect(result).toContain("Answer: takode answer 5 --message 18 <response>");
     expect(result).toContain("Read: takode read 5 18");
   });
@@ -1329,11 +2263,37 @@ describe("formatHerdEventBatch", () => {
       }),
     ];
     const result = formatHerdEventBatch(events);
-    expect(result).toContain("user_message [User]");
+    expect(result).toContain("user_message | user sent to [#5](session:5)");
     expect(result).toContain("msg [77]");
     expect(result).toContain("id user-77");
     expect(result).toContain("turn current turn-abc");
     expect(result).toContain(`${"x".repeat(4999)}…`);
+    expect(result).toContain("---\nThe worker should be reacting to this user message now.");
+  });
+
+  it("keeps injected user_message events on their existing sender labels without the direct-user reminder", () => {
+    const events = [
+      makeEvent({
+        event: "user_message",
+        data: {
+          content: "leader dispatch",
+          agentSource: { sessionId: "leader-1", sessionLabel: "#1 Leader" },
+        },
+      }),
+      makeEvent({
+        event: "user_message",
+        data: {
+          content: "herd event delivery",
+          agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+        },
+      }),
+    ];
+
+    const result = formatHerdEventBatch(events);
+    expect(result).toContain('user_message [Agent #1 Leader] | "leader dispatch"');
+    expect(result).toContain('user_message [Herd] | "herd event delivery"');
+    expect(result).not.toContain("user sent to");
+    expect(result).not.toContain("The worker should be reacting to this user message now.");
   });
 
   it("formats turn_end with user message count and IDs", () => {
@@ -1527,6 +2487,47 @@ describe("formatHerdEventBatch with activity injection", () => {
     expect(result).toContain("Bug fixed");
   });
 
+  it("truncates leader-authored activity entries in automatic herd event batches", () => {
+    const leaderInstruction =
+      "Address the code-review finding for [q-725](quest:q-725), then stop and report back.\n\n" +
+      "Read this phase brief first. ".repeat(20);
+    const workerResult = "Worker result detail: ".repeat(120);
+    const events = [
+      makeEvent({
+        event: "turn_end",
+        sessionId: "worker-1",
+        data: {
+          duration_ms: 5000,
+          msgRange: { from: 1091, to: 1092 },
+        },
+      }),
+    ];
+    const mockMessages = [
+      {
+        type: "user_message",
+        content: leaderInstruction,
+        timestamp: Date.now(),
+        agentSource: { sessionId: "leader-1", sessionLabel: "#9 Quest Journey Leader" },
+      },
+      { type: "result", data: { result: workerResult, is_error: false, duration_ms: 5000 } },
+    ];
+
+    const result = formatHerdEventBatch(events, {
+      getMessages: () => mockMessages as any,
+      leaderSessionId: "leader-1",
+    });
+
+    const leaderLine = result.split("\n").find((line) => line.includes("[1091] leader:"));
+    const resultLine = result.split("\n").find((line) => line.includes("[1092] ✓"));
+    expect(leaderLine).toContain(
+      '[1091] leader: "Address the code-review finding for [q-725](quest:q-725), then stop and report back.\\n\\nRead this',
+    );
+    expect(leaderLine).toContain(" chars");
+    expect(leaderLine).not.toContain("Quest Journey Leader");
+    expect(resultLine).toContain("Worker result detail:");
+    expect(resultLine).not.toContain("+");
+  });
+
   it("does not include activity when getMessages is not provided", () => {
     const events = [
       makeEvent({
@@ -1556,15 +2557,15 @@ describe("formatHerdEventBatch with activity injection", () => {
     expect(result).not.toContain("should not appear");
   });
 
-  it("does not deduplicate within a single batch (watermarks updated by caller after delivery)", () => {
-    // Within one formatHerdEventBatch call, watermarks aren't updated yet --
-    // that's the caller's job via updateLastEmittedMsgTo after injection.
-    // So two events from the same session each get their full msgRange.
+  it("deduplicates range-bearing activity within a single rendered batch", () => {
+    // A worker_stream checkpoint and the final turn_end can be delivered in one
+    // herd batch. The second event should only surface activity after the first
+    // event's range so the leader does not read duplicate content.
     const events = [
       makeEvent({
-        event: "turn_end",
+        event: "worker_stream",
         sessionId: "worker-1",
-        data: { duration_ms: 3000, msgRange: { from: 10, to: 15 } },
+        data: { reason: "checkpoint", duration_ms: 3000, msgRange: { from: 10, to: 15 } },
       }),
       makeEvent({
         event: "turn_end",
@@ -1577,19 +2578,63 @@ describe("formatHerdEventBatch with activity injection", () => {
     const requestedRanges: Array<{ from: number; to: number }> = [];
     const watermarks = new Map<string, number>();
 
-    formatHerdEventBatch(events, {
+    const result = formatHerdEventBatch(events, {
       getMessages: (_sid, from, to) => {
         requestedRanges.push({ from, to });
-        return [{ type: "user_message", content: `msg ${from}-${to}`, timestamp: Date.now() }] as any;
+        return Array.from({ length: to - from + 1 }, (_value, offset) => ({
+          type: "user_message",
+          content: `msg ${from + offset}`,
+          timestamp: Date.now(),
+        })) as any;
       },
       lastEmittedMsgTo: watermarks,
     });
 
-    // Both events get their full range -- no within-batch dedup
+    // The formatter still fetches the full range so indexing stays stable, but
+    // the second event only renders activity after the checkpoint range.
     expect(requestedRanges[0]).toEqual({ from: 10, to: 15 });
     expect(requestedRanges[1]).toEqual({ from: 13, to: 20 });
-    // This is intentional: the batch is a single delivery unit.)
-    expect(requestedRanges[1]).toEqual({ from: 13, to: 20 });
+    expect(result).toContain('user: "msg 10"');
+    expect(result).toContain('user: "msg 15"');
+    expect(result).toContain('user: "msg 16"');
+    expect(result).toContain('user: "msg 20"');
+  });
+
+  it("includes activity summary for worker_stream events when getMessages is provided", () => {
+    const events = [
+      makeEvent({
+        event: "worker_stream",
+        sessionId: "worker-1",
+        data: {
+          reason: "checkpoint",
+          duration_ms: 5000,
+          msgRange: { from: 10, to: 12 },
+        },
+      }),
+    ];
+    const mockMessages = [
+      { type: "user_message", content: "Prepare the phase finding", timestamp: Date.now() },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            { type: "text", text: "Findings ready" },
+            { type: "tool_use", id: "tu1", name: "Bash", input: { command: "bun test" } },
+          ],
+        },
+        timestamp: Date.now(),
+      },
+      { type: "result", data: { result: "Checkpoint ready", is_error: false, duration_ms: 5000 } },
+    ];
+
+    const result = formatHerdEventBatch(events, {
+      getMessages: (_sid, _from, _to) => mockMessages as any,
+    });
+
+    expect(result).toContain("worker_stream");
+    expect(result).toContain('user: "Prepare the phase finding"');
+    expect(result).toContain("Tool Calls not shown above: 1 Bash.");
+    expect(result).toContain("Checkpoint ready");
   });
 
   it("fetches the full range and skips activity when no content survives deduplication", () => {
