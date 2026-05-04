@@ -9,6 +9,7 @@ import { TimerChip } from "../TimerWidget.js";
 import { NotificationChip } from "../NotificationChip.js";
 import { UserReplyChip } from "../MessageBubble.js";
 import { useStore } from "../../store.js";
+import type { QuestJourneyPhaseId } from "../../../shared/quest-journey.js";
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
 import {
   Card,
@@ -1001,19 +1002,28 @@ export function PlaygroundInteractiveSections() {
                   // Seed Zustand store with mock board and orchestrator session
                   const state = useStore.getState();
                   const now = Date.now();
+                  const mediumRepeatedJourneyPhaseIds: QuestJourneyPhaseId[] = [
+                    "alignment",
+                    ...Array.from({ length: 4 }, () => ["implement", "code-review", "execute"] as const).flat(),
+                  ];
                   const boardData: BoardRowData[] = [
                     {
                       questId: "q-42",
                       title: "Fix mobile sidebar overflow",
                       worker: "abc123",
                       workerNum: 5,
-                      status: "IMPLEMENTING",
+                      status: "CODE_REVIEWING",
                       waitForInput: ["n-3"],
                       updatedAt: now - 60000,
                       journey: {
                         mode: "active" as const,
-                        phaseIds: ["alignment", "implement", "execute", "code-review", "port"],
-                        currentPhaseId: "implement",
+                        phaseIds: mediumRepeatedJourneyPhaseIds,
+                        currentPhaseId: "code-review",
+                        activePhaseIndex: 11,
+                        phaseNotes: {
+                          "5": "Sixth previous phase hidden by default in tab hover previews.",
+                          "6": "First visible previous phase for the tab hover clamp.",
+                        },
                       },
                     },
                     {
@@ -1213,7 +1223,7 @@ export function PlaygroundInteractiveSections() {
                         title: "Fix mobile sidebar overflow",
                         status: "in_progress" as const,
                         description: "Keep narrow mobile layouts from clipping the primary shell.",
-                        tldr: "Prevent mobile shell clipping while keeping the composer and thread controls reachable.",
+                        tldr: "Medium-long repeated Journey for tab hover clamp checks: current row 12 should show only five prior phases by default.",
                         createdAt: now - 4_800_000,
                         sessionId: "playground-board-worker",
                         claimedAt: now - 3_600_000,
@@ -1563,13 +1573,10 @@ export function PlaygroundInteractiveSections() {
                 />
               </div>
               <p className="text-[10px] text-cc-muted">
-                Click "Seed board data" first. Main keeps the tab rail anchored above the compact board banner and Open
-                Workboard control; quest and All Threads selections keep the tab rail but hide the Work Board
-                banner/table. The constrained width keeps several open tabs visible so their quest-id minimums,
-                phase-colored titles, compact close affordances, horizontal overflow behavior, and newly inserted tab
-                pop state can be inspected. Hover quest tabs to inspect the shared quest hover card with full Journey
-                and participant context. The seeded active-output route targets q-42, so Main should not show the output
-                glint just because it is selected.
+                Click "Seed board data" first. The constrained width keeps several open tabs visible for tab sizing,
+                phase color, close affordance, overflow, and insertion checks. Hover q-42 to inspect the shared quest
+                hover card with a medium-long repeated Journey clamped around current row 12; the active-output route
+                also targets q-42 so Main stays visually quiet when selected.
               </p>
             </div>
           </Card>

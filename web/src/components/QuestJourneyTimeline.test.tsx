@@ -72,6 +72,53 @@ describe("QuestJourneyTimeline vertical clamping", () => {
     expect(within(timeline).getByText("Hidden later boundary note")).toBeInTheDocument();
   });
 
+  it("clamps prior phases even when the whole Journey fits the nominal visible row limit", () => {
+    const phaseIds: QuestJourneyPhaseId[] = [
+      "alignment",
+      "implement",
+      "code-review",
+      "execute",
+      "implement",
+      "code-review",
+      "execute",
+      "implement",
+      "code-review",
+      "execute",
+      "implement",
+      "code-review",
+      "execute",
+    ];
+
+    render(
+      <QuestJourneyTimeline
+        journey={{
+          mode: "active",
+          phaseIds,
+          currentPhaseId: "code-review",
+          activePhaseIndex: 11,
+          phaseNotes: {
+            "5": "Sixth previous phase should be hidden by default.",
+            "6": "First visible previous phase.",
+          },
+        }}
+        status="CODE_REVIEWING"
+        variant="vertical"
+      />,
+    );
+
+    const timeline = screen.getByTestId("quest-journey-timeline");
+    expect(visiblePhaseIndexes(timeline)).toEqual([6, 7, 8, 9, 10, 11, 12]);
+    expect(timeline.querySelector('li[data-phase-index="11"]')).toHaveAttribute("data-phase-current", "true");
+    expect(within(timeline).getByRole("button", { name: "Show 6 earlier phases" })).toBeInTheDocument();
+    expect(within(timeline).queryByRole("button", { name: /later phases/ })).toBeNull();
+    expect(within(timeline).queryByText("Sixth previous phase should be hidden by default.")).toBeNull();
+    expect(within(timeline).getByText("First visible previous phase.")).toBeInTheDocument();
+
+    fireEvent.click(within(timeline).getByRole("button", { name: "Show 6 earlier phases" }));
+    expect(visiblePhaseIndexes(timeline)).toEqual(Array.from({ length: 13 }, (_, index) => index));
+    expect(within(timeline).getByText("Sixth previous phase should be hidden by default.")).toBeInTheDocument();
+  });
+
   it("keeps start-adjacent current phases anchored at the beginning without an earlier omitted block", () => {
     const phaseIds = longJourney().phaseIds;
     render(

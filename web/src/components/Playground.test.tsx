@@ -142,7 +142,7 @@ describe("Playground", () => {
     expect(screen.getByTestId("thread-main-tab")).toHaveAttribute("aria-pressed", "true");
     expect(screen.getByTestId("thread-main-tab")).toHaveClass("border-violet-100/45", "border-b-transparent");
     expect(screen.getByTestId("thread-main-tab")).not.toHaveClass("border-amber-400/60", "border-cc-primary/70");
-    expect(screen.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Implement");
+    expect(screen.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Code Review");
     const mainTitle = within(screen.getByTestId("thread-main-tab")).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "false");
     expect(
@@ -214,7 +214,16 @@ describe("Playground", () => {
     const hoverCard = await screen.findByTestId("quest-hover-card");
     expect(within(hoverCard).getByText("Fix mobile sidebar overflow")).toBeTruthy();
     expect(within(hoverCard).getByTestId("quest-journey-preview-card")).toBeTruthy();
-    expect(within(hoverCard).getByTestId("quest-journey-timeline")).toHaveAttribute("data-journey-mode", "active");
+    const journey = within(hoverCard).getByTestId("quest-journey-timeline");
+    expect(journey).toHaveAttribute("data-journey-mode", "active");
+    expect(
+      Array.from(journey.querySelectorAll("li[data-phase-index]")).map((row) =>
+        Number(row.getAttribute("data-phase-index")),
+      ),
+    ).toEqual([6, 7, 8, 9, 10, 11, 12]);
+    expect(within(journey).queryByText("Sixth previous phase hidden by default in tab hover previews.")).toBeNull();
+    expect(within(journey).getByText("First visible previous phase for the tab hover clamp.")).toBeTruthy();
+    expect(within(journey).getByRole("button", { name: "Show 6 earlier phases" })).toBeTruthy();
     expect(within(hoverCard).getByTestId("quest-hover-worker-session")).toHaveTextContent("Worker");
     expect(within(hoverCard).getByTestId("quest-hover-reviewer-session")).toHaveTextContent("Reviewer");
     expect(within(hoverCard).getByRole("link", { name: "Worker #5 Clear Mesa" })).toBeTruthy();

@@ -6,6 +6,7 @@ import { boardSummary } from "./WorkBoardBar.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { scopedKey } from "../utils/scoped-storage.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
+import type { QuestJourneyPhaseId } from "../../shared/quest-journey.js";
 import type { QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
 
 // ─── boardSummary unit tests ──────────────────────────────────────────────────
@@ -479,6 +480,85 @@ describe("WorkBoardBar", () => {
     expect(within(card).getByTestId("quest-hover-reviewer-session")).toHaveTextContent("Reviewer");
     expect(within(card).getByText("#11")).toBeInTheDocument();
     expect(within(card).getByText("#12")).toBeInTheDocument();
+  });
+
+  it("clamps repeated-phase Journey previews in quest thread-tab hovers", async () => {
+    const phaseIds: QuestJourneyPhaseId[] = [
+      "alignment",
+      "implement",
+      "code-review",
+      "execute",
+      "implement",
+      "code-review",
+      "execute",
+      "implement",
+      "code-review",
+      "execute",
+      "implement",
+      "code-review",
+      "execute",
+    ];
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      quests: [
+        {
+          id: "q-1134-v1",
+          questId: "q-1134",
+          version: 1,
+          title: "Try repeated Journey preview",
+          status: "in_progress",
+          description: "Repeated phases near the end should still clamp in tab hover previews.",
+          createdAt: 1,
+          sessionId: "worker-1134",
+          claimedAt: 1,
+        },
+      ],
+      sessionBoards: new Map([
+        [
+          "s1",
+          [
+            {
+              questId: "q-1134",
+              title: "Try repeated Journey preview",
+              status: "CODE_REVIEWING",
+              updatedAt: 2,
+              journey: {
+                mode: "active",
+                phaseIds,
+                currentPhaseId: "code-review",
+                activePhaseIndex: 11,
+                phaseNotes: {
+                  "5": "Sixth previous phase hidden by default.",
+                  "6": "First visible previous phase.",
+                  "11": "Current repeated review phase.",
+                },
+              },
+            },
+          ],
+        ],
+      ]),
+    });
+
+    const view = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-1134"]} />);
+    const tab = view
+      .getAllByTestId("thread-tab")
+      .find((candidate) => candidate.getAttribute("data-thread-key") === "q-1134")!;
+
+    fireEvent.mouseEnter(tab);
+
+    const card = await view.findByTestId("quest-hover-card");
+    const journey = within(card).getByTestId("quest-hover-journey");
+    const visibleIndexes = Array.from(journey.querySelectorAll("li[data-phase-index]")).map((row) =>
+      Number(row.getAttribute("data-phase-index")),
+    );
+    expect(visibleIndexes).toEqual([6, 7, 8, 9, 10, 11, 12]);
+    expect(journey.querySelector('li[data-phase-index="11"]')).toHaveAttribute("data-phase-current", "true");
+    expect(within(journey).queryByText("Sixth previous phase hidden by default.")).not.toBeInTheDocument();
+    expect(within(journey).getByText("First visible previous phase.")).toBeInTheDocument();
+    expect(within(journey).getByRole("button", { name: "Show 6 earlier phases" })).toBeInTheDocument();
+
+    fireEvent.click(within(journey).getByRole("button", { name: "Show 6 earlier phases" }));
+    expect(within(journey).getByText("Sixth previous phase hidden by default.")).toBeInTheDocument();
   });
 
   it("lets off-board auto-surfaced attention tabs be dismissed from the unified track", () => {

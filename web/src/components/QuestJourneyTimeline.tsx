@@ -170,13 +170,13 @@ function getVerticalJourneyWindow(items: PhaseItem[]): {
   visibleItems: PhaseItem[];
   laterItems: PhaseItem[];
 } {
-  if (items.length <= VERTICAL_JOURNEY_VISIBLE_LIMIT) {
-    return { earlierItems: [], visibleItems: items, laterItems: [] };
-  }
-
   const anchorIndex = getVerticalJourneyAnchorIndex(items);
   const startIndex = Math.max(0, anchorIndex - VERTICAL_JOURNEY_PHASES_BEFORE);
   const endIndex = Math.min(items.length - 1, anchorIndex + VERTICAL_JOURNEY_PHASES_AFTER);
+
+  if (startIndex === 0 && endIndex === items.length - 1) {
+    return { earlierItems: [], visibleItems: items, laterItems: [] };
+  }
 
   return {
     earlierItems: items.slice(0, startIndex),
