@@ -651,6 +651,36 @@ function buildOpenThreadTabs({
   return tabs;
 }
 
+function buildUnifiedThreadTabs({
+  openThreadTabs,
+  closedActiveThreadChips,
+  activeBoardThreadKeys,
+}: {
+  openThreadTabs: PrimaryThreadChip[];
+  closedActiveThreadChips: PrimaryThreadChip[];
+  activeBoardThreadKeys: ReadonlySet<string>;
+}): PrimaryThreadChip[] {
+  if (openThreadTabs.length === 0) return closedActiveThreadChips;
+
+  const newestOpenTabAt = Math.max(...openThreadTabs.map((tab) => tab.updatedAt), 0);
+  const leadingPendingTabs: PrimaryThreadChip[] = [];
+  const trailingPendingTabs: PrimaryThreadChip[] = [];
+  const seenPendingKeys = new Set<string>();
+
+  for (const chip of closedActiveThreadChips) {
+    const threadKey = normalizeThreadKey(chip.threadKey);
+    if (!threadKey || seenPendingKeys.has(threadKey)) continue;
+    seenPendingKeys.add(threadKey);
+    if (activeBoardThreadKeys.has(threadKey) && chip.updatedAt > newestOpenTabAt) {
+      leadingPendingTabs.push(chip);
+    } else {
+      trailingPendingTabs.push(chip);
+    }
+  }
+
+  return [...leadingPendingTabs, ...openThreadTabs, ...trailingPendingTabs];
+}
+
 function ActiveOutputIndicator() {
   return (
     <span
@@ -1148,8 +1178,8 @@ export function WorkBoardBar({
     [activeBoardThreadKeys, activeThreadChips, dismissedAutoThreadTabKeys, openThreadTabKeys],
   );
   const unifiedThreadTabs = useMemo(
-    () => [...openThreadTabs, ...closedActiveThreadChips],
-    [closedActiveThreadChips, openThreadTabs],
+    () => buildUnifiedThreadTabs({ openThreadTabs, closedActiveThreadChips, activeBoardThreadKeys }),
+    [activeBoardThreadKeys, closedActiveThreadChips, openThreadTabs],
   );
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);

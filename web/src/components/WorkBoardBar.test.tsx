@@ -460,6 +460,49 @@ describe("WorkBoardBar", () => {
     expect(queryByText("Active")).not.toBeInTheDocument();
   });
 
+  it("keeps a newly surfaced quest tab after Main before and after server-open reconciliation", () => {
+    // A fresh board row can reach the tab rail before the selected/open-tab
+    // state catches up. Its initial placement should already match the later
+    // first-position server-open reconciliation, avoiding a visible jump.
+    const boardRows: BoardRowData[] = [
+      { questId: "q-new", status: "IMPLEMENTING", title: "Newly surfaced quest", updatedAt: 10 },
+    ];
+    const threadRows = [
+      { threadKey: "q-new", questId: "q-new", title: "Newly surfaced quest", messageCount: 1 },
+      { threadKey: "q-open-a", questId: "q-open-a", title: "Existing open thread A", messageCount: 2 },
+      { threadKey: "q-open-b", questId: "q-open-b", title: "Existing open thread B", messageCount: 3 },
+      { threadKey: "q-open-c", questId: "q-open-c", title: "Existing open thread C", messageCount: 4 },
+    ];
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", boardRows]]),
+    });
+
+    const view = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-open-a"
+        openThreadKeys={["q-open-a", "q-open-b", "q-open-c"]}
+        threadRows={threadRows}
+      />,
+    );
+
+    const initialOrder = view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"));
+    expect(initialOrder).toEqual(["q-new", "q-open-a", "q-open-b", "q-open-c"]);
+
+    view.rerender(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-new"
+        openThreadKeys={["q-new", "q-open-a", "q-open-b", "q-open-c"]}
+        threadRows={threadRows}
+      />,
+    );
+
+    const reconciledOrder = view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"));
+    expect(reconciledOrder).toEqual(["q-new", "q-open-a", "q-open-b", "q-open-c"]);
+  });
+
   it("uses the shared quest hover card for quest thread tabs", async () => {
     resetStore({
       sdkSessions: [
