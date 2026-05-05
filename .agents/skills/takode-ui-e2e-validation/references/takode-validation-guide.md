@@ -7,7 +7,8 @@ Use this reference after loading the `takode-ui-e2e-validation` skill when detai
 Acquire leases before touching shared browser or server resources. Choose the lease scope by the resource you will actually use:
 
 ```bash
-# Full browser validation on an isolated Takode app normally needs both:
+# Full browser validation normally needs both when it starts or uses a shared
+# persistent validation server. Isolated Takode apps also need both:
 takode lease acquire dev-server:companion --purpose "Validate q-N UI" --ttl 30m --wait
 takode lease acquire agent-browser --purpose "Validate q-N UI" --ttl 20m --wait
 
@@ -40,34 +41,34 @@ If a lease is held by another session, queue, wait for the Resource Lease promot
 
 Choose the state strategy before opening the browser or starting a server. Record the choice in the quest note or final report so future reviewers know what the evidence represents.
 
-Use a persistent validation profile when representative existing state matters. This is the practical near-term default for Takode UI/E2E checks that depend on accumulated sessions, long leader histories, Questmaster data, notifications, Work Board/thread state, reconnection artifacts, or other state that is expensive to rebuild. The profile must be documented or explicitly authorized for the task, with known URL/ports and state ownership. A persistent profile is validation state, not permission to mutate the live/session server on `:3456`.
+Use shared persistent validation state by default for normal Takode UI/E2E checks. Accumulated sessions, long leader histories, Questmaster data, notifications, Work Board/thread state, reconnection artifacts, and other realistic state are useful validation assets rather than noise to discard. The profile must be documented or explicitly authorized for the task, with known URL/ports and state ownership. Persistent validation state is not permission to mutate the live/session server on `:3456`.
 
-Use isolated temp HOME/state when isolation, resetability, or destructive testing matters more than representative accumulated state. This is the safer choice for permission flows, cleanup behavior, migration experiments, failure injection, tests that may create noisy session data, or any run where stale retained state could confuse the result. Set `HOME` to a temp directory for both backend and frontend commands, then record the temporary HOME, companion settings/session path, backend port, frontend port, and cleanup performed.
+Use isolated temp HOME/state only when isolation, resetability, privacy, or destructive testing matters more than representative accumulated state. This is the safer choice for destructive permission flows, cleanup behavior, migration experiments, failure injection, privacy-sensitive data, reset-sensitive scenarios, narrow frontend-only checks, tests that may create harmful or misleading session data, or any run where stale retained state could confuse the result. Set `HOME` to a temp directory for both backend and frontend commands, then record the temporary HOME, companion settings/session path, backend port, frontend port, and cleanup performed.
 
 Use Playground or browser fixtures when the target is a frontend-only component state and the behavior does not need real backend/session history. This keeps setup cheap and makes unusual visual states repeatable, especially for message rows, tool blocks, permission banners, composer states, and compacted/streaming examples.
 
-Use a sanitized copied-live snapshot when a bug is anchored to a specific live session, quest history, or session-store shape that cannot be represented with the persistent profile or Playground. Copy the minimum needed state, remove secrets or unrelated user data when applicable, run against isolated ports, and treat the copied snapshot as disposable unless the quest explicitly asks to preserve it.
+Use a sanitized copied-live snapshot when a bug is anchored to a specific live session, quest history, or session-store shape that cannot be represented with the shared persistent state or Playground. Copy the minimum needed state, remove secrets or unrelated user data when applicable, run against isolated ports, and treat the copied snapshot as disposable unless the quest explicitly asks to preserve it.
 
 Curated fixture packs are a later evolution. Do not block current validation on repo-checked fixture packs unless a quest specifically implements them.
 
-## Persistent Profile Inventory
+## Shared Persistent State Inventory
 
-Before using a persistent validation profile, capture a start-of-test inventory:
+Before using shared persistent validation state, capture a start-of-test inventory:
 
 - Profile name or state location, if documented.
 - Backend and frontend URL/ports.
 - Lease owner/status and whether you are reusing an already-running authorized server.
 - Known useful scenarios or session/quest IDs you expect to exercise.
 - Starting-state caveats that could affect interpretation, such as stale notifications, existing failed runs, large histories, or intentionally retained test data.
-- Cleanup and retention expectation for new state created during this run.
+- Cleanup and retention expectation for new state created during this run. Useful scenarios should be retained by default with enough provenance for the next tester.
 
-If any of those facts are unknown, write that down before testing. Do not invent missing profile commands, names, ports, or reset policies.
+If any of those facts are unknown, write that down before testing. Do not invent missing profile commands, names, ports, owners, or reset policies. If no authorized shared persistent state is available, document that limitation before falling back to isolated state, a Playground/browser fixture, or a sanitized copied-live snapshot.
 
 ## Server And Port Safety
 
 Takode agents depend on the live/session server on `:3456`. Never stop, kill, replace, restart, or bind over it during validation.
 
-When representative state matters, prefer an authorized persistent validation profile with documented URL/ports and retention policy. If no such profile is available, fall back to isolated temp state, Playground/browser fixtures, or a sanitized copied-live snapshot and document the limitation.
+For normal E2E/browser validation, prefer the authorized shared persistent validation state with documented URL/ports and retention policy. If no such profile is available, fall back to isolated temp state, Playground/browser fixtures, or a sanitized copied-live snapshot and document the limitation.
 
 For isolated validation, use both a temp `HOME` and alternate ports:
 
@@ -92,7 +93,7 @@ agent-browser set viewport 430 932
 
 Use existing project scripts only when their hardcoded ports are appropriate and you hold the lease. `scripts/dev-start.sh` uses backend `3457` and frontend `5174`; it may stop processes on those ports when asked to start or stop, so do not use it for unknown or shared port occupants.
 
-Do not reset, prune, or clean a persistent profile unless the task or documented profile policy authorizes that cleanup. Long-lived validation state is allowed to accumulate useful scenarios, but every retained scenario needs a reason and enough provenance for the next tester to understand it.
+Do not reset, prune, or clean shared persistent validation state unless the task or documented profile policy authorizes that cleanup. Long-lived validation state is allowed to accumulate useful scenarios, but every retained scenario needs a reason and enough provenance for the next tester to understand it.
 
 ## Agent Browser Flow
 
@@ -171,7 +172,7 @@ For Playground, prefer screenshots first. The page intentionally contains many d
 Questmaster:
 
 - Check both list/card state and detail-panel state when the change affects quest metadata, review state, verification items, or feedback.
-- Be careful with mutable quest actions. In a persistent profile, prefer read-only visual checks or clearly labeled disposable validation quests unless the quest explicitly authorizes state changes. If a created quest becomes a useful scenario, retain it intentionally and document why; otherwise remove or mark it according to the profile policy.
+- Be careful with mutable quest actions. In shared persistent validation state, prefer read-only visual checks or clearly labeled validation quests unless the quest explicitly authorizes broader state changes. If a created quest becomes a useful scenario, retain it intentionally and document why; otherwise remove or mark it according to the profile policy.
 
 Work Board and thread tabs:
 
@@ -195,9 +196,9 @@ Treat validation state as shared evidence. For each scenario you reuse or create
 
 At the end of testing, decide what happens to new state:
 
-- Retain representative scenarios that are likely to help future UI validation, and document the label, provenance, and reason for retention.
+- Retain representative scenarios that are likely to help future UI validation, and document the label, provenance, and reason for retention. This is the default for useful conversations, sessions, quests, and scenarios created during shared-state validation.
 - Remove or mark throwaway state when it is noisy, misleading, sensitive, or created only to exercise a destructive path.
-- Leave pre-existing profile state alone unless cleanup is authorized and you understand the ownership.
+- Leave pre-existing shared profile state alone unless cleanup is authorized and you understand the ownership.
 - Release leases and stop only the resources you started or are explicitly responsible for. Never kill a server just because it is on a familiar port.
 
 ## Phase Note Template
@@ -205,7 +206,7 @@ At the end of testing, decide what happens to new state:
 Use this structure for Implement or Execute notes when browser evidence matters:
 
 ```markdown
-Validation method: agent-browser workflow using <persistent profile | isolated temp state | Playground/browser fixture | sanitized copied-live snapshot>.
+Validation method: agent-browser workflow using <shared persistent validation state | isolated temp state | Playground/browser fixture | sanitized copied-live snapshot>.
 State provenance: <profile name/state location/snapshot source/temp HOME; starting-state caveats; sanitized status when applicable>.
 Resources: <leases held, owner handoff, whether an already-running authorized server was reused>; did not touch :3456.
 URL/ports/viewports: <backend/frontend URLs and ports>; <desktop/mobile viewport sizes>; dark theme status.
