@@ -9,6 +9,7 @@ import type { BackendType, SessionState } from "../session-types.js";
 
 const execPromise = promisify(execCb);
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
+const DIFF_STATS_REFRESH_FAILED_ERROR = "Unable to refresh diff stats";
 
 async function resolveUpstreamRef(state: SessionState): Promise<string | null> {
   if (!state.cwd || !state.git_branch || state.git_branch === "HEAD" || state.is_worktree) return null;
@@ -264,6 +265,12 @@ interface RefreshGitInfoPublicDeps {
   persistSession: (session: SessionDiffRefreshLike) => void;
 }
 
+export interface RefreshGitInfoPublicResult {
+  ok: boolean;
+  diffStatsRefreshed: boolean;
+  error: string | null;
+}
+
 export async function updateDiffBaseStartSha(session: SessionDiffStateLike, previousHeadSha: string): Promise<boolean> {
   if (!session.state.is_worktree) return false;
   const cwd = session.state.cwd;
@@ -426,15 +433,21 @@ export async function refreshGitInfoPublic(
   session: SessionDiffRefreshLike,
   deps: RefreshGitInfoPublicDeps,
   options: { broadcastUpdate?: boolean; notifyPoller?: boolean; force?: boolean } = {},
-): Promise<void> {
+): Promise<RefreshGitInfoPublicResult> {
   session.diffStatsDirty = true;
   const beforeAdded = session.state.total_lines_added;
   const beforeRemoved = session.state.total_lines_removed;
+  const previousRefreshedAt = session.state.git_status_refreshed_at;
   await deps.refreshGitInfo(session, options);
   const didRun = await computeDiffStatsAsync(session);
+  let refreshError = session.state.git_status_refresh_error ?? null;
   if (didRun) {
     session.diffStatsDirty = false;
+  } else if (!refreshError) {
+    refreshError = DIFF_STATS_REFRESH_FAILED_ERROR;
+    session.state.git_status_refreshed_at = previousRefreshedAt;
   }
+  session.state.git_status_refresh_error = refreshError;
   if (options.broadcastUpdate) {
     deps.broadcastSessionUpdate(session, {
       git_status_refreshed_at: session.state.git_status_refreshed_at,
@@ -448,6 +461,11 @@ export async function refreshGitInfoPublic(
     }
   }
   deps.persistSession(session);
+  return {
+    ok: didRun && !refreshError,
+    diffStatsRefreshed: didRun,
+    error: refreshError,
+  };
 }
 
 export async function refreshGitInfo(

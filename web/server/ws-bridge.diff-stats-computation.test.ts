@@ -1047,6 +1047,41 @@ describe("Diff stats computation", () => {
     ).toBe(true);
   });
 
+  it("refreshGitInfoPublic reports an error when forced diff-stat recomputation fails", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1\n";
+      if (cmd.includes("--git-dir")) return "/repo/.git/worktrees/jiayi-wt-1\n";
+      if (cmd.includes("--git-common-dir")) return "/repo/.git\n";
+      if (cmd.includes("rev-parse HEAD")) return "same-head-sha\n";
+      if (cmd.includes("--left-right --count")) return "0\t1\n";
+      if (cmd.includes("merge-base jiayi HEAD")) return "base-sha\n";
+      if (cmd.includes("diff --numstat base-sha")) throw new Error("diff timed out");
+      return "";
+    });
+
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "jiayi");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/tmp/wt";
+    session.state.total_lines_added = 25;
+    session.state.total_lines_removed = 4;
+    session.state.git_status_refreshed_at = 1234;
+    session.state.git_status_refresh_error = null;
+
+    const result = await refreshGitInfoPublicController(session as any, (bridge as any).getSessionGitStateDeps(), {
+      broadcastUpdate: true,
+      force: true,
+    });
+
+    expect(result.ok).toBe(false);
+    expect(result.diffStatsRefreshed).toBe(false);
+    expect(result.error).toBe("Unable to refresh diff stats");
+    expect(session.diffStatsDirty).toBe(true);
+    expect(session.state.total_lines_added).toBe(25);
+    expect(session.state.total_lines_removed).toBe(4);
+    expect(session.state.git_status_refreshed_at).toBe(1234);
+    expect(session.state.git_status_refresh_error).toBe("Unable to refresh diff stats");
+  });
+
   it("refreshWorktreeGitStateForSnapshot coalesces concurrent refreshes for the same session", async () => {
     const worktreeCwd = join(tempDir, "wt");
     const worktreeGitDir = join(tempDir, "repo.git", "worktrees", "wt-1");

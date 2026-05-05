@@ -15,7 +15,7 @@ export function createSessionGitStatusRoutes(ctx: RouteContext) {
     const deps = bridgeAny.getSessionGitStateDeps?.();
     if (!session || !deps) return c.json({ error: "Session not found" }, 404);
 
-    await refreshGitInfoPublicController(session as any, deps, {
+    const refreshResult = await refreshGitInfoPublicController(session as any, deps, {
       broadcastUpdate: true,
       notifyPoller: true,
       force: true,
@@ -23,7 +23,8 @@ export function createSessionGitStatusRoutes(ctx: RouteContext) {
 
     const state = wsBridge.getSession(id)?.state;
     return c.json({
-      ok: true,
+      ok: refreshResult.ok,
+      error: refreshResult.error,
       gitBranch: state?.git_branch || null,
       gitDefaultBranch: state?.git_default_branch || null,
       diffBaseBranch: state?.diff_base_branch || null,
@@ -32,7 +33,7 @@ export function createSessionGitStatusRoutes(ctx: RouteContext) {
       totalLinesAdded: state?.total_lines_added || 0,
       totalLinesRemoved: state?.total_lines_removed || 0,
       gitStatusRefreshedAt: state?.git_status_refreshed_at || null,
-      gitStatusRefreshError: state?.git_status_refresh_error || null,
+      gitStatusRefreshError: state?.git_status_refresh_error || refreshResult.error,
     });
   });
 

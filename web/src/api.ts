@@ -1244,6 +1244,7 @@ export const api = {
       totalLinesRemoved: number;
       gitStatusRefreshedAt: number | null;
       gitStatusRefreshError: string | null;
+      error?: string | null;
     }>(`/sessions/${encodeURIComponent(sessionId)}/git-status/refresh`),
 
   // Git worktrees
