@@ -8,7 +8,7 @@
  * that works regardless of how the server was started.
  */
 
-import { execSync } from "node:child_process";
+import { execFileSync, execSync } from "node:child_process";
 import { existsSync, readdirSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -30,12 +30,14 @@ export function captureUserShellPath(): string {
       'echo "___PATH_START___$PATH___PATH_END___"',
       ...warmedShellEnvVars.map((name) => `echo "___ENV_${name}___=\${${name}:-}"`),
     ].join("; ");
-    const captured = execSync(
+    const captured = execFileSync(
       // sync-ok: cold path, binary resolution at startup
-      `${shell} -lic '${printCommands}'`,
+      shell,
+      ["-lic", printCommands],
       {
         encoding: "utf-8",
         timeout: 10_000,
+        killSignal: "SIGKILL",
         env: { HOME: homedir(), USER: process.env.USER, SHELL: shell },
       },
     );
@@ -172,12 +174,14 @@ export function captureUserShellEnv(
       // Print each requested var as KEY=VALUE, using a unique delimiter to avoid
       // collisions with noisy shell startup output.
       const printCommands = varNames.map((name) => `echo "___ENV_${name}___=\${${name}:-}"`).join("; ");
-      const captured = execSync(
+      const captured = execFileSync(
         // sync-ok: cold path, one-time capture at startup
-        `${shell} -lic '${printCommands}'`,
+        shell,
+        ["-lic", printCommands],
         {
           encoding: "utf-8",
           timeout: 10_000,
+          killSignal: "SIGKILL",
           env: { HOME: homedir(), USER: process.env.USER, SHELL: shell },
         },
       );
