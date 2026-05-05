@@ -464,7 +464,8 @@ describe("WorkBoardBar", () => {
     // A fresh board row can reach the tab rail before the selected/open-tab
     // state catches up. Its initial placement should already match the later
     // first-position server-open reconciliation, avoiding a visible jump.
-    const boardRows: BoardRowData[] = [
+    const boardRows: BoardRowData[] = [];
+    const nextBoardRows: BoardRowData[] = [
       { questId: "q-new", status: "IMPLEMENTING", title: "Newly surfaced quest", updatedAt: 10 },
     ];
     const threadRows = [
@@ -487,6 +488,25 @@ describe("WorkBoardBar", () => {
       />,
     );
 
+    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+      "q-open-a",
+      "q-open-b",
+      "q-open-c",
+    ]);
+
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", nextBoardRows]]),
+    });
+    view.rerender(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-open-a"
+        openThreadKeys={["q-open-a", "q-open-b", "q-open-c"]}
+        threadRows={threadRows}
+      />,
+    );
+
     const initialOrder = view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"));
     expect(initialOrder).toEqual(["q-new", "q-open-a", "q-open-b", "q-open-c"]);
 
@@ -501,6 +521,47 @@ describe("WorkBoardBar", () => {
 
     const reconciledOrder = view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"));
     expect(reconciledOrder).toEqual(["q-new", "q-open-a", "q-open-b", "q-open-c"]);
+  });
+
+  it("keeps stale auto-surfaced board tabs behind server-open tabs when only updatedAt changes", () => {
+    const initialRows: BoardRowData[] = [
+      { questId: "q-open-a", status: "IMPLEMENTING", title: "Existing open thread A", updatedAt: 50 },
+      { questId: "q-open-b", status: "REVIEWING", title: "Existing open thread B", updatedAt: 40 },
+      { questId: "q-old", status: "QUEUED", title: "Older auto-surfaced quest", updatedAt: 10 },
+    ];
+    const updatedRows: BoardRowData[] = [
+      { questId: "q-open-a", status: "IMPLEMENTING", title: "Existing open thread A", updatedAt: 50 },
+      { questId: "q-open-b", status: "REVIEWING", title: "Existing open thread B", updatedAt: 40 },
+      { questId: "q-old", status: "IMPLEMENTING", title: "Older auto-surfaced quest", updatedAt: 99 },
+    ];
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", initialRows]]),
+    });
+
+    const view = render(
+      <WorkBoardBar sessionId="s1" currentThreadKey="q-open-a" openThreadKeys={["q-open-a", "q-open-b"]} />,
+    );
+
+    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+      "q-open-a",
+      "q-open-b",
+      "q-old",
+    ]);
+
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", updatedRows]]),
+    });
+    view.rerender(
+      <WorkBoardBar sessionId="s1" currentThreadKey="q-open-a" openThreadKeys={["q-open-a", "q-open-b"]} />,
+    );
+
+    expect(view.getAllByTestId("thread-tab").map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+      "q-open-a",
+      "q-open-b",
+      "q-old",
+    ]);
   });
 
   it("uses the shared quest hover card for quest thread tabs", async () => {

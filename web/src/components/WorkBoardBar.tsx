@@ -7,7 +7,7 @@
  * until the user explicitly collapses it.
  */
 import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
-import { useMemo, useState, useEffect, useRef } from "react";
+import { useMemo, useState, useEffect, useLayoutEffect, useRef } from "react";
 import {
   DndContext,
   PointerSensor,
@@ -654,15 +654,14 @@ function buildOpenThreadTabs({
 function buildUnifiedThreadTabs({
   openThreadTabs,
   closedActiveThreadChips,
-  activeBoardThreadKeys,
+  leadingPendingThreadKeys,
 }: {
   openThreadTabs: PrimaryThreadChip[];
   closedActiveThreadChips: PrimaryThreadChip[];
-  activeBoardThreadKeys: ReadonlySet<string>;
+  leadingPendingThreadKeys: ReadonlySet<string>;
 }): PrimaryThreadChip[] {
   if (openThreadTabs.length === 0) return closedActiveThreadChips;
 
-  const newestOpenTabAt = Math.max(...openThreadTabs.map((tab) => tab.updatedAt), 0);
   const leadingPendingTabs: PrimaryThreadChip[] = [];
   const trailingPendingTabs: PrimaryThreadChip[] = [];
   const seenPendingKeys = new Set<string>();
@@ -671,7 +670,7 @@ function buildUnifiedThreadTabs({
     const threadKey = normalizeThreadKey(chip.threadKey);
     if (!threadKey || seenPendingKeys.has(threadKey)) continue;
     seenPendingKeys.add(threadKey);
-    if (activeBoardThreadKeys.has(threadKey) && chip.updatedAt > newestOpenTabAt) {
+    if (leadingPendingThreadKeys.has(threadKey)) {
       leadingPendingTabs.push(chip);
     } else {
       trailingPendingTabs.push(chip);
@@ -1177,9 +1176,43 @@ export function WorkBoardBar({
       ),
     [activeBoardThreadKeys, activeThreadChips, dismissedAutoThreadTabKeys, openThreadTabKeys],
   );
+  const closedActiveBoardThreadKeys = useMemo(() => {
+    const keys = new Set<string>();
+    for (const chip of closedActiveThreadChips) {
+      const threadKey = normalizeThreadKey(chip.threadKey);
+      if (activeBoardThreadKeys.has(threadKey) && !openThreadTabKeys.has(threadKey)) keys.add(threadKey);
+    }
+    return keys;
+  }, [activeBoardThreadKeys, closedActiveThreadChips, openThreadTabKeys]);
+  const pendingThreadTabSessionRef = useRef(sessionId);
+  const previousClosedActiveBoardThreadKeysRef = useRef<Set<string> | null>(null);
+  const leadingPendingThreadKeysRef = useRef<Set<string>>(new Set());
+  const leadingPendingThreadKeys = useMemo(() => {
+    // Fresh pending tabs are a render-lifecycle signal, not a content timestamp.
+    // Existing board chips may update later without becoming newly opened tabs.
+    const sameSession = pendingThreadTabSessionRef.current === sessionId;
+    const previousKeys = sameSession ? previousClosedActiveBoardThreadKeysRef.current : null;
+    const rememberedKeys = sameSession ? leadingPendingThreadKeysRef.current : new Set<string>();
+    const nextKeys = new Set<string>();
+
+    for (const key of rememberedKeys) {
+      if (closedActiveBoardThreadKeys.has(key) && !openThreadTabKeys.has(key)) nextKeys.add(key);
+    }
+    if (previousKeys) {
+      for (const key of closedActiveBoardThreadKeys) {
+        if (!previousKeys.has(key) && !openThreadTabKeys.has(key)) nextKeys.add(key);
+      }
+    }
+    return nextKeys;
+  }, [closedActiveBoardThreadKeys, openThreadTabKeys, sessionId]);
+  useLayoutEffect(() => {
+    pendingThreadTabSessionRef.current = sessionId;
+    previousClosedActiveBoardThreadKeysRef.current = new Set(closedActiveBoardThreadKeys);
+    leadingPendingThreadKeysRef.current = new Set(leadingPendingThreadKeys);
+  }, [closedActiveBoardThreadKeys, leadingPendingThreadKeys, sessionId]);
   const unifiedThreadTabs = useMemo(
-    () => buildUnifiedThreadTabs({ openThreadTabs, closedActiveThreadChips, activeBoardThreadKeys }),
-    [activeBoardThreadKeys, closedActiveThreadChips, openThreadTabs],
+    () => buildUnifiedThreadTabs({ openThreadTabs, closedActiveThreadChips, leadingPendingThreadKeys }),
+    [closedActiveThreadChips, leadingPendingThreadKeys, openThreadTabs],
   );
   const handleCloseThreadTab = (threadKey: string) => {
     const normalized = normalizeThreadKey(threadKey);
