@@ -5,6 +5,7 @@ import {
   handleCodexAdapterInitError,
   hydrateCodexResumedHistory,
   reconcileCodexResumedTurn,
+  registerCodexAdapterRecoveryLifecycle,
   type CodexRecoveryOrchestratorSessionLike,
   type CodexRecoveryOrchestratorDeps,
 } from "./codex-recovery-orchestrator.js";
@@ -86,6 +87,78 @@ function makeRecoveryDeps(overrides: Record<string, unknown> = {}) {
     maxAdapterRelaunchFailures: 3,
     ...overrides,
   } as any;
+}
+
+function makeLifecycleDeps(overrides: Record<string, unknown> = {}) {
+  return {
+    ...makeRecoveryDeps(),
+    setCliSessionIdFromMeta: vi.fn(),
+    completeCodexLeaderRecycle: vi.fn(),
+    hydrateCodexResumedHistory: vi.fn(),
+    injectCompactionRecovery: vi.fn(),
+    finalizeCodexRollback: vi.fn(),
+    getCancelablePendingCodexInputs: vi.fn((session: any) => session.pendingCodexInputs),
+    getPendingCodexInputsByIds: vi.fn(() => []),
+    queueCodexPendingStartBatch: vi.fn(),
+    recordSteeredCodexTurn: vi.fn(),
+    scheduleCodexToolResultWatchdogs: vi.fn(),
+    logCodexProcessSnapshot: vi.fn(),
+    markTurnInterrupted: vi.fn(),
+    isCurrentSession: vi.fn(() => true),
+    refreshGitInfoThenRecomputeDiff: vi.fn(),
+    ...overrides,
+  } as any;
+}
+
+function prepareLifecycleSession(session: CodexRecoveryOrchestratorSessionLike): void {
+  (session as any).pendingPermissions = new Map();
+  (session as any).pendingQuestCommands = new Map();
+  (session as any).browserSockets = new Set();
+  (session as any).intentionalCodexRelaunchUntil = null;
+  (session as any).intentionalCodexRelaunchReason = null;
+}
+
+function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | null = null) {
+  const callbacks = {
+    sessionMeta: null as ((meta: any) => void) | null,
+    turnStarted: null as ((turnId: string) => void) | null,
+    turnSteered: null as ((turnId: string, pendingInputIds: string[]) => void) | null,
+    turnSteerFailed: null as ((pendingInputIds: string[]) => void) | null,
+    initError: null as ((error: string) => void) | null,
+    disconnect: null as (() => void) | null,
+    turnStartFailed: null as ((msg: any) => void) | null,
+  };
+  return {
+    onSessionMeta: vi.fn((callback: (meta: any) => void) => {
+      callbacks.sessionMeta = callback;
+    }),
+    onTurnStarted: vi.fn((callback: (turnId: string) => void) => {
+      callbacks.turnStarted = callback;
+    }),
+    onTurnSteered: vi.fn((callback: (turnId: string, pendingInputIds: string[]) => void) => {
+      callbacks.turnSteered = callback;
+    }),
+    onTurnSteerFailed: vi.fn((callback: (pendingInputIds: string[]) => void) => {
+      callbacks.turnSteerFailed = callback;
+    }),
+    onInitError: vi.fn((callback: (error: string) => void) => {
+      callbacks.initError = callback;
+    }),
+    onDisconnect: vi.fn((callback: () => void) => {
+      callbacks.disconnect = callback;
+    }),
+    onTurnStartFailed: vi.fn((callback: (msg: any) => void) => {
+      callbacks.turnStartFailed = callback;
+    }),
+    getCurrentTurnId: vi.fn(() => null),
+    getLastDisconnectDiagnostics: vi.fn(() => disconnectDiagnostics),
+    isConnected: vi.fn(() => true),
+    sendBrowserMessage: vi.fn(() => true),
+    disconnect: vi.fn(async () => {}),
+    rollbackTurns: vi.fn(async () => {}),
+    emitDisconnect: () => callbacks.disconnect?.(),
+    emitSessionMeta: (meta: any) => callbacks.sessionMeta?.(meta),
+  };
 }
 
 function makePendingTurn(): CodexOutboundTurn {
@@ -496,6 +569,52 @@ describe("reconcileCodexResumedTurn", () => {
         message: expect.stringContaining("no final response was recovered"),
       }),
     );
+  });
+});
+
+describe("registerCodexAdapterRecoveryLifecycle", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("correlates adapter disconnect diagnostics through process snapshot and recovery session_meta", () => {
+    const closeId = "codex-close-known-123";
+    const session = makeSession([]);
+    prepareLifecycleSession(session);
+    const disconnectDiagnostics = {
+      closeId,
+      reason: "transport_close",
+      transport: { closeContext: "stdout_eof(buffer=0)" },
+    };
+    const oldAdapter = makeLifecycleAdapter(disconnectDiagnostics);
+    const deps = makeLifecycleDeps();
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    session.codexAdapter = oldAdapter as any;
+    registerCodexAdapterRecoveryLifecycle(session.id, session, oldAdapter, deps);
+    oldAdapter.emitDisconnect();
+
+    expect((session as any).lastCodexTransportCloseDiagnostics).toBe(disconnectDiagnostics);
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`Codex adapter disconnect diagnostics`));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`closeId=${closeId}`));
+    expect(deps.logCodexProcessSnapshot).toHaveBeenCalledWith(session.id, `adapter_disconnect closeId=${closeId}`);
+
+    const newAdapter = makeLifecycleAdapter();
+    session.codexAdapter = newAdapter as any;
+    registerCodexAdapterRecoveryLifecycle(session.id, session, newAdapter, deps);
+    newAdapter.emitSessionMeta({
+      cliSessionId: "thread-recovered",
+      resumeSnapshot: {
+        threadId: "thread-recovered",
+        threadStatus: "idle",
+        turnCount: 0,
+        turns: [],
+      },
+    });
+
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`Codex recovery session_meta`));
+    expect(log).toHaveBeenCalledWith(expect.stringContaining(`closeId=${closeId}`));
+    expect(deps.setCliSessionIdFromMeta).toHaveBeenCalledWith(session.id, "thread-recovered");
   });
 });
 
