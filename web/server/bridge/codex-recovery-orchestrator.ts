@@ -807,6 +807,17 @@ export function registerCodexAdapterRecoveryLifecycle(
   adapter.onSessionMeta((meta: any) => {
     if (session.codexAdapter !== adapter) return;
     deps.clearCodexDisconnectGraceTimer(session, "session_meta");
+    const lastDisconnectDiagnostics = (session as any).lastCodexTransportCloseDiagnostics as
+      | Record<string, unknown>
+      | null
+      | undefined;
+    if (lastDisconnectDiagnostics) {
+      console.log(
+        `[ws-bridge] Codex recovery session_meta for session ${sessionTag(session.id)} ` +
+          `closeId=${String(lastDisconnectDiagnostics.closeId ?? "unknown")} ` +
+          `resume=${JSON.stringify(summarizeCodexResumeSnapshot(meta.resumeSnapshot))}`,
+      );
+    }
     if (meta.cliSessionId) {
       deps.setCliSessionIdFromMeta(session.id, meta.cliSessionId);
     }
@@ -938,6 +949,16 @@ export function registerCodexAdapterRecoveryLifecycle(
     if (session.codexAdapter !== adapter) return;
     const wasGenerating = session.isGenerating;
     const disconnectedTurnId = adapter.getCurrentTurnId ? adapter.getCurrentTurnId() : null;
+    const disconnectDiagnostics = adapter.getLastDisconnectDiagnostics?.() ?? null;
+    if (disconnectDiagnostics) {
+      (session as any).lastCodexTransportCloseDiagnostics = disconnectDiagnostics;
+      console.log(
+        `[ws-bridge] Codex adapter disconnect diagnostics for session ${sessionTag(session.id)} ` +
+          `closeId=${disconnectDiagnostics.closeId} ` +
+          `pendingInputs=${JSON.stringify(summarizePendingCodexInputs(session.pendingCodexInputs))} ` +
+          `pendingTurns=${JSON.stringify(summarizePendingCodexTurns(session.pendingCodexTurns))}`,
+      );
+    }
     const pending = deps.getCodexTurnInRecovery(session);
     if (pending) {
       pending.turnId = disconnectedTurnId;
@@ -1012,9 +1033,15 @@ export function registerCodexAdapterRecoveryLifecycle(
     console.log(
       `[ws-bridge] Codex adapter disconnected for session ${sessionTag(sessionId)}${idleKilled ? " (idle limit)" : ""}` +
         `${intentionalReason ? ` (intentional relaunch: ${intentionalReason})` : ""}` +
+        `${disconnectDiagnostics?.closeId ? ` closeId=${disconnectDiagnostics.closeId}` : ""}` +
         ` (consecutive failures: ${session.consecutiveAdapterFailures})`,
     );
-    deps.logCodexProcessSnapshot(sessionId, "adapter_disconnect");
+    deps.logCodexProcessSnapshot(
+      sessionId,
+      disconnectDiagnostics?.closeId
+        ? `adapter_disconnect closeId=${disconnectDiagnostics.closeId}`
+        : "adapter_disconnect",
+    );
     deps.broadcastToBrowsers(session, {
       type: "backend_disconnected",
       ...(idleKilled ? { reason: "idle_limit" } : {}),
@@ -1313,6 +1340,58 @@ export function extractUserTextFromResumedTurn(turn: CodexResumeTurnSnapshot): s
     if (textParts.length > 0) return textParts.join("\n");
   }
   return "";
+}
+
+function summarizePendingCodexInputs(inputs: PendingCodexInput[]): Array<Record<string, unknown>> {
+  return inputs.map((input) => ({
+    id: input.id,
+    cancelable: input.cancelable,
+    contentBytes: Buffer.byteLength(input.content || "", "utf-8"),
+    hasImages: Array.isArray(input.imageRefs) && input.imageRefs.length > 0,
+    timestamp: input.timestamp,
+  }));
+}
+
+function summarizePendingCodexTurns(turns: CodexOutboundTurn[]): Array<Record<string, unknown>> {
+  return turns.map((turn) => ({
+    userMessageId: turn.userMessageId,
+    turnId: turn.turnId ?? null,
+    status: turn.status,
+    turnTarget: turn.turnTarget ?? null,
+    dispatchCount: turn.dispatchCount,
+    pendingInputIds: turn.pendingInputIds ?? null,
+    disconnectedAt: turn.disconnectedAt ?? null,
+    resumeConfirmedAt: turn.resumeConfirmedAt ?? null,
+    updatedAt: turn.updatedAt,
+  }));
+}
+
+function summarizeCodexResumeSnapshot(snapshot: unknown): Record<string, unknown> | null {
+  if (!snapshot || typeof snapshot !== "object") return null;
+  const rec = snapshot as {
+    threadId?: unknown;
+    threadStatus?: unknown;
+    turnCount?: unknown;
+    lastTurn?: { id?: unknown; status?: unknown; items?: unknown[] } | null;
+  };
+  return {
+    threadId: typeof rec.threadId === "string" ? rec.threadId : null,
+    threadStatus: typeof rec.threadStatus === "string" ? rec.threadStatus : null,
+    turnCount: typeof rec.turnCount === "number" ? rec.turnCount : null,
+    lastTurn: rec.lastTurn
+      ? {
+          id: typeof rec.lastTurn.id === "string" ? rec.lastTurn.id : null,
+          status: typeof rec.lastTurn.status === "string" ? rec.lastTurn.status : null,
+          itemTypes: Array.isArray(rec.lastTurn.items)
+            ? rec.lastTurn.items.map((item) =>
+                item && typeof item === "object" && typeof (item as { type?: unknown }).type === "string"
+                  ? (item as { type: string }).type
+                  : "unknown",
+              )
+            : [],
+        }
+      : null,
+  };
 }
 export function normalizeResumedUserText(text: string): string {
   return text.trim().replace(/\s+/g, " ");

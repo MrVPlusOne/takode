@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import type { RecorderManager } from "./recorder.js";
 import { getTrafficMessageType, trafficStats } from "./traffic-stats.js";
 
@@ -20,6 +21,34 @@ export interface JsonRpcResponse {
 
 export type JsonRpcMessage = JsonRpcRequest | JsonRpcNotification | JsonRpcResponse;
 
+export interface JsonRpcMessageSummary {
+  direction: "in" | "out";
+  ts: number;
+  bytes: number;
+  method: string | null;
+  id: number | null;
+  kind: "request" | "notification" | "response" | "invalid_json";
+}
+
+export interface JsonRpcPendingRequestSummary {
+  id: number;
+  method: string;
+  ageMs: number;
+}
+
+export interface JsonRpcTransportCloseDiagnostics {
+  closeId: string;
+  sessionId: string;
+  closedAt: number;
+  closeContext: string;
+  bufferedChars: number;
+  pendingRequests: JsonRpcPendingRequestSummary[];
+  recentIncoming: JsonRpcMessageSummary[];
+  recentOutgoing: JsonRpcMessageSummary[];
+  lastIncomingAt: number | null;
+  lastOutgoingAt: number | null;
+}
+
 export function isPidAlive(pid: number): boolean {
   try {
     process.kill(pid, 0);
@@ -31,17 +60,28 @@ export function isPidAlive(pid: number): boolean {
 
 export class JsonRpcTransport {
   private nextId = 1;
-  private pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: Error) => void }>();
+  private pending = new Map<
+    number,
+    { method: string; createdAt: number; resolve: (v: unknown) => void; reject: (e: Error) => void }
+  >();
   private notificationHandler: ((method: string, params: Record<string, unknown>) => void) | null = null;
   private requestHandler: ((method: string, id: number, params: Record<string, unknown>) => void) | null = null;
-  private rawInCb: ((line: string) => void) | null = null;
-  private rawOutCb: ((data: string) => void) | null = null;
+  private rawInCbs: Array<(line: string) => void> = [];
+  private rawOutCbs: Array<(data: string) => void> = [];
   private closeCb: (() => void) | null = null;
   private writer: WritableStreamDefaultWriter<Uint8Array>;
   private connected = true;
   private buffer = "";
   private closeContext = "unknown";
   private sessionId: string;
+  private recentIncoming: JsonRpcMessageSummary[] = [];
+  private recentOutgoing: JsonRpcMessageSummary[] = [];
+  private lastIncomingAt: number | null = null;
+  private lastOutgoingAt: number | null = null;
+  private lastCloseDiagnostics: JsonRpcTransportCloseDiagnostics | null = null;
+  private recorder?: RecorderManager;
+  private cwd: string;
+  private static readonly RECENT_MESSAGE_SUMMARY_LIMIT = 12;
 
   constructor(
     stdin: WritableStream<Uint8Array> | { write(data: Uint8Array): number },
@@ -51,6 +91,8 @@ export class JsonRpcTransport {
     cwd = "",
   ) {
     this.sessionId = sessionId;
+    this.recorder = recorder;
+    this.cwd = cwd;
     let writable: WritableStream<Uint8Array>;
     if ("write" in stdin && typeof stdin.write === "function") {
       const bunStdin = stdin as { write(data: Uint8Array): number };
@@ -122,6 +164,14 @@ export class JsonRpcTransport {
       console.error("[codex-adapter] stdout reader error:", err);
     } finally {
       this.connected = false;
+      this.lastCloseDiagnostics = this.buildCloseDiagnostics();
+      this.recorder?.recordServerEvent(
+        this.sessionId,
+        "codex_transport_closed",
+        this.lastCloseDiagnostics as unknown as Record<string, unknown>,
+        "codex",
+        this.cwd,
+      );
       for (const [, { reject }] of this.pending) {
         reject(new Error("Transport closed"));
       }
@@ -137,7 +187,8 @@ export class JsonRpcTransport {
     for (const line of lines) {
       const trimmed = line.trim();
       if (!trimmed) continue;
-      this.rawInCb?.(trimmed);
+      this.recordMessageSummary("in", trimmed);
+      for (const cb of this.rawInCbs) cb(trimmed);
 
       let msg: JsonRpcMessage;
       try {
@@ -180,9 +231,17 @@ export class JsonRpcTransport {
     }
   }
 
-  async call(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<unknown> {
+  call(method: string, params: Record<string, unknown> = {}, timeoutMs?: number): Promise<unknown> {
+    return this.request(method, params, timeoutMs).promise;
+  }
+
+  request(
+    method: string,
+    params: Record<string, unknown> = {},
+    timeoutMs?: number,
+  ): { id: number; promise: Promise<unknown> } {
     const id = this.nextId++;
-    return new Promise(async (resolve, reject) => {
+    const promise = new Promise<unknown>((resolve, reject) => {
       let timeout: ReturnType<typeof setTimeout> | null = null;
       const settle =
         <T extends unknown[]>(fn: (...args: T) => void) =>
@@ -190,7 +249,7 @@ export class JsonRpcTransport {
           if (timeout) clearTimeout(timeout);
           fn(...args);
         };
-      this.pending.set(id, { resolve: settle(resolve), reject: settle(reject) });
+      this.pending.set(id, { method, createdAt: Date.now(), resolve: settle(resolve), reject: settle(reject) });
       if (timeoutMs && timeoutMs > 0) {
         timeout = setTimeout(() => {
           if (!this.pending.delete(id)) return;
@@ -198,14 +257,13 @@ export class JsonRpcTransport {
         }, timeoutMs);
       }
       const request = JSON.stringify({ method, id, params });
-      try {
-        await this.writeRaw(request + "\n");
-      } catch (err) {
+      this.writeRaw(request + "\n").catch((err) => {
         if (timeout) clearTimeout(timeout);
         this.pending.delete(id);
         reject(err instanceof Error ? err : new Error(String(err)));
-      }
+      });
     });
+    return { id, promise };
   }
 
   async notify(method: string, params: Record<string, unknown> = {}): Promise<void> {
@@ -231,11 +289,11 @@ export class JsonRpcTransport {
   }
 
   onRawIncoming(cb: (line: string) => void): void {
-    this.rawInCb = cb;
+    this.rawInCbs.push(cb);
   }
 
   onRawOutgoing(cb: (data: string) => void): void {
-    this.rawOutCb = cb;
+    this.rawOutCbs.push(cb);
   }
 
   onClose(cb: () => void): void {
@@ -246,15 +304,24 @@ export class JsonRpcTransport {
     return [...this.pending.keys()];
   }
 
+  getPendingRequests(): JsonRpcPendingRequestSummary[] {
+    return this.summarizePendingRequests(Date.now());
+  }
+
   getCloseContext(): string {
     return this.closeContext;
+  }
+
+  getCloseDiagnostics(): JsonRpcTransportCloseDiagnostics | null {
+    return this.lastCloseDiagnostics;
   }
 
   private async writeRaw(data: string): Promise<void> {
     if (!this.connected) {
       throw new Error("Transport closed");
     }
-    this.rawOutCb?.(data);
+    this.recordMessageSummary("out", data.trimEnd());
+    for (const cb of this.rawOutCbs) cb(data);
     try {
       await this.writer.write(new TextEncoder().encode(data));
     } catch (err) {
@@ -264,5 +331,51 @@ export class JsonRpcTransport {
       );
       throw err instanceof Error ? err : new Error(String(err));
     }
+  }
+
+  private buildCloseDiagnostics(): JsonRpcTransportCloseDiagnostics {
+    const closedAt = Date.now();
+    return {
+      closeId: randomUUID(),
+      sessionId: this.sessionId,
+      closedAt,
+      closeContext: this.closeContext,
+      bufferedChars: this.buffer.length,
+      pendingRequests: this.summarizePendingRequests(closedAt),
+      recentIncoming: [...this.recentIncoming],
+      recentOutgoing: [...this.recentOutgoing],
+      lastIncomingAt: this.lastIncomingAt,
+      lastOutgoingAt: this.lastOutgoingAt,
+    };
+  }
+
+  private summarizePendingRequests(now: number): JsonRpcPendingRequestSummary[] {
+    return [...this.pending.entries()].map(([id, pending]) => ({
+      id,
+      method: pending.method,
+      ageMs: Math.max(0, now - pending.createdAt),
+    }));
+  }
+
+  private recordMessageSummary(direction: "in" | "out", raw: string): void {
+    const summary = summarizeJsonRpcMessage(direction, raw);
+    const target = direction === "in" ? this.recentIncoming : this.recentOutgoing;
+    target.push(summary);
+    if (target.length > JsonRpcTransport.RECENT_MESSAGE_SUMMARY_LIMIT) target.shift();
+    if (direction === "in") this.lastIncomingAt = summary.ts;
+    else this.lastOutgoingAt = summary.ts;
+  }
+}
+
+function summarizeJsonRpcMessage(direction: "in" | "out", raw: string): JsonRpcMessageSummary {
+  const bytes = Buffer.byteLength(raw, "utf-8");
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const method = typeof parsed.method === "string" ? parsed.method : null;
+    const id = typeof parsed.id === "number" ? parsed.id : null;
+    const kind: JsonRpcMessageSummary["kind"] = method ? (id !== null ? "request" : "notification") : "response";
+    return { direction, ts: Date.now(), bytes, method, id, kind };
+  } catch {
+    return { direction, ts: Date.now(), bytes, method: null, id: null, kind: "invalid_json" };
   }
 }

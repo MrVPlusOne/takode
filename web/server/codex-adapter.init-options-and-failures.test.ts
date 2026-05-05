@@ -172,6 +172,102 @@ describe("CodexAdapter", () => {
     expect(session.session_id).toBe("test-session");
   });
 
+  it("captures transport-close diagnostics for skills/changed refresh failures", async () => {
+    const recorder = {
+      record: vi.fn(),
+      recordServerEvent: vi.fn(),
+      getActiveRecorderStats: vi.fn(() => ({
+        filePath: "/tmp/session.jsonl",
+        lineCount: 12,
+        bufferedLines: 2,
+        flushing: false,
+        closed: false,
+      })),
+    };
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "gpt-5.3-codex",
+      cwd: "/my/project",
+      approvalMode: "bypassPermissions",
+      sandbox: "danger-full-access",
+      recorder: recorder as never,
+      failureContextProvider: () => "stderr tail",
+    });
+
+    await initializeAdapter(stdout);
+    stdout.push(JSON.stringify({ method: "skills/changed", params: {} }) + "\n");
+    await tick();
+    stdout.close();
+    await tick();
+
+    const diagnostics = adapter.getLastDisconnectDiagnostics();
+    expect(diagnostics).toEqual(
+      expect.objectContaining({
+        reason: "transport_close",
+        closeId: expect.any(String),
+        sessionId: "test-session",
+        stderrTail: "stderr tail",
+      }),
+    );
+    expect(diagnostics?.adapter).toEqual(
+      expect.objectContaining({
+        threadId: "thr_123",
+        currentTurnId: null,
+        model: "gpt-5.3-codex",
+        cwd: "/my/project",
+        approvalMode: "bypassPermissions",
+        sandbox: "danger-full-access",
+      }),
+    );
+    expect(diagnostics?.pendingRpcRequests).toEqual(
+      expect.arrayContaining([expect.objectContaining({ method: "skills/list", ageMs: expect.any(Number) })]),
+    );
+    expect(diagnostics?.skillRefresh.inFlight).toEqual([
+      expect.objectContaining({ cause: "skills_changed", forceReload: true, cwds: ["/my/project"] }),
+    ]);
+    expect(diagnostics?.transport?.recentIncoming.at(-1)).toEqual(
+      expect.objectContaining({ method: "skills/changed" }),
+    );
+    expect(diagnostics?.transport?.recentOutgoing.at(-1)).toEqual(expect.objectContaining({ method: "skills/list" }));
+    expect(diagnostics?.recording).toEqual(expect.objectContaining({ filePath: "/tmp/session.jsonl", lineCount: 12 }));
+    expect(recorder.recordServerEvent).toHaveBeenCalledWith(
+      "test-session",
+      "codex_transport_closed",
+      expect.objectContaining({ closeId: diagnostics?.closeId }),
+      "codex",
+      "/my/project",
+    );
+    expect(recorder.recordServerEvent).toHaveBeenCalledWith(
+      "test-session",
+      "codex_adapter_transport_closed",
+      expect.objectContaining({ closeId: diagnostics?.closeId }),
+      "codex",
+      "/my/project",
+    );
+  });
+
+  it("groups clustered transport closes into one wave diagnostic", async () => {
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      for (let i = 0; i < 3; i++) {
+        const mock = createMockProcess();
+        new CodexAdapter(mock.proc as never, `test-session-${i}`, {
+          model: "gpt-5.3-codex",
+          cwd: "/my/project",
+        });
+        await initializeAdapter(mock.stdout);
+        mock.stdout.close();
+        await tick();
+      }
+      await new Promise<void>((resolve) => setTimeout(resolve, 300));
+
+      expect(warn.mock.calls.some(([message]) => String(message).includes("Codex transport close wave detected"))).toBe(
+        true,
+      );
+    } finally {
+      warn.mockRestore();
+    }
+  });
+
   it("passes model and cwd in thread/start request", async () => {
     new CodexAdapter(proc as never, "test-session", {
       model: "gpt-5.4",

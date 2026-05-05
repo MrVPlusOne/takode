@@ -31,7 +31,12 @@ import {
 } from "./codex-adapter-utils.js";
 import { CodexApprovalManager } from "./codex-approval-manager.js";
 import { CodexItemEventManager } from "./codex-item-event-manager.js";
-import { JsonRpcTransport, isPidAlive } from "./codex-jsonrpc-transport.js";
+import {
+  JsonRpcTransport,
+  isPidAlive,
+  type JsonRpcPendingRequestSummary,
+  type JsonRpcTransportCloseDiagnostics,
+} from "./codex-jsonrpc-transport.js";
 import { CodexMcpManager } from "./codex-mcp-manager.js";
 import type {
   BackendAdapter,
@@ -48,6 +53,56 @@ const TURN_START_ACK_TIMEOUT_MS = 60_000;
 const STDERR_ROUTER_LINE_BUFFER_MAX = 64 * 1024;
 
 type RouterFailureToolName = "write_stdin";
+type CodexSkillRefreshCause = "initialize" | "skills_changed" | "api" | "manual";
+
+interface CodexSkillRefreshDiagnostics {
+  refreshId: string;
+  cause: CodexSkillRefreshCause;
+  forceReload: boolean;
+  cwds: string[];
+  rpcId: number;
+  startedAt: number;
+  completedAt: number | null;
+  status: "in_flight" | "succeeded" | "failed";
+  error: string | null;
+  inFlightAtStart: number;
+}
+
+export interface CodexAdapterDisconnectDiagnostics {
+  closeId: string;
+  reason: "transport_close" | "process_exit";
+  sessionId: string;
+  capturedAt: number;
+  process: {
+    pid: number;
+    pidAlive: boolean;
+    exitCode: number | null;
+    eofToExitMs: number | null;
+  };
+  adapter: {
+    threadId: string | null;
+    currentTurnId: string | null;
+    model: string | null;
+    cwd: string | null;
+    approvalMode: string | null;
+    sandbox: string | null;
+    connected: boolean;
+    initialized: boolean;
+  };
+  transport: JsonRpcTransportCloseDiagnostics | null;
+  pendingRpcRequests: JsonRpcPendingRequestSummary[];
+  skillRefresh: {
+    inFlightCount: number;
+    inFlight: CodexSkillRefreshDiagnostics[];
+    last: CodexSkillRefreshDiagnostics | null;
+  };
+  stderrTail: string | null;
+  resource: {
+    rssMb: number;
+    heapUsedMb: number;
+  };
+  recording: ReturnType<NonNullable<RecorderManager["getActiveRecorderStats"]>> | null;
+}
 
 // ─── Adapter Options ──────────────────────────────────────────────────────────
 
@@ -133,6 +188,9 @@ export class CodexAdapter
   private recentRawMessages: string[] = [];
   private static readonly RAW_MESSAGE_RING_SIZE = 5;
   private processStderrLineBuffer = "";
+  private lastDisconnectDiagnostics: CodexAdapterDisconnectDiagnostics | null = null;
+  private inFlightSkillRefreshes = new Map<string, CodexSkillRefreshDiagnostics>();
+  private lastSkillRefreshDiagnostics: CodexSkillRefreshDiagnostics | null = null;
 
   private itemEventManager: CodexItemEventManager;
   private mcpManager: CodexMcpManager;
@@ -219,13 +277,24 @@ export class CodexAdapter
     // stale "connected" state that rejects messages with "Transport closed".
     this.transport.onClose(() => {
       if (!this.connected) return; // already handled by proc.exited
-      const pendingIds = [...this.transport.getPendingIds()];
+      const diagnostics = this.captureDisconnectDiagnostics("transport_close");
+      const pendingRequests = diagnostics.pendingRpcRequests;
       console.log(
         `[codex-adapter] Transport closed for session ${sessionId} ` +
           `(pid=${proc.pid}, pidAlive=${isPidAlive(proc.pid)}, closeContext=${this.transport.getCloseContext()})` +
+          ` closeId=${diagnostics.closeId}` +
+          ` currentTurnId=${diagnostics.adapter.currentTurnId ?? "none"}` +
           ` (process may still be running)` +
-          `${pendingIds.length ? `, pendingRpcIds=[${pendingIds.join(",")}]` : ""}`,
+          `${pendingRequests.length ? `, pendingRpcRequests=${formatPendingRpcRequests(pendingRequests)}` : ""}`,
       );
+      this.options.recorder?.recordServerEvent(
+        this.sessionId,
+        "codex_adapter_transport_closed",
+        diagnostics as unknown as Record<string, unknown>,
+        "codex",
+        this.options.cwd || "",
+      );
+      noteCodexTransportCloseForWave(diagnostics);
       if (this.recentRawMessages.length > 0) {
         console.log(
           `[codex-adapter] Last ${this.recentRawMessages.length} raw messages before close for ${sessionId}:`,
@@ -244,10 +313,21 @@ export class CodexAdapter
 
     // Monitor process exit
     proc.exited.then((exitCode) => {
-      if (!this.connected) return; // already handled by transport.onClose
+      if (!this.connected) {
+        this.recordProcessExitAfterTransportClose(exitCode);
+        return;
+      }
+      const diagnostics = this.captureDisconnectDiagnostics("process_exit", exitCode);
       console.log(
         `[codex-adapter] Process exited for session ${sessionId} ` +
-          `(pid=${proc.pid}, code=${exitCode}, closeContext=${this.transport.getCloseContext()}, connected was true — transport.onClose did not fire first)`,
+          `(pid=${proc.pid}, code=${exitCode}, closeContext=${this.transport.getCloseContext()}, closeId=${diagnostics.closeId}, connected was true — transport.onClose did not fire first)`,
+      );
+      this.options.recorder?.recordServerEvent(
+        this.sessionId,
+        "codex_process_exited_before_transport_close",
+        diagnostics as unknown as Record<string, unknown>,
+        "codex",
+        this.options.cwd || "",
       );
       this.connected = false;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
@@ -266,11 +346,21 @@ export class CodexAdapter
     return this._rateLimits;
   }
 
-  async refreshSkills(forceReload = false): Promise<string[]> {
-    const result = await this.transport.call("skills/list", {
-      ...(this.options.cwd ? { cwds: [this.options.cwd] } : {}),
+  async refreshSkills(forceReload = false, cause: CodexSkillRefreshCause = "manual"): Promise<string[]> {
+    const cwds = this.options.cwd ? [this.options.cwd] : [];
+    const request = this.transport.request("skills/list", {
+      ...(cwds.length > 0 ? { cwds } : {}),
       ...(forceReload ? { forceReload: true } : {}),
     });
+    const refresh = this.startSkillRefreshDiagnostics(cause, forceReload, cwds, request.id);
+    let result: unknown;
+    try {
+      result = await request.promise;
+      this.finishSkillRefreshDiagnostics(refresh.refreshId, "succeeded", null);
+    } catch (err) {
+      this.finishSkillRefreshDiagnostics(refresh.refreshId, "failed", err instanceof Error ? err.message : String(err));
+      throw err;
+    }
     const skillMetadata = extractCodexSkillReferences(result, this.options.cwd);
     this.skillPathByName = new Map();
     for (const skill of skillMetadata) {
@@ -315,6 +405,104 @@ export class CodexAdapter
 
     const deduped = new Map(apps.map((app) => [app.id, app]));
     return [...deduped.values()].sort((a, b) => a.name.localeCompare(b.name));
+  }
+
+  private startSkillRefreshDiagnostics(
+    cause: CodexSkillRefreshCause,
+    forceReload: boolean,
+    cwds: string[],
+    rpcId: number,
+  ): CodexSkillRefreshDiagnostics {
+    const refresh: CodexSkillRefreshDiagnostics = {
+      refreshId: randomUUID(),
+      cause,
+      forceReload,
+      cwds,
+      rpcId,
+      startedAt: Date.now(),
+      completedAt: null,
+      status: "in_flight",
+      error: null,
+      inFlightAtStart: this.inFlightSkillRefreshes.size,
+    };
+    this.inFlightSkillRefreshes.set(refresh.refreshId, refresh);
+    this.lastSkillRefreshDiagnostics = refresh;
+    return refresh;
+  }
+
+  private finishSkillRefreshDiagnostics(refreshId: string, status: "succeeded" | "failed", error: string | null): void {
+    const refresh = this.inFlightSkillRefreshes.get(refreshId);
+    if (!refresh) return;
+    const completed: CodexSkillRefreshDiagnostics = {
+      ...refresh,
+      completedAt: Date.now(),
+      status,
+      error,
+    };
+    this.inFlightSkillRefreshes.delete(refreshId);
+    this.lastSkillRefreshDiagnostics = completed;
+  }
+
+  private captureDisconnectDiagnostics(
+    reason: CodexAdapterDisconnectDiagnostics["reason"],
+    exitCode: number | null = null,
+  ): CodexAdapterDisconnectDiagnostics {
+    const transport = this.transport.getCloseDiagnostics();
+    const memory = process.memoryUsage();
+    const diagnostics: CodexAdapterDisconnectDiagnostics = {
+      closeId: transport?.closeId ?? randomUUID(),
+      reason,
+      sessionId: this.sessionId,
+      capturedAt: Date.now(),
+      process: {
+        pid: this.proc.pid,
+        pidAlive: isPidAlive(this.proc.pid),
+        exitCode,
+        eofToExitMs: transport && exitCode !== null ? Math.max(0, Date.now() - transport.closedAt) : null,
+      },
+      adapter: {
+        threadId: this.threadId,
+        currentTurnId: this.currentTurnId,
+        model: this.options.model ?? null,
+        cwd: this.options.cwd ?? null,
+        approvalMode: this.options.approvalMode ?? null,
+        sandbox: this.options.sandbox ?? null,
+        connected: this.connected,
+        initialized: this.initialized,
+      },
+      transport,
+      pendingRpcRequests: transport?.pendingRequests ?? this.transport.getPendingRequests(),
+      skillRefresh: {
+        inFlightCount: this.inFlightSkillRefreshes.size,
+        inFlight: [...this.inFlightSkillRefreshes.values()],
+        last: this.lastSkillRefreshDiagnostics,
+      },
+      stderrTail: this.options.failureContextProvider?.() || null,
+      resource: {
+        rssMb: Math.round(memory.rss / 1024 / 1024),
+        heapUsedMb: Math.round(memory.heapUsed / 1024 / 1024),
+      },
+      recording: this.options.recorder?.getActiveRecorderStats(this.sessionId) ?? null,
+    };
+    this.lastDisconnectDiagnostics = diagnostics;
+    return diagnostics;
+  }
+
+  private recordProcessExitAfterTransportClose(exitCode: number): void {
+    const previous = this.lastDisconnectDiagnostics;
+    if (!previous) return;
+    const diagnostics = this.captureDisconnectDiagnostics("transport_close", exitCode);
+    console.log(
+      `[codex-adapter] Process exited after transport close for session ${this.sessionId} ` +
+        `(pid=${this.proc.pid}, code=${exitCode}, closeId=${diagnostics.closeId}, eofToExitMs=${diagnostics.process.eofToExitMs ?? "unknown"})`,
+    );
+    this.options.recorder?.recordServerEvent(
+      this.sessionId,
+      "codex_process_exit_after_transport_close",
+      diagnostics as unknown as Record<string, unknown>,
+      "codex",
+      this.options.cwd || "",
+    );
   }
 
   sendBrowserMessage(msg: BrowserOutgoingMessage): boolean {
@@ -401,6 +589,10 @@ export class CodexAdapter
 
   onDisconnect(cb: () => void): void {
     this.disconnectCb = cb;
+  }
+
+  getLastDisconnectDiagnostics(): CodexAdapterDisconnectDiagnostics | null {
+    return this.lastDisconnectDiagnostics;
   }
 
   onInitError(cb: (error: string) => void): void {
@@ -1062,7 +1254,7 @@ export class CodexAdapter
           this.updateRateLimits(params);
           break;
         case "skills/changed":
-          this.refreshSkills(true).catch((err) => {
+          this.refreshSkills(true, "skills_changed").catch((err) => {
             console.warn(`[codex-adapter] Failed to refresh skills after skills/changed:`, err);
           });
           break;
@@ -1612,4 +1804,71 @@ export class CodexAdapter
     this.turnStartFailedCb(msg);
     return true;
   }
+}
+
+const CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS = 1_000;
+const CODEX_TRANSPORT_CLOSE_WAVE_DEBOUNCE_MS = 250;
+const CODEX_TRANSPORT_CLOSE_WAVE_MIN_COUNT = 3;
+let recentCodexTransportCloses: Array<{
+  sessionId: string;
+  closeId: string;
+  closedAt: number;
+  pid: number;
+  closeContext: string | null;
+  lastIncomingMethod: string | null;
+  lastOutgoingMethod: string | null;
+  skillRefreshCause: string | null;
+}> = [];
+let codexTransportCloseWaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+function formatPendingRpcRequests(pending: JsonRpcPendingRequestSummary[]): string {
+  return `[${pending.map((entry) => `${entry.id}:${entry.method}:${entry.ageMs}ms`).join(",")}]`;
+}
+
+function noteCodexTransportCloseForWave(diagnostics: CodexAdapterDisconnectDiagnostics): void {
+  const now = diagnostics.transport?.closedAt ?? diagnostics.capturedAt;
+  recentCodexTransportCloses = recentCodexTransportCloses.filter(
+    (entry) => now - entry.closedAt <= CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS,
+  );
+  recentCodexTransportCloses.push({
+    sessionId: diagnostics.sessionId,
+    closeId: diagnostics.closeId,
+    closedAt: now,
+    pid: diagnostics.process.pid,
+    closeContext: diagnostics.transport?.closeContext ?? null,
+    lastIncomingMethod: lastMethod(diagnostics.transport?.recentIncoming),
+    lastOutgoingMethod: lastMethod(diagnostics.transport?.recentOutgoing),
+    skillRefreshCause: diagnostics.skillRefresh.inFlight[0]?.cause ?? diagnostics.skillRefresh.last?.cause ?? null,
+  });
+  if (recentCodexTransportCloses.length < CODEX_TRANSPORT_CLOSE_WAVE_MIN_COUNT) return;
+  if (codexTransportCloseWaveTimer) clearTimeout(codexTransportCloseWaveTimer);
+  codexTransportCloseWaveTimer = setTimeout(() => {
+    codexTransportCloseWaveTimer = null;
+    const latest = Date.now();
+    const wave = recentCodexTransportCloses.filter(
+      (entry) =>
+        latest - entry.closedAt <= CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS + CODEX_TRANSPORT_CLOSE_WAVE_DEBOUNCE_MS,
+    );
+    if (wave.length < CODEX_TRANSPORT_CLOSE_WAVE_MIN_COUNT) return;
+    console.warn(
+      `[codex-adapter] Codex transport close wave detected (${wave.length} closes in ~${CODEX_TRANSPORT_CLOSE_WAVE_WINDOW_MS}ms): ` +
+        JSON.stringify({
+          sessions: wave.map((entry) => ({
+            sessionId: entry.sessionId,
+            closeId: entry.closeId,
+            pid: entry.pid,
+            closeContext: entry.closeContext,
+            lastIncomingMethod: entry.lastIncomingMethod,
+            lastOutgoingMethod: entry.lastOutgoingMethod,
+            skillRefreshCause: entry.skillRefreshCause,
+          })),
+        }),
+    );
+  }, CODEX_TRANSPORT_CLOSE_WAVE_DEBOUNCE_MS);
+  if (codexTransportCloseWaveTimer.unref) codexTransportCloseWaveTimer.unref();
+}
+
+function lastMethod(messages: JsonRpcTransportCloseDiagnostics["recentIncoming"] | undefined): string | null {
+  if (!messages || messages.length === 0) return null;
+  return messages[messages.length - 1].method;
 }

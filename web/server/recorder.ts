@@ -42,6 +42,14 @@ export interface RecordingFileMeta {
   lines: number;
 }
 
+export interface ActiveRecordingStats {
+  filePath: string;
+  lineCount: number;
+  bufferedLines: number;
+  flushing: boolean;
+  closed: boolean;
+}
+
 // ─── SessionRecorder ─────────────────────────────────────────────────────────
 
 /**
@@ -99,6 +107,16 @@ export class SessionRecorder {
     } else {
       this.scheduleFlush();
     }
+  }
+
+  getStats(): ActiveRecordingStats {
+    return {
+      filePath: this.filePath,
+      lineCount: this.lineCount,
+      bufferedLines: this.buffer.length,
+      flushing: this.flushing,
+      closed: this.closed,
+    };
   }
 
   /** Flush buffered entries to disk (async, non-blocking). */
@@ -214,6 +232,10 @@ export class RecorderManager {
 
   getMaxLines(): number {
     return this.maxLines;
+  }
+
+  getActiveRecorderStats(sessionId: string): ActiveRecordingStats | null {
+    return this.recorders.get(sessionId)?.getStats() ?? null;
   }
 
   isRecording(sessionId: string): boolean {
