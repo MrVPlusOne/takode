@@ -82,6 +82,7 @@ import {
   shouldShowSelectedThreadWindowLoading,
 } from "./message-feed-selected-window.js";
 import { getSavedViewportRestoreKey, readSavedViewportPosition } from "./message-feed-viewport-state.js";
+import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
 import {
   isUserBoundaryEntry,
   useFeedModel,
@@ -110,11 +111,6 @@ const MOBILE_NAV_BASE_BOTTOM_PX = 12;
 const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const SECTION_WINDOW_TRIGGER_PX = 96;
-const BOUNDARY_CONTEXT_SECTION_COUNT = 5;
-
-function getBoundaryContextSectionCount(visibleSectionCount: number): number {
-  return Math.max(BOUNDARY_CONTEXT_SECTION_COUNT, Math.max(1, Math.floor(visibleSectionCount)) + 2);
-}
 
 // ─── Expand-on-scroll-target hook ───────────────────────────────────────────
 // Used by collapsible containers (SubagentContainer, ApprovalBatchGroup,
@@ -860,37 +856,25 @@ export function MessageFeed({
 
   const handleLoadOlderSection = useCallback(() => {
     if (activeThreadWindow) {
-      const itemCount = Math.max(
-        activeThreadWindow.item_count,
-        getThreadWindowItemCount(
-          getBoundaryContextSectionCount(activeThreadWindow.visible_item_count),
-          activeThreadWindow.section_item_count,
-        ),
-      );
-      const nextFromItem = Math.max(0, activeThreadWindow.from_item - activeThreadWindow.section_item_count);
-      const requestKey = `thread:${normalizedThreadKey}:${nextFromItem}:${itemCount}`;
+      const request = getThreadBoundaryWindowRequest(activeThreadWindow, "older");
+      if (!request) return;
+      const requestKey = `thread:${normalizedThreadKey}:${request.fromItem}:${request.itemCount}`;
       if (!markSectionLoadPending("older", requestKey)) return;
       autoFollowEnabledRef.current = false;
       setShowScrollButton(true);
-      requestThreadWindow(nextFromItem, itemCount);
+      requestThreadWindow(request.fromItem, request.itemCount);
       return;
     }
     if (activeHistoryWindow) {
-      const turnCount = Math.max(
-        activeHistoryWindow.turn_count,
-        getHistoryWindowTurnCount(
-          getBoundaryContextSectionCount(activeHistoryWindow.visible_section_count),
-          activeHistoryWindow.section_turn_count,
-        ),
-      );
-      const nextFromTurn = Math.max(0, activeHistoryWindow.from_turn - activeHistoryWindow.section_turn_count);
-      const requestKey = `history:${nextFromTurn}:${turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
+      const request = getHistoryBoundaryWindowRequest(activeHistoryWindow, "older");
+      if (!request) return;
+      const requestKey = `history:${request.fromTurn}:${request.turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
       if (!markSectionLoadPending("older", requestKey)) return;
       autoFollowEnabledRef.current = false;
       setShowScrollButton(true);
       requestHistoryWindow(
-        nextFromTurn,
-        turnCount,
+        request.fromTurn,
+        request.turnCount,
         activeHistoryWindow.section_turn_count,
         activeHistoryWindow.visible_section_count,
       );
@@ -913,42 +897,23 @@ export function MessageFeed({
 
   const handleLoadNewerSection = useCallback(() => {
     if (activeThreadWindow) {
-      const itemCount = Math.max(
-        activeThreadWindow.item_count,
-        getThreadWindowItemCount(
-          getBoundaryContextSectionCount(activeThreadWindow.visible_item_count),
-          activeThreadWindow.section_item_count,
-        ),
-      );
-      const maxFromItem = Math.max(0, activeThreadWindow.total_items - itemCount);
-      const nextFromItem = Math.min(maxFromItem, activeThreadWindow.from_item + activeThreadWindow.section_item_count);
-      if (nextFromItem === activeThreadWindow.from_item) return;
-      const requestKey = `thread:${normalizedThreadKey}:${nextFromItem}:${itemCount}`;
+      const request = getThreadBoundaryWindowRequest(activeThreadWindow, "newer");
+      if (!request) return;
+      const requestKey = `thread:${normalizedThreadKey}:${request.fromItem}:${request.itemCount}`;
       if (!markSectionLoadPending("newer", requestKey)) return;
       autoFollowEnabledRef.current = false;
-      requestThreadWindow(nextFromItem, itemCount);
+      requestThreadWindow(request.fromItem, request.itemCount);
       return;
     }
     if (activeHistoryWindow) {
-      const turnCount = Math.max(
-        activeHistoryWindow.turn_count,
-        getHistoryWindowTurnCount(
-          getBoundaryContextSectionCount(activeHistoryWindow.visible_section_count),
-          activeHistoryWindow.section_turn_count,
-        ),
-      );
-      const maxFromTurn = Math.max(0, activeHistoryWindow.total_turns - turnCount);
-      const nextFromTurn = Math.min(
-        maxFromTurn,
-        activeHistoryWindow.from_turn + activeHistoryWindow.section_turn_count,
-      );
-      if (nextFromTurn === activeHistoryWindow.from_turn) return;
-      const requestKey = `history:${nextFromTurn}:${turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
+      const request = getHistoryBoundaryWindowRequest(activeHistoryWindow, "newer");
+      if (!request) return;
+      const requestKey = `history:${request.fromTurn}:${request.turnCount}:${activeHistoryWindow.section_turn_count}:${activeHistoryWindow.visible_section_count}`;
       if (!markSectionLoadPending("newer", requestKey)) return;
       autoFollowEnabledRef.current = false;
       requestHistoryWindow(
-        nextFromTurn,
-        turnCount,
+        request.fromTurn,
+        request.turnCount,
         activeHistoryWindow.section_turn_count,
         activeHistoryWindow.visible_section_count,
       );

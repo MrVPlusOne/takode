@@ -29,7 +29,7 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import type { BrowserIncomingMessage, ChatMessage } from "../types.js";
+import type { BrowserIncomingMessage, ChatMessage, ThreadWindowEntry } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 import { FEED_WINDOW_SYNC_VERSION } from "../../shared/feed-window-sync.js";
 
@@ -143,8 +143,11 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
-import { HISTORY_WINDOW_SECTION_TURN_COUNT } from "../../shared/history-window.js";
-import { cacheHistoryWindow } from "../utils/history-window-cache.js";
+import {
+  HISTORY_WINDOW_SECTION_TURN_COUNT,
+  HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+} from "../../shared/history-window.js";
+import { cacheHistoryWindow, cacheThreadWindow } from "../utils/history-window-cache.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -280,11 +283,11 @@ function setStoreHistoryWindow(sessionId: string) {
     [
       sessionId,
       {
-        from_turn: 22,
-        turn_count: 15,
+        from_turn: 7,
+        turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
         total_turns: 37,
-        section_turn_count: 5,
-        visible_section_count: 3,
+        section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       },
     ],
   ]);
@@ -693,6 +696,7 @@ describe("MessageFeed section windowing", () => {
 
     const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
     const scrollContainer = getScrollContainer(container);
+    mockSendToSession.mockClear();
 
     setElementScrollMetrics(scrollContainer, 1000, 300, 0);
     fireEvent.wheel(scrollContainer, { deltaY: -80 });
@@ -700,7 +704,7 @@ describe("MessageFeed section windowing", () => {
     expect(mockSendToSession).toHaveBeenCalledWith(sid, {
       type: "history_window_request",
       from_turn: 0,
-      turn_count: 10,
+      turn_count: 8,
       section_turn_count: 2,
       visible_section_count: 3,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
@@ -714,7 +718,7 @@ describe("MessageFeed section windowing", () => {
       sid,
       {
         from_turn: 0,
-        turn_count: 10,
+        turn_count: 8,
         total_turns: 10,
         section_turn_count: 2,
         visible_section_count: 3,
@@ -734,13 +738,14 @@ describe("MessageFeed section windowing", () => {
 
     const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
     const scrollContainer = getScrollContainer(container);
+    mockSendToSession.mockClear();
     setElementScrollMetrics(scrollContainer, 1000, 300, 0);
     fireEvent.wheel(scrollContainer, { deltaY: -80 });
 
     expect(mockSendToSession).toHaveBeenCalledWith(sid, {
       type: "history_window_request",
       from_turn: 0,
-      turn_count: 10,
+      turn_count: 8,
       section_turn_count: 2,
       visible_section_count: 3,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
@@ -763,14 +768,15 @@ describe("MessageFeed section windowing", () => {
 
     const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
     const scrollContainer = getScrollContainer(container);
+    mockSendToSession.mockClear();
 
     setElementScrollMetrics(scrollContainer, 1000, 300, 700);
     fireEvent.wheel(scrollContainer, { deltaY: 80 });
 
     expect(mockSendToSession).toHaveBeenCalledWith(sid, {
       type: "history_window_request",
-      from_turn: 2,
-      turn_count: 10,
+      from_turn: 0,
+      turn_count: 12,
       section_turn_count: 2,
       visible_section_count: 3,
       feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
@@ -811,7 +817,7 @@ describe("MessageFeed section windowing", () => {
     setStoreMessages(sid, [mainTail]);
     setStoreHistoryWindow(sid);
 
-    const { rerender } = render(<MessageFeed sessionId={sid} threadKey="main" sectionTurnCount={5} />);
+    const { rerender } = render(<MessageFeed sessionId={sid} threadKey="main" />);
 
     expect(screen.queryByText("Start a conversation")).toBeNull();
     expect(screen.getByText("Loading conversation...")).toBeTruthy();
@@ -822,9 +828,9 @@ describe("MessageFeed section windowing", () => {
         type: "thread_window_request",
         thread_key: "main",
         from_item: -1,
-        item_count: 15,
-        section_item_count: 5,
-        visible_item_count: 3,
+        item_count: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+        section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
         feed_window_sync_version: FEED_WINDOW_SYNC_VERSION,
       }),
     );
@@ -832,14 +838,14 @@ describe("MessageFeed section windowing", () => {
     setStoreSelectedThreadWindow({
       sessionId: sid,
       threadKey: "main",
-      fromItem: 22,
-      itemCount: 15,
+      fromItem: 7,
+      itemCount: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       totalItems: 37,
-      sectionItemCount: 5,
-      visibleItemCount: 3,
+      sectionItemCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visibleItemCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       messages: [mainTail],
     });
-    rerender(<MessageFeed sessionId={sid} threadKey="main" sectionTurnCount={5} />);
+    rerender(<MessageFeed sessionId={sid} threadKey="main" />);
 
     expect(screen.getByText("Persisted Main history tail")).toBeTruthy();
     expect(screen.queryByText("Start a conversation")).toBeNull();
@@ -860,7 +866,7 @@ describe("MessageFeed section windowing", () => {
     setStoreConnectionStatus(sid, "connecting");
     mockSendToSession.mockReturnValueOnce(false).mockReturnValue(true);
 
-    const { rerender } = render(<MessageFeed sessionId={sid} threadKey="main" sectionTurnCount={5} />);
+    const { rerender } = render(<MessageFeed sessionId={sid} threadKey="main" />);
 
     await flushFeedObservers();
     expect(mockSendToSession).toHaveBeenCalledTimes(1);
@@ -868,7 +874,7 @@ describe("MessageFeed section windowing", () => {
     expect(screen.getByText("Loading conversation...")).toBeTruthy();
 
     setStoreConnectionStatus(sid, "connected");
-    rerender(<MessageFeed sessionId={sid} threadKey="main" sectionTurnCount={5} />);
+    rerender(<MessageFeed sessionId={sid} threadKey="main" />);
 
     await flushFeedObservers();
     expect(mockSendToSession).toHaveBeenCalledTimes(2);
@@ -907,15 +913,15 @@ describe("MessageFeed section windowing", () => {
       fromItem: 0,
       itemCount: 1,
       totalItems: 1,
-      sectionItemCount: 5,
-      visibleItemCount: 3,
+      sectionItemCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visibleItemCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
       messages: [questTail],
     });
-    const { rerender } = render(<MessageFeed sessionId={sid} threadKey="q-1162" sectionTurnCount={5} />);
+    const { rerender } = render(<MessageFeed sessionId={sid} threadKey="q-1162" />);
     await flushFeedObservers();
     mockSendToSession.mockClear();
 
-    rerender(<MessageFeed sessionId={sid} threadKey="main" sectionTurnCount={5} />);
+    rerender(<MessageFeed sessionId={sid} threadKey="main" />);
 
     expect(screen.queryByText("Start a conversation")).toBeNull();
     expect(screen.getByText("Loading conversation...")).toBeTruthy();
@@ -1011,10 +1017,66 @@ describe("MessageFeed section windowing", () => {
       expect.objectContaining({
         type: "thread_window_request",
         from_item: 0,
-        item_count: 10,
+        item_count: 8,
       }),
     );
     expect(screen.getByText("Loading older section...")).toBeTruthy();
+  });
+
+  it("sends a cached selected-thread window hash for nearby boundary reuse", () => {
+    const sid = "test-selected-thread-cached-boundary-window";
+    const threadKey = "q-1027";
+    const cachedMessage = {
+      type: "user_message",
+      id: "cached-thread-user",
+      content: "cached thread range",
+      timestamp: 1,
+    } as BrowserIncomingMessage;
+    cacheThreadWindow(
+      sid,
+      {
+        thread_key: threadKey,
+        from_item: 40,
+        item_count: 60,
+        total_items: 100,
+        has_older_items: true,
+        has_newer_items: true,
+        source_history_length: 200,
+        section_item_count: 10,
+        visible_item_count: 3,
+        window_hash: "cached-thread-window",
+      },
+      [{ message: cachedMessage, history_index: 1 } as ThreadWindowEntry],
+    );
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 70,
+      itemCount: 30,
+      totalItems: 100,
+      sectionItemCount: 10,
+      visibleItemCount: 3,
+      messages: [
+        makeMessage({ id: "u-tail", role: "user", content: "Completed q-1027 tail", timestamp: 3 }),
+        makeMessage({ id: "a-tail", role: "assistant", content: "Completed q-1027 reply tail", timestamp: 4 }),
+      ],
+    });
+
+    const { container } = render(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} />);
+    const scrollContainer = getScrollContainer(container);
+    setElementScrollMetrics(scrollContainer, 1000, 340, 0);
+    fireEvent.wheel(scrollContainer, { deltaY: -80 });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        from_item: 40,
+        item_count: 60,
+        cached_window_hash: "cached-thread-window",
+      }),
+    );
   });
 
   it("hides selected-thread boundary affordances when explicit server availability is false", () => {
