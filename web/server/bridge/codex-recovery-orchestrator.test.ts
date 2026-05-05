@@ -612,8 +612,12 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
       },
     });
 
-    expect(log).toHaveBeenCalledWith(expect.stringContaining(`Codex recovery session_meta`));
-    expect(log).toHaveBeenCalledWith(expect.stringContaining(`closeId=${closeId}`));
+    expect(
+      log.mock.calls.some(([message]) => {
+        const text = String(message);
+        return text.includes("Codex recovery session_meta") && text.includes(`closeId=${closeId}`);
+      }),
+    ).toBe(true);
     expect(deps.setCliSessionIdFromMeta).toHaveBeenCalledWith(session.id, "thread-recovered");
   });
 });
