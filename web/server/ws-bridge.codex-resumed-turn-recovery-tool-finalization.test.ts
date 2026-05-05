@@ -648,6 +648,133 @@ describe("Codex resumed-turn recovery", () => {
     expect(getPendingCodexTurn(session)).toBeNull();
   });
 
+  it("does not silently complete recovered assistant text followed by tool output without a final response", async () => {
+    const sid = "s-incomplete-confirm-resume";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-confirm" });
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    const imagePath = join(homedir(), ".companion", "images", sid, "img-1.orig.png");
+    const content = "Now that we use multiple sections, confirm the navigation semantics. /confirm";
+    const deliveryContent =
+      `${content}\n` +
+      "[📎 Image attachments -- read these files with the Read tool before responding:\n" +
+      `Attachment 1: ${imagePath}]`;
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content,
+        deliveryContent,
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }],
+      }),
+    );
+    await flushAsync();
+
+    const partial = "[thread:main] I'm using the confirm workflow because your request includes /confirm.";
+    adapter1.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "assistant-confirm-partial",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.3-codex",
+        content: [{ type: "text", text: partial }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+    adapter1.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "assistant-sed-call",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.3-codex",
+        content: [
+          {
+            type: "tool_use",
+            id: "cmd_sed",
+            name: "Bash",
+            input: { command: "sed -n '1,240p' /Users/jiayiwei/Code/companion/.claude/skills/confirm/SKILL.md" },
+          },
+        ],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+    adapter1.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "assistant-sed-result",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.3-codex",
+        content: [{ type: "tool_result", tool_use_id: "cmd_sed", content: "Confirm skill contents", is_error: false }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+    await flushAsync();
+
+    adapter1.emitDisconnect("turn-confirm");
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    browser.send.mockClear();
+
+    adapter2.emitSessionMeta({
+      cliSessionId: "thread-confirm",
+      model: "gpt-5.3-codex",
+      cwd: "/repo",
+      resumeSnapshot: {
+        threadId: "thread-confirm",
+        turnCount: 22,
+        threadStatus: "idle",
+        lastTurn: {
+          id: "turn-confirm",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: deliveryContent }] },
+            { type: "functionCall", id: "call_image", status: "completed", name: "view_image" },
+            { type: "agentMessage", id: "item-1", text: partial },
+            {
+              type: "commandExecution",
+              id: "cmd_sed",
+              status: "completed",
+              aggregatedOutput: "Confirm skill contents",
+              exitCode: 0,
+            },
+          ],
+        },
+      },
+    });
+
+    expect(adapter2.sendBrowserMessage).not.toHaveBeenCalled();
+    const session = bridge.getSession(sid)!;
+    expect(session.isGenerating).toBe(false);
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(getPendingCodexTurn(session)).toBeNull();
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(
+      calls.find(
+        (c: any) =>
+          c.type === "error" && typeof c.message === "string" && c.message.includes("no final response was recovered"),
+      ),
+    ).toBeDefined();
+  });
+
   it("watchdog synthesizes interruption when codex stays disconnected", async () => {
     vi.useFakeTimers();
     try {

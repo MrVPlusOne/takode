@@ -1244,6 +1244,18 @@ export function reconcileCodexResumedTurn(
     deps.persistSession(session);
     return;
   }
+  if (recoveredAgents > 0 && hasRecoveredAssistantToolTailWithoutTerminalEvidence(lastTurn.items)) {
+    session.consecutiveAdapterFailures = 0;
+    session.lastAdapterFailureAt = null;
+    completeRecoveredCodexTurnWithDiagnostic(
+      session,
+      pending,
+      "codex_resume_incomplete_recovered_messages",
+      "Codex disconnected mid-turn and recovered partial assistant/tool activity, but no final response was recovered. Automatic retry was skipped to avoid duplicate side effects.",
+      deps,
+    );
+    return;
+  }
   if (recoveredAgents > 0) {
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
@@ -1275,21 +1287,16 @@ export function reconcileCodexResumedTurn(
     retryPendingCodexTurn(session, pending, deps);
     return;
   }
-  deps.completeCodexTurn(session, pending);
-  clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, "codex_resume_non_retryable", deps);
-  reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_non_retryable", deps);
-  deps.dispatchQueuedCodexTurns(session, "codex_resume_non_retryable");
-  reconcileRecoveredQueuedTurnLifecycle(session, "codex_resume_non_retryable_dispatched", deps);
-  deps.maybeFlushQueuedCodexMessages(session, "codex_resume_non_retryable");
   console.warn(
     `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} has non-user items but no recoverable agentMessage text; skipping auto-retry to avoid duplicate side effects`,
   );
-  deps.broadcastToBrowsers(session, {
-    type: "error",
-    message:
-      "Codex disconnected mid-turn and resumed with non-text tool activity. Automatic retry was skipped to avoid duplicate side effects.",
-  });
-  deps.persistSession(session);
+  completeRecoveredCodexTurnWithDiagnostic(
+    session,
+    pending,
+    "codex_resume_non_retryable",
+    "Codex disconnected mid-turn and resumed with non-text tool activity. Automatic retry was skipped to avoid duplicate side effects.",
+    deps,
+  );
 }
 export function extractUserTextFromResumedTurn(turn: CodexResumeTurnSnapshot): string {
   for (const item of turn.items) {
@@ -1322,6 +1329,66 @@ function clearGeneratingAfterRecoveredCompletedTurnIfIdle(
   const hasLiveTurn = session.pendingCodexTurns.some((turn) => turn.status !== "completed");
   if (hasLiveTurn) return;
   deps.setGenerating(session, false, reason);
+}
+
+function completeRecoveredCodexTurnWithDiagnostic(
+  session: CodexRecoveryOrchestratorSessionLike,
+  pending: CodexOutboundTurn,
+  reason: string,
+  message: string,
+  deps: CodexRecoveryOrchestratorDeps,
+): void {
+  deps.completeCodexTurn(session, pending);
+  clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, reason, deps);
+  reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
+  deps.dispatchQueuedCodexTurns(session, reason);
+  reconcileRecoveredQueuedTurnLifecycle(session, `${reason}_dispatched`, deps);
+  deps.maybeFlushQueuedCodexMessages(session, reason);
+  deps.broadcastToBrowsers(session, { type: "error", message });
+  deps.persistSession(session);
+}
+
+function hasRecoveredAssistantToolTailWithoutTerminalEvidence(items: Array<Record<string, unknown>>): boolean {
+  let lastAgentMessageIndex = -1;
+  for (let i = 0; i < items.length; i++) {
+    if (isRecoveredAgentMessageItem(items[i])) {
+      lastAgentMessageIndex = i;
+    }
+  }
+  if (lastAgentMessageIndex < 0) return false;
+
+  const tail = items.slice(lastAgentMessageIndex + 1);
+  if (!tail.some(isCodexResumeToolActivityItem)) return false;
+  return !tail.some(isCodexResumeTerminalEvidenceItem);
+}
+
+function isRecoveredAgentMessageItem(item: Record<string, unknown>): boolean {
+  if (item.type !== "agentMessage") return false;
+  return typeof item.text === "string" && item.text.trim().length > 0;
+}
+
+function isCodexResumeToolActivityItem(item: Record<string, unknown>): boolean {
+  const type = typeof item.type === "string" ? item.type.toLowerCase() : "";
+  return (
+    type.includes("command") ||
+    type.includes("tool") ||
+    type.includes("function") ||
+    type.includes("filechange") ||
+    type.includes("patch")
+  );
+}
+
+function isCodexResumeTerminalEvidenceItem(item: Record<string, unknown>): boolean {
+  const type = typeof item.type === "string" ? item.type.toLowerCase() : "";
+  return (
+    type === "result" ||
+    type === "turnresult" ||
+    type === "turn_result" ||
+    type === "taskcomplete" ||
+    type === "task_complete" ||
+    type.includes("taskcomplete") ||
+    type.includes("task_complete")
+  );
 }
 
 type CodexRecoveredAssistantRouteFields = Pick<

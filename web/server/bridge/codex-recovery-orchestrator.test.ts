@@ -365,6 +365,138 @@ describe("reconcileCodexResumedTurn", () => {
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_recovered_messages");
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "assistant" }));
   });
+
+  it("surfaces a diagnostic when resumed assistant text is followed by tool output without a final response", () => {
+    // This matches the lost /confirm shape: a partial assistant sentence was
+    // already visible, a later tool finished, and resume had no final answer.
+    const request = "confirm the navigation work";
+    const partial = "[thread:main] I'm using the confirm workflow because your request includes /confirm.";
+    const session = makeSession([
+      {
+        id: "input-1",
+        content: request,
+        timestamp: 1_000,
+        cancelable: false,
+      },
+    ]);
+    session.state.isOrchestrator = true;
+    session.isGenerating = true;
+    session.messageHistory.push({
+      type: "assistant",
+      message: {
+        id: "live-partial",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.4",
+        content: [{ type: "text", text: "I'm using the confirm workflow because your request includes /confirm." }],
+        stop_reason: null,
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 900,
+      threadKey: "main",
+    });
+    const pending = makePendingTurn();
+    pending.userContent = request;
+    pending.turnId = "turn-confirm";
+    pending.disconnectedAt = 2_000;
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      completeCodexTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike, turn: CodexOutboundTurn | null) => {
+        if (turn) turn.status = "completed";
+        session.pendingCodexTurns = [];
+        return true;
+      }),
+    });
+    deps.codexAssistantReplayScanLimit = 10;
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-confirm",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: request }] },
+            { type: "functionCall", id: "call-image", status: "completed", name: "view_image" },
+            { type: "agentMessage", id: "item-1", text: partial },
+            { type: "commandExecution", id: "cmd-sed", status: "completed", aggregatedOutput: "Confirm skill" },
+          ],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
+    expect(deps.setGenerating).not.toHaveBeenCalledWith(session, false, "codex_resume_recovered_messages");
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("no final response was recovered"),
+      }),
+    );
+  });
+
+  it("keeps safe-complete recovery when final assistant text follows resumed tool output", () => {
+    const request = "run a command and summarize it";
+    const session = makeSession([
+      {
+        id: "input-1",
+        content: request,
+        timestamp: 1_000,
+        cancelable: false,
+      },
+    ]);
+    session.isGenerating = true;
+    const pending = makePendingTurn();
+    pending.userContent = request;
+    pending.turnId = "turn-final";
+    pending.disconnectedAt = 2_000;
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      completeCodexTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike, turn: CodexOutboundTurn | null) => {
+        if (turn) turn.status = "completed";
+        session.pendingCodexTurns = [];
+        return true;
+      }),
+    });
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-final",
+          status: "completed",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: request }] },
+            { type: "commandExecution", id: "cmd-1", status: "completed", aggregatedOutput: "ok" },
+            { type: "agentMessage", id: "item-final", text: "The command completed successfully." },
+          ],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_recovered_messages");
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("no final response was recovered"),
+      }),
+    );
+  });
 });
 
 describe("handleCodexAdapterInitError", () => {
