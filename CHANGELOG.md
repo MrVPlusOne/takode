@@ -1,5 +1,55 @@
 # Takode Changelog
 
+## 2026-05-02 to 2026-05-04
+
+### Added
+
+- **Quest Journey release blog** -- Added a concise product overview of the redesigned leader orchestration experience: [Takode's reimagined leader orchestration system](docs/release-notes/quest-journey-redesign.md)
+- **Server-backed leader thread windows** -- Leader quest tabs, selected thread windows, and thread route indexes now have stronger server-side foundations so large orchestration sessions can keep focused quest conversations available across reloads and reconnects
+- **Leader tab reordering** -- Quest thread tabs can be reordered, making active multi-quest sessions easier to organize
+
+### Fixed
+
+- **Quest-thread conversation reliability** -- Attached source messages, Main-thread notification sources, handoff markers, active output, and selected quest threads now stay visible in the right conversation more consistently
+- **Leader feed performance** -- Large leader sessions avoid more cold-load hangs, dense activity bursts collapse more cleanly, and feed windows keep bounded ledgers instead of rebuilding unnecessary history
+- **Journey readability** -- Long Journey timelines and hover previews are clamped, queued wait reasons are shown in quest hovers, and Journey lifecycle rows stay quieter until they matter
+- **Codex tool failure recovery** -- `write_stdin` router failures and stale pending delivery states are surfaced and recovered as scoped tool failures instead of turning into whole-session failures
+- **Thread viewport restoration** -- Leader threads restore saved positions more reliably after tab switches, feed remounts, and server-window updates
+
+### Changed
+
+- **Final debrief hygiene** -- Quest completion now expects final debrief metadata and TLDRs so completed work remains easier to scan later
+- **Feed debugging guardrails** -- Message-feed and thread-window work now has clearer debugging rules for windowed histories, source-message attachment, and large leader-session performance
+- **Validation profile guidance** -- Takode UI validation guidance now better documents profile choice, state retention, and evidence expectations
+
+## 2026-04-25 to 2026-05-01
+
+### Added
+
+- **Quest Journey orchestration overhaul** -- Quest work now moves through visible, revisable Journey phases with leader-proposed plans, phase notes, active Work Board state, repeated phases, and clearer handoffs between workers, reviewers, user checkpoints, and porting
+- **Focused quest threads** -- Leader sessions can keep Main as the staging and overview thread while routing detailed quest discussion, worker handoffs, reviewer updates, and relevant attached context into focused per-quest threads
+- **Work Board navigation** -- The Work Board gained Journey previews, phase status, compact thread navigation, cross-thread activity markers, active wait states, and mobile-friendly quest-thread selectors
+- **Quest memory and TLDR records** -- Quest records now support phase-scoped documentation, TLDR metadata for long feedback, final debrief metadata, phase documentation summaries, phase note image thumbnails, phase durations, and explicit follow-up relationships
+- **Validation and coordination tooling** -- Added global resource leases, a Takode UI validation skill, optimized agent-browser screenshots, worker-stream checkpoints, and clearer orchestration guidance for long-running multi-session work
+- **Questmaster browsing improvements** -- Questmaster gained compact table sorting, paged browsing, relevance search fixes, richer hover previews, leader attribution, and lower-friction new-quest drafting
+- **Session and settings polish** -- Added custom transcription model support, persisted new-session defaults, scrollable model dropdowns, and clearer session-space creation flows
+
+### Fixed
+
+- **Leader and notification routing** -- Needs-input waits, notification chips, suggested answers, review notifications, and herd events now stay better scoped to the owning leader thread and survive restarts more reliably
+- **Quest thread projection stability** -- Thread markers, moved-message counts, routed notifications, attachment sources, hidden activity markers, and source handoff markers now preserve context without creating confusing gaps in Main
+- **Questmaster reliability** -- Live quest-store migration, snapshot freshness checks, claim/list performance, completed Journey status, compact statuses, TLDR keyboard access, and mobile quest detail layouts were hardened
+- **Codex leader reliability** -- Codex leader sessions handle wrapper homes, model catalogs, auth/cache seeding, recycle thresholds, transient init recovery, session auth freshness, and stale post-compaction relaunch state more consistently
+- **Restart and recovery behavior** -- Restart-interrupted sessions, queued work, sidebar notification state, stale attention markers, recovered leaders, and in-flight herd delivery recover with fewer duplicated or lost signals
+- **Journey proposal safety** -- Active Journey proposals reject invalid promotions, preserve note rebasing semantics, block unsafe active rewrites, and keep runtime phase briefs aligned with the session workspace
+- **UI readability** -- Quest hovers, thread tabs, quest banners, Work Board banners, phase notes, completed quest tabs, and compact reminder rendering were tightened for dense orchestration views
+
+### Changed
+
+- **Phase guidance and workflow docs** -- Journey guidance now treats Alignment, Explore, review, Execute, Outcome Review, User Checkpoint, Bookkeeping, and Port as explicit orchestration stages with clearer ownership and documentation expectations
+- **Project skill organization** -- Project skills were consolidated into the `.agents` runtime path for Codex-facing sessions, legacy aliases were preserved where needed, and obsolete Playwright E2E guidance was replaced by the Takode UI validation workflow
+- **Quest verification model** -- Quest verification moved into the done/review flow, with human-checkable verification items and debrief records replacing older separate verification surfaces
+
 ## 2026-04-24
 
 ### Added
