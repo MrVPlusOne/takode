@@ -9,7 +9,17 @@ import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 import { getHighestNotificationUrgency, type NotificationUrgency } from "../utils/notification-urgency.js";
 import { isClearedNotificationStatus } from "../notification-status.js";
 
-type SearchMatchedField = "session_number" | "name" | "task" | "keyword" | "branch" | "path" | "repo" | "user_message";
+type SearchMatchedField =
+  | "session_number"
+  | "name"
+  | "task"
+  | "keyword"
+  | "branch"
+  | "path"
+  | "repo"
+  | "user_message"
+  | "assistant"
+  | "compact_marker";
 
 export interface ArchiveConfirmationState {
   sessionId: string;
@@ -59,6 +69,8 @@ const SEARCH_MATCH_LABELS: Record<SearchMatchedField, string> = {
   path: "path",
   repo: "repo",
   user_message: "message",
+  assistant: "assistant",
+  compact_marker: "summary",
 };
 
 const STATUS_DOT_CLASS: Record<SessionVisualStatus, string> = {

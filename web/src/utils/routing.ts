@@ -268,10 +268,11 @@ export function navigateToSessionMessage(sessionId: string, messageIndex: number
 export function navigateToSessionMessageId(
   sessionId: string,
   messageId: string,
-  options: { replace?: boolean; routeSessionId?: string | number } = {},
+  options: { replace?: boolean; routeSessionId?: string | number; threadKey?: string } = {},
 ): void {
-  const { replace = false, routeSessionId = sessionId } = options;
-  const newHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}`;
+  const { replace = false, routeSessionId = sessionId, threadKey } = options;
+  const messageHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}`;
+  const newHash = threadKey ? withThreadKeyInHash(messageHash, threadKey) : messageHash;
   if (replace) {
     history.replaceState(null, "", newHash);
     window.dispatchEvent(new HashChangeEvent("hashchange"));

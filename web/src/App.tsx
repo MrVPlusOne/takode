@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
 import { useStore, getSessionSearchState } from "./store.js";
 import { connectSession, disconnectSession, sendVsCodeSelectionUpdate } from "./ws.js";
@@ -33,6 +33,7 @@ import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
 import { QuestmasterPage } from "./components/QuestmasterPage.js";
 import { QuestDetailPanel } from "./components/QuestDetailPanel.js";
+import { SearchEverythingOverlay } from "./components/SearchEverythingOverlay.js";
 import { isPendingId } from "./utils/pending-creation.js";
 import { isDesktopShellLayout, isDesktopTaskPanelLayout } from "./utils/layout.js";
 import { getLastSessionCreationContext } from "./utils/new-session-defaults.js";
@@ -110,6 +111,7 @@ function buildSidebarOrderedShortcutSessions(state: ReturnType<typeof useStore.g
 }
 
 export default function App() {
+  const [searchEverythingOpen, setSearchEverythingOpen] = useState(false);
   const {
     colorTheme,
     darkMode,
@@ -318,12 +320,7 @@ export default function App() {
         isSearchOpen: currentSessionId ? getSessionSearchState(state, currentSessionId).isOpen : false,
         sessions: buildSidebarOrderedShortcutSessions(state),
         focusGlobalSearch: () => {
-          state.setSidebarOpen(true);
-          requestAnimationFrame(() => {
-            requestAnimationFrame(() => {
-              window.dispatchEvent(new CustomEvent("takode:focus-global-search"));
-            });
-          });
+          setSearchEverythingOpen(true);
         },
         openSearch: state.openSessionSearch,
         closeSearch: state.closeSessionSearch,
@@ -608,6 +605,12 @@ export default function App() {
 
       {/* Global quest detail overlay */}
       <QuestDetailPanel />
+
+      <SearchEverythingOverlay
+        open={searchEverythingOpen}
+        currentSessionId={currentSessionId}
+        onClose={() => setSearchEverythingOpen(false)}
+      />
 
       {/* Task panel — overlay on mobile, inline on desktop */}
       {currentSessionId && isSessionView && !isPendingId(currentSessionId) && taskPanelOpen && (

@@ -1144,7 +1144,7 @@ export function Sidebar() {
                   }
                 }}
                 placeholder="Search..."
-                title={getShortcutTitle("Global search", shortcutSettings, "global_search", shortcutPlatform)}
+                title="Search sessions"
                 className="w-full pl-6 pr-6 py-1.5 text-[11px] bg-cc-input-bg border border-cc-border rounded-md text-cc-fg placeholder-cc-muted outline-none focus:border-cc-primary/60 transition-colors"
               />
               {searchQuery && (

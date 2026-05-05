@@ -90,6 +90,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "Questmaster Compact Table",
     "Timer Chip + Modal",
     "Notification Inbox",
+    "Search Everything",
     "Quest Detail Modal",
     "Hover Cross-links",
   ]),

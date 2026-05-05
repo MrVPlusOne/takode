@@ -101,8 +101,8 @@ export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
 export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
   {
     id: "global_search",
-    label: "Global Search",
-    description: "Focus the sidebar session search.",
+    label: "Search Everything",
+    description: "Open app-wide search for quests, sessions, and messages.",
   },
   {
     id: "search_session",
