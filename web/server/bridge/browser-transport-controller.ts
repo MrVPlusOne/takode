@@ -1242,9 +1242,7 @@ export async function handleSessionSubscribe(
   }
 
   const timers = deps.listTimers(session.id);
-  if (timers.length > 0) {
-    sendToBrowser(ws, { type: "timer_update", timers } as BrowserIncomingMessage);
-  }
+  sendToBrowser(ws, { type: "timer_update", timers } as BrowserIncomingMessage);
 
   deps.recomputeAndBroadcastHistoryBytes(session);
   sendStateSnapshot(session, ws, deps);

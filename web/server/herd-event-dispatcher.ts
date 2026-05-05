@@ -43,6 +43,7 @@ import {
   updateLeaderGroupIdleState as updateLeaderGroupIdleStateController,
   type LeaderIdleStateLike,
 } from "./bridge/session-registry-controller.js";
+import { sessionTag } from "./session-tag.js";
 
 export interface BufferedTakodeEventState {
   takodeSubscribers: Set<TakodeEventSubscriber>;
@@ -133,6 +134,7 @@ export interface WsBridgeHandle {
   getSession(sessionId: string):
     | {
         messageHistory: BrowserIncomingMessage[];
+        backendType?: string;
         state?: { claimedQuestId?: string };
         backendSocket?: unknown;
         codexAdapter?: unknown;
@@ -282,7 +284,7 @@ interface DeliveryRecord {
   sessionName: string;
   ts: number;
   deliveredAt: number | null;
-  status: "pending" | "held" | "in_flight" | "confirmed" | "redelivered" | "suppressed";
+  status: "pending" | "held" | "queued" | "in_flight" | "confirmed" | "redelivered" | "suppressed";
 }
 
 interface HerdInbox {
@@ -508,17 +510,20 @@ export class HerdEventDispatcher {
 
     const policy = this.getRestartPrepDeliveryPolicy(orchId, event);
     if (policy.kind === "suppress") {
+      this.traceDelivery(orchId, "suppressed", event);
       this.recordRestartPrepSuppressed(policy.operation, event);
       return;
     }
 
     const eventKey = getStableHerdEventKey(event);
     if (eventKey && (inbox.recentEventKeys.has(eventKey) || inboxHasEventKey(inbox, eventKey))) {
+      this.traceDelivery(orchId, "coalesced", event);
       return;
     }
     if (eventKey && this.hasCommittedHerdEventKey(orchId, eventKey)) {
       inbox.recentEventKeys.set(eventKey, Date.now());
       trimRecentEventKeys(inbox);
+      this.traceDelivery(orchId, "coalesced_committed", event);
       return;
     }
 
@@ -530,6 +535,10 @@ export class HerdEventDispatcher {
       policy.operation.heldHerdEvents += 1;
     }
     inbox.entries.push(entry);
+    this.traceDelivery(orchId, policy.kind === "hold" ? "held" : "accepted", event, {
+      seq,
+      pending: this.pendingCount(inbox),
+    });
 
     // Track in delivery history
     inbox.deliveryHistory.push({
@@ -629,7 +638,7 @@ export class HerdEventDispatcher {
         }
       } else {
         for (const h of inbox.deliveryHistory) {
-          if (h.status === "in_flight") h.status = "redelivered";
+          if (h.status === "in_flight" || h.status === "queued") h.status = "redelivered";
         }
         inbox.inFlightUpTo = null;
       }
@@ -665,7 +674,7 @@ export class HerdEventDispatcher {
     if (inbox.inFlightUpTo !== null) {
       // Mark redelivered in history
       for (const h of inbox.deliveryHistory) {
-        if (h.status === "in_flight") h.status = "redelivered";
+        if (h.status === "in_flight" || h.status === "queued") h.status = "redelivered";
       }
       inbox.inFlightUpTo = null;
     }
@@ -792,11 +801,13 @@ export class HerdEventDispatcher {
           entry.heldByRestartPrepOperationId = policy.operation.operationId;
           policy.operation.heldHerdEvents += 1;
           this.markDeliveryHistoryStatus(inbox, entry, "held");
+          this.traceDelivery(orchId, "held", entry.event, { seq: entry.seq });
         }
         continue;
       }
       this.recordRestartPrepSuppressed(policy.operation, entry.event);
       this.markDeliveryHistoryStatus(inbox, entry, "suppressed");
+      this.traceDelivery(orchId, "suppressed", entry.event, { seq: entry.seq });
       inbox.entries = inbox.entries.filter((candidate) => candidate !== entry);
     }
     return deliverable;
@@ -809,12 +820,17 @@ export class HerdEventDispatcher {
   ): { status: "sent" | "retry" | "dropped"; deliveredCount: number } {
     const groups = groupPendingEntriesByThread(pending);
     const deliveredEvents: TakodeEvent[] = [];
+    const acceptedEntries: Array<{ entry: InboxEntry; status: "queued" | "in_flight" }> = [];
     for (const group of groups) {
       const events = group.entries.map((entry) => entry.event);
       const renderedBatch = renderHerdEventBatch(events, {
         getMessages: (sid, from, to) => getSessionMessageSlice(this.wsBridge, sid, from, to),
         lastEmittedMsgTo: inbox.lastEmittedMsgTo,
         leaderSessionId: orchId,
+      });
+      this.traceDelivery(orchId, "injecting", events[0], {
+        eventCount: events.length,
+        threadKey: group.route.threadKey,
       });
       const delivery = this.wsBridge.injectUserMessage(
         orchId,
@@ -823,27 +839,43 @@ export class HerdEventDispatcher {
         snapshotHerdBatch(events, renderedBatch.renderedLines),
         group.route,
       );
+      this.traceDelivery(orchId, "dispatch_returned", events[0], {
+        eventCount: events.length,
+        result: delivery,
+        threadKey: group.route.threadKey,
+      });
       if (delivery === "dropped") return { status: "dropped", deliveredCount: deliveredEvents.length };
-      if (delivery !== "sent") return { status: "retry", deliveredCount: deliveredEvents.length };
+      if (delivery === "queued" && !this.isCodexLeader(orchId))
+        return { status: "retry", deliveredCount: deliveredEvents.length };
+      if (delivery !== "sent" && delivery !== "queued")
+        return { status: "retry", deliveredCount: deliveredEvents.length };
       deliveredEvents.push(...events);
+      acceptedEntries.push(
+        ...group.entries.map((entry) => ({
+          entry,
+          status: delivery === "queued" ? ("queued" as const) : ("in_flight" as const),
+        })),
+      );
     }
 
     updateLastEmittedMsgTo(inbox.lastEmittedMsgTo, deliveredEvents);
     this.rememberDeliveredEventKeys(inbox, deliveredEvents);
     inbox.inFlightUpTo = pending[pending.length - 1].seq;
-    this.markPendingEntriesInFlight(inbox, pending.length);
+    this.markEntriesAcceptedForDelivery(inbox, acceptedEntries);
     return { status: "sent", deliveredCount: deliveredEvents.length };
   }
 
-  private markPendingEntriesInFlight(inbox: HerdInbox, count: number): void {
+  private markEntriesAcceptedForDelivery(
+    inbox: HerdInbox,
+    entries: Array<{ entry: InboxEntry; status: "queued" | "in_flight" }>,
+  ): void {
     const now = Date.now();
-    let histIdx = inbox.deliveryHistory.length - count;
-    if (histIdx < 0) histIdx = 0;
-    for (let i = histIdx; i < inbox.deliveryHistory.length; i++) {
-      if (inbox.deliveryHistory[i].status === "pending" || inbox.deliveryHistory[i].status === "redelivered") {
-        inbox.deliveryHistory[i].deliveredAt = now;
-        inbox.deliveryHistory[i].status = "in_flight";
-      }
+    for (const { entry, status } of entries) {
+      const record = this.findDeliveryHistoryRecord(inbox, entry);
+      if (!record) continue;
+      if (record.status !== "pending" && record.status !== "redelivered" && record.status !== "held") continue;
+      record.deliveredAt = now;
+      record.status = status;
     }
   }
 
@@ -891,11 +923,15 @@ export class HerdEventDispatcher {
   }
 
   private markDeliveryHistoryStatus(inbox: HerdInbox, entry: InboxEntry, status: DeliveryRecord["status"]): void {
-    const record = inbox.deliveryHistory.findLast(
+    const record = this.findDeliveryHistoryRecord(inbox, entry);
+    if (record) record.status = status;
+  }
+
+  private findDeliveryHistoryRecord(inbox: HerdInbox, entry: InboxEntry): DeliveryRecord | undefined {
+    return inbox.deliveryHistory.findLast(
       (item) =>
         item.event === entry.event.event && item.sessionName === entry.event.sessionName && item.ts === entry.event.ts,
     );
-    if (record) record.status = status;
   }
 
   private rememberDeliveredEventKeys(inbox: HerdInbox, events: TakodeEvent[]): void {
@@ -1016,6 +1052,31 @@ export class HerdEventDispatcher {
 
   private wakeUnavailableOrchestratorForPendingEvents(sessionId: string, reason: string): boolean {
     return this.wsBridge.wakeUnavailableOrchestratorForPendingEvents?.(sessionId, reason) ?? false;
+  }
+
+  private isCodexLeader(sessionId: string): boolean {
+    const session = this.wsBridge.getSession(sessionId);
+    return session?.backendType === "codex" || !!session?.codexAdapter;
+  }
+
+  private traceDelivery(
+    orchId: string,
+    stage: "accepted" | "held" | "suppressed" | "coalesced" | "coalesced_committed" | "injecting" | "dispatch_returned",
+    event: TakodeEvent | undefined,
+    details: Record<string, unknown> = {},
+  ): void {
+    const eventLabel = event
+      ? `${event.event} event#${event.id} from session ${sessionTag(event.sessionId)}`
+      : "unknown event";
+    const detailText = Object.entries(details)
+      .filter(([, value]) => value !== undefined)
+      .map(([key, value]) => `${key}=${String(value)}`)
+      .join(" ");
+    console.log(
+      `[herd-dispatcher] delivery ${stage} for leader ${sessionTag(orchId)}: ${eventLabel}${
+        detailText ? ` ${detailText}` : ""
+      }`,
+    );
   }
 
   private getLeaderIdleState(): LeaderIdleStateLike | null {

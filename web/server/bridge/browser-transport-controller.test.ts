@@ -11,6 +11,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   broadcastToBrowsers,
   handleBrowserProtocolMessage,
+  handleSessionSubscribe,
   injectUserMessage,
   sendLeaderProjectionSnapshot,
   sendHistoryWindowSync,
@@ -1062,5 +1063,17 @@ describe("Codex herd event injection", () => {
     await currentRoute;
 
     expect(routeBrowserMessage).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("session subscribe timer sync", () => {
+  it("sends an authoritative empty timer update so reconnect clears stale timer UI", async () => {
+    const session = makeSession();
+    const ws = { data: {}, send: vi.fn() } as any;
+    const deps = makeInjectDeps({ listTimers: vi.fn(() => []) });
+
+    await handleSessionSubscribe(session, ws, 0, undefined, undefined, undefined, undefined, undefined, deps);
+
+    expect(ws.send).toHaveBeenCalledWith(JSON.stringify({ type: "timer_update", timers: [] }));
   });
 });
