@@ -228,6 +228,71 @@ describe("handleMessage: history_window_sync", () => {
     ).toEqual(["u-cached"]);
   });
 
+  it("hydrates resolved Codex Bash previews from cached history windows", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    const window = {
+      from_turn: 100,
+      turn_count: 1,
+      total_turns: 320,
+      start_index: 50,
+      section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      window_hash: "history-window-bash-hash",
+    };
+    const messages = [
+      {
+        type: "assistant",
+        message: {
+          id: "a-bash-window",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.5",
+          content: [{ type: "tool_use", id: "bash-window", name: "Bash", input: { command: "quest list" } }],
+          stop_reason: null,
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: 1000,
+        tool_start_times: { "bash-window": 1234 },
+      },
+      {
+        type: "tool_result_preview",
+        previews: [
+          {
+            tool_use_id: "bash-window",
+            content: "quest output",
+            is_error: false,
+            total_size: 12,
+            is_truncated: false,
+          },
+        ],
+      },
+    ];
+
+    fireMessage({ type: "history_window_sync", messages, window });
+    useStore.setState({ toolResults: new Map(), toolProgress: new Map(), toolStartTimestamps: new Map() });
+    useStore.getState().setToolProgress("s1", "bash-window", {
+      toolName: "Bash",
+      elapsedSeconds: 9_000,
+      outputDelta: "stale progress",
+    });
+    useStore.getState().setToolStartTimestamps("s1", { "bash-window": 1 });
+
+    fireMessage({
+      type: "history_window_sync",
+      cache_hit: true,
+      messages: [],
+      window,
+    });
+
+    const state = useStore.getState();
+    expect(state.toolProgress.has("s1")).toBe(false);
+    expect(state.toolResults.get("s1")?.get("bash-window")?.content).toBe("quest output");
+    expect(state.toolStartTimestamps.get("s1")?.get("bash-window")).toBe(1234);
+  });
+
   it("refetches a cache-hit history window without replacing visible state when the local cache entry is missing", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
@@ -597,6 +662,76 @@ describe("handleMessage: thread_window_sync", () => {
         ?.get("q-1040")
         ?.map((message) => message.id),
     ).toEqual(["u-thread-cached"]);
+  });
+
+  it("hydrates resolved Codex Bash previews from cached selected-thread windows", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    const window = {
+      thread_key: "analysis-thread",
+      from_item: 20,
+      item_count: 1,
+      total_items: 40,
+      source_history_length: 150,
+      section_item_count: 10,
+      visible_item_count: 2,
+      window_hash: "thread-window-bash-hash",
+    };
+    const entries = [
+      {
+        history_index: 120,
+        message: {
+          type: "assistant",
+          message: {
+            id: "a-bash-thread",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.5",
+            content: [{ type: "tool_use", id: "bash-thread", name: "Bash", input: { command: "takode scan session" } }],
+            stop_reason: null,
+            usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 1000,
+          tool_start_times: { "bash-thread": 5678 },
+          threadKey: "analysis-thread",
+          questId: "analysis-thread",
+          threadRefs: [{ threadKey: "analysis-thread", questId: "analysis-thread", source: "explicit" }],
+        },
+      },
+      {
+        history_index: 121,
+        message: {
+          type: "tool_result_preview",
+          previews: [
+            {
+              tool_use_id: "bash-thread",
+              content: "scan output",
+              is_error: false,
+              total_size: 11,
+              is_truncated: false,
+            },
+          ],
+        },
+      },
+    ];
+
+    fireMessage({ type: "thread_window_sync", thread_key: "analysis-thread", entries, window });
+    useStore.setState({ toolResults: new Map(), toolStartTimestamps: new Map() });
+    useStore.getState().setToolStartTimestamps("s1", { "bash-thread": 1 });
+
+    fireMessage({
+      type: "thread_window_sync",
+      cache_hit: true,
+      thread_key: "analysis-thread",
+      entries: [],
+      window,
+    });
+
+    const state = useStore.getState();
+    expect(state.toolResults.get("s1")?.get("bash-thread")?.content).toBe("scan output");
+    expect(state.toolStartTimestamps.get("s1")?.get("bash-thread")).toBe(5678);
   });
 
   it("refetches a cache-hit selected-thread window without replacing visible state when the local cache is invalid", () => {

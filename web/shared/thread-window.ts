@@ -420,7 +420,7 @@ function expandToolClosureItems(
   threadKey: string,
   selectedItems: FeedItem[],
 ): FeedItem[] {
-  if (threadKey === MAIN_THREAD_KEY || threadKey === ALL_THREADS_KEY || selectedItems.length === 0) {
+  if (threadKey === MAIN_THREAD_KEY || selectedItems.length === 0) {
     return selectedItems;
   }
 

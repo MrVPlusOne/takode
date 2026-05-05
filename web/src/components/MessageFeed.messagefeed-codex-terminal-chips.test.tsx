@@ -103,6 +103,7 @@ vi.mock("../store.js", () => {
       sessionNotifications: mockStoreValues.sessionNotifications ?? new Map(),
       sessionAttentionRecords: mockStoreValues.sessionAttentionRecords ?? new Map(),
       sessionSearch: mockStoreValues.sessionSearch ?? new Map(),
+      sessionBoards: mockStoreValues.sessionBoards ?? new Map(),
     };
     return selector(state);
   };
@@ -303,6 +304,9 @@ function setStoreSessionBackend(sessionId: string, backend: "claude" | "codex") 
   const map = new Map();
   map.set(sessionId, { backend_type: backend });
   mockStoreValues.sessions = map;
+  if (backend === "codex") {
+    setStoreStatus(sessionId, "running");
+  }
 }
 
 function setStoreSessionState(sessionId: string, session: Record<string, unknown>) {
@@ -570,6 +574,33 @@ describe("MessageFeed - Codex terminal chips", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not keep stale Codex Bash chips live after the session is idle", () => {
+    const sid = "test-codex-stale-idle-terminal";
+    setStoreSessionBackend(sid, "codex");
+    setStoreStatus(sid, "idle");
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "codex-stale-idle",
+        role: "assistant",
+        content: "",
+        contentBlocks: [
+          { type: "tool_use", id: "tu-stale-idle", name: "Bash", input: { command: "takode board show" } },
+        ],
+      }),
+    ]);
+    setStoreToolProgress(sid, [
+      { toolUseId: "tu-stale-idle", toolName: "Bash", elapsedSeconds: 8_800, output: "stale transcript\n" },
+    ]);
+    setStoreToolStartTimestamps(sid, { "tu-stale-idle": Date.now() - 8_800_000 });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByTestId("codex-live-terminal-chip")).toBeNull();
+    expect(screen.queryByTestId("live-activity-rail")).toBeNull();
+    expect(screen.queryByText("Live terminal")).toBeNull();
+    expect(screen.getByText("takode board show")).toBeTruthy();
   });
 
   it("opens the read-only inspector from the live chip", () => {

@@ -309,8 +309,8 @@ export function MessageFeed({
     ],
   );
   const activeCodexTerminalEntries = useMemo(
-    () => codexTerminalEntries.filter((entry) => entry.result == null),
-    [codexTerminalEntries],
+    () => (currentSessionStatus === "running" ? codexTerminalEntries.filter((entry) => entry.result == null) : []),
+    [codexTerminalEntries, currentSessionStatus],
   );
   const visibleLiveSubagentEntries = useMemo(() => {
     const now = Date.now();

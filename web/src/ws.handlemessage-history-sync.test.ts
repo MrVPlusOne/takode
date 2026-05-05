@@ -456,6 +456,69 @@ describe("handleMessage: history_sync", () => {
     expect(state.toolStartTimestamps.get("s1")?.get("task-fresh")).toBe(2222);
   });
 
+  it("hydrates resolved Codex Bash previews from message_history before live activity reads tool state", () => {
+    // Authoritative replay includes non-rendered tool_result_preview rows; if the
+    // browser misses that side effect, old Bash chips can look live forever.
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), backend_type: "codex" } });
+
+    useStore.getState().setToolProgress("s1", "bash-stale", {
+      toolName: "Bash",
+      elapsedSeconds: 8_800,
+      outputDelta: "stale transcript",
+    });
+    useStore.getState().setToolStartTimestamps("s1", {
+      "bash-stale": 1111,
+    });
+
+    fireMessage({
+      type: "message_history",
+      messages: [
+        {
+          type: "assistant",
+          message: {
+            id: "msg-bash",
+            type: "message",
+            role: "assistant",
+            model: "gpt-5.5",
+            content: [
+              {
+                type: "tool_use",
+                id: "bash-fresh",
+                name: "Bash",
+                input: { command: "takode board show" },
+              },
+            ],
+            stop_reason: null,
+            usage: { input_tokens: 5, output_tokens: 2, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          },
+          parent_tool_use_id: null,
+          timestamp: 2000,
+          tool_start_times: { "bash-fresh": 2222 },
+        },
+        {
+          type: "tool_result_preview",
+          previews: [
+            {
+              tool_use_id: "bash-fresh",
+              content: "board output",
+              is_error: false,
+              total_size: 12,
+              is_truncated: false,
+              duration_seconds: 3,
+            },
+          ],
+        },
+      ],
+    });
+
+    const state = useStore.getState();
+    expect(state.toolProgress.has("s1")).toBe(false);
+    expect(state.toolStartTimestamps.get("s1")?.has("bash-stale")).toBe(false);
+    expect(state.toolResults.get("s1")?.get("bash-fresh")?.content).toBe("board output");
+    expect(state.toolStartTimestamps.get("s1")?.get("bash-fresh")).toBe(2222);
+  });
+
   it("rebuilds fresh live tool state from history_sync after clearing stale entries", () => {
     // q-327: history_sync follows the same authoritative replacement rule as
     // message_history for fresh incoming entries, but it also preserves the

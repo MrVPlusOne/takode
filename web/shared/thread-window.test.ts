@@ -264,6 +264,43 @@ describe("thread window hydration", () => {
     expect(sync.window.has_newer_items).toBe(false);
   });
 
+  it("expands tool result closure in All Threads windows", () => {
+    const history = [
+      bashAssistant("a1", "takode board show", { toolUseId: "tool-all" }),
+      {
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          duration_ms: 1,
+          duration_api_ms: 1,
+          num_turns: 1,
+          session_id: "s1",
+          total_cost_usd: 0,
+          result: "done",
+        },
+      },
+      toolResultPreview("tool-all", "board output"),
+      user("u4", "later user message"),
+    ] satisfies BrowserIncomingMessage[];
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "all",
+      fromItem: 0,
+      itemCount: 1,
+      sectionItemCount: 1,
+      visibleItemCount: 1,
+    });
+
+    // The result closes the selected All Threads range before the matching preview,
+    // so this fails if All Threads returns before tool-result closure expansion.
+    expect(sync.entries.map((entry) => entry.history_index)).toEqual([0, 1, 2]);
+    expect(sync.entries.map((entry) => entry.message.type)).toEqual(["assistant", "result", "tool_result_preview"]);
+    expect(sync.window.has_newer_items).toBe(true);
+  });
+
   it("keeps newer availability when closure expansion does not cover every newer logical item", () => {
     const history = [
       assistant("a1", "using a tool", { threadKey: "q-1", toolUseId: "tool-1" }),
