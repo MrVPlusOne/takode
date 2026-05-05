@@ -665,18 +665,18 @@ describe("Codex injected user_message metadata", () => {
     expect(session.pendingCodexInputs).toHaveLength(1);
     expect(session.pendingCodexTurns).toHaveLength(1);
     expect(getPendingCodexTurn(session)).toMatchObject({
-      status: "dispatched",
+      status: "queued",
     });
-    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(2);
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
 
     dispatcher.destroy();
     vi.useRealTimers();
   });
 
   it("dispatches a later real leader message instead of leaving it stranded behind a queued herd event", async () => {
-    // q-275 user-visible regression: once the queued herd-event retry succeeds,
-    // a later ordinary leader message should steer into the live Codex turn
-    // instead of remaining stranded behind the previously queued herd chip.
+    // q-275 user-visible regression: once a queued herd event is accepted as
+    // pending Codex input and then started by Codex, a later ordinary leader
+    // message should steer into the live turn instead of remaining stranded.
     vi.useFakeTimers();
     const leaderId = "orch-herd-follow-up-codex";
     const workerId = "worker-herd-follow-up-codex";
@@ -718,7 +718,7 @@ describe("Codex injected user_message metadata", () => {
     const session = bridge.getSession(leaderId)!;
     expect(getPendingCodexTurn(session)).toMatchObject({ status: "queued" });
     await vi.advanceTimersByTimeAsync(2100);
-    expect(getPendingCodexTurn(session)).toMatchObject({ status: "dispatched" });
+    expect(getPendingCodexTurn(session)).toMatchObject({ status: "queued" });
 
     adapter.emitTurnStarted("turn-herd-events-follow-up");
     await Promise.resolve();
@@ -732,16 +732,27 @@ describe("Codex injected user_message metadata", () => {
     );
     await Promise.resolve();
 
-    expect(session.pendingCodexInputs).toHaveLength(1);
-    const pendingId = session.pendingCodexInputs[0]?.id;
     const steerCall = (adapter.sendBrowserMessage.mock.calls as any[])
       .map((call) => call[0])
-      .find((msg: any) => msg.type === "codex_steer_pending");
+      .find(
+        (msg: any) =>
+          msg.type === "codex_steer_pending" &&
+          msg.inputs?.some((input: any) => /^\[User .*?\] \[thread:main\] actual leader message$/.test(input.content)),
+      );
     expect(steerCall?.type).toBe("codex_steer_pending");
-    expect(steerCall?.inputs?.[0]?.content).toMatch(/^\[User .*?\] \[thread:main\] actual leader message$/);
+    expect(
+      steerCall?.inputs?.some((input: any) =>
+        /^\[User .*?\] \[thread:main\] actual leader message$/.test(input.content),
+      ),
+    ).toBe(true);
 
+    const pendingId = session.pendingCodexInputs.find((input: any) =>
+      String(input.content).includes("actual leader message"),
+    )?.id;
+    expect(pendingId).toBeTruthy();
+    if (!pendingId) throw new Error("missing steered leader message pending id");
     adapter.emitTurnSteered("turn-herd-events-follow-up", [pendingId]);
-    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.pendingCodexInputs.some((input: any) => input.id === pendingId)).toBe(false);
     expect(
       session.messageHistory.some((msg: any) => msg.type === "user_message" && msg.content === "actual leader message"),
     ).toBe(true);

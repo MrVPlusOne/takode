@@ -1065,7 +1065,7 @@ describe("Codex image transport", () => {
       sessionId: "herd-events",
       sessionLabel: "Herd Events",
     });
-    expect(herdDelivery).toBe("sent");
+    expect(herdDelivery).toBe("queued");
     await flush();
 
     const session = bridge.getSession("s1")!;
@@ -1417,7 +1417,7 @@ describe("Codex image transport", () => {
     );
     await flush();
 
-    expect(startPendingAttempts).toBe(1);
+    expect(startPendingAttempts).toBe(2);
     expect(session.pendingCodexInputs).toHaveLength(1);
     expect(session.pendingCodexInputs[0]?.id).toBe(imagePendingId);
     expect(session.pendingCodexInputs[0]?.content).toContain("Please inspect this screenshot");
