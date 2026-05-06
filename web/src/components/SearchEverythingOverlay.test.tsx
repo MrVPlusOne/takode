@@ -79,7 +79,7 @@ function result(overrides: Partial<SearchEverythingResult>): SearchEverythingRes
 }
 
 function response(results: SearchEverythingResult[]): SearchEverythingResponse {
-  return { query: "auth", tookMs: 3, totalMatches: results.length, results };
+  return { query: "auth", tookMs: 3, totalMatches: results.length, results, degraded: false, warnings: [] };
 }
 
 async function typeQuery(value: string) {
@@ -233,5 +233,35 @@ describe("SearchEverythingOverlay", () => {
     rerender(<SearchEverythingOverlay open currentSessionId={null} onClose={onClose} />);
     fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" });
     expect(onClose).toHaveBeenCalled();
+  });
+
+  it("surfaces degraded search warnings from the backend", async () => {
+    mocks.searchEverything.mockResolvedValue({
+      ...response([result({})]),
+      degraded: true,
+      warnings: ["Message search limited to 120 recent messages per session."],
+    });
+
+    render(<SearchEverythingOverlay open currentSessionId="s1" onClose={() => undefined} />);
+    await typeQuery("auth");
+
+    expect(screen.getByText("Limited results")).toBeInTheDocument();
+    expect(screen.getByText(/Message search limited/i)).toBeInTheDocument();
+  });
+
+  it("aborts an in-flight search when a newer query replaces it", async () => {
+    const signals: AbortSignal[] = [];
+    mocks.searchEverything.mockImplementation((_query: string, options: { signal?: AbortSignal }) => {
+      if (options.signal) signals.push(options.signal);
+      return new Promise(() => undefined);
+    });
+
+    render(<SearchEverythingOverlay open currentSessionId="s1" onClose={() => undefined} />);
+    await typeQuery("slow");
+    fireEvent.change(screen.getByLabelText("Search everything query"), { target: { value: "faster" } });
+    await waitFor(() => expect(mocks.searchEverything).toHaveBeenLastCalledWith("faster", expect.any(Object)));
+
+    expect(signals[0].aborted).toBe(true);
+    expect(signals[1].aborted).toBe(false);
   });
 });

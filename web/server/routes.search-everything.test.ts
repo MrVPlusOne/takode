@@ -205,4 +205,66 @@ describe("GET /api/search", () => {
     expect(includeArchivedBody.results[0]?.childMatches).toHaveLength(1);
     expect(includeArchivedBody.results[0]?.remainingChildMatches).toBe(1);
   });
+
+  it("bounds quest history fan-out on production-shaped quest volume", async () => {
+    mocks.listQuests.mockResolvedValue(
+      Array.from({ length: 150 }, (_, index) =>
+        quest({
+          questId: `q-${index + 1}`,
+          title: `Needle quest ${index + 1}`,
+          updatedAt: 10_000 - index,
+        }),
+      ),
+    );
+    mocks.getQuestHistoryView.mockResolvedValue({ mode: "live", entries: [] });
+
+    const app = createApp({ sessions: [], bridgeSessions: {} });
+    const res = await app.request("/api/search?q=needle&types=quests", { method: "GET" });
+    const body = (await res.json()) as { degraded: boolean; warnings: string[]; results: SearchEverythingResult[] };
+
+    expect(res.status).toBe(200);
+    expect(mocks.getQuestHistoryView).toHaveBeenCalledTimes(50);
+    expect(body.degraded).toBe(true);
+    expect(body.warnings).toContain("Quest history lookup limited to 50 recent quests.");
+    expect(body.results.length).toBeGreaterThan(0);
+  });
+
+  it("uses bounded message scans through the route by default", async () => {
+    mocks.listQuests.mockResolvedValue([]);
+    mocks.getAllNames.mockReturnValue({ s1: "Large message session" });
+
+    const app = createApp({
+      sessions: [
+        {
+          sessionId: "s1",
+          archived: false,
+          createdAt: 100,
+          lastActivityAt: 600,
+        },
+      ],
+      bridgeSessions: {
+        s1: {
+          messageHistory: Array.from({ length: 150 }, (_, index) => ({
+            type: "user_message",
+            id: `m-${index}`,
+            content: `needle production-like message ${index}`,
+            timestamp: index,
+          })),
+        },
+      },
+    });
+
+    const res = await app.request("/api/search?q=needle&types=messages", { method: "GET" });
+    const body = (await res.json()) as { degraded: boolean; warnings: string[]; results: SearchEverythingResult[] };
+
+    expect(res.status).toBe(200);
+    expect(body.results).toHaveLength(1);
+    expect(body.degraded).toBe(true);
+    expect(body.warnings).toEqual(
+      expect.arrayContaining([
+        "Message search limited to 120 recent messages per session.",
+        "Session child matches limited to 80 matches per parent.",
+      ]),
+    );
+  });
 });

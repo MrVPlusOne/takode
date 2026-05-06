@@ -342,6 +342,8 @@ export interface SearchEverythingResponse {
   tookMs: number;
   totalMatches: number;
   results: SearchEverythingResult[];
+  degraded: boolean;
+  warnings: string[];
 }
 
 export interface BackendInfo {

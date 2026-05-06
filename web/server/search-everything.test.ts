@@ -252,4 +252,64 @@ describe("searchEverything", () => {
     });
     expect(sessionOutput.results[0].id).toBe("session:s-current");
   });
+
+  it("bounds stress-shaped message scans before materializing every matching child", () => {
+    const sessions = Array.from({ length: 20 }, (_, sessionIndex) =>
+      session({
+        sessionId: `stress-${sessionIndex}`,
+        sessionNum: sessionIndex + 1,
+        name: `Needle stress session ${sessionIndex}`,
+        lastActivityAt: 10_000 - sessionIndex,
+        messageHistory: Array.from({ length: 60 }, (_, messageIndex) => ({
+          type: "user_message" as const,
+          id: `m-${sessionIndex}-${messageIndex}`,
+          content: `needle repeated stress evidence ${sessionIndex}-${messageIndex}`,
+          timestamp: messageIndex,
+        })),
+      }),
+    );
+
+    const output = searchEverything([], sessions, {
+      query: "needle",
+      categories: ["messages"],
+      messageLimitPerSession: 50,
+      limits: {
+        maxSessionDocuments: 3,
+        maxSessionChildrenPerParent: 2,
+      },
+    });
+
+    expect(output.degraded).toBe(true);
+    expect(output.results).toHaveLength(3);
+    expect(output.results.every((result) => result.childMatches.length <= 2)).toBe(true);
+    expect(output.warnings).toEqual(
+      expect.arrayContaining([
+        "Session search limited to 3 sessions.",
+        "Message search limited to 50 recent messages per session.",
+        "Session child matches limited to 2 matches per parent.",
+      ]),
+    );
+  });
+
+  it("caps large text fields before normalization so pathological field size cannot dominate search", () => {
+    const output = searchEverything(
+      [
+        quest({
+          questId: "q-large",
+          title: "Large field",
+          description: `${"x".repeat(2_000)} late-needle`,
+        }),
+      ],
+      [],
+      {
+        query: "late-needle",
+        categories: ["quests"],
+        limits: { maxFieldChars: 1_000 },
+      },
+    );
+
+    expect(output.results).toHaveLength(0);
+    expect(output.degraded).toBe(true);
+    expect(output.warnings).toContain("Search text fields limited to 1000 characters.");
+  });
 });

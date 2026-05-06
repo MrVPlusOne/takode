@@ -11,6 +11,15 @@ import type { RouteContext } from "./context.js";
 
 const ALL_CATEGORIES: SearchEverythingCategory[] = ["quests", "sessions", "messages"];
 const CATEGORY_SET = new Set<SearchEverythingCategory>(ALL_CATEGORIES);
+const ROUTE_LIMITS = {
+  maxQuestDocuments: 500,
+  maxQuestHistoryLookups: 50,
+  maxQuestHistoryVersionsPerQuest: 8,
+  maxQuestHistoryConcurrency: 4,
+  maxSessionDocuments: 200,
+  defaultMessageLimitPerSession: 120,
+  maxMessageLimitPerSession: 400,
+};
 
 export function createSearchRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -26,13 +35,25 @@ export function createSearchRoutes(ctx: RouteContext) {
     const categories = parseCategories(c.req.query("types"));
     const limit = parseIntParam(c.req.query("limit"), 30, 1, 100);
     const childPreviewLimit = parseIntParam(c.req.query("childPreviewLimit"), 3, 1, 8);
-    const messageLimitPerSession = parseIntParam(c.req.query("messageLimitPerSession"), 400, 50, 2000);
+    const messageLimitPerSession = parseIntParam(
+      c.req.query("messageLimitPerSession"),
+      ROUTE_LIMITS.defaultMessageLimitPerSession,
+      20,
+      ROUTE_LIMITS.maxMessageLimitPerSession,
+    );
     const includeArchived = parseAffirmativeBoolean(c.req.query("includeArchived"));
     const includeReviewers = parseAffirmativeBoolean(c.req.query("includeReviewers"));
     const currentSessionId = normalizeNullableString(c.req.query("currentSessionId"));
+    const routeWarnings: string[] = [];
 
-    const questDocumentsPromise = categories.includes("quests") ? buildQuestDocuments() : Promise.resolve([]);
-    const [quests, sessionDocs] = await Promise.all([questDocumentsPromise, buildSessionDocuments()]);
+    const questDocumentsPromise = categories.includes("quests")
+      ? buildQuestDocuments(routeWarnings)
+      : Promise.resolve([]);
+    const sessionDocumentsPromise =
+      categories.includes("sessions") || categories.includes("messages")
+        ? buildSessionDocuments()
+        : Promise.resolve([]);
+    const [quests, sessionDocs] = await Promise.all([questDocumentsPromise, sessionDocumentsPromise]);
     const output = searchEverything(quests, sessionDocs, {
       query: rawQuery,
       categories,
@@ -42,31 +63,48 @@ export function createSearchRoutes(ctx: RouteContext) {
       limit,
       childPreviewLimit,
       messageLimitPerSession,
+      limits: {
+        maxQuestDocuments: ROUTE_LIMITS.maxQuestDocuments,
+        maxQuestHistoryVersionsPerQuest: ROUTE_LIMITS.maxQuestHistoryVersionsPerQuest,
+        maxSessionDocuments: ROUTE_LIMITS.maxSessionDocuments,
+      },
     });
 
     return c.json({
       ...output,
+      degraded: output.degraded || routeWarnings.length > 0,
+      warnings: [...output.warnings, ...routeWarnings],
       tookMs: Date.now() - startedAt,
     });
   });
 
   return api;
 
-  async function buildQuestDocuments(): Promise<SearchEverythingQuestDocument[]> {
-    const quests = await questStore.listQuests();
-    return Promise.all(
-      quests.map(async (quest) => {
+  async function buildQuestDocuments(routeWarnings: string[]): Promise<SearchEverythingQuestDocument[]> {
+    const quests = sortByRecentActivity(await questStore.listQuests());
+    const historyLookupQuests = quests
+      .slice(0, ROUTE_LIMITS.maxQuestDocuments)
+      .slice(0, ROUTE_LIMITS.maxQuestHistoryLookups);
+    if (quests.length > historyLookupQuests.length) {
+      routeWarnings.push(`Quest history lookup limited to ${historyLookupQuests.length} recent quests.`);
+    }
+    const historyEntries = await mapWithConcurrency(
+      historyLookupQuests,
+      ROUTE_LIMITS.maxQuestHistoryConcurrency,
+      async (quest) => {
         const historyView = await questStore.getQuestHistoryView(quest.questId);
-        return {
-          quest,
-          history: historyView.entries,
-        };
-      }),
+        return [quest.questId, historyView.entries.slice(0, ROUTE_LIMITS.maxQuestHistoryVersionsPerQuest)] as const;
+      },
     );
+    const historyByQuest = new Map(historyEntries);
+    return quests.map((quest) => ({
+      quest,
+      history: historyByQuest.get(quest.questId) ?? [],
+    }));
   }
 
   async function buildSessionDocuments(): Promise<SearchEverythingSessionDocument[]> {
-    const sessions = launcher.listSessions();
+    const sessions = sortByRecentActivity(launcher.listSessions());
     const names = sessionNames.getAllNames();
     return sessions.map((session) => {
       const bridgeSession = wsBridge.getSession(session.sessionId);
@@ -89,6 +127,41 @@ export function createSearchRoutes(ctx: RouteContext) {
       };
     });
   }
+}
+
+function sortByRecentActivity<
+  T extends { createdAt?: number; updatedAt?: number; statusChangedAt?: number; lastActivityAt?: number },
+>(items: T[]): T[] {
+  return [...items].sort((left, right) => itemRecency(right) - itemRecency(left));
+}
+
+function itemRecency(item: {
+  createdAt?: number;
+  updatedAt?: number;
+  statusChangedAt?: number;
+  lastActivityAt?: number;
+}) {
+  return Math.max(item.lastActivityAt ?? 0, item.updatedAt ?? 0, item.statusChangedAt ?? 0, item.createdAt ?? 0);
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  concurrency: number,
+  mapper: (item: T) => Promise<R>,
+): Promise<R[]> {
+  const results: R[] = new Array(items.length);
+  let nextIndex = 0;
+  const workerCount = Math.min(Math.max(1, concurrency), items.length);
+  await Promise.all(
+    Array.from({ length: workerCount }, async () => {
+      while (nextIndex < items.length) {
+        const currentIndex = nextIndex;
+        nextIndex++;
+        results[currentIndex] = await mapper(items[currentIndex]);
+      }
+    }),
+  );
+  return results;
 }
 
 function parseCategories(rawValue: string | undefined): SearchEverythingCategory[] {

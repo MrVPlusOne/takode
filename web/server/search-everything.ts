@@ -90,12 +90,27 @@ export interface SearchEverythingOptions {
   limit?: number;
   childPreviewLimit?: number;
   messageLimitPerSession?: number;
+  limits?: Partial<SearchEverythingLimits>;
 }
 
 export interface SearchEverythingOutput {
   query: string;
   totalMatches: number;
   results: SearchEverythingResult[];
+  degraded: boolean;
+  warnings: string[];
+  limits: SearchEverythingLimits;
+}
+
+export interface SearchEverythingLimits {
+  maxQuestDocuments: number;
+  maxQuestFeedbackEntriesPerQuest: number;
+  maxQuestHistoryVersionsPerQuest: number;
+  maxQuestHistoryFeedbackEntriesPerVersion: number;
+  maxQuestChildrenPerParent: number;
+  maxSessionDocuments: number;
+  maxSessionChildrenPerParent: number;
+  maxFieldChars: number;
 }
 
 interface QueryMatcher {
@@ -109,18 +124,42 @@ interface CandidateChildMatch extends SearchEverythingChildMatch {
   parentScore: number;
 }
 
+interface SearchBudget {
+  limits: SearchEverythingLimits;
+  warnings: Set<string>;
+}
+
 const DEFAULT_CATEGORIES: SearchEverythingCategory[] = ["quests", "sessions", "messages"];
 const QUEST_RESULT_CAP = 30;
 const SESSION_RESULT_CAP = 30;
+const DEFAULT_LIMITS: SearchEverythingLimits = {
+  maxQuestDocuments: 500,
+  maxQuestFeedbackEntriesPerQuest: 80,
+  maxQuestHistoryVersionsPerQuest: 8,
+  maxQuestHistoryFeedbackEntriesPerVersion: 25,
+  maxQuestChildrenPerParent: 80,
+  maxSessionDocuments: 200,
+  maxSessionChildrenPerParent: 80,
+  maxFieldChars: 8_000,
+};
 
 export function searchEverything(
   quests: SearchEverythingQuestInput[],
   sessions: SearchEverythingSessionDocument[],
   options: SearchEverythingOptions,
 ): SearchEverythingOutput {
+  const limits = normalizeLimits(options.limits);
+  const budget: SearchBudget = { limits, warnings: new Set() };
   const matcher = buildQueryMatcher(options.query);
   if (!matcher) {
-    return { query: options.query.trim(), totalMatches: 0, results: [] };
+    return {
+      query: options.query.trim(),
+      totalMatches: 0,
+      results: [],
+      degraded: false,
+      warnings: [],
+      limits,
+    };
   }
 
   const categories = new Set(
@@ -134,11 +173,19 @@ export function searchEverything(
 
   const results: SearchEverythingResult[] = [];
   if (categories.has("quests")) {
-    results.push(...searchQuestParents(quests, matcher, childPreviewLimit).slice(0, QUEST_RESULT_CAP));
+    const boundedQuests = quests.slice(0, limits.maxQuestDocuments);
+    if (quests.length > boundedQuests.length) {
+      budget.warnings.add(`Quest search limited to ${boundedQuests.length} quests.`);
+    }
+    results.push(...searchQuestParents(boundedQuests, matcher, childPreviewLimit, budget).slice(0, QUEST_RESULT_CAP));
   }
   if (categories.has("sessions") || categories.has("messages")) {
+    const boundedSessions = sessions.slice(0, limits.maxSessionDocuments);
+    if (sessions.length > boundedSessions.length) {
+      budget.warnings.add(`Session search limited to ${boundedSessions.length} sessions.`);
+    }
     results.push(
-      ...searchSessionParents(sessions, matcher, {
+      ...searchSessionParents(boundedSessions, matcher, budget, {
         includeMetadata: categories.has("sessions"),
         includeMessages: categories.has("messages"),
         includeArchived,
@@ -155,6 +202,9 @@ export function searchEverything(
     query: matcher.raw,
     totalMatches: results.length,
     results: results.slice(0, limit),
+    degraded: budget.warnings.size > 0,
+    warnings: Array.from(budget.warnings),
+    limits,
   };
 }
 
@@ -162,12 +212,13 @@ function searchQuestParents(
   quests: SearchEverythingQuestInput[],
   matcher: QueryMatcher,
   childPreviewLimit: number,
+  budget: SearchBudget,
 ): SearchEverythingResult[] {
   const results: SearchEverythingResult[] = [];
   for (const questInput of quests) {
     const questDocument = normalizeQuestInput(questInput);
     const quest = questDocument.quest;
-    const children = collectQuestMatches(questDocument, matcher);
+    const children = collectQuestMatches(questDocument, matcher, budget);
     if (children.length === 0) continue;
 
     results.push(
@@ -196,6 +247,7 @@ function searchQuestParents(
 function searchSessionParents(
   sessions: SearchEverythingSessionDocument[],
   matcher: QueryMatcher,
+  budget: SearchBudget,
   options: {
     includeMetadata: boolean;
     includeMessages: boolean;
@@ -213,10 +265,10 @@ function searchSessionParents(
 
     const children: CandidateChildMatch[] = [];
     if (options.includeMetadata) {
-      children.push(...collectSessionMetadataMatches(session, matcher));
+      children.push(...collectSessionMetadataMatches(session, matcher, budget));
     }
     if (options.includeMessages) {
-      children.push(...collectSessionMessageMatches(session, matcher, options.messageLimitPerSession));
+      children.push(...collectSessionMessageMatches(session, matcher, budget, options.messageLimitPerSession));
     }
     if (children.length === 0) continue;
 
@@ -299,7 +351,11 @@ function normalizeQuestInput(input: SearchEverythingQuestInput): SearchEverythin
   return { quest: input };
 }
 
-function collectQuestMatches(document: SearchEverythingQuestDocument, matcher: QueryMatcher): CandidateChildMatch[] {
+function collectQuestMatches(
+  document: SearchEverythingQuestDocument,
+  matcher: QueryMatcher,
+  budget: SearchBudget,
+): CandidateChildMatch[] {
   const quest = document.quest;
   const matches: CandidateChildMatch[] = [];
   const addField = (
@@ -309,12 +365,13 @@ function collectQuestMatches(document: SearchEverythingQuestDocument, matcher: Q
     parentScore: number,
     type: SearchEverythingChildType,
   ) => {
-    if (!matcher.matches(text)) return;
-    matches.push({
+    const boundedText = boundedSearchText(text, budget);
+    if (!matcher.matches(boundedText)) return;
+    pushBoundedMatch(matches, budget.limits.maxQuestChildrenPerParent, budget, "Quest child matches", {
       id: `quest:${quest.questId}:${field}`,
       type,
       title,
-      snippet: buildSnippet(text ?? "", matcher.words),
+      snippet: buildSnippet(boundedText ?? "", matcher.words),
       matchedField: field,
       score: parentScore,
       parentScore,
@@ -333,7 +390,11 @@ function collectQuestMatches(document: SearchEverythingQuestDocument, matcher: Q
     addField("debrief", "Debrief", quest.debrief, 680, "quest_debrief");
   }
 
-  for (const [index, entry] of (quest.feedback ?? []).entries()) {
+  const feedbackEntries = boundedRecentEntries(quest.feedback ?? [], budget.limits.maxQuestFeedbackEntriesPerQuest);
+  if ((quest.feedback ?? []).length > feedbackEntries.length) {
+    budget.warnings.add(`Quest feedback search limited to ${feedbackEntries.length} entries per quest.`);
+  }
+  for (const { index, entry } of feedbackEntries) {
     const title = formatQuestFeedbackTitle(entry, index);
     addField(`feedback_${index}_tldr`, `${title} TLDR`, entry.tldr, 640, "quest_feedback");
     addField(`feedback_${index}_text`, title, entry.text, 590, "quest_feedback");
@@ -342,62 +403,73 @@ function collectQuestMatches(document: SearchEverythingQuestDocument, matcher: Q
   }
 
   const history = dedupeQuestHistory(quest, document.history ?? []);
-  for (const [index, version] of history.entries()) {
+  const boundedHistory = history.slice(0, budget.limits.maxQuestHistoryVersionsPerQuest);
+  if (history.length > boundedHistory.length) {
+    budget.warnings.add(`Quest history search limited to ${boundedHistory.length} versions per quest.`);
+  }
+  for (const [index, version] of boundedHistory.entries()) {
     const title = formatQuestHistoryTitle(version);
-    addHistoricalQuestField(quest, version, matcher, matches, {
+    addHistoricalQuestField(quest, version, matcher, matches, budget, {
       field: `history_${index}_title`,
       title: `${title} title`,
       text: version.title,
       parentScore: 690,
     });
-    addHistoricalQuestField(quest, version, matcher, matches, {
+    addHistoricalQuestField(quest, version, matcher, matches, budget, {
       field: `history_${index}_tldr`,
       title: `${title} TLDR`,
       text: version.tldr,
       parentScore: 650,
     });
-    addHistoricalQuestField(quest, version, matcher, matches, {
+    addHistoricalQuestField(quest, version, matcher, matches, budget, {
       field: `history_${index}_description`,
       title: `${title} description`,
       text: "description" in version ? version.description : undefined,
       parentScore: 620,
     });
-    addHistoricalQuestField(quest, version, matcher, matches, {
+    addHistoricalQuestField(quest, version, matcher, matches, budget, {
       field: `history_${index}_status`,
       title: `${title} status`,
       text: version.status,
       parentScore: 560,
     });
     if (version.status === "done" && version.cancelled !== true) {
-      addHistoricalQuestField(quest, version, matcher, matches, {
+      addHistoricalQuestField(quest, version, matcher, matches, budget, {
         field: `history_${index}_debrief_tldr`,
         title: `${title} debrief TLDR`,
         text: version.debriefTldr,
         parentScore: 600,
       });
-      addHistoricalQuestField(quest, version, matcher, matches, {
+      addHistoricalQuestField(quest, version, matcher, matches, budget, {
         field: `history_${index}_debrief`,
         title: `${title} debrief`,
         text: version.debrief,
         parentScore: 580,
       });
     }
-    for (const [feedbackIndex, entry] of (version.feedback ?? []).entries()) {
+    const versionFeedback = boundedRecentEntries(
+      version.feedback ?? [],
+      budget.limits.maxQuestHistoryFeedbackEntriesPerVersion,
+    );
+    if ((version.feedback ?? []).length > versionFeedback.length) {
+      budget.warnings.add(`Quest history feedback search limited to ${versionFeedback.length} entries per version.`);
+    }
+    for (const { index: feedbackIndex, entry } of versionFeedback) {
       const feedbackTitle = `${title} ${formatQuestFeedbackTitle(entry, feedbackIndex)}`;
-      addHistoricalQuestField(quest, version, matcher, matches, {
+      addHistoricalQuestField(quest, version, matcher, matches, budget, {
         field: `history_${index}_feedback_${feedbackIndex}_tldr`,
         title: `${feedbackTitle} TLDR`,
         text: entry.tldr,
         parentScore: 570,
       });
-      addHistoricalQuestField(quest, version, matcher, matches, {
+      addHistoricalQuestField(quest, version, matcher, matches, budget, {
         field: `history_${index}_feedback_${feedbackIndex}_text`,
         title: feedbackTitle,
         text: entry.text,
         parentScore: 550,
       });
       const metadata = [entry.kind, entry.phaseId, entry.author].filter(Boolean).join(" ");
-      addHistoricalQuestField(quest, version, matcher, matches, {
+      addHistoricalQuestField(quest, version, matcher, matches, budget, {
         field: `history_${index}_feedback_${feedbackIndex}_metadata`,
         title: `${feedbackTitle} metadata`,
         text: metadata,
@@ -422,6 +494,7 @@ function addHistoricalQuestField(
   version: QuestmasterTask,
   matcher: QueryMatcher,
   matches: CandidateChildMatch[],
+  budget: SearchBudget,
   input: {
     field: string;
     title: string;
@@ -429,12 +502,13 @@ function addHistoricalQuestField(
     parentScore: number;
   },
 ) {
-  if (!matcher.matches(input.text)) return;
-  matches.push({
+  const boundedText = boundedSearchText(input.text, budget);
+  if (!matcher.matches(boundedText)) return;
+  pushBoundedMatch(matches, budget.limits.maxQuestChildrenPerParent, budget, "Quest child matches", {
     id: `quest:${currentQuest.questId}:${input.field}`,
     type: "quest_history",
     title: input.title,
-    snippet: buildSnippet(input.text ?? "", matcher.words),
+    snippet: buildSnippet(boundedText ?? "", matcher.words),
     matchedField: input.field,
     score: input.parentScore,
     parentScore: input.parentScore,
@@ -446,6 +520,7 @@ function addHistoricalQuestField(
 function collectSessionMetadataMatches(
   session: SearchEverythingSessionDocument,
   matcher: QueryMatcher,
+  budget: SearchBudget,
 ): CandidateChildMatch[] {
   const matches: CandidateChildMatch[] = [];
   const addField = (
@@ -455,12 +530,13 @@ function collectSessionMetadataMatches(
     parentScore: number,
     timestamp?: number,
   ) => {
-    if (!matcher.matches(text)) return;
-    matches.push({
+    const boundedText = boundedSearchText(text, budget);
+    if (!matcher.matches(boundedText)) return;
+    pushBoundedMatch(matches, budget.limits.maxSessionChildrenPerParent, budget, "Session child matches", {
       id: `session:${session.sessionId}:${field}`,
       type: "session_field",
       title,
-      snippet: buildSnippet(text ?? "", matcher.words),
+      snippet: buildSnippet(boundedText ?? "", matcher.words),
       matchedField: field,
       score: parentScore,
       parentScore,
@@ -492,11 +568,12 @@ function collectSessionMetadataMatches(
 function collectSessionMessageMatches(
   session: SearchEverythingSessionDocument,
   matcher: QueryMatcher,
+  budget: SearchBudget,
   messageLimitPerSession: number,
 ): CandidateChildMatch[] {
   const history = session.messageHistory;
   if ((!history || history.length === 0) && session.searchExcerpts && session.searchExcerpts.length > 0) {
-    return collectSessionExcerptMatches(session, matcher, messageLimitPerSession);
+    return collectSessionExcerptMatches(session, matcher, budget, messageLimitPerSession);
   }
   if (!history || history.length === 0) return [];
 
@@ -506,8 +583,12 @@ function collectSessionMessageMatches(
     if (scanned >= messageLimitPerSession) break;
     scanned++;
     const msg = history[index];
-    const candidate = messageTextCandidate(session, msg, matcher);
-    if (candidate) matches.push(candidate);
+    const candidate = messageTextCandidate(session, msg, matcher, budget);
+    if (candidate)
+      pushBoundedMatch(matches, budget.limits.maxSessionChildrenPerParent, budget, "Session child matches", candidate);
+  }
+  if (history.length > scanned) {
+    budget.warnings.add(`Message search limited to ${messageLimitPerSession} recent messages per session.`);
   }
   return matches;
 }
@@ -515,6 +596,7 @@ function collectSessionMessageMatches(
 function collectSessionExcerptMatches(
   session: SearchEverythingSessionDocument,
   matcher: QueryMatcher,
+  budget: SearchBudget,
   messageLimitPerSession: number,
 ): CandidateChildMatch[] {
   const matches: CandidateChildMatch[] = [];
@@ -524,23 +606,27 @@ function collectSessionExcerptMatches(
     if (scanned >= messageLimitPerSession) break;
     scanned++;
     const excerpt = excerpts[index];
-    if (!matcher.matches(excerpt.content)) continue;
+    const boundedContent = boundedSearchText(excerpt.content, budget);
+    if (!matcher.matches(boundedContent)) continue;
     const timestamp = excerpt.timestamp || session.lastActivityAt || session.createdAt;
     const field =
       excerpt.type === "user_message" ? "user_message" : excerpt.type === "assistant" ? "assistant" : "compact_marker";
     const title =
       excerpt.type === "user_message" ? "Message" : excerpt.type === "assistant" ? "Assistant" : "Compaction";
-    matches.push({
+    pushBoundedMatch(matches, budget.limits.maxSessionChildrenPerParent, budget, "Session child matches", {
       id: `message:${session.sessionId}:${excerpt.id ?? `excerpt-${index}`}`,
       type: "message",
       title,
-      snippet: buildSnippet(excerpt.content, matcher.words),
+      snippet: buildSnippet(boundedContent ?? "", matcher.words),
       matchedField: field,
       score: messageScore(field),
       parentScore: messageScore(field),
       timestamp,
       route: { kind: "message", sessionId: session.sessionId, messageId: excerpt.id, timestamp },
     });
+  }
+  if (excerpts.length > scanned) {
+    budget.warnings.add(`Archived message search limited to ${messageLimitPerSession} excerpts per session.`);
   }
   return matches;
 }
@@ -549,6 +635,7 @@ function messageTextCandidate(
   session: SearchEverythingSessionDocument,
   msg: BrowserIncomingMessage,
   matcher: QueryMatcher,
+  budget: SearchBudget,
 ): CandidateChildMatch | null {
   if (msg.type === "user_message" || msg.type === "leader_user_message") {
     return buildMessageCandidate(
@@ -560,11 +647,22 @@ function messageTextCandidate(
       msg.timestamp,
       msg.id,
       msg.threadKey,
+      budget,
     );
   }
   if (msg.type === "assistant") {
-    const text = extractAssistantText(msg);
-    return buildMessageCandidate(session, text, matcher, "assistant", "Assistant", msg.timestamp, msg.message?.id);
+    const text = extractAssistantText(msg, budget);
+    return buildMessageCandidate(
+      session,
+      text,
+      matcher,
+      "assistant",
+      "Assistant",
+      msg.timestamp,
+      msg.message?.id,
+      undefined,
+      budget,
+    );
   }
   if (msg.type === "compact_marker") {
     return buildMessageCandidate(
@@ -575,6 +673,8 @@ function messageTextCandidate(
       "Compaction",
       msg.timestamp,
       msg.id,
+      undefined,
+      budget,
     );
   }
   return null;
@@ -589,15 +689,17 @@ function buildMessageCandidate(
   timestamp?: number,
   messageId?: string,
   threadKey?: string,
+  budget?: SearchBudget,
 ): CandidateChildMatch | null {
-  if (!matcher.matches(text)) return null;
+  const boundedText = budget ? boundedSearchText(text, budget) : text;
+  if (!matcher.matches(boundedText)) return null;
   const matchedAt = timestamp ?? session.lastActivityAt ?? session.createdAt;
   const score = messageScore(field);
   return {
     id: `message:${session.sessionId}:${messageId ?? matchedAt}`,
     type: "message",
     title,
-    snippet: buildSnippet(text, matcher.words),
+    snippet: buildSnippet(boundedText ?? "", matcher.words),
     matchedField: field,
     score,
     parentScore: score,
@@ -649,13 +751,16 @@ function buildSnippet(content: string, qWords: string[], maxLen = 150): string {
   return `${prefix}${text.slice(start, end).trim()}${suffix}`;
 }
 
-function extractAssistantText(msg: Extract<BrowserIncomingMessage, { type: "assistant" }>): string {
+function extractAssistantText(
+  msg: Extract<BrowserIncomingMessage, { type: "assistant" }>,
+  budget: SearchBudget,
+): string {
   const blocks = msg.message?.content;
   if (!Array.isArray(blocks)) return "";
   const texts: string[] = [];
   for (const block of blocks) {
     if (block.type === "text" && typeof block.text === "string") {
-      texts.push(block.text);
+      texts.push(boundedSearchText(block.text, budget) ?? "");
     }
   }
   return texts.join(" ").trim();
@@ -682,6 +787,77 @@ function compareChildren(left: CandidateChildMatch, right: CandidateChildMatch):
   const rightTs = right.timestamp ?? 0;
   if (leftTs !== rightTs) return rightTs - leftTs;
   return left.id.localeCompare(right.id, undefined, { numeric: true, sensitivity: "base" });
+}
+
+function normalizeLimits(overrides: Partial<SearchEverythingLimits> | undefined): SearchEverythingLimits {
+  return {
+    maxQuestDocuments: clampInt(Math.floor(overrides?.maxQuestDocuments ?? DEFAULT_LIMITS.maxQuestDocuments), 1, 5_000),
+    maxQuestFeedbackEntriesPerQuest: clampInt(
+      Math.floor(overrides?.maxQuestFeedbackEntriesPerQuest ?? DEFAULT_LIMITS.maxQuestFeedbackEntriesPerQuest),
+      1,
+      500,
+    ),
+    maxQuestHistoryVersionsPerQuest: clampInt(
+      Math.floor(overrides?.maxQuestHistoryVersionsPerQuest ?? DEFAULT_LIMITS.maxQuestHistoryVersionsPerQuest),
+      0,
+      100,
+    ),
+    maxQuestHistoryFeedbackEntriesPerVersion: clampInt(
+      Math.floor(
+        overrides?.maxQuestHistoryFeedbackEntriesPerVersion ?? DEFAULT_LIMITS.maxQuestHistoryFeedbackEntriesPerVersion,
+      ),
+      1,
+      500,
+    ),
+    maxQuestChildrenPerParent: clampInt(
+      Math.floor(overrides?.maxQuestChildrenPerParent ?? DEFAULT_LIMITS.maxQuestChildrenPerParent),
+      1,
+      1_000,
+    ),
+    maxSessionDocuments: clampInt(
+      Math.floor(overrides?.maxSessionDocuments ?? DEFAULT_LIMITS.maxSessionDocuments),
+      1,
+      5_000,
+    ),
+    maxSessionChildrenPerParent: clampInt(
+      Math.floor(overrides?.maxSessionChildrenPerParent ?? DEFAULT_LIMITS.maxSessionChildrenPerParent),
+      1,
+      1_000,
+    ),
+    maxFieldChars: clampInt(Math.floor(overrides?.maxFieldChars ?? DEFAULT_LIMITS.maxFieldChars), 500, 200_000),
+  };
+}
+
+function boundedSearchText(text: string | undefined | null, budget: SearchBudget): string | undefined {
+  if (!text) return text ?? undefined;
+  if (text.length <= budget.limits.maxFieldChars) return text;
+  budget.warnings.add(`Search text fields limited to ${budget.limits.maxFieldChars} characters.`);
+  return text.slice(0, budget.limits.maxFieldChars);
+}
+
+function pushBoundedMatch(
+  matches: CandidateChildMatch[],
+  maxMatches: number,
+  budget: SearchBudget,
+  label: string,
+  match: CandidateChildMatch,
+) {
+  if (matches.length < maxMatches) {
+    matches.push(match);
+    return;
+  }
+  budget.warnings.add(`${label} limited to ${maxMatches} matches per parent.`);
+  const worstIndex = matches.reduce((worst, candidate, index) => {
+    return compareChildren(candidate, matches[worst]) > 0 ? index : worst;
+  }, 0);
+  if (compareChildren(match, matches[worstIndex]) < 0) {
+    matches[worstIndex] = match;
+  }
+}
+
+function boundedRecentEntries<T>(entries: T[], maxEntries: number): Array<{ index: number; entry: T }> {
+  const start = Math.max(0, entries.length - maxEntries);
+  return entries.slice(start).map((entry, offset) => ({ index: start + offset, entry }));
 }
 
 function exactQuestIdScore(questId: string, query: string): number {

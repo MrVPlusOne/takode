@@ -22,6 +22,7 @@ const CATEGORY_OPTIONS: Array<{ id: SearchEverythingCategory; label: string }> =
 ];
 
 const DEFAULT_CATEGORIES = new Set<SearchEverythingCategory>(["quests", "sessions", "messages"]);
+const SEARCH_TIMEOUT_MS = 10_000;
 
 export function SearchEverythingOverlay({
   open,
@@ -38,6 +39,7 @@ export function SearchEverythingOverlay({
   const [results, setResults] = useState<SearchEverythingResult[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [warnings, setWarnings] = useState<string[]>([]);
   const [selectedIndex, setSelectedIndex] = useState(0);
 
   const selectedResult = results[selectedIndex] ?? null;
@@ -56,13 +58,20 @@ export function SearchEverythingOverlay({
       setResults([]);
       setLoading(false);
       setError(null);
+      setWarnings([]);
       return;
     }
 
     const controller = new AbortController();
+    let timedOut = false;
     const timer = window.setTimeout(() => {
       setLoading(true);
       setError(null);
+      setWarnings([]);
+      const timeoutId = window.setTimeout(() => {
+        timedOut = true;
+        controller.abort();
+      }, SEARCH_TIMEOUT_MS);
       api
         .searchEverything(trimmedQuery, {
           types: categoryList,
@@ -71,20 +80,23 @@ export function SearchEverythingOverlay({
           childPreviewLimit: 3,
           includeArchived: false,
           includeReviewers: false,
-          messageLimitPerSession: 400,
+          messageLimitPerSession: 120,
           signal: controller.signal,
         })
         .then((response) => {
           setResults(response.results);
+          setWarnings(response.warnings ?? []);
           setSelectedIndex(0);
         })
         .catch((err: unknown) => {
-          if (controller.signal.aborted) return;
+          if (controller.signal.aborted && !timedOut) return;
           setResults([]);
-          setError(err instanceof Error ? err.message : "Search failed");
+          setWarnings([]);
+          setError(timedOut ? "Search timed out. Try a more specific query or fewer categories." : errorMessage(err));
         })
         .finally(() => {
-          if (!controller.signal.aborted) setLoading(false);
+          window.clearTimeout(timeoutId);
+          if (!controller.signal.aborted || timedOut) setLoading(false);
         });
     }, 180);
 
@@ -193,7 +205,11 @@ export function SearchEverythingOverlay({
             })}
           </div>
           <span className="ml-auto text-[11px] text-cc-muted">
-            {results.length > 0 ? `${results.length} grouped results` : "App-wide active search"}
+            {warnings.length > 0
+              ? "Limited results"
+              : results.length > 0
+                ? `${results.length} grouped results`
+                : "App-wide active search"}
           </span>
         </div>
 
@@ -213,18 +229,21 @@ export function SearchEverythingOverlay({
               detail="Try a quest ID, session number, title, branch, or message phrase."
             />
           ) : (
-            <div className="space-y-1" role="listbox" aria-label="Search results">
-              {results.map((result, index) => (
-                <SearchResultRow
-                  key={result.id}
-                  result={result}
-                  query={trimmedQuery}
-                  selected={index === selectedIndex}
-                  onMouseEnter={() => setSelectedIndex(index)}
-                  onRun={() => runResult(result)}
-                />
-              ))}
-            </div>
+            <>
+              {warnings.length > 0 && <SearchWarning warnings={warnings} />}
+              <div className="space-y-1" role="listbox" aria-label="Search results">
+                {results.map((result, index) => (
+                  <SearchResultRow
+                    key={result.id}
+                    result={result}
+                    query={trimmedQuery}
+                    selected={index === selectedIndex}
+                    onMouseEnter={() => setSelectedIndex(index)}
+                    onRun={() => runResult(result)}
+                  />
+                ))}
+              </div>
+            </>
           )}
         </div>
       </div>
@@ -380,6 +399,18 @@ function SearchState({ title, detail }: { title: string; detail: string }) {
       <div className="mt-1 max-w-md text-xs text-cc-muted">{detail}</div>
     </div>
   );
+}
+
+function SearchWarning({ warnings }: { warnings: string[] }) {
+  return (
+    <div className="mb-2 rounded-md border border-amber-400/25 bg-amber-500/10 px-3 py-2 text-[11px] text-amber-100">
+      Limited search: {warnings[0]}
+    </div>
+  );
+}
+
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : "Search failed";
 }
 
 function ResultBadge({ type }: { type: SearchEverythingResult["type"] }) {

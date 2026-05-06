@@ -161,8 +161,10 @@ vi.mock("./store.js", () => {
 const mockCheckHealth = vi.fn().mockResolvedValue(true);
 const mockMarkSessionRead = vi.fn().mockResolvedValue({ ok: true });
 const mockListSessions = vi.fn().mockResolvedValue([]);
-const mockSearchEverything = vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] });
 const mockRefreshSessionGitStatus = vi.fn().mockResolvedValue({ ok: true });
+const mockSearchEverything = vi
+  .fn()
+  .mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [], degraded: false, warnings: [] });
 
 vi.mock("./api.js", () => ({
   api: {
