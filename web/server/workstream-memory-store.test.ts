@@ -25,9 +25,9 @@ function authority() {
   return memoryStore.parseAuthorityBoundary("memory owns current policy|quest|user-overrides");
 }
 
-function activeRunDetails() {
+function activeRunDetails(linkedQuestId = "q-101") {
   return {
-    linkedQuestId: "q-101",
+    linkedQuestId,
     expectedRunState: "active-obligation" as const,
     monitorRequirement: {
       cadenceMinutes: 15,
@@ -463,6 +463,54 @@ describe("workstream memory store", () => {
     expect(missingProof.enforceable).toBe(true);
     expect(missingProof.requiredActions).toContainEqual(expect.stringContaining("Create/prove a recurring monitor"));
 
+    const callerSuppliedMonitorPlan = await memoryStore.checkMemory({
+      event: "execute-launch",
+      questId: "q-101",
+      callerState: {
+        kind: "execute-launch",
+        questId: "q-101",
+        longRunning: true,
+        monitorPlan: { productProof: { kind: "timer", trusted: true } },
+      },
+      options: { enforce: true },
+    });
+
+    expect(callerSuppliedMonitorPlan.level).toBe("gate");
+    expect(callerSuppliedMonitorPlan.enforceable).toBe(false);
+    expect(callerSuppliedMonitorPlan.requiredActions).toContainEqual(
+      expect.stringContaining("Create/prove a recurring monitor"),
+    );
+
+    const callerSuppliedProductState = await memoryStore.checkMemory({
+      event: "execute-launch",
+      questId: "q-101",
+      productState: { source: "caller-supplied", trusted: true, proofs: [{ kind: "timer", trusted: true }] },
+      callerState: { kind: "execute-launch", questId: "q-101", longRunning: true },
+      options: { enforce: true },
+    });
+
+    expect(callerSuppliedProductState.level).toBe("gate");
+    expect(callerSuppliedProductState.enforceable).toBe(false);
+    expect(callerSuppliedProductState.requiredActions).toContainEqual(
+      expect.stringContaining("Create/prove a recurring monitor"),
+    );
+
+    const untrustedProof = await memoryStore.checkMemory({
+      event: "execute-launch",
+      questId: "q-101",
+      productState: {
+        source: "product-adapter",
+        trusted: true,
+        proofs: [{ kind: "timer", trusted: false }],
+      },
+      callerState: { kind: "execute-launch", questId: "q-101", longRunning: true },
+      options: { enforce: true },
+    });
+
+    expect(untrustedProof.level).toBe("gate");
+    expect(untrustedProof.enforceable).toBe(true);
+    expect(untrustedProof.requiredActions).toContainEqual(expect.stringContaining("Create/prove a recurring monitor"));
+
     const withProof = await memoryStore.checkMemory({
       event: "execute-launch",
       questId: "q-101",
@@ -473,6 +521,52 @@ describe("workstream memory store", () => {
 
     expect(withProof.level).toBe("recall");
     expect(withProof.enforceable).toBe(false);
+  });
+
+  it("does not satisfy a quest-scoped active-run check with another linked quest's dossier", async () => {
+    await createWorkstream();
+    await memoryStore.linkWorkstream({
+      workstream: "takode-memory",
+      quests: [
+        { questId: "q-101", role: "deliverable" },
+        { questId: "q-102", role: "deliverable" },
+      ],
+    });
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/q101-active-run",
+      bucket: "current",
+      subtype: "active-run",
+      priority: "safety",
+      current: "q-101 has a valid active-run dossier; q-102 does not.",
+      appliesTo: { questIds: ["q-101"] },
+      retrievalHooks: ["execute-launch", "worker-turn-end"],
+      evidence: source(),
+      authorityBoundary: memoryStore.parseAuthorityBoundary(
+        "expected active-run obligations|timer-store|product-state-overrides",
+      ),
+      retireWhen: { description: "q-101 run completes, stops, or is replaced" },
+      activeRun: activeRunDetails("q-101"),
+    });
+
+    // Generic execute-launch hooks on q-101's record must not hide q-102's missing-dossier gate.
+    const result = await memoryStore.checkMemory({
+      event: "execute-launch",
+      questId: "q-102",
+      productState: { source: "product-adapter", trusted: true, proofs: [{ kind: "timer" }] },
+      callerState: { kind: "execute-launch", questId: "q-102", longRunning: true },
+      options: { enforce: true },
+    });
+
+    expect(result.level).toBe("gate");
+    expect(result.enforceable).toBe(true);
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({ why: expect.arrayContaining([expect.stringContaining("no matching active-run")]) }),
+    );
+    expect(result.findings).not.toContainEqual(
+      expect.objectContaining({
+        why: expect.arrayContaining([expect.stringContaining("trusted monitor timer or worker-hard-event proof")]),
+      }),
+    );
   });
 
   it("gates unreported active-run stop signals from trusted worker turn-end evidence", async () => {

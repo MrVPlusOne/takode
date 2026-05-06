@@ -679,8 +679,9 @@ function appendRecoveryFindings(
 
 function activeRunRecordMatches(record: MemoryRecord, input: MemoryCheckInput, questId: string | undefined): boolean {
   if (record.subtype !== "active-run" || record.bucket !== "current" || record.status !== "active") return false;
-  if (questId && record.appliesTo.questIds?.includes(questId)) return true;
-  if (record.activeRun?.linkedQuestId && record.activeRun.linkedQuestId === questId) return true;
+  if (questId) {
+    return record.activeRun?.linkedQuestId === questId || (record.appliesTo.questIds?.includes(questId) ?? false);
+  }
   if (record.retrievalHooks.includes(input.event)) return true;
   return record.appliesTo.actionTags?.includes(input.event) ?? false;
 }
@@ -689,12 +690,8 @@ function hasRequiredMonitorProof(
   input: MemoryCheckInput,
   requiredProof: ActiveRunDetails["monitorRequirement"]["requiredProductProof"] | undefined,
 ): boolean {
-  const proofs = [
-    ...(input.productState?.proofs ?? []),
-    ...(input.callerState?.kind === "execute-launch" && input.callerState.monitorPlan?.productProof
-      ? [input.callerState.monitorPlan.productProof]
-      : []),
-  ];
+  if (input.productState?.source !== "product-adapter" || input.productState.trusted !== true) return false;
+  const proofs = input.productState.proofs ?? [];
   if (proofs.length === 0) return false;
   return proofs.some((proof) => proofSatisfiesMonitorRequirement(proof, requiredProof));
 }
@@ -704,6 +701,7 @@ function proofSatisfiesMonitorRequirement(
   requiredProof: ActiveRunDetails["monitorRequirement"]["requiredProductProof"] | undefined,
 ): boolean {
   if (proof.ok === false) return false;
+  if (proof.trusted === false) return false;
   if (requiredProof === "timer") return proof.kind === "timer";
   if (requiredProof === "worker-hard-event") return proof.kind === "worker-hard-event";
   return proof.kind === "timer" || proof.kind === "worker-hard-event";

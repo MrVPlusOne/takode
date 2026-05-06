@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdtemp, rm } from "node:fs/promises";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -43,6 +43,12 @@ describe("memory CLI", () => {
   afterEach(async () => {
     await rm(tempDir, { recursive: true, force: true });
   });
+
+  async function writeJson(name: string, value: unknown): Promise<string> {
+    const path = join(tempDir, name);
+    await writeFile(path, JSON.stringify(value), "utf-8");
+    return path;
+  }
 
   it("creates, links, upserts, reads, searches, and retires memory records", async () => {
     const created = await runMemory(
@@ -144,5 +150,155 @@ describe("memory CLI", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("--event must be one of");
+  });
+
+  it("classifies active-run check JSON using product proof source and trust", async () => {
+    await runMemory(
+      [
+        "workstream",
+        "create",
+        "--slug",
+        "takode-memory",
+        "--title",
+        "Takode memory",
+        "--objective",
+        "Preserve workstream memory.",
+        "--source",
+        "[q-100](quest:q-100)",
+      ],
+      env,
+    );
+    await runMemory(["workstream", "link", "takode-memory", "--quest", "q-101"], env);
+
+    const activeRunFile = await writeJson("active-run.json", {
+      linkedQuestId: "q-101",
+      expectedRunState: "active-obligation",
+      monitorRequirement: {
+        cadenceMinutes: 15,
+        requiredProductProof: "timer-or-hard-event",
+        stopConditionRequiresLeaderAction: true,
+      },
+      stopConditions: ["tmux-missing"],
+    });
+
+    const upserted = await runMemory(
+      [
+        "upsert",
+        "current",
+        "takode-memory/active-run",
+        "--subtype",
+        "active-run",
+        "--priority",
+        "safety",
+        "--current",
+        "q-101 must keep a trusted monitor proof before handoff.",
+        "--applies-to",
+        "quest:q-101",
+        "--retrieval-hooks",
+        "execute-launch,worker-turn-end",
+        "--source",
+        "[q-100](quest:q-100)",
+        "--authority-boundary",
+        "expected active-run obligations|timer-store|product-state-overrides",
+        "--retire-when",
+        "q-101 run completes, stops, or is replaced",
+        "--active-run-file",
+        activeRunFile,
+        "--json",
+      ],
+      env,
+    );
+    expect(upserted.status).toBe(0);
+
+    const executeStateFile = await writeJson("execute-state.json", {
+      kind: "execute-launch",
+      questId: "q-101",
+      longRunning: true,
+    });
+    const callerSuppliedProofFile = await writeJson("caller-proof.json", {
+      source: "caller-supplied",
+      trusted: true,
+      proofs: [{ kind: "timer", trusted: true }],
+    });
+
+    const callerSupplied = await runMemory(
+      [
+        "check",
+        "--event",
+        "execute-launch",
+        "--quest",
+        "q-101",
+        "--state-file",
+        executeStateFile,
+        "--product-state-file",
+        callerSuppliedProofFile,
+        "--enforce",
+        "--json",
+      ],
+      env,
+    );
+    const callerSuppliedResult = JSON.parse(callerSupplied.stdout);
+    expect(callerSupplied.status).toBe(0);
+    expect(callerSuppliedResult.level).toBe("gate");
+    expect(callerSuppliedResult.enforceable).toBe(false);
+
+    const untrustedProofFile = await writeJson("untrusted-proof.json", {
+      source: "product-adapter",
+      trusted: true,
+      proofs: [{ kind: "timer", trusted: false }],
+    });
+    const untrustedProof = await runMemory(
+      [
+        "check",
+        "--event",
+        "execute-launch",
+        "--quest",
+        "q-101",
+        "--state-file",
+        executeStateFile,
+        "--product-state-file",
+        untrustedProofFile,
+        "--enforce",
+        "--json",
+      ],
+      env,
+    );
+    const untrustedResult = JSON.parse(untrustedProof.stdout);
+    expect(untrustedProof.status).toBe(0);
+    expect(untrustedResult.level).toBe("gate");
+    expect(untrustedResult.enforceable).toBe(true);
+
+    const workerTurnEndFile = await writeJson("worker-turn-end.json", {
+      kind: "worker-turn-end",
+      questId: "q-101",
+      summarySignals: ["tmux-missing"],
+      reportedToUser: false,
+    });
+    const trustedAdapterFile = await writeJson("trusted-adapter.json", {
+      source: "product-adapter",
+      trusted: true,
+    });
+    const stopCondition = await runMemory(
+      [
+        "check",
+        "--event",
+        "worker-turn-end",
+        "--quest",
+        "q-101",
+        "--state-file",
+        workerTurnEndFile,
+        "--product-state-file",
+        trustedAdapterFile,
+        "--enforce",
+        "--json",
+      ],
+      env,
+    );
+    const stopConditionResult = JSON.parse(stopCondition.stdout);
+    expect(stopCondition.status).toBe(0);
+    expect(stopConditionResult.level).toBe("gate");
+    expect(stopConditionResult.findings).toContainEqual(
+      expect.objectContaining({ why: expect.arrayContaining([expect.stringContaining("tmux-missing")]) }),
+    );
   });
 });
