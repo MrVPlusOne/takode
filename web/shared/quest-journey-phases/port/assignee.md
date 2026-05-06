@@ -11,9 +11,10 @@ Boundary:
 
 File-based memory:
 - Run `memory recall` when prior memory could affect final handoff, debrief accuracy, or post-port risk.
-- If accepted work created or changed durable memory-worthy facts, update the session-space memory repo under the repo-level write lock. Choose the file responsibility by information type: `current/`, `knowledge/`, `procedures/`, `decisions/`, `references/`, or `artifacts/`.
-- Memory updates should use direct file edits under `memory lock acquire`, followed by `memory lint` or `memory doctor`, `memory diff`, source-trailed `memory commit`, and lock release. If the memory update should be handled later, defer it explicitly instead of silently omitting it.
-- Include exactly one memory statement in the Port report and phase documentation when memory could be relevant: `memory updated: <commit>`, `memory update deferred: <reason or curator>`, or `memory update not needed: <reason>`.
+- Port does not normally author durable memory. If accepted work created or changed memory-worthy durable facts and the leader did not explicitly include memory writing in Port scope, report `memory update deferred: <Bookkeeping/curator/reason>`.
+- Report `memory update not needed: <reason>` when recall or the ported change shows there is no durable memory update to make.
+- Report `memory updated: <commit>` only when memory writing was explicitly assigned to Port and completed.
+- Include exactly one memory statement in the Port report and phase documentation when memory could be relevant.
 
 Phase documentation:
 - Before reporting back, add or refresh a quest feedback entry documenting this phase when working on a quest. Prefer the phase-scoped primitive with current-phase inference: `quest feedback add q-N --text-file <body> --tldr-file <tldr> --kind phase-summary`.
