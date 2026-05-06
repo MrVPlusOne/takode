@@ -1,36 +1,16 @@
 #!/usr/bin/env bun
 
-import { readFile } from "node:fs/promises";
-import { resolve } from "node:path";
 import { workstreamMemoryService } from "../server/workstream-memory-service.js";
 import {
-  CURRENT_READ_PURPOSES,
-  MEMORY_CHECK_EVENTS,
-  MEMORY_PRIORITIES,
-  MEMORY_STATUSES,
-  MEMORY_SUBTYPES,
-  type ActiveRunDetails,
-  type AppliesTo,
-  type CurrentReadPurpose,
-  type MemoryCheckEvent,
-  type MemoryCheckInput,
-  type MemoryBucket,
-  type MemoryPriority,
-  type MemoryRecord,
-  type MemoryStatus,
-  type MemorySubtype,
-  type ReferenceTarget,
-  type RetrievalHook,
-  type SourceLink,
-  type Workstream,
+  MEMORY_COMMIT_OPERATIONS,
+  MEMORY_KINDS,
+  type MemoryCommitOperation,
+  type MemoryKind,
 } from "../server/workstream-memory-types.js";
-import { assertValidMemoryStatus, parseAuthorityBoundary, parseSourceLink } from "../server/workstream-memory-store.js";
 
 const args = process.argv.slice(2);
 const command = args[0];
 const jsonOutput = flag("json");
-const LINKED_QUEST_ROLES = ["deliverable", "dashboard", "bug", "follow-up", "evidence", "other"] as const;
-type LinkedQuestRole = (typeof LINKED_QUEST_ROLES)[number];
 
 function flag(name: string): boolean {
   return args.includes(`--${name}`);
@@ -79,16 +59,31 @@ function printUsage(): void {
   console.log(`Usage: memory <command> [args]
 
 Commands:
-  workstream create|link|show|list|archive
-  current read
-  grep <pattern>
-  show <workstream>/<key>
-  upsert current|reference <workstream>/<key>
-  retire <workstream>/<key>
-  check --event <event>
-  bookkeeping report
+  repo path|init
+  catalog [--json]
+  recall [query] [--kind current,knowledge] [--facet key:value] [--content] [--limit N] [--json]
+  lint|doctor [--json]
+  lock status|acquire|release [--owner NAME] [--ttl-ms N] [--json]
+  status [--json]
+  diff
+  commit --message TEXT [--quest q-N] [--session N] [--operation update] [--memory-id ID] [--source REF] [--json]
+  migrate preview
 
-Use --json for structured output.`);
+Options:
+  --root PATH       Override the memory repo root for this command.
+  --server-id ID    Override the server/session-space id used for default repo discovery.
+
+Memory files are authored directly under:
+  current/ knowledge/ procedures/ decisions/ references/ artifacts/
+
+The old workstream/upsert/check authoring model is intentionally replaced.`);
+}
+
+function repoOptions() {
+  return {
+    root: option("root"),
+    serverId: option("server-id"),
+  };
 }
 
 function parseCsv(value: string | undefined): string[] {
@@ -98,474 +93,229 @@ function parseCsv(value: string | undefined): string[] {
     .filter(Boolean);
 }
 
-async function readTextOption(inlineFlag: string, fileFlag: string): Promise<string | undefined> {
-  const inline = option(inlineFlag);
-  const file = option(fileFlag);
-  if (inline !== undefined && file !== undefined) die(`Use either --${inlineFlag} or --${fileFlag}, not both`);
-  if (inline !== undefined) return inline;
-  if (file === undefined) return undefined;
-  if (file === "-") {
-    process.stdin.setEncoding("utf8");
-    let text = "";
-    for await (const chunk of process.stdin) text += chunk;
-    return text;
+function parseKinds(): MemoryKind[] | undefined {
+  const raw = [...options("kind"), ...parseCsv(option("kinds"))].flatMap((item) => parseCsv(item));
+  if (!raw.length) return undefined;
+  const kinds: MemoryKind[] = [];
+  for (const value of raw) {
+    if (!MEMORY_KINDS.includes(value as MemoryKind)) {
+      die(`--kind must be one of: ${MEMORY_KINDS.join(", ")}`);
+    }
+    kinds.push(value as MemoryKind);
   }
-  try {
-    return await readFile(resolve(file), "utf-8");
-  } catch (error) {
-    const detail = error instanceof Error ? `: ${error.message}` : "";
-    die(`Cannot read --${fileFlag} from ${file}${detail}`);
+  return kinds;
+}
+
+function parseFacets(): Record<string, string[]> | undefined {
+  const values = [...options("facet"), ...parseCsv(option("facets"))];
+  if (!values.length) return undefined;
+  const facets: Record<string, string[]> = {};
+  for (const token of values) {
+    const [key, value] = token.split(":", 2);
+    if (!key?.trim() || !value?.trim()) die(`Invalid --facet token: ${token}`);
+    facets[key.trim()] = [...(facets[key.trim()] ?? []), value.trim()];
   }
+  return facets;
 }
 
-async function readJsonOption<T>(fileFlag: string): Promise<T | undefined> {
-  const file = option(fileFlag);
-  if (!file) return undefined;
-  try {
-    const raw = await readFile(resolve(file), "utf-8");
-    return JSON.parse(raw) as T;
-  } catch (error) {
-    const detail = error instanceof Error ? `: ${error.message}` : "";
-    die(`Cannot read --${fileFlag} from ${file}${detail}`);
-  }
-}
-
-function parseSources(): SourceLink[] {
-  return [...options("source"), ...parseCsv(option("sources"))].map(parseSourceLink);
-}
-
-function requireSources(): SourceLink[] {
-  const sources = parseSources();
-  if (sources.length === 0) die("--source is required");
-  return sources;
-}
-
-function parseMemorySubtype(raw: string | undefined): MemorySubtype {
-  const value = raw ?? "";
-  if (MEMORY_SUBTYPES.includes(value as MemorySubtype)) return value as MemorySubtype;
-  die(`--subtype must be one of: ${MEMORY_SUBTYPES.join(", ")}`);
-}
-
-function parsePriority(raw: string | undefined): MemoryPriority {
-  const value = raw ?? "";
-  if (MEMORY_PRIORITIES.includes(value as MemoryPriority)) return value as MemoryPriority;
-  die(`--priority must be one of: ${MEMORY_PRIORITIES.join(", ")}`);
-}
-
-function parseLinkedQuestRole(raw: string | undefined): LinkedQuestRole {
-  const value = raw ?? "deliverable";
-  if (LINKED_QUEST_ROLES.includes(value as LinkedQuestRole)) return value as LinkedQuestRole;
-  die(`--role must be one of: ${LINKED_QUEST_ROLES.join(", ")}`);
-}
-
-function parseStatus(raw: string | undefined): Extract<MemoryStatus, "active" | "proposed"> | undefined {
+function parsePositiveInt(raw: string | undefined, label: string): number | undefined {
   if (!raw) return undefined;
-  assertValidMemoryStatus(raw);
-  return raw;
-}
-
-function parsePurpose(raw: string | undefined): CurrentReadPurpose {
-  const value = raw ?? "";
-  if (CURRENT_READ_PURPOSES.includes(value as CurrentReadPurpose)) return value as CurrentReadPurpose;
-  die(`--for must be one of: ${CURRENT_READ_PURPOSES.join(", ")}`);
-}
-
-function parseCheckEvent(raw: string | undefined): MemoryCheckEvent {
-  const value = raw ?? "";
-  if (MEMORY_CHECK_EVENTS.includes(value as MemoryCheckEvent)) return value as MemoryCheckEvent;
-  die(`--event must be one of: ${MEMORY_CHECK_EVENTS.join(", ")}`);
-}
-
-function parseHooks(): RetrievalHook[] {
-  const values = [...options("retrieval-hook"), ...parseCsv(option("retrieval-hooks"))];
-  for (const value of values) {
-    if (!CURRENT_READ_PURPOSES.includes(value as RetrievalHook)) {
-      die(`Invalid retrieval hook "${value}". Valid values: ${CURRENT_READ_PURPOSES.join(", ")}`);
-    }
-  }
-  return values as RetrievalHook[];
-}
-
-function parseAppliesTo(): AppliesTo {
-  const tokens = [...options("applies-to"), ...parseCsv(option("applies-to"))];
-  const appliesTo: AppliesTo = {};
-  for (const token of tokens) {
-    const [rawKind, rawValue] = token.split(":", 2);
-    const kind = rawKind?.trim();
-    const value = rawValue?.trim();
-    if (!kind || !value) die(`Invalid --applies-to token: ${token}`);
-    switch (kind) {
-      case "quest":
-        appliesTo.questIds = [...(appliesTo.questIds ?? []), value];
-        break;
-      case "session":
-        appliesTo.sessionNums = [...(appliesTo.sessionNums ?? []), parsePositiveInt(value, token)];
-        break;
-      case "worker":
-        appliesTo.workerSessionNums = [...(appliesTo.workerSessionNums ?? []), parsePositiveInt(value, token)];
-        break;
-      case "component":
-        appliesTo.componentTags = [...(appliesTo.componentTags ?? []), value];
-        break;
-      case "domain":
-        appliesTo.domainTags = [...(appliesTo.domainTags ?? []), value];
-        break;
-      case "action":
-      case "event":
-        appliesTo.actionTags = [...(appliesTo.actionTags ?? []), value];
-        break;
-      case "term":
-        appliesTo.exactTerms = [...(appliesTo.exactTerms ?? []), value];
-        break;
-      default:
-        die(`Unknown --applies-to token kind "${kind}" in ${token}`);
-    }
-  }
-  return appliesTo;
-}
-
-function parsePositiveInt(raw: string, label: string): number {
   const parsed = Number(raw);
-  if (!Number.isInteger(parsed) || parsed <= 0) die(`Expected a positive integer for ${label}`);
+  if (!Number.isInteger(parsed) || parsed <= 0) die(`${label} must be a positive integer`);
   return parsed;
 }
 
-function parseReferenceTarget(): ReferenceTarget | undefined {
-  const target = option("target");
-  if (!target) return undefined;
-  const kind = option("target-kind") ?? "external";
-  const label = option("target-label") ?? target;
-  return { kind: kind as ReferenceTarget["kind"], target, label };
+function parseOperation(raw: string | undefined): MemoryCommitOperation | undefined {
+  if (!raw) return undefined;
+  if (MEMORY_COMMIT_OPERATIONS.includes(raw as MemoryCommitOperation)) return raw as MemoryCommitOperation;
+  die(`--operation must be one of: ${MEMORY_COMMIT_OPERATIONS.join(", ")}`);
 }
 
-function formatWorkstreamLine(workstream: Workstream): string {
-  const tags = workstream.scopeTags.length ? ` [${workstream.scopeTags.join(",")}]` : "";
-  return `${workstream.slug} (${workstream.status})${tags}: ${workstream.title}`;
+function requireOption(name: string): string {
+  const value = option(name);
+  if (!value?.trim()) die(`--${name} is required`);
+  return value.trim();
 }
 
-function formatWorkstream(workstream: Workstream): string {
-  const lines = [
-    `Workstream ${workstream.slug}`,
-    `Title:       ${workstream.title}`,
-    `Status:      ${workstream.status}`,
-    `Objective:   ${workstream.objective}`,
-  ];
-  if (workstream.scopeTags.length) lines.push(`Tags:        ${workstream.scopeTags.join(", ")}`);
-  if (workstream.linkedQuests.length) {
-    lines.push("Linked Quests:");
-    for (const quest of workstream.linkedQuests) {
-      lines.push(`  - ${quest.questId} (${quest.role})${quest.label ? ` ${quest.label}` : ""}`);
-    }
+function printCatalog(catalog: Awaited<ReturnType<typeof workstreamMemoryService.catalog>>): void {
+  if (jsonOutput) {
+    out(catalog);
+    return;
   }
-  if (workstream.sourceLinks.length) {
-    lines.push(`Sources:     ${workstream.sourceLinks.map((source) => source.label).join(", ")}`);
+  console.log(`Memory repo: ${catalog.repo.root}`);
+  if (!catalog.entries.length) {
+    console.log("No memory files found.");
   }
-  if (workstream.migrationSources.length) {
-    lines.push(`Migration:   ${workstream.migrationSources.map((source) => source.target).join(", ")}`);
+  for (const entry of catalog.entries) {
+    console.log(`${entry.id} [${entry.kind}] ${entry.title} (${entry.path})`);
+    for (const summary of entry.summary) console.log(`  ${summary}`);
   }
-  return lines.join("\n");
+  printIssues(catalog.issues);
 }
 
-function formatRecordLine(record: MemoryRecord): string {
-  return `${record.workstreamSlug}/${record.key} [${record.bucket}, ${record.status}, ${record.priority}] ${record.title}: ${compact(
-    record.current,
-    120,
-  )}`;
-}
-
-function formatRecord(record: MemoryRecord, includeHistory = false): string {
-  const lines = [
-    `Memory ${record.workstreamSlug}/${record.key}`,
-    `Title:       ${record.title}`,
-    `Bucket:      ${record.bucket}`,
-    `Subtype:     ${record.subtype}`,
-    `Status:      ${record.status}`,
-    `Priority:    ${record.priority}`,
-    `Updated:     ${record.updatedAt}`,
-    "",
-    "Current:",
-    record.current,
-  ];
-  if (record.details) lines.push("", "Details:", record.details);
-  if (record.target) lines.push("", `Target:      ${record.target.label} (${record.target.target})`);
-  if (record.retrievalHooks.length) lines.push(`Hooks:       ${record.retrievalHooks.join(", ")}`);
-  if (record.evidence.length) lines.push(`Sources:     ${record.evidence.map((source) => source.label).join(", ")}`);
-  if (record.retireWhen) lines.push(`Retire when: ${record.retireWhen.description}`);
-  if (includeHistory) {
-    lines.push("", "History:");
-    for (const version of record.history) {
-      lines.push(`  - v${version.version} ${version.status} ${version.updatedAt}: ${compact(version.current, 120)}`);
-      if (version.reason) lines.push(`    reason: ${version.reason}`);
-    }
+function printIssues(issues: { severity: string; path?: string; message: string }[]): void {
+  if (!issues.length) return;
+  console.log("\nIssues:");
+  for (const issue of issues) {
+    const path = issue.path ? `${issue.path}: ` : "";
+    console.log(`  ${issue.severity}: ${path}${issue.message}`);
   }
-  return lines.join("\n");
 }
 
-function compact(text: string, max: number): string {
-  const normalized = text.replace(/\s+/g, " ").trim();
-  return normalized.length <= max ? normalized : `${normalized.slice(0, max - 3)}...`;
-}
+async function main(): Promise<void> {
+  if (!command || flag("help") || command === "help") {
+    printUsage();
+    return;
+  }
 
-async function handleWorkstream(): Promise<void> {
-  const subcommand = args[1];
-  switch (subcommand) {
-    case "create": {
-      const slug = option("slug");
-      const title = option("title");
-      const objective = option("objective");
-      if (!slug) die("--slug is required");
-      if (!title) die("--title is required");
-      if (!objective) die("--objective is required");
-      const workstream = await workstreamMemoryService.createWorkstream({
-        slug,
-        title,
-        objective,
-        scopeTags: parseCsv(option("scope-tags")),
-        ownerProject: option("owner-project"),
-        sourceLinks: parseSources(),
-        migrationSources: options("migration-source").map((target) => ({ kind: "manual", target })),
-        visibility: (option("visibility") as Workstream["visibility"] | undefined) ?? "default",
-      });
-      jsonOutput ? out({ workstream }) : console.log(formatWorkstream(workstream));
+  if (["workstream", "current", "upsert", "retire", "check", "bookkeeping", "grep", "show"].includes(command)) {
+    die(
+      "The old workstream-memory CLI was superseded. Edit memory Markdown files directly, then use memory catalog/recall/lint/lock/commit.",
+    );
+  }
+
+  if (command === "repo") {
+    const subcommand = positional(0) ?? "path";
+    if (subcommand === "path") {
+      const repo = workstreamMemoryService.resolveRepo(repoOptions());
+      if (jsonOutput) out(repo);
+      else console.log(repo.root);
       return;
     }
-    case "link": {
-      const workstream = args[2];
-      if (!workstream) die("Usage: memory workstream link <slug> --quest q-N [--role deliverable]");
-      const role = parseLinkedQuestRole(option("role"));
-      const label = option("label");
-      const quests = [...options("quest"), ...parseCsv(option("quests"))].map((questId) => ({
-        questId,
-        role,
-        ...(label ? { label } : {}),
-      }));
-      if (quests.length === 0) die("--quest is required");
-      const updated = await workstreamMemoryService.linkWorkstream({ workstream, quests });
-      jsonOutput ? out({ workstream: updated }) : console.log(formatWorkstream(updated));
+    if (subcommand === "init") {
+      const repo = await workstreamMemoryService.ensureRepo(repoOptions());
+      if (jsonOutput) out(repo);
+      else console.log(`Initialized memory repo at ${repo.root}`);
       return;
     }
-    case "show": {
-      const ref = args[2];
-      if (!ref) die("Usage: memory workstream show <slug>");
-      const workstream = await workstreamMemoryService.getWorkstream(ref, {
+    die("repo subcommand must be path or init");
+  }
+
+  if (command === "catalog") {
+    printCatalog(await workstreamMemoryService.catalog(repoOptions()));
+    return;
+  }
+
+  if (command === "recall") {
+    const result = await workstreamMemoryService.recall(
+      {
+        query: positional(0),
+        kinds: parseKinds(),
+        facets: parseFacets(),
+        includeContent: flag("content"),
         includeArchived: flag("include-archived"),
+        limit: parsePositiveInt(option("limit"), "--limit"),
+      },
+      repoOptions(),
+    );
+    if (jsonOutput) {
+      out(result);
+      return;
+    }
+    console.log(`Memory repo: ${result.repo.root}`);
+    if (!result.matches.length) console.log("No matching memory files found.");
+    for (const match of result.matches) {
+      console.log(`${match.entry.id} [${match.entry.kind}] score=${match.score} ${match.entry.path}`);
+      console.log(`  ${match.entry.title}`);
+      for (const summary of match.entry.summary) console.log(`  ${summary}`);
+      if (match.content) console.log(`\n${match.content.trim()}\n`);
+    }
+    printIssues(result.issues);
+    return;
+  }
+
+  if (command === "lint" || command === "doctor") {
+    const catalog = await workstreamMemoryService.lint(repoOptions());
+    const errors = catalog.issues.filter((issue) => issue.severity === "error").length;
+    if (jsonOutput) {
+      out({ ok: !catalog.issues.some((issue) => issue.severity === "error"), ...catalog });
+      if (errors) process.exit(1);
+      return;
+    }
+    printIssues(catalog.issues);
+    const warnings = catalog.issues.filter((issue) => issue.severity === "warning").length;
+    console.log(
+      errors || warnings ? `Memory lint found ${errors} errors and ${warnings} warnings.` : "Memory lint passed.",
+    );
+    if (errors) process.exit(1);
+    return;
+  }
+
+  if (command === "lock") {
+    const subcommand = positional(0) ?? "status";
+    if (subcommand === "status") {
+      const status = await workstreamMemoryService.lockStatus(repoOptions());
+      if (jsonOutput) out(status);
+      else console.log(status.locked ? `locked: ${status.owner ?? "unknown"} ${status.expiresAt ?? ""}` : "unlocked");
+      return;
+    }
+    if (subcommand === "acquire") {
+      const status = await workstreamMemoryService.acquireLock({
+        ...repoOptions(),
+        owner: option("owner"),
+        ttlMs: parsePositiveInt(option("ttl-ms"), "--ttl-ms"),
+        stealStale: !flag("no-steal-stale"),
       });
-      if (!workstream) die(`Workstream not found: ${ref}`);
-      jsonOutput ? out({ workstream }) : console.log(formatWorkstream(workstream));
+      if (jsonOutput) out(status);
+      else console.log(`locked: ${status.lockPath}`);
       return;
     }
-    case "list": {
-      const status = option("status");
-      if (status && !["active", "paused", "completed", "archived"].includes(status)) die("Invalid --status");
-      const workstreams = await workstreamMemoryService.listWorkstreams({
-        status: status as Workstream["status"] | undefined,
-        tag: option("tag"),
-        includeArchived: flag("include-archived"),
-      });
-      jsonOutput
-        ? out({ workstreams })
-        : console.log(workstreams.map(formatWorkstreamLine).join("\n") || "No workstreams found.");
+    if (subcommand === "release") {
+      const status = await workstreamMemoryService.releaseLock(repoOptions());
+      if (jsonOutput) out(status);
+      else console.log("unlocked");
       return;
     }
-    case "archive": {
-      const ref = args[2];
-      if (!ref) die("Usage: memory workstream archive <slug>");
-      const workstream = await workstreamMemoryService.archiveWorkstream(ref);
-      jsonOutput ? out({ workstream }) : console.log(`Archived workstream ${workstream.slug}`);
-      return;
-    }
-    default:
-      die("Usage: memory workstream create|link|show|list|archive");
+    die("lock subcommand must be status, acquire, or release");
   }
-}
 
-async function handleCurrent(): Promise<void> {
-  if (args[1] !== "read") die("Usage: memory current read --workstream <slug>|--quest <q-id> --for <purpose>");
-  const purpose = parsePurpose(option("for"));
-  const result = await workstreamMemoryService.readCurrentContext({
-    workstream: option("workstream"),
-    questId: option("quest"),
-    purpose,
-    componentTags: parseCsv(option("component-tag")),
-    workerSessionNum: option("worker") ? parsePositiveInt(option("worker")!, "--worker") : undefined,
-    includeProposed: flag("include-proposed"),
-    includeRetired: flag("include-retired"),
-    limit: option("limit") ? parsePositiveInt(option("limit")!, "--limit") : undefined,
-  });
-  if (jsonOutput) {
-    out(result);
+  if (command === "status") {
+    const status = await workstreamMemoryService.gitStatus(repoOptions());
+    if (jsonOutput) out({ status });
+    else console.log(status || "clean");
     return;
   }
-  for (const warning of result.warnings) console.warn(`Warning: ${warning}`);
-  console.log(result.records.map(formatRecordLine).join("\n") || "No current context matched.");
-}
 
-async function handleGrep(): Promise<void> {
-  const pattern = positional(0);
-  if (!pattern) die("Usage: memory grep <pattern>");
-  const results = await workstreamMemoryService.searchRecords({
-    pattern,
-    regex: flag("regex"),
-    workstream: option("workstream"),
-    includeRetired: flag("include-retired"),
-    includeProposed: flag("include-proposed"),
-    limit: option("limit") ? parsePositiveInt(option("limit")!, "--limit") : undefined,
-  });
-  if (jsonOutput) {
-    out({ results });
+  if (command === "diff") {
+    console.log(await workstreamMemoryService.gitDiff(repoOptions()));
     return;
   }
-  if (results.length === 0) {
-    console.log("No matches.");
+
+  if (command === "commit") {
+    const lock = await workstreamMemoryService.lockStatus(repoOptions());
+    if (!lock.locked || lock.stale) die("Acquire the memory repo lock before committing memory changes.");
+    const operation = parseOperation(option("operation"));
+    const result = await workstreamMemoryService.commit({
+      ...repoOptions(),
+      message: requireOption("message"),
+      quest: option("quest"),
+      session: option("session"),
+      operation,
+      memoryIds: [...options("memory-id"), ...parseCsv(option("memory-ids"))],
+      sources: [...options("source"), ...parseCsv(option("sources"))],
+    });
+    if (jsonOutput) out(result);
+    else console.log(result.committed ? `committed ${result.sha}` : result.message);
     return;
   }
-  for (const result of results) {
-    console.log(formatRecordLine(result.record));
-    for (const snippet of result.snippets) console.log(`  ${snippet}`);
-    if (result.remainingChildMatches) console.log(`  ... ${result.remainingChildMatches} more matches`);
-  }
-}
 
-async function handleShow(): Promise<void> {
-  const ref = args[1];
-  if (!ref) die("Usage: memory show <workstream>/<key>");
-  const record = await workstreamMemoryService.getRecord(ref, {
-    includeRetired: flag("include-retired"),
-    includeArchived: flag("include-archived"),
-  });
-  if (!record) die(`Memory record not found: ${ref}`);
-  jsonOutput ? out({ record }) : console.log(formatRecord(record, flag("history")));
-}
-
-async function handleUpsert(): Promise<void> {
-  const bucket = args[1] as MemoryBucket | undefined;
-  const ref = args[2];
-  if (bucket !== "current" && bucket !== "reference") die("Usage: memory upsert current|reference <workstream>/<key>");
-  if (!ref) die("Usage: memory upsert current|reference <workstream>/<key>");
-  const current = await readTextOption("current", "current-file");
-  const details = await readTextOption("details", "details-file");
-  const activeRun = await readJsonOption<ActiveRunDetails>("active-run-file");
-  if (!current?.trim()) die("--current or --current-file is required");
-  const status = parseStatus(option("status"));
-  const record = await workstreamMemoryService.upsertRecord({
-    ref,
-    bucket,
-    subtype: parseMemorySubtype(option("subtype")),
-    priority: parsePriority(option("priority")),
-    title: option("title"),
-    current,
-    details,
-    target: parseReferenceTarget(),
-    appliesTo: parseAppliesTo(),
-    retrievalHooks: parseHooks(),
-    evidence: requireSources(),
-    authorityBoundary: parseAuthorityBoundary(option("authority-boundary") ?? ""),
-    activationScope:
-      (option("activation-scope") as "workstream" | "quest" | "component" | "project" | undefined) ?? "workstream",
-    status,
-    retireWhen: option("retire-when") ? { description: option("retire-when")! } : undefined,
-    supersedes: parseCsv(option("supersedes")),
-    activeRun,
-    reactivate: flag("reactivate"),
-  });
-  jsonOutput ? out({ record }) : console.log(formatRecord(record));
-}
-
-async function handleRetire(): Promise<void> {
-  const ref = positional(0);
-  if (!ref) die("Usage: memory retire <workstream>/<key> --reason <text> --source <source>");
-  const reason = option("reason");
-  if (!reason) die("--reason is required");
-  const record = await workstreamMemoryService.retireRecord({
-    ref,
-    reason,
-    sourceLinks: requireSources(),
-    supersededBy: option("superseded-by"),
-  });
-  jsonOutput ? out({ record }) : console.log(`Retired ${record.workstreamSlug}/${record.key}`);
-}
-
-async function handleBookkeeping(): Promise<void> {
-  if (args[1] !== "report") die("Usage: memory bookkeeping report [--workstream <slug>]");
-  const report = await workstreamMemoryService.bookkeepingReport(option("workstream"));
-  if (jsonOutput) {
-    out({ report });
+  if (command === "migrate" && positional(0) === "preview") {
+    const repo = workstreamMemoryService.resolveRepo(repoOptions());
+    const oldRoot = process.env.COMPANION_WORKSTREAM_MEMORY_DIR || "~/.companion/workstream-memory";
+    const result = {
+      targetRepo: repo.root,
+      oldRoot,
+      note: "The old schema-heavy workstream memory model is deprecated. Migration should convert only still-useful facts into authored Markdown files under the six memory directories.",
+    };
+    if (jsonOutput) out(result);
+    else console.log(`${result.note}\nOld root: ${oldRoot}\nTarget repo: ${repo.root}`);
     return;
   }
-  console.log(`Bookkeeping report ${report.generatedAt}`);
-  if (report.issues.length === 0) {
-    console.log("No issues found.");
-    return;
-  }
-  for (const issue of report.issues) {
-    console.log(`${issue.level.toUpperCase()}: ${issue.record ? `${issue.record}: ` : ""}${issue.message}`);
-  }
+
+  printUsage();
+  process.exit(1);
 }
 
-async function handleCheck(): Promise<void> {
-  const event = parseCheckEvent(option("event"));
-  const callerState = await readJsonOption<MemoryCheckInput["callerState"]>("state-file");
-  const productState = await readJsonOption<MemoryCheckInput["productState"]>("product-state-file");
-  const result = await workstreamMemoryService.checkMemory({
-    event,
-    workstream: option("workstream"),
-    questId: option("quest"),
-    callerState,
-    productState,
-    options: {
-      enforce: flag("enforce"),
-      includeWarnings: !flag("no-warnings"),
-      maxRecords: option("limit") ? parsePositiveInt(option("limit")!, "--limit") : undefined,
-    },
-  });
-  if (jsonOutput) {
-    out(result);
-    return;
-  }
-  console.log(`Memory check ${result.event}: ${result.level}${result.enforceable ? " (enforceable)" : ""}`);
-  for (const finding of result.findings) {
-    const record = finding.record ? `${finding.record}: ` : "";
-    console.log(`${finding.level.toUpperCase()}: ${record}${finding.why.join("; ")}`);
-    if (finding.requiredAction) console.log(`  action: ${finding.requiredAction}`);
-  }
-  if (result.findings.length === 0) console.log("No matching current context.");
-}
-
-try {
-  switch (command) {
-    case undefined:
-    case "help":
-    case "-h":
-    case "--help":
-      printUsage();
-      break;
-    case "workstream":
-      await handleWorkstream();
-      break;
-    case "current":
-      await handleCurrent();
-      break;
-    case "grep":
-      await handleGrep();
-      break;
-    case "show":
-      await handleShow();
-      break;
-    case "upsert":
-      await handleUpsert();
-      break;
-    case "retire":
-      await handleRetire();
-      break;
-    case "check":
-      await handleCheck();
-      break;
-    case "bookkeeping":
-      await handleBookkeeping();
-      break;
-    default:
-      die(`Unknown command: ${command}`);
-  }
-} catch (error) {
+main().catch((error) => {
   die(error instanceof Error ? error.message : String(error));
-}
+});

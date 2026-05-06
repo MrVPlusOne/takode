@@ -1,75 +1,66 @@
 import {
-  archiveWorkstream,
-  bookkeepingReport,
-  checkMemory,
-  createWorkstream,
-  getRecord,
-  getWorkstream,
-  linkWorkstream,
-  listWorkstreams,
-  readCurrentContext,
-  retireRecord,
-  searchRecords,
-  upsertRecord,
+  acquireMemoryLock,
+  commitMemory,
+  ensureMemoryRepo,
+  getMemoryLock,
+  lintMemory,
+  memoryGitDiff,
+  memoryGitStatus,
+  recallMemory,
+  releaseMemoryLock,
+  resolveMemoryRepo,
+  scanMemoryCatalog,
 } from "./workstream-memory-store.js";
 import type {
-  CurrentReadQuery,
-  MemoryCheckInput,
-  MemorySearchQuery,
-  RetireMemoryRecordInput,
-  UpsertMemoryRecordInput,
-  WorkstreamCreateInput,
-  WorkstreamLinkInput,
-  WorkstreamListFilter,
+  MemoryCommitInput,
+  MemoryLockAcquireInput,
+  MemoryRecallQuery,
+  MemoryRepoOptions,
 } from "./workstream-memory-types.js";
 
 export class WorkstreamMemoryService {
-  createWorkstream(input: WorkstreamCreateInput) {
-    return createWorkstream(input);
+  resolveRepo(options?: MemoryRepoOptions) {
+    return resolveMemoryRepo(options);
   }
 
-  getWorkstream(ref: string, options?: { includeArchived?: boolean }) {
-    return getWorkstream(ref, options);
+  ensureRepo(options?: MemoryRepoOptions) {
+    return ensureMemoryRepo(options);
   }
 
-  listWorkstreams(filter?: WorkstreamListFilter) {
-    return listWorkstreams(filter);
+  catalog(options?: MemoryRepoOptions) {
+    return scanMemoryCatalog(options);
   }
 
-  archiveWorkstream(ref: string) {
-    return archiveWorkstream(ref);
+  recall(query?: MemoryRecallQuery, options?: MemoryRepoOptions) {
+    return recallMemory(query, options);
   }
 
-  linkWorkstream(input: WorkstreamLinkInput) {
-    return linkWorkstream(input);
+  lint(options?: MemoryRepoOptions) {
+    return lintMemory(options);
   }
 
-  upsertRecord(input: UpsertMemoryRecordInput) {
-    return upsertRecord(input);
+  lockStatus(options?: MemoryRepoOptions) {
+    return getMemoryLock(options);
   }
 
-  retireRecord(input: RetireMemoryRecordInput) {
-    return retireRecord(input);
+  acquireLock(input?: MemoryLockAcquireInput) {
+    return acquireMemoryLock(input);
   }
 
-  getRecord(ref: string, options?: { includeRetired?: boolean; includeArchived?: boolean }) {
-    return getRecord(ref, options);
+  releaseLock(options?: MemoryRepoOptions) {
+    return releaseMemoryLock(options);
   }
 
-  searchRecords(query: MemorySearchQuery) {
-    return searchRecords(query);
+  gitStatus(options?: MemoryRepoOptions) {
+    return memoryGitStatus(options);
   }
 
-  readCurrentContext(query: CurrentReadQuery) {
-    return readCurrentContext(query);
+  gitDiff(options?: MemoryRepoOptions) {
+    return memoryGitDiff(options);
   }
 
-  checkMemory(input: MemoryCheckInput) {
-    return checkMemory(input);
-  }
-
-  bookkeepingReport(workstream?: string) {
-    return bookkeepingReport(workstream);
+  commit(input: MemoryCommitInput) {
+    return commitMemory(input);
   }
 }
 

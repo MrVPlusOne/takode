@@ -39,6 +39,25 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Do not use `file://` URI schemes");
   });
 
+  it("includes file-based memory recall and write-lock guidance", () => {
+    const result = buildCompanionInstructions({ sessionNum: 42, backend: "codex" });
+
+    expect(result).toContain("## File-Based Memory");
+    expect(result).toContain("Git-tracked Markdown repo for this server/session space");
+    expect(result).toContain('memory recall "<current task terms>"');
+    expect(result).toContain("there is no authored `indexes/` directory");
+    expect(result).toContain("current/");
+    expect(result).toContain("knowledge/");
+    expect(result).toContain("procedures/");
+    expect(result).toContain("decisions/");
+    expect(result).toContain("references/");
+    expect(result).toContain("artifacts/");
+    expect(result).toContain("memory lock acquire --owner");
+    expect(result).toContain("memory updated: <commit>");
+    expect(result).toContain("memory update deferred: <reason or curator>");
+    expect(result).toContain("memory update not needed: <reason>");
+  });
+
   it("includes worktree guardrails when worktree is provided", () => {
     const result = buildCompanionInstructions({
       worktree: { branch: "test-branch", repoRoot: "/repo" },
@@ -124,6 +143,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");
     expect(result).toContain("Treat a prompt as global only when the visible question explicitly concerns");
     expect(result).toContain("Process herd events and continue unrelated quests normally");
+    expect(result).toContain("## Memory-Aware Orchestration");
+    expect(result).toContain("Use `memory recall` visibly");
+    expect(result).toContain("Do not silently inject memory into workers");
+    expect(result).toContain("Memory writes are explicit Journey responsibility");
   });
 
   it("returns codex-flavored guardrails for codex backend", () => {

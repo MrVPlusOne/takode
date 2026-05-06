@@ -72,6 +72,8 @@ Use \`/port-changes\` when asked to port, sync, or push commits to the main repo
       "`[Leader <session> <time>]` = orchestrator session managing this worker, including the leader session number when available.",
   );
 
+  parts.push(renderFileMemoryInstructions());
+
   // Claude workers sometimes try to use SendMessage tools to reply to their
   // leader, but those messages are never delivered. Codex doesn't have this
   // problem because it lacks those tools entirely.
@@ -180,6 +182,26 @@ function renderBuiltInQuestJourneyPhaseTable(): string {
   ].join("\n");
 }
 
+function renderFileMemoryInstructions(): string {
+  return `## File-Based Memory
+
+Takode memory is a Git-tracked Markdown repo for this server/session space. Use visible recall and explicit writes; do not rely on hidden memory injection.
+
+Use \`memory recall "<current task terms>"\` when prior state may matter, especially during alignment, dispatch preparation, after compaction recovery, before Bookkeeping/Port, or when resuming work with low confidence. Use \`memory catalog\` for a derived catalog from files and frontmatter; there is no authored \`indexes/\` directory.
+
+Memory files are authored directly under six directories with distinct responsibilities:
+- \`current/\`: live working state, active obligations, handoffs, and facts likely to expire.
+- \`knowledge/\`: durable understanding of systems, concepts, services, constraints, and relationships.
+- \`procedures/\`: repeatable action steps, validation flows, setup instructions, recovery procedures, and checklists.
+- \`decisions/\`: accepted choices, user preferences, policy decisions, and rationale that should survive a quest.
+- \`references/\`: source digests and pointers that make external or hard-to-rediscover context cheap to find.
+- \`artifacts/\`: manifests for produced external outputs such as datasets, training runs, logs, model checkpoints, reports, or generated files outside the codebase.
+
+Before editing memory, acquire the repo-level write lock with \`memory lock acquire --owner <session-or-role>\`. While holding it, search and edit files directly with normal file tools, run \`memory lint\` or \`memory doctor\`, inspect \`memory diff\`, commit with \`memory commit --message ... --source ...\`, then release with \`memory lock release\`. Keep each memory commit source-trailed and scoped to one coherent update.
+
+For quest work, include exactly one memory statement in phase reports or final debriefs when relevant: \`memory updated: <commit>\`, \`memory update deferred: <reason or curator>\`, or \`memory update not needed: <reason>\`.`;
+}
+
 function renderOrchestratorGuardrails(copy: OrchestratorGuardrailCopy): string {
   return `# Takode -- Cross-Session Orchestration
 
@@ -196,6 +218,10 @@ When you need to find prior decisions or search across quest descriptions/commen
 Use \`/quest-design\` before creating or materially refining quest text. As part of that approval, explicitly check whether the quest is a true follow-up to earlier work; if so, state \`Relationship: follow-up of [q-N](quest:q-N)\` and persist it with \`--follow-up-of\` after confirmation. Use \`/leader-dispatch\` before dispatching a fresh or newly refined quest so the user can approve the planned initial Journey before any worker is sent. In the common create-and-dispatch case, describe the proposed quest draft and the proposed Journey/scheduling plan together in prose. If clarification is needed, ask it with quest framing; after the user clarifies and no major ambiguity remains, the next response should include both drafts rather than another restated-understanding-only round.
 After a successful quest create, refinement, or dispatch, leader sessions may trigger a lightweight reminder when relevant by writing this as a standalone line: "Thread reminder: attach any prior messages that clearly belong to this quest to [q-N](quest:q-N) with \`takode thread attach\`." Takode converts that line into a separate injected system reminder, so it should not remain part of assistant prose. This is non-blocking unless there is real ambiguity about which messages belong to the quest.
 Use \`quest status q-XX\` for compact quest state and \`quest feedback list/latest/show\` for indexed feedback inspection instead of ad hoc \`quest show --json\` parsing.
+
+## Memory-Aware Orchestration
+
+Use \`memory recall\` visibly when prior memory may change dispatch, alignment, routing, compaction recovery, Bookkeeping, or Port decisions. Do not silently inject memory into workers; either point them to the recall command they should run or include the exact memory files they should inspect. Memory writes are explicit Journey responsibility: the phase actor, a Bookkeeping assignee, or an approved curator updates the memory repo under the repo-level lock and reports \`memory updated: <commit>\`, \`memory update deferred: <reason or curator>\`, or \`memory update not needed: <reason>\`.
 
 ## Herd Event Workflow
 

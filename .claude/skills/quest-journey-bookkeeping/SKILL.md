@@ -5,11 +5,12 @@ description: "Quest Journey phase: bookkeeping. Use when durable shared external
 
 # Quest Journey Phase: Bookkeeping
 
-This phase records cross-phase or external durable state beyond normal phase notes: consolidated summaries, final debrief metadata after port when the port worker could not reliably create it, final debrief metadata when Port is omitted or leader-owned completion after Outcome Review needs consolidation, verification checklist reconciliation, external docs or links, superseded facts, notification cleanup, thread cleanup, and shared-state updates.
+This phase records cross-phase or external durable state beyond normal phase notes: consolidated summaries, final debrief metadata after port when the port worker could not reliably create it, final debrief metadata when Port is omitted or leader-owned completion after Outcome Review needs consolidation, verification checklist reconciliation, external docs or links, superseded facts, notification cleanup, thread cleanup, file-based memory updates, and shared-state updates.
 
 Leader actions:
 - Provide only deltas the assignee is unlikely to infer from the phase brief, quest record, current artifacts, or their own context: exact accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, or facts unavailable to that actor. Avoid restating generic closure checklists covered by the brief.
 - Specify what durable state must be updated and where it must live.
+- When the durable state belongs in file-based memory, specify the intended memory responsibility (`current/`, `knowledge/`, `procedures/`, `decisions/`, `references/`, or `artifacts/`) and require the assignee to use the repo-level memory lock before direct edits.
 - Include the exact assignee brief path: `~/.companion/quest-journey-phases/bookkeeping/assignee.md`.
 - When Bookkeeping is assigned for completion metadata, require both a final debrief and debrief TLDR before the non-cancelled quest is completed.
 - Keep the board row in `BOOKKEEPING`.
@@ -17,6 +18,7 @@ Leader actions:
 
 Worker-visible boundary:
 - The worker may update durable coordination state and consolidate the current facts for the next reader.
+- If assigned a memory update, the worker should run relevant `memory recall`, acquire the write lock with `memory lock acquire`, edit memory files directly, run `memory lint` or `memory doctor`, inspect `memory diff`, commit with source trailers via `memory commit`, release the lock, and report `memory updated: <commit>`. If memory is deliberately not changed, report `memory update deferred: <reason or curator>` or `memory update not needed: <reason>`.
 - If the assigned durable state is final completion metadata, the worker should produce or apply both the final debrief and debrief TLDR. Completion remains incomplete until both are present.
 - Do not duplicate normal phase documentation from the phase that produced the facts.
 - The worker should not invent new implementation scope inside this phase.

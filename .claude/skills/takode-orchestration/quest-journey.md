@@ -69,6 +69,28 @@ Phase documentation should stay specific to the phase:
 
 Review phases must judge documentation quality, not just presence. Check phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the phase-scoped primitive is available.
 
+## File-Based Memory In Journey Work
+
+Takode memory is a Git-tracked Markdown repo scoped to the current server/session space. It is a shared aid for recall and durable state, not a hidden instruction channel. Leaders and workers should use visible reads, usually `memory recall "<quest or task terms>"`, when prior memory could change dispatch, Alignment, compaction recovery, Bookkeeping, Port, or final handoff decisions.
+
+Memory writes are explicit Journey responsibility. A phase actor may update memory when they learned durable shared facts, changed live coordination state, produced external artifacts, or accepted a decision/preference that should survive the quest. If the update is useful but not synchronous, route it through Bookkeeping or an approved curator instead of blocking the current phase.
+
+Memory authoring uses one repo-level lock and direct file edits:
+
+```bash
+memory lock acquire --owner <session-or-role>
+# search/read/edit files directly under current/, knowledge/, procedures/, decisions/, references/, artifacts/
+memory lint
+memory diff
+memory commit --message "..." --source "quest:q-N" --memory-id "<id>"
+memory lock release
+```
+
+Every relevant phase report, Port handoff, or final debrief should include exactly one memory statement:
+- `memory updated: <commit>`
+- `memory update deferred: <reason or curator>`
+- `memory update not needed: <reason>`
+
 ## Recommended Default
 
 The recommended built-in tracked-code Journey is:

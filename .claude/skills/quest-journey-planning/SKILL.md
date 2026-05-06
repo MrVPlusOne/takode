@@ -15,6 +15,7 @@ Leader actions:
 - Tell the worker to load the quest skill, read and claim the quest, return an alignment read-in, then stop.
 - Put or keep the board row in `PLANNING`.
 - When the relevant context is already known, point the worker to the exact prior messages, quests, or discussions that matter; they can inspect those directly with Takode and quest tools instead of broad exploration.
+- When prior memory may matter, tell the worker what terms to use with `memory recall`; memory reads should be visible, not silent injection into the prompt.
 - Ask for concrete understanding, ambiguities, clarification questions, blockers, surprises, and evidence that may justify leader-owned Journey revision.
 - Do not ask for a supposedly comprehensive implementation plan here; route to `explore` when real unknowns remain.
 - Review the returned read-in yourself first. Default to leader-owned approval when it stays within the approved Journey and does not introduce significant ambiguity, scope change, Journey revision, user-visible tradeoff, or another blocking issue.
@@ -23,6 +24,7 @@ Leader actions:
 Worker-visible boundary:
 - The worker may inspect only the minimum context needed to confirm the goal, constraints, and any blocker within the current board-carried Journey.
 - If the leader already pointed to exact prior messages, quests, or discussions, the worker should inspect those sources directly rather than doing broad exploration.
+- If the assignment or quest points to relevant memory, or if local context is stale after compaction, the worker should run `memory recall "<quest or task terms>"` and mention any memory files that materially affected the read-in.
 - If the worker believes the Journey should change, they should surface the evidence in the read-in rather than assuming approval for a different phase sequence.
 - The worker must not explore, implement, review, execute, port, or change quest status.
 - Before reporting back, the worker should document the Alignment phase on the quest with full agent-oriented detail plus TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary`; use explicit `--phase alignment` or occurrence flags if current-phase inference is unavailable.

@@ -619,6 +619,8 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("takode leader-context-resume 42");
     expect(recoveryCalls[0][1]).toContain("takode board show");
     expect(recoveryCalls[0][1]).toContain("takode scan 42");
+    expect(recoveryCalls[0][1]).toContain('memory recall "<current task or quest terms>"');
+    expect(recoveryCalls[0][1]).toContain("read relevant `current/` files");
     expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
     expect(recoveryCalls[0][1]).toContain("takode list");
     expect(recoveryCalls[0][1]).not.toContain("takode board show && takode list");
@@ -828,6 +830,8 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("takode scan 42");
     expect(recoveryCalls[0][1]).toContain("takode peek 42");
     expect(recoveryCalls[0][1]).toContain("takode read 42");
+    expect(recoveryCalls[0][1]).toContain('memory recall "<current task or quest terms>"');
+    expect(recoveryCalls[0][1]).toContain("read relevant `current/` files");
     expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
     expect(recoveryCalls[0][1]).toContain("Keep your current role");
     expect(recoveryCalls[0][1]).not.toContain("/takode-orchestration");
