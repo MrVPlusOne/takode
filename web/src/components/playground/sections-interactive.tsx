@@ -18,6 +18,7 @@ import {
   PlaygroundDedupedNotificationMessage,
   PlaygroundHoverCrossLinkDemo,
   PlaygroundMessageLinkHoverDemo,
+  PlaygroundMultiQuestionNotificationMarker,
   PlaygroundReviewNotificationMarker,
   PlaygroundSectionGroup,
   PlaygroundSelectionContextMenu,
@@ -867,6 +868,13 @@ export function PlaygroundInteractiveSections() {
               <p className="mb-1">The canary is healthy and ready for the next step.</p>
               <p className="text-cc-muted">Choose whether to continue the rollout now or hold for manual checks.</p>
               <PlaygroundSuggestedAnswerNotificationMarker />
+            </div>
+          </Card>
+          <Card label="needs-input with structured questions">
+            <div className="text-cc-fg text-sm">
+              <p className="mb-1">The release is ready for a final launch decision.</p>
+              <p className="text-cc-muted">Answer both parts without moving focus to the composer.</p>
+              <PlaygroundMultiQuestionNotificationMarker />
             </div>
           </Card>
           <Card label="addressed needs-input with suggested answers">

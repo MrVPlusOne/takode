@@ -669,6 +669,42 @@ export function PlaygroundSuggestedAnswerNotificationMarker() {
   );
 }
 
+export function PlaygroundMultiQuestionNotificationMarker() {
+  useEffect(() => {
+    const previous = useStore.getState().sessionNotifications;
+    const next = new Map(previous);
+    next.set("playground-multi-question-notify", [
+      {
+        id: "n-multi-question-1",
+        category: "needs-input",
+        timestamp: Date.now() - 30_000,
+        messageId: "playground-multi-question-notify-msg",
+        summary: "Confirm launch choices",
+        questions: [
+          { prompt: "Which launch path?", suggestedAnswers: ["staged", "full"] },
+          { prompt: "When should it start?", suggestedAnswers: ["now", "after review"] },
+        ],
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: next });
+
+    return () => {
+      useStore.setState({ sessionNotifications: previous });
+    };
+  }, []);
+
+  return (
+    <NotificationMarker
+      category="needs-input"
+      summary="Confirm launch choices"
+      sessionId="playground-multi-question-notify"
+      messageId="playground-multi-question-notify-msg"
+      notificationId="n-multi-question-1"
+    />
+  );
+}
+
 export function PlaygroundAddressedSuggestedAnswerNotificationMarker() {
   useEffect(() => {
     const previous = useStore.getState().sessionNotifications;

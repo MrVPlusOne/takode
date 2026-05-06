@@ -1,8 +1,16 @@
-import { useCallback } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import type { MouseEvent } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import { runAfterNotificationOwnerThreadSelected } from "../utils/notification-thread.js";
+import type { SessionNotification } from "../types.js";
+import { sendToSession } from "../ws.js";
+import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
+import {
+  resolveNotificationOwnerThreadKey,
+  runAfterNotificationOwnerThreadSelected,
+} from "../utils/notification-thread.js";
+import { formatReplyContentForAssistant } from "../utils/reply-context.js";
+import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 
 /** Compact marker rendered inline for notification tool calls.
  *  When sessionId and messageId are provided, shows the checkbox affordance immediately
@@ -46,8 +54,18 @@ export function NotificationMarker({
   const canToggleDone = !!onToggleDone || (!!sessionId && (!!messageId || !!notificationId));
   const isDone = doneOverride ?? notif?.done ?? false;
   const isToggleReady = !!onToggleDone || !!notif;
-  const suggestedAnswers = isAction && !isDone ? (notif?.suggestedAnswers ?? []) : [];
   const showReplyButton = !!showReplyAction && !!notif && !!sessionId && (!isAction || !isDone);
+  const questionViews = useMemo(
+    () => (isAction && !isDone && notif ? getNeedsInputQuestionViews(notif) : []),
+    [isAction, isDone, notif],
+  );
+  const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
+  const canSendQuickReply =
+    !!sessionId && !!notif && questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
+
+  useEffect(() => {
+    setAnswersByQuestion({});
+  }, [notif?.id, isDone]);
   const toggleLabel =
     category === "review"
       ? isDone
@@ -89,12 +107,12 @@ export function NotificationMarker({
       const previewText = label;
       const liveNotif =
         notif ??
-        (messageId
-          ? (useStore
-              .getState()
-              .sessionNotifications.get(sessionId)
-              ?.find((n) => n.messageId === messageId && n.category === category) ?? null)
-          : null);
+        findNotification({
+          sessionId,
+          notificationId,
+          messageId,
+          category,
+        });
       runAfterNotificationOwnerThreadSelected({
         notification: liveNotif,
         currentThreadKey,
@@ -109,57 +127,78 @@ export function NotificationMarker({
         },
       });
     },
-    [sessionId, messageId, label, notif, category, currentThreadKey, onSelectThread],
+    [sessionId, notificationId, messageId, label, notif, category, currentThreadKey, onSelectThread],
   );
 
   const handleSuggestedAnswer = useCallback(
-    (answer: string) => (e: MouseEvent) => {
+    ({ questionKey, value }: { questionKey: string; value: string }) =>
+      (e: MouseEvent) => {
+        e.stopPropagation();
+        setAnswersByQuestion((prev) => ({ ...prev, [questionKey]: value }));
+      },
+    [],
+  );
+
+  const sendQuickReply = useCallback(
+    (e: MouseEvent) => {
       e.stopPropagation();
-      if (!sessionId) return;
-      const previewText = label;
-      const current = useStore.getState().composerDrafts.get(sessionId);
-      const liveNotif =
-        notif ??
-        (messageId
-          ? (useStore
-              .getState()
-              .sessionNotifications.get(sessionId)
-              ?.find((n) => n.messageId === messageId && n.category === category) ?? null)
-          : null);
+      if (!sessionId || !notif || !canSendQuickReply) return;
       runAfterNotificationOwnerThreadSelected({
-        notification: liveNotif,
+        notification: notif,
         currentThreadKey,
         onSelectThread,
         action: () => {
-          useStore.getState().setReplyContext(sessionId, {
-            ...(messageId ? { messageId } : {}),
-            ...(liveNotif ? { notificationId: liveNotif.id } : {}),
-            previewText,
+          const notificationMessageId = notif.messageId ?? messageId;
+          const threadKey = resolveNotificationOwnerThreadKey(notif);
+          const content = formatNeedsInputResponse(notif.summary ?? summary, questionViews, answersByQuestion);
+          const replyContext = {
+            ...(notificationMessageId ? { messageId: notificationMessageId } : {}),
+            notificationId: notif.id,
+            previewText: notif.summary || summary || "Needs your input",
+          };
+          const sent = sendToSession(sessionId, {
+            type: "user_message",
+            content,
+            deliveryContent: formatReplyContentForAssistant(content, replyContext),
+            replyContext,
+            session_id: sessionId,
+            threadKey,
+            ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
           });
-          useStore.getState().setComposerDraft(sessionId, { text: answer, images: current?.images ?? [] });
-          useStore.getState().focusComposer();
+          if (!sent) return;
+          useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
+          api.markNotificationDone(sessionId, notif.id, true).catch(() => {});
+          setAnswersByQuestion({});
         },
       });
     },
-    [sessionId, messageId, label, notif, category, currentThreadKey, onSelectThread],
+    [
+      answersByQuestion,
+      canSendQuickReply,
+      currentThreadKey,
+      messageId,
+      notif,
+      onSelectThread,
+      questionViews,
+      sessionId,
+      summary,
+    ],
   );
+
+  const setQuestionAnswer = useCallback((questionKey: string, value: string) => {
+    setAnswersByQuestion((prev) => ({ ...prev, [questionKey]: value }));
+  }, []);
 
   const replyButton = showReplyButton ? (
     <button
       onClick={handleReply}
-      className={`shrink-0 cursor-pointer hover:opacity-80 transition-opacity ${
-        suggestedAnswers.length > 0 ? "rounded border border-amber-400/20 px-1.5 py-0.5 text-[10px] text-amber-100" : ""
-      }`}
-      title={suggestedAnswers.length > 0 ? "Write a custom answer" : "Reply to this notification"}
-      aria-label={suggestedAnswers.length > 0 ? "Custom answer" : "Reply to this notification"}
+      className="shrink-0 cursor-pointer rounded border border-cc-border/50 p-1 text-cc-muted transition-colors hover:border-cc-primary/40 hover:text-cc-fg"
+      title="reply in composer"
+      aria-label="reply in composer"
     >
-      {suggestedAnswers.length > 0 ? (
-        "Custom answer"
-      ) : (
-        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-          <path d="M6.78 1.97a.75.75 0 010 1.06L3.81 6h6.44A4.75 4.75 0 0115 10.75v1.5a.75.75 0 01-1.5 0v-1.5a3.25 3.25 0 00-3.25-3.25H3.81l2.97 2.97a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0z" />
-        </svg>
-      )}
+      <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
+        <path d="M6.78 1.97a.75.75 0 010 1.06L3.81 6h6.44A4.75 4.75 0 0115 10.75v1.5a.75.75 0 01-1.5 0v-1.5a3.25 3.25 0 00-3.25-3.25H3.81l2.97 2.97a.75.75 0 11-1.06 1.06l-4.25-4.25a.75.75 0 010-1.06l4.25-4.25a.75.75 0 011.06 0z" />
+      </svg>
     </button>
   ) : null;
 
@@ -201,28 +240,91 @@ export function NotificationMarker({
         {/* Label */}
         <span className={`min-w-0 ${isDone ? "line-through" : ""}`}>{label}</span>
 
-        {suggestedAnswers.length === 0 && replyButton}
+        {!isAction && replyButton}
       </div>
 
-      {suggestedAnswers.length > 0 && (
+      {questionViews.length > 0 && (
         <div
           className="flex w-full max-w-full flex-col items-stretch gap-1 pl-5"
           data-testid="notification-answer-actions"
         >
-          {suggestedAnswers.map((answer) => (
-            <button
-              key={answer}
-              onClick={handleSuggestedAnswer(answer)}
-              className="w-full min-w-0 whitespace-normal break-words rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-1 text-left text-[10px] leading-snug text-amber-200 transition-colors hover:bg-amber-400/20 cursor-pointer"
-              title={`Use suggested answer: ${answer}`}
-              aria-label={`Use suggested answer: ${answer}`}
-            >
-              {answer}
-            </button>
+          {questionViews.map((question, index) => (
+            <div key={question.key} className="space-y-1.5" data-testid="notification-question-block">
+              {questionViews.length > 1 && (
+                <div className="text-[10px] leading-snug text-amber-100/80">
+                  <span className="text-cc-muted">{index + 1}. </span>
+                  {question.prompt}
+                </div>
+              )}
+              {question.suggestedAnswers.map((answer) => (
+                <button
+                  key={answer}
+                  type="button"
+                  onClick={handleSuggestedAnswer({ questionKey: question.key, value: answer })}
+                  className="w-full min-w-0 whitespace-normal break-words rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-1 text-left text-[10px] leading-snug text-amber-200 transition-colors hover:bg-amber-400/20 cursor-pointer"
+                  title={`Use suggested answer: ${answer}`}
+                  aria-label={`Use suggested answer: ${answer}`}
+                >
+                  {answer}
+                </button>
+              ))}
+              <div className="flex min-w-0 items-center gap-1">
+                <input
+                  type="text"
+                  value={answersByQuestion[question.key] ?? ""}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setQuestionAnswer(question.key, e.currentTarget.value)}
+                  aria-label={`Answer for ${question.prompt}`}
+                  className="min-w-0 flex-1 rounded border border-amber-400/25 bg-cc-bg/70 px-1.5 py-1 text-[11px] text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-amber-400/45"
+                  placeholder="Your answer"
+                />
+                {questionViews.length === 1 && (
+                  <button
+                    type="button"
+                    onClick={sendQuickReply}
+                    disabled={!canSendQuickReply}
+                    className="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-100 transition-colors hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+                  >
+                    Reply
+                  </button>
+                )}
+                {questionViews.length === 1 && replyButton}
+              </div>
+            </div>
           ))}
-          {replyButton}
+          {questionViews.length > 1 && (
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                onClick={sendQuickReply}
+                disabled={!canSendQuickReply}
+                className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-100 transition-colors hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+              >
+                Reply
+              </button>
+              {replyButton}
+            </div>
+          )}
         </div>
       )}
     </div>
   );
+}
+
+function findNotification({
+  sessionId,
+  notificationId,
+  messageId,
+  category,
+}: {
+  sessionId: string;
+  notificationId?: string;
+  messageId?: string;
+  category: "needs-input" | "review";
+}): SessionNotification | null {
+  const notifications = useStore.getState().sessionNotifications.get(sessionId);
+  if (!notifications) return null;
+  if (notificationId) return notifications.find((n) => n.id === notificationId && n.category === category) ?? null;
+  if (!messageId) return null;
+  return notifications.find((n) => n.messageId === messageId && n.category === category) ?? null;
 }

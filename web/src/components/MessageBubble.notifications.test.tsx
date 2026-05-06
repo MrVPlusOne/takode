@@ -5,11 +5,16 @@ import type { ChatMessage } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
 const markNotificationDoneMock = vi.hoisted(() => vi.fn(async () => ({})));
+const sendToSessionMock = vi.hoisted(() => vi.fn((_sessionId: string, _msg: unknown) => true));
 vi.mock("../api.js", () => ({
   api: {
     revertToMessage: revertToMessageMock,
     markNotificationDone: markNotificationDoneMock,
   },
+}));
+
+vi.mock("../ws.js", () => ({
+  sendToSession: (sessionId: string, msg: unknown) => sendToSessionMock(sessionId, msg),
 }));
 
 vi.mock("react-markdown", () => ({
@@ -44,6 +49,12 @@ function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role
 }
 
 describe("MessageBubble notification markers", () => {
+  beforeEach(() => {
+    revertToMessageMock.mockClear();
+    markNotificationDoneMock.mockClear();
+    sendToSessionMock.mockClear();
+  });
+
   it("uses the local toggle override for preview markers instead of the notification API", () => {
     // Playground previews should be able to demonstrate the review checkbox
     // locally without routing clicks through the real session notification API.
@@ -66,7 +77,7 @@ describe("MessageBubble notification markers", () => {
     expect(screen.queryByTitle("Reply to this notification")).toBeNull();
   });
 
-  it("prefills a suggested answer while replying to the exact needs-input notification", () => {
+  it("fills inline answers and sends without mutating the composer draft", () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const prevDrafts = useStore.getState().composerDrafts;
     const prevReplyContexts = useStore.getState().replyContexts;
@@ -103,20 +114,42 @@ describe("MessageBubble notification markers", () => {
 
       const actionRow = screen.getByTestId("notification-answer-actions");
       expect(actionRow.contains(screen.getByRole("button", { name: "Use suggested answer: yes" }))).toBe(true);
-      expect(actionRow.contains(screen.getByRole("button", { name: "Custom answer" }))).toBe(true);
+      expect(screen.queryByRole("button", { name: "Custom answer" })).toBeNull();
+      const input = screen.getByLabelText("Answer for Deploy now?") as HTMLInputElement;
+      const reply = screen.getByRole("button", { name: "Reply" }) as HTMLButtonElement;
+      expect(input.placeholder).toBe("Your answer");
+      expect(reply.disabled).toBe(true);
 
       fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
 
-      expect(useStore.getState().replyContexts.get("notify-session")).toEqual({
-        messageId: "asst-notify",
-        notificationId: "n-17",
-        previewText: "Deploy now?",
-      });
+      expect(input.value).toBe("yes");
+      expect(reply.disabled).toBe(false);
+      expect(useStore.getState().replyContexts.get("notify-session")).toBeUndefined();
       expect(useStore.getState().composerDrafts.get("notify-session")).toMatchObject({
-        text: "yes",
+        text: "existing draft",
         images: [{ id: "img-1" }],
       });
-      expect(useStore.getState().focusComposerTrigger).toBe(prevFocusTrigger + 1);
+      expect(useStore.getState().focusComposerTrigger).toBe(prevFocusTrigger);
+
+      fireEvent.click(reply);
+
+      expect(sendToSessionMock).toHaveBeenCalledWith("notify-session", {
+        type: "user_message",
+        content: "Deploy now?\n\nAnswer: yes",
+        deliveryContent: "[reply] Deploy now?\n\nDeploy now?\n\nAnswer: yes",
+        replyContext: {
+          messageId: "asst-notify",
+          notificationId: "n-17",
+          previewText: "Deploy now?",
+        },
+        session_id: "notify-session",
+        threadKey: "main",
+      });
+      expect(markNotificationDoneMock).toHaveBeenCalledWith("notify-session", "n-17", true);
+      expect(useStore.getState().composerDrafts.get("notify-session")).toMatchObject({
+        text: "existing draft",
+        images: [{ id: "img-1" }],
+      });
     } finally {
       useStore.setState({
         sessionNotifications: prevNotifications,
@@ -168,7 +201,7 @@ describe("MessageBubble notification markers", () => {
     }
   });
 
-  it("switches to the notification owner thread before applying an inline suggested answer", () => {
+  it("switches to the notification owner thread before sending an inline quick answer", () => {
     const onSelectThread = vi.fn();
     vi.useFakeTimers();
     const prevNotifications = useStore.getState().sessionNotifications;
@@ -205,21 +238,28 @@ describe("MessageBubble notification markers", () => {
       );
 
       fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: yes" }));
+      expect(screen.getByLabelText("Answer for Deploy now?")).toMatchObject({ value: "yes" });
+      expect(onSelectThread).not.toHaveBeenCalled();
 
+      fireEvent.click(screen.getByRole("button", { name: "Reply" }));
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
       expect(useStore.getState().replyContexts.get("notify-session")).toBeUndefined();
+      expect(sendToSessionMock).not.toHaveBeenCalled();
 
       act(() => {
         vi.runOnlyPendingTimers();
       });
 
-      expect(useStore.getState().replyContexts.get("notify-session")).toEqual({
-        messageId: "asst-notify",
-        notificationId: "n-20",
-        previewText: "Deploy now?",
-      });
-      expect(useStore.getState().composerDrafts.get("notify-session")).toMatchObject({ text: "yes" });
-      expect(useStore.getState().focusComposerTrigger).toBe(prevFocusTrigger + 1);
+      expect(sendToSessionMock).toHaveBeenCalledWith(
+        "notify-session",
+        expect.objectContaining({
+          content: "Deploy now?\n\nAnswer: yes",
+          threadKey: "q-977",
+          questId: "q-977",
+        }),
+      );
+      expect(useStore.getState().composerDrafts.get("notify-session")).toBeUndefined();
+      expect(useStore.getState().focusComposerTrigger).toBe(prevFocusTrigger);
     } finally {
       vi.useRealTimers();
       useStore.setState({
@@ -274,13 +314,21 @@ describe("MessageBubble notification markers", () => {
 
       render(<MessageBubble message={msg} sessionId="notify-session" />);
       fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: ship" }));
+      fireEvent.click(screen.getByRole("button", { name: "Reply" }));
 
-      expect(useStore.getState().replyContexts.get("notify-session")).toEqual({
-        messageId: "asst-shared-anchor",
-        notificationId: "n-2",
-        previewText: "Second prompt",
-      });
-      expect(useStore.getState().composerDrafts.get("notify-session")).toMatchObject({ text: "ship" });
+      expect(sendToSessionMock).toHaveBeenCalledWith(
+        "notify-session",
+        expect.objectContaining({
+          content: "Second prompt\n\nAnswer: ship",
+          replyContext: {
+            messageId: "asst-shared-anchor",
+            notificationId: "n-2",
+            previewText: "Second prompt",
+          },
+        }),
+      );
+      expect(useStore.getState().replyContexts.get("notify-session")).toBeUndefined();
+      expect(useStore.getState().composerDrafts.get("notify-session")).toBeUndefined();
     } finally {
       useStore.setState({
         sessionNotifications: prevNotifications,
@@ -290,7 +338,7 @@ describe("MessageBubble notification markers", () => {
     }
   });
 
-  it("uses the custom answer action without replacing the existing draft", () => {
+  it("uses the composer reply icon without replacing the existing draft", () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const prevDrafts = useStore.getState().composerDrafts;
     const prevReplyContexts = useStore.getState().replyContexts;
@@ -321,7 +369,9 @@ describe("MessageBubble notification markers", () => {
         />,
       );
 
-      fireEvent.click(screen.getByRole("button", { name: "Custom answer" }));
+      const composerReply = screen.getByRole("button", { name: "reply in composer" });
+      expect(composerReply.getAttribute("title")).toBe("reply in composer");
+      fireEvent.click(composerReply);
 
       expect(useStore.getState().replyContexts.get("notify-session")).toMatchObject({
         messageId: "asst-notify",
@@ -369,8 +419,75 @@ describe("MessageBubble notification markers", () => {
       expect(screen.queryByRole("button", { name: "Use suggested answer: yes" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Custom answer" })).toBeNull();
       expect(screen.queryByRole("button", { name: "Reply to this notification" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "reply in composer" })).toBeNull();
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
+
+  it("renders structured inline questions with scoped suggestions and a combined reply", () => {
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const prevDrafts = useStore.getState().composerDrafts;
+    const prevReplyContexts = useStore.getState().replyContexts;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-questions",
+        category: "needs-input",
+        summary: "Need rollout choices",
+        questions: [
+          { prompt: "Which rollout?", suggestedAnswers: ["staged", "full"] },
+          { prompt: "When should it start?", suggestedAnswers: ["now", "after review"] },
+        ],
+        timestamp: Date.now(),
+        messageId: "asst-notify",
+        done: false,
+      },
+    ]);
+    const drafts = new Map(prevDrafts);
+    drafts.set("notify-session", { text: "do not touch", images: [] });
+    useStore.setState({ sessionNotifications: notifications, composerDrafts: drafts });
+
+    try {
+      render(
+        <NotificationMarker
+          category="needs-input"
+          summary="Need rollout choices"
+          sessionId="notify-session"
+          messageId="asst-notify"
+          notificationId="n-questions"
+        />,
+      );
+
+      expect(screen.getAllByTestId("notification-question-block")).toHaveLength(2);
+      const reply = screen.getByRole("button", { name: "Reply" }) as HTMLButtonElement;
+      expect(reply.disabled).toBe(true);
+
+      fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: staged" }));
+      expect(screen.getByLabelText("Answer for Which rollout?")).toMatchObject({ value: "staged" });
+      expect(screen.getByLabelText("Answer for When should it start?")).toMatchObject({ value: "" });
+      expect(reply.disabled).toBe(true);
+
+      fireEvent.change(screen.getByLabelText("Answer for When should it start?"), {
+        target: { value: "after smoke test" },
+      });
+      expect(reply.disabled).toBe(false);
+      fireEvent.click(reply);
+
+      expect(sendToSessionMock).toHaveBeenCalledWith(
+        "notify-session",
+        expect.objectContaining({
+          content:
+            "Answers for: Need rollout choices\n\n1. Which rollout?\nAnswer: staged\n\n2. When should it start?\nAnswer: after smoke test",
+        }),
+      );
+      expect(useStore.getState().composerDrafts.get("notify-session")?.text).toBe("do not touch");
+    } finally {
+      useStore.setState({
+        sessionNotifications: prevNotifications,
+        composerDrafts: prevDrafts,
+        replyContexts: prevReplyContexts,
+      });
     }
   });
 });
