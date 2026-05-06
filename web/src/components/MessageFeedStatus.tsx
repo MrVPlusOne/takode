@@ -2,7 +2,14 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
-import type { ChatMessage, PendingCodexInput, PendingUserUpload } from "../types.js";
+import type {
+  ActiveTurnRoute,
+  ChatMessage,
+  PendingCodexInput,
+  PendingUserUpload,
+  SdkSessionInfo,
+  SessionState,
+} from "../types.js";
 import { YarnBallDot } from "./CatIcons.js";
 import { MessageBubble } from "./MessageBubble.js";
 import { NotificationChip } from "./NotificationChip.js";
@@ -32,6 +39,18 @@ export function ElapsedTimer({
   const streamingPauseStartedAt = useStore((s) => s.streamingPauseStartedAt.get(sessionId));
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes?.get(sessionId));
+  const bridgeIsOrchestrator = useStore((s) => s.sessions?.get(sessionId)?.isOrchestrator === true);
+  const bridgeClaimedQuestId = useStore((s) => s.sessions?.get(sessionId)?.claimedQuestId ?? null);
+  const sdkIsOrchestrator = useStore(
+    (s) => s.sdkSessions?.find((session) => session.sessionId === sessionId)?.isOrchestrator === true,
+  );
+  const sdkReviewerOf = useStore(
+    (s) => s.sdkSessions?.find((session) => session.sessionId === sessionId)?.reviewerOf ?? null,
+  );
+  const sdkClaimedQuestId = useStore(
+    (s) => s.sdkSessions?.find((session) => session.sessionId === sessionId)?.claimedQuestId ?? null,
+  );
+  const reviewedQuestId = useStore((s) => findReviewedQuestId(sessionId, s.sdkSessions ?? [], s.sessions ?? new Map()));
   const isStuck = useStore((s) => s.sessionStuck.get(sessionId) ?? false);
   const [elapsed, setElapsed] = useState(0);
   const rootRef = useRef<HTMLDivElement>(null);
@@ -82,7 +101,12 @@ export function ElapsedTimer({
     ? "Session may be stuck"
     : streamingPauseStartedAt
       ? "Napping..."
-      : formatActiveTurnLabel(activeTurnRoute, currentThreadKey);
+      : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
+          isLeaderSession: bridgeIsOrchestrator || sdkIsOrchestrator,
+          isReviewerSession: sdkReviewerOf !== null,
+          claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
+          reviewedQuestId,
+        });
   const dotColor = isStuck
     ? "text-amber-400"
     : streamingPauseStartedAt
@@ -208,12 +232,57 @@ export function FeedStatusPill({
 }
 
 function formatActiveTurnLabel(
-  activeTurnRoute: { threadKey: string; questId?: string } | null | undefined,
+  activeTurnRoute: ActiveTurnRoute | null | undefined,
   currentThreadKey: string,
+  context: {
+    isLeaderSession: boolean;
+    isReviewerSession: boolean;
+    claimedQuestId?: string | null;
+    reviewedQuestId?: string | null;
+  },
 ): string {
-  if (!activeTurnRoute) return "Purring...";
-  if (normalizeThreadKey(activeTurnRoute.threadKey) === normalizeThreadKey(currentThreadKey)) return "Active here";
-  return `Active in ${activeTurnRoute.questId ?? activeTurnRoute.threadKey}`;
+  if (context.isLeaderSession) {
+    if (!activeTurnRoute) return "Purring...";
+    if (normalizeThreadKey(activeTurnRoute.threadKey) === normalizeThreadKey(currentThreadKey)) return "Active here";
+    return `Active in ${activeTurnRoute.questId ?? activeTurnRoute.threadKey}`;
+  }
+
+  const activeQuestId = questIdFromRoute(activeTurnRoute);
+  if (context.isReviewerSession) {
+    const reviewerQuestId =
+      activeQuestId ?? normalizeQuestId(context.reviewedQuestId) ?? normalizeQuestId(context.claimedQuestId);
+    return reviewerQuestId ? `Reviewing ${reviewerQuestId}` : "Purring...";
+  }
+
+  const workerQuestId = activeQuestId ?? normalizeQuestId(context.claimedQuestId);
+  return workerQuestId ? `Working on ${workerQuestId}` : "Purring...";
+}
+
+function findReviewedQuestId(
+  sessionId: string,
+  sdkSessions: SdkSessionInfo[],
+  sessions: Map<string, SessionState>,
+): string | null {
+  const reviewer = sdkSessions.find((session) => session.sessionId === sessionId);
+  if (reviewer?.reviewerOf === undefined) return null;
+
+  const reviewed = sdkSessions.find((session) => session.sessionNum === reviewer.reviewerOf);
+  if (!reviewed) return null;
+
+  return (
+    normalizeQuestId(reviewed.claimedQuestId) ?? normalizeQuestId(sessions.get(reviewed.sessionId)?.claimedQuestId)
+  );
+}
+
+function questIdFromRoute(activeTurnRoute: ActiveTurnRoute | null | undefined): string | null {
+  if (!activeTurnRoute) return null;
+  return normalizeQuestId(activeTurnRoute.questId) ?? normalizeQuestId(activeTurnRoute.threadKey);
+}
+
+function normalizeQuestId(value: string | null | undefined): string | null {
+  if (!value) return null;
+  const trimmed = value.trim();
+  return /^q-\d+$/.test(trimmed) ? trimmed : null;
 }
 
 export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string; inputs: PendingCodexInput[] }) {

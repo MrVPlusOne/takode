@@ -362,17 +362,45 @@ function setStoreToolResults(
   mockStoreValues.toolResults = map;
 }
 
-function setStoreSdkSessionRole(sessionId: string, overrides: { isOrchestrator?: boolean; herdedBy?: string } = {}) {
-  mockStoreValues.sdkSessions = [
+function setStoreSdkSessions(
+  sessions: Array<{
+    sessionId: string;
+    isOrchestrator?: boolean;
+    herdedBy?: string;
+    reviewerOf?: number;
+    sessionNum?: number;
+    claimedQuestId?: string | null;
+  }>,
+) {
+  mockStoreValues.sdkSessions = sessions.map((session) => ({
+    sessionId: session.sessionId,
+    state: "connected",
+    cwd: "/test",
+    createdAt: Date.now(),
+    ...(session.isOrchestrator ? { isOrchestrator: true } : {}),
+    ...(session.herdedBy ? { herdedBy: session.herdedBy } : {}),
+    ...(session.reviewerOf !== undefined ? { reviewerOf: session.reviewerOf } : {}),
+    ...(session.sessionNum !== undefined ? { sessionNum: session.sessionNum } : {}),
+    ...(session.claimedQuestId ? { claimedQuestId: session.claimedQuestId } : {}),
+  }));
+}
+
+function setStoreSdkSessionRole(
+  sessionId: string,
+  overrides: {
+    isOrchestrator?: boolean;
+    herdedBy?: string;
+    reviewerOf?: number;
+    sessionNum?: number;
+    claimedQuestId?: string | null;
+  } = {},
+) {
+  setStoreSdkSessions([
     {
       sessionId,
-      state: "connected",
-      cwd: "/test",
-      createdAt: Date.now(),
-      ...(overrides.isOrchestrator ? { isOrchestrator: true } : {}),
-      ...(overrides.herdedBy ? { herdedBy: overrides.herdedBy } : {}),
+      ...overrides,
     },
-  ];
+  ]);
 }
 
 function setStoreScrollToTurn(sessionId: string, turnId: string) {
@@ -418,6 +446,7 @@ function resetStore() {
   mockStoreValues.streamingPausedDuration = new Map();
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
+  mockStoreValues.activeTurnRoutes = new Map();
   mockStoreValues.sessions = new Map();
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.toolResults = new Map();
@@ -545,6 +574,7 @@ describe("ElapsedTimer - generation stats bar", () => {
     setStoreStatus(sid, "running");
     setStoreStreamingStartedAt(sid, Date.now() - 5000);
     setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
 
     render(<ElapsedTimer sessionId={sid} currentThreadKey="q-975" />);
 
@@ -556,9 +586,74 @@ describe("ElapsedTimer - generation stats bar", () => {
     setStoreStatus(sid, "running");
     setStoreStreamingStartedAt(sid, Date.now() - 5000);
     setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
 
     render(<ElapsedTimer sessionId={sid} currentThreadKey="main" />);
 
     expect(screen.getByText("Active in q-975")).toBeTruthy();
+  });
+
+  it("labels non-leader worker turns as working on the active quest", () => {
+    const sid = "test-worker-active";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+
+    render(<ElapsedTimer sessionId={sid} currentThreadKey="main" />);
+
+    expect(screen.getByText("Working on q-975")).toBeTruthy();
+    expect(screen.queryByText("Active in q-975")).toBeNull();
+  });
+
+  it("uses a claimed quest for non-leader worker turns when no active quest route is present", () => {
+    const sid = "test-worker-claimed";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreSessionState(sid, { claimedQuestId: "q-1198" });
+
+    render(<ElapsedTimer sessionId={sid} />);
+
+    expect(screen.getByText("Working on q-1198")).toBeTruthy();
+  });
+
+  it("labels reviewer turns as reviewing when the active route carries a quest", () => {
+    const sid = "test-reviewer-active";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-1195", questId: "q-1195" });
+    setStoreSdkSessionRole(sid, { reviewerOf: 1523 });
+
+    render(<ElapsedTimer sessionId={sid} currentThreadKey="main" />);
+
+    expect(screen.getByText("Reviewing q-1195")).toBeTruthy();
+    expect(screen.queryByText("Active in q-1195")).toBeNull();
+  });
+
+  it("uses reviewed session quest metadata for reviewer turns when available", () => {
+    const sid = "test-reviewer-parent-quest";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreSdkSessions([
+      { sessionId: "worker-1195", sessionNum: 1523, claimedQuestId: "q-1195" },
+      { sessionId: sid, reviewerOf: 1523 },
+    ]);
+
+    render(<ElapsedTimer sessionId={sid} />);
+
+    expect(screen.getByText("Reviewing q-1195")).toBeTruthy();
+  });
+
+  it("falls back to purring for reviewers without reliable quest metadata", () => {
+    const sid = "test-reviewer-no-quest";
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "main" });
+    setStoreSdkSessionRole(sid, { reviewerOf: 1523 });
+
+    render(<ElapsedTimer sessionId={sid} />);
+
+    expect(screen.getByText("Purring...")).toBeTruthy();
+    expect(screen.queryByText(/Active in/)).toBeNull();
+    expect(screen.queryByText(/Reviewing q-/)).toBeNull();
   });
 });
