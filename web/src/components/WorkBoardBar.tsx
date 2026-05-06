@@ -101,7 +101,9 @@ export function constrainThreadTabTransformToHorizontal(transform: Transform | n
 }
 
 const COMPACT_MAIN_TAB_WIDTH = 96;
-const COMPACT_THREAD_TAB_WIDTH = 68;
+const COMPACT_MOBILE_THREAD_TAB_WIDTH = 68;
+const COMPACT_DESKTOP_THREAD_TAB_WIDTH = 160;
+const COMPACT_DESKTOP_PACKING_MIN_RAIL_WIDTH = 640;
 const COMPACT_MORE_TABS_WIDTH = 72;
 const COMPACT_TAB_GAP = 4;
 
@@ -165,23 +167,33 @@ function estimateCompactVisibleTabCapacity(tabCount: number, railWidth: number |
   if (tabCount <= 0) return 0;
   if (!railWidth || railWidth <= 0) return tabCount;
 
-  const fitsWithoutOverflow = estimatedCompactRailWidth(tabCount, false) <= railWidth;
+  const fitsWithoutOverflow = estimatedCompactRailWidth(tabCount, false, railWidth) <= railWidth;
   if (fitsWithoutOverflow) return tabCount;
 
   for (let count = tabCount - 1; count > 0; count--) {
-    if (estimatedCompactRailWidth(count, true) <= railWidth) return count;
+    if (estimatedCompactRailWidth(count, true, railWidth) <= railWidth) return count;
   }
   return 1;
 }
 
-function estimatedCompactRailWidth(visibleTabCount: number, includesMoreTabs: boolean): number {
+function estimatedCompactRailWidth(
+  visibleTabCount: number,
+  includesMoreTabs: boolean,
+  railWidth: number | null,
+): number {
   const extraItemCount = visibleTabCount + (includesMoreTabs ? 1 : 0);
+  const threadTabWidth = compactThreadTabWidthForRail(railWidth);
   return (
     COMPACT_MAIN_TAB_WIDTH +
-    visibleTabCount * COMPACT_THREAD_TAB_WIDTH +
+    visibleTabCount * threadTabWidth +
     (includesMoreTabs ? COMPACT_MORE_TABS_WIDTH : 0) +
     extraItemCount * COMPACT_TAB_GAP
   );
+}
+
+function compactThreadTabWidthForRail(railWidth?: number | null): number {
+  if (!railWidth || railWidth < COMPACT_DESKTOP_PACKING_MIN_RAIL_WIDTH) return COMPACT_MOBILE_THREAD_TAB_WIDTH;
+  return COMPACT_DESKTOP_THREAD_TAB_WIDTH;
 }
 
 function stringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
@@ -1030,6 +1042,9 @@ function ThreadTabRail({
   const selectedHidden = hiddenTabs.some((tab) => isSelectedThread(currentThreadKey, tab.threadKey));
   const activeOutputHidden = hiddenTabs.some((tab) => isActiveOutputThread(runningActiveTurnRoute, tab.threadKey));
   const needsInputHidden = hiddenTabs.some((tab) => tab.needsInput);
+  const tabStripStyle = {
+    "--thread-tab-width": `${compactThreadTabWidthForRail(railWidth)}px`,
+  } as CSSProperties;
 
   return (
     <div
@@ -1043,6 +1058,7 @@ function ThreadTabRail({
     >
       <div
         ref={tabStripRef}
+        style={tabStripStyle}
         className="relative flex min-w-0 items-end gap-1 overflow-visible"
         data-testid="thread-tab-strip"
         data-overflow-mode="more-tabs"
@@ -1083,7 +1099,7 @@ function ThreadTabRail({
               const title = hoverQuest
                 ? undefined
                 : `${displayQuestId ? `${displayQuestId}: ${displayTitle}` : displayTitle}${tab.needsInput ? " needs input" : ""}`;
-              const className = `group relative inline-flex min-w-[4.25rem] max-w-[14rem] flex-[1_1_7.5rem] items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${tone}`;
+              const className = `group relative inline-flex min-w-[var(--thread-tab-width)] max-w-[14rem] flex-[1_1_var(--thread-tab-width)] items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${tone}`;
               const mouseEnter = (event: ReactMouseEvent<HTMLDivElement>) =>
                 showQuestHover(hoverQuest, event.currentTarget.getBoundingClientRect());
               const children = (dragSurfaceProps?: {

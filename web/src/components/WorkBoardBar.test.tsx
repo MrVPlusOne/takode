@@ -945,6 +945,7 @@ describe("WorkBoardBar", () => {
     const tabStrip = getByTestId("thread-tab-strip");
     expect(tabStrip).toHaveAttribute("aria-label", "Thread tabs");
     expect(tabStrip).toHaveAttribute("data-overflow-mode", "more-tabs");
+    expect(tabStrip.getAttribute("style") ?? "").toContain("--thread-tab-width: 68px");
     expect(tabStrip).toHaveClass("overflow-visible");
     expect(tabStrip).not.toHaveClass("overflow-x-auto", "thread-tab-scroll");
     expect(getByTestId("thread-main-tab")).toHaveAttribute("data-min-label", "Main Thread");
@@ -955,7 +956,7 @@ describe("WorkBoardBar", () => {
     expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-1", "q-2"]);
     for (const tab of tabs) {
       // The fixed minimum protects the quest id; the More list owns real overflow.
-      expect(tab).toHaveClass("min-w-[4.25rem]", "max-w-[14rem]", "flex-[1_1_7.5rem]");
+      expect(tab).toHaveClass("min-w-[var(--thread-tab-width)]", "max-w-[14rem]", "flex-[1_1_var(--thread-tab-width)]");
     }
     expect(tabs[0]).toHaveClass("border-violet-100/45", "border-b-transparent", "text-white");
     expect(within(tabs[0]).getByTestId("thread-tab-select")).toHaveClass(

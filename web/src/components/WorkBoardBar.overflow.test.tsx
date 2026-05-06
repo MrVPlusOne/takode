@@ -128,6 +128,44 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(sourceTabs.map((tab) => tab.threadKey)).toEqual(["q-1", "q-2", "q-3", "q-4", "q-5"]);
   });
 
+  it("uses wider desktop tab packing so readable labels overflow into More earlier", () => {
+    const sourceTabs = Array.from({ length: 12 }, (_, index) => ({ threadKey: `q-${index + 1}` }));
+    // The approved desktop case has enough physical room for many 68px tabs, but those labels are not useful.
+    const partition = buildCompactThreadTabPartition({
+      tabs: sourceTabs,
+      currentThreadKey: "q-12",
+      railWidth: 1880,
+    });
+
+    expect(partition.visibleThreadKeys).toEqual([
+      "q-1",
+      "q-2",
+      "q-3",
+      "q-4",
+      "q-5",
+      "q-6",
+      "q-7",
+      "q-8",
+      "q-9",
+      "q-12",
+    ]);
+    expect(partition.hiddenThreadKeys).toEqual(["q-10", "q-11"]);
+    expect(sourceTabs.map((tab) => tab.threadKey)).toEqual([
+      "q-1",
+      "q-2",
+      "q-3",
+      "q-4",
+      "q-5",
+      "q-6",
+      "q-7",
+      "q-8",
+      "q-9",
+      "q-10",
+      "q-11",
+      "q-12",
+    ]);
+  });
+
   it("shows More tabs with hidden status aggregation and selects hidden rows from the list", async () => {
     const onSelectThread = vi.fn();
     // Hidden q-3 owns needs-input state and hidden q-4 owns active output, so the More button must aggregate both.

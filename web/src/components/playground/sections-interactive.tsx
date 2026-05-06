@@ -1386,6 +1386,17 @@ export function PlaygroundInteractiveSections() {
               >
                 Simulate moved-message tab
               </button>
+              <button
+                type="button"
+                onClick={() => {
+                  const crowdKeys = Array.from({ length: 12 }, (_, index) => `q-${1101 + index}`);
+                  setBoardOpenThreadKeys(crowdKeys);
+                  setBoardPreviewThreadKey(crowdKeys.at(-1) ?? "main");
+                }}
+                className="ml-2 text-xs font-medium px-3 py-1.5 rounded-md bg-violet-500/15 hover:bg-violet-500/25 text-violet-200 transition-colors cursor-pointer"
+              >
+                Simulate desktop tab crowd
+              </button>
               <div className="flex flex-wrap items-center gap-1.5 pt-1">
                 <button
                   type="button"
@@ -1481,6 +1492,18 @@ export function PlaygroundInteractiveSections() {
                       messageCount: 2,
                       section: "done",
                     },
+                    ...(boardOpenThreadKeys.some((threadKey) => threadKey.startsWith("q-11"))
+                      ? Array.from({ length: 12 }, (_, index) => {
+                          const questId = `q-${1101 + index}`;
+                          return {
+                            threadKey: questId,
+                            questId,
+                            title: `Desktop tab ${index + 1} with readable context`,
+                            messageCount: index + 1,
+                            section: "active" as const,
+                          };
+                        })
+                      : []),
                   ]}
                   attentionRecords={[
                     {

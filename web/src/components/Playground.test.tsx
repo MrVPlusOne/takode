@@ -159,6 +159,7 @@ describe("Playground", () => {
     expect(within(rail).queryByText("Tabs")).not.toBeInTheDocument();
     const tabStrip = screen.getByTestId("thread-tab-strip");
     expect(tabStrip).toHaveAttribute("data-overflow-mode", "more-tabs");
+    expect(tabStrip.getAttribute("style") ?? "").toContain("--thread-tab-width: 68px");
     expect(tabStrip).toHaveClass("overflow-visible");
     const moreButton = screen.getByTestId("thread-tabs-more-button");
     expect(moreButton).toHaveAttribute("data-hidden-count", "2");
@@ -190,7 +191,11 @@ describe("Playground", () => {
     const tabs = screen.getAllByTestId("thread-tab");
     expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-42", "q-55", "q-61"]);
     expect(within(rail).queryByText("Active")).not.toBeInTheDocument();
-    expect(tabs[0]).toHaveClass("min-w-[4.25rem]", "max-w-[14rem]", "flex-[1_1_7.5rem]");
+    expect(tabs[0]).toHaveClass(
+      "min-w-[var(--thread-tab-width)]",
+      "max-w-[14rem]",
+      "flex-[1_1_var(--thread-tab-width)]",
+    );
     expect(tabs[0]).toHaveAttribute("data-closable", "false");
     expect(within(tabs[0]).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
     fireEvent.click(moreButton);
@@ -295,6 +300,33 @@ describe("Playground", () => {
     ).toBeNull();
     fireEvent.click(screen.getByTestId("workboard-other-threads-toggle"));
     expect(screen.getByTestId("workboard-other-threads-content")).toHaveTextContent("Off-board routed discussion");
+  });
+
+  it("documents the desktop Work Board Bar tab crowd overflowing into More before labels collapse", () => {
+    setMeasuredRailWidth(1880);
+    render(<Playground />);
+
+    fireEvent.click(screen.getByText("Seed board data"));
+    fireEvent.click(screen.getByText("Simulate desktop tab crowd"));
+
+    const rail = screen.getByTestId("thread-tab-rail");
+    expect(rail).toHaveAttribute("data-overflow", "more-tabs-list");
+    const tabs = screen.getAllByTestId("thread-tab");
+    expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
+      "q-61",
+      "q-42",
+      "q-55",
+      "q-1101",
+      "q-1102",
+      "q-1103",
+      "q-1104",
+      "q-1105",
+      "q-1106",
+      "q-1112",
+    ]);
+    expect(screen.getByTestId("thread-tab-strip").getAttribute("style") ?? "").toContain("--thread-tab-width: 160px");
+    expect(tabs[0]).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
+    expect(screen.getByTestId("thread-tabs-more-button")).toHaveAttribute("data-hidden-count", "6");
   });
 
   it("documents compact quest-thread banners without chip note counts and with tap previews", () => {
