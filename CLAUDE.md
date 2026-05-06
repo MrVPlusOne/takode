@@ -20,7 +20,6 @@ The Takode server symlinks project skills into global skill directories at start
 | `takode-orchestration` | `.claude/skills/takode-orchestration/` | Cross-session orchestration: CLI reference, quest journey, board, herd events |
 | `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
 | `confirm` | `.claude/skills/confirm/` | Confirmation workflow for instruction-scoped `/confirm` requests |
-| `quest-journey-planning` | `.claude/skills/quest-journey-planning/` | Quest Journey phase: planning-only worker dispatch |
 | `quest-journey-explore` | `.claude/skills/quest-journey-explore/` | Quest Journey phase: evidence gathering before deciding the next action |
 | `quest-journey-implement` | `.claude/skills/quest-journey-implement/` | Quest Journey phase: approved code/docs/prompt/config/artifact changes |
 | `quest-journey-code-review` | `.claude/skills/quest-journey-code-review/` | Quest Journey phase: tracked artifact quality and landing-risk review |
@@ -38,7 +37,7 @@ The Takode server symlinks project skills into global skill directories at start
 | `takode-ui-e2e-validation` | `.agents/skills/takode-ui-e2e-validation/` | Takode UI/E2E validation with `agent-browser`, leases, shared persistent validation state by default, isolated exceptions, Playground coverage, and screenshot evidence |
 
 Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) into the Claude and `.agents` skill directories at startup.
-Legacy compatibility aliases also remain installed for older references: `quest-journey-implementation`, `quest-journey-skeptic-review`, `quest-journey-reviewer-groom`, and `quest-journey-porting`. New work should use the canonical phase skills above.
+Alignment is guided by the canonical phase briefs in `~/.companion/quest-journey-phases/alignment/`, not by a legacy phase skill. Historical phase aliases remain internal Quest Journey compatibility metadata only; they are not installed as worker-visible skills.
 
 ## Development Commands
 

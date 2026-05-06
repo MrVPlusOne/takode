@@ -3,7 +3,11 @@ import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { afterEach, describe, expect, it } from "vitest";
-import { QUEST_JOURNEY_PHASES } from "../shared/quest-journey.js";
+import {
+  canonicalizeQuestJourneyPhaseId,
+  canonicalizeQuestJourneyState,
+  QUEST_JOURNEY_PHASES,
+} from "../shared/quest-journey.js";
 import {
   ensureBuiltInQuestJourneyPhaseData,
   ensureQuestJourneyPhaseDataForCwd,
@@ -67,6 +71,24 @@ describe("Quest Journey phase directory loading", () => {
     );
 
     expect(refreshed).toBe(canonical);
+  });
+
+  it("removes stale installed planning phase data without deleting canonical phases", async () => {
+    const companionHome = await makeCompanionHome();
+    const dataRoot = getQuestJourneyPhaseDataRoot({ companionHome });
+    const stalePlanningDir = join(dataRoot, "planning");
+    await mkdir(stalePlanningDir, { recursive: true });
+    await writeFile(join(stalePlanningDir, "assignee.md"), "stale planning brief", "utf-8");
+
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    await expect(readFile(join(stalePlanningDir, "assignee.md"), "utf-8")).rejects.toThrow();
+    await expect(
+      readFile(getQuestJourneyPhaseAssigneeBriefPath("alignment", { companionHome }), "utf-8"),
+    ).resolves.toContain("Alignment -- Assignee Brief");
+    await expect(
+      readFile(getQuestJourneyPhaseAssigneeBriefPath("implement", { companionHome }), "utf-8"),
+    ).resolves.toContain("Implement -- Assignee Brief");
   });
 
   it("refreshes runtime phase files from the package root nearest the session cwd", async () => {
@@ -421,5 +443,25 @@ describe("Quest Journey phase directory loading", () => {
     );
     expect(catalog[0]?.sourcePath).toBe(join(PACKAGE_ROOT, "shared", "quest-journey-phases", "alignment"));
     expect(catalog[0]?.aliases).toContain("planning");
+  });
+
+  it("keeps internal compatibility aliases after removing legacy skill aliases", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const catalog = await loadQuestJourneyPhaseCatalog({ packageRoot: PACKAGE_ROOT, companionHome });
+    const aliasesByPhase = Object.fromEntries(catalog.map((phase) => [phase.id, phase.aliases]));
+
+    expect(aliasesByPhase.alignment).toContain("planning");
+    expect(aliasesByPhase.implement).toContain("implementation");
+    expect(aliasesByPhase["code-review"]).toEqual(expect.arrayContaining(["skeptic-review", "reviewer-groom"]));
+    expect(aliasesByPhase.port).toContain("porting");
+    expect(canonicalizeQuestJourneyPhaseId("planning")).toBe("alignment");
+    expect(canonicalizeQuestJourneyPhaseId("implementation")).toBe("implement");
+    expect(canonicalizeQuestJourneyPhaseId("skeptic-review")).toBe("code-review");
+    expect(canonicalizeQuestJourneyPhaseId("reviewer-groom")).toBe("code-review");
+    expect(canonicalizeQuestJourneyPhaseId("porting")).toBe("port");
+    expect(canonicalizeQuestJourneyState("SKEPTIC_REVIEWING")).toBe("CODE_REVIEWING");
+    expect(canonicalizeQuestJourneyState("GROOM_REVIEWING")).toBe("CODE_REVIEWING");
   });
 });

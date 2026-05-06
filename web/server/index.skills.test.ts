@@ -1,4 +1,4 @@
-import { readFile } from "node:fs/promises";
+import { access, readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
@@ -7,6 +7,14 @@ const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = join(SERVER_DIR, "index.ts");
 const SKEPTIC_REVIEW_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "skeptic-review", "SKILL.md");
 const WORKTREE_RULES_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "worktree-rules", "SKILL.md");
+const REPO_ROOT = join(SERVER_DIR, "..", "..");
+const LEGACY_QUEST_JOURNEY_SKILL_SLUGS = [
+  "quest-journey-planning",
+  "quest-journey-implementation",
+  "quest-journey-skeptic-review",
+  "quest-journey-reviewer-groom",
+  "quest-journey-porting",
+];
 
 describe("index startup skill registration", () => {
   it("registers canonical startup skills without stale hardcoded slugs", async () => {
@@ -41,6 +49,25 @@ describe("index startup skill registration", () => {
     expect(registered).toContain("skeptic-review");
     expect(registered).toContain("worktree-rules");
     expect(registered).not.toContain("playwright-e2e-tester");
+  });
+
+  it("does not keep legacy Quest Journey aliases as repo skill sources or documented installed skills", async () => {
+    const docs = await Promise.all([
+      readFile(join(REPO_ROOT, "CLAUDE.md"), "utf-8"),
+      readFile(join(REPO_ROOT, "AGENTS.md"), "utf-8"),
+    ]);
+
+    for (const slug of LEGACY_QUEST_JOURNEY_SKILL_SLUGS) {
+      await expect(access(join(REPO_ROOT, ".claude", "skills", slug, "SKILL.md"))).rejects.toThrow();
+      for (const doc of docs) {
+        expect(doc).not.toContain(slug);
+      }
+    }
+
+    for (const doc of docs) {
+      expect(doc).toContain("~/.companion/quest-journey-phases/alignment/");
+      expect(doc).toContain("Historical phase aliases remain internal Quest Journey compatibility metadata only");
+    }
   });
 
   it("keeps skeptic-review summary creation guidance from teaching lossy long summaries", async () => {

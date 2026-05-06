@@ -1,5 +1,5 @@
 import { homedir } from "node:os";
-import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -49,6 +49,7 @@ export interface QuestJourneyPhasePathOptions {
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const QUEST_JOURNEY_PHASE_DIRNAME = "quest-journey-phases";
 const QUEST_JOURNEY_PHASE_DISPLAY_ROOT = "~/.companion/quest-journey-phases";
+const DEPRECATED_QUEST_JOURNEY_PHASE_DATA_DIRS = ["planning"];
 
 function resolvePackageRoot(options?: QuestJourneyPhasePathOptions): string {
   return options?.packageRoot
@@ -117,6 +118,7 @@ export async function ensureBuiltInQuestJourneyPhaseData(options?: QuestJourneyP
   const canonicalRoot = getQuestJourneyPhaseCanonicalRoot(options);
   const dataRoot = getQuestJourneyPhaseDataRoot(options);
   await mkdir(dataRoot, { recursive: true });
+  await removeDeprecatedQuestJourneyPhaseDataDirs(dataRoot);
 
   for (const phase of QUEST_JOURNEY_PHASES) {
     const canonicalDir = join(canonicalRoot, phase.id);
@@ -187,6 +189,14 @@ export async function loadBuiltInQuestJourneyPhases(
   options?: QuestJourneyPhasePathOptions,
 ): Promise<LoadedQuestJourneyPhase[]> {
   return Promise.all(QUEST_JOURNEY_PHASES.map((phase) => loadQuestJourneyPhase(phase.id, options)));
+}
+
+async function removeDeprecatedQuestJourneyPhaseDataDirs(dataRoot: string): Promise<void> {
+  await Promise.all(
+    DEPRECATED_QUEST_JOURNEY_PHASE_DATA_DIRS.map((dirName) =>
+      rm(join(dataRoot, dirName), { recursive: true, force: true }),
+    ),
+  );
 }
 
 export async function loadQuestJourneyPhaseCatalog(

@@ -5,13 +5,17 @@ const fsMocks = vi.hoisted(() => ({
   mkdirSync: vi.fn(),
   symlinkSync: vi.fn(),
   lstatSync: vi.fn((_targetDir: string): { isSymbolicLink: () => boolean } => {
-    throw new Error("ENOENT");
+    throw missingPathError();
   }),
   readlinkSync: vi.fn(),
   readdirSync: vi.fn((_targetDir?: string): any[] => []),
   unlinkSync: vi.fn(),
   rmSync: vi.fn(),
 }));
+
+function missingPathError(): Error & { code: string } {
+  return Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+}
 
 const execMock = vi.hoisted(() =>
   vi.fn((_command: string, _options: object, callback: (error: Error | null, stdout: string) => void) => {
@@ -41,7 +45,7 @@ describe("ensureSkillSymlinks", () => {
     fsMocks.existsSync.mockReturnValue(true);
     fsMocks.readdirSync.mockReturnValue([]);
     fsMocks.lstatSync.mockImplementation((_targetDir: string): { isSymbolicLink: () => boolean } => {
-      throw new Error("ENOENT");
+      throw missingPathError();
     });
   });
 
@@ -78,7 +82,7 @@ describe("ensureSkillSymlinks", () => {
       if (targetDir === "/home/tester/.agents/skills/takode-orchestration") {
         return { isSymbolicLink: () => false };
       }
-      throw new Error("ENOENT");
+      throw missingPathError();
     });
 
     await ensureSkillSymlinks(["takode-orchestration"]);
@@ -141,6 +145,70 @@ describe("ensureSkillSymlinks", () => {
     expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.any(String), "/home/tester/.claude/skills/impeccable");
   });
 
+  it("skips deprecated Quest Journey aliases and removes stale global installs", async () => {
+    // Legacy phase aliases remain board/catalog compatibility metadata, but
+    // their old skill slugs must not be rediscovered as active worker skills.
+    const deprecatedSlugs = [
+      "quest-journey-planning",
+      "quest-journey-implementation",
+      "quest-journey-skeptic-review",
+      "quest-journey-reviewer-groom",
+      "quest-journey-porting",
+    ];
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return [
+        "/home/tester/.codex/skills",
+        "/repo/.claude/skills",
+        "/repo/.claude/skills/quest-journey-implement",
+        "/repo/.agents/skills",
+      ].includes(targetDir);
+    });
+    fsMocks.readdirSync.mockImplementation((targetDir?: string) => {
+      if (targetDir === "/repo/.claude/skills") {
+        return [
+          { name: "quest-journey-implement", isDirectory: () => true, isSymbolicLink: () => false },
+          ...deprecatedSlugs.map((name) => ({
+            name,
+            isDirectory: () => true,
+            isSymbolicLink: () => false,
+          })),
+        ] as any[];
+      }
+      if (targetDir === "/home/tester/.codex/skills") {
+        return [{ name: "quest-journey-porting" } as any];
+      }
+      return [];
+    });
+    fsMocks.lstatSync.mockImplementation((targetDir: string) => {
+      if (targetDir === "/home/tester/.claude/skills/quest-journey-planning") {
+        return { isSymbolicLink: () => true };
+      }
+      if (targetDir === "/home/tester/.agents/skills/quest-journey-porting") {
+        return { isSymbolicLink: () => false };
+      }
+      throw missingPathError();
+    });
+
+    await ensureSkillSymlinks([]);
+
+    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
+      "/repo/.claude/skills/quest-journey-implement",
+      "/home/tester/.claude/skills/quest-journey-implement",
+    );
+    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
+      "/repo/.claude/skills/quest-journey-implement",
+      "/home/tester/.agents/skills/quest-journey-implement",
+    );
+    for (const slug of deprecatedSlugs) {
+      expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.stringContaining(slug), expect.any(String));
+      expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.any(String), expect.stringContaining(slug));
+    }
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.claude/skills/quest-journey-planning");
+    expect(fsMocks.rmSync).toHaveBeenCalledWith("/home/tester/.agents/skills/quest-journey-porting", {
+      recursive: true,
+    });
+  });
+
   it("ignores repo-local legacy Codex skill directories for active installs", async () => {
     // Validates .codex/skills is compatibility-only; project-specific non-Claude
     // variants now come from .agents, then fall back to .claude.
@@ -193,7 +261,7 @@ describe("ensureSkillSymlinks", () => {
       if (targetDir === "/home/tester/.agents/skills/takode-orchestration") {
         return { isSymbolicLink: () => true };
       }
-      throw new Error("ENOENT");
+      throw missingPathError();
     });
     fsMocks.readlinkSync.mockImplementation((targetDir: string) => {
       if (targetDir === "/home/tester/.agents/skills/takode-orchestration") {

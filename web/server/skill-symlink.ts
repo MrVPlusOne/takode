@@ -33,6 +33,13 @@ const HOME = homedir();
 const CLAUDE_SKILLS_HOME = join(HOME, ".claude", "skills");
 const AGENTS_SKILLS_HOME = join(HOME, ".agents", "skills");
 const LEGACY_CODEX_SKILLS_HOME = join(getLegacyCodexHome(), "skills");
+const DEPRECATED_PROJECT_SKILL_SLUGS = new Set([
+  "quest-journey-planning",
+  "quest-journey-implementation",
+  "quest-journey-skeptic-review",
+  "quest-journey-reviewer-groom",
+  "quest-journey-porting",
+]);
 
 /**
  * Symlink repo skills into the global Claude and agent skill homes so all
@@ -50,6 +57,7 @@ export async function ensureSkillSymlinks(slugs: string[]): Promise<void> {
   const repoAgentsSkillsHome = join(mainRepoRoot, ".agents", "skills");
 
   migrateLegacyCodexSkillsToAgents();
+  removeDeprecatedProjectSkillSymlinks();
 
   const allSlugs = discoverRepoSkillSlugs(slugs, repoClaudeSkillsHome, repoAgentsSkillsHome);
   for (const slug of allSlugs) {
@@ -81,7 +89,7 @@ function discoverRepoSkillSlugs(
       ...readRepoSkillSlugs(repoClaudeSkillsHome),
       ...readRepoSkillSlugs(repoAgentsSkillsHome),
     ]),
-  ];
+  ].filter((slug) => !isDeprecatedProjectSkillSlug(slug));
 }
 
 function migrateLegacyCodexSkillsToAgents(): void {
@@ -97,11 +105,41 @@ function migrateLegacyCodexSkillsToAgents(): void {
 
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
+    if (isDeprecatedProjectSkillSlug(entry.name)) continue;
     const legacyDir = join(LEGACY_CODEX_SKILLS_HOME, entry.name);
     const agentsDir = join(AGENTS_SKILLS_HOME, entry.name);
     if (existsSync(agentsDir)) continue; // sync-ok: startup cold path
     ensureSymlink(legacyDir, agentsDir);
   }
+}
+
+function removeDeprecatedProjectSkillSymlinks(): void {
+  for (const slug of DEPRECATED_PROJECT_SKILL_SLUGS) {
+    removeDeprecatedProjectSkillPath(join(CLAUDE_SKILLS_HOME, slug));
+    removeDeprecatedProjectSkillPath(join(AGENTS_SKILLS_HOME, slug));
+  }
+}
+
+function removeDeprecatedProjectSkillPath(targetDir: string): void {
+  try {
+    const stat = lstatSync(targetDir); // sync-ok: startup cold path
+    if (stat.isSymbolicLink()) {
+      unlinkSync(targetDir); // sync-ok: startup cold path
+      return;
+    }
+    rmSync(targetDir, { recursive: true }); // sync-ok: startup cold path
+  } catch (error) {
+    if (isMissingPathError(error)) return;
+    throw error;
+  }
+}
+
+function isDeprecatedProjectSkillSlug(slug: string): boolean {
+  return DEPRECATED_PROJECT_SKILL_SLUGS.has(slug);
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: string }).code === "ENOENT";
 }
 
 function readRepoSkillSlugs(repoSkillsHome: string): string[] {
