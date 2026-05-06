@@ -369,6 +369,80 @@ describe("workstream memory store", () => {
     );
   });
 
+  it("surfaces manual cleanup candidates through bookkeeping memory checks", async () => {
+    await createWorkstream();
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/active-route",
+      bucket: "current",
+      subtype: "route",
+      priority: "important",
+      current: "Use the temporary route until the foundation is accepted.",
+      appliesTo: { exactTerms: ["route"] },
+      evidence: source(),
+      authorityBoundary: authority(),
+      retireWhen: { description: "foundation is accepted or replaced" },
+    });
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/retired-note",
+      bucket: "current",
+      subtype: "decision",
+      priority: "important",
+      current: "Retire this record after it is no longer current.",
+      appliesTo: { exactTerms: ["retired-note"] },
+      evidence: source(),
+      authorityBoundary: authority(),
+    });
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/superseded-note",
+      bucket: "current",
+      subtype: "decision",
+      priority: "important",
+      current: "Supersede this record after replacement.",
+      appliesTo: { exactTerms: ["superseded-note"] },
+      evidence: source(),
+      authorityBoundary: authority(),
+    });
+    await memoryStore.retireRecord({
+      ref: "takode-memory/retired-note",
+      reason: "No longer current.",
+      sourceLinks: source(),
+    });
+    await memoryStore.retireRecord({
+      ref: "takode-memory/superseded-note",
+      reason: "Replaced by a newer decision.",
+      sourceLinks: source(),
+      supersededBy: "takode-memory/newer-note",
+    });
+
+    // `memory check --event bookkeeping` should not look false-clean when foundation cleanup candidates exist.
+    const result = await memoryStore.checkMemory({
+      event: "bookkeeping",
+      workstream: "takode-memory",
+      callerState: { kind: "bookkeeping" },
+    });
+
+    expect(result.level).toBe("warn");
+    expect(result.enforceable).toBe(false);
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({
+        record: "takode-memory/active-route",
+        why: expect.arrayContaining([expect.stringContaining("retireWhen cleanup review candidate")]),
+      }),
+    );
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({
+        record: "takode-memory/retired-note",
+        why: expect.arrayContaining([expect.stringContaining("hidden retired record retained")]),
+      }),
+    );
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({
+        record: "takode-memory/superseded-note",
+        why: expect.arrayContaining([expect.stringContaining("hidden superseded record replaced")]),
+      }),
+    );
+  });
+
   it("recalls scoped current context for approved memory check events", async () => {
     await createWorkstream();
     await memoryStore.linkWorkstream({

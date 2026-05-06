@@ -556,7 +556,9 @@ async function appendBookkeepingFindings(
   if (input.event !== "bookkeeping") return;
   for (const workstream of workstreams) {
     const report = await bookkeepingReport(workstream.slug);
-    for (const issue of report.issues.filter((item) => item.level === "warn")) {
+    for (const issue of report.issues.filter(
+      (item) => item.level === "warn" || isCleanupCandidateIssue(item.message),
+    )) {
       findings.push(
         warnFinding([issue.message], undefined, {
           recordRef: issue.record,
@@ -565,6 +567,14 @@ async function appendBookkeepingFindings(
       );
     }
   }
+}
+
+function isCleanupCandidateIssue(message: string): boolean {
+  return (
+    message.includes("retireWhen cleanup review candidate") ||
+    message.includes("hidden retired record retained") ||
+    message.includes("hidden superseded record")
+  );
 }
 
 function appendExecuteLaunchFindings(

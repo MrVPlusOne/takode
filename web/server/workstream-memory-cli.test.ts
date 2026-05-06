@@ -301,4 +301,126 @@ describe("memory CLI", () => {
       expect.objectContaining({ why: expect.arrayContaining([expect.stringContaining("tmux-missing")]) }),
     );
   });
+
+  it("surfaces bookkeeping cleanup candidates through check JSON", async () => {
+    await runMemory(
+      [
+        "workstream",
+        "create",
+        "--slug",
+        "takode-memory",
+        "--title",
+        "Takode memory",
+        "--objective",
+        "Preserve workstream memory.",
+        "--source",
+        "[q-100](quest:q-100)",
+      ],
+      env,
+    );
+    await runMemory(
+      [
+        "upsert",
+        "current",
+        "takode-memory/active-route",
+        "--subtype",
+        "route",
+        "--priority",
+        "important",
+        "--current",
+        "Use the temporary route until the foundation is accepted.",
+        "--applies-to",
+        "term:route",
+        "--source",
+        "[q-100](quest:q-100)",
+        "--authority-boundary",
+        "memory owns current route|quest|user-overrides",
+        "--retire-when",
+        "foundation is accepted or replaced",
+      ],
+      env,
+    );
+    await runMemory(
+      [
+        "upsert",
+        "current",
+        "takode-memory/retired-note",
+        "--subtype",
+        "decision",
+        "--priority",
+        "important",
+        "--current",
+        "Retire this record after it is no longer current.",
+        "--applies-to",
+        "term:retired-note",
+        "--source",
+        "[q-100](quest:q-100)",
+        "--authority-boundary",
+        "memory owns current note|quest|user-overrides",
+      ],
+      env,
+    );
+    await runMemory(
+      [
+        "upsert",
+        "current",
+        "takode-memory/superseded-note",
+        "--subtype",
+        "decision",
+        "--priority",
+        "important",
+        "--current",
+        "Supersede this record after replacement.",
+        "--applies-to",
+        "term:superseded-note",
+        "--source",
+        "[q-100](quest:q-100)",
+        "--authority-boundary",
+        "memory owns current note|quest|user-overrides",
+      ],
+      env,
+    );
+    await runMemory(
+      ["retire", "takode-memory/retired-note", "--reason", "No longer current.", "--source", "[q-100](quest:q-100)"],
+      env,
+    );
+    await runMemory(
+      [
+        "retire",
+        "takode-memory/superseded-note",
+        "--reason",
+        "Replaced by a newer decision.",
+        "--source",
+        "[q-100](quest:q-100)",
+        "--superseded-by",
+        "takode-memory/newer-note",
+      ],
+      env,
+    );
+
+    const check = await runMemory(["check", "--event", "bookkeeping", "--workstream", "takode-memory", "--json"], env);
+    const result = JSON.parse(check.stdout);
+
+    expect(check.status).toBe(0);
+    expect(result.level).toBe("warn");
+    expect(result.enforceable).toBe(false);
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({
+        record: "takode-memory/active-route",
+        why: expect.arrayContaining([expect.stringContaining("retireWhen cleanup review candidate")]),
+      }),
+    );
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({
+        record: "takode-memory/retired-note",
+        why: expect.arrayContaining([expect.stringContaining("hidden retired record retained")]),
+      }),
+    );
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({
+        record: "takode-memory/superseded-note",
+        why: expect.arrayContaining([expect.stringContaining("hidden superseded record replaced")]),
+      }),
+    );
+  });
 });
