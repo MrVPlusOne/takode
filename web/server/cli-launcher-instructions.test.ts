@@ -44,8 +44,11 @@ describe("buildCompanionInstructions", () => {
 
     expect(result).toContain("## File-Based Memory");
     expect(result).toContain("Git-tracked Markdown repo for this server/session space");
+    expect(result).toContain("~/.companion/memory/<serverId>");
+    expect(result).toContain("normal `memory` commands auto-create the repo and authored directories");
     expect(result).toContain('memory recall "<current task terms>"');
     expect(result).toContain("there is no authored `indexes/` directory");
+    expect(result).not.toContain("memory repo init");
     expect(result).toContain("current/");
     expect(result).toContain("knowledge/");
     expect(result).toContain("procedures/");

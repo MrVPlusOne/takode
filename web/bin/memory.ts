@@ -59,7 +59,7 @@ function printUsage(): void {
   console.log(`Usage: memory <command> [args]
 
 Commands:
-  repo path|init
+  repo path [--json]
   catalog [--json]
   recall [query] [--kind current,knowledge] [--facet key:value] [--content] [--limit N] [--json]
   lint|doctor [--json]
@@ -67,16 +67,17 @@ Commands:
   status [--json]
   diff
   commit --message TEXT [--quest q-N] [--session N] [--operation update] [--memory-id ID] [--source REF] [--json]
-  migrate preview
 
 Options:
   --root PATH       Override the memory repo root for this command.
   --server-id ID    Override the server/session-space id used for default repo discovery.
 
-Memory files are authored directly under:
-  current/ knowledge/ procedures/ decisions/ references/ artifacts/
+Default repo:
+  ~/.companion/memory/<serverId>
+  Normal memory operations auto-create the Git repo and authored directories when needed.
 
-The old workstream/upsert/check authoring model is intentionally replaced.`);
+Memory files are authored directly under:
+  current/ knowledge/ procedures/ decisions/ references/ artifacts/`);
 }
 
 function repoOptions() {
@@ -168,12 +169,6 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (["workstream", "current", "upsert", "retire", "check", "bookkeeping", "grep", "show"].includes(command)) {
-    die(
-      "The old workstream-memory CLI was superseded. Edit memory Markdown files directly, then use memory catalog/recall/lint/lock/commit.",
-    );
-  }
-
   if (command === "repo") {
     const subcommand = positional(0) ?? "path";
     if (subcommand === "path") {
@@ -182,13 +177,7 @@ async function main(): Promise<void> {
       else console.log(repo.root);
       return;
     }
-    if (subcommand === "init") {
-      const repo = await workstreamMemoryService.ensureRepo(repoOptions());
-      if (jsonOutput) out(repo);
-      else console.log(`Initialized memory repo at ${repo.root}`);
-      return;
-    }
-    die("repo subcommand must be path or init");
+    die("repo subcommand must be path");
   }
 
   if (command === "catalog") {
@@ -299,19 +288,7 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (command === "migrate" && positional(0) === "preview") {
-    const repo = workstreamMemoryService.resolveRepo(repoOptions());
-    const oldRoot = process.env.COMPANION_WORKSTREAM_MEMORY_DIR || "~/.companion/workstream-memory";
-    const result = {
-      targetRepo: repo.root,
-      oldRoot,
-      note: "The old schema-heavy workstream memory model is deprecated. Migration should convert only still-useful facts into authored Markdown files under the six memory directories.",
-    };
-    if (jsonOutput) out(result);
-    else console.log(`${result.note}\nOld root: ${oldRoot}\nTarget repo: ${repo.root}`);
-    return;
-  }
-
+  console.error(`Error: Unknown memory command: ${command}`);
   printUsage();
   process.exit(1);
 }

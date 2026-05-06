@@ -8,7 +8,7 @@ Leader actions:
 - Keep the board row in `BOOKKEEPING`.
 - Include the exact assignee brief path in the instruction: `~/.companion/quest-journey-phases/bookkeeping/assignee.md`.
 - Define exactly which shared facts, locations, or handoff records must be updated.
-- When the durable state belongs in file-based memory, specify the intended memory responsibility (`current/`, `knowledge/`, `procedures/`, `decisions/`, `references/`, or `artifacts/`) and require the assignee to use visible `memory recall`, the repo-level write lock, direct file edits, lint/doctor, diff review, and a source-trailed memory commit.
+- When the durable state belongs in file-based memory, specify the intended memory responsibility (`current/`, `knowledge/`, `procedures/`, `decisions/`, `references/`, or `artifacts/`) and require the assignee to use visible `memory recall`, the repo-level write lock, direct file edits, lint/doctor, diff review, and a source-trailed memory commit. Normal `memory` commands auto-create the current server/session-space repo; do not instruct the assignee to run a separate init step.
 - Require the assignee to report exactly one memory statement when memory was in scope: `memory updated: <commit>`, `memory update deferred: <reason or curator>`, or `memory update not needed: <reason>`.
 - Use this phase as the fallback owner for final debrief metadata when Port is omitted, when a Port worker cannot reliably draft it, or when leader-owned completion after Outcome Review lacks enough consolidated context. Require both a final debrief and debrief TLDR before completing a non-cancelled quest.
 - Treat superseded or stale facts as part of the bookkeeping scope.

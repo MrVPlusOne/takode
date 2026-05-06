@@ -292,12 +292,16 @@ describe("Quest Journey phase directory loading", () => {
     expect(bookkeepingPhase?.leaderBrief).toContain("visible `memory recall`");
     expect(bookkeepingPhase?.leaderBrief).toContain("repo-level write lock");
     expect(bookkeepingPhase?.leaderBrief).toContain("source-trailed memory commit");
+    expect(bookkeepingPhase?.leaderBrief).toContain("auto-create the current server/session-space repo");
+    expect(bookkeepingPhase?.leaderBrief).toContain("do not instruct the assignee to run a separate init step");
     expect(bookkeepingPhase?.leaderBrief).toContain("memory updated: <commit>");
     expect(bookkeepingPhase?.leaderBrief).toContain("memory update deferred: <reason or curator>");
     expect(bookkeepingPhase?.leaderBrief).toContain("memory update not needed: <reason>");
     expect(bookkeepingPhase?.assigneeBrief).toContain("Do not duplicate normal phase documentation");
     expect(bookkeepingPhase?.assigneeBrief).toContain("Completion remains incomplete until both are present");
     expect(bookkeepingPhase?.assigneeBrief).toContain("session-space memory repo");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("auto-create the repo for the current server/session space");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("do not run a separate init step");
     expect(bookkeepingPhase?.assigneeBrief).toContain("`current/` for live working state");
     expect(bookkeepingPhase?.assigneeBrief).toContain("`knowledge/` for durable understanding");
     expect(bookkeepingPhase?.assigneeBrief).toContain("`procedures/` for repeatable action");

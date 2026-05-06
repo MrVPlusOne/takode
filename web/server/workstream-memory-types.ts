@@ -1,6 +1,6 @@
 export const MEMORY_KINDS = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"] as const;
 export const MEMORY_LIFECYCLES = ["active", "durable", "archived"] as const;
-export const MEMORY_COMMIT_OPERATIONS = ["add", "update", "supersede", "archive", "repair", "migrate"] as const;
+export const MEMORY_COMMIT_OPERATIONS = ["add", "update", "supersede", "archive", "repair"] as const;
 
 export type MemoryKind = (typeof MEMORY_KINDS)[number];
 export type MemoryLifecycle = (typeof MEMORY_LIFECYCLES)[number];

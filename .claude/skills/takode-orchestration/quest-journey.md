@@ -71,7 +71,7 @@ Review phases must judge documentation quality, not just presence. Check phase r
 
 ## File-Based Memory In Journey Work
 
-Takode memory is a Git-tracked Markdown repo scoped to the current server/session space. It is a shared aid for recall and durable state, not a hidden instruction channel. Leaders and workers should use visible reads, usually `memory recall "<quest or task terms>"`, when prior memory could change dispatch, Alignment, compaction recovery, Bookkeeping, Port, or final handoff decisions.
+Takode memory is a Git-tracked Markdown repo scoped to the current server/session space. Normal `memory` commands auto-create the repo at `~/.companion/memory/<serverId>` when needed, so agents do not need a separate init step. It is a shared aid for recall and durable state, not a hidden instruction channel. Leaders and workers should use visible reads, usually `memory recall "<quest or task terms>"`, when prior memory could change dispatch, Alignment, compaction recovery, Bookkeeping, Port, or final handoff decisions.
 
 Memory writes are explicit Journey responsibility. A phase actor may update memory when they learned durable shared facts, changed live coordination state, produced external artifacts, or accepted a decision/preference that should survive the quest. If the update is useful but not synchronous, route it through Bookkeeping or an approved curator instead of blocking the current phase.
 

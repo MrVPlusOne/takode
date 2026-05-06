@@ -18,7 +18,7 @@ Leader actions:
 
 Worker-visible boundary:
 - The worker may update durable coordination state and consolidate the current facts for the next reader.
-- If assigned a memory update, the worker should run relevant `memory recall`, acquire the write lock with `memory lock acquire`, edit memory files directly, run `memory lint` or `memory doctor`, inspect `memory diff`, commit with source trailers via `memory commit`, release the lock, and report `memory updated: <commit>`. If memory is deliberately not changed, report `memory update deferred: <reason or curator>` or `memory update not needed: <reason>`.
+- If assigned a memory update, the worker should run relevant `memory recall`, acquire the write lock with `memory lock acquire`, edit memory files directly, run `memory lint` or `memory doctor`, inspect `memory diff`, commit with source trailers via `memory commit`, release the lock, and report `memory updated: <commit>`. Normal `memory` commands auto-create the current server/session-space repo; no separate init step is needed. If memory is deliberately not changed, report `memory update deferred: <reason or curator>` or `memory update not needed: <reason>`.
 - If the assigned durable state is final completion metadata, the worker should produce or apply both the final debrief and debrief TLDR. Completion remains incomplete until both are present.
 - Do not duplicate normal phase documentation from the phase that produced the facts.
 - The worker should not invent new implementation scope inside this phase.

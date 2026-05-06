@@ -185,7 +185,7 @@ function renderBuiltInQuestJourneyPhaseTable(): string {
 function renderFileMemoryInstructions(): string {
   return `## File-Based Memory
 
-Takode memory is a Git-tracked Markdown repo for this server/session space. Use visible recall and explicit writes; do not rely on hidden memory injection.
+Takode memory is a Git-tracked Markdown repo for this server/session space. By default it lives at \`~/.companion/memory/<serverId>\`, and normal \`memory\` commands auto-create the repo and authored directories when needed. Use visible recall and explicit writes; do not rely on hidden memory injection.
 
 Use \`memory recall "<current task terms>"\` when prior state may matter, especially during alignment, dispatch preparation, after compaction recovery, before Bookkeeping/Port, or when resuming work with low confidence. Use \`memory catalog\` for a derived catalog from files and frontmatter; there is no authored \`indexes/\` directory.
 

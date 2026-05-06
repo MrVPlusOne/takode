@@ -1,6 +1,6 @@
 import { spawn } from "node:child_process";
 import { once } from "node:events";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,18 +50,7 @@ describe("memory CLI", () => {
     await writeFile(absolutePath, `---\n${frontmatter.trim()}\n---\n\n${body}\n`, "utf-8");
   }
 
-  it("initializes, catalogs, and recalls authored memory files", async () => {
-    const init = await runMemory(["repo", "init", "--json"], env);
-    expect(init.status).toBe(0);
-    expect(JSON.parse(init.stdout).authoredDirs).toEqual([
-      "current",
-      "knowledge",
-      "procedures",
-      "decisions",
-      "references",
-      "artifacts",
-    ]);
-
+  it("auto-initializes, catalogs, and recalls authored memory files", async () => {
     await writeMemoryFile(
       "procedures/run-service-x.md",
       `
@@ -78,9 +67,17 @@ facets:
 
     const catalog = await runMemory(["catalog", "--json"], env);
     expect(catalog.status).toBe(0);
-    expect(JSON.parse(catalog.stdout).entries[0]).toEqual(
-      expect.objectContaining({ id: "run-service-x", kind: "procedures" }),
+    const catalogJson = JSON.parse(catalog.stdout);
+    expect(catalogJson.repo).toEqual(
+      expect.objectContaining({
+        root: join(tempDir, "memory"),
+        serverId: "test-server",
+        initialized: true,
+        authoredDirs: ["current", "knowledge", "procedures", "decisions", "references", "artifacts"],
+      }),
     );
+    await expect(readFile(join(tempDir, "memory", ".git", "HEAD"), "utf-8")).resolves.toContain("ref:");
+    expect(catalogJson.entries[0]).toEqual(expect.objectContaining({ id: "run-service-x", kind: "procedures" }));
 
     const recall = await runMemory(
       ["recall", "bun service", "--kind", "procedures", "--facet", "project:takode", "--content", "--json"],
@@ -90,8 +87,27 @@ facets:
     expect(JSON.parse(recall.stdout).matches[0].content).toContain("bun run dev");
   });
 
+  it("defaults to one auto-created repo per server id when no root override is set", async () => {
+    const scopedEnv = { HOME: tempDir, COMPANION_SERVER_ID: "server/with spaces" };
+
+    const path = await runMemory(["repo", "path"], scopedEnv);
+    expect(path.status).toBe(0);
+    const expectedRoot = join(tempDir, ".companion", "memory", "server_with_spaces");
+    expect(path.stdout.trim()).toBe(expectedRoot);
+
+    const catalog = await runMemory(["catalog", "--json"], scopedEnv);
+    expect(catalog.status).toBe(0);
+    expect(JSON.parse(catalog.stdout).repo).toEqual(
+      expect.objectContaining({
+        root: expectedRoot,
+        serverId: "server/with spaces",
+        initialized: true,
+      }),
+    );
+    await expect(readFile(join(expectedRoot, ".git", "HEAD"), "utf-8")).resolves.toContain("ref:");
+  });
+
   it("lints authored files and exits non-zero for schema errors", async () => {
-    await runMemory(["repo", "init"], env);
     await mkdir(join(tempDir, "memory", "knowledge"), { recursive: true });
     await writeFile(join(tempDir, "memory", "knowledge", "broken.md"), "# no frontmatter\n", "utf-8");
 
@@ -104,7 +120,6 @@ facets:
   });
 
   it("supports repo-level lock and commit helpers for direct edits", async () => {
-    await runMemory(["repo", "init"], env);
     await writeMemoryFile(
       "current/memory-foundation.md",
       `
@@ -150,7 +165,6 @@ lifecycle: active
   });
 
   it("rejects commit helper calls without lock or required provenance", async () => {
-    await runMemory(["repo", "init"], env);
     await writeMemoryFile(
       "current/provenance.md",
       `
@@ -183,11 +197,30 @@ lifecycle: active
     expect(missingTraceability.stderr).toContain("include quest, session, or at least one memory id");
   });
 
-  it("rejects superseded workstream/upsert/check commands with migration guidance", async () => {
+  it("treats old workstream/upsert/check commands as unknown and omits migration guidance", async () => {
     const result = await runMemory(["upsert", "current", "takode/key"], env);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("old workstream-memory CLI was superseded");
-    expect(result.stderr).toContain("catalog/recall/lint/lock/commit");
+    expect(result.stderr).toContain("Unknown memory command: upsert");
+    expect(result.stderr).not.toContain("workstream-memory");
+    expect(result.stdout).not.toContain("migrate");
+    expect(result.stdout).not.toContain("workstream");
+    expect(result.stdout).not.toContain("upsert");
+    expect(result.stdout).not.toContain("check");
+  });
+
+  it("does not expose manual init or migration commands in help", async () => {
+    const help = await runMemory(["help"], env);
+
+    expect(help.status).toBe(0);
+    expect(help.stdout).toContain("Normal memory operations auto-create");
+    expect(help.stdout).toContain("~/.companion/memory/<serverId>");
+    expect(help.stdout).toContain("repo path");
+    expect(help.stdout).not.toContain("repo path|init");
+    expect(help.stdout).not.toContain("repo init");
+    expect(help.stdout).not.toContain("migrate");
+    expect(help.stdout).not.toContain("workstream");
+    expect(help.stdout).not.toContain("upsert");
+    expect(help.stdout).not.toContain("check");
   });
 });
