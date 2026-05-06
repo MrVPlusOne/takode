@@ -265,6 +265,14 @@ describe("ensureQuestmasterIntegration", () => {
       "utf-8",
     );
 
+    const memoryWrite = fsMocks.writeFileSync.mock.calls.find(
+      (call) => call[0] === "/home/tester/.companion/bin/memory",
+    );
+    expect(memoryWrite).toBeDefined();
+    const memoryWrapper = String(memoryWrite?.[1] ?? "");
+    expect(memoryWrapper).toContain('exec bun "/repo/web/bin/memory.ts" "$@"');
+    expect(memoryWrapper).not.toContain("/repo/worktrees/wt-1/web/bin/memory.ts");
+
     const streamWrite = fsMocks.writeFileSync.mock.calls.find(
       (call) => call[0] === "/home/tester/.companion/bin/stream",
     );
@@ -274,7 +282,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(streamWrapper).not.toContain("/repo/worktrees/wt-1/web/bin/stream.ts");
   });
 
-  it("writes ~/.local/bin quest and stream shims that delegate to ~/.companion/bin", async () => {
+  it("writes ~/.local/bin quest, memory, and stream shims that delegate to ~/.companion/bin", async () => {
     await ensureQuestmasterIntegration(3456, "/repo/web");
 
     expect(fsMocks.mkdirSync).toHaveBeenCalledWith("/home/tester/.local/bin", { recursive: true });
@@ -284,6 +292,12 @@ describe("ensureQuestmasterIntegration", () => {
       "utf-8",
     );
     expect(fsMocks.chmodSync).toHaveBeenCalledWith("/home/tester/.local/bin/quest", 0o755);
+    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
+      "/home/tester/.local/bin/memory",
+      expect.stringContaining('exec "$HOME/.companion/bin/memory" "$@"'),
+      "utf-8",
+    );
+    expect(fsMocks.chmodSync).toHaveBeenCalledWith("/home/tester/.local/bin/memory", 0o755);
     expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
       "/home/tester/.local/bin/stream",
       expect.stringContaining('exec "$HOME/.companion/bin/stream" "$@"'),

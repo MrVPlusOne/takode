@@ -8,6 +8,7 @@
   "bin": {
     "the-companion": "./bin/cli.ts",
     "companion": "./bin/cli.ts",
+    "memory": "./bin/memory.ts",
     "takode": "./bin/takode.ts",
     "stream": "./bin/stream.ts"
   },
