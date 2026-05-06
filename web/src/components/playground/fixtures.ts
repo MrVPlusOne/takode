@@ -5,6 +5,7 @@ import { buildHerdGroupBadgeThemes, getHerdGroupLeaderId } from "../../utils/her
 
 export const MOCK_SESSION_ID = "playground-session";
 export const PLAYGROUND_SECTIONED_SESSION_ID = "playground-sectioned-feed";
+export const PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID = "playground-sparse-thread-window-feed";
 export const PLAYGROUND_LOADING_SESSION_ID = "playground-loading-feed";
 export const PLAYGROUND_CODEX_TERMINAL_SESSION_ID = "playground-codex-terminal-feed";
 export const PLAYGROUND_CODEX_PENDING_SESSION_ID = "playground-codex-pending-feed";

@@ -125,6 +125,24 @@ function toolResultPreview(toolUseId: string, content = "preview"): BrowserIncom
   };
 }
 
+function successfulResult(id: string): BrowserIncomingMessage {
+  return {
+    type: "result",
+    timestamp: Number(id.replace(/\D/g, "")) || 1,
+    data: {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      duration_ms: 1,
+      duration_api_ms: 1,
+      num_turns: 1,
+      session_id: "s1",
+      total_cost_usd: 0,
+      result: "done",
+    },
+  };
+}
+
 describe("thread window hydration", () => {
   it("returns bounded selected quest feed items with tool closure context", () => {
     const history = [
@@ -818,6 +836,43 @@ describe("thread window hydration", () => {
         count: 2,
       }),
     );
+  });
+
+  it("fills sparse Main tail windows until they include a meaningful visible slice", () => {
+    const history: BrowserIncomingMessage[] = [];
+    for (let i = 0; i < 8; i++) {
+      history.push(user(`u${i}`, `main request ${i}`));
+      history.push(assistant(`a${i}`, `main response ${i}`));
+      history.push(successfulResult(`r${i}`));
+    }
+    for (let i = 0; i < 40; i++) {
+      history.push(user(`uq${i}`, `quest request ${i}`, "q-1205"));
+      history.push(assistant(`aq${i}`, `quest response ${i}`, { threadKey: "q-1205" }));
+      history.push(successfulResult(`rq${i}`));
+    }
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: -1,
+      itemCount: 30,
+      sectionItemCount: 10,
+      visibleItemCount: 3,
+    });
+
+    const visibleMessages = sync.entries.filter((entry) => {
+      if (entry.message.type === "result") return false;
+      return entry.message.type !== "tool_result_preview";
+    });
+
+    expect(sync.window.item_count).toBeGreaterThan(30);
+    expect(sync.window.item_count).toBeLessThanOrEqual(90);
+    expect(visibleMessages.length).toBeGreaterThanOrEqual(10);
+    expect(
+      sync.entries.some((entry) => entry.message.type === "user_message" && entry.message.content === "main request 0"),
+    ).toBe(true);
+    expect(sync.window.has_older_items).toBe(false);
+    expect(sync.window.has_newer_items).toBe(false);
   });
 
   it("uses matching rendered feed items as the window unit for large histories", () => {

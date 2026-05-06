@@ -111,6 +111,8 @@ const MOBILE_NAV_BASE_BOTTOM_PX = 12;
 const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 const SECTION_WINDOW_TRIGGER_PX = 96;
+const SECTION_BOUNDARY_CONTROL_CLASS =
+  "inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted";
 
 // ─── Expand-on-scroll-target hook ───────────────────────────────────────────
 // Used by collapsible containers (SubagentContainer, ApprovalBatchGroup,
@@ -1778,14 +1780,21 @@ export function MessageFeed({
               <div ref={contentRootRef} className="max-w-3xl mx-auto space-y-3 sm:space-y-5">
                 {hasOlderSections && (
                   <div className="flex justify-center pb-2" aria-live="polite">
-                    <div className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted">
-                      {isLoadingOlderSection ? (
+                    {isLoadingOlderSection ? (
+                      <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
                         <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                      ) : (
+                        Loading older section...
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleLoadOlderSection}
+                        className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
+                      >
                         <YarnBallDot className="text-cc-muted/70" />
-                      )}
-                      {isLoadingOlderSection ? "Loading older section..." : "Scroll up for older section"}
-                    </div>
+                        Load older section
+                      </button>
+                    )}
                   </div>
                 )}
                 <TurnEntries
@@ -1802,14 +1811,21 @@ export function MessageFeed({
                 />
                 {hasNewerSections && (
                   <div className="flex justify-center pt-1" aria-live="polite">
-                    <div className="inline-flex items-center gap-1.5 rounded-full border border-cc-border bg-cc-card/80 px-3 py-1.5 text-xs text-cc-muted">
-                      {isLoadingNewerSection ? (
+                    {isLoadingNewerSection ? (
+                      <div className={SECTION_BOUNDARY_CONTROL_CLASS}>
                         <YarnBallSpinner className="h-3 w-3 text-cc-muted" />
-                      ) : (
+                        Loading newer section...
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={handleLoadNewerSection}
+                        className={`${SECTION_BOUNDARY_CONTROL_CLASS} transition-colors hover:border-cc-primary/30 hover:bg-cc-hover hover:text-cc-fg focus:outline-none focus:ring-2 focus:ring-cc-primary/40`}
+                      >
                         <YarnBallDot className="text-cc-muted/70" />
-                      )}
-                      {isLoadingNewerSection ? "Loading newer section..." : "Scroll down for newer section"}
-                    </div>
+                        Load newer section
+                      </button>
+                    )}
                   </div>
                 )}
                 {pendingUserUploads.length > 0 && (

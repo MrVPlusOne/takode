@@ -14,6 +14,7 @@ import {
   PLAYGROUND_RECOVERING_SESSION_ID,
   PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_SECTIONED_SESSION_ID,
+  PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
   PLAYGROUND_STARTING_SESSION_ID,
   PLAYGROUND_THREAD_PANEL_SESSION_ID,
   MSG_ASSISTANT,
@@ -36,6 +37,7 @@ export function usePlaygroundSeed() {
     const demoSessionIds = [
       sessionId,
       PLAYGROUND_SECTIONED_SESSION_ID,
+      PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
       PLAYGROUND_LOADING_SESSION_ID,
       PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
       PLAYGROUND_CODEX_PENDING_SESSION_ID,
@@ -48,6 +50,8 @@ export function usePlaygroundSeed() {
     ];
     const prevSessions = new Map(demoSessionIds.map((id) => [id, snapshot.sessions.get(id)]));
     const prevMessages = new Map(demoSessionIds.map((id) => [id, snapshot.messages.get(id)]));
+    const prevThreadWindows = new Map(demoSessionIds.map((id) => [id, snapshot.threadWindows.get(id)]));
+    const prevThreadWindowMessages = new Map(demoSessionIds.map((id) => [id, snapshot.threadWindowMessages.get(id)]));
     const prevPerms = new Map(demoSessionIds.map((id) => [id, snapshot.pendingPermissions.get(id)]));
     const prevConn = new Map(demoSessionIds.map((id) => [id, snapshot.connectionStatus.get(id)]));
     const prevCli = new Map(demoSessionIds.map((id) => [id, snapshot.cliConnected.get(id)]));
@@ -157,6 +161,51 @@ export function usePlaygroundSeed() {
       anchorTurnId: "playground-section-u1",
       anchorOffsetTop: 0,
     });
+
+    const sparseThreadWindowSession: SessionState = {
+      ...session,
+      session_id: PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
+      backend_type: "codex",
+      model: "gpt-5.5",
+      cwd: "/Users/stan/Dev/takode/sparse-thread-window",
+      num_turns: 80,
+      is_containerized: false,
+      isOrchestrator: true,
+    };
+    store.addSession(sparseThreadWindowSession);
+    store.setConnectionStatus(PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID, "idle");
+    store.setThreadWindow(
+      PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
+      "main",
+      {
+        thread_key: "main",
+        from_item: 12,
+        item_count: 30,
+        total_items: 84,
+        has_older_items: true,
+        has_newer_items: false,
+        source_history_length: 240,
+        section_item_count: 10,
+        visible_item_count: 3,
+      },
+      [
+        makePlaygroundMessage({
+          id: "playground-sparse-main-reminder",
+          role: "assistant",
+          content: "Historical needs-input reminder",
+          timestamp: Date.now() - 86_400_000,
+          historyIndex: 208,
+          notification: {
+            category: "needs-input",
+            timestamp: Date.now() - 86_400_000,
+            summary: "Historical needs-input reminder",
+          },
+          metadata: { threadKey: "q-1205", questId: "q-1205" },
+        }),
+      ],
+    );
 
     const loadingSession: SessionState = {
       ...session,
@@ -796,6 +845,8 @@ export function usePlaygroundSeed() {
       useStore.setState((s) => {
         const sessions = new Map(s.sessions);
         const messages = new Map(s.messages);
+        const threadWindows = new Map(s.threadWindows);
+        const threadWindowMessages = new Map(s.threadWindowMessages);
         const pendingPermissions = new Map(s.pendingPermissions);
         const connectionStatus = new Map(s.connectionStatus);
         const cliConnected = new Map(s.cliConnected);
@@ -847,6 +898,12 @@ export function usePlaygroundSeed() {
           else sessions.delete(demoId);
           if (prevMessageList) messages.set(demoId, prevMessageList);
           else messages.delete(demoId);
+          const prevThreadWindowMap = prevThreadWindows.get(demoId);
+          const prevThreadWindowMessageMap = prevThreadWindowMessages.get(demoId);
+          if (prevThreadWindowMap) threadWindows.set(demoId, prevThreadWindowMap);
+          else threadWindows.delete(demoId);
+          if (prevThreadWindowMessageMap) threadWindowMessages.set(demoId, prevThreadWindowMessageMap);
+          else threadWindowMessages.delete(demoId);
           if (prevPermissionMap) pendingPermissions.set(demoId, prevPermissionMap);
           else pendingPermissions.delete(demoId);
           if (prevConnection) connectionStatus.set(demoId, prevConnection);
@@ -905,6 +962,8 @@ export function usePlaygroundSeed() {
         return {
           sessions,
           messages,
+          threadWindows,
+          threadWindowMessages,
           pendingPermissions,
           connectionStatus,
           cliConnected,

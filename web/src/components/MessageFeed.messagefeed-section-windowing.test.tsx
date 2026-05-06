@@ -640,8 +640,7 @@ describe("MessageFeed section windowing", () => {
     expect(screen.queryByText("Section 1 marker")).toBeNull();
     expect(screen.getByText("Section 2 marker")).toBeTruthy();
     expect(screen.getByText("Section 4 marker")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: "Load older section" })).toBeNull();
-    expect(screen.getByText("Scroll up for older section")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Load older section" })).toBeTruthy();
     expect(screen.queryByText("Loading older section...")).toBeNull();
     expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(3);
 
@@ -670,8 +669,7 @@ describe("MessageFeed section windowing", () => {
     setElementScrollMetrics(scrollContainer, 1000, 300, 0);
     fireEvent.wheel(scrollContainer, { deltaY: -80 });
 
-    expect(screen.queryByRole("button", { name: "Load newer section" })).toBeNull();
-    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "Load newer section" })).toBeTruthy();
     expect(screen.queryByText("Loading newer section...")).toBeNull();
     setElementScrollMetrics(scrollContainer, 1000, 300, 700);
     fireEvent.wheel(scrollContainer, { deltaY: 80 });
@@ -800,8 +798,8 @@ describe("MessageFeed section windowing", () => {
     const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
 
     expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(5);
-    expect(screen.queryByText("Scroll up for older section")).toBeNull();
-    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
+    expect(screen.queryByText("Load older section")).toBeNull();
+    expect(screen.getByText("Load newer section")).toBeTruthy();
   });
 
   it("keeps leader Main loading while the selected thread window hydrates", async () => {
@@ -977,8 +975,8 @@ describe("MessageFeed section windowing", () => {
         from_item: 4,
       }),
     );
-    expect(screen.getByText("Scroll up for older section")).toBeTruthy();
-    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
+    expect(screen.getByText("Load older section")).toBeTruthy();
+    expect(screen.getByText("Load newer section")).toBeTruthy();
   });
 
   it("auto-loads older selected-thread content on an upward boundary scroll", () => {
@@ -1011,6 +1009,38 @@ describe("MessageFeed section windowing", () => {
 
     setElementScrollMetrics(scrollContainer, 1000, 340, 0);
     fireEvent.scroll(scrollContainer);
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        from_item: 0,
+        item_count: 8,
+      }),
+    );
+    expect(screen.getByText("Loading older section...")).toBeTruthy();
+  });
+
+  it("loads older selected-thread content from the boundary button when the viewport cannot scroll upward", () => {
+    const sid = "test-selected-thread-short-viewport-button-load";
+    const threadKey = "q-1027";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 2,
+      itemCount: 6,
+      totalItems: 10,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      messages: [
+        makeMessage({ id: "u3", role: "user", content: "Sparse selected-thread tail", timestamp: 3 }),
+        makeMessage({ id: "a3", role: "assistant", content: "Only one short turn is visible", timestamp: 4 }),
+      ],
+    });
+
+    render(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />);
+    fireEvent.click(screen.getByRole("button", { name: "Load older section" }));
 
     expect(mockSendToSession).toHaveBeenCalledWith(
       sid,
@@ -1106,8 +1136,8 @@ describe("MessageFeed section windowing", () => {
     setElementScrollMetrics(scrollContainer, 1000, 340, 660);
     fireEvent.wheel(scrollContainer, { deltaY: 80 });
 
-    expect(screen.queryByText("Scroll up for older section")).toBeNull();
-    expect(screen.queryByText("Scroll down for newer section")).toBeNull();
+    expect(screen.queryByText("Load older section")).toBeNull();
+    expect(screen.queryByText("Load newer section")).toBeNull();
     expect(screen.queryByText("Latest section below")).toBeNull();
     expect(mockSendToSession).not.toHaveBeenCalledWith(sid, expect.objectContaining({ type: "thread_window_request" }));
   });
@@ -1157,7 +1187,7 @@ describe("MessageFeed section windowing", () => {
     rerender(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />);
 
     expect(screen.queryByText("Loading newer section...")).toBeNull();
-    expect(screen.getByText("Scroll down for newer section")).toBeTruthy();
+    expect(screen.getByText("Load newer section")).toBeTruthy();
   });
 
   it("remounts the correct section window before scrolling to an older turn", async () => {

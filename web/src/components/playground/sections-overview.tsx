@@ -78,6 +78,7 @@ import {
   PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_REVIEWER_MAP,
   PLAYGROUND_SECTIONED_SESSION_ID,
+  PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID,
   PLAYGROUND_SESSION_ROWS,
   PLAYGROUND_STARTING_SESSION_ID,
   PLAYGROUND_THREAD_PANEL_SESSION_ID,
@@ -526,10 +527,17 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="MessageFeed Section Windowing"
-        description="Fixed 50-turn sections with bounded older-history browsing. This mock opens on an older section so the passive newer-section affordance is visible."
+        description="Fixed 50-turn sections with bounded older-history browsing and selected-thread boundary controls for sparse restored windows."
       >
-        <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]">
-          <MessageFeed sessionId={PLAYGROUND_SECTIONED_SESSION_ID} />
+        <div className="grid gap-4 xl:grid-cols-[minmax(0,1.35fr)_minmax(20rem,0.85fr)]">
+          <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[620px]">
+            <MessageFeed sessionId={PLAYGROUND_SECTIONED_SESSION_ID} />
+          </div>
+          <Card label="Sparse selected Main">
+            <div className="h-[360px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
+              <MessageFeed sessionId={PLAYGROUND_SPARSE_THREAD_WINDOW_SESSION_ID} threadKey="main" />
+            </div>
+          </Card>
         </div>
       </Section>
 
