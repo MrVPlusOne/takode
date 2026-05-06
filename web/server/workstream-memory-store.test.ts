@@ -203,4 +203,75 @@ lifecycle: active
     expect(stdout).toContain("Quest: q-1205");
     expect(stdout).toContain("Source: quest:q-1205");
   });
+
+  it("rejects store-level commits without a non-stale memory lock", async () => {
+    await writeMemoryFile(
+      "current/no-lock.md",
+      `
+id: no-lock
+kind: current
+title: No Lock
+summary: Captures a missing lock case.
+lifecycle: active
+`,
+    );
+
+    await expect(
+      memoryStore.commitMemory({
+        message: "Try memory commit without lock",
+        memoryIds: ["no-lock"],
+        sources: ["quest:q-1205"],
+      }),
+    ).rejects.toThrow("Acquire the memory repo lock before committing");
+  });
+
+  it("rejects store-level commits with a stale memory lock", async () => {
+    await writeMemoryFile(
+      "current/stale-lock.md",
+      `
+id: stale-lock
+kind: current
+title: Stale Lock
+summary: Captures a stale lock case.
+lifecycle: active
+`,
+    );
+    await memoryStore.acquireMemoryLock({ owner: "worker-1", ttlMs: -1 });
+
+    await expect(
+      memoryStore.commitMemory({
+        message: "Try memory commit with stale lock",
+        memoryIds: ["stale-lock"],
+        sources: ["quest:q-1205"],
+      }),
+    ).rejects.toThrow("Memory repo lock is stale");
+  });
+
+  it("rejects memory commits without required provenance", async () => {
+    await writeMemoryFile(
+      "current/provenance.md",
+      `
+id: provenance
+kind: current
+title: Provenance
+summary: Captures provenance validation.
+lifecycle: active
+`,
+    );
+    await memoryStore.acquireMemoryLock({ owner: "worker-1" });
+
+    await expect(
+      memoryStore.commitMemory({
+        message: "Missing source",
+        memoryIds: ["provenance"],
+      }),
+    ).rejects.toThrow("at least one source trailer");
+
+    await expect(
+      memoryStore.commitMemory({
+        message: "Missing traceability",
+        sources: ["quest:q-1205"],
+      }),
+    ).rejects.toThrow("include quest, session, or at least one memory id");
+  });
 });

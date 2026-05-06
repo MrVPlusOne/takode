@@ -149,6 +149,40 @@ lifecycle: active
     expect(JSON.parse(release.stdout).locked).toBe(false);
   });
 
+  it("rejects commit helper calls without lock or required provenance", async () => {
+    await runMemory(["repo", "init"], env);
+    await writeMemoryFile(
+      "current/provenance.md",
+      `
+id: provenance
+kind: current
+title: Provenance
+summary: Tracks memory commit provenance validation.
+lifecycle: active
+`,
+    );
+
+    const noLock = await runMemory(
+      ["commit", "--message", "Missing lock", "--memory-id", "provenance", "--source", "quest:q-1205"],
+      env,
+    );
+    expect(noLock.status).toBe(1);
+    expect(noLock.stderr).toContain("Acquire the memory repo lock");
+
+    await runMemory(["lock", "acquire", "--owner", "worker"], env);
+
+    const missingSource = await runMemory(["commit", "--message", "Missing source", "--memory-id", "provenance"], env);
+    expect(missingSource.status).toBe(1);
+    expect(missingSource.stderr).toContain("at least one source trailer");
+
+    const missingTraceability = await runMemory(
+      ["commit", "--message", "Missing traceability", "--source", "quest:q-1205"],
+      env,
+    );
+    expect(missingTraceability.status).toBe(1);
+    expect(missingTraceability.stderr).toContain("include quest, session, or at least one memory id");
+  });
+
   it("rejects superseded workstream/upsert/check commands with migration guidance", async () => {
     const result = await runMemory(["upsert", "current", "takode/key"], env);
 

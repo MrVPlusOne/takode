@@ -207,6 +207,8 @@ export async function memoryGitDiff(options: MemoryRepoOptions = {}): Promise<st
 
 export async function commitMemory(input: MemoryCommitInput): Promise<MemoryCommitResult> {
   const repo = await ensureMemoryRepo(input);
+  validateMemoryCommitInput(input);
+  await assertActiveMemoryLock(repo.root);
   const catalog = await lintMemory(input);
   const errors = catalog.issues.filter((issue) => issue.severity === "error");
   if (errors.length) {
@@ -533,6 +535,30 @@ function buildCommitMessage(input: MemoryCommitInput): string {
   if (input.session?.trim()) lines.push(`Session: ${input.session.trim()}`);
   for (const source of input.sources ?? []) lines.push(`Source: ${source}`);
   return lines.join("\n");
+}
+
+async function assertActiveMemoryLock(root: string): Promise<void> {
+  const lock = await readLockInfo(root);
+  if (!lock.locked) {
+    throw new Error("Acquire the memory repo lock before committing memory changes.");
+  }
+  if (lock.stale) {
+    throw new Error("Memory repo lock is stale; acquire a fresh lock before committing memory changes.");
+  }
+}
+
+function validateMemoryCommitInput(input: MemoryCommitInput): void {
+  if (!input.message.trim()) throw new Error("Memory commit message is required");
+  const sources = (input.sources ?? []).map((source) => source.trim()).filter(Boolean);
+  if (sources.length === 0) {
+    throw new Error("Memory commits require at least one source trailer.");
+  }
+  const hasTraceability = Boolean(
+    input.quest?.trim() || input.session?.trim() || input.memoryIds?.some((id) => id.trim()),
+  );
+  if (!hasTraceability) {
+    throw new Error("Memory commits require traceability: include quest, session, or at least one memory id.");
+  }
 }
 
 async function runGit(root: string, args: string[]): Promise<string> {
