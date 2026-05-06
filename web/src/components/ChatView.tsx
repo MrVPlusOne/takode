@@ -1439,7 +1439,14 @@ export function ChatView({
       {!preview && <TodoStatusLine sessionId={sessionId} />}
 
       {/* Composer */}
-      {!preview && <Composer sessionId={sessionId} threadKey={composerThreadKey} questId={composerQuestId} />}
+      {!preview && (
+        <Composer
+          sessionId={sessionId}
+          threadKey={composerThreadKey}
+          questId={composerQuestId}
+          transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
+        />
+      )}
     </div>
   );
 }

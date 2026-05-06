@@ -18,6 +18,11 @@ import {
 import * as sessionNames from "../session-names.js";
 import { getSettings } from "../settings-manager.js";
 import type { RouteContext } from "./context.js";
+import type { BrowserIncomingMessage } from "../session-types.js";
+import { buildThreadWindowSync } from "../../shared/thread-window.js";
+import { normalizeThreadTarget } from "../../shared/thread-routing.js";
+
+const TRANSCRIPTION_THREAD_CONTEXT_TURNS = 12;
 
 export function createTranscriptionRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -37,6 +42,50 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       .sort((a, b) => (b.lastActivityAt ?? b.createdAt) - (a.lastActivityAt ?? a.createdAt))
       .slice(0, limit)
       .map((s) => allNames[s.sessionId]);
+  }
+
+  function normalizeTranscriptionThreadKey(rawThreadKey: string | undefined): string | undefined {
+    if (!rawThreadKey) return undefined;
+    const trimmed = rawThreadKey.trim().toLowerCase();
+    if (trimmed === "all") return "main";
+    return normalizeThreadTarget(trimmed)?.threadKey;
+  }
+
+  function buildThreadScopedTranscriptionHistory(
+    history: BrowserIncomingMessage[] | null,
+    threadKey: string | undefined,
+  ): BrowserIncomingMessage[] | null {
+    if (!history || !threadKey) return history;
+
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey,
+      fromItem: -1,
+      itemCount: TRANSCRIPTION_THREAD_CONTEXT_TURNS,
+      sectionItemCount: 1,
+      visibleItemCount: TRANSCRIPTION_THREAD_CONTEXT_TURNS,
+    });
+    return sync.entries.map((entry) => entry.message);
+  }
+
+  function getTranscriptionSessionContext(sessionId: string | undefined, threadKey: string | undefined) {
+    if (!sessionId) {
+      return {
+        messageHistory: null,
+        taskHistory: [],
+        sessionName: undefined,
+        activeSessionNames: undefined,
+      };
+    }
+
+    const session = wsBridge.getSession(sessionId);
+    const activeSessionNames = getRecentSessionNames(sessionId, 20);
+    return {
+      messageHistory: buildThreadScopedTranscriptionHistory(session?.messageHistory ?? null, threadKey),
+      taskHistory: session?.taskHistory ?? [],
+      sessionName: sessionNames.getName(sessionId),
+      activeSessionNames: activeSessionNames.length > 0 ? activeSessionNames : undefined,
+    };
   }
 
   // ─── Enhancement tester (debug tool) ───────────────────────────────
@@ -122,6 +171,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     let rawMode = "dictation";
     let composerText: string | undefined;
     let requestedBackend: string | undefined;
+    let rawThreadKey: string | undefined;
 
     if (contentType.toLowerCase().startsWith("multipart/form-data")) {
       const body = await c.req.parseBody();
@@ -136,6 +186,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       rawMode = typeof body["mode"] === "string" ? body["mode"] : "dictation";
       composerText = typeof body["composerText"] === "string" ? body["composerText"] : undefined;
       requestedBackend = typeof body["backend"] === "string" ? body["backend"] : undefined;
+      rawThreadKey = typeof body["threadKey"] === "string" ? body["threadKey"] : undefined;
     } else {
       buf = Buffer.from(await c.req.arrayBuffer());
       if (buf.length === 0) {
@@ -147,10 +198,12 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       rawMode = c.req.query("mode") || "dictation";
       composerText = c.req.query("composerText") || undefined;
       requestedBackend = c.req.query("backend") || undefined;
+      rawThreadKey = c.req.query("threadKey") || undefined;
     }
 
     const uploadDurationMs = Date.now() - requestStart;
     const mode = rawMode === "edit" ? "edit" : rawMode === "append" ? "append" : "dictation";
+    const threadKey = normalizeTranscriptionThreadKey(rawThreadKey);
     const { default: defaultBackend } = getAvailableBackends();
     const backend = requestedBackend || defaultBackend;
 
@@ -202,16 +255,16 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
         // Build context-aware STT prompt (guides vocabulary recognition)
         // Get recent non-archived session names sorted by activity (most recent first)
+        const sessionContext = getTranscriptionSessionContext(sessionId, threadKey);
         let sttPrompt = "";
         if (sessionId) {
-          const recentOtherNames = getRecentSessionNames(sessionId, 10);
           sttPrompt = buildSttPrompt({
             mode,
-            taskHistory: wsBridge.getSession(sessionId)?.taskHistory ?? [],
-            sessionName: sessionNames.getName(sessionId),
-            activeSessionNames: recentOtherNames.length > 0 ? recentOtherNames : undefined,
+            taskHistory: sessionContext.taskHistory,
+            sessionName: sessionContext.sessionName,
+            activeSessionNames: sessionContext.activeSessionNames?.slice(0, 10),
             composerText: mode === "edit" || mode === "append" ? composerText : undefined,
-            messageHistory: wsBridge.getSession(sessionId)?.messageHistory ?? null,
+            messageHistory: sessionContext.messageHistory,
             customVocabulary: getSettings().transcriptionConfig.customVocabulary || undefined,
           });
         }
@@ -286,21 +339,18 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         });
 
         if (willRunVoiceEdit) {
-          const history = sessionId ? (wsBridge.getSession(sessionId)?.messageHistory ?? null) : null;
-          const taskHistory = sessionId ? (wsBridge.getSession(sessionId)?.taskHistory ?? []) : [];
-          const enhOtherNames = sessionId ? getRecentSessionNames(sessionId, 20) : [];
           const result = await applyVoiceEdit(
             rawText,
             composerText!,
-            history,
+            sessionContext.messageHistory,
             settings.transcriptionConfig,
             enhancementKey!,
             {
               mode,
               composerText,
-              taskTitles: taskHistory.map((t) => t.title),
-              sessionName: sessionId ? sessionNames.getName(sessionId) : undefined,
-              activeSessionNames: enhOtherNames.length > 0 ? enhOtherNames : undefined,
+              taskTitles: sessionContext.taskHistory.map((t) => t.title),
+              sessionName: sessionContext.sessionName,
+              activeSessionNames: sessionContext.activeSessionNames,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
             },
           );
@@ -343,21 +393,18 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
         // Voice append: clean transcribed speech for insertion at cursor position
         if (willRunVoiceAppend) {
-          const history = sessionId ? (wsBridge.getSession(sessionId)?.messageHistory ?? null) : null;
-          const taskHistory = sessionId ? (wsBridge.getSession(sessionId)?.taskHistory ?? []) : [];
-          const enhOtherNames = sessionId ? getRecentSessionNames(sessionId, 20) : [];
           const result = await applyVoiceAppend(
             rawText,
             composerText!,
-            history,
+            sessionContext.messageHistory,
             settings.transcriptionConfig,
             enhancementKey!,
             {
               mode,
               composerText,
-              taskTitles: taskHistory.map((t) => t.title),
-              sessionName: sessionId ? sessionNames.getName(sessionId) : undefined,
-              activeSessionNames: enhOtherNames.length > 0 ? enhOtherNames : undefined,
+              taskTitles: sessionContext.taskHistory.map((t) => t.title),
+              sessionName: sessionContext.sessionName,
+              activeSessionNames: sessionContext.activeSessionNames,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
             },
           );
@@ -399,19 +446,19 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
         // Tier 2: Context-aware enhancement (OpenAI backend only)
         if (willEnhanceDictation) {
-          const history = wsBridge.getSession(sessionId!)?.messageHistory ?? null;
-
-          // Build enriched context for enhancement
-          const taskHistory = wsBridge.getSession(sessionId!)?.taskHistory ?? [];
-          const enhOtherNames = getRecentSessionNames(sessionId!, 20);
-
-          const result = await enhanceTranscript(rawText, history, settings.transcriptionConfig, enhancementKey!, {
-            mode,
-            taskTitles: taskHistory.map((t) => t.title),
-            sessionName: sessionNames.getName(sessionId!),
-            activeSessionNames: enhOtherNames.length > 0 ? enhOtherNames : undefined,
-            customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
-          });
+          const result = await enhanceTranscript(
+            rawText,
+            sessionContext.messageHistory,
+            settings.transcriptionConfig,
+            enhancementKey!,
+            {
+              mode,
+              taskTitles: sessionContext.taskHistory.map((t) => t.title),
+              sessionName: sessionContext.sessionName,
+              activeSessionNames: sessionContext.activeSessionNames,
+              customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
+            },
+          );
 
           // Log for debug panel
           addTranscriptionLogEntry({

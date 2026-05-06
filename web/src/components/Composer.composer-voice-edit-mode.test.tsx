@@ -669,6 +669,23 @@ describe("Composer voice edit mode", () => {
     });
   });
 
+  it("passes the active leader thread key to voice dictation transcription", async () => {
+    render(<Composer sessionId="s1" threadKey="q-1210" questId="q-1210" transcriptionThreadKey="q-1210" />);
+
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    await waitFor(() => {
+      expect(mockTranscribe).toHaveBeenCalledWith(
+        expect.any(Blob),
+        expect.objectContaining({
+          mode: "dictation",
+          sessionId: "s1",
+          threadKey: "q-1210",
+        }),
+      );
+    });
+  });
+
   it("uses voice edit mode for non-empty drafts and makes the edit explicit and reversible", async () => {
     setupMockStore({ draftText: "Please rewrite this update into two short bullets." });
     mockTranscribe.mockResolvedValueOnce({

@@ -155,8 +155,21 @@ vi.mock("./MessageFeed.js", () => ({
 }));
 
 vi.mock("./Composer.js", () => ({
-  Composer: ({ threadKey, questId }: { threadKey?: string; questId?: string }) => (
-    <div data-testid="composer" data-thread-key={threadKey} data-quest-id={questId} />
+  Composer: ({
+    threadKey,
+    questId,
+    transcriptionThreadKey,
+  }: {
+    threadKey?: string;
+    questId?: string;
+    transcriptionThreadKey?: string;
+  }) => (
+    <div
+      data-testid="composer"
+      data-thread-key={threadKey}
+      data-quest-id={questId}
+      data-transcription-thread-key={transcriptionThreadKey}
+    />
   ),
 }));
 
@@ -534,6 +547,7 @@ describe("ChatView backend banners", () => {
     expect(window.location.hash).toBe("#/session/s1?thread=q-941");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "q-941");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-quest-id", "q-941");
+    expect(scope.getByTestId("composer")).toHaveAttribute("data-transcription-thread-key", "q-941");
     expect(scope.getByTestId("quest-thread-banner")).toHaveAttribute("data-layout", "compact-inline");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Thread");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-941");
@@ -851,6 +865,7 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "all");
     expect(window.location.hash).toBe("#/session/s1?thread=all");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "main");
+    expect(scope.getByTestId("composer")).toHaveAttribute("data-transcription-thread-key", "main");
     expect(scope.getByTestId("composer")).not.toHaveAttribute("data-quest-id");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "all");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-label", "All Threads");

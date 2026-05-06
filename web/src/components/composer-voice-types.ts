@@ -9,4 +9,5 @@ export interface FailedTranscription {
   mode: "dictation" | "edit" | "append";
   composerText: string;
   cursorContext: { before: string; after: string };
+  transcriptionThreadKey?: string;
 }

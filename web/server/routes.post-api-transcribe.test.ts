@@ -464,6 +464,42 @@ function createMockTracker() {
   } as any;
 }
 
+function mockVoiceSettings(overrides: Record<string, unknown> = {}) {
+  vi.mocked(settingsManager.getSettings).mockReturnValue({
+    serverName: "",
+    serverId: "",
+    pushoverUserKey: "",
+    pushoverApiToken: "",
+    pushoverDelaySeconds: 30,
+    pushoverEnabled: true,
+    pushoverBaseUrl: "",
+    claudeBinary: "",
+    codexBinary: "",
+    maxKeepAlive: 0,
+    heavyRepoModeEnabled: false,
+    autoApprovalEnabled: false,
+    autoApprovalModel: "haiku",
+    autoApprovalMaxConcurrency: 4,
+    autoApprovalTimeoutSeconds: 45,
+    namerConfig: { backend: "claude" },
+    autoNamerEnabled: true,
+    transcriptionConfig: {
+      apiKey: "transcription-secret",
+      baseUrl: "https://api.openai.com/v1",
+      enhancementEnabled: true,
+      enhancementModel: "gpt-5-mini",
+      ...overrides,
+    },
+    editorConfig: { editor: "none" },
+    defaultClaudeBackend: "claude",
+    sleepInhibitorEnabled: false,
+    sleepInhibitorDurationMinutes: 5,
+    codexLeaderContextWindowOverrideTokens: 1_000_000,
+    codexLeaderRecycleThresholdTokens: 260_000,
+    updatedAt: 123,
+  } as any);
+}
+
 // ─── Test setup ──────────────────────────────────────────────────────────────
 
 let app: Hono;
@@ -870,6 +906,157 @@ describe("POST /api/transcribe", () => {
     expect(enhanceBody.messages[1].content).toContain("<CUSTOM_VOCABULARY>");
     expect(enhanceBody.messages[1].content).toContain("Important Vocabulary: Claude, Claude Code, Jiayi, codex.sh");
     expect(enhanceBody.messages[1].content).toContain("</CUSTOM_VOCABULARY>");
+  });
+
+  it("uses selected quest-thread conversation context for STT and dictation enhancement", async () => {
+    mockVoiceSettings();
+    vi.mocked(sessionNames.getName).mockReturnValue("Leader voice session");
+    ensureBridgeSession(bridge, "session-1", {
+      taskHistory: [{ title: "Route voice context" }],
+      messageHistory: [
+        { type: "user_message", content: "Main Thread is about AlphaMainOnly.", threadKey: "main" },
+        {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "AlphaMainOnly assistant context." }] },
+          threadKey: "main",
+        },
+        {
+          type: "user_message",
+          content: "Selected quest tab is about SelectedThreadOnly.",
+          threadKey: "q-1210",
+          questId: "q-1210",
+          threadRefs: [{ threadKey: "q-1210", questId: "q-1210", source: "explicit" }],
+        },
+        {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "SelectedThreadOnly assistant context." }] },
+          threadKey: "q-1210",
+          questId: "q-1210",
+          threadRefs: [{ threadKey: "q-1210", questId: "q-1210", source: "explicit" }],
+        },
+      ],
+    });
+
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            text: "Please use the selected thread vocabulary in this transcript for enhancement, because the spoken request mentions a detailed implementation concern that should exceed the enhancement minimum length.",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ choices: [{ message: { content: "Enhanced selected thread transcript." } }] }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+
+    const res = await app.request(
+      "/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&threadKey=q-1210",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "audio/wav",
+          "X-Companion-Audio-Filename": "recording.wav",
+        },
+        body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    await res.text();
+    expect(fetch).toHaveBeenCalledTimes(2);
+
+    const [, sttInit] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const sttPrompt = String((sttInit.body as FormData).get("prompt"));
+    expect(sttPrompt).toContain("SelectedThreadOnly");
+    expect(sttPrompt).not.toContain("AlphaMainOnly");
+
+    const [, enhanceInit] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
+    const enhanceBody = JSON.parse(String(enhanceInit.body));
+    expect(enhanceBody.messages[1].content).toContain("SelectedThreadOnly");
+    expect(enhanceBody.messages[1].content).not.toContain("AlphaMainOnly");
+  });
+
+  it("uses Main-local context when leader voice input requests the Main thread", async () => {
+    mockVoiceSettings({ enhancementEnabled: false });
+    ensureBridgeSession(bridge, "session-1", {
+      messageHistory: [
+        { type: "user_message", content: "Main Thread vocabulary is MainLocalOnly.", threadKey: "main" },
+        {
+          type: "user_message",
+          content: "Quest tab vocabulary is QuestOnlyTerm.",
+          threadKey: "q-1210",
+          questId: "q-1210",
+          threadRefs: [{ threadKey: "q-1210", questId: "q-1210", source: "explicit" }],
+        },
+      ],
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ text: "main scoped transcript" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&threadKey=main", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/wav",
+        "X-Companion-Audio-Filename": "recording.wav",
+      },
+      body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    });
+
+    expect(res.status).toBe(200);
+    await res.text();
+    const [, sttInit] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const sttPrompt = String((sttInit.body as FormData).get("prompt"));
+    expect(sttPrompt).toContain("MainLocalOnly");
+    expect(sttPrompt).not.toContain("QuestOnlyTerm");
+  });
+
+  it("preserves legacy raw session context when no selected thread is provided", async () => {
+    mockVoiceSettings({ enhancementEnabled: false });
+    ensureBridgeSession(bridge, "session-1", {
+      messageHistory: [
+        { type: "user_message", content: "Main raw context AlphaMainOnly.", threadKey: "main" },
+        {
+          type: "user_message",
+          content: "Quest raw context SelectedThreadOnly.",
+          threadKey: "q-1210",
+          questId: "q-1210",
+          threadRefs: [{ threadKey: "q-1210", questId: "q-1210", source: "explicit" }],
+        },
+      ],
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ text: "raw transcript" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/wav",
+        "X-Companion-Audio-Filename": "recording.wav",
+      },
+      body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    });
+
+    expect(res.status).toBe(200);
+    await res.text();
+    const [, sttInit] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const sttPrompt = String((sttInit.body as FormData).get("prompt"));
+    expect(sttPrompt).toContain("AlphaMainOnly");
+    expect(sttPrompt).toContain("SelectedThreadOnly");
   });
 
   it("supports voice-edit mode by transcribing the instruction then applying it to the current draft", async () => {

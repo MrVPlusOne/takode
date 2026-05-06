@@ -1345,6 +1345,7 @@ export const api = {
       backend?: "gemini" | "openai";
       mode?: VoiceTranscriptionMode;
       sessionId?: string;
+      threadKey?: string;
       composerText?: string;
       /** Called when transcription phase changes (e.g. first stream ack -> "transcribing"). */
       onPhase?: (phase: VoiceTranscriptionPhase) => void;
@@ -1357,6 +1358,7 @@ export const api = {
     if (options?.backend) query.set("backend", options.backend);
     if (mode) query.set("mode", mode);
     if (options?.sessionId) query.set("sessionId", options.sessionId);
+    if (options?.threadKey) query.set("threadKey", options.threadKey);
     const path = `${BASE}/transcribe${query.size > 0 ? `?${query.toString()}` : ""}`;
     const headers = new Headers();
     let body: BodyInit;
@@ -1370,6 +1372,7 @@ export const api = {
       if (options?.backend) form.append("backend", options.backend);
       if (mode) form.append("mode", mode);
       if (options?.sessionId) form.append("sessionId", options.sessionId);
+      if (options?.threadKey) form.append("threadKey", options.threadKey);
       if (options?.composerText !== undefined) form.append("composerText", options.composerText);
       body = form;
     }

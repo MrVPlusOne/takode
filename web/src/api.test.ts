@@ -595,6 +595,40 @@ describe("transcribe", () => {
     expect(headers.get("X-Companion-Audio-Filename")).toBe("recording.mp4");
   });
 
+  it("adds selected thread context to raw dictation requests", async () => {
+    const encoder = new TextEncoder();
+    const body = new ReadableStream({
+      start(controller) {
+        controller.enqueue(
+          encoder.encode(
+            `event: result\ndata: ${JSON.stringify({
+              text: "thread scoped",
+              backend: "openai",
+              enhanced: false,
+            } satisfies VoiceTranscriptionResult)}\n\n`,
+          ),
+        );
+        controller.close();
+      },
+    });
+    mockFetch.mockResolvedValueOnce(
+      new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    );
+
+    await api.transcribe(new Blob([new Uint8Array([1, 2, 3, 4])], { type: "audio/mp4" }), {
+      mode: "dictation",
+      sessionId: "session-1",
+      threadKey: "q-1210",
+    });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/transcribe?mode=dictation&sessionId=session-1&threadKey=q-1210");
+    expect(opts?.body).toBeInstanceOf(Blob);
+  });
+
   it("keeps multipart transport for voice edit requests and parses the SSE result", async () => {
     // Edit/append still need the existing composer text, so keep the multipart
     // path working while the empty-draft dictation path is optimized separately.
@@ -628,6 +662,7 @@ describe("transcribe", () => {
       mode: "edit",
       composerText: "draft text",
       sessionId: "session-1",
+      threadKey: "q-1210",
       onPhase,
     });
 
@@ -642,7 +677,7 @@ describe("transcribe", () => {
     });
 
     const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("/api/transcribe?mode=edit&sessionId=session-1");
+    expect(url).toBe("/api/transcribe?mode=edit&sessionId=session-1&threadKey=q-1210");
     expect(opts?.method).toBe("POST");
     expect(opts?.signal).toBeInstanceOf(AbortSignal);
     const form = opts?.body as FormData;
@@ -652,6 +687,7 @@ describe("transcribe", () => {
     expect(form.get("mode")).toBe("edit");
     expect(form.get("composerText")).toBe("draft text");
     expect(form.get("sessionId")).toBe("session-1");
+    expect(form.get("threadKey")).toBe("q-1210");
   });
 });
 
