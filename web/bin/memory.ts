@@ -5,11 +5,15 @@ import { resolve } from "node:path";
 import { workstreamMemoryService } from "../server/workstream-memory-service.js";
 import {
   CURRENT_READ_PURPOSES,
+  MEMORY_CHECK_EVENTS,
   MEMORY_PRIORITIES,
   MEMORY_STATUSES,
   MEMORY_SUBTYPES,
+  type ActiveRunDetails,
   type AppliesTo,
   type CurrentReadPurpose,
+  type MemoryCheckEvent,
+  type MemoryCheckInput,
   type MemoryBucket,
   type MemoryPriority,
   type MemoryRecord,
@@ -81,6 +85,7 @@ Commands:
   show <workstream>/<key>
   upsert current|reference <workstream>/<key>
   retire <workstream>/<key>
+  check --event <event>
   bookkeeping report
 
 Use --json for structured output.`);
@@ -107,6 +112,18 @@ async function readTextOption(inlineFlag: string, fileFlag: string): Promise<str
   }
   try {
     return await readFile(resolve(file), "utf-8");
+  } catch (error) {
+    const detail = error instanceof Error ? `: ${error.message}` : "";
+    die(`Cannot read --${fileFlag} from ${file}${detail}`);
+  }
+}
+
+async function readJsonOption<T>(fileFlag: string): Promise<T | undefined> {
+  const file = option(fileFlag);
+  if (!file) return undefined;
+  try {
+    const raw = await readFile(resolve(file), "utf-8");
+    return JSON.parse(raw) as T;
   } catch (error) {
     const detail = error instanceof Error ? `: ${error.message}` : "";
     die(`Cannot read --${fileFlag} from ${file}${detail}`);
@@ -151,6 +168,12 @@ function parsePurpose(raw: string | undefined): CurrentReadPurpose {
   const value = raw ?? "";
   if (CURRENT_READ_PURPOSES.includes(value as CurrentReadPurpose)) return value as CurrentReadPurpose;
   die(`--for must be one of: ${CURRENT_READ_PURPOSES.join(", ")}`);
+}
+
+function parseCheckEvent(raw: string | undefined): MemoryCheckEvent {
+  const value = raw ?? "";
+  if (MEMORY_CHECK_EVENTS.includes(value as MemoryCheckEvent)) return value as MemoryCheckEvent;
+  die(`--event must be one of: ${MEMORY_CHECK_EVENTS.join(", ")}`);
 }
 
 function parseHooks(): RetrievalHook[] {
@@ -421,6 +444,7 @@ async function handleUpsert(): Promise<void> {
   if (!ref) die("Usage: memory upsert current|reference <workstream>/<key>");
   const current = await readTextOption("current", "current-file");
   const details = await readTextOption("details", "details-file");
+  const activeRun = await readJsonOption<ActiveRunDetails>("active-run-file");
   if (!current?.trim()) die("--current or --current-file is required");
   const status = parseStatus(option("status"));
   const record = await workstreamMemoryService.upsertRecord({
@@ -441,6 +465,7 @@ async function handleUpsert(): Promise<void> {
     status,
     retireWhen: option("retire-when") ? { description: option("retire-when")! } : undefined,
     supersedes: parseCsv(option("supersedes")),
+    activeRun,
     reactivate: flag("reactivate"),
   });
   jsonOutput ? out({ record }) : console.log(formatRecord(record));
@@ -477,6 +502,35 @@ async function handleBookkeeping(): Promise<void> {
   }
 }
 
+async function handleCheck(): Promise<void> {
+  const event = parseCheckEvent(option("event"));
+  const callerState = await readJsonOption<MemoryCheckInput["callerState"]>("state-file");
+  const productState = await readJsonOption<MemoryCheckInput["productState"]>("product-state-file");
+  const result = await workstreamMemoryService.checkMemory({
+    event,
+    workstream: option("workstream"),
+    questId: option("quest"),
+    callerState,
+    productState,
+    options: {
+      enforce: flag("enforce"),
+      includeWarnings: !flag("no-warnings"),
+      maxRecords: option("limit") ? parsePositiveInt(option("limit")!, "--limit") : undefined,
+    },
+  });
+  if (jsonOutput) {
+    out(result);
+    return;
+  }
+  console.log(`Memory check ${result.event}: ${result.level}${result.enforceable ? " (enforceable)" : ""}`);
+  for (const finding of result.findings) {
+    const record = finding.record ? `${finding.record}: ` : "";
+    console.log(`${finding.level.toUpperCase()}: ${record}${finding.why.join("; ")}`);
+    if (finding.requiredAction) console.log(`  action: ${finding.requiredAction}`);
+  }
+  if (result.findings.length === 0) console.log("No matching current context.");
+}
+
 try {
   switch (command) {
     case undefined:
@@ -502,6 +556,9 @@ try {
       break;
     case "retire":
       await handleRetire();
+      break;
+    case "check":
+      await handleCheck();
       break;
     case "bookkeeping":
       await handleBookkeeping();

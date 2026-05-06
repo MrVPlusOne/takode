@@ -25,6 +25,19 @@ function authority() {
   return memoryStore.parseAuthorityBoundary("memory owns current policy|quest|user-overrides");
 }
 
+function activeRunDetails() {
+  return {
+    linkedQuestId: "q-101",
+    expectedRunState: "active-obligation" as const,
+    monitorRequirement: {
+      cadenceMinutes: 15,
+      requiredProductProof: "timer-or-hard-event" as const,
+      stopConditionRequiresLeaderAction: true,
+    },
+    stopConditions: ["tmux-missing" as const, "lance-not-advancing" as const],
+  };
+}
+
 async function createWorkstream() {
   return memoryStore.createWorkstream({
     slug: "takode-memory",
@@ -353,6 +366,182 @@ describe("workstream memory store", () => {
         record: "takode-memory/live-pid",
         message: expect.stringContaining("live product state"),
       }),
+    );
+  });
+
+  it("recalls scoped current context for approved memory check events", async () => {
+    await createWorkstream();
+    await memoryStore.linkWorkstream({
+      workstream: "takode-memory",
+      quests: [{ questId: "q-101", role: "deliverable" }],
+    });
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/dispatch-policy",
+      bucket: "current",
+      subtype: "policy",
+      priority: "blocking",
+      current: "Dispatch should include the accepted workstream memory summary.",
+      appliesTo: { questIds: ["q-101"] },
+      retrievalHooks: ["dispatch"],
+      evidence: source(),
+      authorityBoundary: authority(),
+    });
+
+    // This validates the hookable evaluator's baseline path: typed event in, scoped recall out.
+    const result = await memoryStore.checkMemory({
+      event: "dispatch",
+      questId: "q-101",
+      callerState: { kind: "dispatch", questId: "q-101" },
+    });
+
+    expect(result.status).toBe("ok");
+    expect(result.level).toBe("recall");
+    expect(result.records.map((record) => record.key)).toEqual(["dispatch-policy"]);
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({ level: "recall", record: "takode-memory/dispatch-policy" }),
+    );
+  });
+
+  it("fails closed when memory check receives mismatched typed state", async () => {
+    await createWorkstream();
+
+    // Check state kind must match the explicit event so callers cannot smuggle freeform state.
+    await expect(
+      memoryStore.checkMemory({
+        event: "dispatch",
+        workstream: "takode-memory",
+        callerState: { kind: "worker-prompt", questId: "q-101" },
+      }),
+    ).rejects.toThrow("does not match event dispatch");
+  });
+
+  it("gates long-running execute launches without active-run dossiers or monitor proof", async () => {
+    await createWorkstream();
+    await memoryStore.linkWorkstream({
+      workstream: "takode-memory",
+      quests: [{ questId: "q-101", role: "deliverable" }],
+    });
+
+    // Missing dossier is a gate finding, but not enforceable without trusted product adapter proof.
+    const missingDossier = await memoryStore.checkMemory({
+      event: "execute-launch",
+      questId: "q-101",
+      callerState: { kind: "execute-launch", questId: "q-101", longRunning: true },
+    });
+
+    expect(missingDossier.level).toBe("gate");
+    expect(missingDossier.enforceable).toBe(false);
+    expect(missingDossier.findings).toContainEqual(
+      expect.objectContaining({ why: expect.arrayContaining([expect.stringContaining("no matching active-run")]) }),
+    );
+
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/active-run",
+      bucket: "current",
+      subtype: "active-run",
+      priority: "safety",
+      current: "q-101 must keep a 15m monitor until the long-running job is complete or stopped.",
+      appliesTo: { questIds: ["q-101"] },
+      retrievalHooks: ["execute-launch", "worker-turn-end", "recovery", "compaction"],
+      evidence: source(),
+      authorityBoundary: memoryStore.parseAuthorityBoundary(
+        "expected active-run obligations|timer-store|product-state-overrides",
+      ),
+      retireWhen: { description: "q-101 run completes, stops, or is replaced" },
+      activeRun: activeRunDetails(),
+    });
+
+    const missingProof = await memoryStore.checkMemory({
+      event: "execute-launch",
+      questId: "q-101",
+      productState: { source: "product-adapter", trusted: true, proofs: [] },
+      callerState: { kind: "execute-launch", questId: "q-101", longRunning: true },
+      options: { enforce: true },
+    });
+
+    expect(missingProof.level).toBe("gate");
+    expect(missingProof.enforceable).toBe(true);
+    expect(missingProof.requiredActions).toContainEqual(expect.stringContaining("Create/prove a recurring monitor"));
+
+    const withProof = await memoryStore.checkMemory({
+      event: "execute-launch",
+      questId: "q-101",
+      productState: { source: "product-adapter", trusted: true, proofs: [{ kind: "timer", trusted: true }] },
+      callerState: { kind: "execute-launch", questId: "q-101", longRunning: true },
+      options: { enforce: true },
+    });
+
+    expect(withProof.level).toBe("recall");
+    expect(withProof.enforceable).toBe(false);
+  });
+
+  it("gates unreported active-run stop signals from trusted worker turn-end evidence", async () => {
+    await createWorkstream();
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/active-run",
+      bucket: "current",
+      subtype: "active-run",
+      priority: "safety",
+      current: "Stop-condition reports for q-101 must wake the leader before continuation.",
+      appliesTo: { questIds: ["q-101"] },
+      retrievalHooks: ["worker-turn-end"],
+      evidence: source(),
+      authorityBoundary: memoryStore.parseAuthorityBoundary(
+        "active-run stop-condition policy|phase-notes|block-until-resolved",
+      ),
+      retireWhen: { description: "q-101 run completes, stops, or is replaced" },
+      activeRun: activeRunDetails(),
+    });
+
+    // A trusted product path can make the stop-condition gate enforceable; caller-only evidence cannot.
+    const result = await memoryStore.checkMemory({
+      event: "worker-turn-end",
+      workstream: "takode-memory",
+      productState: { source: "product-adapter", trusted: true },
+      callerState: {
+        kind: "worker-turn-end",
+        questId: "q-101",
+        summarySignals: ["tmux-missing"],
+        reportedToUser: false,
+        trusted: true,
+      },
+      options: { enforce: true },
+    });
+
+    expect(result.level).toBe("gate");
+    expect(result.enforceable).toBe(true);
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({ why: expect.arrayContaining([expect.stringContaining("tmux-missing")]) }),
+    );
+  });
+
+  it("warns rather than owning live product state during bookkeeping checks", async () => {
+    await createWorkstream();
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/live-endpoint",
+      bucket: "current",
+      subtype: "mission",
+      priority: "important",
+      current: "The live endpoint is currently running on port 3456.",
+      appliesTo: { exactTerms: ["endpoint"] },
+      retrievalHooks: ["bookkeeping"],
+      evidence: source(),
+      authorityBoundary: memoryStore.parseAuthorityBoundary(
+        "expected endpoint policy|product-state|product-state-overrides",
+      ),
+    });
+
+    // Product-state-like memory is surfaced as a warning; the evaluator does not treat it as live truth.
+    const result = await memoryStore.checkMemory({
+      event: "bookkeeping",
+      workstream: "takode-memory",
+      callerState: { kind: "bookkeeping", terms: ["endpoint"] },
+    });
+
+    expect(result.level).toBe("warn");
+    expect(result.enforceable).toBe(false);
+    expect(result.findings).toContainEqual(
+      expect.objectContaining({ why: expect.arrayContaining([expect.stringContaining("live product state")]) }),
     );
   });
 });

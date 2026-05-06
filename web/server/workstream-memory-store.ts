@@ -4,17 +4,23 @@ import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import {
   CURRENT_READ_PURPOSES,
+  MEMORY_CHECK_EVENTS,
   MEMORY_BUCKETS,
   MEMORY_PRIORITIES,
   MEMORY_STATUSES,
   MEMORY_SUBTYPES,
   WORKSTREAM_STATUSES,
+  type ActiveRunDetails,
   type ActorRef,
   type AppliesTo,
   type AuthorityBoundary,
   type BookkeepingReport,
   type CurrentReadQuery,
   type CurrentReadResult,
+  type MemoryCheckFinding,
+  type MemoryCheckInput,
+  type MemoryCheckLevel,
+  type MemoryCheckResult,
   type MemoryPriority,
   type MemoryRecord,
   type MemorySearchQuery,
@@ -40,6 +46,7 @@ const FRONTMATTER_BOUNDARY = "---";
 const VALID_SLUG = /^[a-z0-9][a-z0-9-]{0,79}$/;
 const VALID_RECORD_KEY = /^[a-z0-9][a-z0-9._-]{0,119}$/;
 const PRIORITY_WEIGHT: Record<MemoryPriority, number> = { safety: 4, blocking: 3, important: 2, info: 1 };
+const CHECK_LEVEL_WEIGHT: Record<MemoryCheckLevel, number> = { recall: 1, warn: 2, gate: 3 };
 const VALID_AUTHORITY_SYSTEMS = new Set<AuthorityBoundary["authoritativeSystem"]>([
   "user",
   "quest",
@@ -206,6 +213,7 @@ export async function upsertRecord(input: UpsertMemoryRecordInput): Promise<Memo
           ...(status === "active" ? { activatedBy: actor, activatedAt: now } : {}),
           activationSource: input.evidence[0] ?? existing.activation.activationSource,
         },
+        ...(input.activeRun !== undefined ? { activeRun: input.activeRun } : {}),
         ...(input.retireWhen ? { retireWhen: input.retireWhen } : {}),
         updatedBy: actor,
         updatedAt: now,
@@ -235,6 +243,7 @@ export async function upsertRecord(input: UpsertMemoryRecordInput): Promise<Memo
           ...(status === "active" ? { activatedBy: actor, activatedAt: now } : {}),
           activationSource: input.evidence[0],
         },
+        ...(input.activeRun !== undefined ? { activeRun: input.activeRun } : {}),
         ...(input.retireWhen ? { retireWhen: input.retireWhen } : {}),
         history: [],
         createdBy: actor,
@@ -333,6 +342,54 @@ export async function readCurrentContext(query: CurrentReadQuery): Promise<Curre
   return { status: "ok", query, records: records.slice(0, limit), warnings };
 }
 
+export async function checkMemory(input: MemoryCheckInput): Promise<MemoryCheckResult> {
+  validateMemoryCheckInput(input);
+  const questId = input.questId ?? input.callerState?.questId;
+  const workstreams = await resolveCheckWorkstreams(input, questId);
+  const records = (
+    await Promise.all(
+      workstreams.map((workstream) =>
+        listRecords({
+          workstream: workstream.slug,
+          includeRetired: false,
+          includeProposed: false,
+        }),
+      ),
+    )
+  )
+    .flat()
+    .filter((record) => record.bucket === "current" && record.status === "active");
+  const matchedRecords = records.filter((record) => recordMatchesCheckInput(record, input, questId));
+  matchedRecords.sort(compareRecordsForRecall);
+
+  const maxRecords = input.options?.maxRecords ?? 5;
+  const visibleRecords = matchedRecords.slice(0, maxRecords);
+  const findings = visibleRecords.map((record) => recallFinding(record));
+  appendContextHygieneFindings(findings, matchedRecords, visibleRecords, input);
+  await appendBookkeepingFindings(findings, input, workstreams);
+  appendExecuteLaunchFindings(findings, records, input, questId);
+  appendWorkerTurnEndFindings(findings, records, input, questId);
+  appendPortPlanningFindings(findings, records, input);
+  appendRecoveryFindings(findings, matchedRecords, input);
+
+  const visibleFindings =
+    input.options?.includeWarnings === false ? findings.filter((finding) => finding.level !== "warn") : findings;
+  const level = highestLevel(visibleFindings);
+  const requiredActions = visibleFindings
+    .map((finding) => finding.requiredAction)
+    .filter((action): action is string => Boolean(action));
+  return {
+    status: level === "recall" ? "ok" : level,
+    level,
+    event: input.event,
+    enforceable: visibleFindings.some((finding) => finding.level === "gate" && finding.enforceable),
+    ackRequired: visibleFindings.some((finding) => finding.ackRequired),
+    findings: visibleFindings,
+    requiredActions: [...new Set(requiredActions)],
+    records: visibleRecords,
+  };
+}
+
 export async function bookkeepingReport(workstreamRef?: string): Promise<BookkeepingReport> {
   const records = await listRecords({
     workstream: workstreamRef,
@@ -394,6 +451,356 @@ export async function bookkeepingReport(workstreamRef?: string): Promise<Bookkee
 export async function getMemoryRoot(): Promise<string> {
   await ensureMemoryDirs();
   return MEMORY_DIR;
+}
+
+async function resolveCheckWorkstreams(input: MemoryCheckInput, questId: string | undefined): Promise<Workstream[]> {
+  if (input.workstream) return [await requireWorkstream(input.workstream)];
+  if (!questId) throw new Error("Either workstream or questId is required");
+  const workstreams = (await listWorkstreams()).filter((workstream) =>
+    workstream.linkedQuests.some((quest) => quest.questId === questId),
+  );
+  if (workstreams.length === 0) throw new Error(`No workstream is linked to ${questId}`);
+  return workstreams;
+}
+
+function validateMemoryCheckInput(input: MemoryCheckInput): void {
+  if (!MEMORY_CHECK_EVENTS.includes(input.event)) {
+    throw new Error(`Invalid memory check event: ${input.event}`);
+  }
+  if (input.callerState && input.callerState.kind !== input.event) {
+    throw new Error(`Memory check state kind ${input.callerState.kind} does not match event ${input.event}`);
+  }
+  if (
+    input.options?.maxRecords !== undefined &&
+    (!Number.isInteger(input.options.maxRecords) || input.options.maxRecords <= 0)
+  ) {
+    throw new Error("Memory check maxRecords must be a positive integer");
+  }
+}
+
+function recordMatchesCheckInput(record: MemoryRecord, input: MemoryCheckInput, questId: string | undefined): boolean {
+  if (record.retrievalHooks.includes(input.event)) return true;
+  if (record.appliesTo.actionTags?.includes(input.event)) return true;
+  if (questId && record.appliesTo.questIds?.includes(questId)) return true;
+  if (stateWorkerSessionNum(input) && record.appliesTo.workerSessionNums?.includes(stateWorkerSessionNum(input)!)) {
+    return true;
+  }
+  if (stateComponentTags(input).some((tag) => record.appliesTo.componentTags?.includes(tag))) return true;
+  if (stateTerms(input).some((term) => record.appliesTo.exactTerms?.includes(term))) return true;
+  return false;
+}
+
+function compareRecordsForRecall(a: MemoryRecord, b: MemoryRecord): number {
+  const priority = PRIORITY_WEIGHT[b.priority] - PRIORITY_WEIGHT[a.priority];
+  if (priority !== 0) return priority;
+  return b.updatedAt.localeCompare(a.updatedAt) || a.key.localeCompare(b.key);
+}
+
+function recallFinding(record: MemoryRecord): MemoryCheckFinding {
+  return {
+    level: "recall",
+    record: recordRef(record),
+    priority: record.priority,
+    source: "memory",
+    why: [`matched active Current Context for ${record.retrievalHooks.join(", ") || "scoped context"}`],
+    sources: sourceLabels(record),
+    authorityBoundary: formatAuthorityBoundary(record.authorityBoundary),
+    enforceable: false,
+    ackRequired: record.priority === "blocking" || record.priority === "safety",
+  };
+}
+
+function appendContextHygieneFindings(
+  findings: MemoryCheckFinding[],
+  matchedRecords: MemoryRecord[],
+  visibleRecords: MemoryRecord[],
+  input: MemoryCheckInput,
+): void {
+  if (matchedRecords.length > visibleRecords.length) {
+    findings.push(warnFinding([`matched ${matchedRecords.length} current records; showing ${visibleRecords.length}`]));
+  }
+  for (const record of matchedRecords) {
+    if (record.conflictsWith.length) {
+      findings.push(
+        warnFinding(
+          [`active record declares conflicts: ${record.conflictsWith.map((conflict) => conflict.record).join(", ")}`],
+          record,
+        ),
+      );
+    }
+    if (requiresRetireWhen(record) && !record.retireWhen?.description.trim()) {
+      findings.push(warnFinding([`${record.subtype} record is missing retireWhen`], record));
+    }
+    if (looksProductStateLike(record.current) || looksProductStateLike(record.details ?? "")) {
+      findings.push(
+        warnFinding(
+          ["current statement looks like live product state; memory should store policy/context only"],
+          record,
+        ),
+      );
+    }
+  }
+  if (
+    input.productState?.source === "caller-supplied" &&
+    matchedRecords.some((record) => record.priority === "safety")
+  ) {
+    findings.push(warnFinding(["caller-supplied product state cannot make safety gates enforceable"]));
+  }
+}
+
+async function appendBookkeepingFindings(
+  findings: MemoryCheckFinding[],
+  input: MemoryCheckInput,
+  workstreams: Workstream[],
+): Promise<void> {
+  if (input.event !== "bookkeeping") return;
+  for (const workstream of workstreams) {
+    const report = await bookkeepingReport(workstream.slug);
+    for (const issue of report.issues.filter((item) => item.level === "warn")) {
+      findings.push(
+        warnFinding([issue.message], undefined, {
+          recordRef: issue.record,
+          sources: [`bookkeeping:${workstream.slug}`],
+        }),
+      );
+    }
+  }
+}
+
+function appendExecuteLaunchFindings(
+  findings: MemoryCheckFinding[],
+  records: MemoryRecord[],
+  input: MemoryCheckInput,
+  questId: string | undefined,
+): void {
+  if (input.event !== "execute-launch" || input.callerState?.kind !== "execute-launch") return;
+  if (!input.callerState.longRunning) return;
+  const activeRunRecords = records.filter((record) => activeRunRecordMatches(record, input, questId));
+  if (activeRunRecords.length === 0) {
+    findings.push(
+      gateFinding(
+        input,
+        ["long-running Execute launch has no matching active-run Current Context dossier"],
+        undefined,
+        {
+          requiredAction:
+            "Create or identify an active-run Current Context dossier before treating Execute launch as handed off.",
+        },
+      ),
+    );
+    return;
+  }
+  if (!activeRunRecords.some((record) => record.activeRun?.monitorRequirement)) {
+    findings.push(
+      gateFinding(input, ["matching active-run dossier has no structured monitor requirement"], activeRunRecords[0], {
+        requiredAction: "Add structured active-run monitor obligations before treating Execute launch as handed off.",
+      }),
+    );
+  }
+  const requiredProof = activeRunRecords.find((record) => record.activeRun?.monitorRequirement)?.activeRun
+    ?.monitorRequirement.requiredProductProof;
+  if (!hasRequiredMonitorProof(input, requiredProof)) {
+    findings.push(
+      gateFinding(input, ["trusted monitor timer or worker-hard-event proof is missing"], activeRunRecords[0], {
+        requiredAction:
+          "Create/prove a recurring monitor or worker-hard-event before treating Execute launch as handed off.",
+      }),
+    );
+  }
+}
+
+function appendWorkerTurnEndFindings(
+  findings: MemoryCheckFinding[],
+  records: MemoryRecord[],
+  input: MemoryCheckInput,
+  questId: string | undefined,
+): void {
+  if (input.event !== "worker-turn-end" || input.callerState?.kind !== "worker-turn-end") return;
+  if (!input.callerState.summarySignals?.length || input.callerState.reportedToUser) return;
+  const activeRunRecords = records.filter((record) => activeRunRecordMatches(record, input, questId));
+  findings.push(
+    gateFinding(
+      input,
+      [`unreported active-run stop signals: ${input.callerState.summarySignals.join(", ")}`],
+      activeRunRecords[0],
+      {
+        requiredAction:
+          "Surface the stop-condition report to the leader/user or record an explicit acknowledgment before silent continuation.",
+        source: trustedProductInput(input) || input.callerState.trusted ? "product-adapter" : "caller-supplied",
+      },
+    ),
+  );
+}
+
+function appendPortPlanningFindings(
+  findings: MemoryCheckFinding[],
+  records: MemoryRecord[],
+  input: MemoryCheckInput,
+): void {
+  if (input.event !== "port-planning" || input.callerState?.kind !== "port-planning") return;
+  for (const conflict of input.callerState.policyConflicts ?? []) {
+    const record = records.find((candidate) => recordRef(candidate) === conflict.record);
+    findings.push(
+      gateFinding(
+        input,
+        [`product state conflicts with active port policy: expected ${conflict.expected}, actual ${conflict.actual}`],
+        record,
+        {
+          requiredAction:
+            "Resolve or explicitly acknowledge the branch/deployment policy conflict before port planning continues.",
+          source: conflict.source ?? productFindingSource(input),
+        },
+      ),
+    );
+  }
+}
+
+function appendRecoveryFindings(
+  findings: MemoryCheckFinding[],
+  visibleRecords: MemoryRecord[],
+  input: MemoryCheckInput,
+): void {
+  if (input.event !== "recovery" && input.event !== "compaction") return;
+  if (input.callerState?.kind !== "recovery" && input.callerState?.kind !== "compaction") return;
+  const surfaced = new Set([
+    ...(input.callerState.surfacedRecordRefs ?? []),
+    ...(input.callerState.acknowledgedRecordRefs ?? []),
+  ]);
+  for (const record of visibleRecords.filter(isRecoveryCriticalRecord)) {
+    if (surfaced.has(recordRef(record))) continue;
+    findings.push(
+      gateFinding(input, ["recovery-critical Current Context was not surfaced or acknowledged"], record, {
+        requiredAction:
+          "Surface or acknowledge recovery-critical Current Context before continuing after recovery/compaction.",
+      }),
+    );
+  }
+}
+
+function activeRunRecordMatches(record: MemoryRecord, input: MemoryCheckInput, questId: string | undefined): boolean {
+  if (record.subtype !== "active-run" || record.bucket !== "current" || record.status !== "active") return false;
+  if (questId && record.appliesTo.questIds?.includes(questId)) return true;
+  if (record.activeRun?.linkedQuestId && record.activeRun.linkedQuestId === questId) return true;
+  if (record.retrievalHooks.includes(input.event)) return true;
+  return record.appliesTo.actionTags?.includes(input.event) ?? false;
+}
+
+function hasRequiredMonitorProof(
+  input: MemoryCheckInput,
+  requiredProof: ActiveRunDetails["monitorRequirement"]["requiredProductProof"] | undefined,
+): boolean {
+  const proofs = [
+    ...(input.productState?.proofs ?? []),
+    ...(input.callerState?.kind === "execute-launch" && input.callerState.monitorPlan?.productProof
+      ? [input.callerState.monitorPlan.productProof]
+      : []),
+  ];
+  if (proofs.length === 0) return false;
+  return proofs.some((proof) => proofSatisfiesMonitorRequirement(proof, requiredProof));
+}
+
+function proofSatisfiesMonitorRequirement(
+  proof: { kind: string; trusted?: boolean; ok?: boolean },
+  requiredProof: ActiveRunDetails["monitorRequirement"]["requiredProductProof"] | undefined,
+): boolean {
+  if (proof.ok === false) return false;
+  if (requiredProof === "timer") return proof.kind === "timer";
+  if (requiredProof === "worker-hard-event") return proof.kind === "worker-hard-event";
+  return proof.kind === "timer" || proof.kind === "worker-hard-event";
+}
+
+function isRecoveryCriticalRecord(record: MemoryRecord): boolean {
+  if (record.priority !== "blocking" && record.priority !== "safety") return false;
+  return (
+    record.retrievalHooks.includes("recovery") ||
+    record.retrievalHooks.includes("compaction") ||
+    record.appliesTo.actionTags?.includes("recovery-critical") ||
+    record.appliesTo.exactTerms?.includes("recovery-critical") ||
+    false
+  );
+}
+
+function warnFinding(
+  why: string[],
+  record?: MemoryRecord,
+  options: { recordRef?: string; sources?: string[] } = {},
+): MemoryCheckFinding {
+  return {
+    level: "warn",
+    ...(record ? { record: recordRef(record), priority: record.priority } : {}),
+    ...(!record && options.recordRef ? { record: options.recordRef } : {}),
+    source: "memory",
+    why,
+    sources: options.sources ?? (record ? sourceLabels(record) : []),
+    ...(record ? { authorityBoundary: formatAuthorityBoundary(record.authorityBoundary) } : {}),
+    enforceable: false,
+    ackRequired: false,
+  };
+}
+
+function gateFinding(
+  input: MemoryCheckInput,
+  why: string[],
+  record: MemoryRecord | undefined,
+  options: { requiredAction: string; source?: MemoryCheckFinding["source"] },
+): MemoryCheckFinding {
+  const enforceable = trustedProductInput(input) && input.options?.enforce !== false;
+  return {
+    level: "gate",
+    ...(record ? { record: recordRef(record), priority: record.priority } : {}),
+    source: options.source ?? productFindingSource(input),
+    why,
+    requiredAction: options.requiredAction,
+    sources: record ? sourceLabels(record) : [],
+    ...(record ? { authorityBoundary: formatAuthorityBoundary(record.authorityBoundary) } : {}),
+    enforceable,
+    ackRequired: true,
+  };
+}
+
+function highestLevel(findings: MemoryCheckFinding[]): MemoryCheckLevel {
+  return findings.reduce<MemoryCheckLevel>(
+    (highest, finding) => (CHECK_LEVEL_WEIGHT[finding.level] > CHECK_LEVEL_WEIGHT[highest] ? finding.level : highest),
+    "recall",
+  );
+}
+
+function stateWorkerSessionNum(input: MemoryCheckInput): number | undefined {
+  const state = input.callerState;
+  if (!state || !("workerSessionNum" in state)) return undefined;
+  return state.workerSessionNum;
+}
+
+function stateComponentTags(input: MemoryCheckInput): string[] {
+  const state = input.callerState;
+  if (!state || !("componentTags" in state)) return [];
+  return state.componentTags ?? [];
+}
+
+function stateTerms(input: MemoryCheckInput): string[] {
+  const state = input.callerState;
+  if (!state || !("terms" in state)) return [];
+  return state.terms ?? [];
+}
+
+function trustedProductInput(input: MemoryCheckInput): boolean {
+  return input.productState?.source === "product-adapter" && input.productState.trusted === true;
+}
+
+function productFindingSource(input: MemoryCheckInput): MemoryCheckFinding["source"] {
+  return trustedProductInput(input) ? "product-adapter" : "caller-supplied";
+}
+
+function recordRef(record: MemoryRecord): string {
+  return `${record.workstreamSlug}/${record.key}`;
+}
+
+function sourceLabels(record: MemoryRecord): string[] {
+  return record.evidence.map((source) => source.target || source.label);
+}
+
+function formatAuthorityBoundary(boundary: AuthorityBoundary): string {
+  return `${boundary.authoritativeSystem} proves live facts; memory owns ${boundary.memoryOwns}.`;
 }
 
 async function listRecords(options: {
@@ -592,6 +999,9 @@ function validateRecord(record: MemoryRecord): void {
   if (!record.title.trim()) throw new Error("Memory title is required");
   if (!record.current.trim()) throw new Error("Memory current text is required");
   if (record.bucket === "reference" && !record.target) throw new Error("Reference Pointer records require a target");
+  if (record.activeRun && record.subtype !== "active-run")
+    throw new Error("activeRun details require subtype active-run");
+  if (record.activeRun) validateActiveRunDetails(record.activeRun);
   validateAuthorityBoundary(record.authorityBoundary);
   if (record.status === "active") {
     if (record.evidence.length === 0) throw new Error("Active memory records require at least one source");
@@ -607,6 +1017,31 @@ function validateRecord(record: MemoryRecord): void {
   for (const hook of record.retrievalHooks) {
     if (!CURRENT_READ_PURPOSES.includes(hook)) throw new Error(`Invalid retrieval hook: ${hook}`);
   }
+}
+
+function validateActiveRunDetails(details: ActiveRunDetails): void {
+  if (!/^q-\d+$/i.test(details.linkedQuestId)) throw new Error("activeRun.linkedQuestId must be a quest ID");
+  if (
+    details.runOwnerSessionNum !== undefined &&
+    (!Number.isInteger(details.runOwnerSessionNum) || details.runOwnerSessionNum <= 0)
+  ) {
+    throw new Error("activeRun.runOwnerSessionNum must be a positive integer");
+  }
+  if (
+    !["planned", "launching", "active-obligation", "handoff-required", "stop-required"].includes(
+      details.expectedRunState,
+    )
+  ) {
+    throw new Error(`Invalid activeRun.expectedRunState: ${details.expectedRunState}`);
+  }
+  const monitor = details.monitorRequirement;
+  if (!Number.isInteger(monitor.cadenceMinutes) || monitor.cadenceMinutes <= 0) {
+    throw new Error("activeRun.monitorRequirement.cadenceMinutes must be a positive integer");
+  }
+  if (!["timer", "worker-hard-event", "timer-or-hard-event"].includes(monitor.requiredProductProof)) {
+    throw new Error(`Invalid activeRun.monitorRequirement.requiredProductProof: ${monitor.requiredProductProof}`);
+  }
+  if (!Array.isArray(details.stopConditions)) throw new Error("activeRun.stopConditions must be an array");
 }
 
 function validateSlug(slug: string): void {

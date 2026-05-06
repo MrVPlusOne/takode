@@ -1,6 +1,7 @@
 import {
   archiveWorkstream,
   bookkeepingReport,
+  checkMemory,
   createWorkstream,
   getRecord,
   getWorkstream,
@@ -13,6 +14,7 @@ import {
 } from "./workstream-memory-store.js";
 import type {
   CurrentReadQuery,
+  MemoryCheckInput,
   MemorySearchQuery,
   RetireMemoryRecordInput,
   UpsertMemoryRecordInput,
@@ -60,6 +62,10 @@ export class WorkstreamMemoryService {
 
   readCurrentContext(query: CurrentReadQuery) {
     return readCurrentContext(query);
+  }
+
+  checkMemory(input: MemoryCheckInput) {
+    return checkMemory(input);
   }
 
   bookkeepingReport(workstream?: string) {

@@ -32,6 +32,16 @@ export const CURRENT_READ_PURPOSES = [
   "user-checkpoint",
   "bookkeeping",
 ] as const;
+export const MEMORY_CHECK_EVENTS = [
+  "dispatch",
+  "worker-prompt",
+  "execute-launch",
+  "worker-turn-end",
+  "port-planning",
+  "recovery",
+  "compaction",
+  "bookkeeping",
+] as const;
 
 export type WorkstreamStatus = (typeof WORKSTREAM_STATUSES)[number];
 export type MemoryBucket = (typeof MEMORY_BUCKETS)[number];
@@ -40,6 +50,8 @@ export type MemoryStatus = (typeof MEMORY_STATUSES)[number];
 export type MemoryPriority = (typeof MEMORY_PRIORITIES)[number];
 export type CurrentReadPurpose = (typeof CURRENT_READ_PURPOSES)[number];
 export type RetrievalHook = CurrentReadPurpose;
+export type MemoryCheckEvent = (typeof MEMORY_CHECK_EVENTS)[number];
+export type MemoryCheckLevel = "recall" | "warn" | "gate";
 
 export type ActorRole = "user" | "leader" | "worker" | "reviewer" | "system";
 export type SourceKind =
@@ -203,6 +215,7 @@ export interface MemoryRecord {
   conflictsWith: ConflictRef[];
   authorityBoundary: AuthorityBoundary;
   activation: ActivationMetadata;
+  activeRun?: ActiveRunDetails;
   retireWhen?: RetireCondition;
   lastVerified?: VerificationStamp;
   history: RecordVersion[];
@@ -255,6 +268,7 @@ export interface UpsertMemoryRecordInput {
   retireWhen?: RetireCondition;
   supersedes?: string[];
   conflictsWith?: ConflictRef[];
+  activeRun?: ActiveRunDetails;
   actor?: ActorRef;
   reactivate?: boolean;
 }
@@ -309,4 +323,190 @@ export interface BookkeepingReport {
     record?: string;
     message: string;
   }[];
+}
+
+export interface ActiveRunDetails {
+  linkedQuestId: string;
+  runOwnerSessionNum?: number;
+  expectedRunState: "planned" | "launching" | "active-obligation" | "handoff-required" | "stop-required";
+  targetCount?: number;
+  expectedRate?: {
+    metric: "problems_per_second" | "rollouts_per_second" | "rows_per_minute";
+    min?: number;
+    target?: number;
+  };
+  runIdentity?: {
+    hostAlias?: string;
+    tmuxName?: string;
+    outputRoot?: string;
+    lancePath?: string;
+    logPath?: string;
+  };
+  monitorRequirement: {
+    cadenceMinutes: number;
+    ownerSessionNum?: number;
+    requiredProductProof: "timer" | "worker-hard-event" | "timer-or-hard-event";
+    stopConditionRequiresLeaderAction: boolean;
+  };
+  stopConditions: ActiveRunStopCondition[];
+  dashboardUpdate?: {
+    questId: string;
+    cadenceMinutes?: number;
+    ownerSessionNum?: number;
+  };
+}
+
+export type ActiveRunStopCondition =
+  | "tmux-missing"
+  | "writer-process-missing"
+  | "lance-not-advancing"
+  | "under-target-rate"
+  | "endpoint-count-below-target"
+  | "endpoint-health-failing"
+  | "judge-terminal-count-zero-after-launch"
+  | "auth-or-capacity-blocked"
+  | "dashboard-stale";
+
+export interface MemoryCheckInput {
+  event: MemoryCheckEvent;
+  workstream?: string;
+  questId?: string;
+  actor?: ActorRef;
+  productState?: ProductStateEnvelope;
+  callerState?: MemoryCheckState;
+  options?: {
+    enforce?: boolean;
+    includeWarnings?: boolean;
+    maxRecords?: number;
+  };
+}
+
+export type MemoryCheckState =
+  | DispatchCheckState
+  | WorkerPromptCheckState
+  | ExecuteLaunchCheckState
+  | WorkerTurnEndCheckState
+  | PortPlanningCheckState
+  | RecoveryCheckState
+  | CompactionCheckState
+  | BookkeepingCheckState;
+
+export interface DispatchCheckState {
+  kind: "dispatch";
+  questId?: string;
+  componentTags?: string[];
+  workerSessionNum?: number;
+  terms?: string[];
+}
+
+export interface WorkerPromptCheckState {
+  kind: "worker-prompt";
+  questId?: string;
+  componentTags?: string[];
+  workerSessionNum?: number;
+  terms?: string[];
+}
+
+export interface ExecuteLaunchCheckState {
+  kind: "execute-launch";
+  questId?: string;
+  longRunning: boolean;
+  runKind?: string;
+  targetCount?: number;
+  expectedRate?: {
+    metric: "problems_per_second" | "rollouts_per_second" | "rows_per_minute";
+    target?: number;
+    min?: number;
+  };
+  monitorPlan?: {
+    cadenceMinutes?: number;
+    ownerSessionNum?: number;
+    productProof?: ProductProof;
+  };
+}
+
+export interface WorkerTurnEndCheckState {
+  kind: "worker-turn-end";
+  questId?: string;
+  workerSessionNum?: number;
+  phase?: string;
+  summarySignals?: ActiveRunStopCondition[];
+  sourceLinks?: string[];
+  reportedToUser?: boolean;
+  trusted?: boolean;
+}
+
+export interface PortPlanningCheckState {
+  kind: "port-planning";
+  questId?: string;
+  sourceBranch?: string;
+  targetBranch?: string;
+  deploymentTarget?: string;
+  policyConflicts?: PolicyConflict[];
+}
+
+export interface RecoveryCheckState {
+  kind: "recovery";
+  questId?: string;
+  surfacedRecordRefs?: string[];
+  acknowledgedRecordRefs?: string[];
+}
+
+export interface CompactionCheckState {
+  kind: "compaction";
+  questId?: string;
+  surfacedRecordRefs?: string[];
+  acknowledgedRecordRefs?: string[];
+}
+
+export interface BookkeepingCheckState {
+  kind: "bookkeeping";
+  questId?: string;
+  terms?: string[];
+}
+
+export interface ProductStateEnvelope {
+  source: "product-adapter" | "caller-supplied";
+  trusted?: boolean;
+  adapter?: string;
+  proofs?: ProductProof[];
+}
+
+export interface ProductProof {
+  kind: "timer" | "worker-hard-event" | "git" | "deployment" | "recovery-surfaced" | "leader-notified";
+  id?: string;
+  trusted?: boolean;
+  ok?: boolean;
+  detail?: string;
+}
+
+export interface PolicyConflict {
+  record: string;
+  expected: string;
+  actual: string;
+  source?: "product-adapter" | "caller-supplied";
+}
+
+export interface MemoryCheckFinding {
+  level: MemoryCheckLevel;
+  record?: string;
+  priority?: MemoryPriority;
+  source: "memory" | "product-adapter" | "caller-supplied";
+  why: string[];
+  requiredAction?: string;
+  sources: string[];
+  authorityBoundary?: string;
+  enforceable: boolean;
+  ackRequired: boolean;
+}
+
+export interface MemoryCheckResult {
+  status: "ok" | "warn" | "gate";
+  level: MemoryCheckLevel;
+  event: MemoryCheckEvent;
+  enforceable: boolean;
+  ackRequired: boolean;
+  findings: MemoryCheckFinding[];
+  requiredActions: string[];
+  records: MemoryRecord[];
 }

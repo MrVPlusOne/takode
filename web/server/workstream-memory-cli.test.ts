@@ -100,6 +100,12 @@ describe("memory CLI", () => {
     expect(currentRead.status).toBe(0);
     expect(JSON.parse(currentRead.stdout).records[0].current).toContain("Reference Pointer");
 
+    const check = await runMemory(["check", "--event", "dispatch", "--quest", "q-101", "--json"], env);
+    expect(check.status).toBe(0);
+    expect(JSON.parse(check.stdout).findings).toContainEqual(
+      expect.objectContaining({ level: "recall", record: "takode-memory/current-model" }),
+    );
+
     const grep = await runMemory(["grep", "Reference Pointer", "--json"], env);
     expect(grep.status).toBe(0);
     expect(JSON.parse(grep.stdout).results[0].record.key).toBe("current-model");
@@ -133,10 +139,10 @@ describe("memory CLI", () => {
     expect(JSON.parse(hidden.stdout).results).toEqual([]);
   });
 
-  it("fails validation without user-facing memory check commands", async () => {
-    const result = await runMemory(["check", "--event", "dispatch"], env);
+  it("fails validation for unsupported memory check events", async () => {
+    const result = await runMemory(["check", "--event", "board-watchdog"], env);
 
     expect(result.status).toBe(1);
-    expect(result.stderr).toContain("Unknown command: check");
+    expect(result.stderr).toContain("--event must be one of");
   });
 });
