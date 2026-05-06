@@ -97,6 +97,48 @@ describe("normalizeHistoryMessageToChatMessages", () => {
     now.mockRestore();
   });
 
+  it("uses the caller-provided replay timestamp for historical error result banners", () => {
+    const now = vi.spyOn(Date, "now").mockReturnValue(123456);
+    const message: BrowserIncomingMessage = {
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result: "stream disconnected before completion",
+        duration_ms: 10,
+        duration_api_ms: 5,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: null,
+        uuid: "result-error",
+        session_id: "session-1",
+        usage: {
+          input_tokens: 1,
+          output_tokens: 2,
+          cache_creation_input_tokens: 0,
+          cache_read_input_tokens: 0,
+        },
+      },
+    };
+
+    const normalized = normalizeHistoryMessageToChatMessages(message, 42, {
+      fallbackTimestamp: 999,
+    });
+
+    expect(normalized).toEqual([
+      {
+        id: "hist-error-42",
+        role: "system",
+        content: "Error: stream disconnected before completion",
+        timestamp: 999,
+        historyIndex: 42,
+        variant: "error",
+      },
+    ]);
+    now.mockRestore();
+  });
+
   it("preserves approved variant metadata for permission_approved messages", () => {
     const message: BrowserIncomingMessage = {
       type: "permission_approved",

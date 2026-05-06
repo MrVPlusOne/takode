@@ -416,7 +416,7 @@ export function normalizeHistoryMessageToChatMessages(
         id: `hist-error-${historyIndex}`,
         role: "system",
         content: `Error: ${errorText}`,
-        timestamp: Date.now(),
+        timestamp: fallbackTimestamp ?? Date.now(),
         historyIndex,
         variant: "error",
       },

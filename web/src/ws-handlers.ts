@@ -361,13 +361,15 @@ function normalizeHistoryMessages(
   );
   const chatMessages: ChatMessage[] = [];
   let frozenCount = 0;
+  const fallbackTimestamps = buildHistoryFallbackTimestamps(historyMessages.map((message) => ({ message })));
 
   for (let i = 0; i < historyMessages.length; i++) {
     const histMsg = historyMessages[i];
     const historyIndex = startIndex + i;
+    const fallbackTimestamp = fallbackTimestamps[i];
     if (histMsg.type === "assistant") {
       const msg = histMsg.message;
-      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
       if (msg.content?.length) {
         extractTasksFromBlocks(sessionId, msg.content);
         extractChangedFilesFromBlocks(sessionId, msg.content);
@@ -381,11 +383,12 @@ function normalizeHistoryMessages(
     } else if (histMsg.type === "user_message") {
       chatMessages.push(
         ...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, {
+          fallbackTimestamp,
           pendingLocalImagesByClientMsgId,
         }),
       );
     } else if (histMsg.type === "leader_user_message") {
-      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
     } else if (histMsg.type === "tool_result_preview") {
       for (const preview of histMsg.previews) {
         store.setToolResult(sessionId, preview.tool_use_id, preview);
@@ -398,11 +401,11 @@ function normalizeHistoryMessages(
           summary: histMsg.summary,
         });
       }
-      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
     } else if (histMsg.type === "result") {
       store.setTasks(sessionId, []);
       store.setSessionTaskPreview(sessionId, null);
-      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
       frozenCount = chatMessages.length;
     } else if (
       histMsg.type === "compact_marker" ||
@@ -411,7 +414,7 @@ function normalizeHistoryMessages(
       histMsg.type === "permission_denied" ||
       histMsg.type === "permission_approved"
     ) {
-      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
     }
   }
 
@@ -424,11 +427,14 @@ function normalizeThreadWindowEntries(
 ): ChatMessage[] {
   const store = useStore.getState();
   const chatMessages: ChatMessage[] = [];
-  for (const entry of entries) {
+  const fallbackTimestamps = buildHistoryFallbackTimestamps(entries);
+  for (let index = 0; index < entries.length; index++) {
+    const entry = entries[index]!;
     const histMsg = entry.message;
     const historyIndex = entry.history_index;
+    const fallbackTimestamp = fallbackTimestamps[index];
     if (histMsg.type === "assistant") {
-      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+      chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
       if (histMsg.message.content?.length) {
         extractTasksFromBlocks(sessionId, histMsg.message.content);
         extractChangedFilesFromBlocks(sessionId, histMsg.message.content);
@@ -454,9 +460,35 @@ function normalizeThreadWindowEntries(
         });
       }
     }
-    chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex));
+    chatMessages.push(...normalizeHistoryMessageToChatMessages(histMsg, historyIndex, { fallbackTimestamp }));
   }
   return chatMessages;
+}
+
+function buildHistoryFallbackTimestamps(
+  items: ReadonlyArray<{ message: BrowserIncomingMessage }>,
+): Array<number | undefined> {
+  const previousTimestamps: Array<number | undefined> = [];
+  let previousTimestamp: number | undefined;
+  for (const item of items) {
+    previousTimestamps.push(previousTimestamp);
+    previousTimestamp = readHistoryMessageTimestamp(item.message) ?? previousTimestamp;
+  }
+
+  const fallbackTimestamps: Array<number | undefined> = new Array(items.length);
+  let nextTimestamp: number | undefined;
+  for (let index = items.length - 1; index >= 0; index--) {
+    const timestamp = readHistoryMessageTimestamp(items[index]!.message);
+    fallbackTimestamps[index] = timestamp ?? previousTimestamps[index] ?? nextTimestamp;
+    nextTimestamp = timestamp ?? nextTimestamp;
+  }
+  return fallbackTimestamps;
+}
+
+function readHistoryMessageTimestamp(message: BrowserIncomingMessage): number | undefined {
+  const timestamp = (message as { timestamp?: unknown }).timestamp;
+  if (typeof timestamp !== "number" || !Number.isFinite(timestamp)) return undefined;
+  return timestamp;
 }
 
 function updateSessionPreviewFromHistory(

@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import type {
   BrowserIncomingMessage,
   ChatMessage,
@@ -121,6 +121,31 @@ function makeTransitionMarker(overrides: {
     questId: overrides.threadKey,
     transitionedAt: 300,
     reason: "route_switch",
+  };
+}
+
+function makeErrorResult(result: string): Extract<BrowserIncomingMessage, { type: "result" }> {
+  return {
+    type: "result",
+    data: {
+      type: "result",
+      subtype: "error_during_execution",
+      is_error: true,
+      result,
+      duration_ms: 1,
+      duration_api_ms: 1,
+      num_turns: 1,
+      total_cost_usd: 0,
+      stop_reason: null,
+      uuid: "result-error",
+      session_id: "session-1",
+      usage: {
+        input_tokens: 1,
+        output_tokens: 1,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    },
   };
 }
 
@@ -1045,5 +1070,80 @@ describe("feed render model builders", () => {
     expect(model.messages.map((message) => message.content)).not.toContain(
       "Work continued from thread:q-950 to thread:q-951",
     );
+  });
+
+  it("anchors producer-shaped historical result errors before later recovered output in selected Main windows", () => {
+    // Historical `result` rows do not carry their own timestamp. This mirrors
+    // session 1401: two failed result rows at 17:42 followed by recovered output
+    // at 17:44 should stay in conversation order even if replay normalization
+    // happens later and assigns the errors a newer client timestamp.
+    const now = vi.spyOn(Date, "now").mockReturnValue(3000);
+    const history: BrowserIncomingMessage[] = [
+      {
+        type: "user_message",
+        id: "timer-t53",
+        content: "Backstop q1175 dashboard",
+        timestamp: 1000,
+      },
+      makeErrorResult(
+        "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+      ),
+      {
+        type: "user_message",
+        id: "herd-after-error",
+        content: "Worker turn_end and session_error summary",
+        timestamp: 1100,
+      },
+      makeErrorResult(
+        "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+      ),
+      {
+        type: "user_message",
+        id: "server-restarted",
+        content: "server restarted. continue ongoing work",
+        timestamp: 2000,
+      },
+      {
+        type: "assistant",
+        parent_tool_use_id: null,
+        timestamp: 2100,
+        message: {
+          id: "recovered-output",
+          type: "message",
+          role: "assistant",
+          model: "claude",
+          content: [{ type: "text", text: "Ongoing work is continuing after the restart." }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+      },
+    ];
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "main",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 10,
+      visibleItemCount: 3,
+    });
+    const selectedFeedWindowMessages = sync.entries.flatMap((entry) =>
+      normalizeHistoryMessageToChatMessages(entry.message, entry.history_index),
+    );
+
+    const model = buildMessageModel({
+      threadKey: "main",
+      allMessages: [],
+      selectedFeedWindow: sync.window,
+      selectedFeedWindowMessages,
+      sessionNotifications: [],
+    });
+    const ids = model.messages.map((message) => message.id);
+
+    expect(ids.indexOf("hist-error-1")).toBeGreaterThan(ids.indexOf("timer-t53"));
+    expect(ids.indexOf("hist-error-1")).toBeLessThan(ids.indexOf("server-restarted"));
+    expect(ids.indexOf("hist-error-3")).toBeGreaterThan(ids.indexOf("herd-after-error"));
+    expect(ids.indexOf("hist-error-3")).toBeLessThan(ids.indexOf("server-restarted"));
+    expect(ids.indexOf("recovered-output")).toBeGreaterThan(ids.indexOf("server-restarted"));
+    now.mockRestore();
   });
 });

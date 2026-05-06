@@ -612,6 +612,81 @@ describe("handleMessage: thread_window_sync", () => {
     ).toEqual([120, 121]);
   });
 
+  it("hydrates historical result errors with neighbor timestamps in selected-feed windows", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+    vi.setSystemTime(new Date(3000));
+
+    fireMessage({
+      type: "thread_window_sync",
+      thread_key: "main",
+      entries: [
+        {
+          history_index: 19005,
+          message: {
+            type: "user_message",
+            id: "timer-t53",
+            content: "Backstop q1175 dashboard",
+            timestamp: 1000,
+          },
+        },
+        {
+          history_index: 19006,
+          message: {
+            type: "result",
+            data: {
+              type: "result",
+              subtype: "error_during_execution",
+              is_error: true,
+              result: "stream disconnected before completion",
+              duration_ms: 1,
+              duration_api_ms: 1,
+              num_turns: 1,
+              total_cost_usd: 0,
+              stop_reason: null,
+              usage: {
+                input_tokens: 1,
+                output_tokens: 1,
+                cache_creation_input_tokens: 0,
+                cache_read_input_tokens: 0,
+              },
+            },
+          },
+        },
+        {
+          history_index: 19049,
+          message: {
+            type: "user_message",
+            id: "server-restarted",
+            content: "server restarted. continue ongoing work",
+            timestamp: 2000,
+          },
+        },
+      ],
+      window: {
+        thread_key: "main",
+        from_item: 0,
+        item_count: 3,
+        total_items: 3,
+        source_history_length: 19100,
+        section_item_count: 10,
+        visible_item_count: 3,
+      },
+    });
+
+    expect(
+      useStore
+        .getState()
+        .threadWindowMessages.get("s1")
+        ?.get("main")
+        ?.map((message) => [message.id, message.timestamp]),
+    ).toEqual([
+      ["timer-t53", 1000],
+      ["hist-error-19006", 1000],
+      ["server-restarted", 2000],
+    ]);
+  });
+
   it("reuses cached thread window entries only after a server-validated cache hit", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

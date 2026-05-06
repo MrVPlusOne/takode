@@ -36,5 +36,5 @@ export function composeSelectedFeedMessages(input: {
     seen.add(message.id);
     merged.push(message);
   }
-  return merged.sort((a, b) => a.timestamp - b.timestamp);
+  return merged;
 }

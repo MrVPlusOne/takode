@@ -177,11 +177,26 @@ function shouldRenderOwnerThreadNotificationRecord(
 export function mergeChronologicalMessages(messages: ChatMessage[], insertedMessages: ChatMessage[]): ChatMessage[] {
   if (insertedMessages.length === 0) return messages;
   if (messages.length === 0) return insertedMessages;
-  return [...messages, ...insertedMessages].sort((a, b) => {
-    const timeDelta = a.timestamp - b.timestamp;
-    if (timeDelta !== 0) return timeDelta;
-    return a.id.localeCompare(b.id);
-  });
+  const merged = [...messages];
+  const sortedInsertedMessages = [...insertedMessages].sort(compareByTimestamp);
+  for (const insertedMessage of sortedInsertedMessages) {
+    const insertIndex = merged.findIndex((message) => compareByTimestamp(insertedMessage, message) < 0);
+    if (insertIndex < 0) {
+      merged.push(insertedMessage);
+      continue;
+    }
+    merged.splice(insertIndex, 0, insertedMessage);
+  }
+  return merged;
+}
+
+function compareByTimestamp(
+  a: Pick<ChatMessage, "id" | "timestamp">,
+  b: Pick<ChatMessage, "id" | "timestamp">,
+): number {
+  const timeDelta = a.timestamp - b.timestamp;
+  if (timeDelta !== 0) return timeDelta;
+  return a.id.localeCompare(b.id);
 }
 
 function attentionRecordsFromNotification(
