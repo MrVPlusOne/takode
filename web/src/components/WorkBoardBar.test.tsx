@@ -919,7 +919,7 @@ describe("WorkBoardBar", () => {
     expect(within(queuedTab).queryByText("Queued")).not.toBeInTheDocument();
   });
 
-  it("shrinks open tabs like browser tabs before falling back to horizontal scrolling", () => {
+  it("keeps non-overflow tabs visible without horizontal scrolling", () => {
     const onCloseThreadTab = vi.fn();
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
@@ -939,24 +939,23 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-overflow", "horizontal-scroll-after-min");
+    expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-overflow", "none");
     expect(within(getByTestId("thread-tab-rail")).queryByText("Tabs")).not.toBeInTheDocument();
+    expect(within(getByTestId("thread-tab-rail")).queryByTestId("thread-tabs-more-button")).not.toBeInTheDocument();
     const tabStrip = getByTestId("thread-tab-strip");
     expect(tabStrip).toHaveAttribute("aria-label", "Thread tabs");
-    expect(tabStrip).toHaveAttribute("data-scrollbar", "thin-transient");
-    expect(tabStrip).toHaveAttribute("data-scrollbar-active", "false");
-    expect(tabStrip).toHaveClass("overflow-x-auto", "overflow-y-hidden", "thread-tab-scroll");
-    fireEvent.scroll(tabStrip);
-    expect(tabStrip).toHaveAttribute("data-scrollbar-active", "true");
+    expect(tabStrip).toHaveAttribute("data-overflow-mode", "more-tabs");
+    expect(tabStrip).toHaveClass("overflow-visible");
+    expect(tabStrip).not.toHaveClass("overflow-x-auto", "thread-tab-scroll");
     expect(getByTestId("thread-main-tab")).toHaveAttribute("data-min-label", "Main Thread");
-    expect(getByTestId("thread-main-tab")).toHaveClass("min-w-[7.75rem]", "max-w-[14rem]", "flex-[0_1_9.5rem]");
+    expect(getByTestId("thread-main-tab")).toHaveClass("min-w-[6rem]", "max-w-[12rem]", "flex-[1_1_6.5rem]");
     expect(getByTestId("thread-main-tab")).toHaveClass("focus-visible:ring-violet-100/70", "focus-visible:ring-inset");
 
     const tabs = getAllByTestId("thread-tab");
     expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-1", "q-2"]);
     for (const tab of tabs) {
-      // The fixed minimum protects the quest id; flex shrink keeps tabs browser-like until that minimum is reached.
-      expect(tab).toHaveClass("min-w-[6.25rem]", "max-w-[18rem]", "flex-[1_1_11rem]");
+      // The fixed minimum protects the quest id; the More list owns real overflow.
+      expect(tab).toHaveClass("min-w-[4.25rem]", "max-w-[14rem]", "flex-[1_1_7.5rem]");
     }
     expect(tabs[0]).toHaveClass("border-violet-100/45", "border-b-transparent", "text-white");
     expect(within(tabs[0]).getByTestId("thread-tab-select")).toHaveClass(

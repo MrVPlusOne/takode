@@ -1573,10 +1573,10 @@ export function PlaygroundInteractiveSections() {
                 />
               </div>
               <p className="text-[10px] text-cc-muted">
-                Click "Seed board data" first. The constrained width keeps several open tabs visible for tab sizing,
-                phase color, close affordance, overflow, and insertion checks. Hover q-42 to inspect the shared quest
-                hover card with a medium-long repeated Journey clamped around current row 12; the active-output route
-                also targets q-42 so Main stays visually quiet when selected.
+                Click "Seed board data" first. The constrained width keeps several open tabs visible while hidden tabs
+                collapse into More for tab sizing, phase color, close affordance, overflow, and insertion checks. Hover
+                q-42 to inspect the shared quest hover card with a medium-long repeated Journey clamped around current
+                row 12; the active-output route also targets q-42 so Main stays visually quiet when selected.
               </p>
             </div>
           </Card>

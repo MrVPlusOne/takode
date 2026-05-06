@@ -7,6 +7,39 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
+afterEach(() => {
+  vi.restoreAllMocks();
+  vi.unstubAllGlobals();
+});
+
+function setMeasuredRailWidth(width: number) {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+    () =>
+      ({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: width,
+        bottom: 24,
+        width,
+        height: 24,
+        toJSON: () => ({}),
+      }) as DOMRect,
+  );
+  vi.stubGlobal(
+    "ResizeObserver",
+    class ResizeObserver {
+      constructor(private readonly callback: ResizeObserverCallback) {}
+      observe(target: Element) {
+        this.callback([{ target, contentRect: { width } } as ResizeObserverEntry], this);
+      }
+      disconnect() {}
+      unobserve() {}
+    },
+  );
+}
+
 // Mock markdown renderer used by MessageBubble/PermissionBanner
 vi.mock("react-markdown", () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -116,17 +149,19 @@ describe("Playground", () => {
   });
 
   it("documents Work Board Bar tab shrinking, phase legend, and shared quest hover states", async () => {
+    setMeasuredRailWidth(392);
     render(<Playground />);
 
     fireEvent.click(screen.getByText("Seed board data"));
 
     const rail = screen.getByTestId("thread-tab-rail");
-    expect(rail).toHaveAttribute("data-overflow", "horizontal-scroll-after-min");
+    expect(rail).toHaveAttribute("data-overflow", "more-tabs-list");
     expect(within(rail).queryByText("Tabs")).not.toBeInTheDocument();
     const tabStrip = screen.getByTestId("thread-tab-strip");
-    expect(tabStrip).toHaveAttribute("data-scrollbar", "thin-transient");
-    expect(tabStrip).toHaveAttribute("data-scrollbar-active", "false");
-    expect(tabStrip).toHaveClass("overflow-y-hidden");
+    expect(tabStrip).toHaveAttribute("data-overflow-mode", "more-tabs");
+    expect(tabStrip).toHaveClass("overflow-visible");
+    const moreButton = screen.getByTestId("thread-tabs-more-button");
+    expect(moreButton).toHaveAttribute("data-hidden-count", "2");
     expect(screen.getByTestId("workboard-main-banner")).toBeTruthy();
     expect(
       rail.compareDocumentPosition(screen.getByTestId("workboard-main-banner")) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -153,33 +188,46 @@ describe("Playground", () => {
     expect(mainTitle).not.toHaveClass("bg-sky-400/10");
 
     const tabs = screen.getAllByTestId("thread-tab");
-    expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(
-      expect.arrayContaining(["q-42", "q-55", "q-61", "q-77", "q-88"]),
-    );
+    expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-42", "q-55", "q-61"]);
     expect(within(rail).queryByText("Active")).not.toBeInTheDocument();
-    expect(tabs[0]).toHaveClass("min-w-[6.25rem]", "max-w-[18rem]", "flex-[1_1_11rem]");
+    expect(tabs[0]).toHaveClass("min-w-[4.25rem]", "max-w-[14rem]", "flex-[1_1_7.5rem]");
     expect(tabs[0]).toHaveAttribute("data-closable", "false");
     expect(within(tabs[0]).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
+    fireEvent.click(moreButton);
+    const moreRows = screen.getAllByTestId("thread-tabs-more-row");
+    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual([
+      "q-42",
+      "q-55",
+      "q-61",
+      "q-77",
+      "q-88",
+    ]);
+    expect(moreRows.find((row) => row.getAttribute("data-thread-key") === "q-77")).toHaveAttribute(
+      "data-hidden",
+      "true",
+    );
+    expect(moreRows.find((row) => row.getAttribute("data-thread-key") === "q-88")).toHaveAttribute(
+      "data-hidden",
+      "true",
+    );
+    fireEvent.click(moreButton);
     const activeOutputTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-42");
     expect(activeOutputTab).toHaveAttribute("data-active-output", "true");
     const activeOutputMarker = within(activeOutputTab!).getByTestId("thread-tab-active-output-indicator");
     expect(activeOutputMarker).toHaveAttribute("data-reduced-motion-static", "true");
-    expect(activeOutputMarker).toHaveAttribute("data-dot-position", "left");
-    expect(activeOutputMarker).toHaveAttribute("data-dot-lane", "bell-halo");
-    expect(activeOutputMarker).toHaveAttribute("data-overlaps-needs-input", "true");
-    expect(activeOutputMarker).toHaveAttribute("data-bell-center-offset", "12px");
-    expect(activeOutputMarker).toHaveAttribute("data-halo-center-offset", "12px");
+    expect(activeOutputMarker).toHaveAttribute("data-dot-position", "stripe-origin");
+    expect(activeOutputMarker).toHaveAttribute("data-stripe-origin", "top-left");
     expect(activeOutputMarker).toHaveClass("inset-0");
-    expect(activeOutputMarker).not.toHaveClass("inset-x-1");
     expect(within(activeOutputMarker).getByTestId("thread-tab-active-output-glint-track")).toHaveClass("inset-x-1");
     expect(within(activeOutputMarker).getByTestId("thread-tab-active-output-glint")).toHaveClass(
       "thread-tab-output-glint",
     );
     expect(within(activeOutputMarker).getByTestId("thread-tab-active-output-dot")).toHaveClass(
-      "left-1.5",
-      "top-1/2",
-      "h-3",
-      "w-3",
+      "left-1",
+      "top-0",
+      "h-2",
+      "w-2",
+      "-translate-x-1/2",
       "-translate-y-1/2",
     );
     expect(within(activeOutputTab!).getByTestId("thread-tab-needs-input-bell")).toHaveClass("relative", "z-10");
@@ -194,17 +242,8 @@ describe("Playground", () => {
       "data-title-color",
       "var(--color-cc-fg)",
     );
-    const completedTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-88");
-    expect(completedTab).toHaveAttribute("data-closable", "true");
-    expect(within(completedTab!).getByTestId("thread-tab-close")).toHaveAttribute("data-compact-close", "true");
-    expect(within(completedTab!).getByTestId("thread-tab-close")).toHaveClass(
-      "sm:w-0",
-      "sm:group-hover:w-5",
-      "focus-visible:w-5",
-    );
-    expect(within(completedTab!).getByTestId("thread-tab-title")).toHaveAttribute(
-      "data-title-color",
-      "var(--color-cc-muted)",
+    expect(moreRows.find((row) => row.getAttribute("data-thread-key") === "q-88")).toHaveTextContent(
+      "Reviewed collapsed-result handling",
     );
     const activeQuestTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-42");
     expect(activeQuestTab).toHaveAttribute("data-has-quest-hover", "true");
