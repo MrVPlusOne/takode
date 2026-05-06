@@ -3,7 +3,6 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore, getSessionSearchState } from "./store.js";
 import { connectSession, disconnectSession, sendVsCodeSelectionUpdate } from "./ws.js";
 import { api, checkHealth } from "./api.js";
-import type { SdkSessionInfo } from "./types.js";
 
 import {
   parseHash,
@@ -19,7 +18,7 @@ import { Sidebar } from "./components/Sidebar.js";
 import { ChatView } from "./components/ChatView.js";
 import { TopBar } from "./components/TopBar.js";
 import { EmptyState } from "./components/EmptyState.js";
-import { setSdkSessionsWithNotificationFreshness } from "./notification-status.js";
+import { hydrateSessionList, installActiveSessionMetadataRefreshListeners } from "./session-list-hydration.js";
 import { TaskPanel } from "./components/TaskPanel.js";
 import { DiffPanel } from "./components/DiffPanel.js";
 import { Playground } from "./components/Playground.js";
@@ -60,11 +59,6 @@ type TakodeDebugWindow = Window &
     __TAKODE_SET_VSCODE_CONTEXT__?: (payload: VsCodeSelectionContextPayload | null) => void;
     __TAKODE_CLEAR_VSCODE_CONTEXT__?: () => void;
   };
-
-function stripSessionSearchMetadata(session: SdkSessionInfo): SdkSessionInfo {
-  const { taskHistory: _taskHistory, keywords: _keywords, ...rest } = session;
-  return rest;
-}
 
 function useHash() {
   return useSyncExternalStore(
@@ -243,6 +237,10 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    return installActiveSessionMetadataRefreshListeners();
+  }, []);
+
+  useEffect(() => {
     if (route.page !== "session") return;
     if (!/^\d+$/.test(route.sessionId)) return;
     if (routeSessionId) return;
@@ -252,7 +250,7 @@ export default function App() {
       .listSessions()
       .then((sessions) => {
         if (cancelled) return;
-        setSdkSessionsWithNotificationFreshness(sessions.map(stripSessionSearchMetadata));
+        hydrateSessionList(sessions);
       })
       .catch((err) => {
         console.warn("[app] failed to hydrate sessions for numeric route:", err);

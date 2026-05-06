@@ -41,6 +41,7 @@ const mockApi = {
   getTreeGroups: vi
     .fn()
     .mockResolvedValue({ groups: [{ id: "default", name: "Default" }], assignments: {}, nodeOrder: {} }),
+  markSessionRead: vi.fn().mockResolvedValue({ ok: true }),
 };
 
 vi.mock("../api.js", () => ({
@@ -58,6 +59,7 @@ vi.mock("../api.js", () => ({
     getSettings: (...args: unknown[]) => mockApi.getSettings(...args),
     updateSettings: (...args: unknown[]) => mockApi.updateSettings(...args),
     getTreeGroups: (...args: unknown[]) => mockApi.getTreeGroups(...args),
+    markSessionRead: (...args: unknown[]) => mockApi.markSessionRead(...args),
   },
 }));
 
@@ -250,6 +252,9 @@ vi.mock("../store.js", () => {
   };
   // Also support useStore.getState() which Sidebar uses directly
   useStoreFn.getState = () => mockState;
+  useStoreFn.setState = (patch: Partial<MockStoreState>) => {
+    mockState = { ...mockState, ...patch };
+  };
 
   /** countUserPermissions: count permissions excluding evaluating/auto-approved ones */
   const countUserPermissions = (perms: Map<string, unknown> | undefined): number => {

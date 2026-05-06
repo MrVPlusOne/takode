@@ -50,7 +50,7 @@ import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attach
 import { createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
-import { registerSessionSearchRoute } from "./session-search-route.js";
+import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -1141,7 +1141,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (inferred?.repoRoot) info.repoRoot = inferred.repoRoot;
   };
   api.get("/sessions", async (c) => {
-    const enriched = await buildEnrichedSessions();
+    const includeArchived = parseIncludeArchived(c.req.query("includeArchived"));
+    const enriched = await buildEnrichedSessions(includeArchived ? undefined : (session) => !session.archived);
     return c.json(enriched);
   });
   registerSessionSearchRoute(api, { launcher, wsBridge });

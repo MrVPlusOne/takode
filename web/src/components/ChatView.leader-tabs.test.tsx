@@ -21,7 +21,12 @@ interface MockStoreState {
   cliEverConnected: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
-  sdkSessions: Array<{ sessionId: string; archived?: boolean; isOrchestrator?: boolean }>;
+  sdkSessions: Array<{
+    sessionId: string;
+    archived?: boolean;
+    isOrchestrator?: boolean;
+    leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
+  }>;
   sessionNotifications: Map<string, import("../types.js").SessionNotification[]>;
   sessionAttentionRecords: Map<string, import("../types.js").SessionAttentionRecord[]>;
   sessionBoards: Map<string, unknown[]>;
@@ -226,6 +231,28 @@ beforeEach(() => {
 });
 
 describe("ChatView leader open thread tabs", () => {
+  it("hydrates authoritative open tabs from lightweight sdk session metadata before history loads", () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          archived: false,
+          isOrchestrator: true,
+          leaderOpenThreadTabs: leaderTabs(["q-1200", "q-927"]),
+        },
+      ],
+      historyLoading: new Map([["s1", true]]),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+
+    expect(within(view.container).getByTestId("work-board-bar")).toHaveAttribute(
+      "data-open-thread-keys",
+      "q-1200,q-927",
+    );
+  });
+
   it("sends open and close operations to the server without writing localStorage", () => {
     resetStore({
       messages: new Map([["s1", [threadMessage("q-941", 2)]]]),

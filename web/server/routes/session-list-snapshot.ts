@@ -112,6 +112,7 @@ export async function buildEnrichedSessionsSnapshot(
           ...(codexLeaderRecycleThresholdTokens ? { codexLeaderRecycleThresholdTokens } : {}),
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
           ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
+          ...(bridge?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridge.leaderOpenThreadTabs } : {}),
           lastMessagePreview: currentBridgeSession?.lastUserMessage || "",
           cliConnected,
           taskHistory: currentBridgeSession?.taskHistory ?? [],

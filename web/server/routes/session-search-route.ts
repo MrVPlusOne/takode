@@ -9,6 +9,11 @@ export interface SessionSearchRouteDeps {
   wsBridge: WsBridge;
 }
 
+export function parseIncludeArchived(rawValue: string | undefined): boolean {
+  if (rawValue === undefined) return true;
+  return !["0", "false", "no"].includes(rawValue.trim().toLowerCase());
+}
+
 export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDeps): void {
   const { launcher, wsBridge } = deps;
   api.get("/sessions/search", (c) => {
@@ -64,11 +69,6 @@ export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDe
       results,
     });
   });
-}
-
-function parseIncludeArchived(rawValue: string | undefined): boolean {
-  if (rawValue === undefined) return true;
-  return !["0", "false", "no"].includes(rawValue.toLowerCase());
 }
 
 function parseAffirmativeBoolean(rawValue: string | undefined): boolean {

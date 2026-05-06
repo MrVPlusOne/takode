@@ -766,7 +766,7 @@ export function ChatView({
         claimedQuestLeaderSessionId:
           sessionState?.claimedQuestLeaderSessionId ?? sdkSession?.claimedQuestLeaderSessionId,
         herdedBy: sdkSession?.herdedBy,
-        leaderOpenThreadTabs: sessionState?.leaderOpenThreadTabs,
+        leaderOpenThreadTabs: sessionState?.leaderOpenThreadTabs ?? sdkSession?.leaderOpenThreadTabs,
       };
     }),
   );

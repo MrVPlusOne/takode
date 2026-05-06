@@ -872,7 +872,12 @@ export const api = {
   createSession: (opts?: CreateSessionOpts) =>
     post<{ sessionId: string; state: string; cwd: string }>("/sessions/create", opts),
 
-  listSessions: () => get<SdkSessionInfo[]>("/sessions"),
+  listSessions: (options?: { includeArchived?: boolean }) => {
+    const params = new URLSearchParams();
+    if (options?.includeArchived === false) params.set("includeArchived", "false");
+    const query = params.toString();
+    return get<SdkSessionInfo[]>(`/sessions${query ? `?${query}` : ""}`);
+  },
 
   searchSessions: async (
     query: string,

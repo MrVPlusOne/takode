@@ -180,6 +180,11 @@ vi.mock("./ws.js", () => ({
   sendVsCodeSelectionUpdate: vi.fn(),
 }));
 
+vi.mock("./session-list-hydration.js", () => ({
+  hydrateSessionList: vi.fn(),
+  installActiveSessionMetadataRefreshListeners: vi.fn(() => vi.fn()),
+}));
+
 vi.mock("./components/Sidebar.js", () => ({
   Sidebar: () => <div data-testid="sidebar" />,
 }));

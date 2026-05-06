@@ -117,6 +117,29 @@ function sessionLifecycleEventsEqual(
   return true;
 }
 
+function leaderOpenThreadTabsEqual(
+  a: SdkSessionInfo["leaderOpenThreadTabs"] | undefined,
+  b: SdkSessionInfo["leaderOpenThreadTabs"] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  if (
+    a.version !== b.version ||
+    a.updatedAt !== b.updatedAt ||
+    a.migratedFromLocalStorageAt !== b.migratedFromLocalStorageAt ||
+    !stringArrayEqual(a.orderedOpenThreadKeys, b.orderedOpenThreadKeys) ||
+    a.closedThreadTombstones.length !== b.closedThreadTombstones.length
+  ) {
+    return false;
+  }
+  for (let i = 0; i < a.closedThreadTombstones.length; i++) {
+    const left = a.closedThreadTombstones[i]!;
+    const right = b.closedThreadTombstones[i]!;
+    if (left.threadKey !== right.threadKey || left.closedAt !== right.closedAt) return false;
+  }
+  return true;
+}
+
 function contextSnapshotEqual(
   a: NonNullable<SdkSessionInfo["sessionLifecycleEvents"]>[number]["before"],
   b: NonNullable<SdkSessionInfo["sessionLifecycleEvents"]>[number]["before"],
@@ -201,6 +224,7 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.worktreeDirty === b.worktreeDirty &&
     a.isAssistant === b.isAssistant &&
     a.isOrchestrator === b.isOrchestrator &&
+    leaderOpenThreadTabsEqual(a.leaderOpenThreadTabs, b.leaderOpenThreadTabs) &&
     a.herdedBy === b.herdedBy &&
     a.sessionNum === b.sessionNum &&
     a.attentionReason === b.attentionReason &&

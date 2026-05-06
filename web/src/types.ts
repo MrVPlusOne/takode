@@ -328,6 +328,8 @@ export interface SdkSessionInfo {
   isAssistant?: boolean;
   /** Whether this is a leader session (has herd/orchestration privileges) */
   isOrchestrator?: boolean;
+  /** Lightweight server-owned leader quest/thread tab state. */
+  leaderOpenThreadTabs?: SessionState["leaderOpenThreadTabs"];
   /** Session UUID of the leader that has herded this worker (single leader per session) */
   herdedBy?: string;
   /** Short integer session ID (e.g. #5), stable across restarts */

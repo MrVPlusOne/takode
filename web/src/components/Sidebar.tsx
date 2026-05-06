@@ -26,16 +26,17 @@ import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import { deriveSessionStatus } from "./SessionStatusDot.js";
-import type { SessionTaskEntry, SdkSessionInfo } from "../types.js";
+import type { SdkSessionInfo } from "../types.js";
 import {
-  setSdkSessionsWithNotificationFreshness,
-  shouldApplyAttentionReasonWithNotificationFreshness,
-} from "../notification-status.js";
+  hydrateSessionList,
+  refreshTreeGroups as hydrateTreeGroups,
+  SIDEBAR_SESSION_POLL_INTERVAL_MS,
+  SIDEBAR_SESSION_STALE_REFRESH_MS,
+} from "../session-list-hydration.js";
 
 import { buildSidebarVisibleSessions } from "../utils/sidebar-visible-sessions.js";
 import { buildReviewerByParent } from "../utils/reviewer-by-parent.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
-import { questOwnsSessionName } from "../utils/quest-helpers.js";
 import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 import { requestAutoSessionGitStatusRefreshes } from "../utils/session-git-status-auto-refresh.js";
 import {
@@ -50,45 +51,6 @@ const restrictToVerticalAxis: Modifier = ({ transform }) => ({
   ...transform,
   x: 0,
 });
-
-const SIDEBAR_SESSION_POLL_INTERVAL_MS = 5_000;
-const SIDEBAR_SESSION_STALE_REFRESH_MS = 3 * 60_000;
-
-function sessionTaskHistoryEqual(a: SessionTaskEntry[] | undefined, b: SessionTaskEntry[] | undefined): boolean {
-  if (a === b) return true;
-  if (!a || !b) return !a && !b;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    const left = a[i];
-    const right = b[i];
-    if (
-      left.title !== right.title ||
-      left.action !== right.action ||
-      left.timestamp !== right.timestamp ||
-      left.triggerMessageId !== right.triggerMessageId ||
-      left.source !== right.source ||
-      left.questId !== right.questId
-    ) {
-      return false;
-    }
-  }
-  return true;
-}
-
-function stringArrayEqual(a: string[] | undefined, b: string[] | undefined): boolean {
-  if (a === b) return true;
-  if (!a || !b) return !a && !b;
-  if (a.length !== b.length) return false;
-  for (let i = 0; i < a.length; i++) {
-    if (a[i] !== b[i]) return false;
-  }
-  return true;
-}
-
-function stripSearchMetadata(session: SdkSessionInfo): SdkSessionInfo {
-  const { taskHistory: _taskHistory, keywords: _keywords, ...rest } = session;
-  return rest;
-}
 
 /** Build "Move to..." submenu items for the session context menu (tree view only). */
 function buildMoveToSubmenu(
@@ -209,9 +171,7 @@ export function Sidebar() {
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
   const refreshTreeGroups = useCallback(async () => {
-    const tgs = await api.getTreeGroups();
-    useStore.getState().setTreeGroups(tgs.groups, tgs.assignments, tgs.nodeOrder ?? {});
-    return tgs;
+    await hydrateTreeGroups();
   }, []);
 
   const nextAutoGroupName = useCallback(() => {
@@ -227,70 +187,6 @@ export function Sidebar() {
     let active = true;
     let refreshInFlight: Promise<void> | null = null;
     let lastRefreshStartedAt = 0;
-
-    function hydrateSessionList(list: SdkSessionInfo[]) {
-      const store = useStore.getState();
-      setSdkSessionsWithNotificationFreshness(list.map(stripSearchMetadata));
-      // Hydrate session names from server (server is source of truth for auto-generated names)
-      let batchedAttention: Map<string, "action" | "error" | "review" | null> | null = null;
-      for (const s of list) {
-        if (s.name) {
-          const currentStoreName = store.sessionNames.get(s.sessionId);
-          if (currentStoreName !== s.name) {
-            const hadRandomName = !!currentStoreName && /^[A-Z][a-z]+ [A-Z][a-z]+$/.test(currentStoreName);
-            store.setSessionName(s.sessionId, s.name);
-            if (hadRandomName) {
-              store.markRecentlyRenamed(s.sessionId);
-            }
-          }
-        }
-        if (
-          !s.isOrchestrator &&
-          questOwnsSessionName(s.claimedQuestStatus ?? undefined, s.claimedQuestVerificationInboxUnread)
-        ) {
-          store.markQuestNamed(s.sessionId);
-        } else {
-          store.clearQuestNamed(s.sessionId);
-        }
-        // Hydrate last message preview from server (only if client doesn't have one yet)
-        if (s.lastMessagePreview && !store.sessionPreviews.has(s.sessionId)) {
-          store.setSessionPreview(s.sessionId, s.lastMessagePreview);
-        }
-        // Hydrate task history and keywords from server for search
-        const nextTaskHistory = s.taskHistory ?? [];
-        const currentTaskHistory = store.sessionTaskHistory.get(s.sessionId);
-        if (!sessionTaskHistoryEqual(currentTaskHistory, nextTaskHistory)) {
-          store.setSessionTaskHistory(s.sessionId, nextTaskHistory);
-        }
-        const nextKeywords = s.keywords ?? [];
-        const currentKeywords = store.sessionKeywords.get(s.sessionId);
-        if (!stringArrayEqual(currentKeywords, nextKeywords)) {
-          store.setSessionKeywords(s.sessionId, nextKeywords);
-        }
-        // Batch server-authoritative attention state changes
-        if (s.attentionReason !== undefined) {
-          const shouldApplyAttention = shouldApplyAttentionReasonWithNotificationFreshness(
-            s.sessionId,
-            s.attentionReason,
-            s,
-          );
-          if (!shouldApplyAttention) continue;
-          const currentAttention = store.sessionAttention.get(s.sessionId);
-          if (currentAttention !== s.attentionReason) {
-            // Suppress attention for the session the user is currently viewing
-            if (store.currentSessionId === s.sessionId && s.attentionReason) {
-              api.markSessionRead(s.sessionId).catch(() => {});
-            } else {
-              if (!batchedAttention) batchedAttention = new Map(store.sessionAttention);
-              batchedAttention.set(s.sessionId, s.attentionReason ?? null);
-            }
-          }
-        }
-      }
-      if (batchedAttention) {
-        useStore.setState({ sessionAttention: batchedAttention });
-      }
-    }
 
     function refreshSessionList(force: boolean) {
       const now = Date.now();
@@ -683,7 +579,7 @@ export function Sidebar() {
     }
     try {
       const list = await api.listSessions();
-      setSdkSessionsWithNotificationFreshness(list);
+      hydrateSessionList(list);
     } catch {
       // best-effort
     }
@@ -726,7 +622,7 @@ export function Sidebar() {
       }
       try {
         const list = await api.listSessions();
-        setSdkSessionsWithNotificationFreshness(list);
+        hydrateSessionList(list);
       } catch {
         // best-effort
       }
@@ -764,7 +660,7 @@ export function Sidebar() {
     }
     try {
       const list = await api.listSessions();
-      setSdkSessionsWithNotificationFreshness(list);
+      hydrateSessionList(list);
     } catch {
       // best-effort
     }

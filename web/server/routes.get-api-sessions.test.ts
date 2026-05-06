@@ -562,6 +562,7 @@ describe("GET /api/sessions", () => {
         totalLinesAdded: 0,
         totalLinesRemoved: 0,
         numTurns: 0,
+        gitStatusRefreshError: null,
         contextUsedPercent: 0,
         messageHistoryBytes: 0,
         codexRetainedPayloadBytes: 0,
@@ -570,7 +571,9 @@ describe("GET /api/sessions", () => {
         taskHistory: [],
         keywords: [],
         claimedQuestId: null,
+        claimedQuestTitle: null,
         claimedQuestStatus: null,
+        claimedQuestLeaderSessionId: null,
         pendingTimerCount: 0,
         sessionLifecycleEvents: [],
         notificationUrgency: null,
@@ -591,6 +594,7 @@ describe("GET /api/sessions", () => {
         totalLinesAdded: 0,
         totalLinesRemoved: 0,
         numTurns: 0,
+        gitStatusRefreshError: null,
         contextUsedPercent: 0,
         messageHistoryBytes: 0,
         codexRetainedPayloadBytes: 0,
@@ -599,7 +603,9 @@ describe("GET /api/sessions", () => {
         taskHistory: [],
         keywords: [],
         claimedQuestId: null,
+        claimedQuestTitle: null,
         claimedQuestStatus: null,
+        claimedQuestLeaderSessionId: null,
         pendingTimerCount: 0,
         sessionLifecycleEvents: [],
         notificationUrgency: null,
@@ -608,6 +614,61 @@ describe("GET /api/sessions", () => {
         notificationStatusUpdatedAt: 0,
       },
     ]);
+  });
+
+  it("can return only active session metadata while leaving archived sessions lazy", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "active", state: "running", cwd: "/a", archived: false },
+      { sessionId: "archived", state: "exited", cwd: "/b", archived: true, isWorktree: true },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+
+    const res = await app.request("/api/sessions?includeArchived=false", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.map((session: { sessionId: string }) => session.sessionId)).toEqual(["active"]);
+    expect(access).not.toHaveBeenCalledWith("/b");
+  });
+
+  it("includes lightweight leader open thread tabs in session snapshots", async () => {
+    launcher.listSessions.mockReturnValue([
+      { sessionId: "leader", state: "connected", cwd: "/a", isOrchestrator: true },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({});
+    bridge.getSession.mockReturnValue({
+      id: "leader",
+      state: {
+        leaderOpenThreadTabs: {
+          version: 1,
+          orderedOpenThreadKeys: ["q-1", "q-2"],
+          closedThreadTombstones: [],
+          updatedAt: 1234,
+        },
+      },
+      pendingPermissions: new Map(),
+      messageHistory: [],
+      notifications: [],
+      taskHistory: [],
+      keywords: [],
+      lastReadAt: 0,
+      attentionReason: null,
+      isGenerating: false,
+    } as any);
+
+    const res = await app.request("/api/sessions?includeArchived=false", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json[0]).toMatchObject({
+      sessionId: "leader",
+      leaderOpenThreadTabs: {
+        version: 1,
+        orderedOpenThreadKeys: ["q-1", "q-2"],
+        closedThreadTombstones: [],
+        updatedAt: 1234,
+      },
+    });
   });
 
   it("includes pendingTimerCount in regular session snapshots", async () => {
