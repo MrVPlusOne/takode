@@ -273,6 +273,67 @@ describe("workstream memory store", () => {
     expect(reactivated).toEqual(expect.objectContaining({ status: "active", replacedBy: undefined }));
   });
 
+  it("includes superseded hidden records in bookkeeping maintenance reports", async () => {
+    await createWorkstream();
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/decision",
+      bucket: "current",
+      subtype: "decision",
+      priority: "important",
+      current: "Use the old decision until replaced.",
+      appliesTo: { exactTerms: ["decision"] },
+      evidence: source(),
+      authorityBoundary: authority(),
+    });
+    await memoryStore.retireRecord({
+      ref: "takode-memory/decision",
+      reason: "Replaced by a newer decision record.",
+      sourceLinks: source(),
+      supersededBy: "takode-memory/decision-v2",
+    });
+
+    const report = await memoryStore.bookkeepingReport("takode-memory");
+
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({
+        level: "info",
+        record: "takode-memory/decision",
+        message: expect.stringContaining("hidden superseded record replaced by takode-memory/decision-v2"),
+      }),
+    );
+  });
+
+  it("surfaces retireWhen records as manual bookkeeping cleanup candidates", async () => {
+    await createWorkstream();
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/active-route",
+      bucket: "current",
+      subtype: "route",
+      priority: "important",
+      current: "Use the temporary implementation route until the foundation lands.",
+      appliesTo: { exactTerms: ["route"] },
+      evidence: source(),
+      authorityBoundary: authority(),
+      retireWhen: { description: "foundation is accepted or replaced" },
+    });
+
+    const report = await memoryStore.bookkeepingReport("takode-memory");
+
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({
+        level: "info",
+        record: "takode-memory/active-route",
+        message: expect.stringContaining("retireWhen cleanup review candidate"),
+      }),
+    );
+    expect(report.issues).toContainEqual(
+      expect.objectContaining({
+        record: "takode-memory/active-route",
+        message: expect.stringContaining("Expiry evaluation is manual"),
+      }),
+    );
+  });
+
   it("reports bookkeeping warnings for product-state-like current records", async () => {
     await createWorkstream();
     await memoryStore.upsertRecord({

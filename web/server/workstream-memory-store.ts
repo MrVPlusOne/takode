@@ -336,7 +336,7 @@ export async function readCurrentContext(query: CurrentReadQuery): Promise<Curre
 export async function bookkeepingReport(workstreamRef?: string): Promise<BookkeepingReport> {
   const records = await listRecords({
     workstream: workstreamRef,
-    includeRetired: false,
+    includeRetired: true,
     includeProposed: true,
   });
   const report: BookkeepingReport = {
@@ -356,6 +356,29 @@ export async function bookkeepingReport(workstreamRef?: string): Promise<Bookkee
     }
     if (requiresRetireWhen(record) && !record.retireWhen?.description.trim()) {
       report.issues.push({ level: "warn", record: ref, message: `${record.subtype} records require retireWhen` });
+    }
+    if (record.retireWhen?.description.trim()) {
+      report.issues.push({
+        level: "info",
+        record: ref,
+        message: `retireWhen cleanup review candidate: ${record.retireWhen.description}. Expiry evaluation is manual in the foundation because retireWhen is free text and product state is not evaluated.`,
+      });
+    }
+    if (record.status === "superseded") {
+      report.issues.push({
+        level: record.replacedBy ? "info" : "warn",
+        record: ref,
+        message: record.replacedBy
+          ? `hidden superseded record replaced by ${record.replacedBy}; review the replacement chain during Bookkeeping cleanup.`
+          : "hidden superseded record has no replacedBy target; review the replacement chain during Bookkeeping cleanup.",
+      });
+    } else if (record.status === "retired") {
+      report.issues.push({
+        level: "info",
+        record: ref,
+        message:
+          "hidden retired record retained for history; review during Bookkeeping cleanup if it should remain hidden history.",
+      });
     }
     if (looksProductStateLike(record.current)) {
       report.issues.push({

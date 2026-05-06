@@ -119,6 +119,15 @@ describe("memory CLI", () => {
     expect(retired.status).toBe(0);
     expect(JSON.parse(retired.stdout).record.status).toBe("retired");
 
+    const report = await runMemory(["bookkeeping", "report", "--workstream", "takode-memory", "--json"], env);
+    expect(report.status).toBe(0);
+    expect(JSON.parse(report.stdout).report.issues).toContainEqual(
+      expect.objectContaining({
+        record: "takode-memory/current-model",
+        message: expect.stringContaining("hidden retired record retained"),
+      }),
+    );
+
     const hidden = await runMemory(["grep", "Reference Pointer", "--json"], env);
     expect(hidden.status).toBe(0);
     expect(JSON.parse(hidden.stdout).results).toEqual([]);
