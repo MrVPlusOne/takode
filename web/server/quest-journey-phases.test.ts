@@ -132,7 +132,11 @@ describe("Quest Journey phase directory loading", () => {
     const explorePhase = phases.find((phase) => phase.id === "explore");
 
     expect(alignmentPhase?.leaderBrief).toContain("exact prior messages, quests, or discussions");
+    expect(alignmentPhase?.leaderBrief).toContain("what terms to use with `memory recall`");
+    expect(alignmentPhase?.leaderBrief).toContain("memory reads should be visible");
     expect(alignmentPhase?.assigneeBrief).toContain("Takode and quest inspection tools");
+    expect(alignmentPhase?.assigneeBrief).toContain('memory recall "<quest or task terms>"');
+    expect(alignmentPhase?.assigneeBrief).toContain("memory files that materially affected the read-in");
     expect(alignmentPhase?.assigneeBrief).toContain("Concrete understanding:");
     expect(alignmentPhase?.assigneeBrief).toContain("Clarification questions:");
     expect(explorePhase?.leaderBrief).toContain("major findings, newly discovered ambiguities or blockers");
@@ -283,8 +287,32 @@ describe("Quest Journey phase directory loading", () => {
     expect(bookkeepingPhase?.leaderBrief).toContain("when Port is omitted");
     expect(bookkeepingPhase?.leaderBrief).toContain("leader-owned completion after Outcome Review");
     expect(bookkeepingPhase?.leaderBrief).toContain("both a final debrief and debrief TLDR");
+    expect(bookkeepingPhase?.leaderBrief).toContain("file-based memory updates");
+    expect(bookkeepingPhase?.leaderBrief).toContain("intended memory responsibility");
+    expect(bookkeepingPhase?.leaderBrief).toContain("visible `memory recall`");
+    expect(bookkeepingPhase?.leaderBrief).toContain("repo-level write lock");
+    expect(bookkeepingPhase?.leaderBrief).toContain("source-trailed memory commit");
+    expect(bookkeepingPhase?.leaderBrief).toContain("memory updated: <commit>");
+    expect(bookkeepingPhase?.leaderBrief).toContain("memory update deferred: <reason or curator>");
+    expect(bookkeepingPhase?.leaderBrief).toContain("memory update not needed: <reason>");
     expect(bookkeepingPhase?.assigneeBrief).toContain("Do not duplicate normal phase documentation");
     expect(bookkeepingPhase?.assigneeBrief).toContain("Completion remains incomplete until both are present");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("session-space memory repo");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("`current/` for live working state");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("`knowledge/` for durable understanding");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("`procedures/` for repeatable action");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("`decisions/` for accepted choices or stable preferences");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("`references/` for source digests or external pointers");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("`artifacts/` for produced external outputs");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("memory recall");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("memory lock acquire");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("memory lint");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("memory doctor");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("memory diff");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("memory commit");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("memory updated: <commit>");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("memory update deferred: <reason or curator>");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("memory update not needed: <reason>");
   });
 
   it("seeds Port briefs with final debrief ownership guidance", async () => {
@@ -300,11 +328,28 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.leaderBrief).toContain("every completed non-cancelled quest needs final debrief metadata");
     expect(portPhase?.leaderBrief).toContain("`--debrief-file` and `--debrief-tldr-file`");
     expect(portPhase?.leaderBrief).toContain("focused Bookkeeping phase");
+    expect(portPhase?.leaderBrief).toContain("memory recall");
+    expect(portPhase?.leaderBrief).toContain("repo-level lock");
+    expect(portPhase?.leaderBrief).toContain("memory updated: <commit>");
+    expect(portPhase?.leaderBrief).toContain("memory update deferred: <reason or curator>");
+    expect(portPhase?.leaderBrief).toContain("memory update not needed: <reason>");
     expect(portPhase?.assigneeBrief).toContain("quest complete ... --debrief-file ... --debrief-tldr-file ...");
     expect(portPhase?.assigneeBrief).toContain("every completed non-cancelled quest needs both fields");
     expect(portPhase?.assigneeBrief).toContain("A Port handoff without submitted metadata or drafts is incomplete");
     expect(portPhase?.assigneeBrief).toContain("final debrief draft and debrief TLDR draft");
     expect(portPhase?.assigneeBrief).toContain("whether final debrief metadata was submitted or drafted");
+    expect(portPhase?.assigneeBrief).toContain("memory recall");
+    expect(portPhase?.assigneeBrief).toContain("session-space memory repo");
+    expect(portPhase?.assigneeBrief).toContain("memory lock acquire");
+    expect(portPhase?.assigneeBrief).toContain("memory lint");
+    expect(portPhase?.assigneeBrief).toContain("memory doctor");
+    expect(portPhase?.assigneeBrief).toContain("memory diff");
+    expect(portPhase?.assigneeBrief).toContain("memory commit");
+    expect(portPhase?.assigneeBrief).toContain("memory updated: <commit>");
+    expect(portPhase?.assigneeBrief).toContain("memory update deferred: <reason or curator>");
+    expect(portPhase?.assigneeBrief).toContain("memory update not needed: <reason>");
+    expect(portPhase?.assigneeBrief).toContain("Document ordered synced SHAs");
+    expect(portPhase?.assigneeBrief).toContain("memory statement");
   });
 
   it("seeds review phases with documentation quality checks", async () => {

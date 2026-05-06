@@ -4,11 +4,17 @@ You are updating durable shared external state.
 
 Boundary:
 - Refresh the specified quest records, stream updates, artifact locations, handoff facts, or superseded facts.
-- Use Bookkeeping for cross-phase or external durable state beyond normal phase notes: consolidated summaries, final debrief metadata after port when the port worker could not reliably create it, verification checklist reconciliation, external docs or links, superseded facts, notification cleanup, thread cleanup, or shared-state updates.
+- Use Bookkeeping for cross-phase or external durable state beyond normal phase notes: consolidated summaries, final debrief metadata after port when the port worker could not reliably create it, verification checklist reconciliation, external docs or links, superseded facts, notification cleanup, thread cleanup, file-based memory updates, or shared-state updates.
 - When Bookkeeping is assigned to finish completion metadata, produce or apply both the final debrief and debrief TLDR. Completion remains incomplete until both are present on the completed non-cancelled quest.
 - Keep the update precise and durable.
 - Do not duplicate normal phase documentation from the phase that produced the facts.
 - Do not expand this phase into unrelated implementation or review.
+
+File-based memory:
+- When the assigned durable state belongs in memory, use the session-space memory repo rather than adding another quest-only summary. Choose the file responsibility by information type: `current/` for live working state, `knowledge/` for durable understanding, `procedures/` for repeatable action, `decisions/` for accepted choices or stable preferences, `references/` for source digests or external pointers, and `artifacts/` for produced external outputs.
+- Run relevant `memory recall` first so the update works with existing memory instead of duplicating it.
+- Before editing memory files, acquire the repo-level write lock with `memory lock acquire`. While holding the lock, edit files directly with normal file tools, run `memory lint` or `memory doctor`, inspect `memory diff`, commit with source trailers via `memory commit`, then release the lock.
+- Report exactly one memory statement when memory was in scope: `memory updated: <commit>`, `memory update deferred: <reason or curator>`, or `memory update not needed: <reason>`.
 
 Phase documentation:
 - Before reporting back, add or refresh a quest feedback entry documenting this phase when working on a quest. Prefer the phase-scoped primitive with current-phase inference: `quest feedback add q-N --text-file <body> --tldr-file <tldr> --kind phase-summary`.

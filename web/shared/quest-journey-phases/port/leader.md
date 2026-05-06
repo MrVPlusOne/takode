@@ -8,6 +8,8 @@ Leader actions:
 - Send a separate explicit `/port-changes` instruction.
 - Require the assignee report to include `Synced SHAs: sha1,sha2`.
 - Require the appropriate post-port verification gate.
+- Require `memory recall` when prior memory could affect final handoff or debrief accuracy. If accepted work created or changed durable shared facts, require a memory update under the repo-level lock or an explicit deferral.
+- Require a memory statement when memory could be relevant: `memory updated: <commit>`, `memory update deferred: <reason or curator>`, or `memory update not needed: <reason>`.
 - Require final debrief ownership without adding generic leader bookkeeping: every completed non-cancelled quest needs final debrief metadata and debrief TLDR metadata. If the port worker will complete the quest, completion must use `--debrief-file` and `--debrief-tldr-file`; otherwise require a concise final debrief draft plus TLDR draft, or route a focused Bookkeeping phase when the worker cannot produce reliable final debrief metadata.
 - Require the assignee to add or refresh phase documentation before the phase handoff. It should use phase-scoped quest feedback with full agent-oriented detail plus TLDR metadata when working on a quest, falling back to explicit `--phase port` if current-phase inference is unavailable.
 - Provide only deltas the assignee is unlikely to infer from the phase brief, quest record, current artifacts, or their own context: exact accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, or facts unavailable to that actor. Avoid restating generic closure checklists covered by the brief.
