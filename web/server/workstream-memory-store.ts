@@ -71,7 +71,7 @@ export async function createWorkstream(input: WorkstreamCreateInput): Promise<Wo
   if (!input.objective.trim()) throw new Error("Workstream objective is required");
   await ensureMemoryDirs();
   const existing = await getWorkstream(slug, { includeArchived: true });
-  if (existing && existing.status !== "archived") {
+  if (existing) {
     throw new Error(`Workstream slug already exists: ${slug}`);
   }
 
@@ -177,8 +177,8 @@ export async function upsertRecord(input: UpsertMemoryRecordInput): Promise<Memo
   const workstream = await requireWorkstream(workstreamSlug);
   const now = isoNow();
   const existing = await getRecord(input.ref, { includeRetired: true, includeArchived: true });
-  if (existing?.status === "retired" && !input.reactivate) {
-    throw new Error(`Record is retired; pass --reactivate to update it: ${input.ref}`);
+  if ((existing?.status === "retired" || existing?.status === "superseded") && !input.reactivate) {
+    throw new Error(`Record is ${existing.status}; pass --reactivate to update it: ${input.ref}`);
   }
 
   const status = input.status ?? "active";
@@ -197,6 +197,7 @@ export async function upsertRecord(input: UpsertMemoryRecordInput): Promise<Memo
         retrievalHooks: input.retrievalHooks ?? [],
         evidence: mergeSourceLinks(existing.evidence, input.evidence),
         supersedes: mergeStrings(existing.supersedes, input.supersedes ?? []),
+        replacedBy: undefined,
         conflictsWith: input.conflictsWith ?? existing.conflictsWith,
         authorityBoundary: input.authorityBoundary,
         activation: {

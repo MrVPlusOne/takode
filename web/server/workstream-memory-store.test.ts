@@ -206,6 +206,73 @@ describe("workstream memory store", () => {
     );
   });
 
+  it("rejects duplicate slugs even after a workstream is archived", async () => {
+    const original = await createWorkstream();
+
+    await memoryStore.archiveWorkstream("takode-memory");
+
+    await expect(
+      memoryStore.createWorkstream({
+        slug: "takode-memory",
+        title: "Replacement",
+        objective: "This must not overwrite archived history.",
+        sourceLinks: source(),
+      }),
+    ).rejects.toThrow("Workstream slug already exists: takode-memory");
+
+    const archived = await memoryStore.getWorkstream("takode-memory", { includeArchived: true });
+    expect(archived).toEqual(expect.objectContaining({ id: original.id, status: "archived" }));
+  });
+
+  it("requires explicit reactivation before superseded records can be updated", async () => {
+    await createWorkstream();
+    await memoryStore.upsertRecord({
+      ref: "takode-memory/decision",
+      bucket: "current",
+      subtype: "decision",
+      priority: "important",
+      current: "Use the first accepted decision.",
+      appliesTo: { exactTerms: ["decision"] },
+      evidence: source(),
+      authorityBoundary: authority(),
+    });
+    await memoryStore.retireRecord({
+      ref: "takode-memory/decision",
+      reason: "Replaced by a newer decision record.",
+      sourceLinks: source(),
+      supersededBy: "takode-memory/decision-v2",
+    });
+
+    await expect(
+      memoryStore.upsertRecord({
+        ref: "takode-memory/decision",
+        bucket: "current",
+        subtype: "decision",
+        priority: "important",
+        current: "Ordinary upsert must not reactivate hidden history.",
+        appliesTo: { exactTerms: ["decision"] },
+        evidence: source(),
+        authorityBoundary: authority(),
+      }),
+    ).rejects.toThrow("Record is superseded; pass --reactivate");
+
+    const hidden = await memoryStore.getRecord("takode-memory/decision", { includeRetired: true });
+    expect(hidden).toEqual(expect.objectContaining({ status: "superseded", replacedBy: "takode-memory/decision-v2" }));
+
+    const reactivated = await memoryStore.upsertRecord({
+      ref: "takode-memory/decision",
+      bucket: "current",
+      subtype: "decision",
+      priority: "important",
+      current: "Explicitly reactivated decision.",
+      appliesTo: { exactTerms: ["decision"] },
+      evidence: source(),
+      authorityBoundary: authority(),
+      reactivate: true,
+    });
+    expect(reactivated).toEqual(expect.objectContaining({ status: "active", replacedBy: undefined }));
+  });
+
   it("reports bookkeeping warnings for product-state-like current records", async () => {
     await createWorkstream();
     await memoryStore.upsertRecord({
