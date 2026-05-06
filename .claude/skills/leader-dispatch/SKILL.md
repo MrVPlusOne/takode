@@ -42,10 +42,14 @@ This skill covers leader discipline and the step-by-step dispatch process. Invok
 ## Pre-Dispatch Approval Contract
 
 If the user clearly asked for a quest to be created and dispatched, optimize for a single combined confirmation round. The first leader response should include:
-- the proposed quest draft: title, scope/description, assumptions, non-goals, and tags when useful
+- the proposed quest draft: title, Goal / Scope, optional assumptions/open decisions, non-goals, and tags when useful
 - the proposed Journey/scheduling draft: planned phases, any concise non-standard phase reasons, worker choice or fresh-spawn intent, and dispatch/queueing plan
 
 If meaningful clarification is needed, ask those questions with the quest framing. After the user clarifies and no major ambiguity remains, the next response should include both the drafted quest and the drafted Journey/scheduling plan. Avoid a separate round that only restates understanding after clarification when there are no new questions and no quest/Journey draft yet. More than two confirmation rounds should happen only when genuine additional clarification is needed.
+
+Use one source of truth for the requested work. Prefer a single `Goal / Scope` section that serves as both your understanding and the proposed quest scope. If you already wrote a concise understanding, either make that text the `Goal / Scope` or replace it with one expanded `Goal / Scope`; do not restate the same work again as a separate quest description, `Scope` paragraph, and `The worker should` list.
+
+Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Evidence / Context` links or paths, `Boundaries / Non-goals`, `Assumptions / Open decisions`, `Invariants / Must preserve`, `Expected output / Acceptance`, `Journey`, non-standard phase notes, and `Scheduling`. `Assumptions` is optional and should only list assumptions that are not already implied by `Goal / Scope` or the user's stated facts.
 
 Before you dispatch a quest, or intentionally leave it `QUEUED` for a later dispatch, get user approval for the quest and Journey/scheduling plan in prose. After approval and before sending the first worker, write that exact approved Journey to the board with `takode board set ... --phases ...` or by promoting an existing proposed row. Do not rely on the chat transcript as the only durable record of the Journey.
 
@@ -198,6 +202,7 @@ This is the `/leader-dispatch` contract:
 - When the user asked for quest creation plus dispatch and the scope is clear, combine those into one approval surface instead of running a quest-text confirmation and a separate Journey confirmation.
 
 The proposal should:
+- use a single `Goal / Scope` section as both understanding and quest scope; avoid repeating it under `Scope` or `The worker should` unless the later text adds acceptance criteria or phase-specific handoff detail
 - name the built-in phases you intend to put on the board first
 - explain non-standard phases concisely: why each is needed and what evidence, scenario, outcome, or durable state it covers
 - avoid routine `explore -> implement` for normal bug-fix, docs-change, config-change, prompt-change, or artifact-change work; `implement` includes the investigation, root-cause analysis, code/design reading, and test planning needed to complete those changes

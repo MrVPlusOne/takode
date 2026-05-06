@@ -37,11 +37,15 @@ Do not use `/quest-design` for routine quest operations:
 Do not write the quest yet. First respond with the narrowest confirmation surface that can safely move the request forward.
 
 Best case: if the user clearly wants quest creation plus immediate dispatch and the request is already understood, include both:
-- the proposed quest draft: title, description/scope, tags when useful, assumptions, and non-goals
+- the proposed quest draft: title, Goal / Scope, tags when useful, optional assumptions/open decisions, and non-goals
 - the proposed explicit relationship, when relevant: `Relationship: follow-up of [q-N](quest:q-N)`
 - the proposed Quest Journey/scheduling draft from `/leader-dispatch`: phase sequence, concise non-standard phase reasons when useful, worker choice or fresh-spawn intent, and dispatch/queueing plan
 
 One user confirmation can approve both the quest draft and the Journey/scheduling plan. Do not add a separate confirmation round just to restate understanding, and do not require a separate board-presentation approval ceremony.
+
+Use one source of truth for the requested work. Prefer a single `Goal / Scope` section that serves as both your understanding and the proposed quest scope. If you already wrote a concise understanding, either make that text the `Goal / Scope` or replace it with one expanded `Goal / Scope`; do not restate the same work again as a separate quest description, `Scope` paragraph, and `The worker should` list.
+
+Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Evidence / Context` links or paths, `Boundaries / Non-goals`, `Assumptions / Open decisions`, `Invariants / Must preserve`, `Expected output / Acceptance`, `Journey`, non-standard phase notes, and `Scheduling`. `Assumptions` is optional and should only list assumptions that are not already implied by `Goal / Scope` or the user's stated facts.
 
 For Journey notes, omit standard tracked-code phase notes by default: `alignment`, `implement`, `code-review`, and `port` only need notes for unusual phase-specific work. Explain non-standard phases concisely: why the phase is needed and what evidence, scenario, outcome, or durable state it covers.
 
@@ -54,7 +58,7 @@ When you only need quest text approval and dispatch is not in scope, use:
 ### Understanding
 
 - Intended goal and scope for the quest.
-- Major assumptions that could affect the quest text.
+- Major assumptions or open decisions that could affect the quest text, only when they are not already implied by the intended goal/scope.
 - Relevant non-goals, when excluding them prevents misunderstanding.
 
 ### Clarification Questions

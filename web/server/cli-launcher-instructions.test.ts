@@ -187,6 +187,11 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("explicitly check whether the quest is a true follow-up to earlier work");
     expect(result).toContain("Relationship: follow-up of [q-N](quest:q-N)");
     expect(result).toContain("Use `/leader-dispatch` before dispatching a fresh or newly refined quest");
+    expect(result).toContain("Use one `Goal / Scope` section as the source of truth for the requested work");
+    expect(result).toContain("do not restate the same work again as a separate quest description");
+    expect(result).toContain("`Evidence / Context`");
+    expect(result).toContain("`Invariants / Must preserve`");
+    expect(result).toContain("assumptions should not restate facts already implied by `Goal / Scope`");
     expect(result).toContain("board-owned draft-or-active state for the quest");
     expect(result).toContain("Standard phases are recommended defaults, not mandates");
     expect(result).toContain("ask what it contributes over merging that work into a later phase");
