@@ -4,6 +4,7 @@ import type { PersistedSession } from "../session-store.js";
 import type {
   BoardRow,
   ContentBlock,
+  NeedsInputNotificationQuestion,
   SessionTaskEntry,
   SessionNotification,
   SessionAttentionRecord,
@@ -1027,7 +1028,7 @@ export function notifyUser(
     | "emitTakodeEvent"
     | "scheduleNotification"
   >,
-  options: { suggestedAnswers?: string[] } = {},
+  options: { suggestedAnswers?: string[]; questions?: NeedsInputNotificationQuestion[] } = {},
 ): { ok: true; anchoredMessageId: string | null; notificationId: string } {
   const timestamp = Date.now();
   let anchorIndex = findLastNotificationAnchorIndex(session);
@@ -1050,6 +1051,7 @@ export function notifyUser(
   const anchoredMessageId = anchor?.id ?? null;
   const suggestedAnswers =
     category === "needs-input" && options.suggestedAnswers?.length ? options.suggestedAnswers : undefined;
+  const questions = category === "needs-input" && options.questions?.length ? options.questions : undefined;
   const nextNotificationCounter = Number.isInteger(session.notificationCounter) ? session.notificationCounter + 1 : 1;
   session.notificationCounter = nextNotificationCounter;
   const notificationId = `n-${nextNotificationCounter}`;
@@ -1066,6 +1068,7 @@ export function notifyUser(
       timestamp,
       summary,
       ...(suggestedAnswers ? { suggestedAnswers } : {}),
+      ...(questions ? { questions } : {}),
     },
     threadRoute,
   );
@@ -1076,6 +1079,7 @@ export function notifyUser(
       category,
       summary,
       ...(suggestedAnswers ? { suggestedAnswers } : {}),
+      ...(questions ? { questions } : {}),
       timestamp,
       messageId: anchoredMessageId,
       done: false,
@@ -1092,6 +1096,7 @@ export function notifyUser(
         notificationId: notif.id,
         messageId: anchoredMessageId,
         ...(suggestedAnswers ? { suggestedAnswers } : {}),
+        ...(questions ? { questions } : {}),
         ...(anchorIndex !== undefined ? { msg_index: anchorIndex } : {}),
         threadKey: threadRoute.threadKey,
         ...(threadRoute.questId ? { questId: threadRoute.questId } : {}),
@@ -1143,7 +1148,7 @@ export function notifyUserBySessionId(
     | "emitTakodeEvent"
     | "scheduleNotification"
   >,
-  options: { suggestedAnswers?: string[] } = {},
+  options: { suggestedAnswers?: string[]; questions?: NeedsInputNotificationQuestion[] } = {},
 ): { ok: true; anchoredMessageId: string | null; notificationId: string } | { ok: false; error: string } {
   const session = sessions.get(sessionId);
   if (!session) return { ok: false, error: "Session not found" };

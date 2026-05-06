@@ -179,6 +179,7 @@ Refresh git branch info for a session after checkout, rebase, or other branch ch
 `;
 
 const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--suggest <answer>]... [--json]
+       takode notify needs-input <summary> --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--json]
        takode notify resolve <notification-id> [--json]
 
@@ -188,6 +189,7 @@ Categories:
 
 Options:
   --suggest <answer>  Suggested answer for needs-input notifications (repeat up to 3 times)
+  --question <prompt> Add a separate needs-input question; following --suggest flags apply to that question
 `;
 
 const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]

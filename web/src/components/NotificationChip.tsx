@@ -2,11 +2,14 @@ import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, typ
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
+import { sendToSession } from "../ws.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { SessionNotification } from "../types.js";
 import { isClearedNotificationStatus, type NotificationStatusSnapshot } from "../notification-status.js";
 import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
+import { formatReplyContentForAssistant } from "../utils/reply-context.js";
+import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
 import {
   resolveNotificationOwnerThreadKey,
   runAfterNotificationOwnerThreadSelected,
@@ -259,8 +262,16 @@ function NotificationItem({
     // Don't close panel -- user may want to click multiple notifications
   }, [sessionId, notif, currentThreadKey, onSelectThread, jumpTargetMessageId]);
 
+  const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
+  const questionViews = useMemo(
+    () => (notif.category === "needs-input" ? getNeedsInputQuestionViews(notif) : []),
+    [notif],
+  );
+  const setQuestionAnswer = useCallback((key: string, value: string) => {
+    setAnswersByQuestion((prev) => ({ ...prev, [key]: value }));
+  }, []);
   const startReply = useCallback(
-    (answer?: string) => (e: React.MouseEvent) => {
+    (answerText?: string) => (e: React.MouseEvent) => {
       e.stopPropagation();
       runAfterNotificationOwnerThreadSelected({
         notification: notif,
@@ -274,8 +285,8 @@ function NotificationItem({
             notificationId: notif.id,
             previewText: notif.summary || "Needs your input",
           });
-          if (answer !== undefined) {
-            store.setComposerDraft(sessionId, { text: answer, images: current?.images ?? [] });
+          if (answerText !== undefined) {
+            store.setComposerDraft(sessionId, { text: answerText, images: current?.images ?? [] });
           }
           store.focusComposer();
         },
@@ -285,7 +296,46 @@ function NotificationItem({
   );
 
   const isNeedsInput = notif.category === "needs-input";
-  const suggestedAnswers = isNeedsInput && !notif.done ? (notif.suggestedAnswers ?? []) : [];
+  const canSendResponse =
+    isNeedsInput &&
+    !notif.done &&
+    questionViews.length > 0 &&
+    questionViews.every((q) => answersByQuestion[q.key]?.trim());
+  const sendResponse = useCallback(
+    (e: React.MouseEvent) => {
+      e.stopPropagation();
+      if (!canSendResponse) return;
+      runAfterNotificationOwnerThreadSelected({
+        notification: notif,
+        currentThreadKey,
+        onSelectThread,
+        action: () => {
+          const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
+          const threadKey = ownerThreadKey || MAIN_THREAD_KEY;
+          const content = formatNeedsInputResponse(notif.summary, questionViews, answersByQuestion);
+          const replyContext = {
+            ...(notif.messageId ? { messageId: notif.messageId } : {}),
+            notificationId: notif.id,
+            previewText: notif.summary || "Needs your input",
+          };
+          const sent = sendToSession(sessionId, {
+            type: "user_message",
+            content,
+            deliveryContent: formatReplyContentForAssistant(content, replyContext),
+            replyContext,
+            session_id: sessionId,
+            threadKey,
+            ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
+          });
+          if (!sent) return;
+          useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
+          api.markNotificationDone(sessionId, notif.id, true).catch(() => {});
+          setAnswersByQuestion({});
+        },
+      });
+    },
+    [answersByQuestion, canSendResponse, currentThreadKey, notif, onSelectThread, questionViews, sessionId],
+  );
   const compactReviewSummary = !isNeedsInput ? getCompactReviewSummary(notif.summary) : null;
   const label = compactReviewSummary?.text || notif.summary || (isNeedsInput ? "Needs your input" : "Ready for review");
   const questSummary = compactReviewSummary?.questSummary ?? null;
@@ -362,25 +412,59 @@ function NotificationItem({
         </div>
         <div className="text-[10px] text-cc-muted/60 mt-0.5 pl-3">{formatRelativeTime(notif.timestamp)}</div>
         {isNeedsInput && !notif.done && (
-          <div className="mt-1.5 flex flex-wrap items-center gap-1 pl-3" data-testid="notification-answer-actions">
-            {suggestedAnswers.map((answer) => (
-              <button
-                key={answer}
-                type="button"
-                onClick={startReply(answer)}
-                className="max-w-full truncate rounded border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200 transition-colors hover:bg-amber-400/20 cursor-pointer"
-                title={`Use suggested answer: ${answer}`}
-              >
-                {answer}
-              </button>
+          <div className="mt-2 space-y-2 pl-3" data-testid="notification-answer-actions">
+            {questionViews.map((question, index) => (
+              <div key={question.key} className="space-y-1.5" data-testid="notification-question-block">
+                <div className="text-[11px] leading-snug text-cc-fg/80">
+                  {questionViews.length > 1 && <span className="text-cc-muted">{index + 1}. </span>}
+                  {question.prompt}
+                </div>
+                {question.suggestedAnswers.length > 0 && (
+                  <div className="flex flex-wrap gap-1">
+                    {question.suggestedAnswers.map((answer) => (
+                      <button
+                        key={answer}
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setQuestionAnswer(question.key, answer);
+                        }}
+                        className="max-w-full truncate rounded border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200 transition-colors hover:bg-amber-400/20 cursor-pointer"
+                        title={`Use suggested answer: ${answer}`}
+                      >
+                        {answer}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <input
+                  type="text"
+                  value={answersByQuestion[question.key] ?? ""}
+                  onClick={(e) => e.stopPropagation()}
+                  onChange={(e) => setQuestionAnswer(question.key, e.currentTarget.value)}
+                  aria-label={`Answer for ${question.prompt}`}
+                  className="w-full rounded border border-cc-border/60 bg-cc-bg/70 px-2 py-1 text-[12px] text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-amber-400/45"
+                  placeholder="Answer"
+                />
+              </div>
             ))}
-            <button
-              type="button"
-              onClick={startReply()}
-              className="rounded border border-cc-border/60 px-2 py-0.5 text-[11px] text-cc-muted transition-colors hover:border-cc-primary/40 hover:text-cc-fg cursor-pointer"
-            >
-              {suggestedAnswers.length > 0 ? "Custom answer" : "Reply"}
-            </button>
+            <div className="flex flex-wrap items-center gap-1">
+              <button
+                type="button"
+                onClick={sendResponse}
+                disabled={!canSendResponse}
+                className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-100 transition-colors hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+              >
+                Send Response
+              </button>
+              <button
+                type="button"
+                onClick={startReply()}
+                className="rounded border border-cc-border/60 px-2 py-0.5 text-[11px] text-cc-muted transition-colors hover:border-cc-primary/40 hover:text-cc-fg cursor-pointer"
+              >
+                Use composer
+              </button>
+            </div>
           </div>
         )}
       </div>

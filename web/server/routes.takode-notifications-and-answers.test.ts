@@ -684,6 +684,51 @@ describe("Takode server-authoritative auth", () => {
     );
   });
 
+  it("stores normalized per-question prompts for needs-input notifications", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].messageHistory.push({
+      type: "assistant",
+      message: { id: "asst-1", content: [{ type: "text", text: "Need choices" }] },
+      timestamp: 1000,
+    });
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need deployment choices",
+        questions: [
+          { prompt: " Which rollout? ", suggestedAnswers: [" staged ", "full"] },
+          { prompt: "When should it start?", suggestedAnswers: ["now", "after  review"] },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    const expectedQuestions = [
+      { prompt: "Which rollout?", suggestedAnswers: ["staged", "full"] },
+      { prompt: "When should it start?", suggestedAnswers: ["now", "after review"] },
+    ];
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      questions: expectedQuestions,
+    });
+    expect(bridge._sessions["orch-1"].notifications).toMatchObject([
+      {
+        category: "needs-input",
+        summary: "Need deployment choices",
+        questions: expectedQuestions,
+        done: false,
+      },
+    ]);
+    expect(bridge._sessions["orch-1"].messageHistory[0].notification).toMatchObject({
+      id: "n-1",
+      category: "needs-input",
+      questions: expectedQuestions,
+    });
+  });
+
   it("rejects suggested answers outside needs-input notifications", async () => {
     setupTakodeSessions();
 
@@ -695,6 +740,41 @@ describe("Takode server-authoritative auth", () => {
 
     expect(res.status).toBe(400);
     expect((await res.json()).error).toBe("suggestedAnswers are only supported for needs-input notifications");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("rejects per-question prompts outside needs-input notifications", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "review", summary: "Ready", questions: [{ prompt: "Ship?" }] }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe("questions are only supported for needs-input notifications");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
+  it("rejects mixed legacy and per-question suggestions", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        category: "needs-input",
+        summary: "Need approval",
+        suggestedAnswers: ["yes"],
+        questions: [{ prompt: "Ship?", suggestedAnswers: ["ship"] }],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe(
+      "Use per-question suggestedAnswers inside questions when questions are provided",
+    );
     expect(bridge._sessions["orch-1"].notifications).toEqual([]);
   });
 
@@ -785,6 +865,7 @@ describe("Takode server-authoritative auth", () => {
         category: "needs-input",
         summary: "Still open",
         suggestedAnswers: ["yes", "no"],
+        questions: [{ prompt: "Ship?", suggestedAnswers: ["yes", "no"] }],
         timestamp: 1000,
         messageId: "m-1",
         done: false,
@@ -805,6 +886,7 @@ describe("Takode server-authoritative auth", () => {
           rawNotificationId: "n-1",
           summary: "Still open",
           suggestedAnswers: ["yes", "no"],
+          questions: [{ prompt: "Ship?", suggestedAnswers: ["yes", "no"] }],
           timestamp: 1000,
           messageId: "m-1",
         },
@@ -975,6 +1057,7 @@ describe("Takode server-authoritative auth", () => {
           category: "needs-input",
           summary: "Need decision on rollout",
           suggestedAnswers: ["ship", "hold"],
+          questions: [{ prompt: "Which rollout?", suggestedAnswers: ["ship", "hold"] }],
           timestamp: 1000,
           messageId: "asst-1",
           done: false,
@@ -997,6 +1080,7 @@ describe("Takode server-authoritative auth", () => {
           timestamp: 1000,
           summary: "Need decision on rollout",
           suggestedAnswers: ["ship", "hold"],
+          questions: [{ prompt: "Which rollout?", suggestedAnswers: ["ship", "hold"] }],
           msg_index: 0,
           messageId: "asst-1",
           threadKey: "main",

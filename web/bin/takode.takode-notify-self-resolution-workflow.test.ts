@@ -177,6 +177,70 @@ describe("takode notify self-resolution workflow", () => {
     });
   });
 
+  it("passes per-question suggested answers for needs-input notifications", async () => {
+    const result = await runTakode(
+      [
+        "notify",
+        "needs-input",
+        "Need",
+        "choices",
+        "--question",
+        "Which rollout?",
+        "--suggest",
+        "staged",
+        "--suggest",
+        "full",
+        "--question",
+        "When?",
+        "--suggest",
+        "now",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "worker-7",
+        COMPANION_AUTH_TOKEN: "auth-7",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(requestBodies[0]).toEqual({
+      category: "needs-input",
+      summary: "Need choices",
+      questions: [
+        { prompt: "Which rollout?", suggestedAnswers: ["staged", "full"] },
+        { prompt: "When?", suggestedAnswers: ["now"] },
+      ],
+    });
+  });
+
+  it("rejects mixed legacy and per-question suggestions", async () => {
+    const result = await runTakode(
+      [
+        "notify",
+        "needs-input",
+        "Need",
+        "choices",
+        "--suggest",
+        "yes",
+        "--question",
+        "Which rollout?",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "worker-7",
+        COMPANION_AUTH_TOKEN: "auth-7",
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Use --suggest after each --question when --question is used.");
+    expect(requestBodies).toHaveLength(0);
+  });
+
   it("lists unresolved same-session needs-input notifications", async () => {
     const result = await runTakode(["notify", "list", "--port", String(port)], {
       ...process.env,

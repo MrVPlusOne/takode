@@ -32,6 +32,7 @@ import { getSettings } from "../settings-manager.js";
 import {
   type BrowserIncomingMessage,
   type BrowserOutgoingMessage,
+  type NeedsInputNotificationQuestion,
   type ThreadAttachmentUpdate,
   type ThreadAttachmentUpdateEntry,
   type ThreadRef,
@@ -229,6 +230,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         questId?: string;
         summary?: string;
         suggestedAnswers?: string[];
+        questions?: NeedsInputNotificationQuestion[];
         messageId: string | null;
       };
   type LeaderAnswerTargetSelection =
@@ -474,31 +476,82 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return numericId !== null ? `n-${numericId}` : null;
   };
 
-  const normalizeSuggestedAnswers = (
+  const normalizeSuggestedAnswerSet = (
     value: unknown,
-    category: "needs-input" | "review",
+    label: string,
   ): { ok: true; answers: string[] } | { ok: false; error: string } => {
     if (value === undefined || value === null) return { ok: true, answers: [] };
-    if (!Array.isArray(value)) return { ok: false, error: "suggestedAnswers must be an array of strings" };
+    if (!Array.isArray(value)) return { ok: false, error: `${label} must be an array of strings` };
     if (value.length === 0) return { ok: true, answers: [] };
-    if (category !== "needs-input") {
-      return { ok: false, error: "suggestedAnswers are only supported for needs-input notifications" };
-    }
-    if (value.length > 3) return { ok: false, error: "suggestedAnswers may include at most 3 options" };
+    if (value.length > 3) return { ok: false, error: `${label} may include at most 3 options` };
 
     const seen = new Set<string>();
     const answers: string[] = [];
     for (const entry of value) {
-      if (typeof entry !== "string") return { ok: false, error: "suggestedAnswers must be strings" };
+      if (typeof entry !== "string") return { ok: false, error: `${label} must be strings` };
       const answer = entry.trim().replace(/\s+/g, " ");
-      if (!answer) return { ok: false, error: "suggestedAnswers entries must be nonempty" };
-      if (answer.length > 32) return { ok: false, error: "suggestedAnswers entries must be 32 characters or less" };
+      if (!answer) return { ok: false, error: `${label} entries must be nonempty` };
+      if (answer.length > 32) return { ok: false, error: `${label} entries must be 32 characters or less` };
       const key = answer.toLocaleLowerCase();
-      if (seen.has(key)) return { ok: false, error: "suggestedAnswers entries must be unique" };
+      if (seen.has(key)) return { ok: false, error: `${label} entries must be unique` };
       seen.add(key);
       answers.push(answer);
     }
     return { ok: true, answers };
+  };
+
+  const normalizeSuggestedAnswers = (
+    value: unknown,
+    category: "needs-input" | "review",
+  ): { ok: true; answers: string[] } | { ok: false; error: string } => {
+    const result = normalizeSuggestedAnswerSet(value, "suggestedAnswers");
+    if (!result.ok) return result;
+    if (result.answers.length > 0 && category !== "needs-input") {
+      return { ok: false, error: "suggestedAnswers are only supported for needs-input notifications" };
+    }
+    return result;
+  };
+
+  const normalizeNeedsInputQuestions = (
+    value: unknown,
+    category: "needs-input" | "review",
+  ): { ok: true; questions: NeedsInputNotificationQuestion[] } | { ok: false; error: string } => {
+    if (value === undefined || value === null) return { ok: true, questions: [] };
+    if (!Array.isArray(value)) return { ok: false, error: "questions must be an array" };
+    if (value.length === 0) return { ok: true, questions: [] };
+    if (category !== "needs-input") {
+      return { ok: false, error: "questions are only supported for needs-input notifications" };
+    }
+    if (value.length > 5) return { ok: false, error: "questions may include at most 5 prompts" };
+
+    const seen = new Set<string>();
+    const questions: NeedsInputNotificationQuestion[] = [];
+    for (const entry of value) {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        return { ok: false, error: "questions entries must be objects" };
+      }
+      const prompt =
+        typeof (entry as { prompt?: unknown }).prompt === "string" ? (entry as { prompt: string }).prompt : "";
+      const normalizedPrompt = prompt.trim().replace(/\s+/g, " ");
+      if (!normalizedPrompt) return { ok: false, error: "questions entries require a nonempty prompt" };
+      if (normalizedPrompt.length > 240) {
+        return { ok: false, error: "questions prompts must be 240 characters or less" };
+      }
+      const promptKey = normalizedPrompt.toLocaleLowerCase();
+      if (seen.has(promptKey)) return { ok: false, error: "questions prompts must be unique" };
+      seen.add(promptKey);
+
+      const answersResult = normalizeSuggestedAnswerSet(
+        (entry as { suggestedAnswers?: unknown }).suggestedAnswers,
+        "question suggestedAnswers",
+      );
+      if (!answersResult.ok) return answersResult;
+      questions.push({
+        prompt: normalizedPrompt,
+        ...(answersResult.answers.length ? { suggestedAnswers: answersResult.answers } : {}),
+      });
+    }
+    return { ok: true, questions };
   };
 
   const buildSelfNeedsInputNotifications = (session: BridgeSession) => {
@@ -507,6 +560,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       rawNotificationId: string;
       summary?: string;
       suggestedAnswers?: string[];
+      questions?: NeedsInputNotificationQuestion[];
       timestamp: number;
       messageId: string | null;
     }> = [];
@@ -525,6 +579,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         rawNotificationId: notification.id,
         summary: notification.summary,
         ...(notification.suggestedAnswers?.length ? { suggestedAnswers: notification.suggestedAnswers } : {}),
+        ...(notification.questions?.length ? { questions: notification.questions } : {}),
         timestamp: notification.timestamp,
         messageId: notification.messageId,
       });
@@ -1317,6 +1372,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         ...(notif.questId ? { questId: notif.questId } : {}),
         ...(notif.summary ? { summary: notif.summary } : {}),
         ...(notif.suggestedAnswers?.length ? { suggestedAnswers: notif.suggestedAnswers } : {}),
+        ...(notif.questions?.length ? { questions: notif.questions } : {}),
         messageId: notif.messageId,
       });
     }
@@ -1729,11 +1785,19 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!suggestedAnswersResult.ok) {
       return c.json({ error: suggestedAnswersResult.error }, 400);
     }
+    const questionsResult = normalizeNeedsInputQuestions(body.questions, category);
+    if (!questionsResult.ok) {
+      return c.json({ error: questionsResult.error }, 400);
+    }
+    if (questionsResult.questions.length > 0 && suggestedAnswersResult.answers.length > 0) {
+      return c.json({ error: "Use per-question suggestedAnswers inside questions when questions are provided" }, 400);
+    }
 
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
     const result = notifyUserController(session, category, summary, notificationRouteDeps, {
       suggestedAnswers: suggestedAnswersResult.answers,
+      questions: questionsResult.questions,
     });
     return c.json({
       ok: true,
@@ -1742,6 +1806,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       notificationId: parseNotificationNumericId(result.notificationId),
       rawNotificationId: result.notificationId,
       ...(suggestedAnswersResult.answers.length ? { suggestedAnswers: suggestedAnswersResult.answers } : {}),
+      ...(questionsResult.questions.length ? { questions: questionsResult.questions } : {}),
     });
   });
 

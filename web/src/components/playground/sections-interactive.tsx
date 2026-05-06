@@ -1700,8 +1700,17 @@ export function PlaygroundInteractiveSections() {
                           {
                             id: "n-2",
                             category: "needs-input" as const,
-                            summary: "Should we use JPEG q85 or q75 for the transport tier?",
-                            suggestedAnswers: ["q85", "q75"],
+                            summary: "Choose image transport and validation path",
+                            questions: [
+                              {
+                                prompt: "Should we use JPEG q85 or q75 for the transport tier?",
+                                suggestedAnswers: ["q85", "q75"],
+                              },
+                              {
+                                prompt: "Run browser validation in Execute?",
+                                suggestedAnswers: ["yes", "no"],
+                              },
+                            ],
                             timestamp: now - 120_000,
                             messageId: "mock-msg-87",
                             done: false,
@@ -1771,8 +1780,9 @@ export function PlaygroundInteractiveSections() {
                 Click &quot;Seed notification data&quot; first. Shows a compact single-height pill with inline
                 comma-separated colored bell counts for active review and needs-input notifications, ending in
                 &quot;unreads&quot;. Click to open the inbox modal with active notifications (amber = needs-input, green
-                = review), compact quest-first review rows, and a collapsible Done section. On mobile, the modal
-                stretches across the viewport while staying scrollable and height-capped.
+                = review), multi-question needs-input answer fields with direct Send Response, compact quest-first
+                review rows, and a collapsible Done section. On mobile, the modal stretches across the viewport while
+                staying scrollable and height-capped.
               </p>
             </div>
           </Card>

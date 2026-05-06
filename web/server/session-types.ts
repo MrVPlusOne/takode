@@ -694,10 +694,16 @@ export interface TakodeNotificationPayload {
   category: "needs-input" | "review";
   summary?: string;
   suggestedAnswers?: string[];
+  questions?: NeedsInputNotificationQuestion[];
   timestamp: number;
   threadKey?: string;
   questId?: string;
   threadRefs?: ThreadRef[];
+}
+
+export interface NeedsInputNotificationQuestion {
+  prompt: string;
+  suggestedAnswers?: string[];
 }
 
 /** Messages the bridge sends to the browser */
@@ -1197,6 +1203,7 @@ export interface SessionNotification {
   category: "needs-input" | "review";
   summary?: string;
   suggestedAnswers?: string[];
+  questions?: NeedsInputNotificationQuestion[];
   timestamp: number;
   /** Assistant message ID for jump-to-message links (null if no message was anchored) */
   messageId: string | null;
@@ -1499,6 +1506,7 @@ export interface TakodeUserMessageEventData {
 export interface TakodeNotificationNeedsInputEventData {
   summary?: string;
   suggestedAnswers?: string[];
+  questions?: NeedsInputNotificationQuestion[];
   notificationId?: string;
   messageId?: string | null;
   msg_index?: number;

@@ -44,6 +44,7 @@ Answer a pending needs-input question or approve/reject an ExitPlanMode prompt f
 `;
 
 const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--suggest <answer>]... [--json]
+       takode notify needs-input <summary> --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--json]
        takode notify resolve <notification-id> [--json]
 `;
@@ -831,8 +832,10 @@ export async function handlePending(base: string, args: string[]): Promise<void>
       threadKey?: string;
       questId?: string;
       questions?: Array<{
+        prompt?: string;
+        suggestedAnswers?: string[];
         header?: string;
-        question: string;
+        question?: string;
         options?: Array<{ label: string; description?: string }>;
       }>;
       plan?: string;
@@ -873,10 +876,19 @@ export async function handlePending(base: string, args: string[]): Promise<void>
       if (p.suggestedAnswers?.length) {
         console.log(`Suggestions: ${p.suggestedAnswers.map((answer) => formatInlineText(answer)).join(", ")}`);
       }
+      for (const [index, question] of (p.questions ?? []).entries()) {
+        if (!question.prompt) continue;
+        console.log(`${index + 1}. ${formatInlineText(question.prompt)}`);
+        if (question.suggestedAnswers?.length) {
+          console.log(
+            `   Suggestions: ${question.suggestedAnswers.map((answer) => formatInlineText(answer)).join(", ")}`,
+          );
+        }
+      }
       console.log(`Answer: takode answer ${safeSessionRef}${targetHint} <response>`);
     } else if (p.tool_name === "AskUserQuestion" && p.questions) {
       for (const q of p.questions) {
-        console.log(`\n[AskUserQuestion]${msgRef} ${formatInlineText(q.question)}`);
+        console.log(`\n[AskUserQuestion]${msgRef} ${formatInlineText(q.question ?? "")}`);
         if (q.options) {
           for (let i = 0; i < q.options.length; i++) {
             const opt = q.options[i];
@@ -1158,9 +1170,12 @@ function parseNotifyCreateArgs(args: string[]): {
   jsonMode: boolean;
   summary: string | undefined;
   suggestedAnswers: string[];
+  questions: Array<{ prompt: string; suggestedAnswers: string[] }>;
 } {
   let jsonMode = false;
   const suggestedAnswers: string[] = [];
+  const questions: Array<{ prompt: string; suggestedAnswers: string[] }> = [];
+  let currentQuestion: { prompt: string; suggestedAnswers: string[] } | null = null;
   const summaryParts: string[] = [];
 
   for (let i = 0; i < args.length; i += 1) {
@@ -1174,7 +1189,18 @@ function parseNotifyCreateArgs(args: string[]): {
       if (value === undefined || value.startsWith("--")) {
         err("Usage: takode notify needs-input <summary> --suggest <answer> [--suggest <answer>]...");
       }
-      suggestedAnswers.push(value);
+      if (currentQuestion) currentQuestion.suggestedAnswers.push(value);
+      else suggestedAnswers.push(value);
+      i += 1;
+      continue;
+    }
+    if (arg === "--question") {
+      const value = args[i + 1];
+      if (value === undefined || value.startsWith("--")) {
+        err("Usage: takode notify needs-input <summary> --question <prompt> [--suggest <answer>]...");
+      }
+      currentQuestion = { prompt: value, suggestedAnswers: [] };
+      questions.push(currentQuestion);
       i += 1;
       continue;
     }
@@ -1183,11 +1209,15 @@ function parseNotifyCreateArgs(args: string[]): {
     }
     summaryParts.push(arg);
   }
+  if (questions.length > 0 && suggestedAnswers.length > 0) {
+    err("Use --suggest after each --question when --question is used.");
+  }
 
   return {
     jsonMode,
     summary: summaryParts.length > 0 ? summaryParts.join(" ") : undefined,
     suggestedAnswers,
+    questions,
   };
 }
 
@@ -1204,6 +1234,7 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
         rawNotificationId: string;
         summary?: string;
         suggestedAnswers?: string[];
+        questions?: Array<{ prompt: string; suggestedAnswers?: string[] }>;
         timestamp: number;
         messageId: string | null;
       }>;
@@ -1227,6 +1258,16 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
         console.log(
           `     suggestions: ${notification.suggestedAnswers.map((answer) => formatInlineText(answer)).join(", ")}`,
         );
+      }
+      if (notification.questions?.length) {
+        notification.questions.forEach((question, index) => {
+          console.log(`     ${index + 1}. ${formatInlineText(question.prompt)}`);
+          if (question.suggestedAnswers?.length) {
+            console.log(
+              `        suggestions: ${question.suggestedAnswers.map((answer) => formatInlineText(answer)).join(", ")}`,
+            );
+          }
+        });
       }
     }
     return;
@@ -1275,6 +1316,12 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
   const payload: Record<string, unknown> = { category };
   if (summary) payload.summary = summary;
   if (parsed.suggestedAnswers.length > 0) payload.suggestedAnswers = parsed.suggestedAnswers;
+  if (parsed.questions.length > 0) {
+    payload.questions = parsed.questions.map((question) => ({
+      prompt: question.prompt,
+      ...(question.suggestedAnswers.length ? { suggestedAnswers: question.suggestedAnswers } : {}),
+    }));
+  }
   const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/notify`, payload)) as {
     ok: boolean;
     category: string;
@@ -1282,6 +1329,7 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
     notificationId: number | null;
     rawNotificationId: string;
     suggestedAnswers?: string[];
+    questions?: Array<{ prompt: string; suggestedAnswers?: string[] }>;
   };
   if (parsed.jsonMode) {
     console.log(JSON.stringify(result, null, 2));

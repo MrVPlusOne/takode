@@ -1389,10 +1389,23 @@ function formatSingleEvent(evt: TakodeEvent, nowTs: number, options?: FormatBatc
           : typeof evt.data.notificationId === "string" && evt.data.notificationId
             ? ` --target ${evt.data.notificationId}`
             : "";
-      const actions =
-        Array.isArray(evt.data.suggestedAnswers) && evt.data.suggestedAnswers.length > 0
-          ? [`Suggestions: ${evt.data.suggestedAnswers.map((answer) => truncate(answer, 32)).join(", ")}`]
-          : [];
+      const actions: string[] = [];
+      if (Array.isArray(evt.data.questions) && evt.data.questions.length > 0) {
+        evt.data.questions.forEach((question, index) => {
+          const prompt =
+            question && typeof question === "object" && typeof question.prompt === "string"
+              ? truncate(question.prompt, 80)
+              : "(invalid question)";
+          actions.push(`Question ${index + 1}: ${prompt}`);
+          if (Array.isArray(question?.suggestedAnswers) && question.suggestedAnswers.length > 0) {
+            actions.push(
+              `  Suggestions: ${question.suggestedAnswers.map((answer) => truncate(answer, 32)).join(", ")}`,
+            );
+          }
+        });
+      } else if (Array.isArray(evt.data.suggestedAnswers) && evt.data.suggestedAnswers.length > 0) {
+        actions.push(`Suggestions: ${evt.data.suggestedAnswers.map((answer) => truncate(answer, 32)).join(", ")}`);
+      }
       actions.push(`Answer: takode answer ${evt.sessionNum}${answerTarget} <response>`);
       if (typeof evt.data.msg_index === "number") {
         actions.push(`Read: takode read ${evt.sessionNum} ${evt.data.msg_index}`);

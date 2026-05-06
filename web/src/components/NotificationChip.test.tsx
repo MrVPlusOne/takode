@@ -18,6 +18,8 @@ const mockSetReplyContext = vi.fn((sessionId: string, context: any) => {
   else mockReplyContexts.delete(sessionId);
 });
 const mockFocusComposer = vi.fn();
+const mockRequestBottomAlignOnNextUserMessage = vi.fn();
+const mockSendToSession = vi.fn((_sessionId: string, _msg: any) => true);
 
 const mockStoreState: Record<string, any> = {
   sessionNotifications: mockNotifications,
@@ -36,6 +38,7 @@ const mockStoreState: Record<string, any> = {
   setComposerDraft: mockSetComposerDraft,
   setReplyContext: mockSetReplyContext,
   focusComposer: mockFocusComposer,
+  requestBottomAlignOnNextUserMessage: mockRequestBottomAlignOnNextUserMessage,
 };
 
 vi.mock("../store.js", () => {
@@ -50,6 +53,10 @@ vi.mock("../api.js", () => ({
       mockMarkNotificationDone(sessionId, notifId, done),
     markAllNotificationsDone: (sessionId: string, done = true) => mockMarkAllNotificationsDone(sessionId, done),
   },
+}));
+
+vi.mock("../ws.js", () => ({
+  sendToSession: (sessionId: string, msg: any) => mockSendToSession(sessionId, msg),
 }));
 
 vi.mock("./MarkdownContent.js", () => ({
@@ -104,6 +111,9 @@ describe("NotificationChip", () => {
     mockSetComposerDraft.mockClear();
     mockSetReplyContext.mockClear();
     mockFocusComposer.mockClear();
+    mockRequestBottomAlignOnNextUserMessage.mockClear();
+    mockSendToSession.mockClear();
+    mockSendToSession.mockReturnValue(true);
   });
 
   it("renders nothing when there are no active notifications", () => {
@@ -227,7 +237,7 @@ describe("NotificationChip", () => {
     expect(screen.getByText("Needs review")).toBeInTheDocument();
   });
 
-  it("renders suggested answers and prefills the composer without sending", () => {
+  it("renders a single-question answer input and sends a direct response", () => {
     mockComposerDrafts.set("s1", {
       text: "old draft",
       images: [{ id: "img-1", name: "keep.png", base64: "abc", mediaType: "image/png", status: "ready" }],
@@ -250,18 +260,24 @@ describe("NotificationChip", () => {
       screen.getByRole("button", { name: "yes" }),
     );
     fireEvent.click(screen.getByRole("button", { name: "yes" }));
+    expect(screen.getByLabelText("Answer for Deploy now?")).toHaveValue("yes");
+    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
-    expect(mockSetReplyContext).toHaveBeenCalledWith("s1", {
-      messageId: "msg-123",
-      notificationId: "n-1",
-      previewText: "Deploy now?",
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "user_message",
+      content: "Deploy now?\n\nAnswer: yes",
+      deliveryContent: "[reply] Deploy now?\n\nDeploy now?\n\nAnswer: yes",
+      replyContext: {
+        messageId: "msg-123",
+        notificationId: "n-1",
+        previewText: "Deploy now?",
+      },
+      session_id: "s1",
+      threadKey: "main",
     });
-    expect(mockSetComposerDraft).toHaveBeenCalledWith("s1", {
-      text: "yes",
-      images: [{ id: "img-1", name: "keep.png", base64: "abc", mediaType: "image/png", status: "ready" }],
-    });
-    expect(mockFocusComposer).toHaveBeenCalledTimes(1);
-    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
+    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "n-1", true);
+    expect(mockSetComposerDraft).not.toHaveBeenCalled();
+    expect(mockFocusComposer).not.toHaveBeenCalled();
   });
 
   it("switches to the notification owner thread before jumping to the message", () => {
@@ -334,7 +350,7 @@ describe("NotificationChip", () => {
     }
   });
 
-  it("switches out of All Threads before starting a suggested-answer reply", () => {
+  it("switches out of All Threads before sending a direct response", () => {
     const onSelectThread = vi.fn();
     vi.useFakeTimers();
     mockComposerDrafts.set("s1", { text: "old draft", images: [] });
@@ -356,27 +372,34 @@ describe("NotificationChip", () => {
       render(<NotificationChip sessionId="s1" currentThreadKey="all" onSelectThread={onSelectThread} />);
       fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
       fireEvent.click(screen.getByRole("button", { name: "yes" }));
+      fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
-      expect(mockSetReplyContext).not.toHaveBeenCalled();
+      expect(mockSendToSession).not.toHaveBeenCalled();
 
       act(() => {
         vi.runOnlyPendingTimers();
       });
 
-      expect(mockSetReplyContext).toHaveBeenCalledWith("s1", {
-        messageId: "msg-977",
-        notificationId: "n-1",
-        previewText: "Deploy q-977?",
+      expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+        type: "user_message",
+        content: "Deploy q-977?\n\nAnswer: yes",
+        deliveryContent: "[reply] Deploy q-977?\n\nDeploy q-977?\n\nAnswer: yes",
+        replyContext: {
+          messageId: "msg-977",
+          notificationId: "n-1",
+          previewText: "Deploy q-977?",
+        },
+        session_id: "s1",
+        threadKey: "q-977",
+        questId: "q-977",
       });
-      expect(mockSetComposerDraft).toHaveBeenCalledWith("s1", { text: "yes", images: [] });
-      expect(mockFocusComposer).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();
     }
   });
 
-  it("starts a custom needs-input reply without replacing draft text", () => {
+  it("keeps a composer reply path without replacing draft text", () => {
     mockComposerDrafts.set("s1", { text: "keep my draft", images: [] });
     setNotifications("s1", [
       {
@@ -392,7 +415,7 @@ describe("NotificationChip", () => {
 
     render(<NotificationChip sessionId="s1" />);
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
-    fireEvent.click(screen.getByRole("button", { name: "Custom answer" }));
+    fireEvent.click(screen.getByRole("button", { name: "Use composer" }));
 
     expect(mockSetReplyContext).toHaveBeenCalledWith("s1", {
       messageId: "msg-123",
@@ -430,7 +453,44 @@ describe("NotificationChip", () => {
     expect(screen.getByText("Deploy now?")).not.toBeNull();
     expect(screen.queryByTestId("notification-answer-actions")).toBeNull();
     expect(screen.queryByRole("button", { name: "yes" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Custom answer" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Use composer" })).toBeNull();
+  });
+
+  it("renders multiple question blocks and keeps suggestions scoped to the chosen question", () => {
+    setNotifications("s1", [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Need rollout choices",
+        questions: [
+          { prompt: "Which rollout?", suggestedAnswers: ["staged", "full"] },
+          { prompt: "When should it start?", suggestedAnswers: ["now", "after review"] },
+        ],
+        timestamp: Date.now(),
+        messageId: "msg-123",
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+
+    expect(screen.getAllByTestId("notification-question-block")).toHaveLength(2);
+    fireEvent.click(screen.getByRole("button", { name: "staged" }));
+    expect(screen.getByLabelText("Answer for Which rollout?")).toHaveValue("staged");
+    expect(screen.getByLabelText("Answer for When should it start?")).toHaveValue("");
+    fireEvent.change(screen.getByLabelText("Answer for When should it start?"), {
+      target: { value: "after the smoke test" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        content:
+          "Answers for: Need rollout choices\n\n1. Which rollout?\nAnswer: staged\n\n2. When should it start?\nAnswer: after the smoke test",
+      }),
+    );
   });
 
   it("renders the quest mention as a quest link while keeping the row clickable for jump-to-message", () => {
