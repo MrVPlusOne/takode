@@ -1,4 +1,5 @@
 import type {
+  ActiveTurnRoute,
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
   CLIResultMessage,
@@ -45,6 +46,36 @@ function routeFromLeaderAssistantResult(routed: {
     ...(routed.questId ? { questId: routed.questId } : {}),
     ...(routed.threadRefs?.length ? { threadRefs: routed.threadRefs } : {}),
   };
+}
+
+function activeTurnRouteFromThreadRoute(route: ThreadRouteMetadata): ActiveTurnRoute {
+  return {
+    threadKey: route.threadKey,
+    ...(route.questId ? { questId: route.questId } : {}),
+  };
+}
+
+function sameActiveTurnRoute(
+  current: ActiveTurnRoute | null | undefined,
+  next: ActiveTurnRoute | null | undefined,
+): boolean {
+  return (current?.threadKey ?? "main") === (next?.threadKey ?? "main") && current?.questId === next?.questId;
+}
+
+function updateActiveTurnRouteFromLeaderAssistant(
+  session: CodexBrowserMessageSessionLike,
+  route: ThreadRouteMetadata | undefined,
+  deps: Pick<CodexAdapterBrowserMessageDeps, "broadcastToBrowsers">,
+): void {
+  if (!route || !session.isGenerating) return;
+  const nextRoute = activeTurnRouteFromThreadRoute(route);
+  if (sameActiveTurnRoute(session.activeTurnRoute, nextRoute)) return;
+  session.activeTurnRoute = nextRoute;
+  deps.broadcastToBrowsers(session, {
+    type: "status_change",
+    status: "running",
+    activeTurnRoute: nextRoute,
+  });
 }
 
 type CodexLeaderRecycleLauncherInfo = {
@@ -179,6 +210,7 @@ export async function handleCodexAdapterBrowserMessage(
   }
 
   let outgoing: BrowserIncomingMessage | null = msg;
+  let activeRouteFromAssistant: ThreadRouteMetadata | undefined;
 
   if (msg.type === "session_init") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
@@ -255,12 +287,9 @@ export async function handleCodexAdapterBrowserMessage(
     const launcherInfo = deps.getLauncherSessionInfo(session.id);
     const isLeaderSession = isLeaderSessionForAssistantRouting(session, launcherInfo);
     const routed = normalizeLeaderAssistantRouting(isLeaderSession, msg.message.content || [], msg.parent_tool_use_id);
+    activeRouteFromAssistant = routeFromLeaderAssistantResult(routed);
     if (routed.questThreadReminders?.length) {
-      queueQuestThreadRemindersForCompletedTurn(
-        session,
-        routed.questThreadReminders,
-        routeFromLeaderAssistantResult(routed),
-      );
+      queueQuestThreadRemindersForCompletedTurn(session, routed.questThreadReminders, activeRouteFromAssistant);
     }
     const routedMsg = {
       ...msg,
@@ -372,6 +401,9 @@ export async function handleCodexAdapterBrowserMessage(
 
   if (outgoing) {
     deps.broadcastToBrowsers(session, outgoing);
+    if (outgoing.type === "assistant") {
+      updateActiveTurnRouteFromLeaderAssistant(session, activeRouteFromAssistant, deps);
+    }
   }
 }
 

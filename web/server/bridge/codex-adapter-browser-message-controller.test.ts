@@ -3,7 +3,7 @@ import {
   handleCodexAdapterBrowserMessage,
   type CodexAdapterBrowserMessageDeps,
 } from "./codex-adapter-browser-message-controller.js";
-import type { BrowserIncomingMessage, ContentBlock } from "../session-types.js";
+import type { ActiveTurnRoute, BrowserIncomingMessage, ContentBlock } from "../session-types.js";
 
 type TestCodexSession = {
   id: string;
@@ -11,6 +11,8 @@ type TestCodexSession = {
   messageHistory: BrowserIncomingMessage[];
   toolStartTimes: Map<string, number>;
   toolProgressOutput: Map<string, string>;
+  isGenerating: boolean;
+  activeTurnRoute: ActiveTurnRoute | null;
   lastCliMessageAt?: number;
 };
 
@@ -21,6 +23,8 @@ function makeSession(): TestCodexSession {
     messageHistory: [],
     toolStartTimes: new Map(),
     toolProgressOutput: new Map(),
+    isGenerating: false,
+    activeTurnRoute: null,
   };
 }
 
@@ -159,6 +163,66 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       { type: "text", text: "Codex routed update" },
     ]);
     expect(session.messageHistory[0]).toMatchObject(msg);
+  });
+
+  it("updates the active running route when Codex leader assistant output is routed to a quest thread", async () => {
+    const session = makeSession();
+    session.isGenerating = true;
+    session.activeTurnRoute = { threadKey: "main" };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:q-1195]\nRouted Codex update" }]),
+      makeDeps(broadcasts),
+    );
+
+    expect(session.activeTurnRoute).toEqual({ threadKey: "q-1195", questId: "q-1195" });
+    expect(broadcasts).toEqual([
+      expect.objectContaining({ type: "assistant", threadKey: "q-1195", questId: "q-1195" }),
+      expect.objectContaining({
+        type: "status_change",
+        status: "running",
+        activeTurnRoute: { threadKey: "q-1195", questId: "q-1195" },
+      }),
+    ]);
+  });
+
+  it("does not rebroadcast active route when Codex routed output stays in the same quest thread", async () => {
+    const session = makeSession();
+    session.isGenerating = true;
+    session.activeTurnRoute = { threadKey: "q-1195", questId: "q-1195" };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:q-1195]\nStill routed there" }]),
+      makeDeps(broadcasts),
+    );
+
+    expect(session.activeTurnRoute).toEqual({ threadKey: "q-1195", questId: "q-1195" });
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0]).toMatchObject({ type: "assistant", threadKey: "q-1195", questId: "q-1195" });
+  });
+
+  it("keeps genuinely Main-routed Codex assistant output active in Main", async () => {
+    const session = makeSession();
+    session.isGenerating = true;
+    session.activeTurnRoute = { threadKey: "main" };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:main]\nGlobal Codex update" }]),
+      makeDeps(broadcasts),
+    );
+
+    expect(session.activeTurnRoute).toEqual({ threadKey: "main" });
+    expect(broadcasts).toHaveLength(1);
+    expect(broadcasts[0]).toMatchObject({ type: "assistant", threadKey: "main" });
+    expect(broadcasts[0].type === "assistant" ? broadcasts[0].message.content : []).toMatchObject([
+      { type: "text", text: "Global Codex update" },
+    ]);
   });
 
   it("persists source-thread transition markers before Codex quest handoffs", async () => {
