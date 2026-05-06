@@ -722,6 +722,7 @@ export const FeedEntries = memo(function FeedEntries({
   activeCodexTerminalIds,
   onOpenCodexTerminal,
   onSelectThread,
+  suppressThreadSystemMarkers = false,
 }: {
   entries: FeedEntry[];
   sessionId: string;
@@ -731,6 +732,7 @@ export const FeedEntries = memo(function FeedEntries({
   activeCodexTerminalIds: Set<string>;
   onOpenCodexTerminal: (toolUseId: string) => void;
   onSelectThread?: (threadKey: string) => void;
+  suppressThreadSystemMarkers?: boolean;
 }) {
   const rendered = useMemo(() => {
     const result: React.ReactNode[] = [];
@@ -774,7 +776,9 @@ export const FeedEntries = memo(function FeedEntries({
           batch.push(next.msg);
           j++;
         }
-        result.push(<ThreadMarkerClusterRow key={entry.msg.id} messages={batch} onSelectThread={onSelectThread} />);
+        if (!suppressThreadSystemMarkers) {
+          result.push(<ThreadMarkerClusterRow key={entry.msg.id} messages={batch} onSelectThread={onSelectThread} />);
+        }
         i = j;
         continue;
       }
@@ -886,6 +890,7 @@ export const FeedEntries = memo(function FeedEntries({
     onOpenCodexTerminal,
     onSelectThread,
     sessionId,
+    suppressThreadSystemMarkers,
   ]);
 
   return <>{rendered}</>;
@@ -976,6 +981,7 @@ function CollapsedTurnRows({
                 activeCodexTerminalIds={activeCodexTerminalIds}
                 onOpenCodexTerminal={onOpenCodexTerminal}
                 onSelectThread={onSelectThread}
+                suppressThreadSystemMarkers
               />
             </HidePawContext.Provider>
           </div>
@@ -1658,6 +1664,7 @@ export const TurnEntries = memo(function TurnEntries({
                             activeCodexTerminalIds={activeCodexTerminalIds}
                             onOpenCodexTerminal={onOpenCodexTerminal}
                             onSelectThread={onSelectThread}
+                            suppressThreadSystemMarkers
                           />
                         )}
                         {((turn.collapsedEntries?.length ?? 0) > 0 || turn.subConclusions.length > 0) && (
