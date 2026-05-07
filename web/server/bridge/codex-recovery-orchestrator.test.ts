@@ -516,10 +516,10 @@ describe("reconcileCodexResumedTurn", () => {
     );
   });
 
-  it("surfaces a diagnostic when an interrupted idle resume only recovered partial assistant text", () => {
-    // This matches the session 1286 incident shape: Codex exited mid-turn,
-    // thread/resume returned the turn as interrupted/idle, and the only
-    // non-user evidence was a partial assistant status message.
+  it("retries an interrupted idle resume with only partial assistant text on first attempt", () => {
+    // q-1224: assistant-only interrupted/idle turns are safe to retry because
+    // no tool side effects occurred. The first resume should retry the pending
+    // turn instead of surfacing a diagnostic.
     const request = "prepare cartoon portrait icon variants from my reference images";
     const partial = "[thread:main] I read all three references and will frame this as a separate quest.";
     const session = makeSession([
@@ -536,6 +536,57 @@ describe("reconcileCodexResumedTurn", () => {
     pending.userContent = request;
     pending.turnId = "turn-interrupted";
     pending.disconnectedAt = 2_000;
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps();
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-interrupted",
+          status: "interrupted",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: request }] },
+            { type: "agentMessage", id: "item-1", text: partial },
+          ],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    expect(pending.status).toBe("queued");
+    expect(pending.turnId).toBeNull();
+    expect((pending as any).assistantOnlyResumeRetries).toBe(1);
+    expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_retry_pending_turn");
+    expect(deps.setGenerating).not.toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
+  });
+
+  it("falls back to diagnostic when assistant-only resume retry cap is exhausted", () => {
+    // q-1224: after the bounded retry cap is reached, fall through to the
+    // existing incomplete-turn diagnostic so the user gets visibility.
+    const request = "prepare cartoon portrait icon variants from my reference images";
+    const partial = "[thread:main] I read all three references and will frame this as a separate quest.";
+    const session = makeSession([
+      {
+        id: "input-1",
+        content: request,
+        timestamp: 1_000,
+        cancelable: false,
+      },
+    ]);
+    session.state.isOrchestrator = true;
+    session.isGenerating = true;
+    const pending = makePendingTurn();
+    pending.userContent = request;
+    pending.turnId = "turn-interrupted";
+    pending.disconnectedAt = 2_000;
+    (pending as any).assistantOnlyResumeRetries = 2;
     session.pendingCodexTurns = [pending];
     const deps = makeRecoveryDeps({
       completeCodexTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike, turn: CodexOutboundTurn | null) => {
@@ -566,7 +617,6 @@ describe("reconcileCodexResumedTurn", () => {
     );
 
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
-    expect(deps.setGenerating).not.toHaveBeenCalledWith(session, false, "codex_resume_recovered_messages");
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
       session,
       expect.objectContaining({
@@ -574,6 +624,52 @@ describe("reconcileCodexResumedTurn", () => {
         message: expect.stringContaining("no final response was recovered"),
       }),
     );
+  });
+
+  it("increments assistant-only resume retry count across repeated resume cycles", () => {
+    // q-1224: verify the counter increments correctly across multiple
+    // resume attempts for the same pending turn.
+    const request = "continue the work";
+    const session = makeSession([{ id: "input-1", content: request, timestamp: 1_000, cancelable: false }]);
+    session.state.isOrchestrator = true;
+    session.isGenerating = true;
+    const pending = makePendingTurn();
+    pending.userContent = request;
+    pending.turnId = "turn-interrupted";
+    pending.disconnectedAt = 2_000;
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps();
+
+    const snapshot = {
+      threadId: "thread-history",
+      turnCount: 1,
+      threadStatus: "idle",
+      turns: [],
+      lastTurn: {
+        id: "turn-interrupted",
+        status: "interrupted",
+        error: null,
+        items: [
+          { type: "userMessage", content: [{ type: "text", text: request }] },
+          { type: "agentMessage", id: "item-1", text: "[thread:main] Starting work..." },
+        ],
+      },
+    } as CodexResumeSnapshot;
+
+    reconcileCodexResumedTurn(session, snapshot, deps);
+    expect((pending as any).assistantOnlyResumeRetries).toBe(1);
+    expect(pending.status).toBe("queued");
+
+    pending.status = "dispatched";
+    pending.turnId = "turn-interrupted-2";
+    pending.disconnectedAt = 3_000;
+    reconcileCodexResumedTurn(
+      session,
+      { ...snapshot, lastTurn: { ...snapshot.lastTurn!, id: "turn-interrupted-2" } },
+      deps,
+    );
+    expect((pending as any).assistantOnlyResumeRetries).toBe(2);
+    expect(pending.status).toBe("queued");
   });
 
   it("keeps safe-complete recovery when final assistant text follows resumed tool output", () => {

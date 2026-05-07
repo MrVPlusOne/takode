@@ -29,6 +29,7 @@ import {
 import { requestCodexAutoRecovery as requestCodexAutoRecoveryController } from "./session-registry-controller.js";
 import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
+const CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP = 2;
 const CODEX_INIT_RETRY_BASE_DELAY_MS = 1_000;
 type InterruptSource = "user" | "leader" | "system";
 type CodexRecoveryAdapterLike = any;
@@ -1274,6 +1275,21 @@ export function reconcileCodexResumedTurn(
   if (recoveredAgents > 0 && hasIncompleteRecoveredMessagesWithoutTerminalEvidence(lastTurn, snapshot.threadStatus)) {
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
+    if (hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(lastTurn, snapshot.threadStatus)) {
+      const retryCount = (pending as any).assistantOnlyResumeRetries ?? 0;
+      if (retryCount < CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP) {
+        (pending as any).assistantOnlyResumeRetries = retryCount + 1;
+        console.log(
+          `[ws-bridge] Retrying assistant-only interrupted Codex turn for session ${sessionTag(session.id)} ` +
+            `(attempt ${retryCount + 1}/${CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP})`,
+        );
+        retryPendingCodexTurn(session, pending, deps);
+        return;
+      }
+      console.warn(
+        `[ws-bridge] Assistant-only resume retry cap (${CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP}) exhausted for session ${sessionTag(session.id)}; falling back to diagnostic`,
+      );
+    }
     completeRecoveredCodexTurnWithDiagnostic(
       session,
       pending,
