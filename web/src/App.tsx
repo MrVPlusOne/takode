@@ -114,7 +114,6 @@ export default function App() {
     zoomLevel,
     currentSessionId,
     searchPreviewSessionId,
-    currentSessionConnectionStatus,
     shortcutSettings,
     sidebarOpen,
     taskPanelOpen,
@@ -130,7 +129,6 @@ export default function App() {
       zoomLevel: s.zoomLevel,
       currentSessionId: s.currentSessionId,
       searchPreviewSessionId: s.searchPreviewSessionId,
-      currentSessionConnectionStatus: s.currentSessionId ? (s.connectionStatus.get(s.currentSessionId) ?? null) : null,
       shortcutSettings: s.shortcutSettings,
       sidebarOpen: s.sidebarOpen,
       taskPanelOpen: s.taskPanelOpen,
@@ -155,20 +153,16 @@ export default function App() {
   const isQuestmasterPage = route.page === "questmaster";
   const isMemoryPage = route.page === "memory";
   const isSessionView = route.page === "session" || route.page === "home";
-  const isDesktopShell = isDesktopShellLayout(zoomLevel);
-  const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
-  const suppressServerUnreachableBanner =
-    route.page === "session" &&
-    activeTab === "chat" &&
-    !!currentSessionId &&
-    !isPendingId(currentSessionId) &&
-    currentSessionConnectionStatus === "connected";
-  const showServerUnreachableBanner = !serverReachable && !suppressServerUnreachableBanner;
   const routeSessionId = useMemo(
     () => (route.page === "session" ? resolveSessionIdFromRoute(route.sessionId, sdkSessions) : null),
     [route, sdkSessions],
   );
   const displayedSessionId = searchPreviewSessionId ?? (route.page === "session" ? routeSessionId : currentSessionId);
+  const isDesktopShell = isDesktopShellLayout(zoomLevel);
+  const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
+  const chatSessionVisible =
+    isSessionView && activeTab === "chat" && !!displayedSessionId && !isPendingId(displayedSessionId);
+  const showServerUnreachableBanner = !serverReachable && !chatSessionVisible;
 
   useEffect(() => {
     const el = document.documentElement;

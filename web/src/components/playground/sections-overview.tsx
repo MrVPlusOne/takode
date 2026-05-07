@@ -72,6 +72,7 @@ import {
   PLAYGROUND_BROKEN_SESSION_ID,
   PLAYGROUND_CODEX_PENDING_SESSION_ID,
   PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
+  PLAYGROUND_DISCONNECTED_SESSION_ID,
   PLAYGROUND_HERD_GROUP_THEMES,
   PLAYGROUND_LOADING_SESSION_ID,
   PLAYGROUND_RECOVERING_SESSION_ID,
@@ -595,7 +596,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="ChatView Recovery States"
-        description="Startup, recovery, resume, and broken-session banners shown by ChatView before the main message feed is usable."
+        description="Live connection and recovery banners stay inside the chat surface near the composer instead of becoming page-level obstructions."
       >
         <div className="space-y-4">
           <Card label="Fresh session starting">
@@ -611,6 +612,11 @@ export function PlaygroundOverviewSections() {
           <Card label="Codex session resuming">
             <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
               <ChatView sessionId={PLAYGROUND_RESUMING_SESSION_ID} />
+            </div>
+          </Card>
+          <Card label="Session disconnected">
+            <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
+              <ChatView sessionId={PLAYGROUND_DISCONNECTED_SESSION_ID} />
             </div>
           </Card>
           <Card label="Broken session relaunch banner">

@@ -10,6 +10,7 @@ import {
   PLAYGROUND_BROKEN_SESSION_ID,
   PLAYGROUND_CODEX_PENDING_SESSION_ID,
   PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
+  PLAYGROUND_DISCONNECTED_SESSION_ID,
   PLAYGROUND_LOADING_SESSION_ID,
   PLAYGROUND_RECOVERING_SESSION_ID,
   PLAYGROUND_RESUMING_SESSION_ID,
@@ -43,6 +44,7 @@ export function usePlaygroundSeed() {
       PLAYGROUND_CODEX_PENDING_SESSION_ID,
       PLAYGROUND_STARTING_SESSION_ID,
       PLAYGROUND_RESUMING_SESSION_ID,
+      PLAYGROUND_DISCONNECTED_SESSION_ID,
       PLAYGROUND_BROKEN_SESSION_ID,
       PLAYGROUND_THREAD_PANEL_SESSION_ID,
       questInProgressId,
@@ -801,6 +803,18 @@ export function usePlaygroundSeed() {
     store.setCliConnected(PLAYGROUND_RECOVERING_SESSION_ID, false);
     store.setCliEverConnected(PLAYGROUND_RECOVERING_SESSION_ID);
     store.setSessionStatus(PLAYGROUND_RECOVERING_SESSION_ID, null);
+
+    store.addSession({
+      ...session,
+      session_id: PLAYGROUND_DISCONNECTED_SESSION_ID,
+      backend_type: "claude-sdk",
+      backend_state: "connected",
+      backend_error: null,
+    });
+    store.setConnectionStatus(PLAYGROUND_DISCONNECTED_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_DISCONNECTED_SESSION_ID, false);
+    store.setCliEverConnected(PLAYGROUND_DISCONNECTED_SESSION_ID);
+    store.setSessionStatus(PLAYGROUND_DISCONNECTED_SESSION_ID, null);
 
     store.addSession({
       ...session,

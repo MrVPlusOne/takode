@@ -107,6 +107,96 @@ const EMPTY_BOARD_ROWS: BoardRowData[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 
+type LiveConnectionStatusBannerProps = {
+  status: "starting" | "broken" | "cli-disconnected" | "websocket-disconnected" | "server-unreachable";
+  backendState?: string;
+  backendError?: string | null;
+  hasEverConnected?: boolean;
+  idlePaused?: boolean;
+  isResumeMissingRolloutError?: boolean;
+  onRelaunch?: () => void;
+};
+
+function LiveConnectionStatusBanner({
+  status,
+  backendState,
+  backendError,
+  hasEverConnected = false,
+  idlePaused = false,
+  isResumeMissingRolloutError = false,
+  onRelaunch,
+}: LiveConnectionStatusBannerProps) {
+  const isWarning =
+    status === "server-unreachable" || status === "broken" || (status === "cli-disconnected" && !idlePaused);
+  const message =
+    status === "server-unreachable"
+      ? "Server unreachable"
+      : status === "websocket-disconnected"
+        ? "Reconnecting to session..."
+        : status === "broken"
+          ? (backendError ?? "CLI failed to recover. Relaunch to resume queued messages.")
+          : status === "cli-disconnected"
+            ? idlePaused
+              ? "Session paused to stay within keep-alive limit"
+              : "Session disconnected"
+            : backendState === "recovering"
+              ? "Recovering session..."
+              : backendState === "resuming" || hasEverConnected
+                ? "Reconnecting session..."
+                : "Starting session...";
+
+  return (
+    <div
+      data-testid="live-connection-status-banner"
+      role="status"
+      aria-live="polite"
+      className={`shrink-0 border-t px-3 py-2 sm:px-4 ${
+        isWarning ? "border-cc-warning/25 bg-cc-warning/10" : "border-cc-border bg-cc-border/30"
+      }`}
+    >
+      <div className="mx-auto flex max-w-3xl items-center justify-center gap-2 text-center sm:gap-3">
+        {status === "starting" ? (
+          <svg
+            className="h-3 w-3 shrink-0 animate-spin text-cc-text-secondary"
+            xmlns="http://www.w3.org/2000/svg"
+            fill="none"
+            viewBox="0 0 24 24"
+            aria-hidden="true"
+          >
+            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+          </svg>
+        ) : (
+          <span
+            className={`h-2 w-2 shrink-0 rounded-full ${isWarning ? "bg-cc-warning animate-pulse" : "bg-cc-muted"}`}
+            aria-hidden="true"
+          />
+        )}
+        <span className={`min-w-0 text-xs font-medium ${isWarning ? "text-cc-warning" : "text-cc-text-secondary"}`}>
+          {message}
+        </span>
+        {(status === "broken" || status === "cli-disconnected") && onRelaunch && (
+          <button
+            type="button"
+            onClick={onRelaunch}
+            className={`shrink-0 rounded-md px-3 py-1 text-xs font-medium transition-colors cursor-pointer ${
+              isWarning
+                ? "bg-cc-warning/20 text-cc-warning hover:bg-cc-warning/30"
+                : "bg-cc-hover text-cc-fg hover:bg-cc-border"
+            }`}
+          >
+            {status === "broken" && isResumeMissingRolloutError
+              ? "Start Fresh"
+              : status === "broken"
+                ? "Relaunch"
+                : "Resume"}
+          </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
 function isDoneThreadRow(row: QuestThreadBannerRow): boolean {
   return (
     row.section === "done" ||
@@ -731,6 +821,7 @@ export function ChatView({
     cliEverConnected,
     cliDisconnectReason,
     isArchived,
+    serverReachable,
     isLeaderSession,
     historyLoading,
     hasKnownThreadSources,
@@ -753,6 +844,7 @@ export function ChatView({
         cliEverConnected: s.cliEverConnected.get(sessionId) ?? false,
         cliDisconnectReason: s.cliDisconnectReason.get(sessionId) ?? null,
         isArchived: sdkSession?.archived ?? false,
+        serverReachable: s.serverReachable,
         isLeaderSession: sessionState?.isOrchestrator === true || sdkSession?.isOrchestrator === true,
         historyLoading: s.historyLoading.get(sessionId) ?? false,
         hasKnownThreadSources:
@@ -1241,6 +1333,22 @@ export function ChatView({
       !cliEverConnected);
   const isResumeMissingRolloutError =
     backendError?.includes("could not be resumed because its local rollout is missing or unreadable") ?? false;
+  const liveConnectionStatus = !serverReachable
+    ? "server-unreachable"
+    : showStartingBanner
+      ? "starting"
+      : connStatus === "connected" && !cliConnected && backendState === "broken"
+        ? "broken"
+        : connStatus === "connected" &&
+            !cliConnected &&
+            cliEverConnected &&
+            backendState !== "initializing" &&
+            backendState !== "resuming" &&
+            backendState !== "recovering"
+          ? "cli-disconnected"
+          : connStatus === "disconnected"
+            ? "websocket-disconnected"
+            : null;
   return (
     <div className="relative flex flex-col h-full min-h-0">
       {preview ? (
@@ -1250,88 +1358,6 @@ export function ChatView({
       ) : (
         /* Within-session message search bar */
         <SearchBar sessionId={sessionId} inputRef={searchInputRef} />
-      )}
-
-      {/* CLI starting / resuming banner */}
-      {!preview && showStartingBanner && (
-        <div className="px-4 py-2 bg-cc-border/30 border-b border-cc-border text-center flex items-center justify-center gap-2">
-          <svg
-            className="animate-spin h-3 w-3 text-cc-text-secondary"
-            xmlns="http://www.w3.org/2000/svg"
-            fill="none"
-            viewBox="0 0 24 24"
-          >
-            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-          </svg>
-          <span className="text-xs text-cc-text-secondary font-medium">
-            {backendState === "recovering"
-              ? "Recovering session..."
-              : backendState === "resuming" || cliEverConnected
-                ? "Reconnecting session..."
-                : "Starting session..."}
-          </span>
-        </div>
-      )}
-
-      {/* Broken session banner */}
-      {!preview && connStatus === "connected" && !cliConnected && backendState === "broken" && (
-        <div className="px-4 py-2 bg-cc-warning/10 border-b border-cc-warning/20 text-center flex items-center justify-center gap-3">
-          <span className="text-xs text-cc-warning font-medium">
-            {backendError || "CLI failed to recover. Relaunch to resume queued messages."}
-          </span>
-          <button
-            onClick={() => api.relaunchSession(sessionId).catch(console.error)}
-            className="text-xs font-medium px-3 py-1 rounded-md bg-cc-warning/20 hover:bg-cc-warning/30 text-cc-warning transition-colors cursor-pointer"
-          >
-            {isResumeMissingRolloutError ? "Start Fresh" : "Relaunch"}
-          </button>
-        </div>
-      )}
-
-      {/* CLI disconnected banner (CLI was connected before but dropped) */}
-      {!preview &&
-        connStatus === "connected" &&
-        !cliConnected &&
-        cliEverConnected &&
-        backendState !== "broken" &&
-        backendState !== "initializing" &&
-        backendState !== "resuming" &&
-        backendState !== "recovering" && (
-          <div
-            className={`px-4 py-2 border-b text-center flex items-center justify-center gap-3 ${
-              cliDisconnectReason === "idle_limit"
-                ? "bg-cc-border/30 border-cc-border"
-                : "bg-cc-warning/10 border-cc-warning/20"
-            }`}
-          >
-            <span
-              className={`text-xs font-medium ${
-                cliDisconnectReason === "idle_limit" ? "text-cc-text-secondary" : "text-cc-warning"
-              }`}
-            >
-              {cliDisconnectReason === "idle_limit"
-                ? "Session paused to stay within keep-alive limit"
-                : "CLI disconnected"}
-            </span>
-            <button
-              onClick={() => api.relaunchSession(sessionId).catch(console.error)}
-              className={`text-xs font-medium px-3 py-1 rounded-md transition-colors cursor-pointer ${
-                cliDisconnectReason === "idle_limit"
-                  ? "bg-cc-hover hover:bg-cc-border text-cc-fg"
-                  : "bg-cc-warning/20 hover:bg-cc-warning/30 text-cc-warning"
-              }`}
-            >
-              Resume
-            </button>
-          </div>
-        )}
-
-      {/* WebSocket disconnected banner */}
-      {!preview && connStatus === "disconnected" && (
-        <div className="px-4 py-2 bg-cc-warning/10 border-b border-cc-warning/20 text-center">
-          <span className="text-xs text-cc-warning font-medium">Reconnecting to session...</span>
-        </div>
       )}
 
       {/* Archived session banner */}
@@ -1442,6 +1468,22 @@ export function ChatView({
             ))}
           </div>
         ))}
+
+      {!preview && liveConnectionStatus && (
+        <LiveConnectionStatusBanner
+          status={liveConnectionStatus}
+          backendState={backendState}
+          backendError={backendError}
+          hasEverConnected={cliEverConnected}
+          idlePaused={cliDisconnectReason === "idle_limit"}
+          isResumeMissingRolloutError={isResumeMissingRolloutError}
+          onRelaunch={
+            liveConnectionStatus === "broken" || liveConnectionStatus === "cli-disconnected"
+              ? () => api.relaunchSession(sessionId).catch(console.error)
+              : undefined
+          }
+        />
+      )}
 
       {/* Compacting indicator — fixed above composer, green like running state */}
       {!preview && <CompactingIndicator sessionId={sessionId} />}

@@ -336,12 +336,12 @@ describe("App hidden panels", () => {
     expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
-  it("suppresses the server unreachable banner while the active chat session is connected", () => {
+  it("does not render a page-level server unreachable banner while a chat session is visible", () => {
     resetStore({
       serverReachable: false,
       activeTab: "chat",
       currentSessionId: "s1",
-      connectionStatus: new Map([["s1", "connected"]]),
+      connectionStatus: new Map([["s1", "disconnected"]]),
     });
 
     render(<App />);

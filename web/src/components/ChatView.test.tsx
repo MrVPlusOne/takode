@@ -21,6 +21,7 @@ interface MockStoreState {
   cliConnected: Map<string, boolean>;
   cliEverConnected: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
+  serverReachable: boolean;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   sdkSessions: Array<{
     sessionId: string;
@@ -62,6 +63,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     cliConnected: new Map([["s1", true]]),
     cliEverConnected: new Map([["s1", true]]),
     cliDisconnectReason: new Map([["s1", null]]),
+    serverReachable: true,
     sessionStatus: new Map([["s1", "idle"]]),
     sdkSessions: [{ sessionId: "s1", archived: false }],
     sessionAttention: new Map(),
@@ -423,9 +425,18 @@ describe("ChatView archived banner", () => {
 });
 
 describe("ChatView backend banners", () => {
+  function expectLiveBannerBetweenFeedAndComposer(container: HTMLElement) {
+    const feed = within(container).getByTestId("message-feed");
+    const banner = within(container).getByTestId("live-connection-status-banner");
+    const composer = within(container).getByTestId("composer");
+
+    expect(feed.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(banner.compareDocumentPosition(composer) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  }
+
   it("shows the startup banner for a freshly launched session even without explicit backend_state", () => {
     // Claude/SDK sessions do not always populate backend_state during startup,
-    // so the banner still needs to key off the first-connect path.
+    // so the live chat-surface banner still needs to key off the first-connect path.
     resetStore({
       sessions: new Map([["s1", { backend_state: "disconnected", backend_error: null }]]),
       cliConnected: new Map([["s1", false]]),
@@ -435,6 +446,7 @@ describe("ChatView backend banners", () => {
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
     expect(scope.getByText("Starting session...")).toBeInTheDocument();
+    expectLiveBannerBetweenFeedAndComposer(view.container);
   });
 
   it("shows the broken-session banner and relaunch action", () => {
@@ -453,6 +465,7 @@ describe("ChatView backend banners", () => {
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
     expect(scope.getByText("Codex initialization failed: Transport closed")).toBeInTheDocument();
+    expectLiveBannerBetweenFeedAndComposer(view.container);
     fireEvent.click(scope.getByRole("button", { name: "Relaunch" }));
     expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
   });
@@ -469,7 +482,47 @@ describe("ChatView backend banners", () => {
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
     expect(scope.getByText("Recovering session...")).toBeInTheDocument();
-    expect(scope.queryByText("CLI disconnected")).not.toBeInTheDocument();
+    expect(scope.queryByText("Session disconnected")).not.toBeInTheDocument();
+    expectLiveBannerBetweenFeedAndComposer(view.container);
+  });
+
+  it("renders the session-disconnected action near the composer", () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null }]]),
+      cliConnected: new Map([["s1", false]]),
+      cliEverConnected: new Map([["s1", true]]),
+      cliDisconnectReason: new Map([["s1", null]]),
+      sessionStatus: new Map([["s1", null]]),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByText("Session disconnected")).toBeInTheDocument();
+    expectLiveBannerBetweenFeedAndComposer(view.container);
+    fireEvent.click(scope.getByRole("button", { name: "Resume" }));
+    expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
+  });
+
+  it("renders the WebSocket reconnect banner near the composer", () => {
+    resetStore({
+      connectionStatus: new Map([["s1", "disconnected"]]),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByText("Reconnecting to session...")).toBeInTheDocument();
+    expectLiveBannerBetweenFeedAndComposer(view.container);
+  });
+
+  it("renders the server unreachable banner inside the chat surface near the composer", () => {
+    resetStore({
+      serverReachable: false,
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByText("Server unreachable")).toBeInTheDocument();
+    expectLiveBannerBetweenFeedAndComposer(view.container);
   });
 
   it("renders the feed without the external latest-indicator rail", () => {
