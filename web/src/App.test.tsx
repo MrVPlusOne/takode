@@ -231,8 +231,8 @@ vi.mock("./components/ActiveTimersPage.js", () => ({
   ActiveTimersPage: () => <div data-testid="active-timers-page" />,
 }));
 
-vi.mock("./components/StreamsPage.js", () => ({
-  StreamsPage: () => <div data-testid="streams-page" />,
+vi.mock("./components/MemoryPage.js", () => ({
+  MemoryPage: () => <div data-testid="memory-page" />,
 }));
 
 vi.mock("./components/TerminalPage.js", () => ({
@@ -318,12 +318,21 @@ describe("App hidden panels", () => {
     expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 
-  it("mounts StreamsPage on the streams route", () => {
+  it("mounts MemoryPage on the memory route", () => {
+    window.location.hash = "#/memory";
+
+    render(<App />);
+
+    expect(screen.getByTestId("memory-page")).toBeInTheDocument();
+    expect(screen.queryByTestId("chat-view")).toBeNull();
+  });
+
+  it("keeps the legacy streams hash pointed at MemoryPage", () => {
     window.location.hash = "#/streams";
 
     render(<App />);
 
-    expect(screen.getByTestId("streams-page")).toBeInTheDocument();
+    expect(screen.getByTestId("memory-page")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-view")).toBeNull();
   });
 

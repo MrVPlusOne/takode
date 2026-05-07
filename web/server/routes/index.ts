@@ -26,6 +26,7 @@ import { createSystemRoutes } from "./system.js";
 import { createTimerRoutes } from "./timers.js";
 import { createResourceLeaseRoutes } from "./resource-leases.js";
 import { createStreamRoutes } from "./streams.js";
+import { createMemoryRoutes } from "./memory.js";
 import { createLogsRoutes } from "./logs.js";
 import type { InitialModeState, RouteContext } from "./context.js";
 
@@ -280,6 +281,7 @@ export function createRoutes(
   api.route("/", createTimerRoutes(ctx));
   api.route("/", createResourceLeaseRoutes(ctx));
   api.route("/", createStreamRoutes(ctx));
+  api.route("/", createMemoryRoutes(ctx));
 
   return api;
 }

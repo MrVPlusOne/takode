@@ -1,9 +1,9 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { access, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, join, relative, sep } from "node:path";
+import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { getServerId, getServerSlug, normalizeServerSlug } from "./settings-manager.js";
 import {
@@ -22,11 +22,13 @@ import {
   type MemoryLintIssue,
   type MemoryLockAcquireInput,
   type MemoryLockInfo,
+  type MemoryRecentCommit,
   type MemoryRecallMatch,
   type MemoryRecallQuery,
   type MemoryRecallResult,
   type MemoryRepoInfo,
   type MemoryRepoOptions,
+  type MemorySpaceInfo,
 } from "./workstream-memory-types.js";
 
 const execFileAsync = promisify(execFile);
@@ -135,6 +137,52 @@ export async function lintMemory(options: MemoryRepoOptions = {}): Promise<Memor
   return scanMemoryCatalog(options);
 }
 
+export async function listMemorySpaces(options: MemoryRepoOptions = {}): Promise<MemorySpaceInfo[]> {
+  const currentRepo = await ensureMemoryRepo(options);
+  const resolved = resolveMemoryRepoInternal(options);
+  const serverIndex = await readServerMemoryIndexes(resolved.baseRoot);
+  const spaces = new Map<string, MemorySpaceInfo>();
+
+  const addSpace = async (input: {
+    slug: string;
+    root: string;
+    current: boolean;
+    serverId?: string;
+    index?: ServerMemoryIndexEntry;
+  }) => {
+    const authoredDirs = await existingAuthoredDirs(input.root);
+    spaces.set(resolve(input.root), {
+      slug: input.slug,
+      root: input.root,
+      current: input.current,
+      initialized: await pathExists(join(input.root, ".git")),
+      authoredDirs: authoredDirs.length ? authoredDirs : [...MEMORY_KINDS],
+      hasAuthoredData: await hasAuthoredMemoryData(input.root),
+      ...(input.index?.serverId || input.serverId ? { serverId: input.index?.serverId ?? input.serverId } : {}),
+      ...(input.index?.updatedAt ? { updatedAt: input.index.updatedAt } : {}),
+    });
+  };
+
+  const currentIndex = serverIndex.find((entry) => resolve(entry.root) === resolve(currentRepo.root));
+  await addSpace({
+    slug: currentRepo.serverSlug,
+    root: currentRepo.root,
+    current: true,
+    serverId: currentRepo.serverId,
+    index: currentIndex,
+  });
+
+  for (const entry of await safeReaddir(resolved.baseRoot)) {
+    if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
+    const root = join(resolved.baseRoot, entry.name);
+    if (spaces.has(resolve(root)) || !(await looksLikeMemorySpace(root))) continue;
+    const index = serverIndex.find((item) => resolve(item.root) === resolve(root) || item.serverSlug === entry.name);
+    await addSpace({ slug: index?.serverSlug || entry.name, root, current: false, index });
+  }
+
+  return [...spaces.values()].sort((a, b) => Number(b.current) - Number(a.current) || a.slug.localeCompare(b.slug));
+}
+
 export async function recallMemory(
   query: MemoryRecallQuery = {},
   options: MemoryRepoOptions = {},
@@ -209,7 +257,37 @@ export async function releaseMemoryLock(options: MemoryRepoOptions = {}): Promis
 
 export async function memoryGitStatus(options: MemoryRepoOptions = {}): Promise<string> {
   const repo = await ensureMemoryRepo(options);
-  return (await runGit(repo.root, ["status", "--short"])).trim();
+  return (await runGit(repo.root, ["status", "--short", "--untracked-files=all"])).trim();
+}
+
+export async function memoryRecentCommits(options: MemoryRepoOptions = {}, limit = 6): Promise<MemoryRecentCommit[]> {
+  const repo = await ensureMemoryRepo(options);
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 25);
+  try {
+    const output = await runGit(repo.root, [
+      "log",
+      `--max-count=${safeLimit}`,
+      "--format=%H%x1f%h%x1f%ct%x1f%s",
+      "--",
+      ...MEMORY_KINDS,
+    ]);
+    return output
+      .split("\n")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const [sha = "", shortSha = "", timestamp = "0", message = ""] = line.split("\x1f");
+        return {
+          sha,
+          shortSha,
+          timestamp: Number.parseInt(timestamp, 10) * 1000,
+          message,
+        };
+      })
+      .filter((commit) => commit.sha && commit.shortSha && Number.isFinite(commit.timestamp));
+  } catch {
+    return [];
+  }
 }
 
 export async function memoryGitDiff(options: MemoryRepoOptions = {}): Promise<string> {
@@ -262,6 +340,16 @@ export function parseMemoryFile(root: string, absolutePath: string, content: str
     body,
     content,
   };
+}
+
+export async function readMemoryRecord(
+  path: string,
+  options: MemoryRepoOptions = {},
+): Promise<{ repo: MemoryRepoInfo; file: MemoryFile }> {
+  const repo = await ensureMemoryRepo(options);
+  const absolutePath = resolveMemoryRecordPath(repo.root, path);
+  const content = await readFile(absolutePath, "utf-8");
+  return { repo, file: parseMemoryFile(repo.root, absolutePath, content) };
 }
 
 function catalogEntryFromFile(file: MemoryFile): MemoryCatalogEntry {
@@ -666,6 +754,35 @@ async function readServerMemoryIndex(baseRoot: string, serverId: string): Promis
   }
 }
 
+async function readServerMemoryIndexes(baseRoot: string): Promise<ServerMemoryIndexEntry[]> {
+  const dir = join(baseRoot, SERVER_INDEX_DIR);
+  const entries = await safeReaddir(dir);
+  const indexes: ServerMemoryIndexEntry[] = [];
+  for (const entry of entries) {
+    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
+    try {
+      const raw = await readFile(join(dir, entry.name), "utf-8");
+      const parsed = JSON.parse(raw) as Partial<ServerMemoryIndexEntry>;
+      if (
+        typeof parsed.serverId === "string" &&
+        typeof parsed.serverSlug === "string" &&
+        typeof parsed.root === "string"
+      ) {
+        indexes.push({
+          serverId: parsed.serverId,
+          serverSlug: parsed.serverSlug,
+          root: parsed.root,
+          updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
+        });
+      }
+    } catch {
+      console.warn(`Skipping unreadable memory server index: ${join(dir, entry.name)}`);
+      continue;
+    }
+  }
+  return indexes;
+}
+
 async function writeServerMemoryIndex(repo: ResolvedMemoryRepo): Promise<void> {
   const path = serverIndexPath(repo.baseRoot, repo.serverId);
   await mkdir(join(repo.baseRoot, SERVER_INDEX_DIR), { recursive: true });
@@ -700,12 +817,58 @@ async function isEmptyMemoryRepo(path: string): Promise<boolean> {
   }
 }
 
+async function looksLikeMemorySpace(root: string): Promise<boolean> {
+  if (await pathExists(join(root, ".git"))) return true;
+  return (await existingAuthoredDirs(root)).length > 0;
+}
+
+async function existingAuthoredDirs(root: string): Promise<MemoryKind[]> {
+  const dirs: MemoryKind[] = [];
+  for (const kind of MEMORY_KINDS) {
+    try {
+      const info = await stat(join(root, kind));
+      if (info.isDirectory()) dirs.push(kind);
+    } catch {
+      continue;
+    }
+  }
+  return dirs;
+}
+
+async function hasAuthoredMemoryData(root: string): Promise<boolean> {
+  for (const kind of MEMORY_KINDS) {
+    if ((await listMarkdownFiles(join(root, kind))).length > 0) return true;
+  }
+  return false;
+}
+
 function sanitizeSlugForPath(slug: string): string {
   return slug.trim().replace(/[^a-zA-Z0-9_.-]/g, "_") || "local";
 }
 
 function repoRelative(root: string, path: string): string {
   return relative(root, path).split(sep).join("/");
+}
+
+function resolveMemoryRecordPath(root: string, requestedPath: string): string {
+  const trimmedPath = requestedPath.trim();
+  if (!trimmedPath) throw new Error("Memory record path is required");
+  if (isAbsolute(trimmedPath)) throw new Error("Memory record path must be repo-relative");
+
+  const rootPath = resolve(root);
+  const absolutePath = resolve(rootPath, trimmedPath);
+  const relativePath = repoRelative(rootPath, absolutePath);
+  if (relativePath === ".." || relativePath.startsWith("../") || relativePath.includes("/../")) {
+    throw new Error("Memory record path must stay inside the memory repo");
+  }
+  const [kind] = relativePath.split("/");
+  if (!MEMORY_KINDS.includes(kind as MemoryKind)) {
+    throw new Error(`Memory record path must be under one of: ${MEMORY_KINDS.join(", ")}`);
+  }
+  if (!relativePath.endsWith(".md")) {
+    throw new Error("Memory record path must point to a Markdown file");
+  }
+  return absolutePath;
 }
 
 function memoryLockPath(root: string): string {

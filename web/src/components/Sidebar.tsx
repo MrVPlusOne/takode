@@ -166,7 +166,7 @@ export function Sidebar() {
   const isTerminalPage = route.page === "terminal";
   const isScheduledPage = route.page === "scheduled";
   const isQuestmasterPage = route.page === "questmaster";
-  const isStreamsPage = route.page === "streams";
+  const isMemoryPage = route.page === "memory";
   const isDesktopLayout = isDesktopShellLayout(zoomLevel);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
@@ -1450,9 +1450,9 @@ export function Sidebar() {
             </svg>
           </button>
           <button
-            title="Streams"
+            title="Memory"
             onClick={() => {
-              if (isStreamsPage) {
+              if (isMemoryPage) {
                 const sessionId = useStore.getState().currentSessionId;
                 if (sessionId) {
                   navigateToSession(sessionId);
@@ -1460,14 +1460,14 @@ export function Sidebar() {
                   navigateToMostRecentSession();
                 }
               } else {
-                window.location.hash = "#/streams";
+                window.location.hash = "#/memory";
               }
               if (!isDesktopLayout) {
                 useStore.getState().setSidebarOpen(false);
               }
             }}
             className={`p-2 rounded-lg transition-colors cursor-pointer ${
-              isStreamsPage ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
+              isMemoryPage ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
             }`}
           >
             <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">

@@ -1343,10 +1343,10 @@ describe("Sidebar", { timeout: 10000 }, () => {
     expect(window.location.hash).toBe("#/terminal");
   });
 
-  it("navigates to streams page when Streams is clicked", () => {
+  it("navigates to memory page when Memory is clicked", () => {
     render(<Sidebar />);
-    fireEvent.click(screen.getByTitle("Streams"));
-    expect(window.location.hash).toBe("#/streams");
+    fireEvent.click(screen.getByTitle("Memory"));
+    expect(window.location.hash).toBe("#/memory");
   });
 
   it("session name shows animate-name-appear class when recently renamed", () => {

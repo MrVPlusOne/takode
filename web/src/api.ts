@@ -1,4 +1,4 @@
-import type { SdkSessionInfo, TreeGroup, ChatMessage, BrowserIncomingMessage, StreamRecord } from "./types.js";
+import type { SdkSessionInfo, TreeGroup, ChatMessage, BrowserIncomingMessage } from "./types.js";
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
@@ -169,33 +169,102 @@ export interface CloudProviderPlan {
   commandPreview: string;
 }
 
-export interface StreamGroupView {
-  group: TreeGroup;
-  scope: string;
-  streams: StreamRecord[];
-  counts: {
-    total: number;
-    active: number;
-    archived: number;
-    blocked: number;
-    risk: number;
-    alerts: number;
-    contradictions: number;
-    handoffs: number;
+export type MemoryKind = "current" | "knowledge" | "procedures" | "decisions" | "references" | "artifacts";
+
+export interface MemoryRepoInfo {
+  root: string;
+  serverId: string;
+  serverSlug: string;
+  initialized: boolean;
+  authoredDirs: MemoryKind[];
+}
+
+export interface MemorySpaceInfo {
+  slug: string;
+  root: string;
+  current: boolean;
+  initialized: boolean;
+  authoredDirs: MemoryKind[];
+  hasAuthoredData: boolean;
+  serverId?: string;
+  updatedAt?: string;
+}
+
+export interface MemoryCatalogEntry {
+  id: string;
+  kind: MemoryKind;
+  description: string;
+  path: string;
+  source: string[];
+  facets: Record<string, string[]>;
+}
+
+export interface MemoryLintIssue {
+  severity: "error" | "warning";
+  path?: string;
+  id?: string;
+  message: string;
+}
+
+export interface MemoryLockInfo {
+  locked: boolean;
+  lockPath: string;
+  owner?: string;
+  session?: string;
+  acquiredAt?: string;
+  expiresAt?: string;
+  stale?: boolean;
+}
+
+export interface MemoryGitStatusEntry {
+  code: string;
+  path: string;
+  raw: string;
+}
+
+export interface MemoryRecentCommit {
+  sha: string;
+  shortSha: string;
+  timestamp: number;
+  message: string;
+}
+
+export interface MemoryCatalogResponse {
+  repo: MemoryRepoInfo;
+  entries: MemoryCatalogEntry[];
+  issues: MemoryLintIssue[];
+  issueCounts: { errors: number; warnings: number };
+  lock: MemoryLockInfo;
+  git: {
+    dirty: boolean;
+    status: string;
+    statusEntries: MemoryGitStatusEntry[];
+    recentCommits: MemoryRecentCommit[];
   };
 }
 
-export interface StreamGroupsResponse {
-  serverId: string;
-  includeArchived: boolean;
-  query: string;
-  groups: StreamGroupView[];
+export interface MemorySpacesResponse {
+  currentServerId: string;
+  currentServerSlug: string;
+  spaces: MemorySpaceInfo[];
 }
 
-export interface StreamDetailResponse {
-  scope: string;
-  stream: StreamRecord;
-  children: StreamRecord[];
+export interface MemoryFile {
+  id: string;
+  kind: MemoryKind;
+  description: string;
+  source: string[];
+  path: string;
+  absolutePath: string;
+  frontmatter: Record<string, unknown>;
+  body: string;
+  content: string;
+}
+
+export interface MemoryRecordResponse {
+  repo: MemoryRepoInfo;
+  file: MemoryFile;
+  issues: MemoryLintIssue[];
 }
 
 export interface CreateSessionOpts {
@@ -1112,19 +1181,20 @@ export const api = {
       defaults,
     }),
 
-  // Streams (session-group observability/debugging)
-  listStreamGroups: (opts?: { includeArchived?: boolean; query?: string }) => {
+  // Memory (catalog-first file-based memory inspection)
+  listMemorySpaces: () => get<MemorySpacesResponse>("/memory/spaces"),
+
+  getMemoryCatalog: (opts?: { serverSlug?: string }) => {
     const params = new URLSearchParams();
-    if (opts?.includeArchived) params.set("includeArchived", "1");
-    const query = opts?.query?.trim();
-    if (query) params.set("q", query);
+    if (opts?.serverSlug) params.set("serverSlug", opts.serverSlug);
     const qs = params.toString();
-    return get<StreamGroupsResponse>(`/streams/groups${qs ? `?${qs}` : ""}`);
+    return get<MemoryCatalogResponse>(`/memory/catalog${qs ? `?${qs}` : ""}`);
   },
 
-  getStreamDetail: (scope: string, ref: string) => {
-    const params = new URLSearchParams({ scope });
-    return get<StreamDetailResponse>(`/streams/${encodeURIComponent(ref)}?${params.toString()}`);
+  getMemoryRecord: (opts: { serverSlug?: string; path: string }) => {
+    const params = new URLSearchParams({ path: opts.path });
+    if (opts.serverSlug) params.set("serverSlug", opts.serverSlug);
+    return get<MemoryRecordResponse>(`/memory/records?${params.toString()}`);
   },
 
   getHerdDiagnostics: (sessionId: string) =>

@@ -3,9 +3,12 @@ import {
   commitMemory,
   ensureMemoryRepo,
   getMemoryLock,
+  listMemorySpaces,
   lintMemory,
+  memoryRecentCommits,
   memoryGitDiff,
   memoryGitStatus,
+  readMemoryRecord,
   recallMemory,
   releaseMemoryLock,
   resolveMemoryRepo,
@@ -39,6 +42,14 @@ export class WorkstreamMemoryService {
     return lintMemory(options);
   }
 
+  spaces(options?: MemoryRepoOptions) {
+    return listMemorySpaces(options);
+  }
+
+  readRecord(path: string, options?: MemoryRepoOptions) {
+    return readMemoryRecord(path, options);
+  }
+
   lockStatus(options?: MemoryRepoOptions) {
     return getMemoryLock(options);
   }
@@ -53,6 +64,10 @@ export class WorkstreamMemoryService {
 
   gitStatus(options?: MemoryRepoOptions) {
     return memoryGitStatus(options);
+  }
+
+  recentCommits(options?: MemoryRepoOptions, limit?: number) {
+    return memoryRecentCommits(options, limit);
   }
 
   gitDiff(options?: MemoryRepoOptions) {

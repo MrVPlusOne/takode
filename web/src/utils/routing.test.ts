@@ -61,8 +61,12 @@ describe("parseHash", () => {
     expect(parseHash("#/scheduled")).toEqual({ page: "scheduled" });
   });
 
-  it("parses streams route", () => {
-    expect(parseHash("#/streams")).toEqual({ page: "streams" });
+  it("parses memory route", () => {
+    expect(parseHash("#/memory")).toEqual({ page: "memory" });
+  });
+
+  it("treats the legacy streams route as memory", () => {
+    expect(parseHash("#/streams")).toEqual({ page: "memory" });
   });
 
   it("parses playground route", () => {

@@ -11,7 +11,7 @@ export type Route =
   | { page: "environments" }
   | { page: "scheduled" }
   | { page: "questmaster" }
-  | { page: "streams" }
+  | { page: "memory" }
   | { page: "playground" };
 
 const SESSION_PREFIX = "#/session/";
@@ -58,7 +58,7 @@ export function parseHash(hash: string): Route {
   if (path === "#/environments") return { page: "environments" };
   if (path === "#/scheduled") return { page: "scheduled" };
   if (path === "#/questmaster") return { page: "questmaster" };
-  if (path === "#/streams") return { page: "streams" };
+  if (path === "#/memory" || path === "#/streams") return { page: "memory" };
   if (path === "#/playground") return { page: "playground" };
 
   if (path.startsWith(SESSION_PREFIX)) {

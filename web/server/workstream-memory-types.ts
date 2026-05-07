@@ -52,6 +52,24 @@ export interface MemoryCatalog {
   issues: MemoryLintIssue[];
 }
 
+export interface MemorySpaceInfo {
+  slug: string;
+  root: string;
+  current: boolean;
+  initialized: boolean;
+  authoredDirs: MemoryKind[];
+  hasAuthoredData: boolean;
+  serverId?: string;
+  updatedAt?: string;
+}
+
+export interface MemoryRecentCommit {
+  sha: string;
+  shortSha: string;
+  timestamp: number;
+  message: string;
+}
+
 export type MemoryLintSeverity = "error" | "warning";
 
 export interface MemoryLintIssue {
