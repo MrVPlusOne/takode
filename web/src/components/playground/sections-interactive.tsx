@@ -1,13 +1,15 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { NotificationMarker } from "../MessageBubble.js";
 import { BoardBlock } from "../BoardBlock.js";
 import type { BoardRowData } from "../BoardTable.js";
 import { CatPawAvatar } from "../CatIcons.js";
 import { ReplyChip } from "../Composer.js";
+import { ComposerMetaToolbar } from "../ComposerMetaToolbar.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
 import { TimerChip } from "../TimerWidget.js";
 import { UserReplyChip } from "../MessageBubble.js";
 import { useStore } from "../../store.js";
+import { CLAUDE_MODELS, CLAUDE_PERMISSION_MODES, CODEX_MODELS, CODEX_PERMISSION_MODES } from "../../utils/backends.js";
 import type { QuestJourneyPhaseId } from "../../../shared/quest-journey.js";
 import { PlaygroundNotificationInboxSection } from "./PlaygroundNotificationInboxSection.js";
 import { PlaygroundQuestStatusPanelSection, PlaygroundQuestmasterCompactSection } from "./PlaygroundQuestSections.js";
@@ -27,6 +29,94 @@ import {
   TimerModalDemo,
 } from "./shared.js";
 
+function PlaygroundCollapseAllButton() {
+  return (
+    <button
+      type="button"
+      className="flex h-7 w-7 cursor-default items-center justify-center rounded-md text-cc-muted/40"
+      title="Collapse all turns"
+    >
+      <svg className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="1.5" viewBox="0 0 16 16">
+        <path d="M4 2l4 4 4-4" />
+        <path d="M4 14l4-4 4 4" />
+      </svg>
+    </button>
+  );
+}
+
+function PlaygroundComposerPermissionToolbar({
+  backend,
+  state,
+}: {
+  backend: "claude" | "codex";
+  state: "menu" | "popover";
+}) {
+  const modelDropdownRef = useRef<HTMLDivElement | null>(null);
+  const codexReasoningDropdownRef = useRef<HTMLDivElement | null>(null);
+  const permissionDropdownRef = useRef<HTMLDivElement | null>(null);
+  const isCodex = backend === "codex";
+
+  return (
+    <div className="border-t border-cc-border bg-cc-card px-4 py-3">
+      <div className="rounded-[14px] border border-cc-border bg-cc-input-bg pt-28">
+        <div className="px-4 pb-1 text-sm text-cc-muted">
+          {isCodex ? "Codex profile selector with pending restart confirmation." : "Claude permission selector menu."}
+        </div>
+        <ComposerMetaToolbar
+          sessionId={`playground-permission-${backend}-${state}`}
+          sessionView={{
+            gitBranch: isCodex ? "feature/codex-profile" : "feature/claude-mode",
+            model: isCodex ? "gpt-5.4" : "claude-sonnet-4-5-20250929",
+            isContainerized: false,
+            gitAhead: isCodex ? 1 : 0,
+            gitBehind: 0,
+          }}
+          diffLinesAdded={isCodex ? 0 : 12}
+          diffLinesRemoved={isCodex ? 0 : 3}
+          isCodex={isCodex}
+          isConnected={true}
+          showModelDropdown={false}
+          setShowModelDropdown={() => {}}
+          modelDropdownRef={modelDropdownRef}
+          claudeModelOptions={CLAUDE_MODELS.filter((model) => model.value)}
+          codexModelOptions={CODEX_MODELS}
+          onSelectModel={() => {}}
+          showCodexReasoningDropdown={false}
+          setShowCodexReasoningDropdown={() => {}}
+          codexReasoningDropdownRef={codexReasoningDropdownRef}
+          codexReasoningEffort={isCodex ? "high" : ""}
+          onSelectCodexReasoning={() => {}}
+          permissionOptions={isCodex ? CODEX_PERMISSION_MODES : CLAUDE_PERMISSION_MODES}
+          permissionMode={isCodex ? "auto-review" : "acceptEdits"}
+          showPermissionDropdown={state === "menu"}
+          setShowPermissionDropdown={() => {}}
+          permissionDropdownRef={permissionDropdownRef}
+          pendingPermissionMode={state === "popover" ? (isCodex ? "full-access" : "bypassPermissions") : null}
+          onRequestPermissionMode={() => {}}
+          onCancelPermissionMode={() => {}}
+          onConfirmPermissionMode={() => {}}
+          collapseAllButton={<PlaygroundCollapseAllButton />}
+          onOpenFilePicker={() => {}}
+          warmMicrophone={() => {}}
+          voiceSupported={true}
+          toggleVoiceUnsupportedInfo={() => {}}
+          handleMicClick={() => {}}
+          voiceButtonDisabled={false}
+          isPreparing={false}
+          isRecording={false}
+          voiceButtonTitle="Voice input"
+          canSend={false}
+          isRunning={false}
+          handleInterrupt={() => {}}
+          handleSend={() => {}}
+          sendButtonTitle="Send message"
+          sendPressing={false}
+        />
+      </div>
+    </div>
+  );
+}
+
 export function PlaygroundInteractiveSections() {
   const [boardOpenThreadKeys, setBoardOpenThreadKeys] = useState(["q-42", "q-55", "q-61", "q-77", "q-88"]);
   const [boardPreviewThreadKey, setBoardPreviewThreadKey] = useState("main");
@@ -34,7 +124,10 @@ export function PlaygroundInteractiveSections() {
   return (
     <PlaygroundSectionGroup groupId="interactive">
       {/* ─── Composer ──────────────────────────────── */}
-      <Section title="Composer" description="Message input bar with mode toggle, image upload, and send/stop buttons">
+      <Section
+        title="Composer"
+        description="Message input bar with backend-native permission selector, image upload, and send/stop buttons"
+      >
         <div className="max-w-3xl">
           <Card label="Connected — code mode">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
@@ -120,6 +213,14 @@ export function PlaygroundInteractiveSections() {
                 </div>
               </div>
             </div>
+          </Card>
+          <div className="mt-4" />
+          <Card label="Claude permission selector menu">
+            <PlaygroundComposerPermissionToolbar backend="claude" state="menu" />
+          </Card>
+          <div className="mt-4" />
+          <Card label="Codex permission change confirmation">
+            <PlaygroundComposerPermissionToolbar backend="codex" state="popover" />
           </Card>
           <div className="mt-4" />
           <Card label="Connected — VS Code preview only">

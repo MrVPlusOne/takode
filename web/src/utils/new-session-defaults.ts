@@ -103,8 +103,8 @@ function normalizeStoredCodexPermissionMode(
   const normalized = normalizeCodexPermissionMode(rawPermissionMode);
   if (rawPermissionMode && normalized !== "default") return normalized;
   if (rawPermissionMode === "default") return "default";
+  if (rawMode === "suggest" || rawMode === "acceptEdits" || rawMode === "plan") return "default";
   if (rawMode === "bypassPermissions" || askPermission === false) return "full-access";
-  if (rawMode === "suggest") return "auto-review";
   return "default";
 }
 

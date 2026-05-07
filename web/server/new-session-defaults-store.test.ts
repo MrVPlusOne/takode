@@ -95,4 +95,37 @@ describe("new-session-defaults-store", () => {
 
     expect(entry?.defaults.codexPermissionMode).toBe("full-access");
   });
+
+  it("migrates legacy Codex suggest defaults to the default permission profile", async () => {
+    const entry = await saveDefaults("tree-group:legacy-codex-suggest", {
+      backend: "codex",
+      model: "gpt-5.4",
+      mode: "suggest",
+      askPermission: true,
+    });
+
+    expect(entry?.defaults).toMatchObject({
+      backend: "codex",
+      mode: "default",
+      askPermission: true,
+      codexPermissionMode: "default",
+    });
+  });
+
+  it("preserves an explicit Codex permission profile over legacy suggest mode", async () => {
+    const entry = await saveDefaults("tree-group:legacy-codex-explicit-profile", {
+      backend: "codex",
+      model: "gpt-5.4",
+      mode: "suggest",
+      askPermission: true,
+      codexPermissionMode: "auto-review",
+    });
+
+    expect(entry?.defaults).toMatchObject({
+      backend: "codex",
+      mode: "default",
+      askPermission: true,
+      codexPermissionMode: "auto-review",
+    });
+  });
 });

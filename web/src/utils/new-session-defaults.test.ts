@@ -137,6 +137,31 @@ describe("new-session-defaults", () => {
     });
   });
 
+  it("migrates legacy Codex suggest defaults to the default permission profile", () => {
+    scopedSetItem("cc-backend", "codex");
+    scopedSetItem("cc-mode", "suggest");
+
+    expect(getGlobalNewSessionDefaults()).toMatchObject({
+      backend: "codex",
+      mode: "default",
+      askPermission: true,
+      codexPermissionMode: "default",
+    });
+  });
+
+  it("preserves an explicit Codex permission profile over legacy suggest mode", () => {
+    scopedSetItem("cc-backend", "codex");
+    scopedSetItem("cc-mode", "suggest");
+    scopedSetItem("cc-codex-permission-mode", "auto-review");
+
+    expect(getGlobalNewSessionDefaults()).toMatchObject({
+      backend: "codex",
+      mode: "default",
+      askPermission: true,
+      codexPermissionMode: "auto-review",
+    });
+  });
+
   it("namespaces tree-group defaults keys separately from project paths", () => {
     expect(getTreeGroupNewSessionDefaultsKey(" team-alpha ")).toBe("tree-group:team-alpha");
     expect(getTreeGroupNewSessionDefaultsKey("")).toBe("");

@@ -63,7 +63,7 @@ function normalizeString(value: unknown): string {
 function normalizeCodexPermissionMode(
   value: unknown,
   backend: NewSessionBackend,
-  mode: string,
+  rawMode: string,
   askPermission: boolean,
 ): string {
   switch (value) {
@@ -74,8 +74,10 @@ function normalizeCodexPermissionMode(
     case "default":
       return "default";
     default:
-      if (backend === "codex" && (mode === "bypassPermissions" || askPermission === false)) return "full-access";
-      if (backend === "codex" && mode === "suggest") return "auto-review";
+      if (backend === "codex" && (rawMode === "suggest" || rawMode === "acceptEdits" || rawMode === "plan")) {
+        return "default";
+      }
+      if (backend === "codex" && (rawMode === "bypassPermissions" || askPermission === false)) return "full-access";
       return "default";
   }
 }
@@ -92,8 +94,9 @@ function normalizeDefaults(input: unknown): NewSessionDefaults | null {
   const raw = input as Record<string, unknown>;
   const backend = raw.backend === "codex" ? "codex" : "claude";
   const rawAskPermission = raw.askPermission !== false;
+  const rawMode = normalizeString(raw.mode);
   const mode = normalizeMode(backend, raw.mode, rawAskPermission);
-  const codexPermissionMode = normalizeCodexPermissionMode(raw.codexPermissionMode, backend, mode, rawAskPermission);
+  const codexPermissionMode = normalizeCodexPermissionMode(raw.codexPermissionMode, backend, rawMode, rawAskPermission);
   const askPermission =
     backend === "codex" ? codexPermissionMode !== "full-access" : deriveAskPermissionForMode("claude", mode);
   return {

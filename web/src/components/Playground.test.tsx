@@ -101,6 +101,18 @@ describe("Playground", () => {
     expect(appendToggle.compareDocumentPosition(appendRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
+  it("documents Composer backend-native permission selector states", () => {
+    render(<Playground />);
+
+    expect(screen.getByText("Claude permission selector menu")).toBeTruthy();
+    expect(screen.getByText("Codex permission change confirmation")).toBeTruthy();
+    expect(screen.getByTestId("composer-permission-mode-menu")).toHaveTextContent("Delegate");
+    expect(screen.getByTestId("composer-permission-mode-menu")).toHaveTextContent("Don't ask");
+    expect(screen.getByTestId("composer-permission-mode-popover")).toHaveTextContent(
+      "Change permissions to Full access?",
+    );
+  });
+
   it("documents leader thread routing and full Main activity", () => {
     render(<Playground />);
 
