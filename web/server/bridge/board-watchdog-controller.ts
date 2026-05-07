@@ -25,6 +25,15 @@ const REVIEW_BOARD_STALL_STAGES = new Set([
   "OUTCOME_REVIEWING",
   "GROOM_REVIEWING",
 ]);
+const WORKER_OWNED_BOARD_STAGES = new Set([
+  "PLANNING",
+  "EXPLORING",
+  "IMPLEMENTING",
+  "EXECUTING",
+  "USER_CHECKPOINTING",
+  "BOOKKEEPING",
+  "PORTING",
+]);
 
 type BoardStallStatus = "running" | "idle" | "disconnected" | "missing";
 
@@ -47,6 +56,12 @@ interface BoardDispatchableCandidate {
   title?: string;
   summary: string;
   action?: string;
+}
+
+interface LeaderWorkerCapacity {
+  rawSlotsUsed: number;
+  activeWorkerDemand: number;
+  limit: number;
 }
 
 export interface BoardWatchdogDeps {
@@ -1119,11 +1134,27 @@ function retireBoardDispatchState(session: SessionLike, questId: string, deps: B
   session.boardDispatchStates.delete(questId);
 }
 
+function formatFreeWorkerDispatchableSummary(questId: string, capacity: LeaderWorkerCapacity): string {
+  const activeUsage = `${capacity.activeWorkerDemand}/${capacity.limit}`;
+  const rawUsage = `${capacity.rawSlotsUsed}/${capacity.limit}`;
+  if (capacity.rawSlotsUsed >= capacity.limit) {
+    return `${questId} can be dispatched now: active worker-owned board demand is ${activeUsage}; raw worker slots show ${rawUsage} because reclaimable completed/off-board/review-only workers still occupy herd slots.`;
+  }
+  return `${questId} can be dispatched now: worker slots are available (${rawUsage} used; active worker-owned board demand ${activeUsage}).`;
+}
+
+function formatFreeWorkerDispatchableAction(capacity: LeaderWorkerCapacity): string {
+  if (capacity.rawSlotsUsed >= capacity.limit) {
+    return "Archive or reuse a reclaimable completed/off-board worker, then dispatch it or replace QUEUED with the next active Quest Journey phase.";
+  }
+  return "Dispatch it now or replace QUEUED with the next active Quest Journey phase.";
+}
+
 function getBlockedBoardDeps(session: SessionLike, row: BoardRow, deps: BoardWatchdogDeps): string[] {
   if (!isQueuedBoardRowStatus(row.status)) return [];
   const activeQuestIds = new Set(session.board.keys());
   const blocked: string[] = [];
-  const workerSlotsUsed = getLeaderWorkerSlotUsage(session.id, deps);
+  const workerCapacity = getLeaderWorkerCapacity(session, deps);
   for (const dep of row.waitFor ?? []) {
     switch (getWaitForRefKind(dep)) {
       case "session": {
@@ -1135,7 +1166,7 @@ function getBlockedBoardDeps(session: SessionLike, row: BoardRow, deps: BoardWat
         if (activeQuestIds.has(dep)) blocked.push(dep);
         break;
       case "free-worker":
-        if (workerSlotsUsed >= HERD_WORKER_SLOT_LIMIT) blocked.push(dep);
+        if (workerCapacity.activeWorkerDemand >= workerCapacity.limit) blocked.push(dep);
         break;
       default:
         blocked.push(dep);
@@ -1168,17 +1199,19 @@ function buildQueuedBoardWarning(
   if (blockedDeps.length > 0) return null;
 
   const labels = waitFor.map((dep) => formatWaitForRefLabel(dep));
-  const workerSlotsUsed = getLeaderWorkerSlotUsage(session.id, deps);
+  const workerCapacity = getLeaderWorkerCapacity(session, deps);
   const hasFreeWorkerWait = waitFor.some((dep) => getWaitForRefKind(dep) === "free-worker");
   const summary = hasFreeWorkerWait
-    ? `${row.questId} can be dispatched now: worker slots are available (${workerSlotsUsed}/${HERD_WORKER_SLOT_LIMIT} used).`
+    ? formatFreeWorkerDispatchableSummary(row.questId, workerCapacity)
     : `${row.questId} can be dispatched now: wait-for resolved (${labels.join(", ")}).`;
   return {
     questId: row.questId,
     title,
     kind: "dispatchable",
     summary,
-    action: "Dispatch it now or replace QUEUED with the next active Quest Journey phase.",
+    action: hasFreeWorkerWait
+      ? formatFreeWorkerDispatchableAction(workerCapacity)
+      : "Dispatch it now or replace QUEUED with the next active Quest Journey phase.",
   };
 }
 
@@ -1215,12 +1248,17 @@ function buildBoardDispatchableCandidate(
   if (!warning || warning.kind !== "dispatchable") return null;
   const waitFor = row.waitFor ?? [];
   if (waitFor.length === 0) return null;
+  const hasFreeWorkerWait = waitFor.some((dep) => getWaitForRefKind(dep) === "free-worker");
+  const workerCapacity = hasFreeWorkerWait ? getLeaderWorkerCapacity(session, deps) : null;
+  const capacitySignature = workerCapacity
+    ? `|free-worker-capacity:${workerCapacity.activeWorkerDemand}/${workerCapacity.rawSlotsUsed}/${workerCapacity.limit}`
+    : "";
 
   return {
     signature: `${row.questId}|dispatchable|${waitFor
       .map((dep) => dep.toLowerCase())
       .sort()
-      .join(",")}`,
+      .join(",")}${capacitySignature}`,
     questId: row.questId,
     title: row.title?.trim() || undefined,
     summary: warning.summary,
@@ -1246,15 +1284,7 @@ function buildBoardStallCandidate(
   const stalledSinceFrom = (...times: number[]) => Math.max(row.updatedAt, ...times, 0);
   const title = row.title?.trim() || undefined;
 
-  if (
-    stage === "PLANNING" ||
-    stage === "EXPLORING" ||
-    stage === "IMPLEMENTING" ||
-    stage === "EXECUTING" ||
-    stage === "USER_CHECKPOINTING" ||
-    stage === "BOOKKEEPING" ||
-    stage === "PORTING"
-  ) {
+  if (isActiveWorkerOwnedBoardRow(row)) {
     if (!workerSessionId || workerRuntime.hasActiveTimer || workerRuntime.status === "running") return null;
     return {
       signature: `${row.questId}|${stage}|${workerRuntime.status}`,
@@ -1344,6 +1374,27 @@ function resolveBoardReviewerSessionId(workerNum: number | undefined, deps: Boar
   if (workerNum === undefined) return undefined;
   return deps.listSessions().find((candidate: any) => candidate.reviewerOf === workerNum && !candidate.archived)
     ?.sessionId;
+}
+
+function getLeaderWorkerCapacity(session: SessionLike, deps: BoardWatchdogDeps): LeaderWorkerCapacity {
+  return {
+    rawSlotsUsed: getLeaderWorkerSlotUsage(session.id, deps),
+    activeWorkerDemand: getActiveWorkerOwnedBoardDemand(session),
+    limit: HERD_WORKER_SLOT_LIMIT,
+  };
+}
+
+function getActiveWorkerOwnedBoardDemand(session: SessionLike): number {
+  let activeRows = 0;
+  for (const row of session.board.values() as Iterable<BoardRow>) {
+    if (isActiveWorkerOwnedBoardRow(row)) activeRows += 1;
+  }
+  return activeRows;
+}
+
+function isActiveWorkerOwnedBoardRow(row: BoardRow): boolean {
+  const stage = (row.status || "").trim().toUpperCase();
+  return WORKER_OWNED_BOARD_STAGES.has(stage);
 }
 
 function getLeaderWorkerSlotUsage(sessionId: string, deps: BoardWatchdogDeps): number {

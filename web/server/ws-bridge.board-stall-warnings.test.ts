@@ -689,6 +689,39 @@ describe("board stall warnings", () => {
     return { leaderId, workerId, reviewerId, dispatcher, launcherSessions, leaderCli };
   }
 
+  function addLauncherWorker(
+    launcherSessions: Map<string, any>,
+    leaderId: string,
+    sessionId: string,
+    sessionNum: number,
+  ) {
+    launcherSessions.set(sessionId, {
+      sessionId,
+      sessionNum,
+      herdedBy: leaderId,
+      backendType: "codex",
+      cwd: "/repo",
+      lastActivityAt: Date.now(),
+    });
+  }
+
+  function addActiveWorkerBoardRow(
+    leaderId: string,
+    questId: string,
+    worker: string,
+    workerNum: number,
+    status = "IMPLEMENTING",
+  ) {
+    bridge.upsertBoardRow(leaderId, {
+      questId,
+      title: `Active worker row ${questId}`,
+      worker,
+      workerNum,
+      status,
+      updatedAt: Date.now() - 60_000,
+    });
+  }
+
   function setupCodexLeaderBoardStallHarness() {
     const leaderId = "orch-board-stall-codex";
     const workerId = "worker-board-stall-codex";
@@ -766,13 +799,11 @@ describe("board stall warnings", () => {
     expect(herdCalls[0][1]).toContain("board_stalled");
     expect(herdCalls[0][1]).toContain("q-1");
     expect(herdCalls[0][1]).toContain("worker disconnected");
+    const warnedAt = bridge.getSession(leaderId)?.boardStallStates.get("q-1")?.warnedAt;
 
     vi.advanceTimersByTime(120_000);
     await Promise.resolve();
-    const repeated = injectSpy.mock.calls.filter(
-      ([sessionId, _content, source]) => sessionId === leaderId && source?.sessionId === "herd-events",
-    );
-    expect(repeated).toHaveLength(1);
+    expect(bridge.getSession(leaderId)?.boardStallStates.get("q-1")?.warnedAt).toBe(warnedAt);
 
     injectSpy.mockRestore();
     dispatcher.destroy();
@@ -1170,8 +1201,8 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
-  it("emits a one-shot leader nudge when a completed quest normalizes a queued row to free-worker", async () => {
-    const { leaderId, dispatcher } = setupBoardStallHarness();
+  it("emits a one-shot leader nudge when a completed quest normalizes a queued row to reclaimable free-worker capacity", async () => {
+    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness();
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
     const leaderSession = (bridge as any).sessions.get(leaderId);
 
@@ -1180,6 +1211,10 @@ describe("board stall warnings", () => {
       message: { id: "leader-board-note", content: [{ type: "text", text: "Queued follow-up noted." }] },
       timestamp: Date.now(),
     });
+    addLauncherWorker(launcherSessions, leaderId, "worker-completed-extra-1", 4);
+    addLauncherWorker(launcherSessions, leaderId, "worker-completed-extra-2", 5);
+    addLauncherWorker(launcherSessions, leaderId, "worker-completed-extra-3", 6);
+    addLauncherWorker(launcherSessions, leaderId, "worker-completed-extra-4", 7);
 
     bridge.upsertBoardRow(leaderId, {
       questId: "q-2",
@@ -1200,7 +1235,8 @@ describe("board stall warnings", () => {
     expect(herdCalls).toHaveLength(0);
     expect(leaderSession.board.get("q-2")?.waitFor).toEqual(["free-worker"]);
     expect(leaderSession.attentionReason).toBe("action");
-    expect(leaderSession.notifications.at(-1)?.summary).toContain("worker slots are available");
+    expect(leaderSession.notifications.at(-1)?.summary).toContain("active worker-owned board demand is 0/5");
+    expect(leaderSession.notifications.at(-1)?.summary).toContain("raw worker slots show 5/5");
 
     vi.advanceTimersByTime(60_000);
     await Promise.resolve();
@@ -1345,7 +1381,7 @@ describe("board stall warnings", () => {
     dispatcher.destroy();
   });
 
-  it("creates a leader nudge for free-worker rows once capacity becomes available", async () => {
+  it("creates a leader nudge for free-worker rows when raw slots are full only because workers are reclaimable", async () => {
     const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness();
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
     const leaderSession = (bridge as any).sessions.get(leaderId);
@@ -1356,38 +1392,52 @@ describe("board stall warnings", () => {
       timestamp: Date.now(),
     });
 
-    launcherSessions.set("worker-extra-1", {
-      sessionId: "worker-extra-1",
-      sessionNum: 4,
-      herdedBy: leaderId,
-      backendType: "codex",
-      cwd: "/repo",
-      lastActivityAt: Date.now(),
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-1", 4);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-2", 5);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-3", 6);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-4", 7);
+
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-5",
+      title: "Free-worker-only row",
+      status: "QUEUED",
+      waitFor: ["free-worker"],
+      updatedAt: Date.now() - 60_000,
     });
-    launcherSessions.set("worker-extra-2", {
-      sessionId: "worker-extra-2",
-      sessionNum: 5,
-      herdedBy: leaderId,
-      backendType: "codex",
-      cwd: "/repo",
-      lastActivityAt: Date.now(),
-    });
-    launcherSessions.set("worker-extra-3", {
-      sessionId: "worker-extra-3",
-      sessionNum: 6,
-      herdedBy: leaderId,
-      backendType: "codex",
-      cwd: "/repo",
-      lastActivityAt: Date.now(),
-    });
-    launcherSessions.set("worker-extra-4", {
-      sessionId: "worker-extra-4",
-      sessionNum: 7,
-      herdedBy: leaderId,
-      backendType: "codex",
-      cwd: "/repo",
-      lastActivityAt: Date.now(),
-    });
+
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(31_000);
+    await Promise.resolve();
+
+    const dispatchNotif = leaderSession.notifications.find((notif: any) =>
+      notif.summary.includes("q-5 can be dispatched now"),
+    );
+    expect(dispatchNotif?.summary).toContain("active worker-owned board demand is 1/5");
+    expect(dispatchNotif?.summary).toContain("raw worker slots show 5/5");
+    expect(dispatchNotif?.summary).toContain("reclaimable completed/off-board/review-only workers");
+    expect(dispatchNotif?.done).toBe(false);
+    const herdCalls = injectSpy.mock.calls.filter(
+      ([sessionId, content, source]) =>
+        sessionId === leaderId && source?.sessionId === "herd-events" && String(content).includes("q-5"),
+    );
+    expect(herdCalls).toHaveLength(0);
+
+    injectSpy.mockRestore();
+    dispatcher.destroy();
+  });
+
+  it("keeps free-worker rows blocked when all worker slots are occupied by active board work", async () => {
+    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness();
+    const leaderSession = (bridge as any).sessions.get(leaderId);
+
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-1", 4);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-2", 5);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-3", 6);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-4", 7);
+    addActiveWorkerBoardRow(leaderId, "q-active-2", "worker-extra-1", 4);
+    addActiveWorkerBoardRow(leaderId, "q-active-3", "worker-extra-2", 5);
+    addActiveWorkerBoardRow(leaderId, "q-active-4", "worker-extra-3", 6);
+    addActiveWorkerBoardRow(leaderId, "q-active-5", "worker-extra-4", 7);
 
     bridge.upsertBoardRow(leaderId, {
       questId: "q-5",
@@ -1404,21 +1454,54 @@ describe("board stall warnings", () => {
     expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-5 can be dispatched now"))).toBe(
       false,
     );
+    expect(leaderSession.attentionReason).toBeNull();
 
-    launcherSessions.delete("worker-extra-4"); // 4/5 used now, so board output would read as dispatchable
+    dispatcher.destroy();
+  });
+
+  it("keeps mixed free-worker waits blocked until explicit quest dependencies resolve", async () => {
+    const { leaderId, dispatcher, launcherSessions } = setupBoardStallHarness();
+    const leaderSession = (bridge as any).sessions.get(leaderId);
+
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-1", 4);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-2", 5);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-3", 6);
+    addLauncherWorker(launcherSessions, leaderId, "worker-extra-4", 7);
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-7",
+      title: "Explicit dependency",
+      worker: "worker-extra-1",
+      workerNum: 4,
+      status: "IMPLEMENTING",
+      updatedAt: Date.now() - 60_000,
+    });
+    bridge.upsertBoardRow(leaderId, {
+      questId: "q-6",
+      title: "Mixed wait row",
+      status: "QUEUED",
+      waitFor: ["q-7", "free-worker"],
+      updatedAt: Date.now() - 60_000,
+    });
+
+    bridge.startStuckSessionWatchdog();
     vi.advanceTimersByTime(31_000);
     await Promise.resolve();
 
-    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-5 can be dispatched now"))).toBe(
-      true,
+    expect(leaderSession.notifications.some((notif: any) => notif.summary.includes("q-6 can be dispatched now"))).toBe(
+      false,
     );
-    const herdCalls = injectSpy.mock.calls.filter(
-      ([sessionId, content, source]) =>
-        sessionId === leaderId && source?.sessionId === "herd-events" && String(content).includes("q-5"),
-    );
-    expect(herdCalls).toHaveLength(0);
 
-    injectSpy.mockRestore();
+    bridge.removeBoardRows(leaderId, ["q-7"]);
+    vi.advanceTimersByTime(31_000);
+    await Promise.resolve();
+
+    const dispatchNotif = leaderSession.notifications.find((notif: any) =>
+      notif.summary.includes("q-6 can be dispatched now"),
+    );
+    expect(leaderSession.board.get("q-6")?.waitFor).toEqual(["free-worker"]);
+    expect(dispatchNotif?.summary).toContain("active worker-owned board demand is 1/5");
+    expect(dispatchNotif?.summary).toContain("raw worker slots show 5/5");
+
     dispatcher.destroy();
   });
 
@@ -1450,7 +1533,7 @@ describe("board stall warnings", () => {
     const injectSpy = vi.spyOn(bridge, "injectUserMessage");
 
     bridge.startStuckSessionWatchdog();
-    vi.advanceTimersByTime(181_000);
+    vi.advanceTimersByTime(61_000);
     await Promise.resolve();
 
     const herdCalls = injectSpy.mock.calls.filter(
