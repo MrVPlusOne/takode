@@ -5,6 +5,12 @@ import { useStore } from "../store.js";
 import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
 import { LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
 
+const PANEL_MARGIN = 12;
+const PANEL_GAP = 8;
+const PANEL_WIDTH = 300;
+const PANEL_MAX_HEIGHT = 520;
+const PANEL_MIN_HEIGHT = 180;
+
 interface LeaderProfilePortraitButtonProps {
   sessionId: string;
   portrait: LeaderProfilePortrait;
@@ -30,10 +36,19 @@ export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }
 
   const panelStyle = useMemo(() => {
     if (!anchor || typeof window === "undefined") return undefined;
-    const width = 300;
-    const left = Math.min(Math.max(12, anchor.left), Math.max(12, window.innerWidth - width - 12));
-    const top = Math.min(anchor.bottom + 8, Math.max(12, window.innerHeight - 420));
-    return { left, top, width } satisfies CSSProperties;
+    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const width = Math.min(PANEL_WIDTH, Math.max(0, viewportWidth - PANEL_MARGIN * 2));
+    const maxHeight = Math.min(PANEL_MAX_HEIGHT, Math.max(PANEL_MIN_HEIGHT, viewportHeight - PANEL_MARGIN * 2));
+    const left = Math.min(
+      Math.max(PANEL_MARGIN, anchor.left),
+      Math.max(PANEL_MARGIN, viewportWidth - width - PANEL_MARGIN),
+    );
+    const top = Math.min(
+      Math.max(PANEL_MARGIN, anchor.bottom + PANEL_GAP),
+      Math.max(PANEL_MARGIN, viewportHeight - maxHeight - PANEL_MARGIN),
+    );
+    return { left, top, width, maxHeight } satisfies CSSProperties;
   }, [anchor]);
 
   async function selectPortrait(next: LeaderProfilePortrait) {
@@ -94,11 +109,11 @@ export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }
               <div
                 role="dialog"
                 aria-label="Leader profile"
-                className="absolute rounded-xl border border-cc-border bg-cc-card p-3 shadow-xl"
+                className="absolute flex flex-col overflow-hidden rounded-xl border border-cc-border bg-cc-card p-3 shadow-xl"
                 style={panelStyle}
                 onClick={(event) => event.stopPropagation()}
               >
-                <div className="flex items-start gap-3">
+                <div className="flex shrink-0 items-start gap-3">
                   <img
                     src={portrait.largeUrl}
                     alt={portrait.label}
@@ -116,25 +131,29 @@ export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }
                     Close
                   </button>
                 </div>
-                <div className="mt-3 grid grid-cols-6 gap-1.5">
-                  {LEADER_PROFILE_PORTRAITS.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      disabled={savingId !== null}
-                      onClick={() => selectPortrait(option)}
-                      className={`rounded-full p-0.5 transition ${
-                        option.id === portrait.id
-                          ? "ring-2 ring-cc-primary"
-                          : "ring-1 ring-cc-border/70 hover:ring-cc-primary/70"
-                      } ${savingId === option.id ? "opacity-60" : ""}`}
-                      title={option.label}
-                    >
-                      <img src={option.smallUrl} alt={option.label} className="h-9 w-9 rounded-full object-cover" />
-                    </button>
-                  ))}
+                <div data-testid="leader-profile-portrait-grid-scroll" className="mt-3 min-h-0 overflow-y-auto pr-1">
+                  <div className="grid grid-cols-6 gap-1.5">
+                    {LEADER_PROFILE_PORTRAITS.map((option) => (
+                      <button
+                        key={option.id}
+                        type="button"
+                        disabled={savingId !== null}
+                        onClick={() => selectPortrait(option)}
+                        className={`rounded-full p-0.5 transition ${
+                          option.id === portrait.id
+                            ? "ring-2 ring-cc-primary"
+                            : "ring-1 ring-cc-border/70 hover:ring-cc-primary/70"
+                        } ${savingId === option.id ? "opacity-60" : ""}`}
+                        title={option.label}
+                      >
+                        <img src={option.smallUrl} alt={option.label} className="h-9 w-9 rounded-full object-cover" />
+                      </button>
+                    ))}
+                  </div>
                 </div>
-                {error && <div className="mt-3 rounded-lg bg-cc-error/10 px-3 py-2 text-xs text-cc-error">{error}</div>}
+                {error && (
+                  <div className="mt-3 shrink-0 rounded-lg bg-cc-error/10 px-3 py-2 text-xs text-cc-error">{error}</div>
+                )}
               </div>
             </div>,
             document.body,

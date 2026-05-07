@@ -49,6 +49,7 @@ vi.mock("../utils/routing.js", () => ({
 }));
 
 import { SessionItem } from "./SessionItem.js";
+import { api } from "../api.js";
 import { LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
 
 const TAKO_PORTRAIT = LEADER_PROFILE_PORTRAITS[0];
@@ -56,6 +57,7 @@ const SHMI_PORTRAIT = LEADER_PROFILE_PORTRAITS.find((portrait) => portrait.poolI
 
 beforeEach(() => {
   mockStoreState.updateSdkSession.mockClear();
+  vi.mocked(api.updateLeaderProfilePortrait).mockClear();
 });
 
 function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType {
@@ -446,6 +448,51 @@ describe("SessionItem leader profiles", () => {
         expect.objectContaining({ leaderProfilePortraitId: SHMI_PORTRAIT.id }),
       );
     });
+  });
+
+  it("keeps all 96 portrait options selectable from a constrained viewport", async () => {
+    const originalInnerWidth = window.innerWidth;
+    const originalInnerHeight = window.innerHeight;
+    window.innerWidth = 430;
+    window.innerHeight = 640;
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockReturnValue({
+      x: 36,
+      y: 600,
+      width: 20,
+      height: 20,
+      top: 600,
+      right: 56,
+      bottom: 620,
+      left: 36,
+      toJSON: () => ({}),
+    });
+
+    try {
+      renderSessionItem({
+        session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
+      });
+
+      fireEvent.click(screen.getByRole("button", { name: /open tako 1\.1 profile/i }));
+
+      const dialog = screen.getByRole("dialog", { name: "Leader profile" });
+      expect(dialog).toHaveStyle({ top: "108px", width: "300px", maxHeight: "520px" });
+      expect(screen.getByTestId("leader-profile-portrait-grid-scroll")).toHaveClass("min-h-0", "overflow-y-auto");
+      expect(LEADER_PROFILE_PORTRAITS).toHaveLength(96);
+
+      const lastPortrait = LEADER_PROFILE_PORTRAITS[LEADER_PROFILE_PORTRAITS.length - 1];
+      fireEvent.click(screen.getByRole("button", { name: lastPortrait.label }));
+
+      await waitFor(() => {
+        expect(mockStoreState.updateSdkSession).toHaveBeenCalledWith(
+          "s1",
+          expect.objectContaining({ leaderProfilePortraitId: lastPortrait.id }),
+        );
+      });
+    } finally {
+      rectSpy.mockRestore();
+      window.innerWidth = originalInnerWidth;
+      window.innerHeight = originalInnerHeight;
+    }
   });
 });
 
