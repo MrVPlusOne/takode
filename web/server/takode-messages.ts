@@ -10,6 +10,8 @@ import type { BrowserIncomingMessage, CLIResultMessage, ContentBlock, ToolResult
 import type { ImageRef } from "./image-store.js";
 import { deriveAttachmentPaths } from "./attachment-paths.js";
 import { TAKODE_PEEK_CONTENT_LIMIT } from "../shared/takode-constants.js";
+import { isSystemSourceTag } from "./bridge/adapter-browser-routing-source-tags.js";
+import { isCompactionRecoveryPrompt } from "./compaction-recovery-prompts.js";
 
 // ─── Peek Response Types ──────────────────────────────────────────────────────
 
@@ -46,10 +48,14 @@ export interface TakodePeekMessage {
   success?: boolean;
   /** Source of the message if injected programmatically (user_message only) */
   agent?: { sessionId: string; sessionLabel?: string };
+  /** Known injected template type, normalized from stored source metadata. */
+  injectedTemplate?: TakodeInjectedTemplate;
   /** Disk paths of images attached to this message (user_message only).
    *  Points to the full-quality original files in ~/.companion/images/. */
   images?: string[];
 }
+
+export type TakodeInjectedTemplate = "compaction_recovery";
 
 export interface TakodePeekTurn {
   turn: number;
@@ -82,6 +88,8 @@ export interface TakodePeekTurnSummary {
   user: string;
   /** Source of the user message if injected programmatically */
   agent?: { sessionId: string; sessionLabel?: string };
+  /** Known injected template type for the user message that started this turn. */
+  injectedTemplate?: TakodeInjectedTemplate;
 }
 
 /** A compaction event that occurred between turns (or before the first turn). */
@@ -574,6 +582,13 @@ function isPeekable(msg: BrowserIncomingMessage): boolean {
   return PEEKABLE_TYPES.has(msg.type);
 }
 
+function injectedTemplateForMessage(msg: BrowserIncomingMessage): TakodeInjectedTemplate | undefined {
+  if (msg.type !== "user_message") return undefined;
+  if (!isSystemSourceTag(msg.agentSource)) return undefined;
+  if (isCompactionRecoveryPrompt(msg.content || "")) return "compaction_recovery";
+  return undefined;
+}
+
 /** Map message type to the simplified peek type. */
 function toPeekType(type: string): "user" | "assistant" | "result" | "system" {
   if (type === "user_message") return "user";
@@ -762,6 +777,10 @@ function buildTurnMessages(
     if (msg.type === "user_message" && (msg as any).agentSource) {
       peekMsg.agent = (msg as any).agentSource;
     }
+    const injectedTemplate = injectedTemplateForMessage(msg);
+    if (injectedTemplate) {
+      peekMsg.injectedTemplate = injectedTemplate;
+    }
 
     // Include image file paths for user messages with attached images
     if (sessionId) {
@@ -915,6 +934,7 @@ export function buildPeekDefault(
       subagentToolUseIds,
       toolResultPreviews,
     });
+    const injectedTemplate = injectedTemplateForMessage(startMsg);
 
     // User preview
     const userPreview = startMsg.type === "user_message" ? truncate(startMsg.content || "", 80) : "";
@@ -931,6 +951,7 @@ export function buildPeekDefault(
       result: resultPreview,
       user: userPreview,
       ...((startMsg as any).agentSource ? { agent: (startMsg as any).agentSource } : {}),
+      ...(injectedTemplate ? { injectedTemplate } : {}),
     };
   });
 
@@ -1082,6 +1103,10 @@ export function buildPeekRange(
     // Include agent source for user messages (identifies human vs agent vs herd origin)
     if (msg.type === "user_message" && (msg as any).agentSource) {
       peekMsg.agent = (msg as any).agentSource;
+    }
+    const injectedTemplate = injectedTemplateForMessage(msg);
+    if (injectedTemplate) {
+      peekMsg.injectedTemplate = injectedTemplate;
     }
 
     // Include image file paths for user messages with attached images
@@ -1296,6 +1321,7 @@ export function buildPeekTurnScan(
       subagentToolUseIds,
       toolResultPreviews,
     });
+    const injectedTemplate = injectedTemplateForMessage(startMsg);
     // Preserve the raw turn-start user text for scan mode so the CLI can apply
     // its own source-aware truncation policy. An eager server-side 80-char
     // clamp defeats the larger human-user window on `takode scan`.
@@ -1313,6 +1339,7 @@ export function buildPeekTurnScan(
       result: resultPreview,
       user: userPreview,
       ...((startMsg as any).agentSource ? { agent: (startMsg as any).agentSource } : {}),
+      ...(injectedTemplate ? { injectedTemplate } : {}),
     };
   });
 

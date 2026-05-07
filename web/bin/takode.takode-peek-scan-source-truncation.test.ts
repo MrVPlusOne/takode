@@ -4,7 +4,8 @@ import { createServer } from "node:http";
 import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { buildPeekTurnScan } from "../server/takode-messages.ts";
+import { getCompactionRecoveryPrompt } from "../server/compaction-recovery-prompts.ts";
+import { buildPeekRange, buildPeekTurnScan } from "../server/takode-messages.ts";
 
 async function runTakode(
   args: string[],
@@ -52,6 +53,148 @@ function makeWindowedContent(
 }
 
 describe("takode peek/scan source-aware truncation", () => {
+  it("summarizes injected compaction recovery prompts in compact scan and peek output only", async () => {
+    // Regression coverage for compact views: injected recovery prompts should
+    // collapse to a template summary, while other long system-sourced messages
+    // keep the normal agent-message window and full JSON read access remains.
+    const prompt = getCompactionRecoveryPrompt("standard", "153");
+    const ordinarySystemContent = makeLongContent("ordinary-system ", 100, "ORDINARY_SYSTEM_KEEP");
+    const now = Date.now();
+    const history = [
+      {
+        type: "user_message",
+        content: prompt,
+        timestamp: now - 80_000,
+        agentSource: { sessionId: "system", sessionLabel: "System" },
+      },
+      {
+        type: "assistant",
+        timestamp: now - 70_000,
+        message: { content: [{ type: "text", text: "recovered" }] },
+      },
+      {
+        type: "result",
+        timestamp: now - 60_000,
+        data: { duration_ms: 20_000, is_error: false, result: "recovered" },
+      },
+      {
+        type: "user_message",
+        content: ordinarySystemContent,
+        timestamp: now - 50_000,
+        agentSource: { sessionId: "system", sessionLabel: "System" },
+      },
+      {
+        type: "assistant",
+        timestamp: now - 40_000,
+        message: { content: [{ type: "text", text: "ordinary system message handled" }] },
+      },
+      {
+        type: "result",
+        timestamp: now - 30_000,
+        data: { duration_ms: 20_000, is_error: false, result: "ordinary system message handled" },
+      },
+    ] as any[];
+
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-injected-compaction", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=2") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Injected Compaction Worker",
+            status: "idle",
+            quest: null,
+            ...buildPeekTurnScan(history, { fromTurn: 0, turnCount: 2 }),
+          }),
+        );
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?count=2&from=0") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Injected Compaction Worker",
+            status: "idle",
+            quest: null,
+            ...buildPeekRange(history, { from: 0, count: 2 }),
+          }),
+        );
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages/0") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            idx: 0,
+            type: "user_message",
+            ts: now - 80_000,
+            totalLines: prompt.split("\n").length,
+            offset: 0,
+            limit: 200,
+            content: prompt,
+            rawMessage: {
+              type: "user_message",
+              content: prompt,
+              timestamp: now - 80_000,
+              agentSource: { sessionId: "system", sessionLabel: "System" },
+            },
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const env = {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-injected-compaction",
+        COMPANION_AUTH_TOKEN: "auth-injected-compaction",
+      };
+      const scanResult = await runTakode(["scan", "153", "--from", "0", "--count", "2", "--port", String(port)], env);
+      const peekResult = await runTakode(["peek", "153", "--from", "0", "--count", "2", "--port", String(port)], env);
+      const readJsonResult = await runTakode(["read", "153", "0", "--json", "--port", String(port)], env);
+
+      expect(scanResult.status).toBe(0);
+      expect(scanResult.stdout).toContain("agent System:");
+      expect(scanResult.stdout).toContain("[injected compaction recovery]");
+      expect(scanResult.stdout).toContain("Context was compacted. Before continuing");
+      expect(scanResult.stdout).not.toContain("memory catalog show");
+      expect(scanResult.stdout).toContain("ORDINARY_SYSTEM_KEEP");
+      expect(scanResult.stdout).not.toContain("ordinary-system [injected compaction recovery]");
+
+      expect(peekResult.status).toBe(0);
+      expect(peekResult.stdout).toContain("[injected compaction recovery]");
+      expect(peekResult.stdout).not.toContain("memory catalog show");
+
+      expect(readJsonResult.status).toBe(0);
+      expect(readJsonResult.stdout).toContain("memory catalog show");
+      expect(readJsonResult.stdout).toContain("takode read 153");
+    } finally {
+      server.close();
+    }
+  });
+
   it("gives scan human user prompts a generous window while keeping herd prompts aggressive", async () => {
     const userContent = makeWindowedContent("human-summary ", 1880, "USER_SCAN_KEEP", 220, "USER_SCAN_HIDE");
     const herdContent = makeLongContent("herd-summary ", 180, "HERD_SCAN_HIDE");

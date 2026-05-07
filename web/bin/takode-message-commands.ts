@@ -40,10 +40,14 @@ function truncate(s: string, max: number): string {
 
 type TakodeMessageSourceLike = {
   agent?: { sessionId: string; sessionLabel?: string };
+  injectedTemplate?: TakodeInjectedTemplate;
 };
 
 type TakodeUserMessageSourceKind = "user" | "herd" | "agent";
 type TakodeUserContentSurface = "scan" | "peek" | "read";
+type TakodeInjectedTemplate = "compaction_recovery";
+
+const TAKODE_COMPACTION_RECOVERY_SUMMARY_LIMIT = 140;
 
 const TAKODE_SCAN_USER_CONTENT_LIMITS: Record<TakodeUserMessageSourceKind, number> = {
   user: 2000,
@@ -83,11 +87,27 @@ function takodeUserContentLimits(surface: TakodeUserContentSurface): Record<Tako
   return TAKODE_READ_USER_CONTENT_LIMITS;
 }
 
+function firstLineSummary(content: string): string {
+  return content.split(/\r?\n/, 1)[0]?.trim() || "Context was compacted.";
+}
+
+function formatInjectedTemplateContent(
+  content: string,
+  template: TakodeInjectedTemplate | undefined,
+  surface: TakodeUserContentSurface,
+): string | null {
+  if (surface === "read" || template !== "compaction_recovery") return null;
+  const summary = firstLineSummary(content);
+  return `${formatQuotedContent(summary, TAKODE_COMPACTION_RECOVERY_SUMMARY_LIMIT)} [injected compaction recovery]`;
+}
+
 function formatTakodeUserContent(
   content: string,
   msg: TakodeMessageSourceLike,
   surface: TakodeUserContentSurface,
 ): string {
+  const injected = formatInjectedTemplateContent(content, msg.injectedTemplate, surface);
+  if (injected) return injected;
   const limits = takodeUserContentLimits(surface);
   return formatQuotedContent(content, limits[takodeUserMessageSourceKind(msg)]);
 }
@@ -180,6 +200,7 @@ type PeekMessage = {
   dur?: number;
   success?: boolean;
   agent?: { sessionId: string; sessionLabel?: string };
+  injectedTemplate?: TakodeInjectedTemplate;
 };
 
 type CollapsedTurn = {
@@ -194,6 +215,7 @@ type CollapsedTurn = {
   result: string;
   user: string;
   agent?: { sessionId: string; sessionLabel?: string };
+  injectedTemplate?: TakodeInjectedTemplate;
 };
 
 type PeekDefaultResponse = {
