@@ -9,6 +9,7 @@ import {
   normalizeLeaderProfilePortraitId,
   normalizeLeaderProfilePoolSettings,
 } from "./leader-profile-portraits.js";
+import { validateLeaderProfilePortraitAssets } from "../scripts/generate-leader-profile-portraits.js";
 
 describe("leader profile portrait metadata", () => {
   it("defaults both built-in pools on and filters enabled pools", () => {
@@ -35,5 +36,22 @@ describe("leader profile portrait metadata", () => {
   it("maps obsolete sheet-level ids to individual generated portraits", () => {
     expect(normalizeLeaderProfilePortraitId("shmi3")).toBe("shmi3-01");
     expect(getLeaderProfilePortrait("shmi3")).toMatchObject({ id: "shmi3-01", poolId: "shmi" });
+  });
+
+  it("keeps generated round assets mechanically centered", async () => {
+    const validation = await validateLeaderProfilePortraitAssets(
+      LEADER_PROFILE_PORTRAITS,
+      FALLBACK_LEADER_PROFILE_PORTRAIT,
+    );
+    const portraitOffsets = validation
+      .filter((asset) => asset.poolId !== "fallback")
+      .flatMap((asset) => [
+        Math.abs(asset.small.visualCenterOffsetX),
+        Math.abs(asset.small.visualCenterOffsetY),
+        Math.abs(asset.large.visualCenterOffsetX),
+        Math.abs(asset.large.visualCenterOffsetY),
+      ]);
+
+    expect(Math.max(...portraitOffsets)).toBeLessThanOrEqual(0.24);
   });
 });

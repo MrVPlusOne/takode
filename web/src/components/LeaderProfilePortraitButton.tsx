@@ -3,7 +3,7 @@ import { createPortal } from "react-dom";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
-import { LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
+import { LEADER_PROFILE_POOLS, LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
 
 const PANEL_MARGIN = 12;
 const PANEL_GAP = 8;
@@ -24,6 +24,19 @@ export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }
   const [error, setError] = useState("");
   const [anchor, setAnchor] = useState<DOMRect | null>(null);
   const updateSdkSession = useStore((state) => state.updateSdkSession);
+  const portraitGroups = useMemo(() => {
+    const orderedPools = [...LEADER_PROFILE_POOLS].sort((left, right) => {
+      if (left.id === portrait.poolId) return -1;
+      if (right.id === portrait.poolId) return 1;
+      return 0;
+    });
+    return orderedPools
+      .map((pool) => ({
+        pool,
+        portraits: LEADER_PROFILE_PORTRAITS.filter((option) => option.poolId === pool.id),
+      }))
+      .filter((group) => group.portraits.length > 0);
+  }, [portrait.poolId]);
 
   useEffect(() => {
     if (!open) return;
@@ -132,22 +145,38 @@ export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }
                   </button>
                 </div>
                 <div data-testid="leader-profile-portrait-grid-scroll" className="mt-3 min-h-0 overflow-y-auto pr-1">
-                  <div className="grid grid-cols-6 gap-1.5">
-                    {LEADER_PROFILE_PORTRAITS.map((option) => (
-                      <button
-                        key={option.id}
-                        type="button"
-                        disabled={savingId !== null}
-                        onClick={() => selectPortrait(option)}
-                        className={`rounded-full p-0.5 transition ${
-                          option.id === portrait.id
-                            ? "ring-2 ring-cc-primary"
-                            : "ring-1 ring-cc-border/70 hover:ring-cc-primary/70"
-                        } ${savingId === option.id ? "opacity-60" : ""}`}
-                        title={option.label}
-                      >
-                        <img src={option.smallUrl} alt={option.label} className="h-9 w-9 rounded-full object-cover" />
-                      </button>
+                  <div className="space-y-3">
+                    {portraitGroups.map(({ pool, portraits }) => (
+                      <section key={pool.id} aria-labelledby={`leader-profile-pool-${pool.id}`}>
+                        <div
+                          id={`leader-profile-pool-${pool.id}`}
+                          className="mb-1.5 text-xs font-semibold text-cc-muted"
+                        >
+                          {pool.label}
+                        </div>
+                        <div className="grid grid-cols-6 gap-1.5">
+                          {portraits.map((option) => (
+                            <button
+                              key={option.id}
+                              type="button"
+                              disabled={savingId !== null}
+                              onClick={() => selectPortrait(option)}
+                              className={`rounded-full p-0.5 transition ${
+                                option.id === portrait.id
+                                  ? "ring-2 ring-cc-primary"
+                                  : "ring-1 ring-cc-border/70 hover:ring-cc-primary/70"
+                              } ${savingId === option.id ? "opacity-60" : ""}`}
+                              title={option.label}
+                            >
+                              <img
+                                src={option.smallUrl}
+                                alt={option.label}
+                                className="h-9 w-9 rounded-full object-cover"
+                              />
+                            </button>
+                          ))}
+                        </div>
+                      </section>
                     ))}
                   </div>
                 </div>

@@ -1,9 +1,10 @@
 import { mkdir, readdir, rm, stat, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import sharp, { type OverlayOptions } from "sharp";
 import type { LeaderProfilePoolId, LeaderProfilePortrait } from "../shared/leader-profile-portraits.js";
 
-const PROJECT_ROOT = resolve(import.meta.dir, "..");
+const PROJECT_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const ASSET_ROOT = join(PROJECT_ROOT, "public", "leader-profile-portraits");
 const GENERATED_METADATA_PATH = join(PROJECT_ROOT, "shared", "leader-profile-portraits.generated.ts");
 const VALIDATION_ROOT = "/tmp/takode-leader-profile-portrait-validation";
@@ -11,6 +12,11 @@ const VALIDATION_MANIFEST_PATH = join(VALIDATION_ROOT, "leader-profile-portrait-
 const CONTACT_SHEET_PATH = join(VALIDATION_ROOT, "leader-profile-contact-sheet.png");
 const GRID_SIZE = 4;
 const ASSET_VERSION = "v2";
+const ANALYSIS_SIZE = 128;
+const CROP_PADDING_RATIO = 0.18;
+const MIN_CROP_RATIO = 0.78;
+const MAX_CROP_RATIO = 0.93;
+const SOURCE_ALPHA_THRESHOLD = 8;
 const VARIANTS = [
   { name: "small", size: 96 },
   { name: "large", size: 320 },
@@ -28,8 +34,16 @@ interface ValidationVariant {
   bytes: number;
   cornerAlphaMax: number;
   centerAlpha: number;
+  visualCenterOffsetX: number;
+  visualCenterOffsetY: number;
   transparentRatio: number;
   opaqueRatio: number;
+}
+
+interface PortraitCrop {
+  sourceLeft: number;
+  sourceTop: number;
+  sourceSize: number;
 }
 
 interface ValidationAsset {
@@ -77,8 +91,10 @@ export async function generateLeaderProfilePortraitAssets(): Promise<GenerationR
         const cellNumber = row * GRID_SIZE + column + 1;
         const id = `${sheetBaseName}-${String(cellNumber).padStart(2, "0")}`;
         const label = `${titleCase(sheet.poolId)} ${sheetBaseName.replace(/^[a-z]+/, "")}.${cellNumber}`;
-        const small = await writePortraitVariant(sheet, id, width, row, column, VARIANTS[0].size);
-        const large = await writePortraitVariant(sheet, id, width, row, column, VARIANTS[1].size);
+        const cellBounds = gridCellBounds(width, row, column);
+        const crop = await computeCenteredPortraitCrop(sheet.sourcePath, cellBounds);
+        const small = await writePortraitVariant(sheet, id, cellBounds, crop, VARIANTS[0].size);
+        const large = await writePortraitVariant(sheet, id, cellBounds, crop, VARIANTS[1].size);
         portraits.push({
           id,
           poolId: sheet.poolId,
@@ -114,12 +130,13 @@ export async function validateLeaderProfilePortraitAssets(
 ): Promise<ValidationAsset[]> {
   const assets: ValidationAsset[] = [];
   for (const portrait of [...portraits, fallback]) {
+    const validateVisualCenter = portrait.poolId !== "fallback";
     assets.push({
       id: portrait.id,
       poolId: portrait.poolId,
       label: portrait.label,
-      small: await validateVariant(portrait.smallUrl, portrait.smallSize, portrait.smallBytes),
-      large: await validateVariant(portrait.largeUrl, portrait.largeSize, portrait.largeBytes),
+      small: await validateVariant(portrait.smallUrl, portrait.smallSize, portrait.smallBytes, validateVisualCenter),
+      large: await validateVariant(portrait.largeUrl, portrait.largeSize, portrait.largeBytes, validateVisualCenter),
     });
   }
   return assets;
@@ -141,17 +158,25 @@ function requirePositiveDimension(value: number | undefined, path: string, dimen
 async function writePortraitVariant(
   sheet: PortraitSheet,
   id: string,
-  sheetSize: number,
-  row: number,
-  column: number,
+  cellBounds: { left: number; top: number; width: number; height: number },
+  crop: PortraitCrop,
   size: number,
 ): Promise<{ url: string; bytes: number }> {
   const relativePath = join(sheet.poolId, `${id}.${ASSET_VERSION}.${size}.webp`);
   const outputPath = join(ASSET_ROOT, relativePath);
-  const bounds = gridCellBounds(sheetSize, row, column);
+  const padding = Math.round(Math.max(cellBounds.width, cellBounds.height) * CROP_PADDING_RATIO);
   await mkdir(join(ASSET_ROOT, sheet.poolId), { recursive: true });
-  await sharp(sheet.sourcePath)
-    .extract(bounds)
+  const extendedCell = await sharp(sheet.sourcePath)
+    .extract(cellBounds)
+    .extend({ top: padding, right: padding, bottom: padding, left: padding, extendWith: "mirror" })
+    .toBuffer();
+  await sharp(extendedCell)
+    .extract({
+      left: crop.sourceLeft + padding,
+      top: crop.sourceTop + padding,
+      width: crop.sourceSize,
+      height: crop.sourceSize,
+    })
     .resize(size, size, { fit: "cover" })
     .composite([{ input: circleMask(size), blend: "dest-in" }])
     .webp({ quality: 84, alphaQuality: 100, effort: 5 })
@@ -173,6 +198,165 @@ function gridCellBounds(
 
 function gridBoundary(sheetSize: number, index: number): number {
   return Math.round((sheetSize * index) / GRID_SIZE);
+}
+
+async function computeCenteredPortraitCrop(
+  sourcePath: string,
+  cellBounds: { left: number; top: number; width: number; height: number },
+): Promise<PortraitCrop> {
+  const { data, info } = await sharp(sourcePath)
+    .extract(cellBounds)
+    .resize(ANALYSIS_SIZE, ANALYSIS_SIZE, { fit: "fill" })
+    .ensureAlpha()
+    .raw()
+    .toBuffer({ resolveWithObject: true });
+  const content = analyzePortraitContent(data, info.width, info.height);
+  const scaleX = cellBounds.width / info.width;
+  const scaleY = cellBounds.height / info.height;
+  const contentCenterX = content.centerX * scaleX;
+  const contentCenterY = content.centerY * scaleY;
+  const contentWidth = Math.max(1, (content.maxX - content.minX + 1) * scaleX);
+  const contentHeight = Math.max(1, (content.maxY - content.minY + 1) * scaleY);
+  const maxCellSize = Math.max(cellBounds.width, cellBounds.height);
+  const cropSize = Math.round(
+    clamp(Math.max(contentWidth, contentHeight) * 1.28, maxCellSize * MIN_CROP_RATIO, maxCellSize * MAX_CROP_RATIO),
+  );
+  const padding = Math.round(maxCellSize * CROP_PADDING_RATIO);
+  return {
+    sourceLeft: Math.round(clamp(contentCenterX - cropSize / 2, -padding, cellBounds.width + padding - cropSize)),
+    sourceTop: Math.round(clamp(contentCenterY - cropSize / 2, -padding, cellBounds.height + padding - cropSize)),
+    sourceSize: cropSize,
+  };
+}
+
+function analyzePortraitContent(
+  raw: Buffer,
+  width: number,
+  height: number,
+): { centerX: number; centerY: number; minX: number; minY: number; maxX: number; maxY: number } {
+  const gray = grayscale(raw, width, height);
+  const background = estimateBackgroundColor(raw, width, height);
+  const scoredPixels = scorePortraitPixels(raw, gray, width, height, background);
+  const maxScore = Math.max(...scoredPixels.map((pixel) => pixel.score), 0);
+  const threshold = maxScore * 0.38;
+  let totalWeight = 0;
+  let weightedX = 0;
+  let weightedY = 0;
+  let minX = width;
+  let minY = height;
+  let maxX = 0;
+  let maxY = 0;
+
+  for (const pixel of scoredPixels) {
+    const weight = Math.max(0, pixel.score - threshold);
+    if (weight <= 0) continue;
+    totalWeight += weight;
+    weightedX += pixel.x * weight;
+    weightedY += pixel.y * weight;
+    minX = Math.min(minX, pixel.x);
+    minY = Math.min(minY, pixel.y);
+    maxX = Math.max(maxX, pixel.x);
+    maxY = Math.max(maxY, pixel.y);
+  }
+
+  if (totalWeight === 0) {
+    return { centerX: width / 2, centerY: height / 2, minX: 0, minY: 0, maxX: width - 1, maxY: height - 1 };
+  }
+
+  const weightedCenterX = weightedX / totalWeight;
+  const weightedCenterY = weightedY / totalWeight;
+  const boundsCenterX = (minX + maxX) / 2;
+  const boundsCenterY = (minY + maxY) / 2;
+  return {
+    centerX: weightedCenterX * 0.35 + boundsCenterX * 0.65,
+    centerY: weightedCenterY * 0.35 + boundsCenterY * 0.65,
+    minX,
+    minY,
+    maxX,
+    maxY,
+  };
+}
+
+function scorePortraitPixels(
+  raw: Buffer,
+  gray: Float32Array,
+  width: number,
+  height: number,
+  background: [number, number, number],
+): Array<{ x: number; y: number; score: number }> {
+  const pixels: Array<{ x: number; y: number; score: number }> = [];
+  const margin = Math.max(2, Math.round(Math.min(width, height) * 0.04));
+  for (let y = 1; y < height - 1; y += 1) {
+    for (let x = 1; x < width - 1; x += 1) {
+      if (x < margin || y < margin || x >= width - margin || y >= height - margin) continue;
+      const index = (y * width + x) * 4;
+      if (raw[index + 3] <= SOURCE_ALPHA_THRESHOLD) continue;
+      const luminance = gray[y * width + x];
+      pixels.push({
+        x,
+        y,
+        score:
+          colorDistance(raw, index, background) * 0.9 +
+          edgeMagnitude(gray, width, x, y) * 0.5 +
+          Math.max(0, 210 - luminance) * 0.25,
+      });
+    }
+  }
+  return pixels;
+}
+
+function grayscale(raw: Buffer, width: number, height: number): Float32Array {
+  const gray = new Float32Array(width * height);
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      const index = (y * width + x) * 4;
+      gray[y * width + x] = raw[index] * 0.299 + raw[index + 1] * 0.587 + raw[index + 2] * 0.114;
+    }
+  }
+  return gray;
+}
+
+function estimateBackgroundColor(raw: Buffer, width: number, height: number): [number, number, number] {
+  const borderSize = Math.max(4, Math.round(Math.min(width, height) * 0.1));
+  const red: number[] = [];
+  const green: number[] = [];
+  const blue: number[] = [];
+  for (let y = 0; y < height; y += 1) {
+    for (let x = 0; x < width; x += 1) {
+      if (x >= borderSize && y >= borderSize && x < width - borderSize && y < height - borderSize) continue;
+      const index = (y * width + x) * 4;
+      if (raw[index + 3] <= SOURCE_ALPHA_THRESHOLD) continue;
+      red.push(raw[index]);
+      green.push(raw[index + 1]);
+      blue.push(raw[index + 2]);
+    }
+  }
+  return [median(red), median(green), median(blue)];
+}
+
+function colorDistance(raw: Buffer, index: number, background: [number, number, number]): number {
+  return Math.hypot(raw[index] - background[0], raw[index + 1] - background[1], raw[index + 2] - background[2]);
+}
+
+function edgeMagnitude(gray: Float32Array, width: number, x: number, y: number): number {
+  const top = (y - 1) * width;
+  const middle = y * width;
+  const bottom = (y + 1) * width;
+  const gx =
+    -gray[top + x - 1] +
+    gray[top + x + 1] -
+    2 * gray[middle + x - 1] +
+    2 * gray[middle + x + 1] -
+    gray[bottom + x - 1] +
+    gray[bottom + x + 1];
+  const gy =
+    -gray[top + x - 1] -
+    2 * gray[top + x] -
+    gray[top + x + 1] +
+    gray[bottom + x - 1] +
+    2 * gray[bottom + x] +
+    gray[bottom + x + 1];
+  return Math.hypot(gx, gy);
 }
 
 async function writeFallbackPortrait(): Promise<LeaderProfilePortrait> {
@@ -232,7 +416,12 @@ ${innerIndent}largeBytes: ${portrait.largeBytes},
 ${indent}}`;
 }
 
-async function validateVariant(url: string, expectedSize: number, expectedBytes: number): Promise<ValidationVariant> {
+async function validateVariant(
+  url: string,
+  expectedSize: number,
+  expectedBytes: number,
+  validateVisualCenter = true,
+): Promise<ValidationVariant> {
   const path = join(PROJECT_ROOT, "public", url.replace(/^\//, ""));
   const metadata = await sharp(path).metadata();
   const width = requirePositiveDimension(metadata.width, path, "width");
@@ -255,8 +444,14 @@ async function validateVariant(url: string, expectedSize: number, expectedBytes:
   const centerAlpha = raw[(Math.floor(expectedSize / 2) * expectedSize + Math.floor(expectedSize / 2)) * 4 + 3];
   const transparentRatio = alphaValues.filter((alpha) => alpha <= 8).length / alphaValues.length;
   const opaqueRatio = alphaValues.filter((alpha) => alpha >= 240).length / alphaValues.length;
+  const content = analyzePortraitContent(raw, expectedSize, expectedSize);
+  const visualCenterOffsetX = (content.centerX / expectedSize - 0.5) * 2;
+  const visualCenterOffsetY = (content.centerY / expectedSize - 0.5) * 2;
   if (cornerAlphaMax > 8 || centerAlpha < 240 || transparentRatio < 0.18 || opaqueRatio < 0.74) {
     throw new Error(`${path} failed round-alpha validation`);
+  }
+  if (validateVisualCenter && (Math.abs(visualCenterOffsetX) > 0.24 || Math.abs(visualCenterOffsetY) > 0.24)) {
+    throw new Error(`${path} failed visual-centering validation`);
   }
 
   const bytes = (await stat(path)).size;
@@ -271,6 +466,8 @@ async function validateVariant(url: string, expectedSize: number, expectedBytes:
     bytes,
     cornerAlphaMax,
     centerAlpha,
+    visualCenterOffsetX: roundMetric(visualCenterOffsetX),
+    visualCenterOffsetY: roundMetric(visualCenterOffsetY),
     transparentRatio: roundMetric(transparentRatio),
     opaqueRatio: roundMetric(opaqueRatio),
   };
@@ -376,6 +573,16 @@ function titleCase(value: string): string {
 
 function escapeXml(value: string): string {
   return value.replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;").replaceAll('"', "&quot;");
+}
+
+function median(values: number[]): number {
+  if (values.length === 0) return 0;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.floor(sorted.length / 2)] ?? 0;
+}
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(max, Math.max(min, value));
 }
 
 function roundMetric(value: number): number {

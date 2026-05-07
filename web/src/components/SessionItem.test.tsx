@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, fireEvent, screen, waitFor } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { useState, type ComponentProps } from "react";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
@@ -432,6 +432,21 @@ describe("SessionItem leader profiles", () => {
 
     expect(screen.getByRole("dialog", { name: "Leader profile" })).toBeInTheDocument();
     expect(screen.getByTitle(SHMI_PORTRAIT.label)).toBeInTheDocument();
+  });
+
+  it("groups picker options by the current portrait pool first", () => {
+    renderSessionItem({
+      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: SHMI_PORTRAIT }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /open shmi/i }));
+
+    const dialog = screen.getByRole("dialog", { name: "Leader profile" });
+    const shmiGroup = within(dialog).getByRole("region", { name: "Shmi" });
+    const takoGroup = within(dialog).getByRole("region", { name: "Tako" });
+    expect(shmiGroup.compareDocumentPosition(takoGroup) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(shmiGroup).getByTitle(SHMI_PORTRAIT.label)).toBeInTheDocument();
+    expect(within(takoGroup).getByTitle(TAKO_PORTRAIT.label)).toBeInTheDocument();
   });
 
   it("changes the leader portrait through the picker", async () => {
