@@ -440,6 +440,11 @@ export class CodexAdapter
   private _executeCoalescedRefresh(): void {
     this._pendingSkillRefreshTimer = null;
     if (!this._skillsStale) return;
+    if (this.currentTurnId) {
+      this.skillRefreshStats.deferred++;
+      return;
+    }
+    if (!this.connected) return;
     this._skillsStale = false;
     this.skillRefreshStats.executed++;
 
@@ -448,6 +453,7 @@ export class CodexAdapter
         this._skillRefreshRetryCount = 0;
       },
       (err) => {
+        if (!this.connected) return;
         this.skillRefreshStats.failed++;
         console.warn(`[codex-adapter] Coalesced skill refresh failed for session ${this.sessionId}:`, err);
         this._skillsStale = true;
