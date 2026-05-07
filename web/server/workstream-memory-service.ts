@@ -1,10 +1,12 @@
 import {
   acquireMemoryLock,
   commitMemory,
+  diffMemoryCatalog,
   ensureMemoryRepo,
   getMemoryLock,
   listMemorySpaces,
   lintMemory,
+  markMemoryCatalogSeen,
   memoryRecentCommits,
   memoryGitDiff,
   memoryGitStatus,
@@ -37,6 +39,14 @@ export class WorkstreamMemoryService {
 
   catalog(options?: MemoryRepoOptions) {
     return scanMemoryCatalog(options);
+  }
+
+  catalogDiff(options?: MemoryRepoOptions) {
+    return diffMemoryCatalog(options);
+  }
+
+  markCatalogSeen(catalog: Awaited<ReturnType<typeof scanMemoryCatalog>>) {
+    return markMemoryCatalogSeen(catalog);
   }
 
   recall(query?: MemoryRecallQuery, options?: MemoryRepoOptions) {

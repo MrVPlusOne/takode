@@ -55,6 +55,24 @@ export interface MemoryCatalog {
   issues: MemoryLintIssue[];
 }
 
+export type MemoryCatalogChangeKind = "added" | "removed" | "changed";
+
+export interface MemoryCatalogChange {
+  kind: MemoryCatalogChangeKind;
+  path: string;
+  before?: MemoryCatalogEntry;
+  after?: MemoryCatalogEntry;
+}
+
+export interface MemoryCatalogDiff {
+  repo: MemoryRepoInfo;
+  changes: MemoryCatalogChange[];
+  issues: MemoryLintIssue[];
+  sessionKey: string;
+  previousSeenAt?: string;
+  seenAt: string;
+}
+
 export interface MemorySpaceInfo {
   slug: string;
   root: string;

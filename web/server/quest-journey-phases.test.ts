@@ -143,6 +143,8 @@ describe("Quest Journey phase directory loading", () => {
     expect(outcomeReviewPhase?.leaderBrief).toContain("route back to `IMPLEMENTING`");
     expect(outcomeReviewPhase?.assigneeBrief).toContain("small bounded checks or repros");
     expect(outcomeReviewPhase?.assigneeBrief).toContain("do not become the primary experiment owner");
+    expect(outcomeReviewPhase?.leaderBrief).toContain("memory catalog diff");
+    expect(outcomeReviewPhase?.assigneeBrief).toContain("memory catalog diff");
   });
 
   it("seeds alignment and explore briefs with the lightweight read-in contract", async () => {
@@ -315,6 +317,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(bookkeepingPhase?.leaderBrief).toContain("file-based memory updates");
     expect(bookkeepingPhase?.leaderBrief).toContain("intended memory responsibility");
     expect(bookkeepingPhase?.leaderBrief).toContain("visible `memory catalog show`");
+    expect(bookkeepingPhase?.leaderBrief).toContain("`memory catalog diff` as a freshness check");
     expect(bookkeepingPhase?.leaderBrief).toContain("direct file inspection with normal tools");
     expect(bookkeepingPhase?.leaderBrief).toContain("repo-level write lock");
     expect(bookkeepingPhase?.leaderBrief).toContain("source-trailed memory commit");
@@ -335,6 +338,8 @@ describe("Quest Journey phase directory loading", () => {
     expect(bookkeepingPhase?.assigneeBrief).toContain("`references/` for source digests or external pointers");
     expect(bookkeepingPhase?.assigneeBrief).toContain("`artifacts/` for produced external outputs");
     expect(bookkeepingPhase?.assigneeBrief).toContain("Run `memory catalog show` first");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("use `memory catalog diff` as a freshness check");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("not a reason for blind repo-wide search");
     expect(bookkeepingPhase?.assigneeBrief).toContain("inspect relevant existing memory files directly");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory lock acquire");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory lint");
@@ -360,6 +365,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.leaderBrief).toContain("`--debrief-file` and `--debrief-tldr-file`");
     expect(portPhase?.leaderBrief).toContain("focused Bookkeeping phase");
     expect(portPhase?.leaderBrief).toContain("memory catalog show");
+    expect(portPhase?.leaderBrief).toContain("memory catalog diff");
     expect(portPhase?.leaderBrief).toContain("direct inspection of relevant memory files");
     expect(portPhase?.leaderBrief).toContain("Keep durable memory writing out of normal Port");
     expect(portPhase?.leaderBrief).toContain("memory update deferred: <Bookkeeping/curator/reason>");
@@ -372,6 +378,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.assigneeBrief).toContain("final debrief draft and debrief TLDR draft");
     expect(portPhase?.assigneeBrief).toContain("whether final debrief metadata was submitted or drafted");
     expect(portPhase?.assigneeBrief).toContain("memory catalog show");
+    expect(portPhase?.assigneeBrief).toContain("memory catalog diff");
     expect(portPhase?.assigneeBrief).toContain("inspect relevant memory files directly");
     expect(portPhase?.assigneeBrief).toContain("Port does not normally author durable memory");
     expect(portPhase?.assigneeBrief).toContain("memory update deferred: <Bookkeeping/curator/reason>");

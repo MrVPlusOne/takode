@@ -7,6 +7,7 @@ Setup:
 - If reviewing a quest outcome, load the `quest` skill and inspect the quest record, feedback, status, summary, and verification evidence directly.
 - If the evidence lives in prior sessions, worker reports, execution logs, or cross-session handoffs, load `takode-orchestration` and inspect the referenced messages or sessions directly.
 - Prefer explicitly referenced logs, metrics, artifacts, quest records, and session messages over broad board inspection. Query board state only when current Journey state affects the outcome judgment.
+- If memory matters to final handoff, debrief accuracy, durable decisions, or memory-writing choices, make sure you have seen the latest catalog with `memory catalog show`; use `memory catalog diff` as a freshness check only when you need to know what changed since this session last saw the catalog.
 
 Boundary:
 - Judge the specified outcome evidence directly: metrics, logs, artifacts, prompt behavior, or UX notes.

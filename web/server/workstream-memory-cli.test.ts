@@ -120,6 +120,54 @@ source: [q-1220, session:1559]
     expect(catalog.stdout).not.toContain(join(tempDir, "memory", "decisions", "memory-schema.md"));
   });
 
+  it("reports catalog changes since this session last saw the catalog", async () => {
+    const scopedEnv = { ...env, COMPANION_SESSION_ID: "session-a" };
+    await writeMemoryFile(
+      "decisions/first.md",
+      `
+description: First catalog entry.
+source:
+  - q-1237
+`,
+    );
+
+    const firstDiff = await runMemory(["catalog", "diff"], scopedEnv);
+    expect(firstDiff.status).toBe(0);
+    expect(firstDiff.stdout).toContain("No prior catalog snapshot for this session");
+    expect(firstDiff.stdout).toContain("added: decisions/first.md First catalog entry.");
+
+    const show = await runMemory(["catalog", "show"], scopedEnv);
+    expect(show.status).toBe(0);
+    expect(show.stdout).toContain("decisions/first.md [decisions] First catalog entry.");
+
+    await writeMemoryFile(
+      "decisions/first.md",
+      `
+description: Updated catalog entry.
+source:
+  - q-1237
+`,
+    );
+    await writeMemoryFile(
+      "procedures/second.md",
+      `
+description: Second catalog entry.
+source:
+  - q-1237
+`,
+    );
+
+    const secondDiff = await runMemory(["catalog", "diff"], scopedEnv);
+    expect(secondDiff.status).toBe(0);
+    expect(secondDiff.stdout).toContain("Catalog changes since");
+    expect(secondDiff.stdout).toContain("changed: decisions/first.md Updated catalog entry.");
+    expect(secondDiff.stdout).toContain("added: procedures/second.md Second catalog entry.");
+
+    const cleanDiff = await runMemory(["catalog", "diff"], scopedEnv);
+    expect(cleanDiff.status).toBe(0);
+    expect(cleanDiff.stdout).toContain("No catalog changes since last seen.");
+  });
+
   it("defaults to one auto-created repo per server/session space when no root override is set", async () => {
     const scopedEnv = {
       HOME: tempDir,
@@ -419,14 +467,16 @@ source:
     expect(help.stdout).toContain("default session space is Takode");
     expect(help.stdout).toContain("repo path");
     expect(help.stdout).toContain("Print the resolved repo root");
-    expect(help.stdout).toContain("catalog [show]");
+    expect(help.stdout).toContain("catalog [show|diff]");
     expect(help.stdout).toContain("Show the repo root and list authored memory files");
+    expect(help.stdout).toContain("Use catalog diff as a freshness check for memory-focused work");
     expect(help.stdout).not.toContain("Prefer catalog/direct file inspection for normal orientation.");
     expect(help.stdout).toContain("description: one or two sentences for catalog orientation");
     expect(help.stdout).toContain("source: [q-1218, session:1476]");
     expect(help.stdout).toContain("id and kind are derived from the repo-relative file path.");
     expect(help.stdout).toContain("Canonical health check");
     expect(help.stdout).toContain("memory catalog show");
+    expect(help.stdout).toContain("memory catalog diff");
     expect(help.stdout).toContain("If catalog/context makes a memory match plausible");
     expect(help.stdout).toContain('rg "exact task terms" "$(memory repo path)"');
     expect(help.stdout).not.toContain('memory recall "current task terms"');

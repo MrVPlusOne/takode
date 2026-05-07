@@ -49,6 +49,9 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("normal `memory` commands auto-create the repo and authored directories");
     expect(result).toContain("Use visible memory reads and explicit writes");
     expect(result).toContain("use `memory catalog show` as the triage map");
+    expect(result).toContain("use `memory catalog diff` as a freshness check");
+    expect(result).toContain("Do not run catalog diff constantly");
+    expect(result).toContain("it is not a replacement for direct file inspection");
     expect(result).toContain("The catalog prints the repo root and repo-relative file paths");
     expect(result).toContain("inspect plausible catalog-listed Markdown files directly with normal tools");
     expect(result).toContain("`rg`, `sed`, and `cat`");
@@ -165,6 +168,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("## Memory-Aware Orchestration");
     expect(result).toContain("Use `memory catalog show` visibly");
     expect(result).toContain("then inspect plausible catalog-listed files directly");
+    expect(result).toContain("ensure the worker has seen the latest catalog");
+    expect(result).toContain("`memory catalog diff`");
     expect(result).toContain(
       "Use targeted memory repo search only when the catalog or known context makes a match plausible",
     );

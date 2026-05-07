@@ -12,7 +12,9 @@ import {
   type FrontmatterScalar,
   type FrontmatterValue,
   type MemoryCatalog,
+  type MemoryCatalogChange,
   type MemoryCatalogEntry,
+  type MemoryCatalogDiff,
   type MemoryCommitInput,
   type MemoryCommitOperation,
   type MemoryCommitResult,
@@ -35,6 +37,7 @@ const execFileAsync = promisify(execFile);
 const LOCK_DIR_NAME = "takode-memory.lock";
 const LOCK_INFO_FILE = "owner.json";
 const SERVER_INDEX_DIR = ".servers";
+const CATALOG_SEEN_DIR_NAME = "takode-memory-catalog-seen";
 const DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000;
 const DEFAULT_SESSION_SPACE_SLUG = "Takode";
 const OBSOLETE_FRONTMATTER_FIELDS = new Set([
@@ -171,6 +174,26 @@ export async function scanMemoryCatalog(options: MemoryRepoOptions = {}): Promis
     repo,
     entries: entries.sort((a, b) => a.kind.localeCompare(b.kind) || a.path.localeCompare(b.path)),
     issues,
+  };
+}
+
+export async function markMemoryCatalogSeen(catalog: MemoryCatalog): Promise<void> {
+  await writeCatalogSeen(catalog);
+}
+
+export async function diffMemoryCatalog(options: MemoryRepoOptions = {}): Promise<MemoryCatalogDiff> {
+  const catalog = await scanMemoryCatalog(options);
+  const previous = await readCatalogSeen(catalog.repo.root);
+  const seenAt = new Date().toISOString();
+  const changes = diffCatalogEntries(previous?.entries ?? [], catalog.entries);
+  await writeCatalogSeen(catalog, seenAt);
+  return {
+    repo: catalog.repo,
+    changes,
+    issues: catalog.issues,
+    sessionKey: catalogSessionKey(),
+    ...(previous?.seenAt ? { previousSeenAt: previous.seenAt } : {}),
+    seenAt,
   };
 }
 
@@ -436,6 +459,103 @@ function catalogEntryFromFile(file: MemoryFile): MemoryCatalogEntry {
     source: file.source,
     facets: normalizeFacets(file.frontmatter.facets),
   };
+}
+
+interface CatalogSeenSnapshot {
+  seenAt: string;
+  entries: MemoryCatalogEntry[];
+}
+
+async function readCatalogSeen(root: string): Promise<CatalogSeenSnapshot | null> {
+  try {
+    const raw = await readFile(catalogSeenPath(root), "utf-8");
+    const parsed = JSON.parse(raw) as Partial<CatalogSeenSnapshot>;
+    if (typeof parsed.seenAt !== "string" || !Array.isArray(parsed.entries)) return null;
+    return {
+      seenAt: parsed.seenAt,
+      entries: parsed.entries.filter(isMemoryCatalogEntry),
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeCatalogSeen(catalog: MemoryCatalog, seenAt = new Date().toISOString()): Promise<void> {
+  const path = catalogSeenPath(catalog.repo.root);
+  await mkdir(dirname(path), { recursive: true });
+  const snapshot: CatalogSeenSnapshot = {
+    seenAt,
+    entries: catalog.entries,
+  };
+  await writeFile(path, JSON.stringify(snapshot, null, 2), "utf-8");
+}
+
+function diffCatalogEntries(
+  previousEntries: MemoryCatalogEntry[],
+  currentEntries: MemoryCatalogEntry[],
+): MemoryCatalogChange[] {
+  const previous = new Map(previousEntries.map((entry) => [entry.path, entry]));
+  const current = new Map(currentEntries.map((entry) => [entry.path, entry]));
+  const paths = [...new Set([...previous.keys(), ...current.keys()])].sort();
+  const changes: MemoryCatalogChange[] = [];
+  for (const path of paths) {
+    const before = previous.get(path);
+    const after = current.get(path);
+    if (!before && after) {
+      changes.push({ kind: "added", path, after });
+      continue;
+    }
+    if (before && !after) {
+      changes.push({ kind: "removed", path, before });
+      continue;
+    }
+    if (before && after && catalogEntryFingerprint(before) !== catalogEntryFingerprint(after)) {
+      changes.push({ kind: "changed", path, before, after });
+    }
+  }
+  return changes;
+}
+
+function catalogEntryFingerprint(entry: MemoryCatalogEntry): string {
+  return JSON.stringify({
+    kind: entry.kind,
+    description: entry.description,
+    source: [...entry.source].sort(),
+    facets: sortedFacetEntries(entry.facets),
+  });
+}
+
+function sortedFacetEntries(facets: Record<string, string[]>): Array<[string, string[]]> {
+  return Object.entries(facets)
+    .map(([key, values]) => [key, [...values].sort()] as [string, string[]])
+    .sort(([a], [b]) => a.localeCompare(b));
+}
+
+function isMemoryCatalogEntry(value: unknown): value is MemoryCatalogEntry {
+  const entry = value as Partial<MemoryCatalogEntry>;
+  return (
+    !!entry &&
+    typeof entry.id === "string" &&
+    MEMORY_KINDS.includes(entry.kind as MemoryKind) &&
+    typeof entry.description === "string" &&
+    typeof entry.path === "string" &&
+    Array.isArray(entry.source) &&
+    typeof entry.facets === "object" &&
+    entry.facets !== null
+  );
+}
+
+function catalogSeenPath(root: string): string {
+  return join(root, ".git", CATALOG_SEEN_DIR_NAME, `${sanitizeSlugForPath(catalogSessionKey())}.json`);
+}
+
+function catalogSessionKey(): string {
+  return (
+    process.env.COMPANION_SESSION_ID?.trim() ||
+    process.env.COMPANION_SESSION_NUM?.trim() ||
+    process.env.TAKODE_SESSION_ID?.trim() ||
+    "default"
+  );
 }
 
 function validateMemoryFile(file: MemoryFile): MemoryLintIssue[] {

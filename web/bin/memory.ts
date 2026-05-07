@@ -74,8 +74,9 @@ function printUsage(): void {
 Commands:
   repo path
       Print the resolved repo root. Use this to rediscover memory after compaction.
-  catalog [show]
+  catalog [show|diff]
       Show the repo root and list authored memory files from frontmatter.
+      Use catalog diff as a freshness check for memory-focused work, not routine orientation.
   lint
       Canonical health check for memory files and frontmatter.
   lock status|acquire|release [--owner NAME] [--ttl-ms N]
@@ -110,6 +111,7 @@ Common examples:
   memory repo path
   memory --server-slug dev repo path
   memory catalog show
+  memory catalog diff
   # If catalog/context makes a memory match plausible, search with concrete terms.
   rg "exact task terms" "$(memory repo path)"
   memory lint
@@ -198,6 +200,28 @@ function printCatalog(catalog: Awaited<ReturnType<typeof workstreamMemoryService
   printIssues(filterNormalReadIssues(catalog.issues));
 }
 
+function printCatalogDiff(diff: Awaited<ReturnType<typeof workstreamMemoryService.catalogDiff>>): void {
+  if (jsonOutput) {
+    out(diff);
+    return;
+  }
+  console.log(`Memory repo: ${diff.repo.root}`);
+  if (diff.previousSeenAt) {
+    console.log(`Catalog changes since ${diff.previousSeenAt}:`);
+  } else {
+    console.log("No prior catalog snapshot for this session; current entries are shown as new:");
+  }
+  if (!diff.changes.length) {
+    console.log("No catalog changes since last seen.");
+  }
+  for (const change of diff.changes) {
+    const entry = change.after ?? change.before;
+    const description = entry?.description ? ` ${entry.description}` : "";
+    console.log(`${change.kind}: ${change.path}${description}`);
+  }
+  printIssues(filterNormalReadIssues(diff.issues));
+}
+
 function printIssues(issues: { severity: string; path?: string; message: string }[]): void {
   if (!issues.length) return;
   console.log("\nIssues:");
@@ -242,8 +266,14 @@ async function main(): Promise<void> {
 
   if (command === "catalog") {
     const subcommand = positional(0);
-    if (subcommand && subcommand !== "show") die("catalog subcommand must be show");
-    printCatalog(await workstreamMemoryService.catalog(repoOptions()));
+    if (subcommand === "diff") {
+      printCatalogDiff(await workstreamMemoryService.catalogDiff(repoOptions()));
+      return;
+    }
+    if (subcommand && subcommand !== "show") die("catalog subcommand must be show or diff");
+    const catalog = await workstreamMemoryService.catalog(repoOptions());
+    printCatalog(catalog);
+    await workstreamMemoryService.markCatalogSeen(catalog);
     return;
   }
 
