@@ -16,8 +16,12 @@ function createTestApp() {
         },
       ],
     ]),
-    notifications: [],
+    notifications: [] as any[],
     messageHistory: [{ type: "permission_request", request: { request_id: "req-exit-plan" } }],
+    board: new Map(),
+    completedBoard: new Map(),
+    attentionRecords: [],
+    notificationCounter: 0,
   };
 
   const handleBrowserMessage = vi.fn(async (_ws: any, _raw: string) => {});
@@ -123,6 +127,55 @@ describe("takode cross-session message routing", () => {
       undefined,
       undefined,
     );
+  });
+});
+
+describe("takode needs-input notification response routing", () => {
+  it("routes a notification response through the browser-message path and marks it done", async () => {
+    const { app, handleBrowserMessage, session } = createTestApp();
+    session.notifications.push({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Confirm scope",
+      suggestedAnswers: ["yes", "no"],
+      timestamp: 123,
+      messageId: "msg-123",
+      threadKey: "q-1242",
+      questId: "q-1242",
+      done: false,
+    });
+
+    const res = await app.request("/api/sessions/worker-1/notifications/n-1/response", {
+      method: "POST",
+      body: JSON.stringify({ content: "Confirm scope\n\nAnswer: yes" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      sessionId: "worker-1",
+      notificationId: "n-1",
+      delivery: "accepted",
+      changed: true,
+    });
+    expect(handleBrowserMessage).toHaveBeenCalledTimes(1);
+    const [ws, raw] = handleBrowserMessage.mock.calls[0]!;
+    expect(ws.data).toEqual({ kind: "browser", sessionId: "worker-1" });
+    expect(JSON.parse(raw)).toEqual({
+      type: "user_message",
+      content: "Confirm scope\n\nAnswer: yes",
+      deliveryContent: "[reply] Confirm scope\n\nConfirm scope\n\nAnswer: yes",
+      replyContext: {
+        messageId: "msg-123",
+        notificationId: "n-1",
+        previewText: "Confirm scope",
+      },
+      session_id: "worker-1",
+      threadKey: "q-1242",
+      questId: "q-1242",
+      threadRefs: [{ threadKey: "q-1242", questId: "q-1242", source: "explicit" }],
+    });
+    expect(session.notifications[0].done).toBe(true);
   });
 });
 

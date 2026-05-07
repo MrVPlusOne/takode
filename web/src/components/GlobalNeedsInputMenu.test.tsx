@@ -3,8 +3,12 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import "@testing-library/jest-dom";
 
 const mockGetSessionNotifications = vi.fn(async (_sessionId: string): Promise<any[]> => []);
-const mockMarkNotificationDone = vi.fn(async (_sessionId: string, _notifId: string, _done = true) => ({ ok: true }));
-const mockSendToSession = vi.fn((_sessionId: string, _msg: any) => true);
+const mockSendNeedsInputResponse = vi.fn(async (_sessionId: string, _notifId: string, _response: any) => ({
+  ok: true,
+  sessionId: _sessionId,
+  notificationId: _notifId,
+  delivery: "accepted",
+}));
 const mockSetSessionNotifications = vi.fn((sessionId: string, notifications: any[]) => {
   mockStoreState.sessionNotifications.set(sessionId, notifications);
 });
@@ -32,13 +36,9 @@ vi.mock("../store.js", () => {
 vi.mock("../api.js", () => ({
   api: {
     getSessionNotifications: (sessionId: string) => mockGetSessionNotifications(sessionId),
-    markNotificationDone: (sessionId: string, notifId: string, done = true) =>
-      mockMarkNotificationDone(sessionId, notifId, done),
+    sendNeedsInputResponse: (sessionId: string, notifId: string, response: any) =>
+      mockSendNeedsInputResponse(sessionId, notifId, response),
   },
-}));
-
-vi.mock("../ws.js", () => ({
-  sendToSession: (sessionId: string, msg: any) => mockSendToSession(sessionId, msg),
 }));
 
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
@@ -55,7 +55,12 @@ describe("GlobalNeedsInputMenu", () => {
     vi.clearAllMocks();
     window.location.hash = "";
     resetStore();
-    mockSendToSession.mockReturnValue(true);
+    mockSendNeedsInputResponse.mockResolvedValue({
+      ok: true,
+      sessionId: "s1",
+      notificationId: "n-1",
+      delivery: "accepted",
+    });
   });
 
   it("renders nothing when there are no unresolved needs-input notifications", () => {
@@ -232,7 +237,8 @@ describe("GlobalNeedsInputMenu", () => {
     expect(screen.queryByRole("dialog", { name: "Global needs-input notifications" })).not.toBeInTheDocument();
   });
 
-  it("sends a structured multi-question response through the target session", () => {
+  it("sends a structured multi-question response in place through the notification response API", async () => {
+    window.location.hash = "#/session/current?thread=q-100";
     resetStore({
       sessionNotifications: new Map([
         [
@@ -266,25 +272,71 @@ describe("GlobalNeedsInputMenu", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
-    expect(mockSendToSession).toHaveBeenCalledWith(
-      "s1",
-      expect.objectContaining({
-        content:
-          "Answers for: Need rollout choices\n\n1. Which rollout?\nAnswer: staged\n\n2. When should it start?\nAnswer: after smoke test",
-        replyContext: {
-          messageId: "msg-123",
-          notificationId: "n-questions",
-          previewText: "Need rollout choices",
-        },
-        threadKey: "main",
-      }),
+    await waitFor(() =>
+      expect(mockSendNeedsInputResponse).toHaveBeenCalledWith(
+        "s1",
+        "n-questions",
+        expect.objectContaining({
+          content:
+            "Answers for: Need rollout choices\n\n1. Which rollout?\nAnswer: staged\n\n2. When should it start?\nAnswer: after smoke test",
+          threadKey: "main",
+        }),
+      ),
     );
-    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "n-questions", true);
+    expect(window.location.hash).toBe("#/session/current?thread=q-100");
+    expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+    expect(mockSetExpandAllInTurn).not.toHaveBeenCalled();
+    expect(mockSetSessionNotifications).toHaveBeenCalledWith(
+      "s1",
+      expect.arrayContaining([expect.objectContaining({ id: "n-questions", done: true })]),
+    );
     expect(mockRequestBottomAlignOnNextUserMessage).toHaveBeenCalledWith("s1");
   });
 
-  it("jumps to the notification instead of marking done when direct delivery is unavailable", async () => {
-    mockSendToSession.mockReturnValue(false);
+  it("uses notification thread metadata when sending a global response", async () => {
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-thread",
+              category: "needs-input",
+              summary: "Approve quest plan?",
+              suggestedAnswers: ["yes"],
+              timestamp: Date.now(),
+              messageId: "msg-123",
+              threadKey: "q-1242",
+              questId: "q-1242",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 31, name: "Worker", createdAt: 1 }],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+    fireEvent.click(screen.getByRole("button", { name: "yes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
+
+    await waitFor(() =>
+      expect(mockSendNeedsInputResponse).toHaveBeenCalledWith(
+        "s1",
+        "n-thread",
+        expect.objectContaining({
+          content: "Approve quest plan?\n\nAnswer: yes",
+          threadKey: "q-1242",
+          questId: "q-1242",
+        }),
+      ),
+    );
+  });
+
+  it("shows a retryable failure without navigating when delivery fails", async () => {
+    window.location.hash = "#/session/current?thread=q-100";
+    mockSendNeedsInputResponse.mockRejectedValueOnce(new Error("Session is archived"));
     resetStore({
       sessionNotifications: new Map([
         [
@@ -310,11 +362,48 @@ describe("GlobalNeedsInputMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: "yes" }));
     fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
-    await waitFor(() => expect(window.location.hash).toContain("/session/41/msg/msg-123"));
-    expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-123");
-    expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-123");
-    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
-    expect(screen.getByText(/Opened the target session/)).toBeInTheDocument();
+    expect(await screen.findByText(/Response could not be delivered/)).toHaveTextContent("Session is archived");
+    expect(screen.getByRole("button", { name: "Retry" })).toBeInTheDocument();
+    expect(window.location.hash).toBe("#/session/current?thread=q-100");
+    expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+    expect(mockSetExpandAllInTurn).not.toHaveBeenCalled();
+    expect(mockRequestBottomAlignOnNextUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("retries a failed global response without navigating", async () => {
+    window.location.hash = "#/session/current";
+    mockSendNeedsInputResponse.mockRejectedValueOnce(new Error("Temporary failure"));
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-1",
+              category: "needs-input",
+              summary: "Confirm scope",
+              suggestedAnswers: ["yes"],
+              timestamp: Date.now(),
+              messageId: "msg-123",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 41, name: "Worker", createdAt: 1 }],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+    fireEvent.click(screen.getByRole("button", { name: "yes" }));
+    fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
+    await screen.findByRole("button", { name: "Retry" });
+
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+
+    await waitFor(() => expect(mockSendNeedsInputResponse).toHaveBeenCalledTimes(2));
+    expect(window.location.hash).toBe("#/session/current");
+    expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
   });
 
   it("updates the aggregate when a needs-input notification is resolved", () => {

@@ -46,6 +46,7 @@ import {
   inferThreadAttachmentSourceRoute,
   inferThreadRouteFromTextContent,
   messageIdForThreadAttachment,
+  normalizeThreadRoute,
   routeKey,
   sameThreadRoute,
   threadRouteForTarget,
@@ -54,6 +55,7 @@ import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
+import { formatReplyContentForAssistant } from "../../shared/reply-context.js";
 
 const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
 const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
@@ -1874,6 +1876,76 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const ok = markNotificationDoneController(session, notifId, done, notificationPersistDeps);
     if (!ok) return c.json({ error: "Notification not found" }, 404);
     return c.json({ ok: true });
+  });
+
+  api.post("/sessions/:id/notifications/:notifId/response", async (c) => {
+    const id = resolveId(c.req.param("id"));
+    if (!id) return c.json({ error: "Session not found" }, 404);
+    const launcherSession = launcher.getSession(id);
+    if (!launcherSession) return c.json({ error: "Session not found" }, 404);
+    if (launcherSession.archived) return c.json({ error: "Cannot send to archived session" }, 409);
+
+    const session = wsBridge.getSession(id);
+    if (!session) return c.json({ error: "Session not found" }, 404);
+
+    const notifId = c.req.param("notifId");
+    const notification = session.notifications.find(
+      (entry) => entry.id === notifId && entry.category === "needs-input",
+    );
+    if (!notification) return c.json({ error: "Notification not found" }, 404);
+    if (notification.done) {
+      return c.json({ ok: true, sessionId: id, notificationId: notifId, delivery: "already_done", changed: false });
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    if (typeof body.content !== "string" || !body.content.trim()) {
+      return c.json({ error: "content is required" }, 400);
+    }
+
+    const bodyThreadKey =
+      typeof body.threadKey === "string"
+        ? body.threadKey
+        : typeof body.thread_key === "string"
+          ? body.thread_key
+          : null;
+    const bodyQuestId = typeof body.questId === "string" ? body.questId : null;
+    const bodyThreadRoute = bodyThreadKey || bodyQuestId ? normalizeThreadRoute(bodyThreadKey, bodyQuestId) : null;
+    if ((bodyThreadKey || bodyQuestId) && !bodyThreadRoute) {
+      return c.json({ error: "threadKey must be main or q-N" }, 400);
+    }
+
+    const notificationThreadRoute = normalizeThreadRoute(notification.threadKey, notification.questId);
+    const threadRoute = notificationThreadRoute ?? bodyThreadRoute ?? { threadKey: "main" };
+    const previewText = notification.summary || "Needs your input";
+    const replyContext = {
+      ...(notification.messageId ? { messageId: notification.messageId } : {}),
+      notificationId: notification.id,
+      previewText,
+    };
+    const msg: BrowserOutgoingMessage = {
+      type: "user_message",
+      content: body.content,
+      deliveryContent: formatReplyContentForAssistant(body.content, replyContext),
+      replyContext,
+      session_id: id,
+      threadKey: threadRoute.threadKey,
+      ...(threadRoute.questId ? { questId: threadRoute.questId } : {}),
+      ...(threadRoute.threadRefs?.length ? { threadRefs: threadRoute.threadRefs } : {}),
+    };
+
+    try {
+      await wsBridge.handleBrowserMessage(
+        { data: { kind: "browser", sessionId: id }, send: () => {}, close: () => {}, readyState: 1 } as any,
+        JSON.stringify(msg),
+      );
+    } catch (error) {
+      console.warn("Failed to deliver needs-input notification response", error);
+      return c.json({ error: "Failed to deliver response" }, 500);
+    }
+
+    const ok = markNotificationDoneController(session, notifId, true, notificationPersistDeps);
+    if (!ok) return c.json({ error: "Notification not found" }, 404);
+    return c.json({ ok: true, sessionId: id, notificationId: notifId, delivery: "accepted", changed: true });
   });
 
   api.post("/sessions/:id/notifications/done-all", async (c) => {

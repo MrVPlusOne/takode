@@ -1130,6 +1130,16 @@ export const api = {
       { done },
     ),
 
+  sendNeedsInputResponse: (
+    sessionId: string,
+    notifId: string,
+    response: { content: string; threadKey?: string; questId?: string },
+  ) =>
+    post<{ ok: boolean; sessionId: string; notificationId: string; delivery: "accepted" | "already_done" }>(
+      `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/response`,
+      response,
+    ),
+
   getSessionNotifications: (sessionId: string) =>
     get<SessionNotification[]>(`/sessions/${encodeURIComponent(sessionId)}/notifications`),
 

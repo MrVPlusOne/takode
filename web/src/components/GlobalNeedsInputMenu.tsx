@@ -3,12 +3,10 @@ import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import { sendToSession } from "../ws.js";
 import type { SdkSessionInfo, SessionNotification } from "../types.js";
 import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
 import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
-import { formatReplyContentForAssistant } from "../utils/reply-context.js";
 import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 
@@ -113,6 +111,18 @@ function jumpToNotification(entry: GlobalNeedsInputEntry, sdkSessions: SdkSessio
   navigateToSessionThread(entry.sessionId, threadKey);
 }
 
+function markLocalNotificationDone(sessionId: string, notificationId: string) {
+  const store = useStore.getState();
+  const notifications = store.sessionNotifications.get(sessionId);
+  if (!notifications) return;
+  store.setSessionNotifications(
+    sessionId,
+    notifications.map((notification) =>
+      notification.id === notificationId ? { ...notification, done: true } : notification,
+    ),
+  );
+}
+
 function BellIcon({ className = "" }: { className?: string }) {
   return (
     <svg
@@ -132,14 +142,16 @@ function BellIcon({ className = "" }: { className?: string }) {
 
 function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEntry; sdkSessions: SdkSessionInfo[] }) {
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
-  const [deliveryFallback, setDeliveryFallback] = useState(false);
+  const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [sending, setSending] = useState(false);
   const questionViews = useMemo(() => getNeedsInputQuestionViews(entry.notification), [entry.notification]);
   const canSendResponse = questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
+  const canSubmitResponse = canSendResponse && !sending;
   const sessionLabel = entry.sessionNum == null ? entry.sessionName : `#${entry.sessionNum} ${entry.sessionName}`;
   const summary = entry.notification.summary || "Needs your input";
 
   const setQuestionAnswer = useCallback((key: string, value: string) => {
-    setDeliveryFallback(false);
+    setDeliveryError(null);
     setAnswersByQuestion((prev) => ({ ...prev, [key]: value }));
   }, []);
 
@@ -147,36 +159,28 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
     jumpToNotification(entry, sdkSessions);
   }, [entry, sdkSessions]);
 
-  const sendResponse = useCallback(() => {
-    if (!canSendResponse) return;
+  const sendResponse = useCallback(async () => {
+    if (!canSubmitResponse) return;
     const threadKey = resolveNotificationOwnerThreadKey(entry.notification);
     const content = formatNeedsInputResponse(entry.notification.summary, questionViews, answersByQuestion);
-    const replyContext = {
-      ...(entry.notification.messageId ? { messageId: entry.notification.messageId } : {}),
-      notificationId: entry.notification.id,
-      previewText: summary,
-    };
-    const sent = sendToSession(entry.sessionId, {
-      type: "user_message",
-      content,
-      deliveryContent: formatReplyContentForAssistant(content, replyContext),
-      replyContext,
-      session_id: entry.sessionId,
-      threadKey,
-      ...(threadKey !== MAIN_THREAD_KEY ? { questId: entry.notification.questId ?? threadKey } : {}),
-    });
-    if (!sent) {
-      setDeliveryFallback(true);
-      jumpToNotification(entry, sdkSessions);
-      return;
+    setSending(true);
+    setDeliveryError(null);
+    try {
+      await api.sendNeedsInputResponse(entry.sessionId, entry.notification.id, {
+        content,
+        threadKey,
+        ...(threadKey !== MAIN_THREAD_KEY ? { questId: entry.notification.questId ?? threadKey } : {}),
+      });
+      markLocalNotificationDone(entry.sessionId, entry.notification.id);
+      useStore.getState().requestBottomAlignOnNextUserMessage?.(entry.sessionId);
+      setAnswersByQuestion({});
+    } catch (error) {
+      const message = error instanceof Error && error.message ? error.message : "Please retry.";
+      setDeliveryError(`Response could not be delivered. ${message}`);
+    } finally {
+      setSending(false);
     }
-    useStore.getState().requestBottomAlignOnNextUserMessage?.(entry.sessionId);
-    api.markNotificationDone(entry.sessionId, entry.notification.id, true).catch((error) => {
-      console.warn("Failed to mark global needs-input notification done", error);
-    });
-    setAnswersByQuestion({});
-    setDeliveryFallback(false);
-  }, [answersByQuestion, canSendResponse, entry, questionViews, sdkSessions, summary]);
+  }, [answersByQuestion, canSubmitResponse, entry, questionViews]);
 
   return (
     <div className="px-3 py-2.5 hover:bg-cc-hover/35 transition-colors">
@@ -245,16 +249,12 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
           <button
             type="button"
             onClick={sendResponse}
-            disabled={!canSendResponse}
+            disabled={!canSubmitResponse}
             className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-100 transition-colors hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
           >
-            Send Response
+            {sending ? "Sending..." : deliveryError ? "Retry" : "Send Response"}
           </button>
-          {deliveryFallback && (
-            <p className="text-[10px] leading-snug text-amber-200/80">
-              Opened the target session because this response could not be delivered from here yet.
-            </p>
-          )}
+          {deliveryError && <p className="text-[10px] leading-snug text-amber-200/80">{deliveryError}</p>}
         </div>
       )}
     </div>
