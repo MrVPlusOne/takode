@@ -132,6 +132,59 @@ Body text.
     await expect(readFile(join(oldRoot, "current", "rename.md"), "utf-8")).rejects.toThrow();
   });
 
+  it("rejects rename to a non-empty slug without rewriting the server index", async () => {
+    delete process.env.COMPANION_MEMORY_DIR;
+    process.env.HOME = tempDir;
+    const oldRoot = join(tempDir, ".companion", "memory", "old-slug");
+    const collisionRoot = join(tempDir, ".companion", "memory", "new-slug");
+    const indexPath = join(tempDir, ".companion", "memory", ".servers", "test-server.json");
+
+    process.env.COMPANION_SERVER_SLUG = "old-slug";
+    await memoryStore.ensureMemoryRepo();
+    await mkdir(join(oldRoot, "current"), { recursive: true });
+    await writeFile(
+      join(oldRoot, "current", "server-a.md"),
+      `---
+id: server-a
+kind: current
+title: Server A
+summary: Must not be stranded by a colliding slug rename.
+lifecycle: active
+---
+
+Server A memory.
+`,
+      "utf-8",
+    );
+
+    await mkdir(join(collisionRoot, "current"), { recursive: true });
+    await writeFile(
+      join(collisionRoot, "current", "server-b.md"),
+      `---
+id: server-b
+kind: current
+title: Server B
+summary: Existing memory owned by another slug.
+lifecycle: active
+---
+
+Server B memory.
+`,
+      "utf-8",
+    );
+
+    process.env.COMPANION_SERVER_SLUG = "new-slug";
+    await expect(memoryStore.ensureMemoryRepo()).rejects.toThrow('Memory repo slug "new-slug" already exists');
+
+    await expect(readFile(join(oldRoot, "current", "server-a.md"), "utf-8")).resolves.toContain("Server A memory");
+    await expect(readFile(join(collisionRoot, "current", "server-b.md"), "utf-8")).resolves.toContain(
+      "Server B memory",
+    );
+    const index = JSON.parse(await readFile(indexPath, "utf-8"));
+    expect(index.serverSlug).toBe("old-slug");
+    expect(index.root).toBe(oldRoot);
+  });
+
   it("derives the catalog from markdown paths and frontmatter without an authored index", async () => {
     await writeMemoryFile(
       "knowledge/service-x.md",

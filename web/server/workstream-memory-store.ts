@@ -616,11 +616,13 @@ async function migrateDefaultMemoryRepo(repo: ResolvedMemoryRepo): Promise<void>
   const candidates = await getMigrationCandidates(repo);
   if (!candidates.length) return;
 
-  const targetExists = await pathExists(repo.root);
-  if (targetExists && !(await isEmptyMemoryRepo(repo.root))) return;
-
   const source = await firstExistingMemoryRepo(candidates, repo.root);
   if (!source) return;
+
+  const targetExists = await pathExists(repo.root);
+  if (targetExists && !(await isEmptyMemoryRepo(repo.root))) {
+    throw new Error(formatMemoryRepoSlugConflict(repo, source));
+  }
 
   await mkdir(repo.baseRoot, { recursive: true });
   if (targetExists) {
@@ -650,6 +652,14 @@ async function firstExistingMemoryRepo(candidates: string[], targetRoot: string)
     return candidate;
   }
   return null;
+}
+
+function formatMemoryRepoSlugConflict(repo: ResolvedMemoryRepo, sourceRoot: string): string {
+  return [
+    `Memory repo slug "${repo.serverSlug}" already exists at ${repo.root} and contains authored data.`,
+    `Existing memory for this server id is still at ${sourceRoot}.`,
+    "Rename the server slug or merge the memory repos manually before using this slug.",
+  ].join(" ");
 }
 
 async function readServerMemoryIndex(baseRoot: string, serverId: string): Promise<ServerMemoryIndexEntry | null> {
