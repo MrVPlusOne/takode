@@ -9,12 +9,23 @@ import {
   type MemoryKind,
 } from "../server/workstream-memory-types.js";
 
+const VALUE_OPTIONS = new Set(["--root", "--server-id", "--server-slug"]);
 const args = process.argv.slice(2);
-const command = args[0];
+const commandIndex = findCommandIndex(args);
+const command = commandIndex === -1 ? undefined : args[commandIndex];
 const jsonOutput = flag("json");
 
 function flag(name: string): boolean {
   return args.includes(`--${name}`);
+}
+
+function findCommandIndex(tokens: string[]): number {
+  for (let index = 0; index < tokens.length; index++) {
+    const token = tokens[index];
+    if (!token.startsWith("--")) return index;
+    if (VALUE_OPTIONS.has(token) && tokens[index + 1] && !tokens[index + 1].startsWith("--")) index += 1;
+  }
+  return -1;
 }
 
 function option(name: string): string | undefined {
@@ -36,7 +47,8 @@ function options(name: string): string[] {
 
 function positional(index: number): string | undefined {
   let current = 0;
-  for (let i = 1; i < args.length; i++) {
+  const start = commandIndex === -1 ? 0 : commandIndex + 1;
+  for (let i = start; i < args.length; i++) {
     if (args[i].startsWith("--")) {
       if (args[i + 1] && !args[i + 1].startsWith("--")) i += 1;
       continue;
@@ -57,29 +69,54 @@ function out(data: unknown): void {
 }
 
 function printUsage(): void {
-  console.log(`Usage: memory <command> [args]
+  console.log(`Usage: memory [options] <command> [args]
 
 Commands:
-  repo path [--json]
-  catalog [--json]
-  recall [query] [--kind current,knowledge] [--facet key:value] [--content] [--limit N] [--json]
-  lint [--json]
-  lock status|acquire|release [--owner NAME] [--ttl-ms N] [--json]
-  status [--json]
+  repo path
+      Print the resolved repo root. Use this to rediscover memory after compaction.
+  catalog
+      List authored memory files from frontmatter; no separate index directory exists.
+  recall [query] [--kind current,knowledge] [--facet key:value] [--content] [--limit N]
+      Search memory summaries, titles, facets, and optional content.
+  lint
+      Canonical health check for memory files and frontmatter.
+  lock status|acquire|release [--owner NAME] [--ttl-ms N]
+      Coordinate direct file edits with the repo-level write lock.
+  status
+      Show git status for pending memory edits.
   diff
-  commit --message TEXT [--quest q-N] [--session N] [--operation update] [--memory-id ID] [--source REF] [--json]
+      Show the unstaged/staged memory diff before commit.
+  commit --message TEXT [--quest q-N] [--session N] [--operation update] [--memory-id ID] [--source REF]
+      Commit memory edits with provenance trailers.
 
 Options:
   --root PATH       Override the memory repo root for this command.
   --server-slug SLUG
                     Override the server slug used for default repo discovery.
+  --json            Emit exact machine-readable fields. Default output is concise for agents.
 
 Default repo:
   ~/.companion/memory/<serverSlug>
-  Normal memory operations auto-create the Git repo and authored directories when needed.
+  Normal memory operations auto-create the Git repo and authored directories.
+  Server slugs are short names such as prod, dev, or port-3455.
 
 Memory files are authored directly under:
-  current/ knowledge/ procedures/ decisions/ references/ artifacts/`);
+  current/ knowledge/ procedures/ decisions/ references/ artifacts/
+
+Common examples:
+  memory repo path
+  memory --server-slug dev repo path
+  memory recall "current task terms" --kind current --limit 5
+  memory catalog
+  memory lint
+
+Write flow:
+  memory lock acquire --owner <session-or-role>
+  edit Markdown files directly under the authored directories
+  memory lint
+  memory diff
+  memory commit --message "Update memory" --source <source-ref> --memory-id <id>
+  memory lock release`);
 }
 
 function repoOptions() {

@@ -119,6 +119,27 @@ facets:
     await expect(readFile(join(expectedRoot, ".git", "HEAD"), "utf-8")).resolves.toContain("ref:");
   });
 
+  it("accepts global repo options before or after the command", async () => {
+    const scopedEnv = {
+      HOME: tempDir,
+      COMPANION_SERVER_ID: "server-id",
+      COMPANION_SERVER_SLUG: "default",
+      COMPANION_PORT: "",
+    };
+
+    // This locks down the compaction-recovery-friendly form shown in help.
+    const preCommand = await runMemory(["--server-slug", "dev", "repo", "path"], scopedEnv);
+    expect(preCommand.status).toBe(0);
+
+    // This preserves the original post-command placement that already worked.
+    const postCommand = await runMemory(["repo", "path", "--server-slug", "dev"], scopedEnv);
+    expect(postCommand.status).toBe(0);
+
+    const expectedRoot = join(tempDir, ".companion", "memory", "dev");
+    expect(preCommand.stdout.trim()).toBe(expectedRoot);
+    expect(postCommand.stdout.trim()).toBe(expectedRoot);
+  });
+
   it("lints authored files and exits non-zero for schema errors", async () => {
     await mkdir(join(tempDir, "memory", "knowledge"), { recursive: true });
     await writeFile(join(tempDir, "memory", "knowledge", "broken.md"), "# no frontmatter\n", "utf-8");
@@ -218,22 +239,33 @@ lifecycle: active
     expect(result.stdout).not.toContain("migrate");
     expect(result.stdout).not.toContain("workstream");
     expect(result.stdout).not.toContain("upsert");
-    expect(result.stdout).not.toContain("check");
+    expect(result.stdout).not.toMatch(/^  check\b/m);
   });
 
-  it("does not expose manual init or migration commands in help", async () => {
+  it("prints self-contained help without re-advertising legacy commands", async () => {
     const help = await runMemory(["help"], env);
 
     expect(help.status).toBe(0);
+    // The help text should be enough for an agent to recover the memory workflow after compaction.
     expect(help.stdout).toContain("Normal memory operations auto-create");
     expect(help.stdout).toContain("~/.companion/memory/<serverSlug>");
     expect(help.stdout).toContain("repo path");
+    expect(help.stdout).toContain("Print the resolved repo root");
+    expect(help.stdout).toContain("Canonical health check");
+    expect(help.stdout).toContain("memory --server-slug dev repo path");
+    expect(help.stdout).toContain("memory lock acquire --owner <session-or-role>");
+    expect(help.stdout).toContain("edit Markdown files directly under the authored directories");
+    expect(help.stdout).toContain("memory commit --message");
+    expect(help.stdout).toContain(
+      "--json            Emit exact machine-readable fields. Default output is concise for agents.",
+    );
+    expect(help.stdout).not.toContain("repo path [--json]");
     expect(help.stdout).not.toContain("doctor");
     expect(help.stdout).not.toContain("repo path|init");
     expect(help.stdout).not.toContain("repo init");
     expect(help.stdout).not.toContain("migrate");
     expect(help.stdout).not.toContain("workstream");
     expect(help.stdout).not.toContain("upsert");
-    expect(help.stdout).not.toContain("check");
+    expect(help.stdout).not.toMatch(/^  check\b/m);
   });
 });
