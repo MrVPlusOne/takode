@@ -604,6 +604,55 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });
 
+  it("queues metadata-rich responses for exited Claude sessions and requests relaunch", () => {
+    const sid = "s-inject-claude-needs-input-response";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
+    } as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    relaunchCb.mockClear();
+
+    const replyContext = { messageId: "msg-123", notificationId: "n-1", previewText: "Confirm scope" };
+    const delivery = bridge.injectUserMessage(
+      sid,
+      "Answer: yes",
+      undefined,
+      undefined,
+      {
+        threadKey: "q-1242",
+        questId: "q-1242",
+        threadRefs: [{ threadKey: "q-1242", questId: "q-1242", source: "explicit" }],
+      },
+      {
+        deliveryContent: "[reply] Confirm scope\n\nAnswer: yes",
+        replyContext,
+        sessionId: sid,
+      },
+    );
+    const session = bridge.getSession(sid)!;
+    const queued = JSON.parse(session.pendingMessages[0]!);
+    const historyEntry = session.messageHistory.find((msg: any) => msg.type === "user_message") as any;
+
+    expect(delivery).toBe("queued");
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(session.pendingMessages).toHaveLength(1);
+    expect(queued.session_id).toBe(sid);
+    expect(queued.message.content).toContain("[reply] Confirm scope\n\nAnswer: yes");
+    expect(historyEntry).toMatchObject({
+      type: "user_message",
+      content: "Answer: yes",
+      replyContext,
+      threadKey: "q-1242",
+      questId: "q-1242",
+    });
+  });
+
   it("routes pre-attach injected Codex messages through the authoritative Codex turn queue", () => {
     const sid = "s-inject-codex-starting";
     const relaunchCb = vi.fn();

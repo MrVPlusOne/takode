@@ -27,7 +27,7 @@ function createTestApp() {
   const handleBrowserMessage = vi.fn(async (_ws: any, _raw: string) => {});
   const broadcastToSession = vi.fn();
   const persistSessionById = vi.fn();
-  const injectUserMessage = vi.fn(() => "sent" as const);
+  const injectUserMessage = vi.fn((): "sent" | "queued" | "dropped" | "no_session" => "sent");
   const launcher = {
     resolveSessionId: vi.fn((id: string) => id),
     getSession: vi.fn((id: string) =>
@@ -131,8 +131,8 @@ describe("takode cross-session message routing", () => {
 });
 
 describe("takode needs-input notification response routing", () => {
-  it("routes a notification response through the browser-message path and marks it done", async () => {
-    const { app, handleBrowserMessage, session } = createTestApp();
+  it("routes a notification response through programmatic delivery and marks it done", async () => {
+    const { app, injectUserMessage, session } = createTestApp();
     session.notifications.push({
       id: "n-1",
       category: "needs-input",
@@ -155,27 +155,74 @@ describe("takode needs-input notification response routing", () => {
       ok: true,
       sessionId: "worker-1",
       notificationId: "n-1",
-      delivery: "accepted",
+      delivery: "sent",
       changed: true,
     });
-    expect(handleBrowserMessage).toHaveBeenCalledTimes(1);
-    const [ws, raw] = handleBrowserMessage.mock.calls[0]!;
-    expect(ws.data).toEqual({ kind: "browser", sessionId: "worker-1" });
-    expect(JSON.parse(raw)).toEqual({
-      type: "user_message",
-      content: "Confirm scope\n\nAnswer: yes",
-      deliveryContent: "[reply] Confirm scope\n\nConfirm scope\n\nAnswer: yes",
-      replyContext: {
-        messageId: "msg-123",
-        notificationId: "n-1",
-        previewText: "Confirm scope",
+    expect(injectUserMessage).toHaveBeenCalledWith(
+      "worker-1",
+      "Confirm scope\n\nAnswer: yes",
+      undefined,
+      undefined,
+      {
+        threadKey: "q-1242",
+        questId: "q-1242",
+        threadRefs: [{ threadKey: "q-1242", questId: "q-1242", source: "explicit" }],
       },
-      session_id: "worker-1",
-      threadKey: "q-1242",
-      questId: "q-1242",
-      threadRefs: [{ threadKey: "q-1242", questId: "q-1242", source: "explicit" }],
-    });
+      {
+        deliveryContent: "[reply] Confirm scope\n\nConfirm scope\n\nAnswer: yes",
+        replyContext: {
+          messageId: "msg-123",
+          notificationId: "n-1",
+          previewText: "Confirm scope",
+        },
+        sessionId: "worker-1",
+      },
+    );
     expect(session.notifications[0].done).toBe(true);
+  });
+
+  it("accepts queued delivery and marks the notification done", async () => {
+    const { app, injectUserMessage, session } = createTestApp();
+    injectUserMessage.mockReturnValueOnce("queued");
+    session.notifications.push({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Confirm scope",
+      timestamp: 123,
+      messageId: "msg-123",
+      done: false,
+    });
+
+    const res = await app.request("/api/sessions/worker-1/notifications/n-1/response", {
+      method: "POST",
+      body: JSON.stringify({ content: "Answer: yes" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({ ok: true, delivery: "queued", changed: true });
+    expect(session.notifications[0].done).toBe(true);
+  });
+
+  it("leaves the notification unresolved when delivery is not accepted", async () => {
+    const { app, injectUserMessage, session } = createTestApp();
+    injectUserMessage.mockReturnValueOnce("no_session");
+    session.notifications.push({
+      id: "n-1",
+      category: "needs-input",
+      summary: "Confirm scope",
+      timestamp: 123,
+      messageId: "msg-123",
+      done: false,
+    });
+
+    const res = await app.request("/api/sessions/worker-1/notifications/n-1/response", {
+      method: "POST",
+      body: JSON.stringify({ content: "Answer: yes" }),
+    });
+
+    expect(res.status).toBe(503);
+    expect(await res.json()).toEqual({ error: "Response could not be delivered", delivery: "no_session" });
+    expect(session.notifications[0].done).toBe(false);
   });
 });
 

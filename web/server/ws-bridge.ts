@@ -94,6 +94,7 @@ import {
   handleBrowserOpen as handleBrowserOpenController,
   isHerdEventSource as isHerdEventSourceBrowserTransportController,
   injectUserMessage as injectUserMessageController,
+  type ProgrammaticUserMessageOptions,
   isHistoryBackedEvent as isHistoryBackedEventController,
   sameAgentSource as sameAgentSourceBrowserTransportController,
   sendToBrowser as sendToBrowserController,
@@ -1314,6 +1315,7 @@ export class WsBridge {
     agentSource?: { sessionId: string; sessionLabel?: string },
     takodeHerdBatch?: TakodeHerdBatchSnapshot,
     threadRoute?: { threadKey: string; questId?: string; threadRefs?: ThreadRef[] },
+    options?: ProgrammaticUserMessageOptions,
   ): "sent" | "queued" | "dropped" | "no_session" {
     const session = this.sessions.get(sessionId);
     if (!session) {
@@ -1340,6 +1342,7 @@ export class WsBridge {
       deliveryBatch,
       this.getBrowserTransportDeps(),
       threadRoute,
+      options,
     );
   }
 

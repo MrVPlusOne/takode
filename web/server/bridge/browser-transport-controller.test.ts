@@ -914,6 +914,56 @@ describe("selected feed thread windows", () => {
   });
 });
 
+describe("programmatic user message injection", () => {
+  it("passes reply and thread metadata through programmatic user-message injection", () => {
+    const routeBrowserMessage = vi.fn();
+    const deps = makeInjectDeps({ routeBrowserMessage });
+    const session = makeSession({ id: "worker-1" });
+    const threadRoute = {
+      threadKey: "q-1242",
+      questId: "q-1242",
+      threadRefs: [{ threadKey: "q-1242", questId: "q-1242", source: "explicit" }],
+    } as any;
+    const vscodeSelection = {
+      absolutePath: "/repo/web/src/App.tsx",
+      relativePath: "web/src/App.tsx",
+      displayPath: "web/src/App.tsx",
+      startLine: 12,
+      endLine: 14,
+      lineCount: 3,
+    };
+
+    const delivery = injectUserMessage(
+      session,
+      "Answer: yes",
+      { sessionId: "leader-1", sessionLabel: "Leader" },
+      undefined,
+      deps,
+      threadRoute,
+      {
+        deliveryContent: "[reply] Confirm scope\n\nAnswer: yes",
+        replyContext: { messageId: "msg-123", notificationId: "n-1", previewText: "Confirm scope" },
+        sessionId: "worker-1",
+        vscodeSelection,
+      },
+    );
+
+    expect(delivery).toBe("sent");
+    expect(routeBrowserMessage).toHaveBeenCalledWith(session, {
+      type: "user_message",
+      content: "Answer: yes",
+      deliveryContent: "[reply] Confirm scope\n\nAnswer: yes",
+      replyContext: { messageId: "msg-123", notificationId: "n-1", previewText: "Confirm scope" },
+      session_id: "worker-1",
+      vscodeSelection,
+      agentSource: { sessionId: "leader-1", sessionLabel: "Leader" },
+      threadKey: "q-1242",
+      questId: "q-1242",
+      threadRefs: [{ threadKey: "q-1242", questId: "q-1242", source: "explicit" }],
+    });
+  });
+});
+
 describe("Codex herd event injection", () => {
   it("reports a live Codex pending herd input as queued until retry accepts it", () => {
     const agentSource = { sessionId: "herd-events", sessionLabel: "Herd Events" };

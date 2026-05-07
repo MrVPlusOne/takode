@@ -48,6 +48,14 @@ import type {
 } from "../session-types.js";
 
 type AgentSource = { sessionId: string; sessionLabel?: string };
+type ProgrammaticUserMessage = Extract<BrowserOutgoingMessage, { type: "user_message" }>;
+
+export interface ProgrammaticUserMessageOptions {
+  deliveryContent?: ProgrammaticUserMessage["deliveryContent"];
+  replyContext?: ProgrammaticUserMessage["replyContext"];
+  sessionId?: string;
+  vscodeSelection?: ProgrammaticUserMessage["vscodeSelection"];
+}
 
 export interface BrowserTransportSocketLike {
   data?: unknown;
@@ -534,6 +542,7 @@ export function injectUserMessage(
   takodeHerdBatch: TakodeHerdBatchSnapshot | undefined,
   deps: BrowserTransportDeps,
   threadRoute?: ThreadRouteMetadata,
+  options?: ProgrammaticUserMessageOptions,
 ): "sent" | "queued" {
   const backendLive = deps.backendConnected(session);
   if (isHerdEventSource(agentSource) && session.backendType === "codex") {
@@ -552,6 +561,10 @@ export function injectUserMessage(
   const browserMessage: BrowserOutgoingMessage = {
     type: "user_message",
     content,
+    ...(options?.deliveryContent ? { deliveryContent: options.deliveryContent } : {}),
+    ...(options?.replyContext ? { replyContext: options.replyContext } : {}),
+    ...(options?.sessionId ? { session_id: options.sessionId } : {}),
+    ...(options?.vscodeSelection ? { vscodeSelection: options.vscodeSelection } : {}),
     ...(agentSource ? { agentSource } : {}),
     ...(takodeHerdBatch ? { takodeHerdBatch } : {}),
     ...(threadRoute ? { threadKey: threadRoute.threadKey } : {}),
