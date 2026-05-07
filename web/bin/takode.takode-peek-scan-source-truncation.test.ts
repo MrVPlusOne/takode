@@ -89,7 +89,7 @@ describe("takode peek/scan source-aware truncation", () => {
         type: "user_message",
         content: agentContent,
         timestamp: now - 30_000,
-        agentSource: { sessionId: "session-7", sessionLabel: "System" },
+        agentSource: { sessionId: "session-7", sessionLabel: "#7 System Leader" },
       },
       {
         type: "assistant",
@@ -146,7 +146,8 @@ describe("takode peek/scan source-aware truncation", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("user:");
       expect(result.stdout).toContain("herd:");
-      expect(result.stdout).toContain("agent System:");
+      expect(result.stdout).toContain("agent #7:");
+      expect(result.stdout).not.toContain("System Leader");
       expect(result.stdout).toContain("USER_SCAN_KEEP");
       expect(result.stdout).not.toContain("USER_SCAN_HIDE");
       expect(result.stdout).toContain("AGENT_SCAN_KEEP");
@@ -204,7 +205,7 @@ describe("takode peek/scan source-aware truncation", () => {
                 type: "user",
                 ts: Date.now() - 10_000,
                 content: agentContent,
-                agent: { sessionId: "session-9", sessionLabel: "System" },
+                agent: { sessionId: "session-9", sessionLabel: "#9 System Worker" },
               },
             ],
           }),
@@ -230,7 +231,8 @@ describe("takode peek/scan source-aware truncation", () => {
       expect(result.status).toBe(0);
       expect(result.stdout).toContain("user  ");
       expect(result.stdout).toContain("herd  ");
-      expect(result.stdout).toContain("agent System");
+      expect(result.stdout).toContain("agent #9");
+      expect(result.stdout).not.toContain("System Worker");
       expect(result.stdout).toContain("USER_PEEK_KEEP");
       expect(result.stdout).toContain("AGENT_PEEK_KEEP");
       expect(result.stdout).not.toContain("HERD_PEEK_HIDE");
@@ -242,6 +244,7 @@ describe("takode peek/scan source-aware truncation", () => {
   it("gives takode read a generous human user window while keeping herd reads shorter and labeled", async () => {
     const userContent = makeWindowedContent("read-user ", 1888, "READ_USER_KEEP", 220, "READ_USER_HIDE");
     const herdContent = makeWindowedContent("read-herd ", 120, "READ_HERD_KEEP", 120, "READ_HERD_HIDE");
+    const agentContent = "read-agent READ_AGENT_KEEP";
 
     const server = createServer((req, res) => {
       const method = req.method || "";
@@ -296,6 +299,28 @@ describe("takode peek/scan source-aware truncation", () => {
         return;
       }
 
+      if (method === "GET" && url === "/api/sessions/153/messages/2") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            idx: 2,
+            type: "user_message",
+            ts: Date.now() - 10_000,
+            totalLines: 1,
+            offset: 0,
+            limit: 200,
+            content: agentContent,
+            rawMessage: {
+              type: "user_message",
+              content: agentContent,
+              timestamp: Date.now() - 10_000,
+              agentSource: { sessionId: "session-11", sessionLabel: "#11 Long Agent Name" },
+            },
+          }),
+        );
+        return;
+      }
+
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
     });
@@ -315,6 +340,11 @@ describe("takode peek/scan source-aware truncation", () => {
         COMPANION_SESSION_ID: "leader-read-source",
         COMPANION_AUTH_TOKEN: "auth-read-source",
       });
+      const agentResult = await runTakode(["read", "153", "2", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-read-source",
+        COMPANION_AUTH_TOKEN: "auth-read-source",
+      });
 
       expect(userResult.status).toBe(0);
       expect(userResult.stdout).toContain("[msg 0] user --");
@@ -327,6 +357,75 @@ describe("takode peek/scan source-aware truncation", () => {
       expect(herdResult.stdout).toContain("READ_HERD_KEEP");
       expect(herdResult.stdout).not.toContain("READ_HERD_HIDE");
       expect(herdResult.stdout).toContain("more chars hidden");
+
+      expect(agentResult.status).toBe(0);
+      expect(agentResult.stdout).toContain("[msg 2] agent #11 --");
+      expect(agentResult.stdout).not.toContain("Long Agent Name");
+      expect(agentResult.stdout).toContain("READ_AGENT_KEEP");
+    } finally {
+      server.close();
+    }
+  });
+
+  it("keeps non-numbered agent labels visible instead of dropping provenance", async () => {
+    const agentContent = "fallback-agent AGENT_FALLBACK_KEEP";
+
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-agent-fallback", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?count=1&from=0") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Peek Worker",
+            status: "idle",
+            quest: null,
+            mode: "range",
+            totalMessages: 1,
+            from: 0,
+            to: 0,
+            bounds: [{ turn: 0, si: 0, ei: 0 }],
+            messages: [
+              {
+                idx: 0,
+                type: "user",
+                ts: Date.now() - 10_000,
+                content: agentContent,
+                agent: { sessionId: "system", sessionLabel: "System" },
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["peek", "153", "--from", "0", "--count", "1", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-agent-fallback",
+        COMPANION_AUTH_TOKEN: "auth-agent-fallback",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("agent System");
+      expect(result.stdout).toContain("AGENT_FALLBACK_KEEP");
     } finally {
       server.close();
     }

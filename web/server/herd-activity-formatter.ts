@@ -24,7 +24,7 @@
  */
 
 import type { BrowserIncomingMessage, ContentBlock } from "./session-types.js";
-import { formatQuotedContent } from "./takode-messages.js";
+import { formatCompactAgentLabel, formatQuotedContent } from "../shared/takode-constants.js";
 
 // ─── Constants ──────────────────────────────────────────────────────────────────
 
@@ -315,7 +315,8 @@ function formatUserSource(msg: BrowserIncomingMessage): string {
   const agentSource = (msg as { agentSource?: { sessionId?: string; sessionLabel?: string } }).agentSource;
   if (!agentSource) return "user";
   if (agentSource.sessionId === "herd-events") return "herd";
-  return agentSource.sessionLabel ? `agent(${agentSource.sessionLabel})` : "agent";
+  const agentLabel = formatCompactAgentLabel(agentSource.sessionLabel);
+  return agentLabel ? `agent(${agentLabel})` : "agent";
 }
 
 function isLeaderAuthoredUserMessage(msg: BrowserIncomingMessage, leaderSessionId: string | undefined): boolean {

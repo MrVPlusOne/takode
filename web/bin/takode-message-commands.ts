@@ -5,7 +5,7 @@ import {
   type LogQueryResponse,
   type ServerLogEntry,
 } from "../shared/logging.ts";
-import { TAKODE_PEEK_CONTENT_LIMIT, formatQuotedContent } from "../shared/takode-constants.ts";
+import { TAKODE_PEEK_CONTENT_LIMIT, formatCompactAgentLabel, formatQuotedContent } from "../shared/takode-constants.ts";
 import {
   apiGet,
   dateKey,
@@ -73,7 +73,8 @@ function userSourceLabel(msg: TakodeMessageSourceLike): string {
   const sourceKind = takodeUserMessageSourceKind(msg);
   if (sourceKind === "user") return "user";
   if (sourceKind === "herd") return "herd";
-  return `agent${msg.agent?.sessionLabel ? ` ${formatInlineText(msg.agent.sessionLabel)}` : ""}`;
+  const agentLabel = formatCompactAgentLabel(msg.agent?.sessionLabel);
+  return `agent${agentLabel ? ` ${formatInlineText(agentLabel)}` : ""}`;
 }
 
 function takodeUserContentLimits(surface: TakodeUserContentSurface): Record<TakodeUserMessageSourceKind, number> {

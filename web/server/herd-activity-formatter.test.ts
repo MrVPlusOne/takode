@@ -155,7 +155,8 @@ describe("formatActivitySummary", () => {
 
     const result = formatActivitySummary(messages, { startIdx: 0, leaderSessionId: "leader-1" });
 
-    expect(result).toContain("[0] agent(#5 Worker):");
+    expect(result).toContain("[0] agent(#5):");
+    expect(result).not.toContain("agent(#5 Worker):");
     expect(result).toContain("+920 chars");
     expect(result).not.toContain("[0] leader:");
   });

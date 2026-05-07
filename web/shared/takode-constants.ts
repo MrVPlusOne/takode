@@ -27,3 +27,12 @@ export function formatQuotedContent(s: string, limit: number): string {
   const remaining = s.length - limit;
   return `"${escapeStringLiteral(s.slice(0, limit))}" +${remaining} chars`;
 }
+
+/** Collapse stored agent labels like "#1563 System Leader 2" to "#1563".
+ *  Falls back to the original label when no visible session number is present. */
+export function formatCompactAgentLabel(sessionLabel: string | undefined): string | null {
+  const label = sessionLabel?.trim();
+  if (!label) return null;
+  const sessionNumber = /^#\d+(?=$|\s)/.exec(label);
+  return sessionNumber?.[0] ?? label;
+}
