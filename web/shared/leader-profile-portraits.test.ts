@@ -43,15 +43,23 @@ describe("leader profile portrait metadata", () => {
       LEADER_PROFILE_PORTRAITS,
       FALLBACK_LEADER_PROFILE_PORTRAIT,
     );
-    const portraitOffsets = validation
-      .filter((asset) => asset.poolId !== "fallback")
-      .flatMap((asset) => [
-        Math.abs(asset.small.visualCenterOffsetX),
-        Math.abs(asset.small.visualCenterOffsetY),
-        Math.abs(asset.large.visualCenterOffsetX),
-        Math.abs(asset.large.visualCenterOffsetY),
-      ]);
+    const portraitAssets = validation.filter((asset) => asset.poolId !== "fallback");
+    const portraitOffsets = portraitAssets.flatMap((asset) => [
+      Math.abs(asset.small.visualCenterOffsetX),
+      Math.abs(asset.small.visualCenterOffsetY),
+      Math.abs(asset.large.visualCenterOffsetX),
+      Math.abs(asset.large.visualCenterOffsetY),
+    ]);
+    // Empty-boundary checks catch the open-scale failure mode where pale source background
+    // forms a visible inner arc inside the circular portrait frame.
+    const emptyBoundaryRatios = portraitAssets.flatMap((asset) => [
+      asset.small.emptyBoundaryRatio,
+      asset.small.maxEmptyBoundarySectorRatio,
+      asset.large.emptyBoundaryRatio,
+      asset.large.maxEmptyBoundarySectorRatio,
+    ]);
 
     expect(Math.max(...portraitOffsets)).toBeLessThanOrEqual(0.24);
+    expect(Math.max(...emptyBoundaryRatios)).toBeLessThanOrEqual(0.36);
   });
 });
