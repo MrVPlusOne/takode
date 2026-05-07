@@ -8,7 +8,7 @@ Leader actions:
 - Use this as a reviewer-owned acceptance phase after the worker has usually produced the outcome evidence first.
 - Tell fresh reviewers to load the essential skills/context for the target first: `quest` when reviewing quest state or feedback, and `takode-orchestration` when inspecting prior sessions or cross-session history.
 - Point the reviewer to the exact logs, metrics, artifacts, behaviors, or UX evidence to judge.
-- When memory matters to final handoff, debrief accuracy, durable decisions, or memory-writing choices, require the reviewer to see the latest catalog with `memory catalog show` and use `memory catalog diff` as a freshness check only when they need to know what changed since this session last saw the catalog.
+- When memory matters to final handoff, debrief accuracy, durable decisions, or memory-writing choices, provide context-specific memory deltas such as relevant files or decisions already inspected, accepted evidence that changes durable facts, and known freshness concerns. The assignee brief owns the standard catalog and freshness-check mechanics.
 - Ask for an outcome judgment tied to concrete evidence.
 - Keep the reviewer scoped to judging sufficiency of the existing evidence, with only small bounded reruns or repros when needed for acceptance.
 - Require reviewers to judge phase documentation quality, not just presence: phase relevance, useful full detail, TLDR completeness when appropriate, and correct phase association when the phase-scoped primitive is available.

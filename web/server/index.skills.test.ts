@@ -16,6 +16,7 @@ const ORCHESTRATION_DESIGN_SKILL_PATH = join(
 );
 const SKEPTIC_REVIEW_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "skeptic-review", "SKILL.md");
 const WORKTREE_RULES_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "worktree-rules", "SKILL.md");
+const LEADER_DISPATCH_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "leader-dispatch", "SKILL.md");
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
 const QUEST_JOURNEY_SKILL_SLUGS = [
   "quest-journey-alignment",
@@ -120,6 +121,16 @@ describe("index startup skill registration", () => {
     await expect(
       access(join(REPO_ROOT, ".codex", "skills", "takode-orchestration-design", "SKILL.md")),
     ).rejects.toThrow();
+  });
+
+  it("keeps leader handoffs focused on phase-specific deltas", async () => {
+    const source = await readFile(LEADER_DISPATCH_SKILL_PATH, "utf-8");
+
+    expect(source).toContain("Memory command mechanics live in the relevant phase briefs");
+    expect(source).toContain("include only memory-specific deltas");
+    expect(source).toContain("The Port assignee brief owns the standard report shape");
+    expect(source).toContain("Your handoff should add only context-dependent deltas");
+    expect(source).toContain("Leader-specific deltas for this port");
   });
 
   it("keeps skeptic-review summary creation guidance from teaching lossy long summaries", async () => {
