@@ -35,6 +35,7 @@ import { QuestDetailPanel } from "./components/QuestDetailPanel.js";
 import { SearchEverythingOverlay } from "./components/SearchEverythingOverlay.js";
 import { isPendingId } from "./utils/pending-creation.js";
 import { isDesktopShellLayout, isDesktopTaskPanelLayout } from "./utils/layout.js";
+import { installAppViewportSizing } from "./utils/app-viewport.js";
 import { getLastSessionCreationContext } from "./utils/new-session-defaults.js";
 import { buildSidebarVisibleSessions } from "./utils/sidebar-visible-sessions.js";
 import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
@@ -343,23 +344,7 @@ export default function App() {
   }, [route, shortcutSettings]);
 
   useEffect(() => {
-    // Size the parent chain (html → body → #root) to the viewport so the
-    // app container can use percentage-based dimensions for zoom scaling.
-    // We use % instead of viewport units (vw/dvh) because CSS `zoom`
-    // interacts unpredictably with viewport units in some environments.
-    const html = document.documentElement;
-    const body = document.body;
-    const root = document.getElementById("root");
-    html.style.overflow = "hidden";
-    html.style.height = "100dvh";
-    html.style.width = "100vw";
-    body.style.height = "100%";
-    body.style.width = "100%";
-    body.style.margin = "0";
-    if (root) {
-      root.style.height = "100%";
-      root.style.width = "100%";
-    }
+    return installAppViewportSizing(window);
   }, []);
 
   // Capture the localStorage-restored session ID during render (before any effects run)
