@@ -11,6 +11,7 @@ import type { TimerManager } from "../timer-manager.js";
 import type { WsBridge } from "../ws-bridge.js";
 import * as sessionNames from "../session-names.js";
 import { getLastActualHumanUserMessageTimestamp } from "../user-message-classification.js";
+import { getLeaderProfilePortraitForSession } from "../leader-profile-assignments.js";
 
 type SessionListEntry = ReturnType<CliLauncher["listSessions"]>[number];
 
@@ -84,6 +85,14 @@ export async function buildEnrichedSessionsSnapshot(
           safeSession.backendType === "codex" && safeSession.isOrchestrator === true
             ? resolveCodexLeaderRecycleThresholdTokens(settings, model)
             : undefined;
+        const leaderProfilePortrait = getLeaderProfilePortraitForSession(
+          safeSession,
+          settings.leaderProfilePools,
+          (portraitId) => launcher.setLeaderProfilePortraitId(s.sessionId, portraitId),
+        );
+        const leaderProfilePortraitId =
+          safeSession.leaderProfilePortraitId ??
+          (leaderProfilePortrait && leaderProfilePortrait.poolId !== "fallback" ? leaderProfilePortrait.id : null);
         const gitAhead = bridge?.git_ahead || 0;
         const gitBehind = bridge?.git_behind || 0;
         return {
@@ -109,6 +118,8 @@ export async function buildEnrichedSessionsSnapshot(
           messageHistoryBytes: bridge?.message_history_bytes || 0,
           codexRetainedPayloadBytes: bridge?.codex_retained_payload_bytes || 0,
           sessionLifecycleEvents: bridge?.lifecycle_events ?? [],
+          leaderProfilePortraitId,
+          ...(leaderProfilePortrait ? { leaderProfilePortrait } : {}),
           ...(codexLeaderRecycleThresholdTokens ? { codexLeaderRecycleThresholdTokens } : {}),
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
           ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),

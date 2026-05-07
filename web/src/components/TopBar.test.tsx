@@ -10,6 +10,7 @@ vi.mock("../api.js", () => ({
     relaunchSession: vi.fn().mockResolvedValue({ ok: true }),
     getSessionNotifications: vi.fn().mockResolvedValue([]),
     markNotificationDone: vi.fn().mockResolvedValue({ ok: true }),
+    updateLeaderProfilePortrait: vi.fn(),
   },
 }));
 vi.mock("../utils/navigation.js", () => ({
@@ -59,7 +60,20 @@ interface MockStoreState {
     state?: "idle" | "starting" | "connected" | "running" | "compacting" | "exited" | null;
     claimedQuestStatus?: string | null;
     claimedQuestVerificationInboxUnread?: boolean;
+    isOrchestrator?: boolean;
+    leaderProfilePortrait?: {
+      id: string;
+      poolId: string;
+      label: string;
+      smallUrl: string;
+      largeUrl: string;
+      smallSize: number;
+      largeSize: number;
+      smallBytes: number;
+      largeBytes: number;
+    };
   }[];
+  updateSdkSession: ReturnType<typeof vi.fn>;
   changedFiles: Map<string, Set<string>>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
@@ -100,6 +114,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     setActiveTab: vi.fn(),
     sessions: new Map([["s1", { cwd: "/repo" }]]),
     sdkSessions: [],
+    updateSdkSession: vi.fn(),
     changedFiles: new Map(),
     pendingPermissions: new Map(),
     sessionAttention: new Map(),
@@ -306,6 +321,37 @@ describe("TopBar", () => {
     render(<TopBar />);
     expect(screen.getByText("#111")).toBeInTheDocument();
     expect(screen.getByText("Main Session")).toBeInTheDocument();
+  });
+
+  it("shows a leader portrait before the leader session name", () => {
+    resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", permissionMode: "acceptEdits", backend_type: "claude" }]]),
+      sessionNames: new Map([["s1", "Leader Session"]]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 1,
+          sessionNum: 111,
+          name: "Leader Session",
+          isOrchestrator: true,
+          leaderProfilePortrait: {
+            id: "tako1",
+            poolId: "tako",
+            label: "Tako 1",
+            smallUrl: "/leader-profile-portraits/tako/tako1.v1.96.webp",
+            largeUrl: "/leader-profile-portraits/tako/tako1.v1.320.webp",
+            smallSize: 96,
+            largeSize: 320,
+            smallBytes: 4068,
+            largeBytes: 27208,
+          },
+        },
+      ],
+    });
+
+    render(<TopBar />);
+    expect(screen.getByRole("button", { name: /open tako 1 profile/i })).toBeInTheDocument();
+    expect(screen.getByText("Leader Session")).toBeInTheDocument();
   });
 
   it("does not show a duplicate plan/agent mode label in title bar", () => {

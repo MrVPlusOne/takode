@@ -52,6 +52,8 @@ import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_ME
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
+import { registerSessionLeaderProfileRoute } from "./session-leader-profile-route.js";
+import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -362,6 +364,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
     if (sessionConfig.isOrchestrator) {
       session.isOrchestrator = true;
+      session.leaderProfilePortraitId = chooseRandomLeaderProfilePortraitId(getSettings().leaderProfilePools);
       session.noAutoName = true; // Leaders handle multiple quests; autonamer would pick a misleading name
       markOrchestratorSession(session.sessionId, sessionConfig.launchOptions.backendType || "claude");
     }
@@ -1150,6 +1153,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
     });
   });
+  registerSessionLeaderProfileRoute(api, ctx);
 
   api.get("/sessions/:id/messages/:idx/preview", (c) => {
     const sessionId = resolveId(c.req.param("id"));

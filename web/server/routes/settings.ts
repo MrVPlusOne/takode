@@ -31,6 +31,12 @@ import {
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "../pushover.js";
 import { getLogPath } from "../server-logger.js";
 import type { RouteContext } from "./context.js";
+import {
+  FALLBACK_LEADER_PROFILE_PORTRAIT,
+  LEADER_PROFILE_POOLS,
+  LEADER_PROFILE_PORTRAITS,
+  normalizeLeaderProfilePoolSettings,
+} from "../../shared/leader-profile-portraits.js";
 
 export function createSettingsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -619,6 +625,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
         : {}),
       codexLeaderRecycleThresholdTokens: settings.codexLeaderRecycleThresholdTokens,
       codexLeaderRecycleThresholdTokensByModel: settings.codexLeaderRecycleThresholdTokensByModel ?? {},
+      leaderProfilePools: normalizeLeaderProfilePoolSettings(settings.leaderProfilePools),
+      leaderProfilePortraits: LEADER_PROFILE_PORTRAITS,
+      leaderProfileFallbackPortrait: FALLBACK_LEADER_PROFILE_PORTRAIT,
+      leaderProfilePoolOptions: LEADER_PROFILE_POOLS,
       ...(extras?.includeRuntimeInfo
         ? {
             restartSupported: !!process.env.COMPANION_SUPERVISED,
@@ -840,6 +850,23 @@ export function createSettingsRoutes(ctx: RouteContext) {
     ) {
       return c.json({ error: parsedCodexLeaderRecycleThresholdTokensByModel.error }, 400);
     }
+    if (body.leaderProfilePools !== undefined) {
+      if (
+        typeof body.leaderProfilePools !== "object" ||
+        body.leaderProfilePools === null ||
+        Array.isArray(body.leaderProfilePools)
+      ) {
+        return c.json({ error: "leaderProfilePools must be an object" }, 400);
+      }
+      for (const key of Object.keys(body.leaderProfilePools as Record<string, unknown>)) {
+        if (!LEADER_PROFILE_POOLS.some((pool) => pool.id === key)) {
+          return c.json({ error: `Unknown leader profile pool: ${key}` }, 400);
+        }
+        if (typeof (body.leaderProfilePools as Record<string, unknown>)[key] !== "boolean") {
+          return c.json({ error: `leaderProfilePools.${key} must be a boolean` }, 400);
+        }
+      }
+    }
 
     // Check that at least one known field is present
     const knownFields = [
@@ -870,6 +897,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "codexNonLeaderAutoCompactThresholdPercent",
       "codexLeaderRecycleThresholdTokens",
       "codexLeaderRecycleThresholdTokensByModel",
+      "leaderProfilePools",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);
@@ -928,6 +956,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
       codexLeaderRecycleThresholdTokensByModel: parsedCodexLeaderRecycleThresholdTokensByModel?.ok
         ? parsedCodexLeaderRecycleThresholdTokensByModel.value
         : undefined,
+      leaderProfilePools:
+        body.leaderProfilePools && typeof body.leaderProfilePools === "object"
+          ? normalizeLeaderProfilePoolSettings(body.leaderProfilePools)
+          : undefined,
       ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
     };
     const settings = updateSettings(settingsPatch);

@@ -6,6 +6,11 @@ import type {
   StreamRecord,
   SessionNotification,
 } from "./types.js";
+import type {
+  LeaderProfilePool,
+  LeaderProfilePoolSettings,
+  LeaderProfilePortrait,
+} from "../shared/leader-profile-portraits.js";
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
@@ -575,6 +580,10 @@ export interface AppSettings {
   codexNonLeaderAutoCompactThresholdPercent?: number;
   codexLeaderRecycleThresholdTokens: number;
   codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
+  leaderProfilePools: LeaderProfilePoolSettings;
+  leaderProfilePortraits: LeaderProfilePortrait[];
+  leaderProfileFallbackPortrait: LeaderProfilePortrait;
+  leaderProfilePoolOptions: LeaderProfilePool[];
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -1309,7 +1318,15 @@ export const api = {
     codexNonLeaderAutoCompactThresholdPercent?: number;
     codexLeaderRecycleThresholdTokens?: number;
     codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
+    leaderProfilePools?: LeaderProfilePoolSettings;
   }) => put<AppSettings>("/settings", data),
+  updateLeaderProfilePortrait: (sessionId: string, portraitId: string) =>
+    put<{
+      ok: boolean;
+      sessionId: string;
+      leaderProfilePortraitId: string;
+      leaderProfilePortrait?: LeaderProfilePortrait;
+    }>(`/sessions/${encodeURIComponent(sessionId)}/leader-profile-portrait`, { portraitId }),
   testBinary: (binary: string) =>
     post<{ ok: boolean; resolvedPath?: string; version?: string }>("/settings/test-binary", { binary }),
   testPushover: () => post<{ ok: boolean }>("/pushover/test"),

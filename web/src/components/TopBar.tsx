@@ -11,6 +11,7 @@ import { coalesceSessionViewModel, type SessionViewModel } from "../utils/sessio
 import { questLabel } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
+import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 
@@ -52,6 +53,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
       cliSessionId: null,
       idleKilled: false,
       changedFilesCount: 0,
+      leaderProfilePortrait: undefined,
     };
   }
 
@@ -75,6 +77,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     cliSessionId: currentSessionVm?.cliSessionId ?? null,
     idleKilled: state.cliDisconnectReason.get(currentSessionId) === "idle_limit",
     changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
+    leaderProfilePortrait: currentSdkSession?.isOrchestrator ? currentSdkSession.leaderProfilePortrait : undefined,
   };
 }
 
@@ -126,6 +129,7 @@ export function TopBar() {
     cliSessionId,
     idleKilled,
     changedFilesCount,
+    leaderProfilePortrait,
   } = useStore(useShallow(getCurrentTopBarSessionState));
   const [copiedCliId, setCopiedCliId] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
@@ -243,6 +247,9 @@ export function TopBar() {
                 <span className="text-[11px] font-medium text-cc-muted shrink-0" title={`Session #${sessionNum}`}>
                   #{sessionNum}
                 </span>
+              )}
+              {leaderProfilePortrait && (
+                <LeaderProfilePortraitButton sessionId={currentSessionId} portrait={leaderProfilePortrait} size="md" />
               )}
               {sessionName && (
                 <span className="text-[11px] font-medium truncate text-cc-fg" title={sessionName}>

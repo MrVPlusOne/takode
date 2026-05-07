@@ -5,6 +5,11 @@ import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD } from "./constants.js";
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "./pushover.js";
+import {
+  DEFAULT_LEADER_PROFILE_POOLS,
+  normalizeLeaderProfilePoolSettings,
+  type LeaderProfilePoolSettings,
+} from "../shared/leader-profile-portraits.js";
 
 export interface CompanionSettings {
   /** Display name for this server instance */
@@ -67,6 +72,8 @@ export interface CompanionSettings {
   codexLeaderRecycleThresholdTokens: number;
   /** Optional exact-model recycle threshold overrides keyed by user-visible Codex model ID. */
   codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
+  /** Enabled built-in leader profile portrait pools. Optional for backward-compatible tests/mocks. */
+  leaderProfilePools?: LeaderProfilePoolSettings;
   updatedAt: number;
 }
 
@@ -185,6 +192,7 @@ let settings: CompanionSettings = {
   codexNonLeaderAutoCompactThresholdPercent: 90,
   codexLeaderRecycleThresholdTokens: 260_000,
   codexLeaderRecycleThresholdTokensByModel: {},
+  leaderProfilePools: DEFAULT_LEADER_PROFILE_POOLS,
   updatedAt: 0,
 };
 
@@ -454,6 +462,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
     codexLeaderRecycleThresholdTokensByModel: normalizeCodexLeaderRecycleThresholdTokensByModel(
       raw?.codexLeaderRecycleThresholdTokensByModel,
     ),
+    leaderProfilePools: normalizeLeaderProfilePoolSettings(raw?.leaderProfilePools),
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -556,6 +565,7 @@ export function updateSettings(
       | "codexNonLeaderAutoCompactThresholdPercent"
       | "codexLeaderRecycleThresholdTokens"
       | "codexLeaderRecycleThresholdTokensByModel"
+      | "leaderProfilePools"
       | "serverSlug"
     >
   >,
@@ -565,6 +575,9 @@ export function updateSettings(
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
   if (defined.pushoverEventFilters) {
     defined.pushoverEventFilters = normalizePushoverEventFilters(defined.pushoverEventFilters);
+  }
+  if (defined.leaderProfilePools) {
+    defined.leaderProfilePools = normalizeLeaderProfilePoolSettings(defined.leaderProfilePools);
   }
   if (typeof defined.serverSlug === "string") {
     const normalizedSlug = normalizeServerSlug(defined.serverSlug);

@@ -46,6 +46,11 @@ import type { ImageRef } from "../server/image-store.js";
 import type { SessionTimer } from "../server/timer-types.js";
 import type { ReplyContext } from "../shared/reply-context.js";
 import type {
+  LeaderProfilePool,
+  LeaderProfilePoolSettings,
+  LeaderProfilePortrait,
+} from "../shared/leader-profile-portraits.js";
+import type {
   QuestmasterTask,
   QuestStatus,
   QuestVerificationItem,
@@ -328,6 +333,8 @@ export interface SdkSessionInfo {
   isAssistant?: boolean;
   /** Whether this is a leader session (has herd/orchestration privileges) */
   isOrchestrator?: boolean;
+  leaderProfilePortraitId?: string | null;
+  leaderProfilePortrait?: LeaderProfilePortrait;
   /** Lightweight server-owned leader quest/thread tab state. */
   leaderOpenThreadTabs?: SessionState["leaderOpenThreadTabs"];
   /** Session UUID of the leader that has herded this worker (single leader per session) */

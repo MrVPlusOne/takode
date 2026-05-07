@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, fireEvent, screen } from "@testing-library/react";
+import { render, fireEvent, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { useState, type ComponentProps } from "react";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
@@ -15,10 +15,32 @@ const mockStoreState = {
   sessionTimers: new Map<string, Array<{ id: string }>>(),
   sdkSessions: [] as Array<any>,
   currentSessionId: "s1",
+  updateSdkSession: vi.fn(),
 };
 
 vi.mock("../store.js", () => ({
   useStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
+}));
+
+vi.mock("../api.js", () => ({
+  api: {
+    updateLeaderProfilePortrait: vi.fn(async (_sessionId: string, portraitId: string) => ({
+      ok: true,
+      sessionId: "s1",
+      leaderProfilePortraitId: portraitId,
+      leaderProfilePortrait: {
+        id: portraitId,
+        poolId: portraitId.startsWith("shmi") ? "shmi" : "tako",
+        label: portraitId,
+        smallUrl: `/leader-profile-portraits/test/${portraitId}.96.webp`,
+        largeUrl: `/leader-profile-portraits/test/${portraitId}.320.webp`,
+        smallSize: 96,
+        largeSize: 320,
+        smallBytes: 1,
+        largeBytes: 1,
+      },
+    })),
+  },
 }));
 
 const mockNavigateToSession = vi.fn();
@@ -27,6 +49,11 @@ vi.mock("../utils/routing.js", () => ({
 }));
 
 import { SessionItem } from "./SessionItem.js";
+import { LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
+
+beforeEach(() => {
+  mockStoreState.updateSdkSession.mockClear();
+});
 
 function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType {
   return {
@@ -371,6 +398,51 @@ describe("SessionItem herd role badges", () => {
     expect(badge).toHaveAttribute("data-herd-group-tone", "sage");
     expect(badge).toHaveStyle({ color: SAGE_THEME.textColor });
     expect(badge).toHaveStyle({ backgroundColor: SAGE_THEME.herdBackground });
+  });
+});
+
+describe("SessionItem leader profiles", () => {
+  it("renders a clickable portrait for leader sessions", () => {
+    renderSessionItem({
+      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0] }),
+    });
+
+    expect(screen.getByRole("button", { name: /open tako 1 profile/i })).toBeInTheDocument();
+  });
+
+  it("does not render portraits for non-leader sessions", () => {
+    renderSessionItem({
+      session: makeSession({ isOrchestrator: false, leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0] }),
+    });
+
+    expect(screen.queryByRole("button", { name: /open tako 1 profile/i })).not.toBeInTheDocument();
+  });
+
+  it("opens the profile picker from a leader portrait", () => {
+    renderSessionItem({
+      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0] }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /open tako 1 profile/i }));
+
+    expect(screen.getByRole("dialog", { name: "Leader profile" })).toBeInTheDocument();
+    expect(screen.getByTitle("Shmi 1")).toBeInTheDocument();
+  });
+
+  it("changes the leader portrait through the picker", async () => {
+    renderSessionItem({
+      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0] }),
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /open tako 1 profile/i }));
+    fireEvent.click(screen.getByTitle("Shmi 1"));
+
+    await waitFor(() => {
+      expect(mockStoreState.updateSdkSession).toHaveBeenCalledWith(
+        "s1",
+        expect.objectContaining({ leaderProfilePortraitId: "shmi1" }),
+      );
+    });
   });
 });
 

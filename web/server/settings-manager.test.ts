@@ -72,6 +72,7 @@ describe("settings-manager", () => {
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
+      leaderProfilePools: { tako: true, shmi: true },
       updatedAt: expect.any(Number),
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -109,6 +110,18 @@ describe("settings-manager", () => {
     await _flushForTest();
     const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
     expect(saved.pushoverEventFilters).toEqual({ needsInput: false, review: true, error: false });
+  });
+
+  it("normalizes and persists enabled leader profile pools", async () => {
+    const updated = updateSettings({ leaderProfilePools: { tako: false, shmi: true } });
+    expect(updated.leaderProfilePools).toEqual({ tako: false, shmi: true });
+
+    await _flushForTest();
+    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(saved.leaderProfilePools).toEqual({ tako: false, shmi: true });
+
+    _resetForTest(settingsPath);
+    expect(getSettings().leaderProfilePools).toEqual({ tako: false, shmi: true });
   });
 
   it("stores OpenAI API keys in a separate secrets file", async () => {
@@ -416,6 +429,7 @@ describe("settings-manager", () => {
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
+      leaderProfilePools: { tako: true, shmi: true },
       updatedAt: 0,
       codexLeaderRecycleThresholdTokensByModel: {},
     });

@@ -131,6 +131,8 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
         lastActivityAt: sdkInfo?.lastActivityAt,
         lastUserMessageAt: sdkInfo?.lastUserMessageAt,
         isOrchestrator: sdkInfo?.isOrchestrator || false,
+        leaderProfilePortraitId: sdkInfo?.leaderProfilePortraitId ?? null,
+        leaderProfilePortrait: sdkInfo?.leaderProfilePortrait,
         herdedBy: sdkInfo?.herdedBy,
         sessionNum: sdkInfo?.sessionNum ?? null,
         reviewerOf: sdkInfo?.reviewerOf,

@@ -17,6 +17,7 @@ import { recordShortcutBindingFromEvent, type ShortcutActionId } from "../shortc
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
 import { SettingsAutoApprovalSection } from "./SettingsAutoApprovalSection.js";
+import { SettingsLeaderProfilesSection } from "./SettingsLeaderProfilesSection.js";
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 import { SettingsShortcutSection } from "./SettingsShortcutSection.js";
 import {
@@ -1540,6 +1541,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                 )}
               </div>
             </CollapsibleSection>
+
+            <SettingsLeaderProfilesSection sectionSearchProps={settingsSearch.childSectionSearch("leader-profiles")} />
 
             {/* ── 5. Push Notifications (Pushover) ─────────────────── */}
             <CollapsibleSection

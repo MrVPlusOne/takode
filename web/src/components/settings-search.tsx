@@ -13,6 +13,7 @@ export type SettingsSectionId =
   | "shortcuts"
   | "cli"
   | "sessions"
+  | "leader-profiles"
   | "pushover"
   | "auto-approval"
   | "session-namer"
@@ -112,6 +113,13 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
       { id: "sleep-inhibitor", text: "Prevent Sleep During Generation caffeinate awake macOS" },
       { id: "session-data", text: "Session Data Export All Sessions Import Sessions portable archive paths" },
     ],
+  },
+  {
+    id: "leader-profiles",
+    title: "Leader Profiles",
+    description: "Choose which built-in portrait pools can be assigned to leader sessions.",
+    aliases: ["portrait", "avatar", "profile", "leader", "tako", "shmi"],
+    items: [{ id: "pools", text: "Built-in leader profile portrait pools Tako Shmi avatars" }],
   },
   {
     id: "pushover",

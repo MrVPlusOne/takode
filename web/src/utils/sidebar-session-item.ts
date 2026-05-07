@@ -1,3 +1,5 @@
+import type { LeaderProfilePortrait } from "../../shared/leader-profile-portraits.js";
+
 export interface SidebarSessionItem {
   id: string;
   claimedQuestStatus?: string;
@@ -38,6 +40,8 @@ export interface SidebarSessionItem {
   lastActivityAt?: number;
   lastUserMessageAt?: number;
   isOrchestrator?: boolean;
+  leaderProfilePortraitId?: string | null;
+  leaderProfilePortrait?: LeaderProfilePortrait;
   herdedBy?: string;
   sessionNum?: number | null;
   reviewerOf?: number;

@@ -9,6 +9,7 @@ import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
 import { getHighestNotificationUrgency, type NotificationUrgency } from "../utils/notification-urgency.js";
 import { isClearedNotificationStatus } from "../notification-status.js";
 import { formatGitStatusAge, isGitStatusStale } from "../../shared/git-status-freshness.js";
+import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 
 type SearchMatchedField =
   | "session_number"
@@ -619,6 +620,9 @@ export function SessionItem({
                   style={glowStyle}
                 />
               )
+            )}
+            {!archived && s.isOrchestrator && s.leaderProfilePortrait && (
+              <LeaderProfilePortraitButton sessionId={s.id} portrait={s.leaderProfilePortrait} />
             )}
             {!isEditing && s.isOrchestrator && useStatusBar && (
               <span

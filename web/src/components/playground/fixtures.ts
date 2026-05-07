@@ -2,6 +2,7 @@ import type { GitHubPRInfo } from "../../api.js";
 import type { McpServerDetail, PermissionRequest, ChatMessage, TaskItem } from "../../types.js";
 import type { SidebarSessionItem } from "../../utils/sidebar-session-item.js";
 import { buildHerdGroupBadgeThemes, getHerdGroupLeaderId } from "../../utils/herd-group-theme.js";
+import { LEADER_PROFILE_PORTRAITS } from "../../../shared/leader-profile-portraits.js";
 
 export const MOCK_SESSION_ID = "playground-session";
 export const PLAYGROUND_SECTIONED_SESSION_ID = "playground-sectioned-feed";
@@ -36,6 +37,8 @@ export const PLAYGROUND_SESSION_ROWS: Array<{ session: SidebarSessionItem; sessi
       permCount: 0,
       pendingTimerCount: 1,
       isOrchestrator: true,
+      leaderProfilePortraitId: LEADER_PROFILE_PORTRAITS[0].id,
+      leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0],
       sessionNum: 7,
     },
     sessionName: "Leader Alpha",

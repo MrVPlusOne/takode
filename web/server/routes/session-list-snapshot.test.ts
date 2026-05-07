@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { _resetForTest, updateSettings } from "../settings-manager.js";
 
-function makeLauncherSession(overrides: Record<string, unknown> = {}) {
+function makeLauncherSession(overrides: Record<string, unknown> = {}): any {
   return {
     sessionId: "s1",
     name: "Session 1",
@@ -44,6 +44,10 @@ function makeDeps(launcherSession: ReturnType<typeof makeLauncherSession>, bridg
       getSession: vi.fn(() => launcherSession),
       getSessionNum: vi.fn(() => 1),
       setWorktreeCleanupState: vi.fn(),
+      setLeaderProfilePortraitId: vi.fn((sessionId: string, portraitId: string) => {
+        if (sessionId === launcherSession.sessionId) launcherSession.leaderProfilePortraitId = portraitId;
+        return true;
+      }),
     },
     wsBridge: {
       getSession: vi.fn(() => bridgeSession),
@@ -127,6 +131,54 @@ describe("buildEnrichedSessionsSnapshot", () => {
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
 
     expect(snapshot[0]).not.toHaveProperty("codexLeaderRecycleThresholdTokens");
+  });
+
+  it("lazily backfills active leader profile portraits with a stable persisted assignment", async () => {
+    const launcherSession = makeLauncherSession({ isOrchestrator: true });
+    const deps = makeDeps(launcherSession, makeBridgeSession([]));
+
+    const first = await buildEnrichedSessionsSnapshot(deps);
+    const second = await buildEnrichedSessionsSnapshot(deps);
+    const firstRow = first[0] as any;
+    const secondRow = second[0] as any;
+
+    expect(firstRow.leaderProfilePortrait?.poolId).toMatch(/^(tako|shmi)$/);
+    expect(firstRow.leaderProfilePortraitId).toBe(firstRow.leaderProfilePortrait?.id);
+    expect(secondRow.leaderProfilePortraitId).toBe(firstRow.leaderProfilePortraitId);
+    expect((deps as any).launcher.setLeaderProfilePortraitId).toHaveBeenCalledTimes(1);
+  });
+
+  it("preserves assigned leader portraits even when their pool is disabled", async () => {
+    updateSettings({ leaderProfilePools: { tako: false, shmi: true } });
+    const launcherSession = makeLauncherSession({ isOrchestrator: true, leaderProfilePortraitId: "tako1" });
+
+    const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
+
+    expect((snapshot[0] as any).leaderProfilePortrait).toMatchObject({ id: "tako1", poolId: "tako" });
+  });
+
+  it("uses the fallback portrait for unassigned leaders when all pools are disabled", async () => {
+    updateSettings({ leaderProfilePools: { tako: false, shmi: false } });
+    const launcherSession = makeLauncherSession({ isOrchestrator: true });
+    const deps = makeDeps(launcherSession, makeBridgeSession([]));
+
+    const snapshot = await buildEnrichedSessionsSnapshot(deps);
+
+    expect((snapshot[0] as any).leaderProfilePortrait).toMatchObject({ id: "leader-fallback", poolId: "fallback" });
+    expect((deps as any).launcher.setLeaderProfilePortraitId).not.toHaveBeenCalled();
+  });
+
+  it("does not expose portrait URLs for archived leaders in list snapshots", async () => {
+    const launcherSession = makeLauncherSession({
+      archived: true,
+      isOrchestrator: true,
+      leaderProfilePortraitId: "tako1",
+    });
+
+    const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
+
+    expect(snapshot[0].leaderProfilePortraitId).toBe("tako1");
+    expect((snapshot[0] as any).leaderProfilePortrait).toBeUndefined();
   });
 
   it("includes claimed quest review metadata for idle sidebar session rows", async () => {

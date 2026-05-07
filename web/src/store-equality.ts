@@ -224,6 +224,10 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.worktreeDirty === b.worktreeDirty &&
     a.isAssistant === b.isAssistant &&
     a.isOrchestrator === b.isOrchestrator &&
+    a.leaderProfilePortraitId === b.leaderProfilePortraitId &&
+    a.leaderProfilePortrait?.id === b.leaderProfilePortrait?.id &&
+    a.leaderProfilePortrait?.smallUrl === b.leaderProfilePortrait?.smallUrl &&
+    a.leaderProfilePortrait?.largeUrl === b.leaderProfilePortrait?.largeUrl &&
     leaderOpenThreadTabsEqual(a.leaderOpenThreadTabs, b.leaderOpenThreadTabs) &&
     a.herdedBy === b.herdedBy &&
     a.sessionNum === b.sessionNum &&

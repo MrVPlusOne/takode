@@ -1,4 +1,9 @@
 import { vi, describe, it, expect, beforeEach } from "vitest";
+import {
+  FALLBACK_LEADER_PROFILE_PORTRAIT,
+  LEADER_PROFILE_POOLS,
+  LEADER_PROFILE_PORTRAITS,
+} from "../shared/leader-profile-portraits.js";
 
 // Mock env-manager and git-utils modules before any imports
 vi.mock("./env-manager.js", () => ({
@@ -584,7 +589,7 @@ describe("GET /api/settings", () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual({
+    expect(json).toMatchObject({
       serverName: "",
       serverId: "test-server-id",
       serverSlug: "prod",
@@ -620,6 +625,10 @@ describe("GET /api/settings", () => {
       logFile: expect.any(Object), // null or string depending on logger init
       claudeDefaultModel: expect.any(String),
     });
+    expect(json.leaderProfilePools).toEqual({ tako: true, shmi: true });
+    expect(json.leaderProfilePoolOptions).toEqual(LEADER_PROFILE_POOLS);
+    expect(json.leaderProfilePortraits).toEqual(LEADER_PROFILE_PORTRAITS);
+    expect(json.leaderProfileFallbackPortrait).toEqual(FALLBACK_LEADER_PROFILE_PORTRAIT);
   });
 
   it("reports pushover as not configured when keys are empty", async () => {
@@ -663,7 +672,7 @@ describe("GET /api/settings", () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual({
+    expect(json).toMatchObject({
       serverName: "",
       serverId: "test-server-id",
       serverSlug: "prod",
