@@ -1,6 +1,9 @@
 // @vitest-environment jsdom
 import { act, fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import type { BrowserIncomingMessage } from "../types.js";
+import { buildThreadWindowSync } from "../../shared/thread-window.js";
+import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-normalization.js";
 
 const mockMarkNotificationDone = vi.fn(async (_sessionId: string, _notifId: string, _done = true) => ({ ok: true }));
 const mockMarkAllNotificationsDone = vi.fn(async (_sessionId: string, _done = true) => ({ ok: true, count: 0 }));
@@ -26,6 +29,7 @@ const mockStoreState: Record<string, any> = {
   composerDrafts: mockComposerDrafts,
   replyContexts: mockReplyContexts,
   messages: new Map(),
+  threadWindowMessages: new Map(),
   quests: [],
   sessionBoards: new Map(),
   sessionCompletedBoards: new Map(),
@@ -94,6 +98,30 @@ function setQuests(quests: Array<any>) {
   mockStoreState.quests = quests;
 }
 
+function selectedThreadWindowMessagesForStaleTurnEnd(threadKey: string) {
+  const history: BrowserIncomingMessage[] = [
+    {
+      type: "user_message",
+      id: "herd-turn-end",
+      content: "1 event from 1 session\n\n#1590 | turn_end | ✓ 2m 54s | tools: 30",
+      timestamp: Date.now(),
+      agentSource: { sessionId: "herd-events" },
+      threadKey,
+      questId: threadKey,
+      threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }],
+    },
+  ];
+  const sync = buildThreadWindowSync({
+    messageHistory: history,
+    threadKey,
+    fromItem: 0,
+    itemCount: 10,
+    sectionItemCount: 10,
+    visibleItemCount: 3,
+  });
+  return sync.entries.flatMap((entry) => normalizeHistoryMessageToChatMessages(entry.message, entry.history_index));
+}
+
 function installIntersectionObserverMock() {
   let callback: IntersectionObserverCallback | null = null;
   let observedTarget: Element | null = null;
@@ -148,6 +176,7 @@ describe("NotificationChip", () => {
     mockComposerDrafts.clear();
     mockReplyContexts.clear();
     mockStoreState.messages = new Map();
+    mockStoreState.threadWindowMessages = new Map();
     mockStoreState.quests = [];
     mockStoreState.sessionNames = new Map();
     mockStoreState.sdkSessions = [];
@@ -418,6 +447,45 @@ describe("NotificationChip", () => {
           },
         ],
       ],
+    ]);
+    setNotifications("s1", [
+      {
+        id: "n-q977",
+        category: "needs-input",
+        summary: "Approve q-977 dispatch?",
+        timestamp: Date.now(),
+        messageId: "herd-turn-end",
+        threadKey: "q-977",
+        questId: "q-977",
+        done: false,
+      },
+    ]);
+
+    try {
+      render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
+      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      fireEvent.click(screen.getByRole("button", { name: /Approve q-977 dispatch/i }));
+
+      expect(onSelectThread).toHaveBeenCalledWith("q-977");
+      expect(mockRequestScrollToMessage).not.toHaveBeenCalledWith("s1", "herd-turn-end");
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+
+      expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
+      expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("uses selected thread-window evidence when rejecting stale needs-input anchors", () => {
+    const onSelectThread = vi.fn();
+    vi.useFakeTimers();
+    mockStoreState.messages = new Map();
+    mockStoreState.threadWindowMessages = new Map([
+      ["s1", new Map([["q-977", selectedThreadWindowMessagesForStaleTurnEnd("q-977")]])],
     ]);
     setNotifications("s1", [
       {

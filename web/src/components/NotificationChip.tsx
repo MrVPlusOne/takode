@@ -16,6 +16,7 @@ import {
 } from "../utils/notification-thread.js";
 import { useVisibleReviewNotificationAutoResolve } from "../hooks/useVisibleReviewNotificationAutoResolve.js";
 import { getActionableNotificationMessageId } from "../utils/notification-targets.js";
+import { normalizeThreadKey } from "../utils/thread-projection.js";
 
 const EMPTY: SessionNotification[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -243,9 +244,20 @@ function NotificationItem({
     api.markNotificationDone(sessionId, notif.id, !notif.done).catch(() => {});
   }, [sessionId, notif.id, notif.done]);
 
-  const messages = useStore((s) => s.messages?.get(sessionId) ?? EMPTY_MESSAGES);
   const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
-  const actionableMessageId = getActionableNotificationMessageId(notif, messages);
+  const messages = useStore((s) => s.messages?.get(sessionId) ?? EMPTY_MESSAGES);
+  const threadWindowMessages = useStore((s) => s.threadWindowMessages?.get(sessionId));
+  const notificationTargetMessages = useMemo(() => {
+    const ownerWindowMessages = threadWindowMessages?.get(ownerThreadKey) ?? EMPTY_MESSAGES;
+    const selectedThreadKey = normalizeThreadKey(currentThreadKey ?? MAIN_THREAD_KEY);
+    const selectedWindowMessages =
+      selectedThreadKey !== ownerThreadKey
+        ? (threadWindowMessages?.get(selectedThreadKey) ?? EMPTY_MESSAGES)
+        : EMPTY_MESSAGES;
+    if (ownerWindowMessages.length === 0 && selectedWindowMessages.length === 0) return messages;
+    return [...messages, ...ownerWindowMessages, ...selectedWindowMessages];
+  }, [currentThreadKey, messages, ownerThreadKey, threadWindowMessages]);
+  const actionableMessageId = getActionableNotificationMessageId(notif, notificationTargetMessages);
   const fallbackChipMessageId =
     notif.category === "needs-input" && !actionableMessageId && ownerThreadKey !== MAIN_THREAD_KEY
       ? attentionLedgerMessageIdForNotificationId(notif.id)
