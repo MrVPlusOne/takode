@@ -5,6 +5,15 @@ import { describe, expect, it } from "vitest";
 
 const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
 const INDEX_PATH = join(SERVER_DIR, "index.ts");
+const ORCHESTRATION_DESIGN_SKILL_PATH = join(
+  SERVER_DIR,
+  "..",
+  "..",
+  ".claude",
+  "skills",
+  "takode-orchestration-design",
+  "SKILL.md",
+);
 const SKEPTIC_REVIEW_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "skeptic-review", "SKILL.md");
 const WORKTREE_RULES_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "worktree-rules", "SKILL.md");
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
@@ -82,6 +91,35 @@ describe("index startup skill registration", () => {
         "Historical and canonical phase skill slugs remain internal Quest Journey compatibility metadata only",
       );
     }
+  });
+
+  it("documents a narrow orchestration design placement skill", async () => {
+    const [skill, claudeDocs, agentsDocs] = await Promise.all([
+      readFile(ORCHESTRATION_DESIGN_SKILL_PATH, "utf-8"),
+      readFile(join(REPO_ROOT, "CLAUDE.md"), "utf-8"),
+      readFile(join(REPO_ROOT, "AGENTS.md"), "utf-8"),
+    ]);
+
+    expect(skill).toContain("name: takode-orchestration-design");
+    expect(skill).toContain("Use when designing, reviewing, or changing Takode");
+    expect(skill).toContain("Do not use for ordinary quest execution");
+    expect(skill).toContain("Placement Rubric");
+    expect(skill).toContain("Source-Of-Truth Check");
+    expect(skill).toContain("Avoid new project skills under legacy `.codex/skills`");
+    expect(skill).toContain("Leader-specific deltas");
+    expect(skill).not.toContain("quest-journey-implement");
+
+    for (const docs of [claudeDocs, agentsDocs]) {
+      expect(docs).toContain("`takode-orchestration-design`");
+      expect(docs).toContain(".claude/skills/takode-orchestration-design/");
+    }
+
+    await expect(
+      access(join(REPO_ROOT, ".agents", "skills", "takode-orchestration-design", "SKILL.md")),
+    ).rejects.toThrow();
+    await expect(
+      access(join(REPO_ROOT, ".codex", "skills", "takode-orchestration-design", "SKILL.md")),
+    ).rejects.toThrow();
   });
 
   it("keeps skeptic-review summary creation guidance from teaching lossy long summaries", async () => {

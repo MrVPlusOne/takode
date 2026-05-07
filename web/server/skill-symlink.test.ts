@@ -145,6 +145,41 @@ describe("ensureSkillSymlinks", () => {
     expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.any(String), "/home/tester/.claude/skills/impeccable");
   });
 
+  it("discovers Claude-only project skills and installs them for Claude and agents", async () => {
+    // Validates concise project skills can live only in the canonical Claude
+    // source while still becoming available to non-Claude agents.
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return targetDir === "/repo/.claude/skills" || targetDir === "/repo/.claude/skills/takode-orchestration-design";
+    });
+    fsMocks.readdirSync.mockImplementation((targetDir?: string) => {
+      if (targetDir === "/repo/.claude/skills") {
+        return [
+          {
+            name: "takode-orchestration-design",
+            isDirectory: () => true,
+            isSymbolicLink: () => false,
+          },
+        ] as any[];
+      }
+      return [];
+    });
+
+    await ensureSkillSymlinks([]);
+
+    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
+      "/repo/.claude/skills/takode-orchestration-design",
+      "/home/tester/.claude/skills/takode-orchestration-design",
+    );
+    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
+      "/repo/.claude/skills/takode-orchestration-design",
+      "/home/tester/.agents/skills/takode-orchestration-design",
+    );
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(
+      expect.any(String),
+      "/home/tester/.codex/skills/takode-orchestration-design",
+    );
+  });
+
   it("skips Quest Journey phase skills and removes stale global installs", async () => {
     // Phase instructions are distributed as explicit phase briefs, not
     // auto-discovered skills. Cleanup runs across all three skill homes so
