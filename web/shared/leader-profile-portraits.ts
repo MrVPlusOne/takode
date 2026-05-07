@@ -1,3 +1,8 @@
+import {
+  GENERATED_FALLBACK_LEADER_PROFILE_PORTRAIT,
+  GENERATED_LEADER_PROFILE_PORTRAITS,
+} from "./leader-profile-portraits.generated.js";
+
 export const LEADER_PROFILE_POOL_IDS = ["tako", "shmi"] as const;
 
 export type LeaderProfilePoolId = (typeof LEADER_PROFILE_POOL_IDS)[number];
@@ -31,85 +36,17 @@ export const LEADER_PROFILE_POOLS: LeaderProfilePool[] = [
   { id: "shmi", label: "Shmi" },
 ];
 
-export const LEADER_PROFILE_PORTRAITS: LeaderProfilePortrait[] = [
-  {
-    id: "tako1",
-    poolId: "tako",
-    label: "Tako 1",
-    smallUrl: "/leader-profile-portraits/tako/tako1.v1.96.webp",
-    largeUrl: "/leader-profile-portraits/tako/tako1.v1.320.webp",
-    smallSize: 96,
-    largeSize: 320,
-    smallBytes: 4068,
-    largeBytes: 27208,
-  },
-  {
-    id: "tako2",
-    poolId: "tako",
-    label: "Tako 2",
-    smallUrl: "/leader-profile-portraits/tako/tako2.v1.96.webp",
-    largeUrl: "/leader-profile-portraits/tako/tako2.v1.320.webp",
-    smallSize: 96,
-    largeSize: 320,
-    smallBytes: 4132,
-    largeBytes: 28434,
-  },
-  {
-    id: "tako3",
-    poolId: "tako",
-    label: "Tako 3",
-    smallUrl: "/leader-profile-portraits/tako/tako3.v1.96.webp",
-    largeUrl: "/leader-profile-portraits/tako/tako3.v1.320.webp",
-    smallSize: 96,
-    largeSize: 320,
-    smallBytes: 4056,
-    largeBytes: 26650,
-  },
-  {
-    id: "shmi1",
-    poolId: "shmi",
-    label: "Shmi 1",
-    smallUrl: "/leader-profile-portraits/shmi/shmi1.v1.96.webp",
-    largeUrl: "/leader-profile-portraits/shmi/shmi1.v1.320.webp",
-    smallSize: 96,
-    largeSize: 320,
-    smallBytes: 4150,
-    largeBytes: 28284,
-  },
-  {
-    id: "shmi2",
-    poolId: "shmi",
-    label: "Shmi 2",
-    smallUrl: "/leader-profile-portraits/shmi/shmi2.v1.96.webp",
-    largeUrl: "/leader-profile-portraits/shmi/shmi2.v1.320.webp",
-    smallSize: 96,
-    largeSize: 320,
-    smallBytes: 4086,
-    largeBytes: 28230,
-  },
-  {
-    id: "shmi3",
-    poolId: "shmi",
-    label: "Shmi 3",
-    smallUrl: "/leader-profile-portraits/shmi/shmi3.v1.96.webp",
-    largeUrl: "/leader-profile-portraits/shmi/shmi3.v1.320.webp",
-    smallSize: 96,
-    largeSize: 320,
-    smallBytes: 4190,
-    largeBytes: 28908,
-  },
-];
+export const LEADER_PROFILE_PORTRAITS: LeaderProfilePortrait[] = GENERATED_LEADER_PROFILE_PORTRAITS;
 
-export const FALLBACK_LEADER_PROFILE_PORTRAIT: LeaderProfilePortrait = {
-  id: "leader-fallback",
-  poolId: "fallback",
-  label: "Default leader",
-  smallUrl: "/leader-profile-portraits/fallback/leader-fallback.v1.96.webp",
-  largeUrl: "/leader-profile-portraits/fallback/leader-fallback.v1.320.webp",
-  smallSize: 96,
-  largeSize: 320,
-  smallBytes: 1968,
-  largeBytes: 7224,
+export const FALLBACK_LEADER_PROFILE_PORTRAIT: LeaderProfilePortrait = GENERATED_FALLBACK_LEADER_PROFILE_PORTRAIT;
+
+const LEGACY_SHEET_PORTRAIT_ID_ALIASES: Record<string, string> = {
+  tako1: "tako1-01",
+  tako2: "tako2-01",
+  tako3: "tako3-01",
+  shmi1: "shmi1-01",
+  shmi2: "shmi2-01",
+  shmi3: "shmi3-01",
 };
 
 export function normalizeLeaderProfilePoolSettings(raw: unknown): LeaderProfilePoolSettings {
@@ -122,7 +59,12 @@ export function normalizeLeaderProfilePoolSettings(raw: unknown): LeaderProfileP
 
 export function getLeaderProfilePortrait(id: string | null | undefined): LeaderProfilePortrait | null {
   if (!id || id === FALLBACK_LEADER_PROFILE_PORTRAIT.id) return null;
-  return LEADER_PROFILE_PORTRAITS.find((portrait) => portrait.id === id) ?? null;
+  const normalizedId = normalizeLeaderProfilePortraitId(id);
+  return LEADER_PROFILE_PORTRAITS.find((portrait) => portrait.id === normalizedId) ?? null;
+}
+
+export function normalizeLeaderProfilePortraitId(id: string): string {
+  return LEGACY_SHEET_PORTRAIT_ID_ALIASES[id] ?? id;
 }
 
 export function isLeaderProfilePortraitId(id: string): boolean {

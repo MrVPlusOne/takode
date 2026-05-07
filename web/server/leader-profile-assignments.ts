@@ -4,6 +4,7 @@ import {
   DEFAULT_LEADER_PROFILE_POOLS,
   getEnabledLeaderProfilePortraits,
   getLeaderProfilePortrait,
+  normalizeLeaderProfilePortraitId,
   type LeaderProfilePoolSettings,
   type LeaderProfilePortrait,
 } from "../shared/leader-profile-portraits.js";
@@ -31,7 +32,12 @@ export function getLeaderProfilePortraitForSession(
   if (session.isOrchestrator !== true || session.archived === true) return undefined;
 
   const existing = getLeaderProfilePortrait(session.leaderProfilePortraitId);
-  if (existing) return existing;
+  if (existing) {
+    if (session.leaderProfilePortraitId && session.leaderProfilePortraitId !== existing.id) {
+      persistPortraitId?.(normalizeLeaderProfilePortraitId(session.leaderProfilePortraitId));
+    }
+    return existing;
+  }
 
   const portraits = getEnabledLeaderProfilePortraits(settings ?? DEFAULT_LEADER_PROFILE_POOLS);
   if (portraits.length === 0) return FALLBACK_LEADER_PROFILE_PORTRAIT;

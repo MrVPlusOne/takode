@@ -34,4 +34,20 @@ describe("leader profile assignments", () => {
     expect(persist).toHaveBeenCalledWith(first?.id);
     expect(persist).toHaveBeenCalledTimes(1);
   });
+
+  it("normalizes obsolete sheet-level assignment ids to individual portraits", () => {
+    const session: LeaderProfileSessionRecord = {
+      sessionId: "leader-legacy",
+      isOrchestrator: true,
+      leaderProfilePortraitId: "tako2",
+    };
+    const persist = vi.fn((portraitId: string) => {
+      session.leaderProfilePortraitId = portraitId;
+    });
+
+    const portrait = getLeaderProfilePortraitForSession(session, { tako: false, shmi: true }, persist);
+
+    expect(portrait).toMatchObject({ id: "tako2-01", poolId: "tako" });
+    expect(persist).toHaveBeenCalledWith("tako2-01");
+  });
 });

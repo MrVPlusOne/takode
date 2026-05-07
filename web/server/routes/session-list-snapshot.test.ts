@@ -150,11 +150,25 @@ describe("buildEnrichedSessionsSnapshot", () => {
 
   it("preserves assigned leader portraits even when their pool is disabled", async () => {
     updateSettings({ leaderProfilePools: { tako: false, shmi: true } });
-    const launcherSession = makeLauncherSession({ isOrchestrator: true, leaderProfilePortraitId: "tako1" });
+    const launcherSession = makeLauncherSession({ isOrchestrator: true, leaderProfilePortraitId: "tako1-01" });
 
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
 
-    expect((snapshot[0] as any).leaderProfilePortrait).toMatchObject({ id: "tako1", poolId: "tako" });
+    expect((snapshot[0] as any).leaderProfilePortrait).toMatchObject({ id: "tako1-01", poolId: "tako" });
+  });
+
+  it("normalizes obsolete sheet-level portrait ids in active leader snapshots", async () => {
+    const launcherSession = makeLauncherSession({ isOrchestrator: true, leaderProfilePortraitId: "shmi3" });
+    const deps = makeDeps(launcherSession, makeBridgeSession([]));
+
+    const snapshot = await buildEnrichedSessionsSnapshot(deps);
+
+    expect(snapshot[0].leaderProfilePortraitId).toBe("shmi3-01");
+    expect((snapshot[0] as any).leaderProfilePortrait).toMatchObject({ id: "shmi3-01", poolId: "shmi" });
+    expect((deps as any).launcher.setLeaderProfilePortraitId).toHaveBeenCalledWith(
+      launcherSession.sessionId,
+      "shmi3-01",
+    );
   });
 
   it("uses the fallback portrait for unassigned leaders when all pools are disabled", async () => {
@@ -172,12 +186,12 @@ describe("buildEnrichedSessionsSnapshot", () => {
     const launcherSession = makeLauncherSession({
       archived: true,
       isOrchestrator: true,
-      leaderProfilePortraitId: "tako1",
+      leaderProfilePortraitId: "tako1-01",
     });
 
     const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
 
-    expect(snapshot[0].leaderProfilePortraitId).toBe("tako1");
+    expect(snapshot[0].leaderProfilePortraitId).toBe("tako1-01");
     expect((snapshot[0] as any).leaderProfilePortrait).toBeUndefined();
   });
 

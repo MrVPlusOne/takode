@@ -51,6 +51,9 @@ vi.mock("../utils/routing.js", () => ({
 import { SessionItem } from "./SessionItem.js";
 import { LEADER_PROFILE_PORTRAITS } from "../../shared/leader-profile-portraits.js";
 
+const TAKO_PORTRAIT = LEADER_PROFILE_PORTRAITS[0];
+const SHMI_PORTRAIT = LEADER_PROFILE_PORTRAITS.find((portrait) => portrait.poolId === "shmi")!;
+
 beforeEach(() => {
   mockStoreState.updateSdkSession.mockClear();
 });
@@ -404,43 +407,43 @@ describe("SessionItem herd role badges", () => {
 describe("SessionItem leader profiles", () => {
   it("renders a clickable portrait for leader sessions", () => {
     renderSessionItem({
-      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0] }),
+      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
     });
 
-    expect(screen.getByRole("button", { name: /open tako 1 profile/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open tako 1\.1 profile/i })).toBeInTheDocument();
   });
 
   it("does not render portraits for non-leader sessions", () => {
     renderSessionItem({
-      session: makeSession({ isOrchestrator: false, leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0] }),
+      session: makeSession({ isOrchestrator: false, leaderProfilePortrait: TAKO_PORTRAIT }),
     });
 
-    expect(screen.queryByRole("button", { name: /open tako 1 profile/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open tako 1\.1 profile/i })).not.toBeInTheDocument();
   });
 
   it("opens the profile picker from a leader portrait", () => {
     renderSessionItem({
-      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0] }),
+      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /open tako 1 profile/i }));
+    fireEvent.click(screen.getByRole("button", { name: /open tako 1\.1 profile/i }));
 
     expect(screen.getByRole("dialog", { name: "Leader profile" })).toBeInTheDocument();
-    expect(screen.getByTitle("Shmi 1")).toBeInTheDocument();
+    expect(screen.getByTitle(SHMI_PORTRAIT.label)).toBeInTheDocument();
   });
 
   it("changes the leader portrait through the picker", async () => {
     renderSessionItem({
-      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: LEADER_PROFILE_PORTRAITS[0] }),
+      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /open tako 1 profile/i }));
-    fireEvent.click(screen.getByTitle("Shmi 1"));
+    fireEvent.click(screen.getByRole("button", { name: /open tako 1\.1 profile/i }));
+    fireEvent.click(screen.getByTitle(SHMI_PORTRAIT.label));
 
     await waitFor(() => {
       expect(mockStoreState.updateSdkSession).toHaveBeenCalledWith(
         "s1",
-        expect.objectContaining({ leaderProfilePortraitId: "shmi1" }),
+        expect.objectContaining({ leaderProfilePortraitId: SHMI_PORTRAIT.id }),
       );
     });
   });

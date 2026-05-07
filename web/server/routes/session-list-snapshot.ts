@@ -91,8 +91,9 @@ export async function buildEnrichedSessionsSnapshot(
           (portraitId) => launcher.setLeaderProfilePortraitId(s.sessionId, portraitId),
         );
         const leaderProfilePortraitId =
-          safeSession.leaderProfilePortraitId ??
-          (leaderProfilePortrait && leaderProfilePortrait.poolId !== "fallback" ? leaderProfilePortrait.id : null);
+          leaderProfilePortrait && leaderProfilePortrait.poolId !== "fallback"
+            ? leaderProfilePortrait.id
+            : (safeSession.leaderProfilePortraitId ?? null);
         const gitAhead = bridge?.git_ahead || 0;
         const gitBehind = bridge?.git_behind || 0;
         return {

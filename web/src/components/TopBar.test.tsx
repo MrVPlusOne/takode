@@ -335,22 +335,22 @@ describe("TopBar", () => {
           name: "Leader Session",
           isOrchestrator: true,
           leaderProfilePortrait: {
-            id: "tako1",
+            id: "tako1-01",
             poolId: "tako",
-            label: "Tako 1",
-            smallUrl: "/leader-profile-portraits/tako/tako1.v1.96.webp",
-            largeUrl: "/leader-profile-portraits/tako/tako1.v1.320.webp",
+            label: "Tako 1.1",
+            smallUrl: "/leader-profile-portraits/tako/tako1-01.v2.96.webp",
+            largeUrl: "/leader-profile-portraits/tako/tako1-01.v2.320.webp",
             smallSize: 96,
             largeSize: 320,
-            smallBytes: 4068,
-            largeBytes: 27208,
+            smallBytes: 2912,
+            largeBytes: 19216,
           },
         },
       ],
     });
 
     render(<TopBar />);
-    expect(screen.getByRole("button", { name: /open tako 1 profile/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /open tako 1\.1 profile/i })).toBeInTheDocument();
     expect(screen.getByText("Leader Session")).toBeInTheDocument();
   });
 
