@@ -1271,7 +1271,7 @@ export function reconcileCodexResumedTurn(
     deps.persistSession(session);
     return;
   }
-  if (recoveredAgents > 0 && hasRecoveredAssistantToolTailWithoutTerminalEvidence(lastTurn.items)) {
+  if (recoveredAgents > 0 && hasIncompleteRecoveredMessagesWithoutTerminalEvidence(lastTurn, snapshot.threadStatus)) {
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
     completeRecoveredCodexTurnWithDiagnostic(
@@ -1427,6 +1427,27 @@ function completeRecoveredCodexTurnWithDiagnostic(
   deps.persistSession(session);
 }
 
+function hasIncompleteRecoveredMessagesWithoutTerminalEvidence(
+  turn: CodexResumeTurnSnapshot,
+  threadStatus?: string | null,
+): boolean {
+  return (
+    hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(turn, threadStatus) ||
+    hasRecoveredAssistantToolTailWithoutTerminalEvidence(turn.items)
+  );
+}
+
+function hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(
+  turn: CodexResumeTurnSnapshot,
+  threadStatus?: string | null,
+): boolean {
+  if (normalizeCodexStatus(turn.status) !== "interrupted") return false;
+  if (normalizeCodexStatus(threadStatus) !== "idle") return false;
+  if (turn.items.some(isCodexResumeTerminalEvidenceItem)) return false;
+  const nonUserItems = turn.items.filter((item) => item.type !== "userMessage");
+  return nonUserItems.length > 0 && nonUserItems.every(isRecoveredAgentMessageItem);
+}
+
 function hasRecoveredAssistantToolTailWithoutTerminalEvidence(items: Array<Record<string, unknown>>): boolean {
   let lastAgentMessageIndex = -1;
   for (let i = 0; i < items.length; i++) {
@@ -1439,6 +1460,10 @@ function hasRecoveredAssistantToolTailWithoutTerminalEvidence(items: Array<Recor
   const tail = items.slice(lastAgentMessageIndex + 1);
   if (!tail.some(isCodexResumeToolActivityItem)) return false;
   return !tail.some(isCodexResumeTerminalEvidenceItem);
+}
+
+function normalizeCodexStatus(status: string | null | undefined): string {
+  return typeof status === "string" ? status.trim().toLowerCase() : "";
 }
 
 function isRecoveredAgentMessageItem(item: Record<string, unknown>): boolean {

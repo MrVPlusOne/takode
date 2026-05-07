@@ -516,6 +516,66 @@ describe("reconcileCodexResumedTurn", () => {
     );
   });
 
+  it("surfaces a diagnostic when an interrupted idle resume only recovered partial assistant text", () => {
+    // This matches the session 1286 incident shape: Codex exited mid-turn,
+    // thread/resume returned the turn as interrupted/idle, and the only
+    // non-user evidence was a partial assistant status message.
+    const request = "prepare cartoon portrait icon variants from my reference images";
+    const partial = "[thread:main] I read all three references and will frame this as a separate quest.";
+    const session = makeSession([
+      {
+        id: "input-1",
+        content: request,
+        timestamp: 1_000,
+        cancelable: false,
+      },
+    ]);
+    session.state.isOrchestrator = true;
+    session.isGenerating = true;
+    const pending = makePendingTurn();
+    pending.userContent = request;
+    pending.turnId = "turn-interrupted";
+    pending.disconnectedAt = 2_000;
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      completeCodexTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike, turn: CodexOutboundTurn | null) => {
+        if (turn) turn.status = "completed";
+        session.pendingCodexTurns = [];
+        return true;
+      }),
+    });
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-interrupted",
+          status: "interrupted",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: request }] },
+            { type: "agentMessage", id: "item-1", text: partial },
+          ],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
+    expect(deps.setGenerating).not.toHaveBeenCalledWith(session, false, "codex_resume_recovered_messages");
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("no final response was recovered"),
+      }),
+    );
+  });
+
   it("keeps safe-complete recovery when final assistant text follows resumed tool output", () => {
     const request = "run a command and summarize it";
     const session = makeSession([
