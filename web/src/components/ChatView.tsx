@@ -1106,12 +1106,13 @@ export function ChatView({
 
   useEffect(() => {
     if (!isLeaderSession || preview) return;
-    for (const row of activeBoard) {
+    // Front insertion stacks candidates, so reverse iteration preserves board order among newly opened rows.
+    for (const row of [...activeBoard].reverse()) {
       const threadKey = normalizeThreadKey(row.questId);
       if (!shouldPersistOpenThreadTab(threadKey)) continue;
       if (openThreadTabKeysRef.current.includes(threadKey)) continue;
       if (!canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, threadKey, row.updatedAt)) continue;
-      openThreadTab(threadKey, { source: "server_candidate", eventAt: row.updatedAt, placement: "last" });
+      openThreadTab(threadKey, { source: "server_candidate", eventAt: row.updatedAt, placement: "first" });
     }
   }, [activeBoard, authoritativeLeaderOpenThreadTabs, isLeaderSession, openThreadTab, preview]);
 

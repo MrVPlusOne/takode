@@ -935,9 +935,14 @@ function ThreadTabRail({
         .filter((key) => reorderableThreadKeys.includes(key)),
     [hasOverflowTabs, reorderableThreadKeys, visibleTabs],
   );
-  const moreTabsReorderKeys = useMemo(
+  const allReorderableTabKeys = useMemo(
     () => tabs.map((tab) => normalizeThreadKey(tab.threadKey)).filter((key) => reorderableThreadKeys.includes(key)),
     [reorderableThreadKeys, tabs],
+  );
+  const moreTabsReorderKeys = useMemo(
+    () =>
+      hiddenTabs.map((tab) => normalizeThreadKey(tab.threadKey)).filter((key) => reorderableThreadKeys.includes(key)),
+    [hiddenTabs, reorderableThreadKeys],
   );
   const sortableTabKeySet = useMemo(() => new Set(sortableTabKeys), [sortableTabKeys]);
   const moreTabsReorderKeySet = useMemo(() => new Set(moreTabsReorderKeys), [moreTabsReorderKeys]);
@@ -1024,7 +1029,7 @@ function ThreadTabRail({
 
   function commitMoreTabsReorder() {
     if (!stringArraysEqual(moreTabsReorderKeys, draftReorderKeys)) {
-      onReorderThreadTabs?.(draftReorderKeys);
+      onReorderThreadTabs?.(mergeHiddenReorderIntoOpenOrder());
     }
     setReorderMode(false);
     setMoreTabsOpen(false);
@@ -1036,11 +1041,17 @@ function ThreadTabRail({
   }
 
   function moreTabsListOrder(): PrimaryThreadChip[] {
-    if (!reorderMode) return tabs;
-    const tabByKey = new Map(tabs.map((tab) => [normalizeThreadKey(tab.threadKey), tab]));
+    if (!reorderMode) return hiddenTabs;
+    const tabByKey = new Map(hiddenTabs.map((tab) => [normalizeThreadKey(tab.threadKey), tab]));
     const ordered = draftReorderKeys.map((key) => tabByKey.get(key)).filter((tab): tab is PrimaryThreadChip => !!tab);
-    const nonReorderable = tabs.filter((tab) => !moreTabsReorderKeySet.has(normalizeThreadKey(tab.threadKey)));
+    const nonReorderable = hiddenTabs.filter((tab) => !moreTabsReorderKeySet.has(normalizeThreadKey(tab.threadKey)));
     return [...ordered, ...nonReorderable];
+  }
+
+  function mergeHiddenReorderIntoOpenOrder(): string[] {
+    const hiddenDraftKeys = [...draftReorderKeys];
+    const hiddenDraftKeySet = new Set(hiddenDraftKeys);
+    return allReorderableTabKeys.map((key) => (hiddenDraftKeySet.has(key) ? (hiddenDraftKeys.shift() ?? key) : key));
   }
 
   const hiddenKeySet = new Set(compactTabs.hiddenThreadKeys);

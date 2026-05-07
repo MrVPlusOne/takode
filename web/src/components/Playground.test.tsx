@@ -212,13 +212,7 @@ describe("Playground", () => {
     expect(within(tabs[0]).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
     fireEvent.click(moreButton);
     const moreRows = screen.getAllByTestId("thread-tabs-more-row");
-    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual([
-      "q-42",
-      "q-55",
-      "q-61",
-      "q-77",
-      "q-88",
-    ]);
+    expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-77", "q-88"]);
     expect(moreRows.find((row) => row.getAttribute("data-thread-key") === "q-77")).toHaveAttribute(
       "data-hidden",
       "true",

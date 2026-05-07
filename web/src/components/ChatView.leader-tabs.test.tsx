@@ -562,7 +562,7 @@ describe("ChatView leader open thread tabs", () => {
       operation: {
         type: "open",
         threadKey: "q-1231",
-        placement: "last",
+        placement: "first",
         source: "server_candidate",
         eventAt: 10,
       },
@@ -590,6 +590,52 @@ describe("ChatView leader open thread tabs", () => {
 
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1231");
     expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
+  it("inserts newly active board-row candidates before older open leader tabs", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-old-a", "q-old-b", "q-old-c"])),
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-new", status: "IMPLEMENTING", title: "New active quest", updatedAt: 30 }]],
+      ]),
+      messages: new Map([
+        [
+          "s1",
+          [
+            threadMessage("q-old-a", 1),
+            threadMessage("q-old-b", 2),
+            threadMessage("q-old-c", 3),
+            threadMessage("q-new", 30),
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-old-a", title: "Older tab A", status: "in_progress" },
+        { questId: "q-old-b", title: "Older tab B", status: "in_progress" },
+        { questId: "q-old-c", title: "Older tab C", status: "in_progress" },
+        { questId: "q-new", title: "New active quest", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute(
+        "data-open-thread-keys",
+        "q-new,q-old-a,q-old-b,q-old-c",
+      ),
+    );
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-new",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: 30,
+      },
+    });
   });
 
   it("does not resurrect an active quest thread that the user explicitly closed", async () => {

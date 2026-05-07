@@ -199,7 +199,8 @@ describe("WorkBoardBar overflow tabs", () => {
 
     fireEvent.click(moreButton);
     const rows = screen.getAllByTestId("thread-tabs-more-row");
-    expect(rows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2", "q-3", "q-4", "q-5"]);
+    expect(rows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-3", "q-4"]);
+    expect(rows.every((row) => row.getAttribute("data-hidden") === "true")).toBe(true);
     expect(rows.find((row) => row.getAttribute("data-thread-key") === "q-3")).toHaveAttribute("data-hidden", "true");
     expect(rows.find((row) => row.getAttribute("data-thread-key") === "q-4")).toHaveAttribute(
       "data-active-output",
@@ -300,17 +301,17 @@ describe("WorkBoardBar overflow tabs", () => {
     fireEvent.click(await screen.findByTestId("thread-tabs-more-button"));
     fireEvent.click(screen.getByTestId("thread-tabs-more-reorder-toggle"));
 
-    const q5Row = screen
+    const q4Row = screen
       .getAllByTestId("thread-tabs-more-row")
-      .find((row) => row.getAttribute("data-thread-key") === "q-5")!;
-    expect(q5Row).toHaveAttribute("data-reorderable", "true");
-    fireEvent.click(within(q5Row).getByTestId("thread-tabs-more-row-select"));
+      .find((row) => row.getAttribute("data-thread-key") === "q-4")!;
+    expect(q4Row).toHaveAttribute("data-reorderable", "true");
+    fireEvent.click(within(q4Row).getByTestId("thread-tabs-more-row-select"));
     expect(onSelectThread).not.toHaveBeenCalled();
 
-    fireEvent.click(screen.getByLabelText("Move q-5 up"));
+    fireEvent.click(screen.getByLabelText("Move q-4 up"));
     fireEvent.click(screen.getByText("Done"));
 
-    expect(onReorderThreadTabs).toHaveBeenCalledWith(["q-1", "q-2", "q-3", "q-5", "q-4"]);
+    expect(onReorderThreadTabs).toHaveBeenCalledWith(["q-1", "q-2", "q-4", "q-3", "q-5"]);
     expect(screen.queryByTestId("thread-tabs-more-list")).not.toBeInTheDocument();
   });
 });
