@@ -102,6 +102,64 @@ describe("takode permission", () => {
     expect(result.stdout).toContain("Permission: auto-review (codex-auto-review)");
   });
 
+  it("prints JSON for get when --json appears before the session ref", async () => {
+    // Boolean flags should not consume the following positional argument.
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-permission", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-permission/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-permission",
+            sessionNum: 75,
+            name: "Permission JSON",
+            state: "idle",
+            backendType: "codex",
+            cwd: "/tmp/permission-json",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            permissionMode: "codex-custom",
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["permission", "get", "--json", "worker-permission", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-permission",
+      COMPANION_AUTH_TOKEN: "auth-permission",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(JSON.parse(result.stdout)).toEqual({
+      sessionId: "worker-permission",
+      sessionNum: 75,
+      name: "Permission JSON",
+      backendType: "codex",
+      permissionMode: "codex-custom",
+      displayMode: "custom",
+    });
+  });
+
   it("sets a Codex profile by posting the backend-native runtime mode with leader ownership", async () => {
     // Validates the leader-safe update path: the CLI resolves the display
     // mode to the stored Codex profile and passes the caller as leaderSessionId.
@@ -164,6 +222,77 @@ describe("takode permission", () => {
     expect(result.stdout).toContain("Permission: full-access (codex-full-access)");
   });
 
+  it("prints JSON for set when --json appears before the session ref", async () => {
+    // Covers order-independent JSON mode on the mutating command.
+    const postBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-permission", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-permission/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-permission",
+            sessionNum: 76,
+            name: "Permission JSON Setter",
+            state: "idle",
+            backendType: "codex",
+            cwd: "/tmp/permission-json-setter",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            permissionMode: "codex-default",
+          }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/worker-permission/permission-mode") {
+        postBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId: "worker-permission", permissionMode: "codex-auto-review" }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(
+      ["permission", "set", "--json", "worker-permission", "auto-review", "--port", String(port)],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-permission",
+        COMPANION_AUTH_TOKEN: "auth-permission",
+      },
+    );
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(postBodies).toEqual([{ mode: "codex-auto-review", leaderSessionId: "leader-permission" }]);
+    expect(JSON.parse(result.stdout)).toEqual({
+      ok: true,
+      sessionId: "worker-permission",
+      sessionNum: 76,
+      name: "Permission JSON Setter",
+      backendType: "codex",
+      permissionMode: "codex-auto-review",
+      displayMode: "auto-review",
+    });
+  });
+
   it("rejects a Claude mode before posting it to a Codex session", async () => {
     // Prevents broad legacy aliases from reaching the runtime route for Codex workers.
     let postCount = 0;
@@ -218,5 +347,60 @@ describe("takode permission", () => {
     expect(result.status).toBe(1);
     expect(postCount).toBe(0);
     expect(result.stderr).toContain("Unsupported permission mode for codex session: plan");
+  });
+
+  it.each([
+    {
+      name: "unknown flag",
+      args: ["permission", "set", "worker-permission", "full-access", "--dry-run"],
+      expectedError: "Unknown option(s): --dry-run",
+    },
+    {
+      name: "extra positional",
+      args: ["permission", "set", "worker-permission", "full-access", "typo"],
+      expectedError: "Unexpected argument(s): typo",
+    },
+    {
+      name: "boolean flag value",
+      args: ["permission", "set", "worker-permission", "full-access", "--json=false"],
+      expectedError: "--json does not take a value",
+    },
+  ])("rejects malformed mutating input before POSTing: $name", async ({ args, expectedError }) => {
+    // Permission changes should fail closed on parser mistakes before any
+    // backend mutation request is sent.
+    let postCount = 0;
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-permission", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/worker-permission/permission-mode") {
+        postCount++;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode([...args, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-permission",
+      COMPANION_AUTH_TOKEN: "auth-permission",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(1);
+    expect(postCount).toBe(0);
+    expect(result.stderr).toContain(expectedError);
   });
 });

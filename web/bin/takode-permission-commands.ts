@@ -6,12 +6,12 @@ import {
   type CodexPermissionMode,
 } from "../shared/permission-modes.js";
 import {
+  assertKnownFlags,
   apiPost,
   err,
   fetchSessionInfo,
   formatInlineText,
   getCallerSessionId,
-  parseFlags,
   type TakodeSessionInfo,
 } from "./takode-core.js";
 
@@ -60,13 +60,13 @@ Claude modes:
 `;
 
 async function handlePermissionGet(base: string, args: string[]): Promise<void> {
-  const parsed = parseCommandArgs(args);
+  const parsed = parsePermissionArgs(args, PERMISSION_GET_HELP, 1);
   const sessionRef = parsed.positionals[0];
   if (!sessionRef) err("Usage: takode permission get <session> [--json]");
 
   const info = await fetchSessionInfo(base, sessionRef);
   const details = buildPermissionDetails(info);
-  if (parsed.flags.json === true) {
+  if (parsed.jsonMode) {
     console.log(JSON.stringify(details, null, 2));
     return;
   }
@@ -74,7 +74,7 @@ async function handlePermissionGet(base: string, args: string[]): Promise<void> 
 }
 
 async function handlePermissionSet(base: string, args: string[]): Promise<void> {
-  const parsed = parseCommandArgs(args);
+  const parsed = parsePermissionArgs(args, PERMISSION_SET_HELP, 2);
   const sessionRef = parsed.positionals[0];
   const rawMode = parsed.positionals[1];
   if (!sessionRef || !rawMode) err("Usage: takode permission set <session> <mode> [--json]");
@@ -92,7 +92,7 @@ async function handlePermissionSet(base: string, args: string[]): Promise<void> 
     permissionMode: response.permissionMode,
   });
 
-  if (parsed.flags.json === true) {
+  if (parsed.jsonMode) {
     console.log(JSON.stringify({ ok: response.ok, ...details }, null, 2));
     return;
   }
@@ -110,23 +110,39 @@ type PermissionDetails = {
   displayMode: string | null;
 };
 
-function parseCommandArgs(args: string[]): {
-  flags: Record<string, string | boolean>;
+const PERMISSION_ALLOWED_FLAGS = new Set(["json"]);
+
+function parsePermissionArgs(
+  args: string[],
+  usage: string,
+  expectedPositionals: number,
+): {
+  jsonMode: boolean;
   positionals: string[];
 } {
-  const flags = parseFlags(args);
+  const flags: Record<string, string | boolean> = {};
   const positionals: string[] = [];
-  for (let index = 0; index < args.length; index++) {
-    const arg = args[index];
+  for (const arg of args) {
     if (!arg.startsWith("--")) {
       positionals.push(arg);
       continue;
     }
-    if (arg === "--json") continue;
-    const next = args[index + 1];
-    if (next !== undefined && !next.startsWith("--")) index++;
+
+    const raw = arg.slice(2);
+    const equalsIndex = raw.indexOf("=");
+    const key = equalsIndex === -1 ? raw : raw.slice(0, equalsIndex);
+    const value = equalsIndex === -1 ? true : raw.slice(equalsIndex + 1);
+    if (!key) err(`Unknown option(s): ${arg}\n${usage}`);
+    if (key === "json" && value !== true) err(`--json does not take a value.\n${usage}`);
+    flags[key] = value;
   }
-  return { flags, positionals };
+
+  assertKnownFlags(flags, PERMISSION_ALLOWED_FLAGS, usage);
+  if (positionals.length > expectedPositionals) {
+    const extra = positionals.slice(expectedPositionals).map((arg) => formatInlineText(arg));
+    err(`Unexpected argument(s): ${extra.join(", ")}\n${usage}`);
+  }
+  return { jsonMode: flags.json === true, positionals };
 }
 
 function buildPermissionDetails(info: TakodeSessionInfo): PermissionDetails {
