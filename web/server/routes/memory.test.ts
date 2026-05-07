@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
+import { access, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -145,6 +145,92 @@ source:
       expect.arrayContaining([expect.objectContaining({ path: "current/live.md" })]),
     );
     expect(json.git.recentCommits[0]).toMatchObject({ message: "Seed memory" });
+  });
+
+  it("loads catalog and records for discovered sibling memory spaces without migration conflicts", async () => {
+    // Verifies selecting a sibling repo uses its discovered root instead of treating its slug as a server rename.
+    await writeMemoryFile(
+      "prod",
+      "current/prod-state.md",
+      `
+description: Current server memory.
+source:
+  - q-1227
+`,
+    );
+    const { ensureMemoryRepo } = await import("../workstream-memory-store.js");
+    await ensureMemoryRepo();
+    await writeMemoryFile(
+      "lab-clean-space",
+      "knowledge/sibling-state.md",
+      `
+description: Sibling memory space.
+source:
+  - q-1227
+`,
+      "Sibling catalog detail should load read-only.",
+    );
+    await expect(access(join(home, ".companion", "memory", "lab-clean-space", ".git"))).rejects.toThrow();
+
+    const app = await makeApp();
+    const catalogRes = await app.request("/memory/catalog?serverSlug=lab-clean-space");
+
+    expect(catalogRes.status).toBe(200);
+    const catalog = await catalogRes.json();
+    expect(catalog.repo).toMatchObject({
+      root: join(home, ".companion", "memory", "lab-clean-space"),
+      serverSlug: "lab-clean-space",
+    });
+    expect(catalog.entries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "knowledge/sibling-state.md",
+          description: "Sibling memory space.",
+        }),
+      ]),
+    );
+    await expect(access(join(home, ".companion", "memory", "lab-clean-space", ".git"))).rejects.toThrow();
+
+    const recordRes = await app.request(
+      `/memory/records?serverSlug=lab-clean-space&path=${encodeURIComponent("knowledge/sibling-state.md")}`,
+    );
+
+    expect(recordRes.status).toBe(200);
+    const record = await recordRes.json();
+    expect(record.file).toMatchObject({
+      path: "knowledge/sibling-state.md",
+      body: "Sibling catalog detail should load read-only.",
+    });
+    await expect(access(join(home, ".companion", "memory", "lab-clean-space", ".git"))).rejects.toThrow();
+  });
+
+  it("preserves active server slug migration-conflict protection", async () => {
+    // Verifies a real current-server slug conflict still fails instead of being downgraded to sibling read-only mode.
+    await writeMemoryFile(
+      "prod",
+      "current/prod-state.md",
+      `
+description: Current server memory.
+source:
+  - q-1227
+`,
+    );
+    const { ensureMemoryRepo } = await import("../workstream-memory-store.js");
+    await ensureMemoryRepo();
+    await writeMemoryFile(
+      "lab-clean-space",
+      "knowledge/sibling-state.md",
+      `
+description: Sibling memory space.
+source:
+  - q-1227
+`,
+    );
+    vi.stubEnv("COMPANION_SERVER_SLUG", "lab-clean-space");
+
+    await expect(ensureMemoryRepo()).rejects.toThrow(
+      /Memory repo slug "lab-clean-space" already exists .* Existing memory for this server id is still at/,
+    );
   });
 
   it("returns read-only record details and per-record lint issues", async () => {

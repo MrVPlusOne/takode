@@ -15,6 +15,7 @@ export interface MemoryRepoOptions {
   root?: string;
   serverId?: string;
   serverSlug?: string;
+  readOnly?: boolean;
 }
 
 export interface MemoryRepoInfo {

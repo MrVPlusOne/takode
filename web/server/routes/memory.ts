@@ -1,5 +1,5 @@
 import { Hono } from "hono";
-import type { MemoryLintIssue, MemoryRepoOptions } from "../workstream-memory-types.js";
+import type { MemoryLintIssue } from "../workstream-memory-types.js";
 import type { RouteContext } from "./context.js";
 
 interface MemoryIssueCounts {
@@ -11,11 +11,6 @@ interface MemoryGitStatusEntry {
   code: string;
   path: string;
   raw: string;
-}
-
-function memoryRepoOptions(serverSlug: string | undefined): MemoryRepoOptions {
-  const normalizedSlug = serverSlug?.trim();
-  return normalizedSlug ? { serverSlug: normalizedSlug } : {};
 }
 
 function issueCounts(issues: MemoryLintIssue[]): MemoryIssueCounts {
@@ -60,8 +55,10 @@ export function createMemoryRoutes(_ctx: RouteContext) {
 
   api.get("/memory/catalog", async (c) => {
     const { workstreamMemoryService } = await import("../workstream-memory-service.js");
-    const options = memoryRepoOptions(c.req.query("serverSlug"));
-    await workstreamMemoryService.ensureRepo(options);
+    const options = await workstreamMemoryService.resolveSpaceOptions(c.req.query("serverSlug"));
+    if (!options.readOnly) {
+      await workstreamMemoryService.ensureRepo(options);
+    }
     const [catalog, lock, gitStatus, recentCommits] = await Promise.all([
       workstreamMemoryService.catalog(options),
       workstreamMemoryService.lockStatus(options),
@@ -89,7 +86,7 @@ export function createMemoryRoutes(_ctx: RouteContext) {
     if (!path) return c.json({ error: "path query parameter is required" }, 400);
 
     const { workstreamMemoryService } = await import("../workstream-memory-service.js");
-    const options = memoryRepoOptions(c.req.query("serverSlug"));
+    const options = await workstreamMemoryService.resolveSpaceOptions(c.req.query("serverSlug"));
     try {
       const record = await workstreamMemoryService.readRecord(path, options);
       const catalog = await workstreamMemoryService.catalog(options);

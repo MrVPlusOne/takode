@@ -81,6 +81,29 @@ export function resolveMemoryRepo(options: MemoryRepoOptions = {}): MemoryRepoIn
   return publicRepoInfo(resolveMemoryRepoInternal(options));
 }
 
+export async function resolveMemoryOptionsForSpace(serverSlug: string | undefined): Promise<MemoryRepoOptions> {
+  const normalizedSlug = normalizeServerSlug(serverSlug ?? "");
+  if (!normalizedSlug) return {};
+
+  const current = resolveMemoryRepoInternal();
+  if (normalizedSlug === current.serverSlug) {
+    return { serverSlug: normalizedSlug };
+  }
+
+  const spaces = await listMemorySpaces();
+  const sibling = spaces.find((space) => !space.current && normalizeServerSlug(space.slug) === normalizedSlug);
+  if (!sibling) {
+    return { serverSlug: normalizedSlug };
+  }
+
+  return {
+    root: sibling.root,
+    serverSlug: sibling.slug,
+    readOnly: true,
+    ...(sibling.serverId ? { serverId: sibling.serverId } : {}),
+  };
+}
+
 function resolveMemoryRepoInternal(options: MemoryRepoOptions = {}): ResolvedMemoryRepo {
   const serverId = (options.serverId ?? process.env.COMPANION_SERVER_ID ?? getServerId()).trim() || "local";
   const serverSlug =
@@ -103,7 +126,7 @@ function publicRepoInfo(repo: ResolvedMemoryRepo): MemoryRepoInfo {
 }
 
 export async function scanMemoryCatalog(options: MemoryRepoOptions = {}): Promise<MemoryCatalog> {
-  const repo = await ensureMemoryRepo(options);
+  const repo = await repoForRead(options);
   const files: MemoryFile[] = [];
   const issues: MemoryLintIssue[] = [];
 
@@ -215,7 +238,7 @@ export async function recallMemory(
 }
 
 export async function getMemoryLock(options: MemoryRepoOptions = {}): Promise<MemoryLockInfo> {
-  const repo = await ensureMemoryRepo(options);
+  const repo = await repoForRead(options);
   return readLockInfo(repo.root);
 }
 
@@ -256,12 +279,14 @@ export async function releaseMemoryLock(options: MemoryRepoOptions = {}): Promis
 }
 
 export async function memoryGitStatus(options: MemoryRepoOptions = {}): Promise<string> {
-  const repo = await ensureMemoryRepo(options);
+  const repo = await repoForRead(options);
+  if (options.readOnly && !repo.initialized) return "";
   return (await runGit(repo.root, ["status", "--short", "--untracked-files=all"])).trim();
 }
 
 export async function memoryRecentCommits(options: MemoryRepoOptions = {}, limit = 6): Promise<MemoryRecentCommit[]> {
-  const repo = await ensureMemoryRepo(options);
+  const repo = await repoForRead(options);
+  if (options.readOnly && !repo.initialized) return [];
   const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 25);
   try {
     const output = await runGit(repo.root, [
@@ -346,10 +371,27 @@ export async function readMemoryRecord(
   path: string,
   options: MemoryRepoOptions = {},
 ): Promise<{ repo: MemoryRepoInfo; file: MemoryFile }> {
-  const repo = await ensureMemoryRepo(options);
+  const repo = await repoForRead(options);
   const resolvedRecord = await resolveMemoryRecordPath(repo.root, path);
   const content = await readFile(resolvedRecord.absolutePath, "utf-8");
   return { repo, file: parseMemoryFile(resolvedRecord.root, resolvedRecord.absolutePath, content) };
+}
+
+async function repoForRead(options: MemoryRepoOptions): Promise<MemoryRepoInfo> {
+  if (options.readOnly) {
+    return inspectExistingMemoryRepo(options);
+  }
+  return ensureMemoryRepo(options);
+}
+
+async function inspectExistingMemoryRepo(options: MemoryRepoOptions): Promise<MemoryRepoInfo> {
+  const repo = resolveMemoryRepoInternal(options);
+  const authoredDirs = await existingAuthoredDirs(repo.root);
+  return publicRepoInfo({
+    ...repo,
+    initialized: await pathExists(join(repo.root, ".git")),
+    authoredDirs: authoredDirs.length ? authoredDirs : [...MEMORY_KINDS],
+  });
 }
 
 function catalogEntryFromFile(file: MemoryFile): MemoryCatalogEntry {

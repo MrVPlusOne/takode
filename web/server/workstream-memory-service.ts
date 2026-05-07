@@ -11,6 +11,7 @@ import {
   readMemoryRecord,
   recallMemory,
   releaseMemoryLock,
+  resolveMemoryOptionsForSpace,
   resolveMemoryRepo,
   scanMemoryCatalog,
 } from "./workstream-memory-store.js";
@@ -24,6 +25,10 @@ import type {
 export class WorkstreamMemoryService {
   resolveRepo(options?: MemoryRepoOptions) {
     return resolveMemoryRepo(options);
+  }
+
+  resolveSpaceOptions(serverSlug?: string) {
+    return resolveMemoryOptionsForSpace(serverSlug);
   }
 
   ensureRepo(options?: MemoryRepoOptions) {
