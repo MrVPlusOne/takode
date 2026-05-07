@@ -12,16 +12,19 @@ import { getRecentDirs } from "../utils/recent-dirs.js";
 import { queuePendingSession } from "../utils/pending-creation.js";
 import {
   CODEX_REASONING_EFFORTS,
+  CODEX_PERMISSION_MODES,
   getModelsForBackend,
   getModesForBackend,
   getDefaultModel,
   getDefaultMode,
   toModelOptions,
-  resolveCodexCliMode,
+  normalizeCodexPermissionMode,
+  resolveCodexPermissionCliMode,
   resolveClaudeCliMode,
   deriveCodexUiMode,
   deriveCodexAskPermission,
   type ModelOption,
+  type CodexPermissionMode,
 } from "../utils/backends.js";
 import type { BackendType } from "../types.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
@@ -100,6 +103,9 @@ export function NewSessionModal({
   const [codexDefaultModel, setCodexDefaultModel] = useState("");
   const [codexInternetAccess, setCodexInternetAccess] = useState(() => defaults.codexInternetAccess);
   const [codexReasoningEffort, setCodexReasoningEffort] = useState(() => defaults.codexReasoningEffort);
+  const [codexPermissionMode, setCodexPermissionMode] = useState<CodexPermissionMode>(
+    () => defaults.codexPermissionMode,
+  );
   const [askPermission, setAskPermission] = useState(() => defaults.askPermission);
 
   // Resume mode state
@@ -120,6 +126,7 @@ export function NewSessionModal({
   // Dropdown states
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showReasoningDropdown, setShowReasoningDropdown] = useState(false);
+  const [showCodexPermissionDropdown, setShowCodexPermissionDropdown] = useState(false);
   const [showFolderPicker, setShowFolderPicker] = useState(false);
 
   // Git branch state
@@ -140,6 +147,7 @@ export function NewSessionModal({
 
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const reasoningDropdownRef = useRef<HTMLDivElement>(null);
+  const codexPermissionDropdownRef = useRef<HTMLDivElement>(null);
   const envDropdownRef = useRef<HTMLDivElement>(null);
   const branchDropdownRef = useRef<HTMLDivElement>(null);
 
@@ -163,6 +171,7 @@ export function NewSessionModal({
     setUseWorktree(d.useWorktree);
     setCodexInternetAccess(d.codexInternetAccess);
     setCodexReasoningEffort(d.codexReasoningEffort);
+    setCodexPermissionMode(normalizeCodexPermissionMode(d.codexPermissionMode));
     setSessionRole(d.sessionRole);
   }
 
@@ -206,7 +215,10 @@ export function NewSessionModal({
       .then(({ defaults: serverDefaults }) => {
         if (cancelled) return;
         if (serverDefaults) {
-          saveGroupNewSessionDefaults(defaultsKey, serverDefaults);
+          saveGroupNewSessionDefaults(defaultsKey, {
+            ...serverDefaults,
+            codexPermissionMode: normalizeCodexPermissionMode(serverDefaults.codexPermissionMode),
+          });
           applyDefaults(serverDefaults, { preserveEditedCwd: true });
           return;
         }
@@ -304,10 +316,13 @@ export function NewSessionModal({
     if (mode !== "suggest" && mode !== "bypassPermissions") return;
     const uiMode = deriveCodexUiMode(mode);
     const ask = deriveCodexAskPermission(mode);
+    const migratedPermissionMode: CodexPermissionMode = mode === "bypassPermissions" ? "full-access" : "auto-review";
     setMode(uiMode);
     setAskPermission(ask);
+    setCodexPermissionMode(migratedPermissionMode);
     persistGlobalDefault("cc-mode", uiMode);
     persistGlobalDefault("cc-ask-permission", String(ask));
+    persistGlobalDefault("cc-codex-permission-mode", migratedPermissionMode);
   }, [backend, mode]);
 
   // Close dropdowns on outside click
@@ -319,6 +334,9 @@ export function NewSessionModal({
       }
       if (reasoningDropdownRef.current && !reasoningDropdownRef.current.contains(e.target as Node)) {
         setShowReasoningDropdown(false);
+      }
+      if (codexPermissionDropdownRef.current && !codexPermissionDropdownRef.current.contains(e.target as Node)) {
+        setShowCodexPermissionDropdown(false);
       }
       if (envDropdownRef.current && !envDropdownRef.current.contains(e.target as Node)) {
         setShowEnvDropdown(false);
@@ -403,6 +421,8 @@ export function NewSessionModal({
         )
       : MODELS;
   const selectedModel = displayModels.find((m) => m.value === model) || displayModels[0];
+  const selectedCodexPermission =
+    CODEX_PERMISSION_MODES.find((option) => option.value === codexPermissionMode) || CODEX_PERMISSION_MODES[0];
 
   const dirLabel = cwd ? cwd.split("/").pop() || cwd : "Select folder";
 
@@ -433,7 +453,9 @@ export function NewSessionModal({
     const branchName = selectedBranch.trim() || (useWorktree ? gitRepoInfo?.currentBranch : undefined) || undefined;
     const cwdSnapshot = cwd;
     const permissionMode =
-      backend === "codex" ? resolveCodexCliMode(mode, askPermission) : resolveClaudeCliMode(mode, askPermission);
+      backend === "codex"
+        ? resolveCodexPermissionCliMode(codexPermissionMode)
+        : resolveClaudeCliMode(mode, askPermission);
 
     // Build creation opts (stored in pending session for retry)
     const createOpts = {
@@ -466,6 +488,7 @@ export function NewSessionModal({
         useWorktree,
         codexInternetAccess,
         codexReasoningEffort,
+        codexPermissionMode,
       };
       saveGroupNewSessionDefaults(defaultsGroupKey, defaultsToPersist);
       try {
@@ -535,7 +558,13 @@ export function NewSessionModal({
       cwd: cwd || undefined,
       envSlug: selectedEnv || undefined,
       resumeCliSessionId: resumeSessionId,
+      permissionMode:
+        backend === "codex"
+          ? resolveCodexPermissionCliMode(codexPermissionMode)
+          : resolveClaudeCliMode(mode, askPermission),
       askPermission,
+      codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
+      codexReasoningEffort: backend === "codex" ? codexReasoningEffort || undefined : undefined,
       treeGroupId: treeGroupId || undefined,
     };
 
@@ -853,65 +882,102 @@ export function NewSessionModal({
                     </div>
                   )}
 
-                  {/* Mode selector: shared Plan/Agent + Ask toggle */}
-                  <div className="flex items-center gap-2">
-                    <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5">
+                  {backend === "codex" ? (
+                    <div className="relative" ref={codexPermissionDropdownRef}>
                       <button
-                        onClick={() => updateMode("plan")}
-                        className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
-                          mode === "plan" ? "bg-cc-primary/15 text-cc-primary" : "text-cc-muted hover:text-cc-fg"
-                        }`}
-                        title="Plan mode: agent creates a plan before executing"
+                        onClick={() => setShowCodexPermissionDropdown(!showCodexPermissionDropdown)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer bg-cc-hover/50 text-cc-fg hover:bg-cc-hover"
+                        title={selectedCodexPermission.description}
                       >
-                        Plan
+                        <span>{selectedCodexPermission.label}</span>
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50">
+                          <path d="M4 6l4 4 4-4" />
+                        </svg>
                       </button>
+                      {showCodexPermissionDropdown && (
+                        <div className="absolute left-0 top-full mt-1 w-64 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1 overflow-hidden">
+                          {CODEX_PERMISSION_MODES.map((option) => (
+                            <button
+                              key={option.value}
+                              onClick={() => {
+                                setCodexPermissionMode(option.value);
+                                persistGlobalDefault("cc-codex-permission-mode", option.value);
+                                setShowCodexPermissionDropdown(false);
+                              }}
+                              className={`w-full px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer ${
+                                option.value === codexPermissionMode ? "text-cc-primary" : "text-cc-fg"
+                              }`}
+                            >
+                              <div className="text-xs font-medium">{option.label}</div>
+                              <div className="text-[11px] leading-snug text-cc-muted mt-0.5">{option.description}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    /* Mode selector: Claude Plan/Agent + Ask toggle */
+                    <div className="flex items-center gap-2">
+                      <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5">
+                        <button
+                          onClick={() => updateMode("plan")}
+                          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
+                            mode === "plan" ? "bg-cc-primary/15 text-cc-primary" : "text-cc-muted hover:text-cc-fg"
+                          }`}
+                          title="Plan mode: agent creates a plan before executing"
+                        >
+                          Plan
+                        </button>
+                        <button
+                          onClick={() => updateMode("agent")}
+                          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
+                            mode === "agent" ? "bg-cc-primary/15 text-cc-primary" : "text-cc-muted hover:text-cc-fg"
+                          }`}
+                          title="Agent mode: executes tools directly"
+                        >
+                          Agent
+                        </button>
+                      </div>
+
                       <button
-                        onClick={() => updateMode("agent")}
-                        className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
-                          mode === "agent" ? "bg-cc-primary/15 text-cc-primary" : "text-cc-muted hover:text-cc-fg"
-                        }`}
-                        title="Agent mode: executes tools directly"
+                        onClick={() => {
+                          const next = !askPermission;
+                          setAskPermission(next);
+                          persistGlobalDefault("cc-ask-permission", String(next));
+                        }}
+                        className="flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer select-none hover:bg-cc-hover"
+                        title={
+                          askPermission
+                            ? "Permissions: will ask before tool use"
+                            : "Permissions: auto-approving tool use"
+                        }
                       >
-                        Agent
+                        {askPermission ? (
+                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-cc-primary">
+                            <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
+                            <path
+                              d="M6.5 8.5L7.5 9.5L10 7"
+                              stroke="white"
+                              strokeWidth="1.5"
+                              fill="none"
+                              strokeLinecap="round"
+                              strokeLinejoin="round"
+                            />
+                          </svg>
+                        ) : (
+                          <svg
+                            viewBox="0 0 16 16"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="1.2"
+                            className="w-4 h-4 text-cc-muted"
+                          >
+                            <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
+                          </svg>
+                        )}
                       </button>
                     </div>
-
-                    <button
-                      onClick={() => {
-                        const next = !askPermission;
-                        setAskPermission(next);
-                        persistGlobalDefault("cc-ask-permission", String(next));
-                      }}
-                      className="flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer select-none hover:bg-cc-hover"
-                      title={
-                        askPermission ? "Permissions: will ask before tool use" : "Permissions: auto-approving tool use"
-                      }
-                    >
-                      {askPermission ? (
-                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-cc-primary">
-                          <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                          <path
-                            d="M6.5 8.5L7.5 9.5L10 7"
-                            stroke="white"
-                            strokeWidth="1.5"
-                            fill="none"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          />
-                        </svg>
-                      ) : (
-                        <svg
-                          viewBox="0 0 16 16"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="1.2"
-                          className="w-4 h-4 text-cc-muted"
-                        >
-                          <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                        </svg>
-                      )}
-                    </button>
-                  </div>
+                  )}
                 </div>
 
                 {/* Row 2: Folder + Worktree + Branch + Leader */}

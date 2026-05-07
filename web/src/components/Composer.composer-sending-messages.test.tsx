@@ -987,8 +987,8 @@ describe("Composer sending messages", () => {
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
 
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_permission_mode",
-      mode: "plan",
+      type: "set_codex_ui_mode",
+      uiMode: "plan",
     });
     expect(mockSendToSession).not.toHaveBeenCalledWith(
       "s1",

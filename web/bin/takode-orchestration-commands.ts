@@ -323,6 +323,7 @@ Options:
   --message <text>             Short inline initial message
   --message-file <path>|-      Read the initial message from a file or stdin
   --model <id>                 Override the session model
+  --permission-mode <mode>     Codex-only: default, auto-review, full-access, or custom
   --ask / --no-ask             Override inherited ask mode
   --internet / --no-internet   Codex-only: enable or disable internet access
   --reasoning-effort <level>   Codex-only: low, medium, or high
@@ -333,7 +334,7 @@ Options:
 
 Examples:
   takode spawn --backend claude-sdk --count 2
-  takode spawn --backend codex --model gpt-5.4 --reasoning-effort high --internet
+  takode spawn --backend codex --permission-mode auto-review --model gpt-5.4 --reasoning-effort high --internet
   takode spawn --count 3 --no-worktree
   takode spawn --message-file /tmp/dispatch.txt
   printf '%s\n' 'Review q-10' 'Treat \`$(nope)\` as literal text.' | takode spawn --reviewer 42 --message-file -`;
@@ -345,6 +346,7 @@ const SPAWN_ALLOWED_FLAGS = new Set([
   "message",
   "message-file",
   "model",
+  "permission-mode",
   "ask",
   "no-ask",
   "internet",
@@ -360,6 +362,35 @@ const SPAWN_ALLOWED_FLAGS = new Set([
 ]);
 
 const VALID_REASONING_EFFORTS = new Set(["low", "medium", "high"]);
+const CODEX_PERMISSION_MODE_ALIASES = new Map<string, string>([
+  ["default", "codex-default"],
+  ["codex-default", "codex-default"],
+  ["auto-review", "codex-auto-review"],
+  ["autoreview", "codex-auto-review"],
+  ["codex-auto-review", "codex-auto-review"],
+  ["full-access", "codex-full-access"],
+  ["fullaccess", "codex-full-access"],
+  ["codex-full-access", "codex-full-access"],
+  ["custom", "codex-custom"],
+  ["codex-custom", "codex-custom"],
+]);
+
+function normalizeCodexSpawnPermissionMode(raw: unknown): string | undefined {
+  if (raw === undefined) return undefined;
+  if (typeof raw !== "string") err("--permission-mode requires a value: default, auto-review, full-access, or custom.");
+  const normalized = raw.trim().toLowerCase().replace(/_/g, "-");
+  const mode = CODEX_PERMISSION_MODE_ALIASES.get(normalized);
+  if (!mode) {
+    err(`Invalid --permission-mode: ${raw}. Expected default, auto-review, full-access, or custom.`);
+  }
+  return mode;
+}
+
+function isCodexProfilePermissionMode(mode: string | null | undefined): boolean {
+  return (
+    mode === "codex-default" || mode === "codex-auto-review" || mode === "codex-full-access" || mode === "codex-custom"
+  );
+}
 
 function resolveReasoningEffort(flags: Record<string, string | boolean>): string | undefined {
   const primary = flags["reasoning-effort"];
@@ -380,6 +411,7 @@ function resolveReasoningEffort(flags: Record<string, string | boolean>): string
 function buildSpawnDetailParts(session: TakodeSessionInfo): string[] {
   const parts: string[] = [];
   if (session.model) parts.push(`model=${session.model}`);
+  if (session.permissionMode) parts.push(`permissions=${session.permissionMode}`);
   if (typeof session.askPermission === "boolean") {
     parts.push(`ask=${session.askPermission ? "on" : "off"}`);
   }
@@ -458,6 +490,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     })) ?? "";
   const model = resolveStringFlag(flags, "model", "model");
   const askOverride = resolveBooleanToggleFlag(flags, "ask", "no-ask");
+  const codexPermissionModeOverride = normalizeCodexSpawnPermissionMode(flags["permission-mode"]);
   const internetOverride = resolveBooleanToggleFlag(flags, "internet", "no-internet");
   const reasoningEffort = resolveReasoningEffort(flags);
 
@@ -482,6 +515,12 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   }
   if (backendRaw !== "codex" && reasoningEffort !== undefined) {
     err("--reasoning-effort is only supported for Codex sessions.");
+  }
+  if (backendRaw !== "codex" && codexPermissionModeOverride !== undefined) {
+    err("--permission-mode is only supported for Codex sessions.");
+  }
+  if (codexPermissionModeOverride !== undefined && askOverride !== undefined) {
+    err("Cannot combine --permission-mode with --ask or --no-ask for Codex sessions.");
   }
 
   // Reviewer-specific validations
@@ -525,6 +564,8 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   }
 
   const inheritBypass = leader.permissionMode === "bypassPermissions";
+  const inheritedCodexPermissionMode =
+    backendRaw === "codex" && isCodexProfilePermissionMode(leader.permissionMode) ? leader.permissionMode : undefined;
 
   const spawned: TakodeSessionInfo[] = [];
   for (let i = 0; i < count; i++) {
@@ -552,10 +593,16 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
       createPayload.model = model;
     }
 
+    const codexPermissionMode =
+      backendRaw === "codex" ? (codexPermissionModeOverride ?? inheritedCodexPermissionMode) : undefined;
+    if (codexPermissionMode) {
+      createPayload.permissionMode = codexPermissionMode;
+    }
+
     const askPermission = askOverride ?? (inheritBypass ? false : undefined);
     if (askPermission !== undefined) {
       createPayload.askPermission = askPermission;
-      if (backendRaw === "codex" && askPermission === false) {
+      if (backendRaw === "codex" && askPermission === false && !codexPermissionMode) {
         createPayload.permissionMode = "bypassPermissions";
       }
     }
@@ -617,6 +664,8 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
           useWorktree,
           leaderSessionId,
           leaderPermissionMode: leader.permissionMode || null,
+          codexPermissionMode:
+            backendRaw === "codex" ? (codexPermissionModeOverride ?? inheritedCodexPermissionMode ?? null) : null,
           inheritedAskPermission: askOverride === undefined && inheritBypass ? false : null,
           defaultModel: backendRaw === "codex" && !model ? getCliDefaultModelForBackend("codex") : null,
           message: message || null,

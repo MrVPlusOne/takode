@@ -570,6 +570,29 @@ describe("Composer mode toggle", () => {
     });
   });
 
+  it("clicking Codex mode toggle sends uiMode without clobbering the selected permission profile", () => {
+    // Codex keeps Plan/Agent collaboration mode separate from its permission
+    // profile. Toggling to Plan must not rewrite Auto-review into legacy
+    // suggest/plan permission modes.
+    setupMockStore({
+      session: {
+        backend_type: "codex",
+        permissionMode: "codex-auto-review",
+        uiMode: "agent",
+      },
+    });
+    render(<Composer sessionId="s1" />);
+
+    const toggleBtn = screen.getByTitle("Agent mode: executes tools directly (Shift+Tab to toggle)");
+    fireEvent.click(toggleBtn);
+
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "set_codex_ui_mode",
+      uiMode: "plan",
+    });
+    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "set_permission_mode" }));
+  });
+
   it("prefers server uiMode over stale permissionMode for the mode toggle label", () => {
     // Regression: SDK/session replay can transiently report a stale CLI mode
     // while server uiMode is already authoritative.

@@ -540,4 +540,23 @@ describe("Composer ask permission toggle", () => {
     const shieldButton = screen.getByTitle(/Permissions:/);
     expect(shieldButton).toBeTruthy();
   });
+
+  it("uses a confirmed Codex permission profile picker instead of the ask shield", async () => {
+    setupMockStore({ session: { backend_type: "codex", permissionMode: "codex-default" } });
+    render(<Composer sessionId="s1" />);
+
+    expect(screen.queryByTitle(/Permissions:/)).toBeNull();
+    await userEvent.click(screen.getByTitle(/Default permissions:/));
+    await userEvent.click(screen.getByText("Auto-review"));
+
+    expect(screen.getByText("Change Codex permissions to Auto-review?")).toBeTruthy();
+    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "set_permission_mode" }));
+
+    await userEvent.click(screen.getByText("Restart"));
+
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "set_permission_mode",
+      mode: "codex-auto-review",
+    });
+  });
 });

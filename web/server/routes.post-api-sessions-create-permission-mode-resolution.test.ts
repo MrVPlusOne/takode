@@ -601,9 +601,6 @@ describe("POST /api/sessions/create permission mode resolution", () => {
   });
 
   it("uses 'bypassPermissions' permission mode for codex sessions when askPermission is false", async () => {
-    // Regression coverage for q-688: the shield-off Codex affordance must
-    // launch with full access, otherwise operations such as git rebase can be
-    // blocked by workspace sandbox writes inside .git/.
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -665,6 +662,54 @@ describe("POST /api/sessions/create permission mode resolution", () => {
     expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
       "session-1",
       expect.objectContaining({ cwd: "/test", askPermission: false, uiMode: "plan" }),
+    );
+  });
+
+  it.each([
+    ["codex-default", true, "workspace-write"],
+    ["codex-auto-review", true, "workspace-write"],
+    ["codex-full-access", false, "danger-full-access"],
+  ])("forwards %s codex permission profile to launcher", async (permissionMode, expectedAskPermission, expectedSandbox) => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", backend: "codex", permissionMode }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendType: "codex",
+        permissionMode,
+        askPermission: expectedAskPermission,
+        codexSandbox: expectedSandbox,
+      }),
+    );
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ cwd: "/test", askPermission: expectedAskPermission, uiMode: "agent" }),
+    );
+  });
+
+  it("does not pass a Codex sandbox override for custom config.toml permission profile", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", backend: "codex", permissionMode: "codex-custom" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendType: "codex",
+        permissionMode: "codex-custom",
+        askPermission: true,
+        codexSandbox: undefined,
+      }),
+    );
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({ cwd: "/test", askPermission: true, uiMode: "agent" }),
     );
   });
 });

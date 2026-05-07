@@ -357,8 +357,6 @@ describe("execution", () => {
   });
 
   it("passes codexSandbox=danger-full-access for Codex jobs with bypassPermissions", async () => {
-    // Codex cron jobs must launch with explicit full autonomy params:
-    // codexSandbox="danger-full-access" and codexInternetAccess=true
     const launcher = createMockLauncher();
     const bridge = createMockBridge();
     const scheduler = new CronSchedulerClass(launcher as any, bridge as any);

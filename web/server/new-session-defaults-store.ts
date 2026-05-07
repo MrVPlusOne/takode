@@ -16,6 +16,7 @@ export interface NewSessionDefaults {
   useWorktree: boolean;
   codexInternetAccess: boolean;
   codexReasoningEffort: string;
+  codexPermissionMode: string;
 }
 
 export interface StoredNewSessionDefaults {
@@ -58,15 +59,37 @@ function normalizeString(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function normalizeCodexPermissionMode(
+  value: unknown,
+  backend: NewSessionBackend,
+  mode: string,
+  askPermission: boolean,
+): string {
+  switch (value) {
+    case "auto-review":
+    case "full-access":
+    case "custom":
+      return value;
+    case "default":
+      return "default";
+    default:
+      if (backend === "codex" && (mode === "bypassPermissions" || askPermission === false)) return "full-access";
+      if (backend === "codex" && mode === "suggest") return "auto-review";
+      return "default";
+  }
+}
+
 function normalizeDefaults(input: unknown): NewSessionDefaults | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const raw = input as Record<string, unknown>;
   const backend = raw.backend === "codex" ? "codex" : "claude";
+  const mode = normalizeString(raw.mode) || "agent";
+  const askPermission = raw.askPermission !== false;
   return {
     backend,
     model: normalizeString(raw.model),
-    mode: normalizeString(raw.mode) || "agent",
-    askPermission: raw.askPermission !== false,
+    mode,
+    askPermission,
     // Match the existing browser cache semantics: leader is a one-off choice,
     // not a remembered default for future sessions in the group.
     sessionRole: "worker",
@@ -75,6 +98,7 @@ function normalizeDefaults(input: unknown): NewSessionDefaults | null {
     useWorktree: raw.useWorktree === undefined ? true : raw.useWorktree === true,
     codexInternetAccess: raw.codexInternetAccess === true,
     codexReasoningEffort: normalizeString(raw.codexReasoningEffort),
+    codexPermissionMode: normalizeCodexPermissionMode(raw.codexPermissionMode, backend, mode, askPermission),
   };
 }
 

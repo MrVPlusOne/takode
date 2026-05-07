@@ -14,6 +14,14 @@ export interface ModeOption {
   label: string;
 }
 
+export type CodexPermissionMode = "default" | "auto-review" | "full-access" | "custom";
+
+export interface CodexPermissionOption {
+  value: CodexPermissionMode;
+  label: string;
+  description: string;
+}
+
 // ─── Icon assignment for dynamically fetched models ──────────────────────────
 
 const MODEL_ICONS: Record<string, string> = {
@@ -70,6 +78,29 @@ export const CODEX_REASONING_EFFORTS: ModeOption[] = [
   { value: "medium", label: "Medium" },
   { value: "high", label: "High" },
   { value: "xhigh", label: "XHigh" },
+];
+
+export const CODEX_PERMISSION_MODES: CodexPermissionOption[] = [
+  {
+    value: "default",
+    label: "Default permissions",
+    description: "Sandboxed workspace access; Codex can ask for elevated actions.",
+  },
+  {
+    value: "auto-review",
+    label: "Auto-review",
+    description: "Workspace sandbox with Codex Auto Review; use narrow rules and writable roots for managed access.",
+  },
+  {
+    value: "full-access",
+    label: "Full access",
+    description: "No sandbox and no prompts. Only use when your machine supports it.",
+  },
+  {
+    value: "custom",
+    label: "Custom (config.toml)",
+    description: "Use approval_policy and sandbox_mode from Codex config.toml.",
+  },
 ];
 
 // ─── Getters ─────────────────────────────────────────────────────────────────
@@ -241,6 +272,44 @@ export function resolveCodexCliMode(uiMode: string, askPermission: boolean): str
   return askPermission ? "suggest" : "bypassPermissions";
 }
 
+export function normalizeCodexPermissionMode(raw: string | null | undefined): CodexPermissionMode {
+  return CODEX_PERMISSION_MODES.some((option) => option.value === raw) ? (raw as CodexPermissionMode) : "default";
+}
+
+export function resolveCodexPermissionCliMode(permissionMode: CodexPermissionMode): string {
+  switch (permissionMode) {
+    case "default":
+      return "codex-default";
+    case "auto-review":
+      return "codex-auto-review";
+    case "full-access":
+      return "codex-full-access";
+    case "custom":
+      return "codex-custom";
+    default:
+      return assertNever(permissionMode);
+  }
+}
+
+export function deriveCodexPermissionMode(cliMode: string | null | undefined): CodexPermissionMode {
+  switch (cliMode) {
+    case "codex-auto-review":
+      return "auto-review";
+    case "codex-full-access":
+    case "bypassPermissions":
+      return "full-access";
+    case "codex-custom":
+      return "custom";
+    case "codex-default":
+    case "suggest":
+    case "plan":
+    case "acceptEdits":
+    case "default":
+    default:
+      return "default";
+  }
+}
+
 /** Derive the shared UI mode from a raw Codex mode string. */
 export function deriveCodexUiMode(cliMode: string): "plan" | "agent" {
   return cliMode === "plan" ? "plan" : "agent";
@@ -248,5 +317,5 @@ export function deriveCodexUiMode(cliMode: string): "plan" | "agent" {
 
 /** Derive askPermission state from a raw Codex mode string. */
 export function deriveCodexAskPermission(cliMode: string): boolean {
-  return cliMode !== "bypassPermissions";
+  return cliMode !== "bypassPermissions" && cliMode !== "codex-full-access";
 }

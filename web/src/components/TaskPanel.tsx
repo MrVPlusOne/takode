@@ -14,6 +14,12 @@ import {
   SEVEN_DAYS_MS,
   usageBarColor,
 } from "../utils/usage-bars.js";
+import {
+  CODEX_PERMISSION_MODES,
+  deriveCodexPermissionMode,
+  resolveCodexPermissionCliMode,
+  type CodexPermissionMode,
+} from "../utils/backends.js";
 import { coalesceSessionViewModel } from "../utils/session-view-model.js";
 import { navigateToSession } from "../utils/navigation.js";
 
@@ -786,6 +792,10 @@ function SessionTasksSection({ sessionId }: { sessionId: string }) {
 
 function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
   const [collapsed, toggle] = usePersistedCollapse("cc-collapse-herded");
+  const [pendingModeChange, setPendingModeChange] = useState<{
+    workerId: string;
+    mode: CodexPermissionMode;
+  } | null>(null);
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessionNames = useStore((s) => s.sessionNames);
 
@@ -808,6 +818,30 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
     [sessionId],
   );
 
+  const refreshSessions = useCallback(() => {
+    api
+      .listSessions()
+      .then((sessions: SdkSessionInfo[]) => {
+        useStore.getState().setSdkSessions(sessions);
+      })
+      .catch(() => {});
+  }, []);
+
+  const handlePermissionModeChange = useCallback(async () => {
+    if (!pendingModeChange) return;
+    try {
+      await api.setSessionPermissionMode(
+        pendingModeChange.workerId,
+        resolveCodexPermissionCliMode(pendingModeChange.mode),
+        { leaderSessionId: sessionId },
+      );
+      setPendingModeChange(null);
+      refreshSessions();
+    } catch (e) {
+      console.error("[TaskPanel] Failed to change worker Codex permission mode:", e);
+    }
+  }, [pendingModeChange, refreshSessions, sessionId]);
+
   return (
     <>
       <SectionHeader
@@ -828,28 +862,83 @@ function HerdedSessionsSection({ sessionId }: { sessionId: string }) {
             herded.map((s: SdkSessionInfo) => {
               const name = sessionNames.get(s.sessionId) || s.name || "(unnamed)";
               const isRunning = s.state === "running" || s.state === "connected";
+              const isCodexWorker = s.backendType === "codex";
+              const codexPermissionMode = deriveCodexPermissionMode(s.permissionMode);
+              const selectedCodexPermission =
+                CODEX_PERMISSION_MODES.find((option) => option.value === codexPermissionMode) ??
+                CODEX_PERMISSION_MODES[0];
+              const pendingForThisWorker =
+                pendingModeChange?.workerId === s.sessionId
+                  ? CODEX_PERMISSION_MODES.find((option) => option.value === pendingModeChange.mode)
+                  : null;
               const dotColor =
                 s.state === "exited" ? "text-cc-muted/40" : isRunning ? "text-cc-success" : "text-cc-muted/60";
               return (
-                <div key={s.sessionId} className="flex items-center gap-2 py-1 group/herd">
-                  <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dotColor} bg-current`} />
-                  <button
-                    className="flex-1 text-left text-[11px] text-cc-fg truncate hover:underline cursor-pointer"
-                    onClick={() => navigateToSession(s.sessionId)}
-                    title={name}
-                  >
-                    {s.sessionNum != null && <span className="text-cc-muted font-mono mr-1">#{s.sessionNum}</span>}
-                    {name}
-                  </button>
-                  <button
-                    className="opacity-0 group-hover/herd:opacity-100 text-cc-muted hover:text-cc-error transition-all cursor-pointer p-0.5"
-                    title="Unherd this session"
-                    onClick={() => handleUnherd(s.sessionId)}
-                  >
-                    <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
-                      <path d="M4 4l8 8M12 4l-8 8" />
-                    </svg>
-                  </button>
+                <div key={s.sessionId} className="group/herd rounded-md py-1">
+                  <div className="flex items-center gap-2">
+                    <span className={`shrink-0 w-1.5 h-1.5 rounded-full ${dotColor} bg-current`} />
+                    <button
+                      className="min-w-0 flex-1 cursor-pointer truncate text-left text-[11px] text-cc-fg hover:underline"
+                      onClick={() => navigateToSession(s.sessionId)}
+                      title={name}
+                    >
+                      {s.sessionNum != null && <span className="mr-1 font-mono text-cc-muted">#{s.sessionNum}</span>}
+                      {name}
+                    </button>
+                    {isCodexWorker && (
+                      <select
+                        aria-label={`Codex permissions for ${name}`}
+                        className="max-w-[112px] shrink-0 rounded border border-cc-border bg-cc-bg px-1.5 py-0.5 text-[10px] text-cc-muted outline-none transition-colors hover:text-cc-fg"
+                        value={codexPermissionMode}
+                        title={selectedCodexPermission.description}
+                        onChange={(event) =>
+                          setPendingModeChange({
+                            workerId: s.sessionId,
+                            mode: event.target.value as CodexPermissionMode,
+                          })
+                        }
+                      >
+                        {CODEX_PERMISSION_MODES.map((option) => (
+                          <option key={option.value} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      className="cursor-pointer p-0.5 text-cc-muted opacity-0 transition-all hover:text-cc-error group-hover/herd:opacity-100"
+                      title="Unherd this session"
+                      onClick={() => handleUnherd(s.sessionId)}
+                    >
+                      <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-3 h-3">
+                        <path d="M4 4l8 8M12 4l-8 8" />
+                      </svg>
+                    </button>
+                  </div>
+                  {pendingForThisWorker && (
+                    <div className="ml-3.5 mt-1 rounded-md border border-cc-border bg-cc-bg/60 p-2">
+                      <p className="text-[11px] font-medium text-cc-fg">
+                        Restart worker with {pendingForThisWorker.label}?
+                      </p>
+                      <p className="mt-0.5 text-[10px] leading-snug text-cc-muted">
+                        Any in-progress operation will be interrupted. Conversation history is preserved.
+                      </p>
+                      <div className="mt-2 flex justify-end gap-1.5">
+                        <button
+                          className="cursor-pointer rounded px-2 py-0.5 text-[10px] text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+                          onClick={() => setPendingModeChange(null)}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          className="cursor-pointer rounded bg-cc-primary/15 px-2 py-0.5 text-[10px] font-medium text-cc-primary hover:bg-cc-primary/25"
+                          onClick={handlePermissionModeChange}
+                        >
+                          Restart
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               );
             })

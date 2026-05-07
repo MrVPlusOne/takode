@@ -31,6 +31,7 @@ describe("new-session-defaults-store", () => {
       useWorktree: false,
       codexInternetAccess: true,
       codexReasoningEffort: "high",
+      codexPermissionMode: "custom",
     });
     await _flushForTest();
 
@@ -48,6 +49,7 @@ describe("new-session-defaults-store", () => {
       useWorktree: false,
       codexInternetAccess: true,
       codexReasoningEffort: "high",
+      codexPermissionMode: "custom",
     });
     expect(typeof entry?.updatedAt).toBe("number");
   });
@@ -66,6 +68,7 @@ describe("new-session-defaults-store", () => {
       useWorktree: true,
       codexInternetAccess: false,
       codexReasoningEffort: "",
+      codexPermissionMode: "default",
     });
     await _flushForTest();
 
@@ -80,5 +83,16 @@ describe("new-session-defaults-store", () => {
     expect(await saveDefaults("  ", { cwd: "/repo" })).toBeNull();
     expect(await saveDefaults("tree-group:bad", null)).toBeNull();
     expect(await getDefaults("tree-group:bad")).toBeNull();
+  });
+
+  it("migrates legacy Codex no-ask defaults to full access", async () => {
+    const entry = await saveDefaults("tree-group:legacy-codex", {
+      backend: "codex",
+      model: "gpt-5.4",
+      mode: "agent",
+      askPermission: false,
+    });
+
+    expect(entry?.defaults.codexPermissionMode).toBe("full-access");
   });
 });

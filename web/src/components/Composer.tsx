@@ -3,15 +3,19 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
 import {
+  CODEX_PERMISSION_MODES,
   CODEX_REASONING_EFFORTS,
   resolveClaudeCliMode,
   deriveUiMode,
   resolveCodexCliMode,
+  deriveCodexPermissionMode,
   deriveCodexUiMode,
   deriveCodexAskPermission,
   formatModel,
   getModelsForBackend,
+  resolveCodexPermissionCliMode,
   toModelOptions,
+  type CodexPermissionMode,
   type ModelOption,
 } from "../utils/backends.js";
 import { isTouchDevice } from "../utils/mobile.js";
@@ -100,6 +104,8 @@ export function Composer({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showCodexReasoningDropdown, setShowCodexReasoningDropdown] = useState(false);
+  const [showCodexPermissionDropdown, setShowCodexPermissionDropdown] = useState(false);
+  const [pendingCodexPermissionMode, setPendingCodexPermissionMode] = useState<CodexPermissionMode | null>(null);
   const [showAskConfirm, setShowAskConfirm] = useState(false);
   const [dynamicCodexModels, setDynamicCodexModels] = useState<ModelOption[] | null>(null);
   const [dynamicClaudeModels, setDynamicClaudeModels] = useState<ModelOption[] | null>(null);
@@ -116,6 +122,7 @@ export function Composer({
   const draftImageSourceFilesRef = useRef(new Map<string, File>());
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const codexReasoningDropdownRef = useRef<HTMLDivElement>(null);
+  const codexPermissionDropdownRef = useRef<HTMLDivElement>(null);
   const askConfirmRef = useRef<HTMLDivElement>(null);
   const voiceCaptureModeRef = useRef<"dictation" | "edit" | "append">("dictation");
   const voiceEditBaseTextRef = useRef("");
@@ -472,6 +479,7 @@ export function Composer({
   // is the authoritative virtual mode for the composer toggle.
   const uiMode = sessionView.serverUiMode ?? (isCodex ? deriveCodexUiMode(currentMode) : deriveUiMode(currentMode));
   const isPlan = uiMode === "plan";
+  const codexPermissionMode = deriveCodexPermissionMode(currentMode);
   const codexReasoningEffort = sessionView.codexReasoningEffort;
   const codexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
   // Resolve the "Default" option: replace the empty-value placeholder with
@@ -594,6 +602,9 @@ export function Composer({
       if (codexReasoningDropdownRef.current && !codexReasoningDropdownRef.current.contains(e.target as Node)) {
         setShowCodexReasoningDropdown(false);
       }
+      if (codexPermissionDropdownRef.current && !codexPermissionDropdownRef.current.contains(e.target as Node)) {
+        setShowCodexPermissionDropdown(false);
+      }
     }
     document.addEventListener("pointerdown", handleClick);
     return () => document.removeEventListener("pointerdown", handleClick);
@@ -681,9 +692,13 @@ export function Composer({
     if (isCodex) {
       const targetMode = parseCodexModeSlashCommand(msg);
       if (targetMode) {
-        const targetAsk = targetMode.askPermission ?? askPermission;
-        const cliMode = resolveCodexCliMode(targetMode.uiMode, targetAsk);
-        const switched = sendToSession(sessionId, { type: "set_permission_mode", mode: cliMode });
+        const switched =
+          targetMode.askPermission === undefined
+            ? sendToSession(sessionId, { type: "set_codex_ui_mode", uiMode: targetMode.uiMode })
+            : sendToSession(sessionId, {
+                type: "set_permission_mode",
+                mode: resolveCodexCliMode(targetMode.uiMode, targetMode.askPermission),
+              });
         if (!switched) return;
         store.clearComposerDraft(sessionId);
         closeAutocompleteMenus();
@@ -1201,8 +1216,7 @@ export function Composer({
   function selectMode(mode: string) {
     if (!isConnected) return;
     if (isCodex) {
-      const cliMode = resolveCodexCliMode(mode, askPermission);
-      sendToSession(sessionId, { type: "set_permission_mode", mode: cliMode });
+      sendToSession(sessionId, { type: "set_codex_ui_mode", uiMode: mode === "plan" ? "plan" : "agent" });
       return;
     }
     // Claude Code: resolve the UI mode + askPermission to the actual CLI mode
@@ -1220,6 +1234,16 @@ export function Composer({
     const newValue = !askPermission;
     sendToSession(sessionId, { type: "set_ask_permission", askPermission: newValue });
     setShowAskConfirm(false);
+  }
+
+  function confirmCodexPermissionChange() {
+    if (!pendingCodexPermissionMode) return;
+    sendToSession(sessionId, {
+      type: "set_permission_mode",
+      mode: resolveCodexPermissionCliMode(pendingCodexPermissionMode),
+    });
+    setPendingCodexPermissionMode(null);
+    setShowCodexPermissionDropdown(false);
   }
 
   function cycleMode() {
@@ -1548,6 +1572,22 @@ export function Composer({
                 }
                 isPlan={isPlan}
                 cycleMode={cycleMode}
+                codexPermissionOptions={CODEX_PERMISSION_MODES}
+                codexPermissionMode={codexPermissionMode}
+                showCodexPermissionDropdown={showCodexPermissionDropdown}
+                setShowCodexPermissionDropdown={setShowCodexPermissionDropdown}
+                codexPermissionDropdownRef={codexPermissionDropdownRef}
+                pendingCodexPermissionMode={pendingCodexPermissionMode}
+                onRequestCodexPermissionMode={(mode) => {
+                  if (mode === codexPermissionMode) {
+                    setShowCodexPermissionDropdown(false);
+                    return;
+                  }
+                  setPendingCodexPermissionMode(mode);
+                  setShowCodexPermissionDropdown(false);
+                }}
+                onCancelCodexPermissionMode={() => setPendingCodexPermissionMode(null)}
+                onConfirmCodexPermissionMode={confirmCodexPermissionChange}
                 askConfirmRef={askConfirmRef}
                 toggleAskPermission={toggleAskPermission}
                 askPermission={askPermission}

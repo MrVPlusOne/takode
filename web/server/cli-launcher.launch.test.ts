@@ -738,6 +738,9 @@ describe("launch", () => {
     expect(cmdAndArgs).toContain("app-server");
     expect(cmdAndArgs).toContain("-c");
     expect(cmdAndArgs.join(" ")).toContain("tools.webSearch=true");
+    const sandboxIdx = cmdAndArgs.indexOf("-s");
+    expect(sandboxIdx).toBeGreaterThan(-1);
+    expect(cmdAndArgs[sandboxIdx + 1]).toBe("danger-full-access");
     expect(options.cwd).toBe(cwd);
   });
 
@@ -762,7 +765,7 @@ describe("launch", () => {
     expect(cmdAndArgs.join(" ")).toContain("tools.webSearch=false");
   });
 
-  it("maps bypassPermissions to Codex never-ask launch flags", async () => {
+  it("maps bypassPermissions to Codex no-ask full-access launch flags", async () => {
     mockResolveBinary.mockReturnValue("/opt/fake/codex");
     mockSpawn.mockReturnValueOnce(createMockCodexProc());
 
@@ -781,6 +784,52 @@ describe("launch", () => {
     expect(cmdAndArgs[approvalIdx + 1]).toBe("never");
     expect(sandboxIdx).toBeGreaterThan(-1);
     expect(cmdAndArgs[sandboxIdx + 1]).toBe("danger-full-access");
+  });
+
+  it.each([
+    ["codex-default", "on-request", "workspace-write"],
+    ["codex-auto-review", "on-request", "workspace-write"],
+    ["codex-full-access", "never", "danger-full-access"],
+  ])("maps %s to Codex launch flags", async (permissionMode, expectedApproval, expectedSandbox) => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      permissionMode,
+      codexInternetAccess: false,
+    });
+    await waitForSpawnCalls(1);
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    const approvalIdx = cmdAndArgs.indexOf("-a");
+    const sandboxIdx = cmdAndArgs.indexOf("-s");
+    expect(approvalIdx).toBeGreaterThan(-1);
+    expect(cmdAndArgs[approvalIdx + 1]).toBe(expectedApproval);
+    expect(sandboxIdx).toBeGreaterThan(-1);
+    expect(cmdAndArgs[sandboxIdx + 1]).toBe(expectedSandbox);
+    if (permissionMode === "codex-auto-review") {
+      expect(cmdAndArgs).toContain("approvals_reviewer=auto_review");
+    }
+  });
+
+  it("omits Codex approval and sandbox launch flags for config.toml custom mode", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    await launcher.launch({
+      backendType: "codex",
+      cwd: "/tmp/project",
+      permissionMode: "codex-custom",
+      codexInternetAccess: false,
+    });
+    await waitForSpawnCalls(1);
+
+    const [cmdAndArgs] = mockSpawn.mock.calls[0];
+    expect(cmdAndArgs).toContain("app-server");
+    expect(cmdAndArgs).not.toContain("-a");
+    expect(cmdAndArgs).not.toContain("-s");
   });
 
   it("uses -a never for codex plan mode when askPermission is false", async () => {

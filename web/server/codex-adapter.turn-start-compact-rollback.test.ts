@@ -343,6 +343,35 @@ describe("CodexAdapter", () => {
     expect(turnStart.params.collaborationMode.mode).toBe("plan");
   });
 
+  it("sets collaborationMode=plan from uiMode while preserving Codex permission profile", async () => {
+    // Codex profile and collaboration mode are separate: Auto-review should
+    // still launch Plan turns when uiMode says Plan.
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "gpt-5.3-codex",
+      approvalMode: "codex-auto-review",
+      uiMode: "plan",
+    });
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdin.chunks = [];
+    adapter.sendBrowserMessage({ type: "user_message", content: "plan with auto-review" });
+    await tick();
+
+    const lines = stdin.chunks
+      .join("")
+      .split("\n")
+      .filter(Boolean)
+      .map((line) => JSON.parse(line));
+    const turnStart = lines.find((line) => line.method === "turn/start");
+    expect(turnStart).toBeDefined();
+    expect(turnStart.params.collaborationMode.mode).toBe("plan");
+  });
+
   it("sets collaborationMode=default on turn/start when approvalMode is bypassPermissions", async () => {
     const adapter = new CodexAdapter(proc as never, "test-session", {
       model: "gpt-5.3-codex",

@@ -111,7 +111,8 @@ export interface CodexAdapterOptions {
   cwd?: string;
   approvalMode?: string;
   askPermission?: boolean;
-  sandbox?: "workspace-write" | "danger-full-access";
+  uiMode?: "plan" | "agent";
+  sandbox?: "read-only" | "workspace-write" | "danger-full-access";
   reasoningEffort?: string;
   /** If provided, resume an existing thread instead of starting a new one. */
   threadId?: string;
@@ -709,13 +710,10 @@ export class CodexAdapter
       if (this.options.threadId) {
         try {
           // Resume an existing thread
-          const resumeResult = (await this.transport.call("thread/resume", {
-            threadId: this.options.threadId,
-            model: this.options.model,
-            cwd: this.options.cwd,
-            approvalPolicy: this.mapApprovalPolicy(this.options.approvalMode, this.options.askPermission),
-            sandbox: this.options.sandbox || this.mapSandboxPolicy(this.options.approvalMode),
-          })) as { thread: Record<string, unknown> & { id: string } };
+          const resumeResult = (await this.transport.call(
+            "thread/resume",
+            this.buildThreadParams({ threadId: this.options.threadId }),
+          )) as { thread: Record<string, unknown> & { id: string } };
           this.threadId = resumeResult.thread.id;
           resumeSnapshot = this.buildResumeSnapshot(resumeResult.thread);
           // Only set currentTurnId if the turn is truly in-progress AND the
@@ -732,22 +730,16 @@ export class CodexAdapter
           console.warn(
             `[codex-adapter] thread/resume failed for ${this.options.threadId}: ${err}. Starting a fresh thread.`,
           );
-          const threadResult = (await this.transport.call("thread/start", {
-            model: this.options.model,
-            cwd: this.options.cwd,
-            approvalPolicy: this.mapApprovalPolicy(this.options.approvalMode, this.options.askPermission),
-            sandbox: this.options.sandbox || this.mapSandboxPolicy(this.options.approvalMode),
-          })) as { thread: { id: string } };
+          const threadResult = (await this.transport.call("thread/start", this.buildThreadParams())) as {
+            thread: { id: string };
+          };
           this.threadId = threadResult.thread.id;
         }
       } else {
         // Start a new thread
-        const threadResult = (await this.transport.call("thread/start", {
-          model: this.options.model,
-          cwd: this.options.cwd,
-          approvalPolicy: this.mapApprovalPolicy(this.options.approvalMode, this.options.askPermission),
-          sandbox: this.options.sandbox || this.mapSandboxPolicy(this.options.approvalMode),
-        })) as { thread: { id: string } };
+        const threadResult = (await this.transport.call("thread/start", this.buildThreadParams())) as {
+          thread: { id: string };
+        };
         this.threadId = threadResult.thread.id;
       }
 
@@ -769,6 +761,7 @@ export class CodexAdapter
         cwd: this.options.cwd || "",
         tools: [],
         permissionMode: this.options.approvalMode || "suggest",
+        ...(this.options.uiMode ? { uiMode: this.options.uiMode } : {}),
         claude_code_version: "",
         mcp_servers: [],
         agents: [],
@@ -1712,7 +1705,30 @@ export class CodexAdapter
     };
   }
 
-  private mapApprovalPolicy(mode?: string, askPermission?: boolean): string {
+  private buildThreadParams(extra?: Record<string, unknown>): Record<string, unknown> {
+    const params: Record<string, unknown> = {
+      ...extra,
+      model: this.options.model,
+      cwd: this.options.cwd,
+    };
+    const approvalPolicy = this.mapApprovalPolicy(this.options.approvalMode, this.options.askPermission);
+    const sandbox = this.options.sandbox ?? this.mapSandboxPolicy(this.options.approvalMode);
+    if (approvalPolicy) params.approvalPolicy = approvalPolicy;
+    if (sandbox) params.sandbox = sandbox;
+    return params;
+  }
+
+  private mapApprovalPolicy(mode?: string, askPermission?: boolean): string | undefined {
+    switch (mode) {
+      case "codex-custom":
+        return undefined;
+      case "codex-default":
+        return "on-request";
+      case "codex-auto-review":
+        return "on-request";
+      case "codex-full-access":
+        return "never";
+    }
     if (askPermission === false) return "never";
     switch (mode) {
       case "bypassPermissions":
@@ -1726,8 +1742,16 @@ export class CodexAdapter
     }
   }
 
-  private mapSandboxPolicy(mode?: string): string {
+  private mapSandboxPolicy(mode?: string): string | undefined {
     switch (mode) {
+      case "codex-custom":
+        return undefined;
+      case "codex-auto-review":
+        return "workspace-write";
+      case "codex-full-access":
+        return "danger-full-access";
+      case "codex-default":
+        return "workspace-write";
       case "bypassPermissions":
         return "danger-full-access";
       default:
@@ -1739,7 +1763,7 @@ export class CodexAdapter
     mode: "default" | "plan";
     settings: { model: string; reasoning_effort: string | null };
   } | null {
-    const mode = this.options.approvalMode === "plan" ? "plan" : "default";
+    const mode = this.options.uiMode === "plan" || this.options.approvalMode === "plan" ? "plan" : "default";
     return {
       mode,
       settings: {

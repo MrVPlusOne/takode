@@ -120,6 +120,9 @@ describe("CodexAdapter", () => {
     { approvalMode: "plan", askPermission: false, expected: "never" },
     { approvalMode: "acceptEdits", askPermission: undefined, expected: "untrusted" },
     { approvalMode: "default", askPermission: undefined, expected: "untrusted" },
+    { approvalMode: "codex-default", askPermission: undefined, expected: "on-request" },
+    { approvalMode: "codex-auto-review", askPermission: undefined, expected: "on-request" },
+    { approvalMode: "codex-full-access", askPermission: undefined, expected: "never" },
     { approvalMode: undefined, askPermission: undefined, expected: "untrusted" },
   ])("maps approvalMode=$approvalMode askPermission=$askPermission to kebab-case approvalPolicy=$expected", async ({
     approvalMode,
@@ -144,6 +147,24 @@ describe("CodexAdapter", () => {
     expect(allWritten).not.toContain('"approvalPolicy":"unlessTrusted"');
     expect(allWritten).not.toContain('"approvalPolicy":"onFailure"');
     expect(allWritten).not.toContain('"approvalPolicy":"onRequest"');
+  });
+
+  it("omits approvalPolicy and sandbox for Codex custom config mode", async () => {
+    const mock = createMockProcess();
+
+    new CodexAdapter(mock.proc as never, "test-session", {
+      model: "gpt-5.3-codex",
+      cwd: "/tmp",
+      approvalMode: "codex-custom",
+    });
+
+    await tick();
+    mock.stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+
+    const allWritten = mock.stdin.chunks.join("");
+    expect(allWritten).not.toContain('"approvalPolicy"');
+    expect(allWritten).not.toContain('"sandbox"');
   });
 
   it("sends session_init to browser after successful initialization", async () => {

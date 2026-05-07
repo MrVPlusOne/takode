@@ -177,6 +177,7 @@ import {
   handleSetAskPermission as handleSetAskPermissionController,
   handleSetPermissionMode as handleSetPermissionModeController,
   handleCodexSetPermissionMode as handleCodexSetPermissionModeController,
+  handleCodexSetUiMode as handleCodexSetUiModeController,
   hasPendingForceCompact as hasPendingForceCompactController,
   isCliSlashCommand as isCliSlashCommandController,
   queueForceCompactPendingMessage as queueForceCompactPendingMessageController,
@@ -1244,6 +1245,18 @@ export class WsBridge {
 
   getSession(sessionId: string): Session | undefined {
     return this.sessions.get(sessionId);
+  }
+
+  async setSessionPermissionMode(sessionId: string, mode: string): Promise<boolean> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return false;
+    await routeBrowserMessageController(
+      session,
+      { type: "set_permission_mode", mode },
+      undefined,
+      this.getBrowserRoutingDeps(),
+    );
+    return true;
   }
 
   async interruptSession(
@@ -2627,6 +2640,8 @@ export class WsBridge {
         handleSetPermissionModeController(targetSession as Session, mode, this.getBrowserRoutingDeps()),
       handleCodexSetPermissionMode: (targetSession: unknown, mode: string) =>
         handleCodexSetPermissionModeController(targetSession as Session, mode, this.getBrowserRoutingDeps()),
+      handleCodexSetUiMode: (targetSession: unknown, uiMode: "plan" | "agent") =>
+        handleCodexSetUiModeController(targetSession as Session, uiMode, this.getBrowserRoutingDeps()),
       handleCodexSetReasoningEffort: (targetSession: unknown, effort: string) =>
         handleCodexSetReasoningEffortController(targetSession as Session, effort, this.getBrowserRoutingDeps()),
       handleSetAskPermission: (targetSession: unknown, askPermission: boolean) =>

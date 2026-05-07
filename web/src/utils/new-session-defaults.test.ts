@@ -26,6 +26,7 @@ describe("new-session-defaults", () => {
     scopedSetItem("cc-worktree", "false");
     scopedSetItem("cc-codex-internet-access", "1");
     scopedSetItem("cc-codex-reasoning-effort", "high");
+    scopedSetItem("cc-codex-permission-mode", "custom");
 
     expect(getGlobalNewSessionDefaults()).toEqual({
       backend: "codex",
@@ -38,6 +39,7 @@ describe("new-session-defaults", () => {
       useWorktree: false,
       codexInternetAccess: true,
       codexReasoningEffort: "high",
+      codexPermissionMode: "custom",
     });
   });
 
@@ -61,6 +63,7 @@ describe("new-session-defaults", () => {
       useWorktree: false,
       codexInternetAccess: false,
       codexReasoningEffort: "",
+      codexPermissionMode: "default",
     });
   });
 
@@ -81,6 +84,7 @@ describe("new-session-defaults", () => {
       useWorktree: true,
       codexInternetAccess: true,
       codexReasoningEffort: "medium",
+      codexPermissionMode: "full-access",
     });
 
     expect(getGroupNewSessionDefaults("/repo-a")).toEqual({
@@ -94,11 +98,13 @@ describe("new-session-defaults", () => {
       useWorktree: true,
       codexInternetAccess: true,
       codexReasoningEffort: "medium",
+      codexPermissionMode: "full-access",
     });
     expect(getCachedGroupNewSessionDefaults("/repo-a")).toMatchObject({
       backend: "codex",
       cwd: "/repo-a/worktrees/feature-x",
       sessionRole: "worker",
+      codexPermissionMode: "full-access",
     });
 
     expect(getGlobalNewSessionDefaults()).toEqual({
@@ -112,6 +118,7 @@ describe("new-session-defaults", () => {
       useWorktree: true,
       codexInternetAccess: false,
       codexReasoningEffort: "",
+      codexPermissionMode: "default",
     });
   });
 
@@ -126,6 +133,7 @@ describe("new-session-defaults", () => {
       askPermission: false,
       sessionRole: "worker",
       cwd: "",
+      codexPermissionMode: "full-access",
     });
   });
 

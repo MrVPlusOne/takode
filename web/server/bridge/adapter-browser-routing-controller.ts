@@ -215,12 +215,14 @@ export interface AdapterBrowserRoutingDeps {
         askPermission?: boolean;
         cliSessionId?: string;
         codexReasoningEffort?: string;
+        codexSandbox?: "read-only" | "workspace-write" | "danger-full-access";
         herdedBy?: string | null;
         isOrchestrator?: boolean;
         killedByIdleManager?: boolean;
         model?: string;
         permissionMode?: string;
         state?: string;
+        uiMode?: "plan" | "agent";
       }
     | null
     | undefined;
@@ -250,6 +252,7 @@ export interface AdapterBrowserRoutingDeps {
   handleCodexSetModel: (session: AdapterBrowserRoutingSessionLike, model: string) => void;
   handleSetPermissionMode: (session: AdapterBrowserRoutingSessionLike, mode: string) => void;
   handleCodexSetPermissionMode: (session: AdapterBrowserRoutingSessionLike, mode: string) => void;
+  handleCodexSetUiMode: (session: AdapterBrowserRoutingSessionLike, uiMode: "plan" | "agent") => void;
   handleCodexSetReasoningEffort: (session: AdapterBrowserRoutingSessionLike, effort: string) => void;
   handleSetAskPermission: (session: AdapterBrowserRoutingSessionLike, askPermission: boolean) => void;
   handleInterruptFallback: (session: AdapterBrowserRoutingSessionLike, source: InterruptSource) => void;
@@ -771,6 +774,10 @@ export async function routeBrowserMessage(
       handleSetPermissionMode(session, msg.mode, deps);
       break;
 
+    case "set_codex_ui_mode":
+      if (session.backendType === "codex") deps.handleCodexSetUiMode(session, msg.uiMode);
+      break;
+
     case "mcp_get_status":
       handleMcpGetStatus(session, deps);
       break;
@@ -1167,9 +1174,14 @@ export function handleCodexSetPermissionMode(
   mode: string,
   deps: AdapterBrowserRoutingDeps,
 ): void {
-  if (!mode || session.state.permissionMode === mode) return;
+  const nextProfile = normalizeCodexPermissionProfile(mode, session.state.permissionMode);
+  if (!nextProfile) return;
+  const currentUiMode = session.state.uiMode === "plan" ? "plan" : "agent";
+  const nextUiMode = resolveCodexUiModeForPermissionMessage(mode, currentUiMode);
+  if (session.state.permissionMode === nextProfile && session.state.uiMode === nextUiMode) return;
+  const isFullAccessMode = nextProfile === "codex-full-access";
   if (session.pendingPermissions.size > 0) {
-    const approve = mode === "bypassPermissions";
+    const approve = isFullAccessMode;
     for (const [reqId, perm] of session.pendingPermissions) {
       if (session.codexAdapter) {
         session.codexAdapter.sendBrowserMessage({
@@ -1200,23 +1212,128 @@ export function handleCodexSetPermissionMode(
     session.pendingPermissions.clear();
     clearActionAttentionIfNoPermissionsSessionRegistryController(session, deps.sessionNotificationDeps);
   }
-  const previousAsk = session.state.askPermission !== false;
-  const codexUiMode = mode === "plan" ? "plan" : "agent";
-  const codexAskPermission = mode === "plan" ? previousAsk : mode !== "bypassPermissions";
-  session.state.permissionMode = mode;
+  const codexUiMode = nextUiMode;
+  const codexAskPermission = !isFullAccessMode;
+  session.state.permissionMode = nextProfile;
   session.state.uiMode = codexUiMode;
   session.state.askPermission = codexAskPermission;
   const launchInfo = deps.getLauncherSessionInfo(session.id);
   if (launchInfo) {
-    launchInfo.permissionMode = mode;
+    launchInfo.permissionMode = nextProfile;
     launchInfo.askPermission = codexAskPermission;
+    launchInfo.uiMode = codexUiMode;
+    setLauncherCodexSandbox(launchInfo, nextProfile);
   }
   deps.broadcastToBrowsers(session, {
     type: "session_update",
-    session: { permissionMode: mode, uiMode: codexUiMode, askPermission: codexAskPermission },
+    session: { permissionMode: nextProfile, uiMode: codexUiMode, askPermission: codexAskPermission },
   });
   deps.persistSession(session);
   deps.requestCodexIntentionalRelaunch(session, "set_permission_mode", 100);
+}
+
+function normalizeCodexPermissionProfile(mode: string, currentMode?: string): string | null {
+  switch (mode) {
+    case "codex-default":
+    case "codex-auto-review":
+    case "codex-full-access":
+    case "codex-custom":
+      return mode;
+    case "bypassPermissions":
+      return "codex-full-access";
+    case "suggest":
+    case "acceptEdits":
+    case "default":
+      return "codex-default";
+    case "plan":
+      if (isCodexProfilePermissionMode(currentMode)) return currentMode;
+      return "codex-default";
+    default:
+      return null;
+  }
+}
+
+function isCodexProfilePermissionMode(
+  mode?: string,
+): mode is "codex-default" | "codex-auto-review" | "codex-full-access" | "codex-custom" {
+  return (
+    mode === "codex-default" || mode === "codex-auto-review" || mode === "codex-full-access" || mode === "codex-custom"
+  );
+}
+
+function resolveCodexUiModeForPermissionMessage(mode: string, currentUiMode: "plan" | "agent"): "plan" | "agent" {
+  switch (mode) {
+    case "plan":
+      return "plan";
+    case "suggest":
+    case "acceptEdits":
+    case "default":
+    case "bypassPermissions":
+      return "agent";
+    default:
+      return currentUiMode;
+  }
+}
+
+function resolveCodexSandboxForPermissionProfile(
+  mode: string,
+): "read-only" | "workspace-write" | "danger-full-access" | undefined {
+  switch (mode) {
+    case "codex-custom":
+      return undefined;
+    case "codex-full-access":
+      return "danger-full-access";
+    case "codex-default":
+    case "codex-auto-review":
+    default:
+      return "workspace-write";
+  }
+}
+
+function setLauncherCodexSandbox(
+  launchInfo: { codexSandbox?: "read-only" | "workspace-write" | "danger-full-access" },
+  mode: string,
+): void {
+  const sandbox = resolveCodexSandboxForPermissionProfile(mode);
+  if (sandbox) {
+    launchInfo.codexSandbox = sandbox;
+  } else {
+    delete launchInfo.codexSandbox;
+  }
+}
+
+export function handleCodexSetUiMode(
+  session: AdapterBrowserRoutingSessionLike,
+  uiMode: "plan" | "agent",
+  deps: AdapterBrowserRoutingDeps,
+): void {
+  const nextProfile = normalizeCodexPermissionProfile(session.state.permissionMode ?? "codex-default", undefined);
+  if (!nextProfile) return;
+  const codexAskPermission = nextProfile !== "codex-full-access";
+  if (
+    session.state.permissionMode === nextProfile &&
+    session.state.uiMode === uiMode &&
+    session.state.askPermission === codexAskPermission
+  ) {
+    return;
+  }
+
+  session.state.permissionMode = nextProfile;
+  session.state.uiMode = uiMode;
+  session.state.askPermission = codexAskPermission;
+  const launchInfo = deps.getLauncherSessionInfo(session.id);
+  if (launchInfo) {
+    launchInfo.permissionMode = nextProfile;
+    launchInfo.askPermission = codexAskPermission;
+    launchInfo.uiMode = uiMode;
+    setLauncherCodexSandbox(launchInfo, nextProfile);
+  }
+  deps.broadcastToBrowsers(session, {
+    type: "session_update",
+    session: { permissionMode: nextProfile, uiMode, askPermission: codexAskPermission },
+  });
+  deps.persistSession(session);
+  deps.requestCodexIntentionalRelaunch(session, "set_codex_ui_mode", 100);
 }
 
 export function handleCodexSetModel(
@@ -1987,6 +2104,10 @@ export function routeAdapterBrowserMessage(
       } else {
         deps.handleCodexSetPermissionMode(session, msg.mode);
       }
+      return true;
+    }
+    if (msg.type === "set_codex_ui_mode") {
+      if (session.backendType === "codex") deps.handleCodexSetUiMode(session, msg.uiMode);
       return true;
     }
     if (msg.type === "set_codex_reasoning_effort") {

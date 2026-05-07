@@ -15,6 +15,7 @@ import { RESTART_EXIT_CODE } from "./server/constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = resolve(__dirname);
+const bunExec = process.execPath;
 
 let shuttingDown = false;
 let serverProc: ReturnType<typeof spawn> | null = null;
@@ -23,7 +24,7 @@ async function build(): Promise<boolean> {
   // Install deps first — no-op when up to date, but catches new packages
   // added by commits pulled between restarts (e.g. highlight.js).
   console.log("\x1b[36m[serve] Installing dependencies...\x1b[0m");
-  const install = spawn(["bun", "install"], {
+  const install = spawn([bunExec, "install"], {
     cwd: webDir,
     stdout: "inherit",
     stderr: "inherit",
@@ -31,7 +32,7 @@ async function build(): Promise<boolean> {
   await install.exited;
 
   console.log("\x1b[36m[serve] Building...\x1b[0m");
-  const proc = spawn(["bun", "run", "build"], {
+  const proc = spawn([bunExec, "run", "build"], {
     cwd: webDir,
     stdout: "inherit",
     stderr: "inherit",
@@ -53,7 +54,7 @@ async function run() {
 
   while (true) {
     console.log("\x1b[36m[serve] Starting server...\x1b[0m");
-    serverProc = spawn(["bun", "server/index.ts"], {
+    serverProc = spawn([bunExec, "server/index.ts"], {
       cwd: webDir,
       stdout: "inherit",
       stderr: "inherit",

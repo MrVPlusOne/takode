@@ -259,6 +259,7 @@ describe("NewSessionModal", () => {
       useWorktree: false,
       codexInternetAccess: false,
       codexReasoningEffort: "medium",
+      codexPermissionMode: "custom",
     };
     mockGetGroupNewSessionDefaults.mockReturnValue({
       backend: "claude",
@@ -271,6 +272,7 @@ describe("NewSessionModal", () => {
       useWorktree: true,
       codexInternetAccess: true,
       codexReasoningEffort: "high",
+      codexPermissionMode: "default",
     });
     mockApi.getNewSessionDefaults.mockResolvedValue({
       key: "tree-group:team-alpha",

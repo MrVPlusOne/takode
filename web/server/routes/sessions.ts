@@ -51,6 +51,7 @@ import { createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
+import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -194,14 +195,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     containerInfo?: ContainerInfo;
     resumeCliSessionId?: string;
   }
-
-  const resolveCodexSandboxForInitialMode = (
-    backend: SessionBackend,
-    initialModeState: ReturnType<RouteContext["resolveInitialModeState"]>,
-  ): LaunchOptions["codexSandbox"] => {
-    if (backend !== "codex") return undefined;
-    return initialModeState.permissionMode === "bypassPermissions" ? "danger-full-access" : "workspace-write";
-  };
 
   const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
     markOrchestratorSessionAfterConnect({ launcher, wsBridge }, sessionId, buildOrchestratorSystemPrompt(backend));
@@ -781,13 +774,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
       model,
       permissionMode: initialModeState.permissionMode,
       askPermission: initialModeState.askPermission,
+      uiMode: initialModeState.uiMode,
       cwd: initialCwd,
       claudeBinary: body.claudeBinary || binarySettings.claudeBinary || undefined,
       codexBinary: body.codexBinary || binarySettings.codexBinary || undefined,
       codexLeaderContextWindowOverrideTokens: binarySettings.codexLeaderContextWindowOverrideTokens,
       codexNonLeaderAutoCompactThresholdPercent: binarySettings.codexNonLeaderAutoCompactThresholdPercent,
       codexInternetAccess: backend === "codex" && body.codexInternetAccess === true,
-      codexSandbox: resolveCodexSandboxForInitialMode(backend, initialModeState),
+      codexSandbox:
+        backend === "codex" ? resolveCodexSandboxForPermissionMode(initialModeState.permissionMode) : undefined,
       codexReasoningEffort,
       allowedTools: body.allowedTools,
       env: envVars,
@@ -1380,6 +1375,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     return c.json({ ok: true });
   });
+
+  registerSessionPermissionModeRoute(api, ctx);
 
   // Leader-initiated interrupt: halt a herded worker's current turn so the
   // leader can redirect.

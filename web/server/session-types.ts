@@ -546,6 +546,7 @@ export type BrowserOutgoingMessage =
   | { type: "cancel_pending_codex_input"; id: string; client_msg_id?: string }
   | { type: "set_model"; model: string; client_msg_id?: string }
   | { type: "set_codex_reasoning_effort"; effort: string; client_msg_id?: string }
+  | { type: "set_codex_ui_mode"; uiMode: "plan" | "agent"; client_msg_id?: string }
   | { type: "set_permission_mode"; mode: string; client_msg_id?: string }
   | { type: "mcp_get_status"; client_msg_id?: string }
   | { type: "mcp_toggle"; serverName: string; enabled: boolean; client_msg_id?: string }

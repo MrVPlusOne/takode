@@ -9,6 +9,9 @@ import {
   resolvePostPlanMode,
   deriveUiMode,
   resolveCodexCliMode,
+  deriveCodexPermissionMode,
+  resolveCodexPermissionCliMode,
+  normalizeCodexPermissionMode,
   deriveCodexUiMode,
   deriveCodexAskPermission,
   CLAUDE_MODELS,
@@ -176,10 +179,44 @@ describe("deriveCodexUiMode", () => {
 });
 
 describe("deriveCodexAskPermission", () => {
-  it("returns false only for bypassPermissions", () => {
+  it("returns false for no-prompt modes", () => {
     expect(deriveCodexAskPermission("bypassPermissions")).toBe(false);
+    expect(deriveCodexAskPermission("codex-full-access")).toBe(false);
     expect(deriveCodexAskPermission("suggest")).toBe(true);
     expect(deriveCodexAskPermission("plan")).toBe(true);
+  });
+});
+
+describe("deriveCodexPermissionMode", () => {
+  it("maps server Codex permission strings to the four UI profiles", () => {
+    expect(deriveCodexPermissionMode("codex-default")).toBe("default");
+    expect(deriveCodexPermissionMode("codex-auto-review")).toBe("auto-review");
+    expect(deriveCodexPermissionMode("codex-full-access")).toBe("full-access");
+    expect(deriveCodexPermissionMode("codex-custom")).toBe("custom");
+  });
+
+  it("maps legacy no-prompt mode to full access and legacy prompt modes to default", () => {
+    expect(deriveCodexPermissionMode("bypassPermissions")).toBe("full-access");
+    expect(deriveCodexPermissionMode("suggest")).toBe("default");
+    expect(deriveCodexPermissionMode("plan")).toBe("default");
+  });
+});
+
+describe("resolveCodexPermissionCliMode", () => {
+  it("maps Codex create-session permission profiles to server mode strings", () => {
+    expect(resolveCodexPermissionCliMode("default")).toBe("codex-default");
+    expect(resolveCodexPermissionCliMode("auto-review")).toBe("codex-auto-review");
+    expect(resolveCodexPermissionCliMode("full-access")).toBe("codex-full-access");
+    expect(resolveCodexPermissionCliMode("custom")).toBe("codex-custom");
+  });
+});
+
+describe("normalizeCodexPermissionMode", () => {
+  it("keeps known modes and falls back unknown values to default", () => {
+    expect(normalizeCodexPermissionMode("custom")).toBe("custom");
+    expect(normalizeCodexPermissionMode("full-access")).toBe("full-access");
+    expect(normalizeCodexPermissionMode("unknown")).toBe("default");
+    expect(normalizeCodexPermissionMode(null)).toBe("default");
   });
 });
 

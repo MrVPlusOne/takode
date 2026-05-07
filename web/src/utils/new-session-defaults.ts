@@ -6,6 +6,8 @@ import {
   getDefaultModel,
   getModelsForBackend,
   getModesForBackend,
+  normalizeCodexPermissionMode,
+  type CodexPermissionMode,
 } from "./backends.js";
 
 export type NewSessionBackend = "claude" | "codex";
@@ -23,6 +25,7 @@ export interface NewSessionDefaults {
   useWorktree: boolean;
   codexInternetAccess: boolean;
   codexReasoningEffort: string;
+  codexPermissionMode: CodexPermissionMode;
 }
 
 export interface LastSessionCreationContext {
@@ -31,7 +34,10 @@ export interface LastSessionCreationContext {
   newSessionDefaultsKey?: string;
 }
 
-type StoredGroupDefaults = Partial<NewSessionDefaults> & { updatedAt?: number };
+type NewSessionDefaultsCandidate = Partial<Omit<NewSessionDefaults, "codexPermissionMode">> & {
+  codexPermissionMode?: string | null;
+};
+type StoredGroupDefaults = NewSessionDefaultsCandidate & { updatedAt?: number };
 
 const GROUP_DEFAULTS_KEY = "cc-new-session-groups";
 const LAST_SESSION_CREATION_CONTEXT_KEY = "cc-last-session-creation-context";
@@ -73,6 +79,19 @@ function normalizeModel(backend: NewSessionBackend, rawModel: string | null | un
     : getDefaultModel(backend);
 }
 
+function normalizeStoredCodexPermissionMode(
+  rawPermissionMode: string | null | undefined,
+  rawMode: string | null | undefined,
+  askPermission: boolean,
+): CodexPermissionMode {
+  const normalized = normalizeCodexPermissionMode(rawPermissionMode);
+  if (rawPermissionMode && normalized !== "default") return normalized;
+  if (rawPermissionMode === "default") return "default";
+  if (rawMode === "bypassPermissions" || askPermission === false) return "full-access";
+  if (rawMode === "suggest") return "auto-review";
+  return "default";
+}
+
 function parseGroupDefaultsMap(): Record<string, StoredGroupDefaults> {
   try {
     const raw = scopedGetItem(GROUP_DEFAULTS_KEY);
@@ -85,9 +104,13 @@ function parseGroupDefaultsMap(): Record<string, StoredGroupDefaults> {
   }
 }
 
-function buildDefaults(candidate: Partial<NewSessionDefaults>): NewSessionDefaults {
+function buildDefaults(candidate: NewSessionDefaultsCandidate): NewSessionDefaults {
   const backend = candidate.backend && VALID_BACKENDS.has(candidate.backend) ? candidate.backend : "claude";
   const { mode, askPermission } = normalizeMode(backend, candidate.mode, candidate.askPermission);
+  const codexPermissionMode =
+    backend === "codex"
+      ? normalizeStoredCodexPermissionMode(candidate.codexPermissionMode, candidate.mode, askPermission)
+      : normalizeCodexPermissionMode(candidate.codexPermissionMode);
   return {
     backend,
     model: normalizeModel(backend, candidate.model),
@@ -99,6 +122,7 @@ function buildDefaults(candidate: Partial<NewSessionDefaults>): NewSessionDefaul
     useWorktree: candidate.useWorktree ?? true,
     codexInternetAccess: candidate.codexInternetAccess ?? false,
     codexReasoningEffort: candidate.codexReasoningEffort ?? "",
+    codexPermissionMode,
   };
 }
 
@@ -136,6 +160,7 @@ export function getGlobalNewSessionDefaults(): NewSessionDefaults {
     })(),
     codexInternetAccess: scopedGetItem("cc-codex-internet-access") === "1",
     codexReasoningEffort: scopedGetItem("cc-codex-reasoning-effort") ?? "",
+    codexPermissionMode: scopedGetItem("cc-codex-permission-mode") ?? undefined,
   });
 }
 

@@ -20,6 +20,7 @@ const IDEMPOTENT_OUTGOING_TYPES = new Set<BrowserOutgoingMessage["type"]>([
   "cancel_pending_codex_input",
   "set_model",
   "set_codex_reasoning_effort",
+  "set_codex_ui_mode",
   "set_permission_mode",
   "leader_thread_tabs_update",
   "mcp_get_status",
@@ -528,6 +529,7 @@ export function createWsTransport(callbacks: WsTransportCallbacks): WsTransport 
         case "interrupt":
         case "set_model":
         case "set_codex_reasoning_effort":
+        case "set_codex_ui_mode":
         case "set_permission_mode":
         case "leader_thread_tabs_update":
         case "mcp_get_status":

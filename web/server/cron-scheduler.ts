@@ -13,6 +13,23 @@ const CLI_CONNECT_TIMEOUT_MS = 30_000;
 /** Poll interval when waiting for CLI connection */
 const CLI_CONNECT_POLL_MS = 500;
 
+function resolveCodexCronSandbox(
+  permissionMode: string,
+): "read-only" | "workspace-write" | "danger-full-access" | undefined {
+  switch (permissionMode) {
+    case "codex-custom":
+      return undefined;
+    case "codex-auto-review":
+      return "workspace-write";
+    case "codex-full-access":
+    case "bypassPermissions":
+      return "danger-full-access";
+    case "codex-default":
+    default:
+      return "workspace-write";
+  }
+}
+
 export class CronScheduler {
   private timers = new Map<string, Cron>();
   private launcher: CliLauncher;
@@ -119,8 +136,7 @@ export class CronScheduler {
         if (env) envVars = env.variables;
       }
 
-      // Launch the session via CliLauncher
-      // For Codex, explicitly set sandbox and internet access for full autonomy
+      // Launch the session via CliLauncher.
       const sessionInfo = await this.launcher.launch({
         model: job.model,
         permissionMode: job.permissionMode,
@@ -129,12 +145,7 @@ export class CronScheduler {
         backendType: job.backendType,
         codexInternetAccess: job.backendType === "codex" ? (job.codexInternetAccess ?? true) : undefined,
         codexReasoningEffort: job.backendType === "codex" ? job.codexReasoningEffort?.trim() || undefined : undefined,
-        codexSandbox:
-          job.backendType === "codex"
-            ? job.permissionMode === "bypassPermissions"
-              ? "danger-full-access"
-              : "workspace-write"
-            : undefined,
+        codexSandbox: job.backendType === "codex" ? resolveCodexCronSandbox(job.permissionMode) : undefined,
       });
 
       execution.sessionId = sessionInfo.sessionId;

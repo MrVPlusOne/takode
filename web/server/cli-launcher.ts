@@ -133,6 +133,8 @@ export interface SdkSessionInfo {
   permissionMode?: string;
   /** Whether permission prompts are enabled (shared UI state; backend-specific mapping). */
   askPermission?: boolean;
+  /** Codex collaboration UI mode, kept separate from the permission profile. */
+  uiMode?: "plan" | "agent";
   cwd: string;
   createdAt: number;
   /** Epoch ms of last user or CLI activity (used by idle manager) */
@@ -181,7 +183,7 @@ export interface SdkSessionInfo {
   /** Whether internet/web search is enabled for Codex sessions */
   codexInternetAccess?: boolean;
   /** Sandbox mode selected for Codex sessions */
-  codexSandbox?: "workspace-write" | "danger-full-access";
+  codexSandbox?: "read-only" | "workspace-write" | "danger-full-access";
   /** Reasoning effort selected for Codex sessions (e.g. low/medium/high). */
   codexReasoningEffort?: string;
   /** Optional per-session Codex home override, reused across relaunches. */
@@ -246,6 +248,8 @@ export interface LaunchOptions {
   permissionMode?: string;
   /** Whether permission prompts are enabled (shared UI state; backend-specific mapping). */
   askPermission?: boolean;
+  /** Codex collaboration UI mode, kept separate from the permission profile. */
+  uiMode?: "plan" | "agent";
   cwd?: string;
   claudeBinary?: string;
   codexBinary?: string;
@@ -253,7 +257,7 @@ export interface LaunchOptions {
   env?: Record<string, string>;
   backendType?: BackendType;
   /** Codex sandbox mode. */
-  codexSandbox?: "workspace-write" | "danger-full-access";
+  codexSandbox?: "read-only" | "workspace-write" | "danger-full-access";
   /** Whether Codex internet/web search should be enabled for this session. */
   codexInternetAccess?: boolean;
   /** Codex reasoning effort (e.g. low/medium/high). */
@@ -669,6 +673,7 @@ export class CliLauncher {
       model: options.model,
       permissionMode: options.permissionMode,
       askPermission: options.askPermission,
+      uiMode: options.uiMode,
       cwd,
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
@@ -919,6 +924,7 @@ export class CliLauncher {
             model: info.model,
             permissionMode: info.permissionMode,
             askPermission: info.askPermission,
+            uiMode: info.uiMode,
             cwd: info.cwd,
             codexBinary: binSettings.codexBinary || undefined,
             codexSandbox: info.codexSandbox,
@@ -1293,7 +1299,7 @@ export class CliLauncher {
     let spawnCmd: string[];
     let spawnEnv: Record<string, string | undefined>;
     let spawnCwd: string | undefined;
-    let sandboxMode: "workspace-write" | "danger-full-access";
+    let sandboxMode: "read-only" | "workspace-write" | "danger-full-access" | undefined;
     try {
       const spawnSpec = await prepareCodexSpawn(
         sessionId,
@@ -1374,6 +1380,7 @@ export class CliLauncher {
       cwd: info.cwd,
       approvalMode: options.permissionMode,
       askPermission: options.askPermission,
+      uiMode: options.uiMode,
       threadId: info.cliSessionId,
       sandbox: sandboxMode,
       reasoningEffort: options.codexReasoningEffort,

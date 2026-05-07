@@ -234,6 +234,7 @@ export interface ServerNewSessionDefaults {
   useWorktree: boolean;
   codexInternetAccess: boolean;
   codexReasoningEffort: string;
+  codexPermissionMode: string;
 }
 
 export interface ServerNewSessionDefaultsResponse {
@@ -1068,6 +1069,15 @@ export const api = {
     ),
 
   getHerdedSessions: (orchId: string) => get<SdkSessionInfo[]>(`/sessions/${encodeURIComponent(orchId)}/herd`),
+
+  setSessionPermissionMode: (sessionId: string, mode: string, opts?: { leaderSessionId?: string }) =>
+    post<{ ok: boolean; sessionId: string; permissionMode: string }>(
+      `/sessions/${encodeURIComponent(sessionId)}/permission-mode`,
+      {
+        mode,
+        ...(opts?.leaderSessionId ? { leaderSessionId: opts.leaderSessionId } : {}),
+      },
+    ),
 
   // Tree groups (herd-centric sidebar grouping)
   getTreeGroups: () =>

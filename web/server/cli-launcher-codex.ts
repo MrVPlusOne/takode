@@ -46,6 +46,8 @@ const defaultCodexEffectiveContextWindowPercent = 95;
 const defaultCodexNonLeaderAutoCompactThresholdPercent = 90;
 
 type HostCodexBinaryKind = "native" | "dotslash" | "bootstrap";
+type CodexSandboxMode = "read-only" | "workspace-write" | "danger-full-access";
+type CodexApprovalPolicy = "never" | "untrusted" | "on-request" | "on-failure";
 interface MaiWrapperSessionLaunchSpec {
   hostnameShimDir: string;
 }
@@ -69,7 +71,8 @@ interface CodexLaunchOptions {
   codexBinary?: string;
   permissionMode?: string;
   askPermission?: boolean;
-  codexSandbox?: "workspace-write" | "danger-full-access";
+  uiMode?: "plan" | "agent";
+  codexSandbox?: CodexSandboxMode;
   codexInternetAccess?: boolean;
   codexReasoningEffort?: string;
   codexHome?: string;
@@ -84,7 +87,7 @@ export interface CodexSpawnSpec {
   spawnCmd: string[];
   spawnEnv: Record<string, string | undefined>;
   spawnCwd: string | undefined;
-  sandboxMode: "workspace-write" | "danger-full-access";
+  sandboxMode?: CodexSandboxMode;
 }
 
 async function fileExists(path: string): Promise<boolean> {
@@ -96,19 +99,37 @@ async function fileExists(path: string): Promise<boolean> {
   }
 }
 
-function mapCodexApprovalPolicy(permissionMode?: string, askPermission?: boolean): "never" | "untrusted" {
+function mapCodexApprovalPolicy(permissionMode?: string, askPermission?: boolean): CodexApprovalPolicy | undefined {
+  switch (permissionMode) {
+    case "codex-custom":
+      return undefined;
+    case "codex-default":
+      return "on-request";
+    case "codex-auto-review":
+      return "on-request";
+    case "codex-full-access":
+      return "never";
+  }
+
   const effectiveAskPermission =
     typeof askPermission === "boolean" ? askPermission : permissionMode !== "bypassPermissions";
   if (!effectiveAskPermission) return "never";
   return permissionMode === "bypassPermissions" ? "never" : "untrusted";
 }
 
-function resolveCodexSandbox(
-  permissionMode?: string,
-  requested?: "workspace-write" | "danger-full-access",
-): "workspace-write" | "danger-full-access" {
+function resolveCodexSandbox(permissionMode?: string, requested?: CodexSandboxMode): CodexSandboxMode | undefined {
+  if (permissionMode === "codex-custom") return undefined;
   if (requested) return requested;
-  return permissionMode === "bypassPermissions" ? "danger-full-access" : "workspace-write";
+  switch (permissionMode) {
+    case "codex-auto-review":
+      return "workspace-write";
+    case "codex-full-access":
+    case "bypassPermissions":
+      return "danger-full-access";
+    case "codex-default":
+    default:
+      return "workspace-write";
+  }
 }
 
 function mergeUniqueStrings(existing: string[], additions: string[]): string[] {
@@ -1132,7 +1153,16 @@ export async function prepareCodexSpawn(
   if (options.codexReasoningEffort) {
     args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
   }
-  args.push("-a", approvalPolicy, "-s", sandboxMode, "app-server");
+  if (options.permissionMode === "codex-auto-review") {
+    args.push("-c", "approvals_reviewer=auto_review");
+  }
+  if (approvalPolicy) {
+    args.push("-a", approvalPolicy);
+  }
+  if (sandboxMode) {
+    args.push("-s", sandboxMode);
+  }
+  args.push("app-server");
 
   if (isContainerized) {
     const dockerArgs = ["docker", "exec", "-i"];

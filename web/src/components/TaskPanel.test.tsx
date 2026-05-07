@@ -19,6 +19,9 @@ const { mockApi } = vi.hoisted(() => ({
       pendingPermissionsCount: 0,
     }),
     unherdSession: vi.fn().mockResolvedValue({ ok: true }),
+    setSessionPermissionMode: vi
+      .fn()
+      .mockResolvedValue({ ok: true, sessionId: "worker-1", permissionMode: "codex-auto-review" }),
     listSessions: vi.fn().mockResolvedValue([]),
   },
 }));
@@ -77,6 +80,9 @@ interface MockStoreState {
     createdAt?: number;
     cliConnected?: boolean;
     repoRoot?: string;
+    herdedBy?: string;
+    permissionMode?: string;
+    name?: string;
   }[];
   taskPanelOpen: boolean;
   setTaskPanelOpen: ReturnType<typeof vi.fn>;
@@ -90,6 +96,7 @@ interface MockStoreState {
   askPermission: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
   openQuestOverlay: ReturnType<typeof vi.fn>;
+  setSdkSessions: ReturnType<typeof vi.fn>;
 }
 
 let mockState: MockStoreState;
@@ -114,14 +121,19 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     askPermission: new Map(),
     cliDisconnectReason: new Map(),
     openQuestOverlay: vi.fn(),
+    setSdkSessions: vi.fn(),
     ...overrides,
   };
 }
 
-vi.mock("../store.js", () => ({
-  useStore: (selector: (s: MockStoreState) => unknown) => selector(mockState),
-  countUserPermissions: () => 0,
-}));
+vi.mock("../store.js", () => {
+  const useStore = (selector: (s: MockStoreState) => unknown) => selector(mockState);
+  useStore.getState = () => mockState;
+  return {
+    useStore,
+    countUserPermissions: () => 0,
+  };
+});
 
 import { TaskPanel, CodexRateLimitsSection, CodexTokenDetailsSection, ClaudeMdCollapsible } from "./TaskPanel.js";
 
@@ -160,6 +172,53 @@ describe("TaskPanel", () => {
     expect(screen.getByText("Current To-Dos")).toBeInTheDocument();
     expect(screen.getByText("Implement adapter fix")).toBeInTheDocument();
     expect(screen.getByText("Add regression tests")).toBeInTheDocument();
+  });
+
+  it("lets a leader confirm a Codex permission profile change for a herded worker", async () => {
+    // This covers the leader-side worker control: selecting a new profile must
+    // pause for restart confirmation before the server relaunch path is called.
+    resetStore({
+      sessions: new Map([["s1", { backend_type: "codex" }]]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          sessionNum: 1,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          backendType: "codex",
+          isOrchestrator: true,
+        },
+        {
+          sessionId: "worker-1",
+          sessionNum: 2,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 2,
+          backendType: "codex",
+          herdedBy: "s1",
+          permissionMode: "codex-default",
+          name: "Worker One",
+        },
+      ],
+    });
+
+    render(<TaskPanel sessionId="s1" />);
+
+    fireEvent.change(screen.getByLabelText("Codex permissions for Worker One"), {
+      target: { value: "auto-review" },
+    });
+
+    expect(screen.getByText("Restart worker with Auto-review?")).toBeInTheDocument();
+    expect(mockApi.setSessionPermissionMode).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Restart"));
+
+    await waitFor(() =>
+      expect(mockApi.setSessionPermissionMode).toHaveBeenCalledWith("worker-1", "codex-auto-review", {
+        leaderSessionId: "s1",
+      }),
+    );
   });
 
   it("keeps a single scroll container for long MCP content even without tasks", () => {

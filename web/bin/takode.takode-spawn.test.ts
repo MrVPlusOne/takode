@@ -311,6 +311,153 @@ describe("takode spawn", () => {
     expect(parsed.sessions.map((s) => s.sessionNum)).toEqual([31, 32]);
   });
 
+  it("lets Codex leaders override the spawned worker permission profile", async () => {
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-auto-review", isOrchestrator: true }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/leader-auto-review") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "leader-auto-review",
+            permissionMode: "codex-full-access",
+            backendType: "codex",
+          }),
+        );
+        return;
+      }
+
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-auto-review" }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/worker-auto-review/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-auto-review",
+            sessionNum: 33,
+            name: "Auto Review Worker",
+            state: "running",
+            backendType: "codex",
+            cwd: "/tmp/spawn-test",
+            createdAt: Date.now(),
+            permissionMode: "codex-auto-review",
+            askPermission: true,
+            isWorktree: true,
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["spawn", "--port", String(port), "--permission-mode", "auto-review", "--json"], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-auto-review",
+      COMPANION_AUTH_TOKEN: "auth-auto-review",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(createBodies[0]).toEqual(
+      expect.objectContaining({
+        backend: "codex",
+        permissionMode: "codex-auto-review",
+        codexReasoningEffort: "high",
+      }),
+    );
+    expect(createBodies[0]).not.toHaveProperty("askPermission");
+
+    const parsed = JSON.parse(result.stdout) as { codexPermissionMode: string | null };
+    expect(parsed.codexPermissionMode).toBe("codex-auto-review");
+  });
+
+  it("inherits a Codex leader permission profile when no spawn override is provided", async () => {
+    const createBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-inherit-mode", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-inherit-mode") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "leader-inherit-mode",
+            permissionMode: "codex-auto-review",
+            backendType: "codex",
+          }),
+        );
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-inherit-mode" }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/worker-inherit-mode/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-inherit-mode",
+            sessionNum: 34,
+            state: "running",
+            backendType: "codex",
+            cwd: "/tmp/spawn-test",
+            createdAt: Date.now(),
+            permissionMode: "codex-auto-review",
+            isWorktree: true,
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["spawn", "--port", String(port), "--json"], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-inherit-mode",
+      COMPANION_AUTH_TOKEN: "auth-inherit-mode",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(createBodies[0]).toEqual(expect.objectContaining({ permissionMode: "codex-auto-review" }));
+    const parsed = JSON.parse(result.stdout) as { codexPermissionMode: string | null };
+    expect(parsed.codexPermissionMode).toBe("codex-auto-review");
+  });
+
   it("reads multiline shell-sensitive initial messages from --message-file without mangling them", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "takode-spawn-message-file-"));
     const messagePath = join(tmp, "dispatch.txt");

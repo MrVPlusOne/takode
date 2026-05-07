@@ -641,13 +641,206 @@ describe("Codex permission mode switch with pending approvals", () => {
     expect(approved).toBeDefined();
     expect(approved.request_id).toBe("perm-stuck");
     const modeUpdate = msgs.find((m: any) => m.type === "session_update" && m.session?.permissionMode);
-    expect(modeUpdate?.session?.permissionMode).toBe("bypassPermissions");
+    expect(modeUpdate?.session?.permissionMode).toBe("codex-full-access");
 
     // Relaunch should be requested (after setTimeout delay)
     expect(relaunchCb).not.toHaveBeenCalled();
     vi.advanceTimersByTime(150);
     expect(relaunchCb).toHaveBeenCalledWith(sid);
 
+    vi.useRealTimers();
+  });
+
+  it("auto-approves pending permissions when switching to Codex full access profile", async () => {
+    const sid = "s-mode-switch-full-access";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo = {
+      permissionMode: "codex-default",
+      askPermission: true,
+      codexSandbox: "workspace-write" as const,
+    };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+      getSessionNum: vi.fn(() => 3),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+
+    adapter.emitBrowserMessage({
+      type: "permission_request",
+      request: {
+        request_id: "perm-full-access",
+        tool_name: "Bash",
+        description: "write file",
+        input: { command: "printf ok > file" },
+      },
+    });
+    await new Promise((r) => setTimeout(r, 50));
+    const session = bridge.getSession(sid)!;
+    expect(session.pendingPermissions.has("perm-full-access")).toBe(true);
+    browser.send.mockClear();
+
+    vi.useFakeTimers();
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "set_permission_mode",
+        mode: "codex-full-access",
+      }),
+    );
+
+    expect(session.pendingPermissions.size).toBe(0);
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "permission_response",
+        request_id: "perm-full-access",
+        behavior: "allow",
+      }),
+    );
+    expect(launcherInfo).toEqual({
+      permissionMode: "codex-full-access",
+      askPermission: false,
+      uiMode: "agent",
+      codexSandbox: "danger-full-access",
+    });
+
+    vi.advanceTimersByTime(150);
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    vi.useRealTimers();
+  });
+
+  it("updates and clears Codex launcher sandbox when switching existing permission profiles", async () => {
+    const sid = "s-mode-switch-sandbox";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo: {
+      permissionMode: string;
+      askPermission: boolean;
+      uiMode?: "plan" | "agent";
+      codexSandbox?: "read-only" | "workspace-write" | "danger-full-access";
+    } = {
+      permissionMode: "codex-full-access",
+      askPermission: false,
+      uiMode: "agent",
+      codexSandbox: "danger-full-access",
+    };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+      getSessionNum: vi.fn(() => 4),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+
+    vi.useFakeTimers();
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "set_permission_mode",
+        mode: "codex-auto-review",
+      }),
+    );
+
+    expect(launcherInfo).toEqual({
+      permissionMode: "codex-auto-review",
+      askPermission: true,
+      uiMode: "agent",
+      codexSandbox: "workspace-write",
+    });
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "set_permission_mode",
+        mode: "codex-custom",
+      }),
+    );
+
+    expect(launcherInfo.permissionMode).toBe("codex-custom");
+    expect(launcherInfo.askPermission).toBe(true);
+    expect(launcherInfo.uiMode).toBe("agent");
+    expect("codexSandbox" in launcherInfo).toBe(false);
+
+    vi.advanceTimersByTime(150);
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    vi.useRealTimers();
+  });
+
+  it("preserves Codex permission profile when toggling Plan and Agent ui modes", async () => {
+    const sid = "s-mode-toggle-preserves-profile";
+    const browser = makeBrowserSocket(sid);
+    const adapter = makeCodexAdapterMock();
+    const relaunchCb = vi.fn();
+    const launcherInfo = {
+      permissionMode: "codex-auto-review",
+      askPermission: true,
+      uiMode: "agent" as const,
+      codexSandbox: "workspace-write" as const,
+    };
+    const launcherMock = {
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => launcherInfo),
+      getSessionNum: vi.fn(() => 5),
+    };
+    bridge.setLauncher(launcherMock as any);
+    bridge.onSessionRelaunchRequestedCallback(relaunchCb);
+    bridge.attachCodexAdapter(sid, adapter as any);
+    bridge.handleBrowserOpen(browser, sid);
+    const session = bridge.getSession(sid)!;
+    session.state.permissionMode = "codex-auto-review";
+    session.state.askPermission = true;
+    session.state.uiMode = "agent";
+
+    vi.useFakeTimers();
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "set_codex_ui_mode",
+        uiMode: "plan",
+      }),
+    );
+
+    expect(session.state.permissionMode).toBe("codex-auto-review");
+    expect(session.state.askPermission).toBe(true);
+    expect(session.state.uiMode).toBe("plan");
+    expect(launcherInfo).toEqual({
+      permissionMode: "codex-auto-review",
+      askPermission: true,
+      uiMode: "plan",
+      codexSandbox: "workspace-write",
+    });
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "set_codex_ui_mode",
+        uiMode: "agent",
+      }),
+    );
+
+    expect(session.state.permissionMode).toBe("codex-auto-review");
+    expect(session.state.askPermission).toBe(true);
+    expect(session.state.uiMode).toBe("agent");
+    expect(launcherInfo).toEqual({
+      permissionMode: "codex-auto-review",
+      askPermission: true,
+      uiMode: "agent",
+      codexSandbox: "workspace-write",
+    });
+
+    vi.advanceTimersByTime(150);
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
     vi.useRealTimers();
   });
 

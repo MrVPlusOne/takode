@@ -127,6 +127,30 @@ function resolveInitialModeState(
   const requested = typeof requestedPermissionMode === "string" ? requestedPermissionMode.trim() : "";
 
   switch (requested) {
+    case "codex-default":
+      return {
+        permissionMode: "codex-default",
+        askPermission: true,
+        uiMode: "agent",
+      };
+    case "codex-auto-review":
+      return {
+        permissionMode: "codex-auto-review",
+        askPermission: true,
+        uiMode: "agent",
+      };
+    case "codex-full-access":
+      return {
+        permissionMode: "codex-full-access",
+        askPermission: false,
+        uiMode: "agent",
+      };
+    case "codex-custom":
+      return {
+        permissionMode: "codex-custom",
+        askPermission: true,
+        uiMode: "agent",
+      };
     case "plan":
       return {
         permissionMode: "plan",
