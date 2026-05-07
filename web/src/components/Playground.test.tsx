@@ -215,6 +215,11 @@ describe("Playground", () => {
       "data-hidden",
       "true",
     );
+    const completedMoreRow = moreRows.find((row) => row.getAttribute("data-thread-key") === "q-88")!;
+    expect(within(completedMoreRow).getByTestId("thread-tabs-more-row-title")).toHaveAttribute(
+      "data-title-color",
+      "var(--color-cc-muted)",
+    );
     fireEvent.click(moreButton);
     const activeOutputTab = tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-42");
     expect(activeOutputTab).toHaveAttribute("data-active-output", "true");

@@ -565,7 +565,12 @@ function boardRowDetail(row: BoardRowData): string | undefined {
   return row.status;
 }
 
+function isCompletedBoardRow(row?: BoardRowData): boolean {
+  return !!row && (row.completedAt !== undefined || isCompletedJourneyPresentationStatus(row.status));
+}
+
 function boardRowTitleColor(row: BoardRowData): string | undefined {
+  if (isCompletedBoardRow(row)) return DONE_THREAD_TITLE_COLOR;
   if ((row.status ?? "").trim().toUpperCase() === "QUEUED") return QUEUED_THREAD_TITLE_COLOR;
   const currentPhase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
   const phase = currentPhase ?? getQuestJourneyPhaseForState(row.status);
@@ -581,7 +586,7 @@ function doneThreadTitleColor({
   row?: WorkBoardThreadNavigationRow;
   completed?: boolean;
 }): string | undefined {
-  if (completed || row?.section === "done" || isCompletedJourneyPresentationStatus(boardRow?.status)) {
+  if (completed || row?.section === "done" || isCompletedBoardRow(boardRow)) {
     return DONE_THREAD_TITLE_COLOR;
   }
   return undefined;
@@ -1331,6 +1336,8 @@ function ThreadTabRail({
                               <span
                                 className="min-w-0 truncate"
                                 style={tab.titleColor ? { color: tab.titleColor } : undefined}
+                                data-testid="thread-tabs-more-row-title"
+                                data-title-color={tab.titleColor ?? ""}
                               >
                                 {displayTitle}
                               </span>

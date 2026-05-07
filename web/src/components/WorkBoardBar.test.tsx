@@ -1157,6 +1157,34 @@ describe("WorkBoardBar", () => {
     });
   });
 
+  it("uses done gray for completed active-board rows that still carry their final phase", () => {
+    const completedActiveRow: BoardRowData = {
+      questId: "q-3",
+      status: "PORTING",
+      title: "Recently finished work",
+      journey: {
+        presetId: "full-code",
+        phaseIds: ["alignment", "implement", "code-review", "port"],
+        currentPhaseId: "port",
+      },
+      updatedAt: 4,
+      completedAt: 4,
+    };
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", [completedActiveRow]]]),
+    });
+
+    const { getAllByTestId } = render(<WorkBoardBar sessionId="s1" openThreadKeys={["q-3"]} />);
+
+    const completedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-3")!;
+    const completedTitle = within(completedTab).getByTestId("thread-tab-title");
+    expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+    expect(completedTitle).not.toHaveStyle({
+      color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
+    });
+  });
+
   it("uses active phase color when an open tab has both active and completed board rows", () => {
     const repeatedActive: BoardRowData = {
       questId: "q-3",

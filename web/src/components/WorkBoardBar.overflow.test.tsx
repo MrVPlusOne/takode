@@ -4,6 +4,7 @@ import "@testing-library/jest-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
 import type { SessionState } from "../types.js";
+import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 
 interface MockStoreState {
   sessionBoards: Map<string, BoardRowData[]>;
@@ -212,6 +213,49 @@ describe("WorkBoardBar overflow tabs", () => {
     );
     expect(onSelectThread).toHaveBeenCalledWith("q-4");
     expect(screen.queryByTestId("thread-tabs-more-list")).not.toBeInTheDocument();
+  });
+
+  it("uses muted completed color for completed hidden rows in the More tabs list", async () => {
+    resetStore({
+      sessionCompletedBoards: new Map([
+        [
+          "s1",
+          [
+            {
+              questId: "q-4",
+              title: "Finished hidden thread",
+              status: "PORTING",
+              updatedAt: 4,
+              completedAt: 4,
+              journey: {
+                presetId: "full-code",
+                phaseIds: ["alignment", "implement", "code-review", "port"],
+                currentPhaseId: "port",
+              },
+            },
+          ],
+        ],
+      ]),
+    });
+
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-5"
+        openThreadKeys={["q-1", "q-2", "q-3", "q-4", "q-5"]}
+        threadRows={THREAD_ROWS}
+      />,
+    );
+
+    fireEvent.click(await screen.findByTestId("thread-tabs-more-button"));
+    const completedRow = screen
+      .getAllByTestId("thread-tabs-more-row")
+      .find((row) => row.getAttribute("data-thread-key") === "q-4")!;
+    const completedTitle = within(completedRow).getByTestId("thread-tabs-more-row-title");
+    expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+    expect(completedTitle).not.toHaveStyle({
+      color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
+    });
   });
 
   it("keeps hidden tab close affordances in the More tabs list", async () => {
