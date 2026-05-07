@@ -111,6 +111,7 @@ function SpaceButton({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const label = space.sessionSpaceSlug ? `${space.slug}/${space.sessionSpaceSlug}` : space.slug;
   return (
     <button
       type="button"
@@ -120,7 +121,7 @@ function SpaceButton({
       }`}
     >
       <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-sm font-semibold text-cc-fg">{space.slug}</div>
+        <div className="min-w-0 truncate text-sm font-semibold text-cc-fg">{label}</div>
         <span className="shrink-0 rounded bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
           {space.current ? "current" : space.initialized ? "repo" : "dir"}
         </span>
@@ -463,7 +464,9 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
                 <h1 className="text-lg font-semibold text-cc-fg">Memory</h1>
                 {selectedSlug ? (
                   <span className="rounded border border-cc-border bg-cc-hover px-2 py-0.5 font-mono text-[11px] text-cc-muted">
-                    {selectedSlug}
+                    {selectedSpace?.sessionSpaceSlug
+                      ? `${selectedSlug}/${selectedSpace.sessionSpaceSlug}`
+                      : selectedSlug}
                   </span>
                 ) : null}
                 <span className={`rounded border px-2 py-0.5 text-[11px] ${healthTone(catalog)}`}>

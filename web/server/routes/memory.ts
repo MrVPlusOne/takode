@@ -49,6 +49,7 @@ export function createMemoryRoutes(_ctx: RouteContext) {
     return c.json({
       currentServerId: current?.serverId ?? "",
       currentServerSlug: current?.slug ?? "",
+      currentSessionSpaceSlug: current?.sessionSpaceSlug ?? "",
       spaces,
     });
   });

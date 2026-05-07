@@ -3,7 +3,7 @@ import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
 import { access, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
-import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
+import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
 import { getServerId, getServerSlug, normalizeServerSlug } from "./settings-manager.js";
 import {
@@ -36,6 +36,7 @@ const LOCK_DIR_NAME = "takode-memory.lock";
 const LOCK_INFO_FILE = "owner.json";
 const SERVER_INDEX_DIR = ".servers";
 const DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000;
+const DEFAULT_SESSION_SPACE_SLUG = "Takode";
 const OBSOLETE_FRONTMATTER_FIELDS = new Set([
   "id",
   "kind",
@@ -54,6 +55,7 @@ interface ResolvedMemoryRepo extends MemoryRepoInfo {
 interface ServerMemoryIndexEntry {
   serverId: string;
   serverSlug: string;
+  sessionSpaceSlug?: string;
   root: string;
   updatedAt: string;
 }
@@ -99,6 +101,7 @@ export async function resolveMemoryOptionsForSpace(serverSlug: string | undefine
   return {
     root: sibling.root,
     serverSlug: sibling.slug,
+    ...(sibling.sessionSpaceSlug ? { sessionSpaceSlug: sibling.sessionSpaceSlug } : {}),
     readOnly: true,
     ...(sibling.serverId ? { serverId: sibling.serverId } : {}),
   };
@@ -108,11 +111,25 @@ function resolveMemoryRepoInternal(options: MemoryRepoOptions = {}): ResolvedMem
   const serverId = (options.serverId ?? process.env.COMPANION_SERVER_ID ?? getServerId()).trim() || "local";
   const serverSlug =
     normalizeServerSlug(options.serverSlug ?? process.env.COMPANION_SERVER_SLUG ?? getServerSlug()) || "local";
+  const sessionSpaceSlug = normalizeSessionSpaceSlug(
+    options.sessionSpaceSlug ?? process.env.COMPANION_MEMORY_SPACE_SLUG ?? DEFAULT_SESSION_SPACE_SLUG,
+  );
   const explicitRoot = !!(options.root?.trim() || process.env.COMPANION_MEMORY_DIR?.trim());
   const baseRoot = join(process.env.HOME || homedir(), ".companion", "memory");
   const root =
-    options.root?.trim() || process.env.COMPANION_MEMORY_DIR?.trim() || join(baseRoot, sanitizeSlugForPath(serverSlug));
-  return { root, serverId, serverSlug, baseRoot, explicitRoot, initialized: false, authoredDirs: [...MEMORY_KINDS] };
+    options.root?.trim() ||
+    process.env.COMPANION_MEMORY_DIR?.trim() ||
+    join(baseRoot, sanitizeSlugForPath(serverSlug), sanitizeSlugForPath(sessionSpaceSlug));
+  return {
+    root,
+    serverId,
+    serverSlug,
+    sessionSpaceSlug,
+    baseRoot,
+    explicitRoot,
+    initialized: false,
+    authoredDirs: [...MEMORY_KINDS],
+  };
 }
 
 function publicRepoInfo(repo: ResolvedMemoryRepo): MemoryRepoInfo {
@@ -120,6 +137,7 @@ function publicRepoInfo(repo: ResolvedMemoryRepo): MemoryRepoInfo {
     root: repo.root,
     serverId: repo.serverId,
     serverSlug: repo.serverSlug,
+    sessionSpaceSlug: repo.sessionSpaceSlug,
     initialized: repo.initialized,
     authoredDirs: repo.authoredDirs,
   };
@@ -181,6 +199,7 @@ export async function listMemorySpaces(options: MemoryRepoOptions = {}): Promise
       initialized: await pathExists(join(input.root, ".git")),
       authoredDirs: authoredDirs.length ? authoredDirs : [...MEMORY_KINDS],
       hasAuthoredData: await hasAuthoredMemoryData(input.root),
+      sessionSpaceSlug: input.index?.sessionSpaceSlug ?? sessionSpaceSlugFromRoot(input.slug, input.root),
       ...(input.index?.serverId || input.serverId ? { serverId: input.index?.serverId ?? input.serverId } : {}),
       ...(input.index?.updatedAt ? { updatedAt: input.index.updatedAt } : {}),
     });
@@ -198,9 +217,23 @@ export async function listMemorySpaces(options: MemoryRepoOptions = {}): Promise
   for (const entry of await safeReaddir(resolved.baseRoot)) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     const root = join(resolved.baseRoot, entry.name);
-    if (spaces.has(resolve(root)) || !(await looksLikeMemorySpace(root))) continue;
-    const index = serverIndex.find((item) => resolve(item.root) === resolve(root) || item.serverSlug === entry.name);
-    await addSpace({ slug: index?.serverSlug || entry.name, root, current: false, index });
+    if (!spaces.has(resolve(root)) && (await looksLikeMemorySpace(root))) {
+      const index = serverIndex.find((item) => resolve(item.root) === resolve(root) || item.serverSlug === entry.name);
+      await addSpace({ slug: index?.serverSlug || entry.name, root, current: false, index });
+    }
+
+    for (const child of await safeReaddir(root)) {
+      if (!child.isDirectory() || child.name.startsWith(".")) continue;
+      const childRoot = join(root, child.name);
+      if (spaces.has(resolve(childRoot)) || !(await looksLikeMemorySpace(childRoot))) continue;
+      const index = serverIndex.find((item) => resolve(item.root) === resolve(childRoot));
+      await addSpace({
+        slug: index?.serverSlug || entry.name,
+        root: childRoot,
+        current: false,
+        index,
+      });
+    }
   }
 
   return [...spaces.values()].sort((a, b) => Number(b.current) - Number(a.current) || a.slug.localeCompare(b.slug));
@@ -737,6 +770,17 @@ async function migrateDefaultMemoryRepo(repo: ResolvedMemoryRepo): Promise<void>
   const source = await firstExistingMemoryRepo(candidates, repo.root);
   if (!source) return;
 
+  const flatTargetRoot = join(repo.baseRoot, sanitizeSlugForPath(repo.serverSlug));
+  if (
+    resolve(flatTargetRoot) !== resolve(source) &&
+    resolve(flatTargetRoot) !== resolve(repo.root) &&
+    isPathInside(resolve(flatTargetRoot), resolve(repo.root)) &&
+    (await pathExists(flatTargetRoot)) &&
+    (await hasAuthoredMemoryData(flatTargetRoot))
+  ) {
+    throw new Error(formatMemoryRepoSlugConflict(repo, source));
+  }
+
   const targetExists = await pathExists(repo.root);
   if (targetExists && !(await isEmptyMemoryRepo(repo.root))) {
     throw new Error(formatMemoryRepoSlugConflict(repo, source));
@@ -746,38 +790,63 @@ async function migrateDefaultMemoryRepo(repo: ResolvedMemoryRepo): Promise<void>
   if (targetExists) {
     await rm(repo.root, { recursive: true, force: true });
   }
-  await rename(source, repo.root);
+  await moveMemoryRepo(source, repo.root, repo.baseRoot);
 }
 
 async function getMigrationCandidates(repo: ResolvedMemoryRepo): Promise<string[]> {
   const candidates: string[] = [];
   const index = await readServerMemoryIndex(repo.baseRoot, repo.serverId);
   if (index?.root) candidates.push(index.root);
-  if (index?.serverSlug) candidates.push(join(repo.baseRoot, sanitizeSlugForPath(index.serverSlug)));
+  if (index?.serverSlug) {
+    const indexedServerRoot = join(repo.baseRoot, sanitizeSlugForPath(index.serverSlug));
+    candidates.push(join(indexedServerRoot, sanitizeSlugForPath(index.sessionSpaceSlug ?? repo.sessionSpaceSlug)));
+    candidates.push(indexedServerRoot);
+  }
+  const currentServerRoot = join(repo.baseRoot, sanitizeSlugForPath(repo.serverSlug));
+  candidates.push(currentServerRoot);
   candidates.push(join(repo.baseRoot, sanitizeSlugForPath(repo.serverId)));
 
   const seen = new Set<string>();
   return candidates.filter((candidate) => {
-    if (!candidate || candidate === repo.root || seen.has(candidate)) return false;
-    seen.add(candidate);
+    const resolved = resolve(candidate);
+    if (!candidate || resolved === resolve(repo.root) || seen.has(resolved)) return false;
+    seen.add(resolved);
     return true;
   });
 }
 
 async function firstExistingMemoryRepo(candidates: string[], targetRoot: string): Promise<string | null> {
   for (const candidate of candidates) {
-    if (candidate === targetRoot || !(await pathExists(candidate))) continue;
+    if (resolve(candidate) === resolve(targetRoot) || !(await pathExists(candidate))) continue;
+    if (!(await looksLikeMemorySpace(candidate))) continue;
     return candidate;
   }
   return null;
 }
 
 function formatMemoryRepoSlugConflict(repo: ResolvedMemoryRepo, sourceRoot: string): string {
+  const space = `${repo.serverSlug}/${repo.sessionSpaceSlug}`;
   return [
-    `Memory repo slug "${repo.serverSlug}" already exists at ${repo.root} and contains authored data.`,
+    `Memory repo space "${space}" already exists at ${repo.root} and contains authored data.`,
     `Existing memory for this server id is still at ${sourceRoot}.`,
-    "Rename the server slug or merge the memory repos manually before using this slug.",
+    "Rename the server slug or merge the memory repos manually before using this session space.",
   ].join(" ");
+}
+
+async function moveMemoryRepo(sourceRoot: string, targetRoot: string, baseRoot: string): Promise<void> {
+  const source = resolve(sourceRoot);
+  const target = resolve(targetRoot);
+  await mkdir(dirname(target), { recursive: true });
+
+  if (!isPathInside(source, target)) {
+    await rename(source, target);
+    return;
+  }
+
+  const tempRoot = join(baseRoot, `.migration-${basename(source)}-${randomUUID()}`);
+  await rename(source, tempRoot);
+  await mkdir(dirname(target), { recursive: true });
+  await rename(tempRoot, target);
 }
 
 async function readServerMemoryIndex(baseRoot: string, serverId: string): Promise<ServerMemoryIndexEntry | null> {
@@ -788,6 +857,9 @@ async function readServerMemoryIndex(baseRoot: string, serverId: string): Promis
     return {
       serverId,
       serverSlug: typeof parsed.serverSlug === "string" ? parsed.serverSlug : "",
+      ...(typeof parsed.sessionSpaceSlug === "string"
+        ? { sessionSpaceSlug: normalizeSessionSpaceSlug(parsed.sessionSpaceSlug) }
+        : {}),
       root: typeof parsed.root === "string" ? parsed.root : "",
       updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
     };
@@ -813,6 +885,9 @@ async function readServerMemoryIndexes(baseRoot: string): Promise<ServerMemoryIn
         indexes.push({
           serverId: parsed.serverId,
           serverSlug: parsed.serverSlug,
+          ...(typeof parsed.sessionSpaceSlug === "string"
+            ? { sessionSpaceSlug: normalizeSessionSpaceSlug(parsed.sessionSpaceSlug) }
+            : {}),
           root: parsed.root,
           updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
         });
@@ -831,6 +906,7 @@ async function writeServerMemoryIndex(repo: ResolvedMemoryRepo): Promise<void> {
   const entry: ServerMemoryIndexEntry = {
     serverId: repo.serverId,
     serverSlug: repo.serverSlug,
+    sessionSpaceSlug: repo.sessionSpaceSlug,
     root: repo.root,
     updatedAt: new Date().toISOString(),
   };
@@ -886,6 +962,17 @@ async function hasAuthoredMemoryData(root: string): Promise<boolean> {
 
 function sanitizeSlugForPath(slug: string): string {
   return slug.trim().replace(/[^a-zA-Z0-9_.-]/g, "_") || "local";
+}
+
+function normalizeSessionSpaceSlug(slug: string): string {
+  const normalized = slug.trim();
+  return normalized || DEFAULT_SESSION_SPACE_SLUG;
+}
+
+function sessionSpaceSlugFromRoot(serverSlug: string, root: string): string | undefined {
+  const parent = basename(dirname(root));
+  if (parent !== sanitizeSlugForPath(serverSlug)) return undefined;
+  return basename(root);
 }
 
 function repoRelative(root: string, path: string): string {

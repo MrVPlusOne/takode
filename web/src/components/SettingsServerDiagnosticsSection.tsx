@@ -191,8 +191,9 @@ export function SettingsServerDiagnosticsSection({
             </button>
           </div>
           <p className="mt-1.5 text-xs text-cc-muted">
-            Used for model-facing memory paths such as <code className="font-mono">~/.companion/memory/prod</code>.
-            Existing memory data is moved to the new slug path on the next memory operation.
+            Used for model-facing memory paths such as{" "}
+            <code className="font-mono">~/.companion/memory/prod/Takode</code>. Existing memory data is moved to the
+            current session-space path on the next memory operation.
           </p>
           {serverSlugError && <p className="mt-1.5 text-xs text-cc-error">{serverSlugError}</p>}
         </div>

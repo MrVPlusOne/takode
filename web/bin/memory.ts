@@ -76,9 +76,6 @@ Commands:
       Print the resolved repo root. Use this to rediscover memory after compaction.
   catalog [show]
       Show the repo root and list authored memory files from frontmatter.
-  recall [query] [--kind current,knowledge] [--facet key:value] [--content] [--limit N]
-      Compatibility search over memory descriptions, sources, facets, and optional content.
-      Prefer catalog/direct file inspection for normal orientation.
   lint
       Canonical health check for memory files and frontmatter.
   lock status|acquire|release [--owner NAME] [--ttl-ms N]
@@ -97,9 +94,9 @@ Options:
   --json            Emit exact machine-readable fields. Default output is concise for agents.
 
 Default repo:
-  ~/.companion/memory/<serverSlug>
+  ~/.companion/memory/<serverSlug>/<sessionSpace>
   Normal memory operations auto-create the Git repo and authored directories.
-  Server slugs are short names such as prod, dev, or port-3455.
+  Server slugs are short names such as prod, dev, or port-3455; the default session space is Takode.
 
 Memory files are authored directly under:
   current/ knowledge/ procedures/ decisions/ references/ artifacts/
@@ -113,7 +110,8 @@ Common examples:
   memory repo path
   memory --server-slug dev repo path
   memory catalog show
-  rg "current task terms" "$(memory repo path)"
+  # If catalog/context makes a memory match plausible, search with concrete terms.
+  rg "exact task terms" "$(memory repo path)"
   memory lint
 
 Write flow:

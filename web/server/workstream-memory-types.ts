@@ -15,6 +15,7 @@ export interface MemoryRepoOptions {
   root?: string;
   serverId?: string;
   serverSlug?: string;
+  sessionSpaceSlug?: string;
   readOnly?: boolean;
 }
 
@@ -22,6 +23,7 @@ export interface MemoryRepoInfo {
   root: string;
   serverId: string;
   serverSlug: string;
+  sessionSpaceSlug: string;
   initialized: boolean;
   authoredDirs: MemoryKind[];
 }
@@ -60,6 +62,7 @@ export interface MemorySpaceInfo {
   initialized: boolean;
   authoredDirs: MemoryKind[];
   hasAuthoredData: boolean;
+  sessionSpaceSlug?: string;
   serverId?: string;
   updatedAt?: string;
 }

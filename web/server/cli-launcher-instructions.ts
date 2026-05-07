@@ -185,9 +185,9 @@ function renderBuiltInQuestJourneyPhaseTable(): string {
 function renderFileMemoryInstructions(): string {
   return `## File-Based Memory
 
-Takode memory is a Git-tracked Markdown repo for this server/session space. By default it lives at \`~/.companion/memory/<serverSlug>\`, and normal \`memory\` commands auto-create the repo and authored directories when needed. Use visible memory reads and explicit writes; do not rely on hidden memory injection.
+Takode memory is a Git-tracked Markdown repo for this server/session space. By default it lives at \`~/.companion/memory/<serverSlug>/<sessionSpace>\`, such as \`~/.companion/memory/prod/Takode\`, and normal \`memory\` commands auto-create the repo and authored directories when needed. Use visible memory reads and explicit writes; do not rely on hidden memory injection.
 
-Use \`memory catalog\` or \`memory catalog show\` when prior state may matter, especially during alignment, dispatch preparation, after compaction recovery, before Bookkeeping/Port, or when resuming work with low confidence. The catalog prints the repo root and repo-relative file paths; inspect relevant Markdown files directly with normal tools such as \`rg\`, \`sed\`, and \`cat\`. Use \`memory repo path\` to rediscover the local repo path and \`memory --help\` for the current command surface; there is no authored \`indexes/\` directory.
+After compaction or low-confidence recovery, recover session and quest context first. If durable memory may affect the task, use \`memory catalog show\` as the triage map, especially during alignment, dispatch preparation, before Bookkeeping/Port, or when resuming work with low confidence. The catalog prints the repo root and repo-relative file paths; inspect plausible catalog-listed Markdown files directly with normal tools such as \`rg\`, \`sed\`, and \`cat\` before repo-level search. Use targeted \`rg\` under \`$(memory repo path)\` only when the catalog or known context makes a match plausible, such as broad hints, exact-term lookups, migration/audit checks, or final handoff accuracy. If the catalog shows no plausible relevant topic, type, or source, skip blind repo-wide memory search and continue from session, quest, code, or artifact evidence. Use \`memory repo path\` to rediscover the local repo path and \`memory --help\` for the current command surface; there is no authored \`indexes/\` directory.
 
 Memory files are authored directly under six directories with distinct responsibilities:
 - \`current/\`: live working state, active obligations, handoffs, and facts likely to expire.
@@ -221,7 +221,7 @@ Use \`quest status q-XX\` for compact quest state and \`quest feedback list/late
 
 ## Memory-Aware Orchestration
 
-Use \`memory catalog show\` visibly when prior memory may change dispatch, alignment, routing, compaction recovery, Bookkeeping, or Port decisions, then inspect relevant files directly. Do not silently inject memory into workers; either point them to the catalog/direct-file workflow or include the exact memory files they should inspect. Memory writes are explicit Journey responsibility: the phase actor, a Bookkeeping assignee, or an approved curator updates the memory repo under the repo-level lock and reports \`memory updated: <commit>\`, \`memory update deferred: <reason or curator>\`, or \`memory update not needed: <reason>\`.
+Use \`memory catalog show\` visibly when prior memory may change dispatch, alignment, routing, compaction recovery, Bookkeeping, or Port decisions, then inspect plausible catalog-listed files directly. Use targeted memory repo search only when the catalog or known context makes a match plausible. Do not silently inject memory into workers; either point them to the catalog/direct-file workflow or include the exact memory files they should inspect. Memory writes are explicit Journey responsibility: the phase actor, a Bookkeeping assignee, or an approved curator updates the memory repo under the repo-level lock and reports \`memory updated: <commit>\`, \`memory update deferred: <reason or curator>\`, or \`memory update not needed: <reason>\`.
 
 ## Herd Event Workflow
 

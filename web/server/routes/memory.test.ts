@@ -41,13 +41,15 @@ describe("memory routes", () => {
     frontmatter: string,
     body = "Body text.",
   ): Promise<string> {
-    const absolutePath = join(home, ".companion", "memory", slug, path);
+    const root =
+      slug === "prod" ? join(home, ".companion", "memory", slug, "Takode") : join(home, ".companion", "memory", slug);
+    const absolutePath = join(root, path);
     await mkdir(join(absolutePath, ".."), { recursive: true });
     await writeFile(absolutePath, `---\n${frontmatter.trim()}\n---\n\n${body}\n`, "utf-8");
     return absolutePath;
   }
 
-  it("lists the current server-slug space first and discovers sibling memory repos", async () => {
+  it("lists the current server/session-space first and discovers sibling memory repos", async () => {
     // Verifies the browser can offer memory-space selection without depending on the memory CLI.
     await writeMemoryFile(
       "dev",
@@ -69,7 +71,8 @@ source:
       slug: "prod",
       current: true,
       initialized: true,
-      root: join(home, ".companion", "memory", "prod"),
+      root: join(home, ".companion", "memory", "prod", "Takode"),
+      sessionSpaceSlug: "Takode",
     });
     expect(json.spaces).toEqual(
       expect.arrayContaining([
@@ -229,7 +232,7 @@ source:
     vi.stubEnv("COMPANION_SERVER_SLUG", "lab-clean-space");
 
     await expect(ensureMemoryRepo()).rejects.toThrow(
-      /Memory repo slug "lab-clean-space" already exists .* Existing memory for this server id is still at/,
+      /Memory repo space "lab-clean-space\/Takode" already exists .* Existing memory for this server id is still at/,
     );
   });
 
@@ -285,7 +288,7 @@ source: q-1220
     await mkdir(outsideDir, { recursive: true });
     const outsideFile = join(outsideDir, "secret.md");
     await writeFile(outsideFile, "outside content must not leak", "utf-8");
-    const linkPath = join(home, ".companion", "memory", "prod", "current", "leak.md");
+    const linkPath = join(home, ".companion", "memory", "prod", "Takode", "current", "leak.md");
     await mkdir(join(linkPath, ".."), { recursive: true });
     await symlink(outsideFile, linkPath);
 
@@ -303,7 +306,7 @@ source: q-1220
     const outsideDir = join(home, "outside-dir");
     await mkdir(outsideDir, { recursive: true });
     await writeFile(join(outsideDir, "nested.md"), "nested outside content must not leak", "utf-8");
-    const linkPath = join(home, ".companion", "memory", "prod", "current", "escape");
+    const linkPath = join(home, ".companion", "memory", "prod", "Takode", "current", "escape");
     await mkdir(join(linkPath, ".."), { recursive: true });
     await symlink(outsideDir, linkPath);
 

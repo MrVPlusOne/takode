@@ -76,6 +76,7 @@ facets:
         root: join(tempDir, "memory"),
         serverId: "test-server",
         serverSlug: "test",
+        sessionSpaceSlug: "Takode",
         initialized: true,
         authoredDirs: ["current", "knowledge", "procedures", "decisions", "references", "artifacts"],
       }),
@@ -119,7 +120,7 @@ source: [q-1220, session:1559]
     expect(catalog.stdout).not.toContain(join(tempDir, "memory", "decisions", "memory-schema.md"));
   });
 
-  it("defaults to one auto-created repo per server slug when no root override is set", async () => {
+  it("defaults to one auto-created repo per server/session space when no root override is set", async () => {
     const scopedEnv = {
       HOME: tempDir,
       COMPANION_SERVER_ID: "server-id",
@@ -129,7 +130,7 @@ source: [q-1220, session:1559]
 
     const path = await runMemory(["repo", "path"], scopedEnv);
     expect(path.status).toBe(0);
-    const expectedRoot = join(tempDir, ".companion", "memory", "server-slug");
+    const expectedRoot = join(tempDir, ".companion", "memory", "server-slug", "Takode");
     expect(path.stdout.trim()).toBe(expectedRoot);
 
     const catalog = await runMemory(["catalog", "--json"], scopedEnv);
@@ -139,6 +140,7 @@ source: [q-1220, session:1559]
         root: expectedRoot,
         serverId: "server-id",
         serverSlug: "server-slug",
+        sessionSpaceSlug: "Takode",
         initialized: true,
       }),
     );
@@ -161,7 +163,7 @@ source: [q-1220, session:1559]
     const postCommand = await runMemory(["repo", "path", "--server-slug", "dev"], scopedEnv);
     expect(postCommand.status).toBe(0);
 
-    const expectedRoot = join(tempDir, ".companion", "memory", "dev");
+    const expectedRoot = join(tempDir, ".companion", "memory", "dev", "Takode");
     expect(preCommand.stdout.trim()).toBe(expectedRoot);
     expect(postCommand.stdout.trim()).toBe(expectedRoot);
   });
@@ -413,19 +415,22 @@ source:
     expect(help.status).toBe(0);
     // The help text should be enough for an agent to recover the memory workflow after compaction.
     expect(help.stdout).toContain("Normal memory operations auto-create");
-    expect(help.stdout).toContain("~/.companion/memory/<serverSlug>");
+    expect(help.stdout).toContain("~/.companion/memory/<serverSlug>/<sessionSpace>");
+    expect(help.stdout).toContain("default session space is Takode");
     expect(help.stdout).toContain("repo path");
     expect(help.stdout).toContain("Print the resolved repo root");
     expect(help.stdout).toContain("catalog [show]");
     expect(help.stdout).toContain("Show the repo root and list authored memory files");
-    expect(help.stdout).toContain("Prefer catalog/direct file inspection for normal orientation.");
+    expect(help.stdout).not.toContain("Prefer catalog/direct file inspection for normal orientation.");
     expect(help.stdout).toContain("description: one or two sentences for catalog orientation");
     expect(help.stdout).toContain("source: [q-1218, session:1476]");
     expect(help.stdout).toContain("id and kind are derived from the repo-relative file path.");
     expect(help.stdout).toContain("Canonical health check");
     expect(help.stdout).toContain("memory catalog show");
-    expect(help.stdout).toContain('rg "current task terms" "$(memory repo path)"');
+    expect(help.stdout).toContain("If catalog/context makes a memory match plausible");
+    expect(help.stdout).toContain('rg "exact task terms" "$(memory repo path)"');
     expect(help.stdout).not.toContain('memory recall "current task terms"');
+    expect(help.stdout).not.toContain("recall [query]");
     expect(help.stdout).toContain("memory lock acquire --owner <session-or-role>");
     expect(help.stdout).toContain("edit Markdown files directly under the authored directories");
     expect(help.stdout).toContain("memory commit --message");

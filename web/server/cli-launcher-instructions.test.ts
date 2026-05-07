@@ -44,16 +44,21 @@ describe("buildCompanionInstructions", () => {
 
     expect(result).toContain("## File-Based Memory");
     expect(result).toContain("Git-tracked Markdown repo for this server/session space");
-    expect(result).toContain("~/.companion/memory/<serverSlug>");
+    expect(result).toContain("~/.companion/memory/<serverSlug>/<sessionSpace>");
+    expect(result).toContain("~/.companion/memory/prod/Takode");
     expect(result).toContain("normal `memory` commands auto-create the repo and authored directories");
     expect(result).toContain("Use visible memory reads and explicit writes");
-    expect(result).toContain("`memory catalog` or `memory catalog show`");
+    expect(result).toContain("use `memory catalog show` as the triage map");
     expect(result).toContain("The catalog prints the repo root and repo-relative file paths");
-    expect(result).toContain("inspect relevant Markdown files directly with normal tools");
+    expect(result).toContain("inspect plausible catalog-listed Markdown files directly with normal tools");
     expect(result).toContain("`rg`, `sed`, and `cat`");
     expect(result).toContain("memory catalog");
     expect(result).toContain("memory repo path");
     expect(result).toContain("memory --help");
+    expect(result).toContain(
+      "Use targeted `rg` under `$(memory repo path)` only when the catalog or known context makes a match plausible",
+    );
+    expect(result).toContain("skip blind repo-wide memory search");
     expect(result).toContain("there is no authored `indexes/` directory");
     expect(result).not.toContain('memory recall "<current task terms>"');
     expect(result).not.toContain("memory repo init");
@@ -159,7 +164,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Process herd events and continue unrelated quests normally");
     expect(result).toContain("## Memory-Aware Orchestration");
     expect(result).toContain("Use `memory catalog show` visibly");
-    expect(result).toContain("then inspect relevant files directly");
+    expect(result).toContain("then inspect plausible catalog-listed files directly");
+    expect(result).toContain(
+      "Use targeted memory repo search only when the catalog or known context makes a match plausible",
+    );
     expect(result).toContain("either point them to the catalog/direct-file workflow");
     expect(result).not.toContain("Use `memory recall` visibly");
     expect(result).toContain("Do not silently inject memory into workers");

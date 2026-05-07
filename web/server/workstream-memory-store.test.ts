@@ -41,6 +41,7 @@ describe("file-based memory store", () => {
     expect(repo.root).toBe(join(tempDir, "memory"));
     expect(repo.serverId).toBe("test-server");
     expect(repo.serverSlug).toBe("test");
+    expect(repo.sessionSpaceSlug).toBe("Takode");
     expect(repo.authoredDirs).toEqual(["current", "knowledge", "procedures", "decisions", "references", "artifacts"]);
     await expect(readFile(join(tempDir, "memory", ".git", "HEAD"), "utf-8")).resolves.toContain("ref:");
   });
@@ -65,7 +66,7 @@ Body.
 
     const repo = await memoryStore.ensureMemoryRepo();
 
-    expect(repo.root).toBe(join(tempDir, ".companion", "memory", "test"));
+    expect(repo.root).toBe(join(tempDir, ".companion", "memory", "test", "Takode"));
     await expect(readFile(join(repo.root, "knowledge", "legacy.md"), "utf-8")).resolves.toContain("server-id path");
     await expect(readFile(join(legacyRoot, "knowledge", "legacy.md"), "utf-8")).rejects.toThrow();
   });
@@ -74,7 +75,7 @@ Body.
     delete process.env.COMPANION_MEMORY_DIR;
     process.env.HOME = tempDir;
     const legacyRoot = join(tempDir, ".companion", "memory", "test-server");
-    const targetRoot = join(tempDir, ".companion", "memory", "test");
+    const targetRoot = join(tempDir, ".companion", "memory", "test", "Takode");
     await mkdir(join(targetRoot, ".git"), { recursive: true });
     await mkdir(join(targetRoot, "current"), { recursive: true });
     await mkdir(join(legacyRoot, "knowledge"), { recursive: true });
@@ -98,10 +99,77 @@ Body.
     await expect(readFile(join(legacyRoot, "knowledge", "legacy.md"), "utf-8")).rejects.toThrow();
   });
 
+  it("migrates an existing flat server-slug repo into the default session-space path", async () => {
+    delete process.env.COMPANION_MEMORY_DIR;
+    process.env.HOME = tempDir;
+    const flatRoot = join(tempDir, ".companion", "memory", "test");
+    await mkdir(join(flatRoot, "knowledge"), { recursive: true });
+    await writeFile(
+      join(flatRoot, "knowledge", "flat.md"),
+      `---
+description: Migrated from the flat server-slug path.
+source:
+  - q-1237
+---
+
+Body.
+`,
+      "utf-8",
+    );
+
+    const repo = await memoryStore.ensureMemoryRepo();
+
+    expect(repo.root).toBe(join(tempDir, ".companion", "memory", "test", "Takode"));
+    await expect(readFile(join(repo.root, "knowledge", "flat.md"), "utf-8")).resolves.toContain(
+      "flat server-slug path",
+    );
+    await expect(readFile(join(flatRoot, "knowledge", "flat.md"), "utf-8")).rejects.toThrow();
+  });
+
+  it("rejects flat-to-session-space migration conflicts before rewriting the server index", async () => {
+    delete process.env.COMPANION_MEMORY_DIR;
+    process.env.HOME = tempDir;
+    const flatRoot = join(tempDir, ".companion", "memory", "test");
+    const nestedRoot = join(flatRoot, "Takode");
+    const indexPath = join(tempDir, ".companion", "memory", ".servers", "test-server.json");
+    await mkdir(join(flatRoot, "current"), { recursive: true });
+    await mkdir(join(nestedRoot, "current"), { recursive: true });
+    await writeFile(
+      join(flatRoot, "current", "flat.md"),
+      `---
+description: Existing flat memory.
+source:
+  - q-1237
+---
+
+Flat memory.
+`,
+      "utf-8",
+    );
+    await writeFile(
+      join(nestedRoot, "current", "nested.md"),
+      `---
+description: Existing nested memory.
+source:
+  - q-1237
+---
+
+Nested memory.
+`,
+      "utf-8",
+    );
+
+    await expect(memoryStore.ensureMemoryRepo()).rejects.toThrow('Memory repo space "test/Takode" already exists');
+
+    await expect(readFile(join(flatRoot, "current", "flat.md"), "utf-8")).resolves.toContain("Flat memory");
+    await expect(readFile(join(nestedRoot, "current", "nested.md"), "utf-8")).resolves.toContain("Nested memory");
+    await expect(readFile(indexPath, "utf-8")).rejects.toThrow();
+  });
+
   it("migrates from an indexed old slug when the server slug is renamed", async () => {
     delete process.env.COMPANION_MEMORY_DIR;
     process.env.HOME = tempDir;
-    const oldRoot = join(tempDir, ".companion", "memory", "old-slug");
+    const oldRoot = join(tempDir, ".companion", "memory", "old-slug", "Takode");
     process.env.COMPANION_SERVER_SLUG = "old-slug";
     await memoryStore.ensureMemoryRepo();
     await mkdir(join(oldRoot, "current"), { recursive: true });
@@ -121,7 +189,7 @@ Body text.
     process.env.COMPANION_SERVER_SLUG = "new-slug";
     const repo = await memoryStore.ensureMemoryRepo();
 
-    expect(repo.root).toBe(join(tempDir, ".companion", "memory", "new-slug"));
+    expect(repo.root).toBe(join(tempDir, ".companion", "memory", "new-slug", "Takode"));
     await expect(readFile(join(repo.root, "current", "rename.md"), "utf-8")).resolves.toContain("Survives");
     await expect(readFile(join(oldRoot, "current", "rename.md"), "utf-8")).rejects.toThrow();
   });
@@ -129,8 +197,8 @@ Body text.
   it("rejects rename to a non-empty slug without rewriting the server index", async () => {
     delete process.env.COMPANION_MEMORY_DIR;
     process.env.HOME = tempDir;
-    const oldRoot = join(tempDir, ".companion", "memory", "old-slug");
-    const collisionRoot = join(tempDir, ".companion", "memory", "new-slug");
+    const oldRoot = join(tempDir, ".companion", "memory", "old-slug", "Takode");
+    const collisionRoot = join(tempDir, ".companion", "memory", "new-slug", "Takode");
     const indexPath = join(tempDir, ".companion", "memory", ".servers", "test-server.json");
 
     process.env.COMPANION_SERVER_SLUG = "old-slug";
@@ -164,7 +232,7 @@ Server B memory.
     );
 
     process.env.COMPANION_SERVER_SLUG = "new-slug";
-    await expect(memoryStore.ensureMemoryRepo()).rejects.toThrow('Memory repo slug "new-slug" already exists');
+    await expect(memoryStore.ensureMemoryRepo()).rejects.toThrow('Memory repo space "new-slug/Takode" already exists');
 
     await expect(readFile(join(oldRoot, "current", "server-a.md"), "utf-8")).resolves.toContain("Server A memory");
     await expect(readFile(join(collisionRoot, "current", "server-b.md"), "utf-8")).resolves.toContain(

@@ -24,14 +24,16 @@ function spacesResponse(): MemorySpacesResponse {
   return {
     currentServerId: "server-test",
     currentServerSlug: "prod",
+    currentSessionSpaceSlug: "Takode",
     spaces: [
       {
         slug: "prod",
-        root: "/Users/test/.companion/memory/prod",
+        root: "/Users/test/.companion/memory/prod/Takode",
         current: true,
         initialized: true,
         authoredDirs: ["current", "knowledge", "procedures", "decisions", "references", "artifacts"],
         hasAuthoredData: true,
+        sessionSpaceSlug: "Takode",
         serverId: "server-test",
       },
       {
@@ -49,9 +51,10 @@ function spacesResponse(): MemorySpacesResponse {
 function catalogResponse(): MemoryCatalogResponse {
   return {
     repo: {
-      root: "/Users/test/.companion/memory/prod",
+      root: "/Users/test/.companion/memory/prod/Takode",
       serverId: "server-test",
       serverSlug: "prod",
+      sessionSpaceSlug: "Takode",
       initialized: true,
       authoredDirs: ["current", "knowledge", "procedures", "decisions", "references", "artifacts"],
     },
@@ -81,7 +84,7 @@ function catalogResponse(): MemoryCatalogResponse {
       },
     ],
     issueCounts: { errors: 0, warnings: 1 },
-    lock: { locked: false, lockPath: "/Users/test/.companion/memory/prod/.git/takode-memory.lock" },
+    lock: { locked: false, lockPath: "/Users/test/.companion/memory/prod/Takode/.git/takode-memory.lock" },
     git: {
       dirty: true,
       status: "?? current/live.md",
@@ -98,7 +101,7 @@ function recordResponse(): MemoryRecordResponse {
       id: "knowledge/service-x.md",
       kind: "knowledge",
       path: "knowledge/service-x.md",
-      absolutePath: "/Users/test/.companion/memory/prod/knowledge/service-x.md",
+      absolutePath: "/Users/test/.companion/memory/prod/Takode/knowledge/service-x.md",
       description: "Explains Service X config and failure modes.",
       source: ["q-1220", "session:1576:99"],
       frontmatter: { facets: { project: ["takode"] } },
@@ -129,7 +132,7 @@ describe("MemoryPage", () => {
     render(<MemoryPage embedded />);
 
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeInTheDocument();
-    expect(screen.getAllByText("prod").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("prod/Takode").length).toBeGreaterThan(0);
     expect(screen.getByText("dev")).toBeInTheDocument();
     expect(await screen.findByText("1 warnings")).toBeInTheDocument();
     expect(screen.getByText("dirty")).toBeInTheDocument();
@@ -143,7 +146,7 @@ describe("MemoryPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Open record" }));
     await waitFor(() =>
       expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
-        absolutePath: "/Users/test/.companion/memory/prod/knowledge/service-x.md",
+        absolutePath: "/Users/test/.companion/memory/prod/Takode/knowledge/service-x.md",
         targetKind: "file",
       }),
     );
