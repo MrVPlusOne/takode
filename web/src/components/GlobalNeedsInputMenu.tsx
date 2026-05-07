@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, type RefObject } from "react";
 import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api.js";
@@ -56,7 +56,7 @@ export function getGlobalNeedsInputEntries(state: GlobalNeedsInputState): Global
 
   for (const [sessionId, notifications] of state.sessionNotifications) {
     const sdkSession = sdkById.get(sessionId);
-    if (sdkSession?.archived) continue;
+    if (!sdkSession || sdkSession.archived) continue;
     const label = getSessionLabel({
       sessionId,
       sdkSession,
@@ -265,10 +265,12 @@ function GlobalNeedsInputPopover({
   entries,
   sdkSessions,
   onClose,
+  triggerRef,
 }: {
   entries: GlobalNeedsInputEntry[];
   sdkSessions: SdkSessionInfo[];
   onClose: () => void;
+  triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   const popoverRef = useRef<HTMLDivElement>(null);
 
@@ -285,14 +287,16 @@ function GlobalNeedsInputPopover({
 
   useEffect(() => {
     const handler = (e: globalThis.MouseEvent) => {
-      if (popoverRef.current && !popoverRef.current.contains(e.target as Node)) onClose();
+      const target = e.target as Node;
+      if (popoverRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
+      onClose();
     };
     const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
     return () => {
       clearTimeout(timer);
       document.removeEventListener("mousedown", handler);
     };
-  }, [onClose]);
+  }, [onClose, triggerRef]);
 
   return createPortal(
     <div
@@ -340,6 +344,7 @@ export function GlobalNeedsInputMenu() {
     })),
   );
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement>(null);
   const fetchedKeysRef = useRef(new Set<string>());
   const state = useMemo(
     () => ({ sessionNotifications, sdkSessions, sessionNames }),
@@ -375,6 +380,7 @@ export function GlobalNeedsInputMenu() {
   return (
     <>
       <button
+        ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
         className="inline-flex h-7 items-center gap-1 rounded-lg border border-amber-400/20 bg-amber-400/10 px-2 text-[11px] font-medium text-amber-200 transition-colors hover:border-amber-400/35 hover:bg-amber-400/15 cursor-pointer"
@@ -384,7 +390,9 @@ export function GlobalNeedsInputMenu() {
         <span>{count}</span>
         <BellIcon className="h-3.5 w-3.5 shrink-0 text-amber-300" />
       </button>
-      {open && <GlobalNeedsInputPopover entries={entries} sdkSessions={sdkSessions} onClose={close} />}
+      {open && (
+        <GlobalNeedsInputPopover entries={entries} sdkSessions={sdkSessions} onClose={close} triggerRef={triggerRef} />
+      )}
     </>
   );
 }

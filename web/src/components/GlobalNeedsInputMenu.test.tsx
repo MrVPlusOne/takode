@@ -131,6 +131,107 @@ describe("GlobalNeedsInputMenu", () => {
     expect(within(dialog).queryByText("Review")).not.toBeInTheDocument();
   });
 
+  it("excludes stale needs-input notifications when sessions are archived or removed from the active list", () => {
+    // Stale sessionNotifications can outlive the session-list snapshot; only
+    // current non-archived sdkSessions should be allowed into the global count.
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "active",
+          [
+            {
+              id: "active-needs-input",
+              category: "needs-input",
+              summary: "Active session needs input",
+              timestamp: 30,
+              messageId: "m-active",
+              done: false,
+            },
+          ],
+        ],
+        [
+          "archived",
+          [
+            {
+              id: "archived-needs-input",
+              category: "needs-input",
+              summary: "Archived session should not count",
+              timestamp: 40,
+              messageId: "m-archived",
+              done: false,
+            },
+          ],
+        ],
+        [
+          "removed",
+          [
+            {
+              id: "removed-needs-input",
+              category: "needs-input",
+              summary: "Removed session should not count",
+              timestamp: 50,
+              messageId: "m-removed",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [
+        { sessionId: "active", sessionNum: 31, name: "Active", createdAt: 1 },
+        { sessionId: "archived", sessionNum: 32, name: "Archived", archived: true, createdAt: 2 },
+      ],
+    });
+
+    const { rerender } = render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+    expect(screen.getByRole("button", { name: "Active session needs input" })).toBeInTheDocument();
+    expect(screen.queryByText("Archived session should not count")).not.toBeInTheDocument();
+    expect(screen.queryByText("Removed session should not count")).not.toBeInTheDocument();
+
+    resetStore({
+      sessionNotifications: new Map(mockStoreState.sessionNotifications),
+      sdkSessions: [],
+    });
+    rerender(<GlobalNeedsInputMenu />);
+
+    expect(screen.queryByRole("button", { name: /unresolved needs-input/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("dialog", { name: "Global needs-input notifications" })).not.toBeInTheDocument();
+  });
+
+  it("closes reliably when the open trigger is clicked", async () => {
+    // The popover is portaled outside the trigger, so this exercises the
+    // mousedown-then-click sequence that previously closed and reopened it.
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-1",
+              category: "needs-input",
+              summary: "Confirm scope",
+              timestamp: Date.now(),
+              messageId: "m1",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 31, name: "Worker", createdAt: 1 }],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    const trigger = screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" });
+    fireEvent.click(trigger);
+    expect(screen.getByRole("dialog", { name: "Global needs-input notifications" })).toBeInTheDocument();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    fireEvent.mouseDown(trigger);
+    fireEvent.click(trigger);
+
+    expect(screen.queryByRole("dialog", { name: "Global needs-input notifications" })).not.toBeInTheDocument();
+  });
+
   it("sends a structured multi-question response through the target session", () => {
     resetStore({
       sessionNotifications: new Map([
@@ -227,7 +328,10 @@ describe("GlobalNeedsInputMenu", () => {
         done: false,
       },
     ];
-    resetStore({ sessionNotifications: new Map([["s1", notifications]]) });
+    resetStore({
+      sessionNotifications: new Map([["s1", notifications]]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 51, name: "Worker", createdAt: 1 }],
+    });
     const { rerender } = render(<GlobalNeedsInputMenu />);
     expect(
       screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }),
@@ -235,6 +339,7 @@ describe("GlobalNeedsInputMenu", () => {
 
     resetStore({
       sessionNotifications: new Map([["s1", [{ ...notifications[0], done: true }]]]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 51, name: "Worker", createdAt: 1 }],
     });
     rerender(<GlobalNeedsInputMenu />);
 
