@@ -9,7 +9,7 @@ const GENERATED_METADATA_PATH = join(PROJECT_ROOT, "shared", "leader-profile-por
 const VALIDATION_ROOT = "/tmp/takode-leader-profile-portrait-validation";
 const VALIDATION_MANIFEST_PATH = join(VALIDATION_ROOT, "leader-profile-portrait-validation.json");
 const CONTACT_SHEET_PATH = join(VALIDATION_ROOT, "leader-profile-contact-sheet.png");
-const GRID_SIZE = 3;
+const GRID_SIZE = 4;
 const ASSET_VERSION = "v2";
 const VARIANTS = [
   { name: "small", size: 96 },
@@ -65,11 +65,10 @@ export async function generateLeaderProfilePortraitAssets(): Promise<GenerationR
     const metadata = await source.metadata();
     const width = requirePositiveDimension(metadata.width, sheet.sourcePath, "width");
     const height = requirePositiveDimension(metadata.height, sheet.sourcePath, "height");
-    if (width !== height || width % GRID_SIZE !== 0) {
-      throw new Error(`${sheet.sourcePath} must be a square sheet divisible by ${GRID_SIZE}`);
+    if (width !== height) {
+      throw new Error(`${sheet.sourcePath} must be a square sheet`);
     }
 
-    const cellSize = width / GRID_SIZE;
     const sheetBaseName = basename(sheet.sourcePath)
       .replace(/\.[^.]+$/, "")
       .toLowerCase();
@@ -78,8 +77,8 @@ export async function generateLeaderProfilePortraitAssets(): Promise<GenerationR
         const cellNumber = row * GRID_SIZE + column + 1;
         const id = `${sheetBaseName}-${String(cellNumber).padStart(2, "0")}`;
         const label = `${titleCase(sheet.poolId)} ${sheetBaseName.replace(/^[a-z]+/, "")}.${cellNumber}`;
-        const small = await writePortraitVariant(sheet, id, cellSize, row, column, VARIANTS[0].size);
-        const large = await writePortraitVariant(sheet, id, cellSize, row, column, VARIANTS[1].size);
+        const small = await writePortraitVariant(sheet, id, width, row, column, VARIANTS[0].size);
+        const large = await writePortraitVariant(sheet, id, width, row, column, VARIANTS[1].size);
         portraits.push({
           id,
           poolId: sheet.poolId,
@@ -142,26 +141,38 @@ function requirePositiveDimension(value: number | undefined, path: string, dimen
 async function writePortraitVariant(
   sheet: PortraitSheet,
   id: string,
-  cellSize: number,
+  sheetSize: number,
   row: number,
   column: number,
   size: number,
 ): Promise<{ url: string; bytes: number }> {
   const relativePath = join(sheet.poolId, `${id}.${ASSET_VERSION}.${size}.webp`);
   const outputPath = join(ASSET_ROOT, relativePath);
+  const bounds = gridCellBounds(sheetSize, row, column);
   await mkdir(join(ASSET_ROOT, sheet.poolId), { recursive: true });
   await sharp(sheet.sourcePath)
-    .extract({
-      left: column * cellSize,
-      top: row * cellSize,
-      width: cellSize,
-      height: cellSize,
-    })
+    .extract(bounds)
     .resize(size, size, { fit: "cover" })
     .composite([{ input: circleMask(size), blend: "dest-in" }])
     .webp({ quality: 84, alphaQuality: 100, effort: 5 })
     .toFile(outputPath);
   return { url: `/leader-profile-portraits/${relativePath}`, bytes: (await stat(outputPath)).size };
+}
+
+function gridCellBounds(
+  sheetSize: number,
+  row: number,
+  column: number,
+): { left: number; top: number; width: number; height: number } {
+  const left = gridBoundary(sheetSize, column);
+  const right = gridBoundary(sheetSize, column + 1);
+  const top = gridBoundary(sheetSize, row);
+  const bottom = gridBoundary(sheetSize, row + 1);
+  return { left, top, width: right - left, height: bottom - top };
+}
+
+function gridBoundary(sheetSize: number, index: number): number {
+  return Math.round((sheetSize * index) / GRID_SIZE);
 }
 
 async function writeFallbackPortrait(): Promise<LeaderProfilePortrait> {
