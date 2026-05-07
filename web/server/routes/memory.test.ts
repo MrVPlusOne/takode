@@ -1,5 +1,5 @@
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -191,5 +191,44 @@ source: q-1220
 
     const nonMarkdown = await app.request(`/memory/records?path=${encodeURIComponent("current/not-memory.txt")}`);
     expect(nonMarkdown.status).toBe(400);
+  });
+
+  it("rejects symlinked Markdown files that resolve outside the memory repo", async () => {
+    // Verifies safe record reads canonicalize the final target before reading.
+    const outsideDir = join(home, "outside");
+    await mkdir(outsideDir, { recursive: true });
+    const outsideFile = join(outsideDir, "secret.md");
+    await writeFile(outsideFile, "outside content must not leak", "utf-8");
+    const linkPath = join(home, ".companion", "memory", "prod", "current", "leak.md");
+    await mkdir(join(linkPath, ".."), { recursive: true });
+    await symlink(outsideFile, linkPath);
+
+    const app = await makeApp();
+    const res = await app.request(`/memory/records?serverSlug=prod&path=${encodeURIComponent("current/leak.md")}`);
+    const body = await res.text();
+
+    expect(res.status).toBe(400);
+    expect(body).toContain("must stay inside the memory repo");
+    expect(body).not.toContain("outside content must not leak");
+  });
+
+  it("rejects symlinked directory escapes before reading nested Markdown records", async () => {
+    // Verifies directory symlinks cannot bypass authored-directory confinement.
+    const outsideDir = join(home, "outside-dir");
+    await mkdir(outsideDir, { recursive: true });
+    await writeFile(join(outsideDir, "nested.md"), "nested outside content must not leak", "utf-8");
+    const linkPath = join(home, ".companion", "memory", "prod", "current", "escape");
+    await mkdir(join(linkPath, ".."), { recursive: true });
+    await symlink(outsideDir, linkPath);
+
+    const app = await makeApp();
+    const res = await app.request(
+      `/memory/records?serverSlug=prod&path=${encodeURIComponent("current/escape/nested.md")}`,
+    );
+    const body = await res.text();
+
+    expect(res.status).toBe(400);
+    expect(body).toContain("must stay inside the memory repo");
+    expect(body).not.toContain("nested outside content must not leak");
   });
 });

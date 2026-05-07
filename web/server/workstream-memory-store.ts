@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { access, mkdir, readFile, readdir, rename, rm, stat, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, realpath, rename, rm, stat, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, isAbsolute, join, relative, resolve, sep } from "node:path";
 import { promisify } from "node:util";
@@ -347,9 +347,9 @@ export async function readMemoryRecord(
   options: MemoryRepoOptions = {},
 ): Promise<{ repo: MemoryRepoInfo; file: MemoryFile }> {
   const repo = await ensureMemoryRepo(options);
-  const absolutePath = resolveMemoryRecordPath(repo.root, path);
-  const content = await readFile(absolutePath, "utf-8");
-  return { repo, file: parseMemoryFile(repo.root, absolutePath, content) };
+  const resolvedRecord = await resolveMemoryRecordPath(repo.root, path);
+  const content = await readFile(resolvedRecord.absolutePath, "utf-8");
+  return { repo, file: parseMemoryFile(resolvedRecord.root, resolvedRecord.absolutePath, content) };
 }
 
 function catalogEntryFromFile(file: MemoryFile): MemoryCatalogEntry {
@@ -850,25 +850,47 @@ function repoRelative(root: string, path: string): string {
   return relative(root, path).split(sep).join("/");
 }
 
-function resolveMemoryRecordPath(root: string, requestedPath: string): string {
+async function resolveMemoryRecordPath(
+  root: string,
+  requestedPath: string,
+): Promise<{ root: string; absolutePath: string }> {
   const trimmedPath = requestedPath.trim();
   if (!trimmedPath) throw new Error("Memory record path is required");
   if (isAbsolute(trimmedPath)) throw new Error("Memory record path must be repo-relative");
 
   const rootPath = resolve(root);
-  const absolutePath = resolve(rootPath, trimmedPath);
-  const relativePath = repoRelative(rootPath, absolutePath);
-  if (relativePath === ".." || relativePath.startsWith("../") || relativePath.includes("/../")) {
+  const syntacticPath = resolve(rootPath, trimmedPath);
+  const syntacticRelativePath = repoRelative(rootPath, syntacticPath);
+  if (!isPathInside(rootPath, syntacticPath)) {
     throw new Error("Memory record path must stay inside the memory repo");
   }
-  const [kind] = relativePath.split("/");
+  const [kind] = syntacticRelativePath.split("/");
   if (!MEMORY_KINDS.includes(kind as MemoryKind)) {
     throw new Error(`Memory record path must be under one of: ${MEMORY_KINDS.join(", ")}`);
   }
-  if (!relativePath.endsWith(".md")) {
+  if (!syntacticRelativePath.endsWith(".md")) {
     throw new Error("Memory record path must point to a Markdown file");
   }
-  return absolutePath;
+
+  const realRoot = await realpath(rootPath);
+  const realAuthoredDir = await realpath(join(rootPath, kind));
+  if (!isPathInside(realRoot, realAuthoredDir)) {
+    throw new Error("Memory authored directory must stay inside the memory repo");
+  }
+
+  const realTarget = await realpath(syntacticPath);
+  if (!isPathInside(realRoot, realTarget) || !isPathInside(realAuthoredDir, realTarget)) {
+    throw new Error("Memory record path must stay inside the memory repo");
+  }
+  if (!repoRelative(realRoot, realTarget).endsWith(".md")) {
+    throw new Error("Memory record path must point to a Markdown file");
+  }
+  return { root: realRoot, absolutePath: realTarget };
+}
+
+function isPathInside(parent: string, child: string): boolean {
+  const relativePath = relative(parent, child);
+  return relativePath === "" || (!relativePath.startsWith("..") && !isAbsolute(relativePath));
 }
 
 function memoryLockPath(root: string): string {
