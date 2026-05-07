@@ -379,7 +379,7 @@ export interface SdkSessionInfo {
   codexLeaderRecycleLineage?: {
     cliSessionIds: string[];
     recycleEvents: Array<{
-      trigger: "threshold" | "manual_compact";
+      trigger: "threshold" | "manual_compact" | "context_window_exhausted";
       requestedAt: number;
       previousCliSessionId?: string;
       nextCliSessionId?: string;
@@ -397,7 +397,7 @@ export interface SdkSessionInfo {
   /** Pending Codex leader recycle waiting for the replacement thread. */
   codexLeaderRecyclePending?: {
     eventIndex: number;
-    trigger: "threshold" | "manual_compact";
+    trigger: "threshold" | "manual_compact" | "context_window_exhausted";
     requestedAt: number;
   } | null;
   /** The Companion-injected system prompt constructed at launch time (for debugging). */

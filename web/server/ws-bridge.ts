@@ -2151,7 +2151,7 @@ export class WsBridge {
       backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
       requestCodexAutoRecovery: (targetSession: unknown, reason: string) =>
         this.requestCodexAutoRecovery(targetSession as Session, reason),
-      requestCodexLeaderRecycle: async (targetSession: unknown, trigger: "manual_compact" | "threshold") =>
+      requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
         this.recycleCodexLeaderSession((targetSession as Session).id, trigger),
       requestCliRelaunch: this.onCLIRelaunchNeeded
         ? (sessionId: string) => this.onCLIRelaunchNeeded?.(sessionId)
@@ -2409,7 +2409,7 @@ export class WsBridge {
       maybeFlushQueuedCodexMessages: codexRecoveryDeps.maybeFlushQueuedCodexMessages,
       handleCodexPermissionRequest: (targetSession: unknown, permission: PermissionRequest) =>
         handleCodexPermissionRequestController(targetSession as Session, permission, this.getBrowserRoutingDeps()),
-      requestCodexLeaderRecycle: async (targetSession: unknown, trigger: "manual_compact" | "threshold") =>
+      requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
         this.recycleCodexLeaderSession((targetSession as Session).id, trigger),
     };
   }
@@ -2622,7 +2622,7 @@ export class WsBridge {
         ),
       requestCodexAutoRecovery: (targetSession: unknown, reason: string) =>
         this.requestCodexAutoRecovery(targetSession as Session, reason),
-      requestCodexLeaderRecycle: async (targetSession: unknown, trigger: "manual_compact" | "threshold") =>
+      requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
         this.recycleCodexLeaderSession((targetSession as Session).id, trigger),
       requestCliRelaunch: this.onCLIRelaunchNeeded
         ? (sessionId: string) => this.onCLIRelaunchNeeded?.(sessionId)

@@ -31,10 +31,11 @@ import {
   isTimerSourceTag,
 } from "./adapter-browser-routing-source-tags.js";
 import type {
+  ActiveTurnRoute,
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
-  ActiveTurnRoute,
   CLIControlRequestMessage,
+  CodexLeaderRecycleTrigger,
   CodexOutboundTurn,
   McpServerConfig,
   McpServerDetail,
@@ -263,7 +264,7 @@ export interface AdapterBrowserRoutingDeps {
   requestCodexAutoRecovery: (session: AdapterBrowserRoutingSessionLike, reason: string) => boolean;
   requestCodexLeaderRecycle: (
     session: AdapterBrowserRoutingSessionLike,
-    trigger: "manual_compact" | "threshold",
+    trigger: CodexLeaderRecycleTrigger,
   ) => Promise<{ ok: boolean; error?: string }>;
   requestCliRelaunch?: (sessionId: string) => void;
   injectUserMessage: (

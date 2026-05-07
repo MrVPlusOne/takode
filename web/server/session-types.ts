@@ -1215,7 +1215,7 @@ export interface SessionNotification {
   done: boolean;
 }
 
-export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact";
+export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact" | "context_window_exhausted";
 
 export interface SessionContextLengthSnapshot {
   /** Known context length in tokens. Omitted when only percentage/window data is known. */

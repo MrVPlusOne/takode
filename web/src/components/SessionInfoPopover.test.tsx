@@ -60,14 +60,14 @@ interface MockStoreState {
     codexLeaderRecycleLineage?: {
       cliSessionIds: string[];
       recycleEvents: Array<{
-        trigger: "threshold" | "manual_compact";
+        trigger: "threshold" | "manual_compact" | "context_window_exhausted";
         requestedAt: number;
         tokenUsage?: { contextTokensUsed?: number };
       }>;
     };
     codexLeaderRecyclePending?: {
       eventIndex: number;
-      trigger: "threshold" | "manual_compact";
+      trigger: "threshold" | "manual_compact" | "context_window_exhausted";
       requestedAt: number;
     } | null;
     sessionNum?: number | null;

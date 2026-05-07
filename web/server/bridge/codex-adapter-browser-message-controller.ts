@@ -3,6 +3,7 @@ import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
   CLIResultMessage,
+  CodexLeaderRecycleTrigger,
   ContentBlock,
   PermissionRequest,
   ThreadRef,
@@ -82,7 +83,7 @@ type CodexLeaderRecycleLauncherInfo = {
   isOrchestrator?: boolean;
   codexLeaderRecycleLineage?: {
     recycleEvents?: Array<{
-      trigger?: "manual_compact" | "threshold";
+      trigger?: CodexLeaderRecycleTrigger;
       tokenUsage?: {
         contextTokensUsed?: number;
       };
@@ -193,8 +194,55 @@ export interface CodexAdapterBrowserMessageDeps {
   ) => Promise<void> | void;
   requestCodexLeaderRecycle: (
     session: CodexBrowserMessageSessionLike,
-    trigger: "manual_compact" | "threshold",
+    trigger: CodexLeaderRecycleTrigger,
   ) => Promise<{ ok: boolean; error?: string }>;
+}
+
+export function isCodexContextWindowExhaustionMessage(message: unknown): boolean {
+  if (typeof message !== "string") return false;
+  return (
+    /\bcodex\b/i.test(message) &&
+    /\bran out of room in the model'?s context window\b/i.test(message) &&
+    /\b(?:start a new thread|clear earlier history)\b/i.test(message)
+  );
+}
+
+function getCodexContextWindowExhaustionMessage(msg: BrowserIncomingMessage): string | null {
+  if (msg.type === "error") {
+    return isCodexContextWindowExhaustionMessage(msg.message) ? msg.message : null;
+  }
+  if (msg.type !== "result" || !msg.data?.is_error) return null;
+  if (isCodexContextWindowExhaustionMessage(msg.data.result)) return msg.data.result || null;
+  const matchingError = msg.data.errors?.find(isCodexContextWindowExhaustionMessage);
+  return matchingError || null;
+}
+
+function isCodexLeaderSession(
+  session: CodexBrowserMessageSessionLike,
+  launcherInfo: CodexLeaderRecycleLauncherInfo | null | undefined,
+): boolean {
+  return session.state?.isOrchestrator === true || launcherInfo?.isOrchestrator === true;
+}
+
+async function maybeRecycleCodexLeaderForContextWindowExhaustion(
+  session: CodexBrowserMessageSessionLike,
+  outgoing: BrowserIncomingMessage | null,
+  deps: CodexAdapterBrowserMessageDeps,
+): Promise<boolean> {
+  if (!outgoing) return false;
+  const errorMessage = getCodexContextWindowExhaustionMessage(outgoing);
+  if (!errorMessage) return false;
+  const launcherInfo = deps.getLauncherSessionInfo(session.id);
+  if (!isCodexLeaderSession(session, launcherInfo)) return false;
+
+  const recycle = await deps.requestCodexLeaderRecycle(session, "context_window_exhausted");
+  if (!recycle.ok) {
+    deps.broadcastToBrowsers(session, {
+      type: "error",
+      message: recycle.error || "Failed to recycle Codex leader session after context-window exhaustion",
+    });
+  }
+  return true;
 }
 
 export async function handleCodexAdapterBrowserMessage(
@@ -376,6 +424,9 @@ export async function handleCodexAdapterBrowserMessage(
     session.messageHistory.push(outgoing);
     deps.persistSession(session);
   } else if (outgoing?.type === "result") {
+    if (await maybeRecycleCodexLeaderForContextWindowExhaustion(session, outgoing, deps)) {
+      return;
+    }
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
     if (!deps.completeCodexTurnsForResult(session, outgoing.data, Date.now())) return;
@@ -397,6 +448,10 @@ export async function handleCodexAdapterBrowserMessage(
       await maybe;
     }
     outgoing = null;
+  }
+
+  if (await maybeRecycleCodexLeaderForContextWindowExhaustion(session, outgoing, deps)) {
+    return;
   }
 
   if (outgoing) {

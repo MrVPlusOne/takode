@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   handleCodexAdapterBrowserMessage,
+  isCodexContextWindowExhaustionMessage,
   type CodexAdapterBrowserMessageDeps,
 } from "./codex-adapter-browser-message-controller.js";
 import type { ActiveTurnRoute, BrowserIncomingMessage, ContentBlock } from "../session-types.js";
@@ -69,7 +70,7 @@ function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMess
     broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
     finalizeSupersededCodexTerminalTools: vi.fn(),
     isDuplicateCodexAssistantReplay: () => false,
-    completeCodexTurnsForResult: () => true,
+    completeCodexTurnsForResult: vi.fn(() => true),
     clearCodexFreshTurnRequirement: vi.fn(),
     handleResultMessage: vi.fn(),
     queueCodexPendingStartBatch: vi.fn(),
@@ -92,6 +93,97 @@ async function routeAssistantMessage(
 }
 
 describe("codex-adapter-browser-message-controller thread routing", () => {
+  it("detects only the scoped Codex context-window exhaustion wording", () => {
+    expect(
+      isCodexContextWindowExhaustionMessage(
+        "Error: Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.",
+      ),
+    ).toBe(true);
+    expect(isCodexContextWindowExhaustionMessage("Rate limit exceeded")).toBe(false);
+    expect(isCodexContextWindowExhaustionMessage("Claude ran out of room in the model's context window.")).toBe(false);
+  });
+
+  it("recycles Codex leaders for context-window exhaustion errors without broadcasting the backend error text", async () => {
+    // Codex may surface backend context exhaustion as a top-level error before
+    // Takode sees a token-usage update; leaders should recycle instead of
+    // repeatedly showing that backend instruction to users.
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "error",
+        message:
+          "Error: Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.",
+      },
+      deps,
+    );
+
+    expect(deps.requestCodexLeaderRecycle).toHaveBeenCalledWith(session, "context_window_exhausted");
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  it("recycles Codex leaders for failed context-window exhaustion results without running normal result handling", async () => {
+    // Some Codex builds report the same failure as the terminal turn result.
+    // Suppressing result handling prevents the failed result from becoming a
+    // user-visible error bubble while the recycle path takes over.
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    const result = {
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "error_during_execution",
+        is_error: true,
+        result:
+          "Error: Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.",
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "failed",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        uuid: "result-context-window",
+        session_id: session.id,
+      },
+    } as BrowserIncomingMessage;
+
+    await handleCodexAdapterBrowserMessage(session, result, deps);
+
+    expect(deps.requestCodexLeaderRecycle).toHaveBeenCalledWith(session, "context_window_exhausted");
+    expect(deps.handleResultMessage).not.toHaveBeenCalled();
+    expect(deps.completeCodexTurnsForResult).not.toHaveBeenCalled();
+    expect(broadcasts).toHaveLength(0);
+  });
+
+  it("keeps unrelated Codex backend errors user-visible", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(session, { type: "error", message: "Rate limit exceeded" }, deps);
+
+    expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(broadcasts).toEqual([{ type: "error", message: "Rate limit exceeded" }]);
+  });
+
+  it("does not recycle non-leader Codex sessions for context-window exhaustion errors", async () => {
+    const session = makeSession();
+    session.state.isOrchestrator = false;
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    const message =
+      "Error: Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.";
+
+    await handleCodexAdapterBrowserMessage(session, { type: "error", message }, deps);
+
+    expect(deps.requestCodexLeaderRecycle).not.toHaveBeenCalled();
+    expect(broadcasts).toEqual([{ type: "error", message }]);
+  });
+
   it("records and broadcasts Codex compaction lifecycle events from status changes", async () => {
     // Codex surfaces compaction through item lifecycle status changes; the
     // bridge should persist lifecycle telemetry without relying on chat history.

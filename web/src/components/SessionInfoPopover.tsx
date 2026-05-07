@@ -497,8 +497,7 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
               <div className="px-4 py-2 space-y-2">
                 {codexLeaderRecyclePending && (
                   <div className="text-[11px] text-amber-400">
-                    Pending {codexLeaderRecyclePending.trigger === "manual_compact" ? "manual /compact" : "threshold"}{" "}
-                    recycle
+                    Pending {formatCodexLeaderRecycleTrigger(codexLeaderRecyclePending.trigger).toLowerCase()} recycle
                   </div>
                 )}
                 {codexLeaderRecycleLineage?.cliSessionIds.length ? (
@@ -520,7 +519,7 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
                       {codexLeaderRecycleLineage.recycleEvents.map((event, index) => (
                         <div key={`${event.requestedAt}-${index}`} className="rounded-lg bg-cc-hover/40 px-2 py-1.5">
                           <div className="text-[11px] text-cc-fg">
-                            {event.trigger === "manual_compact" ? "Manual /compact" : "Threshold"} recycle
+                            {formatCodexLeaderRecycleTrigger(event.trigger)} recycle
                           </div>
                           <div className="mt-0.5 text-[10px] text-cc-muted">
                             {formatRecycleTimestamp(event.requestedAt)}
@@ -621,6 +620,12 @@ function formatRecycleTimestamp(timestamp: number): string {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function formatCodexLeaderRecycleTrigger(trigger: string): string {
+  if (trigger === "manual_compact") return "Manual /compact";
+  if (trigger === "context_window_exhausted") return "Context exhausted";
+  return "Threshold";
 }
 
 function formatContextSnapshot(snapshot: Extract<SessionLifecycleEvent, { type: "compaction" }>["before"]): string {

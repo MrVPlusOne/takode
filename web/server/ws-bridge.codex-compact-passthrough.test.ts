@@ -13,6 +13,13 @@ vi.mock("node:child_process", () => ({ execSync: mockExecSync, exec: mockExec })
 vi.mock("node:crypto", () => ({ randomUUID: () => "test-uuid" }));
 vi.mock("./settings-manager.js", () => ({
   getSettings: mockGetSettings,
+  resolveCodexLeaderRecycleThresholdTokens: (settings: any, modelId?: string) => {
+    const normalizedModelId = modelId?.trim();
+    const modelOverride = normalizedModelId
+      ? settings.codexLeaderRecycleThresholdTokensByModel?.[normalizedModelId]
+      : null;
+    return typeof modelOverride === "number" ? modelOverride : settings.codexLeaderRecycleThresholdTokens;
+  },
 }));
 // Mock settings rule loading so real user ~/.claude/settings.json rules don't
 // interfere with tests. Tests that need specific rules override this per-call.
@@ -740,6 +747,55 @@ describe("Codex /compact passthrough", () => {
       expect.objectContaining({ trigger: "threshold" }),
     );
     expect(launcher.relaunch).toHaveBeenCalledWith("leader-threshold");
+  });
+
+  it("recycles Codex leaders on backend context-window exhaustion without broadcasting the Codex error", async () => {
+    const browser = makeBrowserSocket("leader-context-exhausted");
+    const adapter = makeCodexAdapterMock();
+    const launcher = {
+      getSession: vi.fn((sessionId: string) =>
+        sessionId === "leader-context-exhausted"
+          ? {
+              sessionId,
+              backendType: "codex",
+              isOrchestrator: true,
+              cliSessionId: "thread-context-exhausted",
+              codexLeaderRecyclePending: null,
+            }
+          : null,
+      ),
+      prepareCodexLeaderRecycle: vi.fn(() => ({ ok: true })),
+      relaunch: vi.fn(async () => ({ ok: true })),
+      completeCodexLeaderRecycle: vi.fn(),
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+    };
+    bridge.setLauncher(launcher as any);
+    bridge.attachCodexAdapter("leader-context-exhausted", adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-context-exhausted" });
+    bridge.handleBrowserOpen(browser, "leader-context-exhausted");
+    browser.send.mockClear();
+
+    adapter.emitBrowserMessage({
+      type: "error",
+      message:
+        "Error: Codex ran out of room in the model's context window. Start a new thread or clear earlier history before retrying.",
+    });
+
+    await flushAsync();
+
+    expect(launcher.prepareCodexLeaderRecycle).toHaveBeenCalledWith(
+      "leader-context-exhausted",
+      expect.objectContaining({ trigger: "context_window_exhausted" }),
+    );
+    expect(launcher.relaunch).toHaveBeenCalledWith("leader-context-exhausted");
+    const browserMessages = (browser.send.mock.calls as any[]).map(([raw]) => JSON.parse(raw));
+    expect(
+      browserMessages.some(
+        (msg: any) =>
+          msg.type === "error" && String(msg.message).includes("Codex ran out of room in the model's context window"),
+      ),
+    ).toBe(false);
   });
 
   it("uses exact-model Codex leader recycle threshold overrides before the default fallback", async () => {
