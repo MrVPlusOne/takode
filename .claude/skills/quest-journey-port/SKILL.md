@@ -19,7 +19,7 @@ Leader actions:
 
 Worker-visible boundary:
 - The worker ports or syncs the accepted work and reports synced SHAs plus verification.
-- The worker should run `memory recall` when prior memory could affect final handoff or debrief accuracy. If accepted work created or changed durable memory-worthy facts, the worker should update the memory repo under the repo-level lock or explicitly defer that update.
+- The worker should run `memory catalog show` and inspect relevant memory files directly when prior memory could affect final handoff or debrief accuracy. If accepted work created or changed durable memory-worthy facts, the worker should update the memory repo under the repo-level lock or explicitly defer that update.
 - The worker should not invent port summaries for zero-tracked-change quests whose explicit Journey omitted `port`.
 - A Port handoff without either submitted final debrief metadata or a final debrief/TLDR draft is incomplete.
 - Before reporting back, the worker should document the Port phase on the quest with ordered synced SHAs, post-port verification, port anomalies, remaining sync risks, final debrief metadata status or draft, memory statement, and TLDR metadata. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary`; use explicit `--phase port` or occurrence flags if current-phase inference is unavailable.

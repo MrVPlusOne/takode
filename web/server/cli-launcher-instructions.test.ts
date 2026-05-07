@@ -39,18 +39,23 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Do not use `file://` URI schemes");
   });
 
-  it("includes file-based memory recall and write-lock guidance", () => {
+  it("includes catalog-first file-based memory and write-lock guidance", () => {
     const result = buildCompanionInstructions({ sessionNum: 42, backend: "codex" });
 
     expect(result).toContain("## File-Based Memory");
     expect(result).toContain("Git-tracked Markdown repo for this server/session space");
     expect(result).toContain("~/.companion/memory/<serverSlug>");
     expect(result).toContain("normal `memory` commands auto-create the repo and authored directories");
-    expect(result).toContain('memory recall "<current task terms>"');
+    expect(result).toContain("Use visible memory reads and explicit writes");
+    expect(result).toContain("`memory catalog` or `memory catalog show`");
+    expect(result).toContain("The catalog prints the repo root and repo-relative file paths");
+    expect(result).toContain("inspect relevant Markdown files directly with normal tools");
+    expect(result).toContain("`rg`, `sed`, and `cat`");
     expect(result).toContain("memory catalog");
     expect(result).toContain("memory repo path");
     expect(result).toContain("memory --help");
     expect(result).toContain("there is no authored `indexes/` directory");
+    expect(result).not.toContain('memory recall "<current task terms>"');
     expect(result).not.toContain("memory repo init");
     expect(result).toContain("current/");
     expect(result).toContain("knowledge/");
@@ -150,7 +155,10 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Treat a prompt as global only when the visible question explicitly concerns");
     expect(result).toContain("Process herd events and continue unrelated quests normally");
     expect(result).toContain("## Memory-Aware Orchestration");
-    expect(result).toContain("Use `memory recall` visibly");
+    expect(result).toContain("Use `memory catalog show` visibly");
+    expect(result).toContain("then inspect relevant files directly");
+    expect(result).toContain("either point them to the catalog/direct-file workflow");
+    expect(result).not.toContain("Use `memory recall` visibly");
     expect(result).toContain("Do not silently inject memory into workers");
     expect(result).toContain("Memory writes are explicit Journey responsibility");
   });

@@ -259,6 +259,41 @@ source:
     );
   });
 
+  it("keeps obsolete-field compatibility warnings out of normal catalog and recall output", async () => {
+    await writeMemoryFile(
+      "knowledge/dual-schema.md",
+      `
+id: old-id
+kind: current
+title: Old Title
+summary: Old summary.
+lifecycle: active
+canonicalFor:
+  - old-memory-schema
+description: New schema description stays visible.
+source:
+  - q-1220
+`,
+    );
+
+    const catalog = await runMemory(["catalog"], env);
+    expect(catalog.status).toBe(0);
+    expect(catalog.stdout).toContain("knowledge/dual-schema.md [knowledge] New schema description stays visible.");
+    expect(catalog.stdout).not.toContain("Obsolete memory frontmatter field");
+    expect(catalog.stdout).not.toContain("Issues:");
+
+    const recall = await runMemory(["recall", "schema"], env);
+    expect(recall.status).toBe(0);
+    expect(recall.stdout).toContain("knowledge/dual-schema.md");
+    expect(recall.stdout).not.toContain("Obsolete memory frontmatter field");
+    expect(recall.stdout).not.toContain("Issues:");
+
+    const lint = await runMemory(["lint"], env);
+    expect(lint.status).toBe(0);
+    expect(lint.stdout).toContain("Obsolete memory frontmatter field");
+    expect(lint.stdout).toContain("Memory lint found 0 errors and 6 warnings.");
+  });
+
   it("requires source refs as a YAML list in simplified frontmatter", async () => {
     await writeMemoryFile(
       "references/missing-source.md",
@@ -383,11 +418,14 @@ source:
     expect(help.stdout).toContain("Print the resolved repo root");
     expect(help.stdout).toContain("catalog [show]");
     expect(help.stdout).toContain("Show the repo root and list authored memory files");
+    expect(help.stdout).toContain("Prefer catalog/direct file inspection for normal orientation.");
     expect(help.stdout).toContain("description: one or two sentences for catalog orientation");
     expect(help.stdout).toContain("source: [q-1218, session:1476]");
     expect(help.stdout).toContain("id and kind are derived from the repo-relative file path.");
     expect(help.stdout).toContain("Canonical health check");
     expect(help.stdout).toContain("memory catalog show");
+    expect(help.stdout).toContain('rg "current task terms" "$(memory repo path)"');
+    expect(help.stdout).not.toContain('memory recall "current task terms"');
     expect(help.stdout).toContain("memory lock acquire --owner <session-or-role>");
     expect(help.stdout).toContain("edit Markdown files directly under the authored directories");
     expect(help.stdout).toContain("memory commit --message");

@@ -77,7 +77,8 @@ Commands:
   catalog [show]
       Show the repo root and list authored memory files from frontmatter.
   recall [query] [--kind current,knowledge] [--facet key:value] [--content] [--limit N]
-      Search memory descriptions, sources, facets, and optional content.
+      Compatibility search over memory descriptions, sources, facets, and optional content.
+      Prefer catalog/direct file inspection for normal orientation.
   lint
       Canonical health check for memory files and frontmatter.
   lock status|acquire|release [--owner NAME] [--ttl-ms N]
@@ -112,7 +113,7 @@ Common examples:
   memory repo path
   memory --server-slug dev repo path
   memory catalog show
-  memory recall "current task terms" --kind current --limit 5
+  rg "current task terms" "$(memory repo path)"
   memory lint
 
 Write flow:
@@ -196,7 +197,7 @@ function printCatalog(catalog: Awaited<ReturnType<typeof workstreamMemoryService
     console.log(`${entry.id} [${entry.kind}] ${entry.description}`);
     if (entry.source.length) console.log(`  source: ${entry.source.join(", ")}`);
   }
-  printIssues(catalog.issues);
+  printIssues(filterNormalReadIssues(catalog.issues));
 }
 
 function printIssues(issues: { severity: string; path?: string; message: string }[]): void {
@@ -206,6 +207,20 @@ function printIssues(issues: { severity: string; path?: string; message: string 
     const path = issue.path ? `${issue.path}: ` : "";
     console.log(`  ${issue.severity}: ${path}${issue.message}`);
   }
+}
+
+function filterNormalReadIssues(
+  issues: { severity: string; path?: string; message: string }[],
+): { severity: string; path?: string; message: string }[] {
+  return issues.filter((issue) => !isSafelyIgnoredObsoleteFrontmatterWarning(issue));
+}
+
+function isSafelyIgnoredObsoleteFrontmatterWarning(issue: { severity: string; message: string }): boolean {
+  return (
+    issue.severity === "warning" &&
+    issue.message.startsWith("Obsolete memory frontmatter field ") &&
+    issue.message.includes(" is ignored; derive it from path or use description/source.")
+  );
 }
 
 async function main(): Promise<void> {
@@ -257,7 +272,7 @@ async function main(): Promise<void> {
       if (match.entry.source.length) console.log(`  source: ${match.entry.source.join(", ")}`);
       if (match.content) console.log(`\n${match.content.trim()}\n`);
     }
-    printIssues(result.issues);
+    printIssues(filterNormalReadIssues(result.issues));
     return;
   }
 

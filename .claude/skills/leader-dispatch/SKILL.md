@@ -239,7 +239,7 @@ When sending this template through the shell, prefer `takode spawn --message-fil
 
 If the worker needs additional context (related sessions, rejected approaches, user decisions), add it to the quest description before dispatching. When exact prior messages, quests, or discussions are already known, point to those specific sources so the worker can inspect them directly with Takode and quest tools during alignment instead of broad exploration. Workers have the same tools and skills you do -- they run `quest show q-XX` themselves.
 
-When prior memory may affect dispatch or Alignment, use visible memory recall instead of hidden injection. Either run `memory recall "<quest or task terms>"` yourself for leader-side routing, or tell the worker the relevant terms/files to inspect during Alignment.
+When prior memory may affect dispatch or Alignment, use visible memory reads instead of hidden injection. Run `memory catalog show` yourself for leader-side routing, inspect relevant files directly, or tell the worker the relevant catalog/direct-file workflow and exact files to inspect during Alignment.
 
 This dispatch happens only after the user has approved the initial Journey from Step 5. The worker's alignment phase returns a lightweight read-in inside that approved Journey; it is not the first time phases are being proposed, and it is not a routine second user-approval gate.
 

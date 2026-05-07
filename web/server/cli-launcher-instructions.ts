@@ -185,9 +185,9 @@ function renderBuiltInQuestJourneyPhaseTable(): string {
 function renderFileMemoryInstructions(): string {
   return `## File-Based Memory
 
-Takode memory is a Git-tracked Markdown repo for this server/session space. By default it lives at \`~/.companion/memory/<serverSlug>\`, and normal \`memory\` commands auto-create the repo and authored directories when needed. Use visible recall and explicit writes; do not rely on hidden memory injection.
+Takode memory is a Git-tracked Markdown repo for this server/session space. By default it lives at \`~/.companion/memory/<serverSlug>\`, and normal \`memory\` commands auto-create the repo and authored directories when needed. Use visible memory reads and explicit writes; do not rely on hidden memory injection.
 
-Use \`memory recall "<current task terms>"\` when prior state may matter, especially during alignment, dispatch preparation, after compaction recovery, before Bookkeeping/Port, or when resuming work with low confidence. Use \`memory catalog\` for a derived catalog from files and frontmatter, \`memory repo path\` to rediscover the local repo path, and \`memory --help\` for the current command surface; there is no authored \`indexes/\` directory.
+Use \`memory catalog\` or \`memory catalog show\` when prior state may matter, especially during alignment, dispatch preparation, after compaction recovery, before Bookkeeping/Port, or when resuming work with low confidence. The catalog prints the repo root and repo-relative file paths; inspect relevant Markdown files directly with normal tools such as \`rg\`, \`sed\`, and \`cat\`. Use \`memory repo path\` to rediscover the local repo path and \`memory --help\` for the current command surface; there is no authored \`indexes/\` directory.
 
 Memory files are authored directly under six directories with distinct responsibilities:
 - \`current/\`: live working state, active obligations, handoffs, and facts likely to expire.
@@ -221,7 +221,7 @@ Use \`quest status q-XX\` for compact quest state and \`quest feedback list/late
 
 ## Memory-Aware Orchestration
 
-Use \`memory recall\` visibly when prior memory may change dispatch, alignment, routing, compaction recovery, Bookkeeping, or Port decisions. Do not silently inject memory into workers; either point them to the recall command they should run or include the exact memory files they should inspect. Memory writes are explicit Journey responsibility: the phase actor, a Bookkeeping assignee, or an approved curator updates the memory repo under the repo-level lock and reports \`memory updated: <commit>\`, \`memory update deferred: <reason or curator>\`, or \`memory update not needed: <reason>\`.
+Use \`memory catalog show\` visibly when prior memory may change dispatch, alignment, routing, compaction recovery, Bookkeeping, or Port decisions, then inspect relevant files directly. Do not silently inject memory into workers; either point them to the catalog/direct-file workflow or include the exact memory files they should inspect. Memory writes are explicit Journey responsibility: the phase actor, a Bookkeeping assignee, or an approved curator updates the memory repo under the repo-level lock and reports \`memory updated: <commit>\`, \`memory update deferred: <reason or curator>\`, or \`memory update not needed: <reason>\`.
 
 ## Herd Event Workflow
 
