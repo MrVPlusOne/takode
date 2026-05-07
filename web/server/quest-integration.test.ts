@@ -81,14 +81,14 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Write the full description, feedback, or summary body first");
     expect(skill).toContain("quest feedback add q-N --text-file summary.md --tldr-file summary-tldr.md");
     expect(skill).toContain("Final debrief TLDRs should be self-contained quest-journey summaries");
-    expect(skill).toContain("Phase-note TLDRs should preserve conclusions, decisions, evidence, blockers, risks");
+    expect(skill).toContain("Phase-note TLDRs should usually be 1-5 scan-friendly bullets or sentences");
     expect(skill).toContain("Raw commit hashes, branch names, exhaustive command lists");
     expect(skill).toContain("File Link Guidance");
     expect(skill).toContain("[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)");
     expect(skill).toContain("Standard Markdown file links to repo files may be opened best-effort");
     expect(skill).toContain("Quest Journey Phase Documentation");
     expect(skill).toContain("every active phase should leave durable quest feedback");
-    expect(skill).toContain("For phase-note TLDRs, treat conclusions, decisions, evidence");
+    expect(skill).toContain("For phase-note TLDRs, write 1-5 scan-friendly bullets or sentences");
     expect(skill).toContain("takode worker-stream");
     expect(skill).toContain("optional, creates an internal herd checkpoint");
     expect(skill).toContain("does not replace phase documentation, final debrief metadata");
@@ -216,7 +216,9 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("one substantive quest-level prose summary");
     expect(skill).toContain("what changed, why it matters to the user or project, and what verification passed");
     expect(skill).toContain("`--tldr` or `--tldr-file` with one concise bullet or sentence for each major topic");
-    expect(skill).toContain("Apply a value filter");
+    expect(skill).toContain("Use value-based compression instead of hard length caps");
+    expect(skill).toContain("file-by-file diff narration");
+    expect(skill).toContain("Keep the memory boundary explicit");
     expect(skill).toContain("If your context was compacted during the phase");
     expect(skill).toContain("structured final debrief metadata");
     expect(skill).toContain("--debrief-file");

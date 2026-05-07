@@ -134,7 +134,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(implementPhase?.assigneeBrief).toContain("those belong in `EXECUTING`");
     expect(implementPhase?.assigneeBrief).toContain("code/design reading");
     expect(implementPhase?.assigneeBrief).toContain("Phase documentation");
-    expect(implementPhase?.assigneeBrief).toContain("changed files or artifacts");
+    expect(implementPhase?.assigneeBrief).toContain("behavior or artifact change");
     expect(executePhase?.leaderBrief).toContain("Use `EXECUTING` instead of `IMPLEMENTING`");
     expect(executePhase?.assigneeBrief).toContain(
       "Do not turn this phase into the main implementation or debugging loop",
@@ -263,13 +263,13 @@ describe("Quest Journey phase directory loading", () => {
     const phaseSpecificExpectations = new Map([
       ["alignment", "concrete understanding"],
       ["explore", "evidence sources"],
-      ["implement", "changed files or artifacts"],
-      ["code-review", "review scope"],
+      ["implement", "behavior or artifact change"],
+      ["code-review", "verdict first"],
       ["mental-simulation", "scenarios replayed"],
       ["execute", "monitor and stop conditions"],
       ["outcome-review", "evidence judged"],
       ["user-checkpoint", "required user answer"],
-      ["bookkeeping", "shared records updated"],
+      ["bookkeeping", "records updated"],
       ["port", "ordered synced SHAs"],
     ]);
 
@@ -277,11 +277,12 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase.assigneeBrief).toContain("Phase documentation");
       expect(phase.assigneeBrief).toContain("quest feedback add q-N --text-file");
       expect(phase.assigneeBrief).toContain("--tldr-file");
-      expect(phase.assigneeBrief).toContain("preserves conclusions, decisions, evidence, blockers, risks");
-      expect(phase.assigneeBrief).toContain("Keep raw SHAs, branch names, exhaustive command lists");
+      expect(phase.assigneeBrief).toContain("preserve conclusions, decisions, evidence, blockers, risks");
+      expect(phase.assigneeBrief).toContain("Use value-based compression instead of hard length caps");
+      expect(phase.assigneeBrief).toContain("file-by-file diff narration");
+      expect(phase.assigneeBrief).toContain("Keep the memory boundary explicit");
       expect(phase.assigneeBrief).toContain("current-phase inference");
       expect(phase.assigneeBrief).toContain("--no-phase");
-      expect(phase.assigneeBrief).toContain("Apply a value filter");
       expect(phase.assigneeBrief).toContain("If context was compacted during this phase");
       expect(phase.assigneeBrief).toContain("Optional checkpoint");
       expect(phase.assigneeBrief).toContain("takode worker-stream");

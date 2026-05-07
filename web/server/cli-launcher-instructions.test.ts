@@ -137,6 +137,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("notify the user and wait");
     expect(result).toContain("Omit notes for standard phases by default");
     expect(result).toContain("Phase documentation should be useful, not ritual");
+    expect(result).toContain("Use value-based compression instead of hard length caps");
+    expect(result).toContain("file-by-file diff narration");
+    expect(result).toContain("Keep the memory boundary explicit");
     expect(result).toContain("Provide only deltas the actor is unlikely to infer");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");
@@ -215,9 +218,12 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("not a routine second user-approval gate");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Every active phase needs durable quest documentation");
-    expect(result).toContain("Phase-note TLDRs should preserve conclusions, decisions, evidence, blockers, risks");
+    expect(result).toContain("Phase-note TLDRs should be 1-5 scan-friendly bullets or sentences");
     expect(result).toContain("raw SHAs, branch names, exhaustive command lists");
     expect(result).toContain("Phase documentation should be useful, not ritual");
+    expect(result).toContain("Use value-based compression instead of hard length caps");
+    expect(result).toContain("file-by-file diff narration");
+    expect(result).toContain("Keep the memory boundary explicit");
     expect(result).toContain("Worker-stream checkpoints are optional early visibility");
     expect(result).toContain("takode worker-stream");
     expect(result).toContain("do not let it replace phase documentation");

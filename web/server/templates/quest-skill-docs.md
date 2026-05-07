@@ -118,7 +118,7 @@ TLDR metadata is for human scanning, but it must not hide major parts of the ful
 - One TLDR bullet or sentence is fine only when the source truly has one main point.
 - For multi-topic content, use multiple bullets or sentences, roughly compressing every one to two paragraphs or major sections into one concise TLDR item.
 - Final debrief TLDRs should be self-contained quest-journey summaries: what issue or need drove the work, what was accomplished, why the solution works, and the key technical or product decisions and findings.
-- Phase-note TLDRs should preserve conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes. Omit incidental low-level details unless they are central to understanding that phase.
+- Phase-note TLDRs should usually be 1-5 scan-friendly bullets or sentences. Preserve conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes; omit incidental low-level details unless they are central to understanding that phase.
 - Raw commit hashes, branch names, exhaustive command lists, detailed verification mechanics, and routine file paths belong in port notes, structured commit metadata, detailed bodies, or verification sections when useful. They should not consume scarce TLDR space unless the exact detail is itself important.
 - Keep the full content complete and agent-readable while making the TLDR human-scannable without being lossy.
 
@@ -130,9 +130,13 @@ When quest feedback, comments, summaries, notes, or phase documentation refer to
 
 When a quest is running through a Quest Journey, every active phase should leave durable quest feedback before handoff or phase end. The entry should be scoped to the current phase when possible, contain full agent-oriented detail for future sessions, and include TLDR metadata for human scanning when the body has more than one small point.
 
-For phase-note TLDRs, treat conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes as the main points to preserve. Low-level details such as full SHAs, branch names, command lists, and routine verification mechanics belong in the full phase body or port metadata unless that exact detail is the point of the phase.
+Use value-based compression instead of hard length caps. High-value phase-note content includes phase-local decisions, blockers, recovery context, review judgments, user choices, external artifact state, residual risks, and next-phase handoff facts. Low-value content includes file-by-file diff narration, exhaustive command transcripts, routine green test lists, branch hygiene narration, copied tool output, generic review checklists, and repeated commit metadata that Git or Questmaster already preserves. Include low-level details only when they explain non-obvious risk, recovery, verification, or external state.
 
-Apply a value filter: include facts future readers or sessions would actually need; avoid boilerplate, facts obvious from the final artifact, and substantial duplication across phases. If your context was compacted during the phase, or if memory confidence is low, reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
+For phase-note TLDRs, write 1-5 scan-friendly bullets or sentences after the full body. Preserve conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes. Raw SHAs, branch names, command lists, routine paths, detailed verification mechanics, and routine file lists should stay out of TLDR space unless that exact detail is central to understanding the phase.
+
+Keep the memory boundary explicit. Quest phase notes should answer what happened in this phase and what the next phase needs. File-based memory should preserve durable cross-quest knowledge, procedures, decisions, references, and artifact manifests. A phase note normally needs only one memory outcome line or a pointer to the memory commit when memory matters.
+
+If your context was compacted during the phase, or if memory confidence is low, reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 
 For valuable nontrivial phase outcomes, a worker or reviewer may run `takode worker-stream` after the substantive result is ready so the leader can start reading while required paperwork finishes. This is optional, creates an internal herd checkpoint, and does not replace phase documentation, final debrief metadata, or leader-owned phase transitions.
 
@@ -145,16 +149,16 @@ quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md 
 Use `--kind phase-finding` for exploration findings, `--kind review` for review phases, or `--kind artifact` for execution artifacts when that better describes the entry. If inference is unavailable or ambiguous, attach manually with `--phase`, `--phase-position`, `--phase-occurrence`, `--phase-occurrence-id`, or `--journey-run`. Use `--no-phase` only when you intentionally want a flat unscoped feedback entry, such as legacy/non-Journey quest notes.
 
 Write phase documentation for the phase that just ran:
-- Alignment: concrete understanding, ambiguities, clarification questions, blockers, surprises, and Journey-revision evidence.
-- Explore: findings, evidence sources, ambiguities or blockers, implementation considerations, and Journey-revision evidence.
-- Implement: changed files or artifacts, rationale, verification, remaining risks, and addressed feedback.
-- Code Review: review scope, aspects covered, evidence checked, findings or ACCEPT rationale, and documentation hygiene judgment.
-- Mental Simulation: scenarios replayed, concrete examples, risks, recommendations, and confidence limits.
-- Execute: approved action, monitor and stop conditions, outcome, deviations, artifact or log locations, and follow-up needs.
-- Outcome Review: evidence judged, acceptance or insufficiency rationale, bounded reruns, and follow-up routing.
-- User Checkpoint: findings, options, tradeoffs, recommendation, required user answer, and Journey-revision implications.
-- Bookkeeping: cross-phase or external durable state beyond normal phase notes, such as records updated, consolidated summaries, final debrief metadata after port when the port worker could not reliably create it, verification checklist reconciliation, superseded facts, external locations, notification/thread cleanup, and durable handoff facts.
-- Port: ordered synced SHAs, post-port verification, port anomalies, remaining sync risks, and final debrief metadata status or draft.
+- Alignment: concrete understanding, constraints, ambiguities, clarification questions, blockers, surprises, and Journey-revision evidence. Avoid prewriting implementation plans unless that is the blocker.
+- Explore: evidence sources, findings, confidence limits, ambiguities or blockers, options or implementation considerations, and Journey-revision evidence. Summarize log-heavy evidence and link artifacts instead of pasting transcripts.
+- Implement: behavior or artifact change, key design choices, verification categories, remaining risks, and addressed feedback. Mention files only as entry points or when their role is non-obvious; do not narrate the diff file by file.
+- Code Review: verdict first; if there are findings, lead with them. Include decisive evidence, meaningful review aspects, risk reasoning, and documentation hygiene judgment. Do not restate the entire diff or every green command.
+- Mental Simulation: scenarios replayed, outcomes, concrete examples, risks, recommendations, and confidence limits. Avoid generic evidence inventories unless an evidence source changed a scenario judgment.
+- Execute: approved action, monitor and stop conditions, outcome, deviations, artifact or log locations, cleanup or retention decisions, residual risks, and follow-up needs. Keep raw logs out unless the excerpt is the evidence.
+- Outcome Review: evidence judged, ACCEPT or insufficiency rationale, bounded reruns, residual risks, and follow-up routing. Avoid turning it into a second Execute transcript.
+- User Checkpoint: findings, options, tradeoffs, recommendation, required user answer, actual user decision when known, and Journey-revision implications.
+- Bookkeeping: records updated, superseded facts, external locations, durable handoff facts, final metadata gaps, and memory updates or deferrals. Avoid replaying the whole quest when a targeted consolidation or memory pointer is enough.
+- Port: ordered synced SHAs, post-port verification categories, port anomalies, remaining sync risks, final debrief metadata status or draft, and memory statement. Omit branch command transcripts unless recovery depended on them.
 
 Reviewers should check documentation quality, not just whether a comment exists. Good phase documentation is relevant to the phase, includes useful full detail, has TLDR metadata that preserves major points when appropriate, and is correctly phase-associated when the phase-scoped primitive is available.
 
