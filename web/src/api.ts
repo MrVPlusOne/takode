@@ -1197,16 +1197,18 @@ export const api = {
   // Memory (catalog-first file-based memory inspection)
   listMemorySpaces: () => get<MemorySpacesResponse>("/memory/spaces"),
 
-  getMemoryCatalog: (opts?: { serverSlug?: string }) => {
+  getMemoryCatalog: (opts?: { serverSlug?: string; root?: string }) => {
     const params = new URLSearchParams();
     if (opts?.serverSlug) params.set("serverSlug", opts.serverSlug);
+    if (opts?.root) params.set("root", opts.root);
     const qs = params.toString();
     return get<MemoryCatalogResponse>(`/memory/catalog${qs ? `?${qs}` : ""}`);
   },
 
-  getMemoryRecord: (opts: { serverSlug?: string; path: string }) => {
+  getMemoryRecord: (opts: { serverSlug?: string; root?: string; path: string }) => {
     const params = new URLSearchParams({ path: opts.path });
     if (opts.serverSlug) params.set("serverSlug", opts.serverSlug);
+    if (opts.root) params.set("root", opts.root);
     return get<MemoryRecordResponse>(`/memory/records?${params.toString()}`);
   },
 

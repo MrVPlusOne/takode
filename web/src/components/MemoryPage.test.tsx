@@ -37,6 +37,16 @@ function spacesResponse(): MemorySpacesResponse {
         serverId: "server-test",
       },
       {
+        slug: "prod",
+        root: "/Users/test/.companion/memory/prod/Other",
+        current: false,
+        initialized: true,
+        authoredDirs: ["current"],
+        hasAuthoredData: true,
+        sessionSpaceSlug: "Other",
+        serverId: "server-test",
+      },
+      {
         slug: "dev",
         root: "/Users/test/.companion/memory/dev",
         current: false,
@@ -94,6 +104,33 @@ function catalogResponse(): MemoryCatalogResponse {
   };
 }
 
+function otherCatalogResponse(): MemoryCatalogResponse {
+  return {
+    ...catalogResponse(),
+    repo: {
+      root: "/Users/test/.companion/memory/prod/Other",
+      serverId: "server-test",
+      serverSlug: "prod",
+      sessionSpaceSlug: "Other",
+      initialized: true,
+      authoredDirs: ["current"],
+    },
+    entries: [
+      {
+        id: "current/other-state.md",
+        kind: "current",
+        path: "current/other-state.md",
+        description: "Other session-space state.",
+        source: ["q-1237"],
+        facets: {},
+      },
+    ],
+    issues: [],
+    issueCounts: { errors: 0, warnings: 0 },
+    git: { dirty: false, status: "", statusEntries: [], recentCommits: [] },
+  };
+}
+
 function recordResponse(): MemoryRecordResponse {
   return {
     repo: catalogResponse().repo,
@@ -118,12 +155,34 @@ function recordResponse(): MemoryRecordResponse {
   };
 }
 
+function otherRecordResponse(): MemoryRecordResponse {
+  return {
+    repo: otherCatalogResponse().repo,
+    file: {
+      id: "current/other-state.md",
+      kind: "current",
+      path: "current/other-state.md",
+      absolutePath: "/Users/test/.companion/memory/prod/Other/current/other-state.md",
+      description: "Other session-space state.",
+      source: ["q-1237"],
+      frontmatter: {},
+      body: "Other memory detail.",
+      content: "---\ndescription: Other session-space state.\n---\n\nOther memory detail.",
+    },
+    issues: [],
+  };
+}
+
 describe("MemoryPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mockListMemorySpaces.mockResolvedValue(spacesResponse());
-    mockGetMemoryCatalog.mockResolvedValue(catalogResponse());
-    mockGetMemoryRecord.mockResolvedValue(recordResponse());
+    mockGetMemoryCatalog.mockImplementation((opts?: { root?: string }) =>
+      Promise.resolve(opts?.root?.endsWith("/Other") ? otherCatalogResponse() : catalogResponse()),
+    );
+    mockGetMemoryRecord.mockImplementation((opts?: { root?: string }) =>
+      Promise.resolve(opts?.root?.endsWith("/Other") ? otherRecordResponse() : recordResponse()),
+    );
     mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "source", commandId: "cmd" });
   });
 
@@ -133,6 +192,7 @@ describe("MemoryPage", () => {
 
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeInTheDocument();
     expect(screen.getAllByText("prod/Takode").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("prod/Other").length).toBeGreaterThan(0);
     expect(screen.getByText("dev")).toBeInTheDocument();
     expect(await screen.findByText("1 warnings")).toBeInTheDocument();
     expect(screen.getByText("dirty")).toBeInTheDocument();
@@ -148,6 +208,26 @@ describe("MemoryPage", () => {
       expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
         absolutePath: "/Users/test/.companion/memory/prod/Takode/knowledge/service-x.md",
         targetKind: "file",
+      }),
+    );
+  });
+
+  it("selects memory spaces by root when sibling session spaces share a server slug", async () => {
+    render(<MemoryPage embedded />);
+
+    expect(await screen.findByText("Service X is started through a local dev command.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /prod\/Other/ }));
+
+    await waitFor(() =>
+      expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
+        root: "/Users/test/.companion/memory/prod/Other",
+      }),
+    );
+    expect(await screen.findByText("Other memory detail.")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockGetMemoryRecord).toHaveBeenLastCalledWith({
+        root: "/Users/test/.companion/memory/prod/Other",
+        path: "current/other-state.md",
       }),
     );
   });

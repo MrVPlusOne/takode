@@ -356,7 +356,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const [recordState, setRecordState] = useState<
     LoadState<MemoryRecordResponse> | { status: "idle"; data: null; error: null }
   >({ status: "idle", data: null, error: null });
-  const [selectedSlug, setSelectedSlug] = useState<string | null>(null);
+  const [selectedRoot, setSelectedRoot] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [query, setQuery] = useState("");
   const [kindFilter, setKindFilter] = useState<MemoryKind | "all">("all");
@@ -369,9 +369,9 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
       .then((data) => {
         if (cancelled) return;
         setSpacesState({ status: "ready", data, error: null });
-        const preferredSlug = data.currentServerSlug || data.spaces[0]?.slug || null;
-        setSelectedSlug((current) =>
-          current && data.spaces.some((space) => space.slug === current) ? current : preferredSlug,
+        const preferredRoot = data.spaces.find((space) => space.current)?.root ?? data.spaces[0]?.root ?? null;
+        setSelectedRoot((current) =>
+          current && data.spaces.some((space) => space.root === current) ? current : preferredRoot,
         );
       })
       .catch((error) => {
@@ -389,12 +389,12 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   }, []);
 
   useEffect(() => {
-    if (!selectedSlug) return;
+    if (!selectedRoot) return;
     let cancelled = false;
     setCatalogState({ status: "loading", data: null, error: null });
     setRecordState({ status: "idle", data: null, error: null });
     api
-      .getMemoryCatalog({ serverSlug: selectedSlug })
+      .getMemoryCatalog({ root: selectedRoot })
       .then((data) => {
         if (cancelled) return;
         setCatalogState({ status: "ready", data, error: null });
@@ -414,17 +414,17 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedSlug]);
+  }, [selectedRoot]);
 
   useEffect(() => {
-    if (!selectedSlug || !selectedPath) {
+    if (!selectedRoot || !selectedPath) {
       setRecordState({ status: "idle", data: null, error: null });
       return;
     }
     let cancelled = false;
     setRecordState({ status: "loading", data: null, error: null });
     api
-      .getMemoryRecord({ serverSlug: selectedSlug, path: selectedPath })
+      .getMemoryRecord({ root: selectedRoot, path: selectedPath })
       .then((data) => {
         if (!cancelled) setRecordState({ status: "ready", data, error: null });
       })
@@ -440,7 +440,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedSlug, selectedPath]);
+  }, [selectedRoot, selectedPath]);
 
   const catalog = catalogState.data;
   const pathIssues = useMemo(() => issuesByPath(catalog?.issues ?? []), [catalog?.issues]);
@@ -451,7 +451,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
       ),
     [catalog?.entries, kindFilter, query],
   );
-  const selectedSpace = spacesState.data?.spaces.find((space) => space.slug === selectedSlug) ?? null;
+  const selectedSpace = spacesState.data?.spaces.find((space) => space.root === selectedRoot) ?? null;
   const selectedRecordPath = recordState.status === "ready" ? recordState.data.file.absolutePath : selectedSpace?.root;
 
   return (
@@ -462,11 +462,11 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
             <div className="min-w-0">
               <div className="flex flex-wrap items-center gap-2">
                 <h1 className="text-lg font-semibold text-cc-fg">Memory</h1>
-                {selectedSlug ? (
+                {selectedSpace ? (
                   <span className="rounded border border-cc-border bg-cc-hover px-2 py-0.5 font-mono text-[11px] text-cc-muted">
                     {selectedSpace?.sessionSpaceSlug
-                      ? `${selectedSlug}/${selectedSpace.sessionSpaceSlug}`
-                      : selectedSlug}
+                      ? `${selectedSpace.slug}/${selectedSpace.sessionSpaceSlug}`
+                      : selectedSpace.slug}
                   </span>
                 ) : null}
                 <span className={`rounded border px-2 py-0.5 text-[11px] ${healthTone(catalog)}`}>
@@ -497,9 +497,9 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
               <button
                 type="button"
                 onClick={() =>
-                  selectedSlug &&
+                  selectedRoot &&
                   api
-                    .getMemoryCatalog({ serverSlug: selectedSlug })
+                    .getMemoryCatalog({ root: selectedRoot })
                     .then((data) => setCatalogState({ status: "ready", data, error: null }))
                     .catch((error) =>
                       setCatalogState({
@@ -578,9 +578,9 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
                   <SpaceButton
                     key={`${space.slug}-${space.root}`}
                     space={space}
-                    selected={selectedSlug === space.slug}
+                    selected={selectedRoot === space.root}
                     onSelect={() => {
-                      setSelectedSlug(space.slug);
+                      setSelectedRoot(space.root);
                       setSelectedPath(null);
                     }}
                   />

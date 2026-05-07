@@ -43,6 +43,15 @@ describe("memory routes", () => {
   ): Promise<string> {
     const root =
       slug === "prod" ? join(home, ".companion", "memory", slug, "Takode") : join(home, ".companion", "memory", slug);
+    return writeMemoryFileAtRoot(root, path, frontmatter, body);
+  }
+
+  async function writeMemoryFileAtRoot(
+    root: string,
+    path: string,
+    frontmatter: string,
+    body = "Body text.",
+  ): Promise<string> {
     const absolutePath = join(root, path);
     await mkdir(join(absolutePath, ".."), { recursive: true });
     await writeFile(absolutePath, `---\n${frontmatter.trim()}\n---\n\n${body}\n`, "utf-8");
@@ -205,6 +214,87 @@ source:
       body: "Sibling catalog detail should load read-only.",
     });
     await expect(access(join(home, ".companion", "memory", "lab-clean-space", ".git"))).rejects.toThrow();
+  });
+
+  it("selects nested session spaces by root when one server slug has multiple spaces", async () => {
+    // Verifies the Memory API can address sibling session spaces that share a server slug.
+    const takodeRoot = join(home, ".companion", "memory", "prod", "Takode");
+    const otherRoot = join(home, ".companion", "memory", "prod", "Other");
+    await writeMemoryFileAtRoot(
+      takodeRoot,
+      "current/takode-state.md",
+      `
+description: Takode session-space memory.
+source:
+  - q-1237
+`,
+      "Takode detail.",
+    );
+    await writeMemoryFileAtRoot(
+      otherRoot,
+      "current/other-state.md",
+      `
+description: Other session-space memory.
+source:
+  - q-1237
+`,
+      "Other detail.",
+    );
+
+    const app = await makeApp();
+    const spacesRes = await app.request("/memory/spaces");
+
+    expect(spacesRes.status).toBe(200);
+    const spaces = await spacesRes.json();
+    expect(spaces.spaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ slug: "prod", sessionSpaceSlug: "Takode", root: takodeRoot }),
+        expect.objectContaining({ slug: "prod", sessionSpaceSlug: "Other", root: otherRoot }),
+      ]),
+    );
+
+    const otherCatalogRes = await app.request(`/memory/catalog?root=${encodeURIComponent(otherRoot)}`);
+
+    expect(otherCatalogRes.status).toBe(200);
+    const otherCatalog = await otherCatalogRes.json();
+    expect(otherCatalog.repo).toMatchObject({
+      root: otherRoot,
+      serverSlug: "prod",
+      sessionSpaceSlug: "Other",
+    });
+    expect(otherCatalog.entries).toEqual([
+      expect.objectContaining({
+        path: "current/other-state.md",
+        description: "Other session-space memory.",
+      }),
+    ]);
+
+    const takodeCatalogRes = await app.request(`/memory/catalog?root=${encodeURIComponent(takodeRoot)}`);
+
+    expect(takodeCatalogRes.status).toBe(200);
+    const takodeCatalog = await takodeCatalogRes.json();
+    expect(takodeCatalog.repo).toMatchObject({
+      root: takodeRoot,
+      serverSlug: "prod",
+      sessionSpaceSlug: "Takode",
+    });
+    expect(takodeCatalog.entries).toEqual([
+      expect.objectContaining({
+        path: "current/takode-state.md",
+        description: "Takode session-space memory.",
+      }),
+    ]);
+
+    const recordRes = await app.request(
+      `/memory/records?root=${encodeURIComponent(otherRoot)}&path=${encodeURIComponent("current/other-state.md")}`,
+    );
+
+    expect(recordRes.status).toBe(200);
+    const record = await recordRes.json();
+    expect(record.file).toMatchObject({
+      path: "current/other-state.md",
+      body: "Other detail.",
+    });
   });
 
   it("preserves active server slug migration-conflict protection", async () => {

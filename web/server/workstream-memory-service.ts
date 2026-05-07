@@ -29,8 +29,8 @@ export class WorkstreamMemoryService {
     return resolveMemoryRepo(options);
   }
 
-  resolveSpaceOptions(serverSlug?: string) {
-    return resolveMemoryOptionsForSpace(serverSlug);
+  resolveSpaceOptions(input?: { serverSlug?: string; root?: string }) {
+    return resolveMemoryOptionsForSpace(input);
   }
 
   ensureRepo(options?: MemoryRepoOptions) {

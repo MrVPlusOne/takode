@@ -86,8 +86,20 @@ export function resolveMemoryRepo(options: MemoryRepoOptions = {}): MemoryRepoIn
   return publicRepoInfo(resolveMemoryRepoInternal(options));
 }
 
-export async function resolveMemoryOptionsForSpace(serverSlug: string | undefined): Promise<MemoryRepoOptions> {
-  const normalizedSlug = normalizeServerSlug(serverSlug ?? "");
+export async function resolveMemoryOptionsForSpace(
+  input: { serverSlug?: string; root?: string } = {},
+): Promise<MemoryRepoOptions> {
+  const requestedRoot = input.root?.trim();
+  if (requestedRoot) {
+    const spaces = await listMemorySpaces();
+    const space = spaces.find((item) => resolve(item.root) === resolve(requestedRoot));
+    if (!space) {
+      throw new Error(`Unknown memory space root: ${requestedRoot}`);
+    }
+    return memoryOptionsForSpace(space);
+  }
+
+  const normalizedSlug = normalizeServerSlug(input.serverSlug ?? "");
   if (!normalizedSlug) return {};
 
   const current = resolveMemoryRepoInternal();
@@ -101,13 +113,7 @@ export async function resolveMemoryOptionsForSpace(serverSlug: string | undefine
     return { serverSlug: normalizedSlug };
   }
 
-  return {
-    root: sibling.root,
-    serverSlug: sibling.slug,
-    ...(sibling.sessionSpaceSlug ? { sessionSpaceSlug: sibling.sessionSpaceSlug } : {}),
-    readOnly: true,
-    ...(sibling.serverId ? { serverId: sibling.serverId } : {}),
-  };
+  return memoryOptionsForSpace(sibling);
 }
 
 function resolveMemoryRepoInternal(options: MemoryRepoOptions = {}): ResolvedMemoryRepo {
@@ -260,6 +266,16 @@ export async function listMemorySpaces(options: MemoryRepoOptions = {}): Promise
   }
 
   return [...spaces.values()].sort((a, b) => Number(b.current) - Number(a.current) || a.slug.localeCompare(b.slug));
+}
+
+function memoryOptionsForSpace(space: MemorySpaceInfo): MemoryRepoOptions {
+  return {
+    root: space.root,
+    serverSlug: space.slug,
+    ...(space.sessionSpaceSlug ? { sessionSpaceSlug: space.sessionSpaceSlug } : {}),
+    readOnly: !space.current,
+    ...(space.serverId ? { serverId: space.serverId } : {}),
+  };
 }
 
 export async function recallMemory(

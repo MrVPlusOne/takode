@@ -39,6 +39,14 @@ function parseGitStatus(status: string): MemoryGitStatusEntry[] {
     }));
 }
 
+async function resolveMemorySpaceOptions(c: { req: { query: (name: string) => string | undefined } }) {
+  const { workstreamMemoryService } = await import("../workstream-memory-service.js");
+  return workstreamMemoryService.resolveSpaceOptions({
+    serverSlug: c.req.query("serverSlug"),
+    root: c.req.query("root"),
+  });
+}
+
 export function createMemoryRoutes(_ctx: RouteContext) {
   const api = new Hono();
 
@@ -56,7 +64,12 @@ export function createMemoryRoutes(_ctx: RouteContext) {
 
   api.get("/memory/catalog", async (c) => {
     const { workstreamMemoryService } = await import("../workstream-memory-service.js");
-    const options = await workstreamMemoryService.resolveSpaceOptions(c.req.query("serverSlug"));
+    let options;
+    try {
+      options = await resolveMemorySpaceOptions(c);
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
+    }
     if (!options.readOnly) {
       await workstreamMemoryService.ensureRepo(options);
     }
@@ -87,8 +100,8 @@ export function createMemoryRoutes(_ctx: RouteContext) {
     if (!path) return c.json({ error: "path query parameter is required" }, 400);
 
     const { workstreamMemoryService } = await import("../workstream-memory-service.js");
-    const options = await workstreamMemoryService.resolveSpaceOptions(c.req.query("serverSlug"));
     try {
+      const options = await resolveMemorySpaceOptions(c);
       const record = await workstreamMemoryService.readRecord(path, options);
       const catalog = await workstreamMemoryService.catalog(options);
       return c.json({
