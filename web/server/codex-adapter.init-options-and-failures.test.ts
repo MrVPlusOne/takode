@@ -194,6 +194,10 @@ describe("CodexAdapter", () => {
   });
 
   it("captures transport-close diagnostics for skills/changed refresh failures", async () => {
+    // With coalesced skill refresh, skills/changed marks skills stale and
+    // schedules a 500ms debounce timer. If the transport closes before the
+    // timer fires, the diagnostics capture the stale/deferred state rather
+    // than an in-flight skills/list RPC.
     const recorder = {
       record: vi.fn(),
       recordServerEvent: vi.fn(),
@@ -239,16 +243,14 @@ describe("CodexAdapter", () => {
         sandbox: "danger-full-access",
       }),
     );
-    expect(diagnostics?.pendingRpcRequests).toEqual(
-      expect.arrayContaining([expect.objectContaining({ method: "skills/list", ageMs: expect.any(Number) })]),
-    );
-    expect(diagnostics?.skillRefresh.inFlight).toEqual([
-      expect.objectContaining({ cause: "skills_changed", forceReload: true, cwds: ["/my/project"] }),
-    ]);
+    // Coalesced: skills/list hasn't been sent yet, so no in-flight refresh
+    expect(diagnostics?.skillRefresh.inFlightCount).toBe(0);
+    // But the stale/stats fields reveal the deferred refresh
+    expect(diagnostics?.skillRefresh.stale).toBe(true);
+    expect(diagnostics?.skillRefresh.stats.deferred).toBeGreaterThanOrEqual(0);
     expect(diagnostics?.transport?.recentIncoming.at(-1)).toEqual(
       expect.objectContaining({ method: "skills/changed" }),
     );
-    expect(diagnostics?.transport?.recentOutgoing.at(-1)).toEqual(expect.objectContaining({ method: "skills/list" }));
     expect(diagnostics?.recording).toEqual(expect.objectContaining({ filePath: "/tmp/session.jsonl", lineCount: 12 }));
     expect(recorder.recordServerEvent).toHaveBeenCalledWith(
       "test-session",

@@ -26,6 +26,7 @@ import {
 } from "./cli-launcher-env.js";
 import { resolveBinary, getEnrichedPath, captureUserShellEnv } from "./path-resolver.js";
 import { sessionTag } from "./session-tag.js";
+import { isDeprecatedProjectSkillSlug } from "./skill-symlink.js";
 
 const shellEnvPolicySection = "shell_environment_policy";
 const shellEnvPolicyHeader = `[${shellEnvPolicySection}]`;
@@ -845,13 +846,19 @@ async function migrateLegacyCodexSkillsToAgentsHome(
   options?: { filterImagegenSkill?: boolean },
 ): Promise<void> {
   const dest = agentsSkillsHome;
-  const excludedRelativePaths = options?.filterImagegenSkill ? new Set([imagegenSkillRelativePath]) : undefined;
+  const excludedRelativePaths = options?.filterImagegenSkill ? new Set([imagegenSkillRelativePath]) : new Set<string>();
 
   const legacyCandidates = Array.from(
     new Set([join(sourceHome, "skills"), join(getLegacyCodexHome(), "skills")].map((candidate) => resolve(candidate))),
   );
   for (const legacySkillsHome of legacyCandidates) {
     if (legacySkillsHome === resolve(dest)) continue;
+    const entries = await readdir(legacySkillsHome, { withFileTypes: true }).catch(() => []);
+    for (const entry of entries) {
+      if (isDeprecatedProjectSkillSlug(entry.name)) {
+        excludedRelativePaths.add(entry.name);
+      }
+    }
     await mergeSkillDirectory(legacySkillsHome, dest, {
       overwriteExisting: false,
       excludedRelativePaths,

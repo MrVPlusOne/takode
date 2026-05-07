@@ -148,6 +148,7 @@ describe("ensureSkillSymlinks", () => {
   it("skips deprecated Quest Journey aliases and removes stale global installs", async () => {
     // Legacy phase aliases remain board/catalog compatibility metadata, but
     // their old skill slugs must not be rediscovered as active worker skills.
+    // Cleanup runs across all three homes: ~/.claude, ~/.agents, and ~/.codex.
     const deprecatedSlugs = [
       "quest-journey-planning",
       "quest-journey-implementation",
@@ -186,6 +187,9 @@ describe("ensureSkillSymlinks", () => {
       if (targetDir === "/home/tester/.agents/skills/quest-journey-porting") {
         return { isSymbolicLink: () => false };
       }
+      if (targetDir === "/home/tester/.codex/skills/quest-journey-porting") {
+        return { isSymbolicLink: () => true };
+      }
       throw missingPathError();
     });
 
@@ -207,6 +211,7 @@ describe("ensureSkillSymlinks", () => {
     expect(fsMocks.rmSync).toHaveBeenCalledWith("/home/tester/.agents/skills/quest-journey-porting", {
       recursive: true,
     });
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.codex/skills/quest-journey-porting");
   });
 
   it("ignores repo-local legacy Codex skill directories for active installs", async () => {

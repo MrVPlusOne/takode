@@ -117,6 +117,7 @@ function removeDeprecatedProjectSkillSymlinks(): void {
   for (const slug of DEPRECATED_PROJECT_SKILL_SLUGS) {
     removeDeprecatedProjectSkillPath(join(CLAUDE_SKILLS_HOME, slug));
     removeDeprecatedProjectSkillPath(join(AGENTS_SKILLS_HOME, slug));
+    removeDeprecatedProjectSkillPath(join(LEGACY_CODEX_SKILLS_HOME, slug));
   }
 }
 
@@ -134,7 +135,7 @@ function removeDeprecatedProjectSkillPath(targetDir: string): void {
   }
 }
 
-function isDeprecatedProjectSkillSlug(slug: string): boolean {
+export function isDeprecatedProjectSkillSlug(slug: string): boolean {
   return DEPRECATED_PROJECT_SKILL_SLUGS.has(slug);
 }
 

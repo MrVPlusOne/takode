@@ -95,6 +95,9 @@ export interface CodexAdapterDisconnectDiagnostics {
     inFlightCount: number;
     inFlight: CodexSkillRefreshDiagnostics[];
     last: CodexSkillRefreshDiagnostics | null;
+    stats: { coalesced: number; deferred: number; executed: number; failed: number };
+    stale: boolean;
+    retryCount: number;
   };
   stderrTail: string | null;
   resource: {
@@ -192,6 +195,14 @@ export class CodexAdapter
   private lastDisconnectDiagnostics: CodexAdapterDisconnectDiagnostics | null = null;
   private inFlightSkillRefreshes = new Map<string, CodexSkillRefreshDiagnostics>();
   private lastSkillRefreshDiagnostics: CodexSkillRefreshDiagnostics | null = null;
+
+  // Coalesced skill refresh state
+  private _pendingSkillRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  private _skillsStale = false;
+  private _skillRefreshRetryCount = 0;
+  private static readonly SKILL_REFRESH_COALESCE_MS = 500;
+  private static readonly SKILL_REFRESH_MAX_BACKOFF_MS = 30_000;
+  skillRefreshStats = { coalesced: 0, deferred: 0, executed: 0, failed: 0 };
 
   private itemEventManager: CodexItemEventManager;
   private mcpManager: CodexMcpManager;
@@ -307,6 +318,7 @@ export class CodexAdapter
       this.connected = false;
       // Wake any turn-end waiters so they don't hang after disconnect
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+      this._clearSkillRefreshTimer();
       this.itemEventManager.dispose();
       this.approvalManager.dispose();
       this.disconnectCb?.();
@@ -332,6 +344,7 @@ export class CodexAdapter
       );
       this.connected = false;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+      this._clearSkillRefreshTimer();
       this.itemEventManager.dispose();
       this.approvalManager.dispose();
       this.disconnectCb?.();
@@ -408,6 +421,57 @@ export class CodexAdapter
     return [...deduped.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
+  private _scheduleSkillRefresh(): void {
+    this._skillsStale = true;
+    if (this.currentTurnId) {
+      this.skillRefreshStats.deferred++;
+      return;
+    }
+    if (this._pendingSkillRefreshTimer) {
+      clearTimeout(this._pendingSkillRefreshTimer);
+      this.skillRefreshStats.coalesced++;
+    }
+    this._pendingSkillRefreshTimer = setTimeout(
+      () => this._executeCoalescedRefresh(),
+      CodexAdapter.SKILL_REFRESH_COALESCE_MS,
+    );
+  }
+
+  private _executeCoalescedRefresh(): void {
+    this._pendingSkillRefreshTimer = null;
+    if (!this._skillsStale) return;
+    this._skillsStale = false;
+    this.skillRefreshStats.executed++;
+
+    this.refreshSkills(true, "skills_changed").then(
+      () => {
+        this._skillRefreshRetryCount = 0;
+      },
+      (err) => {
+        this.skillRefreshStats.failed++;
+        console.warn(`[codex-adapter] Coalesced skill refresh failed for session ${this.sessionId}:`, err);
+        this._skillsStale = true;
+        this._skillRefreshRetryCount++;
+        const backoffMs = Math.min(
+          CodexAdapter.SKILL_REFRESH_COALESCE_MS * 2 ** this._skillRefreshRetryCount,
+          CodexAdapter.SKILL_REFRESH_MAX_BACKOFF_MS,
+        );
+        this._pendingSkillRefreshTimer = setTimeout(() => this._executeCoalescedRefresh(), backoffMs);
+      },
+    );
+  }
+
+  _drainStaleSkillRefresh(): void {
+    if (this._skillsStale) this._scheduleSkillRefresh();
+  }
+
+  _clearSkillRefreshTimer(): void {
+    if (this._pendingSkillRefreshTimer) {
+      clearTimeout(this._pendingSkillRefreshTimer);
+      this._pendingSkillRefreshTimer = null;
+    }
+  }
+
   private startSkillRefreshDiagnostics(
     cause: CodexSkillRefreshCause,
     forceReload: boolean,
@@ -477,6 +541,9 @@ export class CodexAdapter
         inFlightCount: this.inFlightSkillRefreshes.size,
         inFlight: [...this.inFlightSkillRefreshes.values()],
         last: this.lastSkillRefreshDiagnostics,
+        stats: { ...this.skillRefreshStats },
+        stale: this._skillsStale,
+        retryCount: this._skillRefreshRetryCount,
       },
       stderrTail: this.options.failureContextProvider?.() || null,
       resource: {
@@ -1074,6 +1141,7 @@ export class CodexAdapter
       );
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+      this._drainStaleSkillRefresh();
       if (this.emitCompletedResultForHandledWriteStdinRouterError(expectedTurnId)) {
         return true;
       }
@@ -1144,6 +1212,7 @@ export class CodexAdapter
             `[codex-adapter] Turn ${this.currentTurnId} did not complete within ${TIMEOUT_MS}ms after interrupt for session ${this.sessionId}, proceeding anyway`,
           );
           this.currentTurnId = null;
+          this._drainStaleSkillRefresh();
         }
         resolve();
       }, TIMEOUT_MS);
@@ -1247,9 +1316,7 @@ export class CodexAdapter
           this.updateRateLimits(params);
           break;
         case "skills/changed":
-          this.refreshSkills(true, "skills_changed").catch((err) => {
-            console.warn(`[codex-adapter] Failed to refresh skills after skills/changed:`, err);
-          });
+          this._scheduleSkillRefresh();
           break;
         case "app/list/updated":
           this.emit({
@@ -1337,6 +1404,7 @@ export class CodexAdapter
       );
       this.currentTurnId = null;
       for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+      this._drainStaleSkillRefresh();
       if (this.emitCompletedResultForHandledWriteStdinRouterError(staleTurnId)) {
         return;
       }
@@ -1367,6 +1435,7 @@ export class CodexAdapter
     }
     // Wake any callers waiting for the turn to end (e.g. interruptAndWaitForTurnEnd)
     for (const resolve of this.turnEndResolvers.splice(0)) resolve();
+    this._drainStaleSkillRefresh();
 
     if (turnId && this.suppressedTurnResultIds.delete(turnId)) {
       this.handledWriteStdinRouterErrorByTurnId.delete(turnId);
