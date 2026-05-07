@@ -168,8 +168,9 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "server",
     title: "Server & Diagnostics",
-    aliases: ["logs", "restart", "diagnostics", "server"],
+    aliases: ["logs", "restart", "diagnostics", "server", "memory", "slug"],
     items: [
+      { id: "server-slug", text: "Server Slug memory repo path prod dev port rename" },
       { id: "logs", text: "Log Viewer structured server runtime logs filtering Takode CLI" },
       {
         id: "restart",

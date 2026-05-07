@@ -15,11 +15,20 @@ vi.mock("./CollapsibleSection.js", () => ({
 
 import { SettingsServerDiagnosticsSection } from "./SettingsServerDiagnosticsSection.js";
 
+const serverSlugProps = {
+  serverSlug: "prod",
+  setServerSlug: vi.fn(),
+  serverSlugSaving: false,
+  serverSlugError: "",
+  onSaveServerSlug: vi.fn(),
+};
+
 describe("SettingsServerDiagnosticsSection", () => {
   it("renders restart prep details supplied by the Restart Server failure path", () => {
     render(
       <SettingsServerDiagnosticsSection
         logFile=""
+        {...serverSlugProps}
         restartSupported
         restartError="Cannot restart while 1 session(s) are still blocking restart readiness: Approval session"
         restartPrepResult={{
@@ -68,6 +77,7 @@ describe("SettingsServerDiagnosticsSection", () => {
     render(
       <SettingsServerDiagnosticsSection
         logFile=""
+        {...serverSlugProps}
         restartSupported
         restartError=""
         restarting={false}
@@ -83,6 +93,7 @@ describe("SettingsServerDiagnosticsSection", () => {
     render(
       <SettingsServerDiagnosticsSection
         logFile=""
+        {...serverSlugProps}
         restartSupported
         restartError=""
         restartPrepResult={{
@@ -119,6 +130,7 @@ describe("SettingsServerDiagnosticsSection", () => {
     render(
       <SettingsServerDiagnosticsSection
         logFile=""
+        {...serverSlugProps}
         restartSupported
         restartError=""
         restartPrepResult={{

@@ -8,6 +8,7 @@ import {
   getServerName,
   setServerName,
   getServerId,
+  getServerSlug,
   initWithPort,
   _resetForTest,
   _flushForTest,
@@ -36,6 +37,7 @@ describe("settings-manager", () => {
     expect(getSettings()).toEqual({
       serverName: "",
       serverId: "",
+      serverSlug: "local",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -70,9 +72,24 @@ describe("settings-manager", () => {
       sleepInhibitorDurationMinutes: 5,
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
-      updatedAt: 0,
+      updatedAt: expect.any(Number),
       codexLeaderRecycleThresholdTokensByModel: {},
     });
+  });
+
+  it("normalizes and persists serverSlug", async () => {
+    const updated = updateSettings({ serverSlug: "Dev_Custom" });
+    expect(updated.serverSlug).toBe("dev_custom");
+
+    await _flushForTest();
+    const saved = JSON.parse(readFileSync(settingsPath, "utf-8"));
+    expect(saved.serverSlug).toBe("dev_custom");
+  });
+
+  it("rejects invalid direct serverSlug updates", () => {
+    const before = getSettings().serverSlug;
+    const updated = updateSettings({ serverSlug: "bad slug" });
+    expect(updated.serverSlug).toBe(before);
   });
 
   it("updates and persists pushover settings", async () => {
@@ -364,6 +381,7 @@ describe("settings-manager", () => {
     expect(getSettings()).toEqual({
       serverName: "",
       serverId: "",
+      serverSlug: "local",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -527,6 +545,35 @@ describe("server ID", () => {
     const id = getServerId();
     setServerName("New Name");
     expect(getServerId()).toBe(id);
+  });
+});
+
+describe("server slug", () => {
+  it("defaults prod, dev, and alternate ports to stable slugs", async () => {
+    _resetForTest(settingsPath, 3456);
+    expect(getServerSlug()).toBe("prod");
+
+    _resetForTest(settingsPath, 3457);
+    expect(getServerSlug()).toBe("dev");
+
+    _resetForTest(settingsPath, 3455);
+    expect(getServerSlug()).toBe("port-3455");
+  });
+
+  it("preserves existing serverSlug from disk", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        serverName: "",
+        serverId: "my-custom-server-id",
+        serverSlug: "staging",
+        updatedAt: 0,
+      }),
+      "utf-8",
+    );
+    _resetForTest(settingsPath);
+
+    expect(getServerSlug()).toBe("staging");
   });
 });
 

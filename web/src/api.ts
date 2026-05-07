@@ -468,6 +468,7 @@ export interface UsageLimits {
 export interface AppSettings {
   serverName: string;
   serverId: string;
+  serverSlug: string;
   pushoverConfigured: boolean;
   pushoverEnabled: boolean;
   pushoverEventFilters?: PushoverEventFilters;
@@ -1185,6 +1186,7 @@ export const api = {
   },
   updateSettings: (data: {
     serverName?: string;
+    serverSlug?: string;
     pushoverUserKey?: string;
     pushoverApiToken?: string;
     pushoverDelaySeconds?: number;

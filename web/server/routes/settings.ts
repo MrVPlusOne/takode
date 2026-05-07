@@ -592,6 +592,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
     return {
       serverName: getServerName(),
       serverId: getServerId(),
+      serverSlug: settings.serverSlug,
       pushoverConfigured: !!(settings.pushoverUserKey.trim() && settings.pushoverApiToken.trim()),
       pushoverEnabled: settings.pushoverEnabled,
       pushoverEventFilters: normalizePushoverEventFilters(settings.pushoverEventFilters),
@@ -656,6 +657,19 @@ export function createSettingsRoutes(ctx: RouteContext) {
         : null;
     if (body.serverName !== undefined && typeof body.serverName !== "string") {
       return c.json({ error: "serverName must be a string" }, 400);
+    }
+    if (body.serverSlug !== undefined && typeof body.serverSlug !== "string") {
+      return c.json({ error: "serverSlug must be a string" }, 400);
+    }
+    const normalizedServerSlug = typeof body.serverSlug === "string" ? body.serverSlug.trim().toLowerCase() : undefined;
+    if (normalizedServerSlug !== undefined && !/^[a-z0-9][a-z0-9._-]{0,79}$/.test(normalizedServerSlug)) {
+      return c.json(
+        {
+          error:
+            "serverSlug must use lowercase letters, numbers, dots, underscores, and hyphens, and start with a letter or number",
+        },
+        400,
+      );
     }
     if (body.pushoverUserKey !== undefined && typeof body.pushoverUserKey !== "string") {
       return c.json({ error: "pushoverUserKey must be a string" }, 400);
@@ -830,6 +844,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
     // Check that at least one known field is present
     const knownFields = [
       "serverName",
+      "serverSlug",
       "pushoverUserKey",
       "pushoverApiToken",
       "pushoverDelaySeconds",
@@ -864,7 +879,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       setServerName(body.serverName);
     }
 
-    const settings = updateSettings({
+    const settingsPatch = {
       pushoverUserKey: typeof body.pushoverUserKey === "string" ? body.pushoverUserKey.trim() : undefined,
       pushoverApiToken: typeof body.pushoverApiToken === "string" ? body.pushoverApiToken.trim() : undefined,
       pushoverDelaySeconds: typeof body.pushoverDelaySeconds === "number" ? body.pushoverDelaySeconds : undefined,
@@ -913,7 +928,12 @@ export function createSettingsRoutes(ctx: RouteContext) {
       codexLeaderRecycleThresholdTokensByModel: parsedCodexLeaderRecycleThresholdTokensByModel?.ok
         ? parsedCodexLeaderRecycleThresholdTokensByModel.value
         : undefined,
-    });
+      ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
+    };
+    const settings = updateSettings(settingsPatch);
+    if (normalizedServerSlug !== undefined && typeof launcher.setServerSlug === "function") {
+      launcher.setServerSlug(settings.serverSlug);
+    }
 
     return c.json(buildSettingsResponse(settings));
   });

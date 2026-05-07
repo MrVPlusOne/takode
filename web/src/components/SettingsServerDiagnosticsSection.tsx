@@ -120,18 +120,28 @@ function RestartPrepResultPanel({ result, title }: { result: InterruptRestartBlo
 
 export function SettingsServerDiagnosticsSection({
   logFile,
+  serverSlug,
+  setServerSlug,
+  serverSlugSaving,
+  serverSlugError,
   restartSupported,
   restartError,
   restartPrepResult,
   restarting,
+  onSaveServerSlug,
   onRestartServer,
   sectionSearch,
 }: {
   logFile: string;
+  serverSlug: string;
+  setServerSlug: (value: string) => void;
+  serverSlugSaving: boolean;
+  serverSlugError: string;
   restartSupported: boolean;
   restartError: string;
   restartPrepResult?: InterruptRestartBlockersResponse | null;
   restarting: boolean;
+  onSaveServerSlug: (value: string) => void;
   onRestartServer: () => void;
   sectionSearch?: {
     results: SettingsSearchResults;
@@ -149,6 +159,44 @@ export function SettingsServerDiagnosticsSection({
       matchCount={sectionSearch ? (sectionSearch.results.sectionMatchCounts.get(sectionSearch.id) ?? 0) : 0}
     >
       <div className="space-y-3">
+        <div
+          hidden={
+            sectionSearch ? !sectionSearch.results.visibleItemIds.get(sectionSearch.id)?.has("server-slug") : false
+          }
+        >
+          <label className="block text-sm font-medium text-cc-fg mb-1.5" htmlFor="server-slug">
+            Server Slug
+          </label>
+          <div className="flex gap-2">
+            <input
+              id="server-slug"
+              type="text"
+              value={serverSlug}
+              onChange={(event) => setServerSlug(event.target.value)}
+              onBlur={() => onSaveServerSlug(serverSlug)}
+              className="flex-1 px-3 py-2.5 text-sm bg-cc-input-bg border border-cc-border rounded-lg text-cc-fg placeholder:text-cc-muted focus:outline-none focus:border-cc-primary/60 font-mono"
+              placeholder="prod"
+            />
+            <button
+              type="button"
+              onClick={() => onSaveServerSlug(serverSlug)}
+              disabled={serverSlugSaving}
+              className={`px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
+                serverSlugSaving
+                  ? "bg-cc-hover text-cc-muted cursor-not-allowed"
+                  : "bg-cc-hover text-cc-fg hover:bg-cc-active cursor-pointer"
+              }`}
+            >
+              {serverSlugSaving ? "Saving..." : "Save"}
+            </button>
+          </div>
+          <p className="mt-1.5 text-xs text-cc-muted">
+            Used for model-facing memory paths such as <code className="font-mono">~/.companion/memory/prod</code>.
+            Existing memory data is moved to the new slug path on the next memory operation.
+          </p>
+          {serverSlugError && <p className="mt-1.5 text-xs text-cc-error">{serverSlugError}</p>}
+        </div>
+
         <div>
           <p className="text-sm font-medium text-cc-fg">Log Viewer</p>
           <p className="mt-0.5 text-xs text-cc-muted">

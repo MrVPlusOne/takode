@@ -33,7 +33,7 @@ import { TerminalManager } from "./terminal-manager.js";
 import { generateFirstName, evaluateSessionName } from "./session-namer.js";
 import * as sessionNames from "./session-names.js";
 import { bootstrapQuestStore, getActiveQuestForSession, getQuest } from "./quest-store.js";
-import { getServerId, getSettings, getServerName, initWithPort } from "./settings-manager.js";
+import { getServerId, getServerSlug, getSettings, getServerName, initWithPort } from "./settings-manager.js";
 import { PushoverNotifier } from "./pushover.js";
 import { PRPoller } from "./pr-poller.js";
 import { RecorderManager } from "./recorder.js";
@@ -93,11 +93,12 @@ await bootstrapQuestStore({
   log: (message) => serverLog.info(message),
 });
 const serverId = getServerId();
+const serverSlug = getServerSlug();
 initTreeGroupStoreForServer({ serverId, port });
 initNewSessionDefaultsStoreForServer({ serverId });
 const sessionStore = new SessionStore(undefined, port);
 const wsBridge = new WsBridge();
-const launcher = new CliLauncher(port, { serverId });
+const launcher = new CliLauncher(port, { serverId, serverSlug });
 const worktreeTracker = new WorktreeTracker();
 const CONTAINER_STATE_PATH = join(homedir(), ".companion", "containers.json");
 const terminalManager = new TerminalManager();

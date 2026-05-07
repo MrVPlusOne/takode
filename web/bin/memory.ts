@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { workstreamMemoryService } from "../server/workstream-memory-service.js";
+import { getServerSlug, initWithPort } from "../server/settings-manager.js";
 import {
   MEMORY_COMMIT_OPERATIONS,
   MEMORY_KINDS,
@@ -62,7 +63,7 @@ Commands:
   repo path [--json]
   catalog [--json]
   recall [query] [--kind current,knowledge] [--facet key:value] [--content] [--limit N] [--json]
-  lint|doctor [--json]
+  lint [--json]
   lock status|acquire|release [--owner NAME] [--ttl-ms N] [--json]
   status [--json]
   diff
@@ -70,10 +71,11 @@ Commands:
 
 Options:
   --root PATH       Override the memory repo root for this command.
-  --server-id ID    Override the server/session-space id used for default repo discovery.
+  --server-slug SLUG
+                    Override the server slug used for default repo discovery.
 
 Default repo:
-  ~/.companion/memory/<serverId>
+  ~/.companion/memory/<serverSlug>
   Normal memory operations auto-create the Git repo and authored directories when needed.
 
 Memory files are authored directly under:
@@ -84,6 +86,7 @@ function repoOptions() {
   return {
     root: option("root"),
     serverId: option("server-id"),
+    serverSlug: option("server-slug"),
   };
 }
 
@@ -164,6 +167,8 @@ function printIssues(issues: { severity: string; path?: string; message: string 
 }
 
 async function main(): Promise<void> {
+  await scopeSettingsFromEnv();
+
   if (!command || flag("help") || command === "help") {
     printUsage();
     return;
@@ -291,6 +296,15 @@ async function main(): Promise<void> {
   console.error(`Error: Unknown memory command: ${command}`);
   printUsage();
   process.exit(1);
+}
+
+async function scopeSettingsFromEnv(): Promise<void> {
+  const port = Number(process.env.COMPANION_PORT);
+  if (!Number.isInteger(port) || port <= 0) return;
+  await initWithPort(port);
+  if (!option("server-slug")) {
+    process.env.COMPANION_SERVER_SLUG = getServerSlug();
+  }
 }
 
 main().catch((error) => {

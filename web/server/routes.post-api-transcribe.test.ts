@@ -97,6 +97,7 @@ vi.mock("./settings-manager.js", () => ({
   getSettings: vi.fn(() => ({
     serverName: "",
     serverId: "",
+    serverSlug: "prod",
     pushoverUserKey: "",
     pushoverApiToken: "",
     pushoverDelaySeconds: 30,
@@ -131,6 +132,7 @@ vi.mock("./settings-manager.js", () => ({
   updateSettings: vi.fn((patch) => ({
     serverName: "",
     serverId: "",
+    serverSlug: "prod",
     pushoverUserKey: patch.pushoverUserKey ?? "",
     pushoverApiToken: patch.pushoverApiToken ?? "",
     pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
@@ -468,6 +470,7 @@ function mockVoiceSettings(overrides: Record<string, unknown> = {}) {
   vi.mocked(settingsManager.getSettings).mockReturnValue({
     serverName: "",
     serverId: "",
+    serverSlug: "prod",
     pushoverUserKey: "",
     pushoverApiToken: "",
     pushoverDelaySeconds: 30,
@@ -577,6 +580,7 @@ describe("POST /api/transcribe", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -642,6 +646,7 @@ describe("POST /api/transcribe", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -698,6 +703,7 @@ describe("POST /api/transcribe", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -775,6 +781,7 @@ describe("POST /api/transcribe", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -830,6 +837,7 @@ describe("POST /api/transcribe", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1063,6 +1071,7 @@ describe("POST /api/transcribe", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,

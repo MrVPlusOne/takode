@@ -468,6 +468,7 @@ describe("launch", () => {
 
     const [, options] = mockSpawn.mock.calls[0];
     expect(options.env.COMPANION_SERVER_ID).toBe("test-server-id");
+    expect(options.env.COMPANION_SERVER_SLUG).toBe("local");
     expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
     expect(options.env.COMPANION_SESSION_NUMBER).toBeDefined();
     expect(typeof options.env.COMPANION_AUTH_TOKEN).toBe("string");

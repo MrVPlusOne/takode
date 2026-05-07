@@ -304,6 +304,7 @@ export class CliLauncher {
   private codexTokenRefreshNoiseBySession = new Map<string, CodexTokenRefreshNoiseState>();
   private port: number;
   private serverId: string;
+  private serverSlug: string;
   private store: SessionStore | null = null;
   private recorder: RecorderManager | null = null;
   private onCodexAdapter: ((sessionId: string, adapter: CodexAdapter) => void) | null = null;
@@ -333,14 +334,22 @@ export class CliLauncher {
   /** Integer session number → UUID */
   private sessionByNum = new Map<number, string>();
 
-  constructor(port: number, options?: { serverId?: string }) {
+  constructor(port: number, options?: { serverId?: string; serverSlug?: string }) {
     this.port = port;
     this.serverId = options?.serverId?.trim() || "unknown-server";
+    this.serverSlug = options?.serverSlug?.trim() || "local";
   }
 
   /** Get the server port number. */
   getPort(): number {
     return this.port;
+  }
+
+  setServerSlug(serverSlug: string): void {
+    this.serverSlug = serverSlug.trim() || "local";
+    for (const [sessionId, env] of this.sessionEnvs) {
+      this.sessionEnvs.set(sessionId, { ...env, COMPANION_SERVER_SLUG: this.serverSlug });
+    }
   }
 
   /** Register a callback for when a CodexAdapter is created (WsBridge needs to attach it). */
@@ -727,6 +736,7 @@ export class CliLauncher {
     const envWithSessionId = {
       ...options.env,
       COMPANION_SERVER_ID: this.serverId,
+      COMPANION_SERVER_SLUG: this.serverSlug,
       COMPANION_SESSION_ID: sessionId,
       COMPANION_SESSION_NUMBER: String(info.sessionNum),
       COMPANION_AUTH_TOKEN: sessionAuthToken,
@@ -877,6 +887,7 @@ export class CliLauncher {
       const sessionNum = this.getSessionNum(sessionId);
       const reconstructed: Record<string, string> = {
         COMPANION_SERVER_ID: this.serverId,
+        COMPANION_SERVER_SLUG: this.serverSlug,
         COMPANION_SESSION_ID: sessionId,
         COMPANION_SESSION_NUMBER: sessionNum !== undefined ? String(sessionNum) : "",
         COMPANION_AUTH_TOKEN: sessionAuthToken,

@@ -99,6 +99,7 @@ vi.mock("./settings-manager.js", () => ({
   getSettings: vi.fn(() => ({
     serverName: "",
     serverId: "",
+    serverSlug: "prod",
     pushoverUserKey: "",
     pushoverApiToken: "",
     pushoverDelaySeconds: 30,
@@ -134,6 +135,7 @@ vi.mock("./settings-manager.js", () => ({
   updateSettings: vi.fn((patch) => ({
     serverName: "",
     serverId: "",
+    serverSlug: "prod",
     pushoverUserKey: patch.pushoverUserKey ?? "",
     pushoverApiToken: patch.pushoverApiToken ?? "",
     pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
@@ -547,6 +549,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "u123",
       pushoverApiToken: "t456",
       pushoverDelaySeconds: 60,
@@ -614,6 +617,7 @@ describe("PUT /api/settings", () => {
     expect(json).toEqual({
       serverName: "",
       serverId: "test-server-id",
+      serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -649,6 +653,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -719,6 +724,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "trimmed",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -788,6 +794,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "My Backend",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -844,6 +851,36 @@ describe("PUT /api/settings", () => {
     expect(res.status).toBe(400);
     const json = await res.json();
     expect(json).toEqual({ error: "serverName must be a string" });
+  });
+
+  it("persists serverSlug via settings update", async () => {
+    vi.mocked(settingsManager.updateSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      serverSlug: "dev",
+    });
+
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serverSlug: "Dev" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(settingsManager.updateSettings).toHaveBeenCalledWith(expect.objectContaining({ serverSlug: "dev" }));
+    const json = await res.json();
+    expect(json.serverSlug).toBe("dev");
+  });
+
+  it("returns 400 for invalid serverSlug", async () => {
+    const res = await app.request("/api/settings", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ serverSlug: "bad slug" }),
+    });
+
+    expect(res.status).toBe(400);
+    const json = await res.json();
+    expect(json.error).toContain("serverSlug must use");
   });
 
   it("returns 400 for non-string pushoverUserKey", async () => {
@@ -933,6 +970,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1041,6 +1079,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1087,6 +1126,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1201,6 +1241,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1234,6 +1275,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1307,6 +1349,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1375,6 +1418,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1461,6 +1505,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1509,6 +1554,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -1546,6 +1592,7 @@ describe("PUT /api/settings", () => {
     vi.mocked(settingsManager.updateSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,

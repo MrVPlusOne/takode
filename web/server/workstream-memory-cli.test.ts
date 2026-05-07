@@ -37,7 +37,12 @@ describe("memory CLI", () => {
 
   beforeEach(async () => {
     tempDir = await mkdtemp(join(tmpdir(), "memory-cli-test-"));
-    env = { COMPANION_MEMORY_DIR: join(tempDir, "memory"), COMPANION_SERVER_ID: "test-server" };
+    env = {
+      COMPANION_MEMORY_DIR: join(tempDir, "memory"),
+      COMPANION_SERVER_ID: "test-server",
+      COMPANION_SERVER_SLUG: "test",
+      COMPANION_PORT: "",
+    };
   });
 
   afterEach(async () => {
@@ -72,6 +77,7 @@ facets:
       expect.objectContaining({
         root: join(tempDir, "memory"),
         serverId: "test-server",
+        serverSlug: "test",
         initialized: true,
         authoredDirs: ["current", "knowledge", "procedures", "decisions", "references", "artifacts"],
       }),
@@ -87,12 +93,17 @@ facets:
     expect(JSON.parse(recall.stdout).matches[0].content).toContain("bun run dev");
   });
 
-  it("defaults to one auto-created repo per server id when no root override is set", async () => {
-    const scopedEnv = { HOME: tempDir, COMPANION_SERVER_ID: "server/with spaces" };
+  it("defaults to one auto-created repo per server slug when no root override is set", async () => {
+    const scopedEnv = {
+      HOME: tempDir,
+      COMPANION_SERVER_ID: "server-id",
+      COMPANION_SERVER_SLUG: "server-slug",
+      COMPANION_PORT: "",
+    };
 
     const path = await runMemory(["repo", "path"], scopedEnv);
     expect(path.status).toBe(0);
-    const expectedRoot = join(tempDir, ".companion", "memory", "server_with_spaces");
+    const expectedRoot = join(tempDir, ".companion", "memory", "server-slug");
     expect(path.stdout.trim()).toBe(expectedRoot);
 
     const catalog = await runMemory(["catalog", "--json"], scopedEnv);
@@ -100,7 +111,8 @@ facets:
     expect(JSON.parse(catalog.stdout).repo).toEqual(
       expect.objectContaining({
         root: expectedRoot,
-        serverId: "server/with spaces",
+        serverId: "server-id",
+        serverSlug: "server-slug",
         initialized: true,
       }),
     );
@@ -214,8 +226,9 @@ lifecycle: active
 
     expect(help.status).toBe(0);
     expect(help.stdout).toContain("Normal memory operations auto-create");
-    expect(help.stdout).toContain("~/.companion/memory/<serverId>");
+    expect(help.stdout).toContain("~/.companion/memory/<serverSlug>");
     expect(help.stdout).toContain("repo path");
+    expect(help.stdout).not.toContain("doctor");
     expect(help.stdout).not.toContain("repo path|init");
     expect(help.stdout).not.toContain("repo init");
     expect(help.stdout).not.toContain("migrate");

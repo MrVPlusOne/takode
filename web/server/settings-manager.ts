@@ -3,6 +3,7 @@ import { readFile, writeFile } from "node:fs/promises";
 import { join, dirname, basename, extname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
+import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD } from "./constants.js";
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "./pushover.js";
 
 export interface CompanionSettings {
@@ -10,6 +11,8 @@ export interface CompanionSettings {
   serverName: string;
   /** Stable unique identifier for this server instance (auto-generated UUID) */
   serverId: string;
+  /** Renameable user/model-facing slug for this server instance */
+  serverSlug: string;
   /** Pushover user key for push notifications */
   pushoverUserKey: string;
   /** Pushover API/app token */
@@ -140,11 +143,13 @@ let loaded = false;
 let secretsLoaded = false;
 let filePath = DEFAULT_PATH;
 let secretsPath = DEFAULT_SECRETS_PATH;
+let settingsPort: number | null = null;
 let _pendingWrite: Promise<void> = Promise.resolve();
 let _pendingSecretsWrite: Promise<void> = Promise.resolve();
 let settings: CompanionSettings = {
   serverName: "",
   serverId: "",
+  serverSlug: "",
   pushoverUserKey: "",
   pushoverApiToken: "",
   pushoverDelaySeconds: 30,
@@ -182,6 +187,24 @@ let settings: CompanionSettings = {
   codexLeaderRecycleThresholdTokensByModel: {},
   updatedAt: 0,
 };
+
+export const SERVER_SLUG_PATTERN_DESCRIPTION =
+  "lowercase letters, numbers, dots, underscores, and hyphens; must start with a letter or number";
+
+export function defaultServerSlugForPort(port: number | null | undefined): string {
+  if (port === DEFAULT_PORT_PROD) return "prod";
+  if (port === DEFAULT_PORT_DEV) return "dev";
+  if (typeof port === "number" && Number.isInteger(port) && port > 0) return `port-${port}`;
+  return "local";
+}
+
+export function normalizeServerSlug(slug: string): string {
+  return slug.trim().toLowerCase();
+}
+
+export function isValidServerSlug(slug: string): boolean {
+  return /^[a-z0-9][a-z0-9._-]{0,79}$/.test(slug);
+}
 
 export function resolveCodexLeaderRecycleThresholdTokens(
   settings: Pick<CompanionSettings, "codexLeaderRecycleThresholdTokens" | "codexLeaderRecycleThresholdTokensByModel">,
@@ -370,9 +393,11 @@ function hasInlineSecrets(base: CompanionSettings): boolean {
 }
 
 function normalize(raw: Partial<CompanionSettings> | null | undefined): CompanionSettings {
+  const serverSlug = typeof raw?.serverSlug === "string" ? normalizeServerSlug(raw.serverSlug) : "";
   return {
     serverName: typeof raw?.serverName === "string" ? raw.serverName : "",
     serverId: typeof raw?.serverId === "string" ? raw.serverId : "",
+    serverSlug: serverSlug && isValidServerSlug(serverSlug) ? serverSlug : "",
     pushoverUserKey: typeof raw?.pushoverUserKey === "string" ? raw.pushoverUserKey : "",
     pushoverApiToken: typeof raw?.pushoverApiToken === "string" ? raw.pushoverApiToken : "",
     pushoverDelaySeconds:
@@ -497,7 +522,7 @@ function persistSecrets(): void {
 
 export function getSettings(): CompanionSettings {
   ensureLoaded();
-  return { ...settings };
+  return { ...settings, serverSlug: settings.serverSlug || defaultServerSlugForPort(settingsPort) };
 }
 
 export function updateSettings(
@@ -531,6 +556,7 @@ export function updateSettings(
       | "codexNonLeaderAutoCompactThresholdPercent"
       | "codexLeaderRecycleThresholdTokens"
       | "codexLeaderRecycleThresholdTokensByModel"
+      | "serverSlug"
     >
   >,
 ): CompanionSettings {
@@ -539,6 +565,14 @@ export function updateSettings(
   const defined = Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined));
   if (defined.pushoverEventFilters) {
     defined.pushoverEventFilters = normalizePushoverEventFilters(defined.pushoverEventFilters);
+  }
+  if (typeof defined.serverSlug === "string") {
+    const normalizedSlug = normalizeServerSlug(defined.serverSlug);
+    if (!isValidServerSlug(normalizedSlug)) {
+      delete defined.serverSlug;
+    } else {
+      defined.serverSlug = normalizedSlug;
+    }
   }
 
   if (defined.namerConfig) {
@@ -569,7 +603,7 @@ export function updateSettings(
   if (defined.namerConfig || defined.transcriptionConfig) {
     persistSecrets();
   }
-  return { ...settings };
+  return getSettings();
 }
 
 export function getServerName(): string {
@@ -592,6 +626,15 @@ export function getServerId(): string {
   return settings.serverId;
 }
 
+export function getServerSlug(): string {
+  ensureLoaded();
+  if (!settings.serverSlug) {
+    settings = { ...settings, serverSlug: defaultServerSlugForPort(settingsPort), updatedAt: Date.now() };
+    persist();
+  }
+  return settings.serverSlug;
+}
+
 /**
  * Scope settings to a port-specific file (`settings-{port}.json`).
  * Must be called once at server startup, before any settings access.
@@ -599,6 +642,7 @@ export function getServerId(): string {
  * but clears `serverId` so each instance gets its own unique identity.
  */
 export async function initWithPort(port: number): Promise<void> {
+  settingsPort = port;
   const portPath = join(homedir(), ".companion", `settings-${port}.json`);
   const portSecretsPath = deriveSecretsPath(portPath);
   if (!existsSync(portPath) && existsSync(LEGACY_PATH)) {
@@ -609,6 +653,7 @@ export async function initWithPort(port: number): Promise<void> {
       const migrated = {
         ...stripSecretsFromSettings(legacy),
         serverId: "",
+        serverSlug: "",
         updatedAt: Date.now(),
       };
       const migratedSecrets = normalizeSecrets({
@@ -634,9 +679,10 @@ export function _flushForTest(): Promise<void> {
   return Promise.all([_pendingWrite, _pendingSecretsWrite]).then(() => undefined);
 }
 
-export function _resetForTest(customPath?: string): void {
+export function _resetForTest(customPath?: string, customPort?: number | null): void {
   loaded = false;
   secretsLoaded = false;
+  settingsPort = customPort ?? null;
   resetPaths(customPath || DEFAULT_PATH);
   settings = normalize(null);
   secrets = normalizeSecrets(null);

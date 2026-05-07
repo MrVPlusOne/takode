@@ -158,6 +158,7 @@ beforeEach(() => {
   mockApi.getSettings.mockResolvedValue({
     serverName: "",
     serverId: "test-id",
+    serverSlug: "prod",
     pushoverConfigured: false,
     pushoverEnabled: true,
     pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -179,6 +180,7 @@ beforeEach(() => {
   mockApi.updateSettings.mockResolvedValue({
     serverName: "",
     serverId: "test-id",
+    serverSlug: "prod",
     pushoverConfigured: false,
     pushoverEnabled: true,
     pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -357,6 +359,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverDelaySeconds: 30,
@@ -389,6 +392,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverDelaySeconds: 30,
@@ -454,6 +458,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: false, error: true },
@@ -476,6 +481,7 @@ describe("SettingsPage", () => {
     mockApi.updateSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -581,6 +587,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverDelaySeconds: 30,
@@ -594,6 +601,7 @@ describe("SettingsPage", () => {
     mockApi.updateSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverDelaySeconds: 30,
@@ -618,6 +626,7 @@ describe("SettingsPage", () => {
     mockApi.updateSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverDelaySeconds: 30,
@@ -644,6 +653,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverDelaySeconds: 30,
@@ -686,6 +696,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverDelaySeconds: 30,
@@ -742,6 +753,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverDelaySeconds: 30,
@@ -905,6 +917,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -923,6 +936,7 @@ describe("SettingsPage", () => {
     mockApi.updateSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -993,6 +1007,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -1031,6 +1046,7 @@ describe("SettingsPage", () => {
     mockApi.getSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -1048,6 +1064,7 @@ describe("SettingsPage", () => {
     mockApi.updateSettings.mockResolvedValue({
       serverName: "",
       serverId: "test-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, error: true },

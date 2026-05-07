@@ -99,6 +99,7 @@ vi.mock("./settings-manager.js", () => ({
   getSettings: vi.fn(() => ({
     serverName: "",
     serverId: "",
+    serverSlug: "prod",
     pushoverUserKey: "",
     pushoverApiToken: "",
     pushoverDelaySeconds: 30,
@@ -134,6 +135,7 @@ vi.mock("./settings-manager.js", () => ({
   updateSettings: vi.fn((patch) => ({
     serverName: "",
     serverId: "",
+    serverSlug: "prod",
     pushoverUserKey: patch.pushoverUserKey ?? "",
     pushoverApiToken: patch.pushoverApiToken ?? "",
     pushoverDelaySeconds: patch.pushoverDelaySeconds ?? 30,
@@ -545,6 +547,7 @@ describe("GET /api/settings", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "u123",
       pushoverApiToken: "t456",
       pushoverDelaySeconds: 60,
@@ -584,6 +587,7 @@ describe("GET /api/settings", () => {
     expect(json).toEqual({
       serverName: "",
       serverId: "test-server-id",
+      serverSlug: "prod",
       pushoverConfigured: true,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -622,6 +626,7 @@ describe("GET /api/settings", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -661,6 +666,7 @@ describe("GET /api/settings", () => {
     expect(json).toEqual({
       serverName: "",
       serverId: "test-server-id",
+      serverSlug: "prod",
       pushoverConfigured: false,
       pushoverEnabled: true,
       pushoverEventFilters: { needsInput: true, review: true, error: true },
@@ -700,6 +706,7 @@ describe("GET /api/settings", () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "My Frontend",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,
@@ -740,10 +747,24 @@ describe("GET /api/settings", () => {
     vi.mocked(settingsManager.getServerName).mockReturnValue("");
   });
 
+  it("includes serverSlug when configured", async () => {
+    vi.mocked(settingsManager.getSettings).mockReturnValue({
+      ...settingsManager.getSettings(),
+      serverSlug: "prod",
+    });
+
+    const res = await app.request("/api/settings", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.serverSlug).toBe("prod");
+  });
+
   it("masks OpenAI API keys in the settings response", async () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",
       serverId: "",
+      serverSlug: "prod",
       pushoverUserKey: "",
       pushoverApiToken: "",
       pushoverDelaySeconds: 30,

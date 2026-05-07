@@ -13,7 +13,7 @@ Boundary:
 File-based memory:
 - When the assigned durable state belongs in memory, use the session-space memory repo rather than adding another quest-only summary. Normal `memory` commands auto-create the repo for the current server/session space, so do not run a separate init step. Choose the file responsibility by information type: `current/` for live working state, `knowledge/` for durable understanding, `procedures/` for repeatable action, `decisions/` for accepted choices or stable preferences, `references/` for source digests or external pointers, and `artifacts/` for produced external outputs.
 - Run relevant `memory recall` first so the update works with existing memory instead of duplicating it.
-- Before editing memory files, acquire the repo-level write lock with `memory lock acquire`. While holding the lock, edit files directly with normal file tools, run `memory lint` or `memory doctor`, inspect `memory diff`, commit with source trailers via `memory commit`, then release the lock.
+- Before editing memory files, acquire the repo-level write lock with `memory lock acquire`. While holding the lock, edit files directly with normal file tools, run `memory lint`, inspect `memory diff`, commit with source trailers via `memory commit`, then release the lock.
 - Report exactly one memory statement when memory was in scope: `memory updated: <commit>`, `memory update deferred: <reason or curator>`, or `memory update not needed: <reason>`.
 
 Phase documentation:

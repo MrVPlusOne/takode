@@ -19,11 +19,13 @@ export type MemoryFrontmatter = Record<string, FrontmatterValue> & {
 export interface MemoryRepoOptions {
   root?: string;
   serverId?: string;
+  serverSlug?: string;
 }
 
 export interface MemoryRepoInfo {
   root: string;
   serverId: string;
+  serverSlug: string;
   initialized: boolean;
   authoredDirs: MemoryKind[];
 }

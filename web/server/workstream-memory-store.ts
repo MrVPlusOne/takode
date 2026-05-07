@@ -1,11 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { execFile } from "node:child_process";
 import type { Dirent } from "node:fs";
-import { access, mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { access, mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, join, relative, sep } from "node:path";
 import { promisify } from "node:util";
-import { getServerId } from "./settings-manager.js";
+import { getServerId, getServerSlug, normalizeServerSlug } from "./settings-manager.js";
 import {
   MEMORY_COMMIT_OPERATIONS,
   MEMORY_KINDS,
@@ -34,11 +34,27 @@ import {
 const execFileAsync = promisify(execFile);
 const LOCK_DIR_NAME = "takode-memory.lock";
 const LOCK_INFO_FILE = "owner.json";
+const SERVER_INDEX_DIR = ".servers";
 const DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000;
 const VALID_ID = /^[a-z0-9][a-z0-9._-]{0,159}$/;
 
+interface ResolvedMemoryRepo extends MemoryRepoInfo {
+  baseRoot: string;
+  explicitRoot: boolean;
+}
+
+interface ServerMemoryIndexEntry {
+  serverId: string;
+  serverSlug: string;
+  root: string;
+  updatedAt: string;
+}
+
 export async function ensureMemoryRepo(options: MemoryRepoOptions = {}): Promise<MemoryRepoInfo> {
-  const repo = resolveMemoryRepo(options);
+  const repo = resolveMemoryRepoInternal(options);
+  if (!repo.explicitRoot) {
+    await migrateDefaultMemoryRepo(repo);
+  }
   await mkdir(repo.root, { recursive: true });
   for (const kind of MEMORY_KINDS) {
     await mkdir(join(repo.root, kind), { recursive: true });
@@ -47,16 +63,35 @@ export async function ensureMemoryRepo(options: MemoryRepoOptions = {}): Promise
   if (!initialized) {
     await runGit(repo.root, ["init"]);
   }
-  return { ...repo, initialized: true, authoredDirs: [...MEMORY_KINDS] };
+  if (!repo.explicitRoot) {
+    await writeServerMemoryIndex(repo);
+  }
+  return publicRepoInfo({ ...repo, initialized: true, authoredDirs: [...MEMORY_KINDS] });
 }
 
 export function resolveMemoryRepo(options: MemoryRepoOptions = {}): MemoryRepoInfo {
+  return publicRepoInfo(resolveMemoryRepoInternal(options));
+}
+
+function resolveMemoryRepoInternal(options: MemoryRepoOptions = {}): ResolvedMemoryRepo {
   const serverId = (options.serverId ?? process.env.COMPANION_SERVER_ID ?? getServerId()).trim() || "local";
+  const serverSlug =
+    normalizeServerSlug(options.serverSlug ?? process.env.COMPANION_SERVER_SLUG ?? getServerSlug()) || "local";
+  const explicitRoot = !!(options.root?.trim() || process.env.COMPANION_MEMORY_DIR?.trim());
+  const baseRoot = join(process.env.HOME || homedir(), ".companion", "memory");
   const root =
-    options.root?.trim() ||
-    process.env.COMPANION_MEMORY_DIR?.trim() ||
-    join(homedir(), ".companion", "memory", sanitizeServerIdForPath(serverId));
-  return { root, serverId, initialized: false, authoredDirs: [...MEMORY_KINDS] };
+    options.root?.trim() || process.env.COMPANION_MEMORY_DIR?.trim() || join(baseRoot, sanitizeSlugForPath(serverSlug));
+  return { root, serverId, serverSlug, baseRoot, explicitRoot, initialized: false, authoredDirs: [...MEMORY_KINDS] };
+}
+
+function publicRepoInfo(repo: ResolvedMemoryRepo): MemoryRepoInfo {
+  return {
+    root: repo.root,
+    serverId: repo.serverId,
+    serverSlug: repo.serverSlug,
+    initialized: repo.initialized,
+    authoredDirs: repo.authoredDirs,
+  };
 }
 
 export async function scanMemoryCatalog(options: MemoryRepoOptions = {}): Promise<MemoryCatalog> {
@@ -577,8 +612,98 @@ async function pathExists(path: string): Promise<boolean> {
   }
 }
 
-function sanitizeServerIdForPath(serverId: string): string {
-  return serverId.trim().replace(/[^a-zA-Z0-9_.-]/g, "_") || "local";
+async function migrateDefaultMemoryRepo(repo: ResolvedMemoryRepo): Promise<void> {
+  const candidates = await getMigrationCandidates(repo);
+  if (!candidates.length) return;
+
+  const targetExists = await pathExists(repo.root);
+  if (targetExists && !(await isEmptyMemoryRepo(repo.root))) return;
+
+  const source = await firstExistingMemoryRepo(candidates, repo.root);
+  if (!source) return;
+
+  await mkdir(repo.baseRoot, { recursive: true });
+  if (targetExists) {
+    await rm(repo.root, { recursive: true, force: true });
+  }
+  await rename(source, repo.root);
+}
+
+async function getMigrationCandidates(repo: ResolvedMemoryRepo): Promise<string[]> {
+  const candidates: string[] = [];
+  const index = await readServerMemoryIndex(repo.baseRoot, repo.serverId);
+  if (index?.root) candidates.push(index.root);
+  if (index?.serverSlug) candidates.push(join(repo.baseRoot, sanitizeSlugForPath(index.serverSlug)));
+  candidates.push(join(repo.baseRoot, sanitizeSlugForPath(repo.serverId)));
+
+  const seen = new Set<string>();
+  return candidates.filter((candidate) => {
+    if (!candidate || candidate === repo.root || seen.has(candidate)) return false;
+    seen.add(candidate);
+    return true;
+  });
+}
+
+async function firstExistingMemoryRepo(candidates: string[], targetRoot: string): Promise<string | null> {
+  for (const candidate of candidates) {
+    if (candidate === targetRoot || !(await pathExists(candidate))) continue;
+    return candidate;
+  }
+  return null;
+}
+
+async function readServerMemoryIndex(baseRoot: string, serverId: string): Promise<ServerMemoryIndexEntry | null> {
+  try {
+    const raw = await readFile(serverIndexPath(baseRoot, serverId), "utf-8");
+    const parsed = JSON.parse(raw) as Partial<ServerMemoryIndexEntry>;
+    if (typeof parsed.serverId !== "string" || parsed.serverId !== serverId) return null;
+    return {
+      serverId,
+      serverSlug: typeof parsed.serverSlug === "string" ? parsed.serverSlug : "",
+      root: typeof parsed.root === "string" ? parsed.root : "",
+      updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
+    };
+  } catch {
+    return null;
+  }
+}
+
+async function writeServerMemoryIndex(repo: ResolvedMemoryRepo): Promise<void> {
+  const path = serverIndexPath(repo.baseRoot, repo.serverId);
+  await mkdir(join(repo.baseRoot, SERVER_INDEX_DIR), { recursive: true });
+  const entry: ServerMemoryIndexEntry = {
+    serverId: repo.serverId,
+    serverSlug: repo.serverSlug,
+    root: repo.root,
+    updatedAt: new Date().toISOString(),
+  };
+  await writeFile(path, JSON.stringify(entry, null, 2), "utf-8");
+}
+
+function serverIndexPath(baseRoot: string, serverId: string): string {
+  return join(baseRoot, SERVER_INDEX_DIR, `${sanitizeSlugForPath(serverId)}.json`);
+}
+
+async function isEmptyMemoryRepo(path: string): Promise<boolean> {
+  try {
+    const entries = await readdir(path, { withFileTypes: true });
+    const allowedEmptyDirs = new Set([".git", ...MEMORY_KINDS]);
+    for (const entry of entries) {
+      if (entry.isDirectory() && allowedEmptyDirs.has(entry.name)) continue;
+      return false;
+    }
+    for (const kind of MEMORY_KINDS) {
+      const kindPath = join(path, kind);
+      if ((await pathExists(kindPath)) && (await listMarkdownFiles(kindPath)).length > 0) return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function sanitizeSlugForPath(slug: string): string {
+  return slug.trim().replace(/[^a-zA-Z0-9_.-]/g, "_") || "local";
 }
 
 function repoRelative(root: string, path: string): string {

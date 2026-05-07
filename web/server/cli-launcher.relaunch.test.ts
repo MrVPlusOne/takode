@@ -460,6 +460,7 @@ describe("relaunch", () => {
     expect(relaunchCmd).toContain("-e");
     expect(relaunchCmd).toContain("CLAUDE_CODE_OAUTH_TOKEN=tok-test");
     expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_SERVER_ID=test-server-id"))).toBe(true);
+    expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_SERVER_SLUG=local"))).toBe(true);
     expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_AUTH_TOKEN="))).toBe(true);
   });
 

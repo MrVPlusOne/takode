@@ -333,7 +333,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory recall");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory lock acquire");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory lint");
-    expect(bookkeepingPhase?.assigneeBrief).toContain("memory doctor");
+    expect(bookkeepingPhase?.assigneeBrief).not.toContain("memory doctor");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory diff");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory commit");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory updated: <commit>");

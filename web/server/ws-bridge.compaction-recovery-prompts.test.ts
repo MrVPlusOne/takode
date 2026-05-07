@@ -831,6 +831,9 @@ describe("Compaction recovery prompts", () => {
     expect(recoveryCalls[0][1]).toContain("takode peek 42");
     expect(recoveryCalls[0][1]).toContain("takode read 42");
     expect(recoveryCalls[0][1]).toContain('memory recall "<current task or quest terms>"');
+    expect(recoveryCalls[0][1]).toContain("memory catalog");
+    expect(recoveryCalls[0][1]).toContain("memory repo path");
+    expect(recoveryCalls[0][1]).toContain("memory --help");
     expect(recoveryCalls[0][1]).toContain("read relevant `current/` files");
     expect(recoveryCalls[0][1]).not.toContain("<your-session-number>");
     expect(recoveryCalls[0][1]).toContain("Keep your current role");

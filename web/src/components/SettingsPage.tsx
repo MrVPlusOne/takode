@@ -251,6 +251,9 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [restartError, setRestartError] = useState("");
   const [restartPrepResult, setRestartPrepResult] = useState<InterruptRestartBlockersResponse | null>(null);
   const [restartSupported, setRestartSupported] = useState(true);
+  const [serverSlug, setServerSlug] = useState("");
+  const [serverSlugSaving, setServerSlugSaving] = useState(false);
+  const [serverSlugError, setServerSlugError] = useState("");
   const healthPollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const healthTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
@@ -348,6 +351,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setPoDelay(s.pushoverDelaySeconds);
         setPoBaseUrl(s.pushoverBaseUrl || "");
         setRestartSupported(s.restartSupported);
+        setServerSlug(s.serverSlug || "");
         setAaEnabled(s.autoApprovalEnabled);
         setAaModel(s.autoApprovalModel ?? "");
         setAaMaxConcurrency(s.autoApprovalMaxConcurrency ?? 4);
@@ -726,6 +730,19 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
       setRestarting(false);
       setRestartError("Server did not come back within 120 seconds. Check your terminal.");
     }, 120_000);
+  }
+
+  async function onSaveServerSlug(nextSlug: string) {
+    setServerSlugSaving(true);
+    setServerSlugError("");
+    try {
+      const res = await api.updateSettings({ serverSlug: nextSlug.trim().toLowerCase() });
+      setServerSlug(res.serverSlug || "");
+    } catch (err: unknown) {
+      setServerSlugError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setServerSlugSaving(false);
+    }
   }
 
   async function handleExport() {
@@ -1940,10 +1957,15 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
 
             <SettingsServerDiagnosticsSection
               logFile={logFile}
+              serverSlug={serverSlug}
+              setServerSlug={setServerSlug}
+              serverSlugSaving={serverSlugSaving}
+              serverSlugError={serverSlugError}
               restartSupported={restartSupported}
               restartError={restartError}
               restartPrepResult={restartPrepResult}
               restarting={restarting}
+              onSaveServerSlug={onSaveServerSlug}
               onRestartServer={onRestartServer}
               sectionSearch={settingsSearch.childSectionSearch("server")}
             />

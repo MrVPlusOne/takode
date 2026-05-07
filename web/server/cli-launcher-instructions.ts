@@ -185,9 +185,9 @@ function renderBuiltInQuestJourneyPhaseTable(): string {
 function renderFileMemoryInstructions(): string {
   return `## File-Based Memory
 
-Takode memory is a Git-tracked Markdown repo for this server/session space. By default it lives at \`~/.companion/memory/<serverId>\`, and normal \`memory\` commands auto-create the repo and authored directories when needed. Use visible recall and explicit writes; do not rely on hidden memory injection.
+Takode memory is a Git-tracked Markdown repo for this server/session space. By default it lives at \`~/.companion/memory/<serverSlug>\`, and normal \`memory\` commands auto-create the repo and authored directories when needed. Use visible recall and explicit writes; do not rely on hidden memory injection.
 
-Use \`memory recall "<current task terms>"\` when prior state may matter, especially during alignment, dispatch preparation, after compaction recovery, before Bookkeeping/Port, or when resuming work with low confidence. Use \`memory catalog\` for a derived catalog from files and frontmatter; there is no authored \`indexes/\` directory.
+Use \`memory recall "<current task terms>"\` when prior state may matter, especially during alignment, dispatch preparation, after compaction recovery, before Bookkeeping/Port, or when resuming work with low confidence. Use \`memory catalog\` for a derived catalog from files and frontmatter, \`memory repo path\` to rediscover the local repo path, and \`memory --help\` for the current command surface; there is no authored \`indexes/\` directory.
 
 Memory files are authored directly under six directories with distinct responsibilities:
 - \`current/\`: live working state, active obligations, handoffs, and facts likely to expire.
@@ -197,7 +197,7 @@ Memory files are authored directly under six directories with distinct responsib
 - \`references/\`: source digests and pointers that make external or hard-to-rediscover context cheap to find.
 - \`artifacts/\`: manifests for produced external outputs such as datasets, training runs, logs, model checkpoints, reports, or generated files outside the codebase.
 
-Before editing memory, acquire the repo-level write lock with \`memory lock acquire --owner <session-or-role>\`. While holding it, search and edit files directly with normal file tools, run \`memory lint\` or \`memory doctor\`, inspect \`memory diff\`, commit with \`memory commit --message ... --source ...\`, then release with \`memory lock release\`. Keep each memory commit source-trailed and scoped to one coherent update.
+Before editing memory, acquire the repo-level write lock with \`memory lock acquire --owner <session-or-role>\`. While holding it, search and edit files directly with normal file tools, run \`memory lint\`, inspect \`memory diff\`, commit with \`memory commit --message ... --source ...\`, then release with \`memory lock release\`. Keep each memory commit source-trailed and scoped to one coherent update.
 
 For quest work, include exactly one memory statement in phase reports or final debriefs when relevant: \`memory updated: <commit>\`, \`memory update deferred: <reason or curator>\`, or \`memory update not needed: <reason>\`.`;
 }

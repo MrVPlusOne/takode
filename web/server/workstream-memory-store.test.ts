@@ -8,18 +8,23 @@ const execFileAsync = promisify(execFile);
 
 let tempDir: string;
 let memoryStore: typeof import("./workstream-memory-store.js");
+let originalHome: string | undefined;
 
 beforeEach(async () => {
   tempDir = await mkdtemp(join(tmpdir(), "file-memory-test-"));
+  originalHome = process.env.HOME;
   process.env.COMPANION_MEMORY_DIR = join(tempDir, "memory");
   process.env.COMPANION_SERVER_ID = "test-server";
-  vi.resetModules();
+  process.env.COMPANION_SERVER_SLUG = "test";
   memoryStore = await import("./workstream-memory-store.js");
 });
 
 afterEach(async () => {
   delete process.env.COMPANION_MEMORY_DIR;
   delete process.env.COMPANION_SERVER_ID;
+  delete process.env.COMPANION_SERVER_SLUG;
+  if (originalHome === undefined) delete process.env.HOME;
+  else process.env.HOME = originalHome;
   await rm(tempDir, { recursive: true, force: true });
 });
 
@@ -35,8 +40,96 @@ describe("file-based memory store", () => {
 
     expect(repo.root).toBe(join(tempDir, "memory"));
     expect(repo.serverId).toBe("test-server");
+    expect(repo.serverSlug).toBe("test");
     expect(repo.authoredDirs).toEqual(["current", "knowledge", "procedures", "decisions", "references", "artifacts"]);
     await expect(readFile(join(tempDir, "memory", ".git", "HEAD"), "utf-8")).resolves.toContain("ref:");
+  });
+
+  it("migrates an existing server-id memory repo to the server slug path", async () => {
+    delete process.env.COMPANION_MEMORY_DIR;
+    process.env.HOME = tempDir;
+    const legacyRoot = join(tempDir, ".companion", "memory", "test-server");
+    await mkdir(join(legacyRoot, "knowledge"), { recursive: true });
+    await writeFile(
+      join(legacyRoot, "knowledge", "legacy.md"),
+      `---
+id: legacy
+kind: knowledge
+title: Legacy
+summary: Migrated from the server-id path.
+lifecycle: durable
+---
+
+Body.
+`,
+      "utf-8",
+    );
+
+    const repo = await memoryStore.ensureMemoryRepo();
+
+    expect(repo.root).toBe(join(tempDir, ".companion", "memory", "test"));
+    await expect(readFile(join(repo.root, "knowledge", "legacy.md"), "utf-8")).resolves.toContain("Legacy");
+    await expect(readFile(join(legacyRoot, "knowledge", "legacy.md"), "utf-8")).rejects.toThrow();
+  });
+
+  it("does not let an empty initialized slug repo block server-id repo migration", async () => {
+    delete process.env.COMPANION_MEMORY_DIR;
+    process.env.HOME = tempDir;
+    const legacyRoot = join(tempDir, ".companion", "memory", "test-server");
+    const targetRoot = join(tempDir, ".companion", "memory", "test");
+    await mkdir(join(targetRoot, ".git"), { recursive: true });
+    await mkdir(join(targetRoot, "current"), { recursive: true });
+    await mkdir(join(legacyRoot, "knowledge"), { recursive: true });
+    await writeFile(
+      join(legacyRoot, "knowledge", "legacy.md"),
+      `---
+id: legacy
+kind: knowledge
+title: Legacy
+summary: Migrated even when the target slug was initialized empty.
+lifecycle: durable
+---
+
+Body.
+`,
+      "utf-8",
+    );
+
+    const repo = await memoryStore.ensureMemoryRepo();
+
+    expect(repo.root).toBe(targetRoot);
+    await expect(readFile(join(repo.root, "knowledge", "legacy.md"), "utf-8")).resolves.toContain("initialized empty");
+    await expect(readFile(join(legacyRoot, "knowledge", "legacy.md"), "utf-8")).rejects.toThrow();
+  });
+
+  it("migrates from an indexed old slug when the server slug is renamed", async () => {
+    delete process.env.COMPANION_MEMORY_DIR;
+    process.env.HOME = tempDir;
+    const oldRoot = join(tempDir, ".companion", "memory", "old-slug");
+    process.env.COMPANION_SERVER_SLUG = "old-slug";
+    await memoryStore.ensureMemoryRepo();
+    await mkdir(join(oldRoot, "current"), { recursive: true });
+    await writeFile(
+      join(oldRoot, "current", "rename.md"),
+      `---
+id: rename
+kind: current
+title: Rename
+summary: Survives a slug rename.
+lifecycle: active
+---
+
+Body text.
+`,
+      "utf-8",
+    );
+
+    process.env.COMPANION_SERVER_SLUG = "new-slug";
+    const repo = await memoryStore.ensureMemoryRepo();
+
+    expect(repo.root).toBe(join(tempDir, ".companion", "memory", "new-slug"));
+    await expect(readFile(join(repo.root, "current", "rename.md"), "utf-8")).resolves.toContain("Survives");
+    await expect(readFile(join(oldRoot, "current", "rename.md"), "utf-8")).rejects.toThrow();
   });
 
   it("derives the catalog from markdown paths and frontmatter without an authored index", async () => {
