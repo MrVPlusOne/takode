@@ -33,7 +33,20 @@ const HOME = homedir();
 const CLAUDE_SKILLS_HOME = join(HOME, ".claude", "skills");
 const AGENTS_SKILLS_HOME = join(HOME, ".agents", "skills");
 const LEGACY_CODEX_SKILLS_HOME = join(getLegacyCodexHome(), "skills");
+const QUEST_JOURNEY_PHASE_SKILL_SLUGS = [
+  "quest-journey-alignment",
+  "quest-journey-explore",
+  "quest-journey-implement",
+  "quest-journey-code-review",
+  "quest-journey-mental-simulation",
+  "quest-journey-execute",
+  "quest-journey-outcome-review",
+  "quest-journey-user-checkpoint",
+  "quest-journey-bookkeeping",
+  "quest-journey-port",
+];
 const DEPRECATED_PROJECT_SKILL_SLUGS = new Set([
+  ...QUEST_JOURNEY_PHASE_SKILL_SLUGS,
   "quest-journey-planning",
   "quest-journey-implementation",
   "quest-journey-skeptic-review",

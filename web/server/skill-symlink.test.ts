@@ -145,11 +145,21 @@ describe("ensureSkillSymlinks", () => {
     expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.any(String), "/home/tester/.claude/skills/impeccable");
   });
 
-  it("skips deprecated Quest Journey aliases and removes stale global installs", async () => {
-    // Legacy phase aliases remain board/catalog compatibility metadata, but
-    // their old skill slugs must not be rediscovered as active worker skills.
-    // Cleanup runs across all three homes: ~/.claude, ~/.agents, and ~/.codex.
-    const deprecatedSlugs = [
+  it("skips Quest Journey phase skills and removes stale global installs", async () => {
+    // Phase instructions are distributed as explicit phase briefs, not
+    // auto-discovered skills. Cleanup runs across all three skill homes so
+    // stale symlinks or old copied directories stop being worker-visible.
+    const questJourneySkillSlugs = [
+      "quest-journey-alignment",
+      "quest-journey-explore",
+      "quest-journey-implement",
+      "quest-journey-code-review",
+      "quest-journey-mental-simulation",
+      "quest-journey-execute",
+      "quest-journey-outcome-review",
+      "quest-journey-user-checkpoint",
+      "quest-journey-bookkeeping",
+      "quest-journey-port",
       "quest-journey-planning",
       "quest-journey-implementation",
       "quest-journey-skeptic-review",
@@ -161,14 +171,16 @@ describe("ensureSkillSymlinks", () => {
         "/home/tester/.codex/skills",
         "/repo/.claude/skills",
         "/repo/.claude/skills/quest-journey-implement",
+        "/repo/.claude/skills/takode-orchestration",
         "/repo/.agents/skills",
       ].includes(targetDir);
     });
     fsMocks.readdirSync.mockImplementation((targetDir?: string) => {
       if (targetDir === "/repo/.claude/skills") {
         return [
+          { name: "takode-orchestration", isDirectory: () => true, isSymbolicLink: () => false },
           { name: "quest-journey-implement", isDirectory: () => true, isSymbolicLink: () => false },
-          ...deprecatedSlugs.map((name) => ({
+          ...questJourneySkillSlugs.map((name) => ({
             name,
             isDirectory: () => true,
             isSymbolicLink: () => false,
@@ -184,6 +196,12 @@ describe("ensureSkillSymlinks", () => {
       if (targetDir === "/home/tester/.claude/skills/quest-journey-planning") {
         return { isSymbolicLink: () => true };
       }
+      if (targetDir === "/home/tester/.claude/skills/quest-journey-code-review") {
+        return { isSymbolicLink: () => true };
+      }
+      if (targetDir === "/home/tester/.agents/skills/quest-journey-implement") {
+        return { isSymbolicLink: () => false };
+      }
       if (targetDir === "/home/tester/.agents/skills/quest-journey-porting") {
         return { isSymbolicLink: () => false };
       }
@@ -196,18 +214,18 @@ describe("ensureSkillSymlinks", () => {
     await ensureSkillSymlinks([]);
 
     expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
-      "/repo/.claude/skills/quest-journey-implement",
-      "/home/tester/.claude/skills/quest-journey-implement",
+      "/repo/.claude/skills/takode-orchestration",
+      "/home/tester/.claude/skills/takode-orchestration",
     );
-    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
-      "/repo/.claude/skills/quest-journey-implement",
-      "/home/tester/.agents/skills/quest-journey-implement",
-    );
-    for (const slug of deprecatedSlugs) {
+    for (const slug of questJourneySkillSlugs) {
       expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.stringContaining(slug), expect.any(String));
       expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(expect.any(String), expect.stringContaining(slug));
     }
     expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.claude/skills/quest-journey-planning");
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.claude/skills/quest-journey-code-review");
+    expect(fsMocks.rmSync).toHaveBeenCalledWith("/home/tester/.agents/skills/quest-journey-implement", {
+      recursive: true,
+    });
     expect(fsMocks.rmSync).toHaveBeenCalledWith("/home/tester/.agents/skills/quest-journey-porting", {
       recursive: true,
     });

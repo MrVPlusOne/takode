@@ -15,20 +15,13 @@ Use Questmaster to track project progress for this repository. Treat project tas
 
 The Takode server symlinks project skills into global skill directories at startup (see `web/server/skill-symlink.ts` and `web/server/index.ts`). Claude-facing skills are installed into `~/.claude/skills/`; Codex/new-agent skills are installed into `~/.agents/skills/`. The canonical Claude-facing project source remains `.claude/skills/` in the repo, while `.agents/skills/` is the single non-Claude project skill source. Legacy `.codex/skills/` content is compatibility-only and may be migrated into `.agents`; do not add new project skills there.
 
+Global skills are auto-discovered by every session and can be hard to remove once installed. Avoid adding global skills for context-dependent instructions. Prefer repo instruction files in known locations, then inject or reference those exact file paths only for the agents that need that context.
+
 | Skill | Source | Purpose |
 |-------|--------|---------|
 | `takode-orchestration` | `.claude/skills/takode-orchestration/` | Cross-session orchestration: CLI reference, quest journey, board, herd events |
 | `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
 | `confirm` | `.claude/skills/confirm/` | Confirmation workflow for instruction-scoped `/confirm` requests |
-| `quest-journey-explore` | `.claude/skills/quest-journey-explore/` | Quest Journey phase: evidence gathering before deciding the next action |
-| `quest-journey-implement` | `.claude/skills/quest-journey-implement/` | Quest Journey phase: approved code/docs/prompt/config/artifact changes |
-| `quest-journey-code-review` | `.claude/skills/quest-journey-code-review/` | Quest Journey phase: tracked artifact quality and landing-risk review |
-| `quest-journey-mental-simulation` | `.claude/skills/quest-journey-mental-simulation/` | Quest Journey phase: scenario-based workflow/design replay |
-| `quest-journey-execute` | `.claude/skills/quest-journey-execute/` | Quest Journey phase: high-stakes or externally consequential execution |
-| `quest-journey-outcome-review` | `.claude/skills/quest-journey-outcome-review/` | Quest Journey phase: external-result review |
-| `quest-journey-user-checkpoint` | `.claude/skills/quest-journey-user-checkpoint/` | Quest Journey phase: user decision checkpoint with findings, options, tradeoffs, recommendation, notification, and Journey revision |
-| `quest-journey-bookkeeping` | `.claude/skills/quest-journey-bookkeeping/` | Quest Journey phase: durable shared-state updates |
-| `quest-journey-port` | `.claude/skills/quest-journey-port/` | Quest Journey phase: sync accepted tracked changes back to main |
 | `quest-design` | `.claude/skills/quest-design/` | Confirmation workflow before creating or refining quests |
 | `self-groom` | `.claude/skills/self-groom/` | Multi-perspective self-review via parallel subagents |
 | `reviewer-groom` | `.claude/skills/reviewer-groom/` | Reviewer-owned quality review for another agent's change |
@@ -37,7 +30,7 @@ The Takode server symlinks project skills into global skill directories at start
 | `takode-ui-e2e-validation` | `.agents/skills/takode-ui-e2e-validation/` | Takode UI/E2E validation with `agent-browser`, leases, shared persistent validation state by default, isolated exceptions, Playground coverage, and screenshot evidence |
 
 Additionally, `quest-integration.ts` generates and installs the `quest` skill docs (from `web/server/templates/quest-skill-docs.md`) into the Claude and `.agents` skill directories at startup.
-Alignment is guided by the canonical phase briefs in `~/.companion/quest-journey-phases/alignment/`, not by a legacy phase skill. Historical phase aliases remain internal Quest Journey compatibility metadata only; they are not installed as worker-visible skills.
+Quest Journey phases are guided by the canonical phase briefs in `~/.companion/quest-journey-phases/<phase-id>/`, not by globally installed phase skills. Historical and canonical phase skill slugs remain internal Quest Journey compatibility metadata only; they are not installed as worker-visible skills.
 
 ## Development Commands
 
