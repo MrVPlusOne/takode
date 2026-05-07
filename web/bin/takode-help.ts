@@ -19,6 +19,7 @@ import {
   BOARD_SET_HELP,
 } from "./takode-board.js";
 import { SPAWN_FLAG_USAGE } from "./takode-orchestration-commands.js";
+import { PERMISSION_GET_HELP, PERMISSION_HELP, PERMISSION_SET_HELP } from "./takode-permission-commands.js";
 
 const LIST_HELP = `Usage: takode list [--herd|--active|--all] [--tasks] [--json]
 
@@ -417,6 +418,19 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
       }
       return true;
     }
+    case "permission": {
+      const sub = args[0];
+      if (!sub) {
+        console.log(PERMISSION_HELP);
+      } else if (sub === "get") {
+        console.log(PERMISSION_GET_HELP);
+      } else if (sub === "set") {
+        console.log(PERMISSION_SET_HELP);
+      } else {
+        console.log(PERMISSION_HELP);
+      }
+      return true;
+    }
     default:
       return false;
   }
@@ -459,6 +473,7 @@ Commands:
   board          Quest Journey work board (e.g. takode board show, takode board advance q-12)
   timer          Session-scoped timers (create, list, cancel)
   lease          Global resource leases (acquire, status, renew, release, wait)
+  permission     Inspect or update session permission modes
   help           Show detailed help for a command or nested subcommand
 
 Peek modes:
@@ -509,5 +524,7 @@ Examples:
   takode thread attach q-12 --message 42
   takode help timer create
   takode lease acquire dev-server:companion --purpose "Run E2E checks" --ttl 30m
+  takode permission get 2
+  takode permission set 2 full-access
 `);
 }

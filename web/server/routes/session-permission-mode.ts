@@ -1,7 +1,11 @@
 import type { Hono } from "hono";
 import type { LaunchOptions } from "../cli-launcher.js";
 import type { RouteContext } from "./context.js";
-import { isClaudePermissionMode, normalizeCodexPermissionProfile } from "../../shared/permission-modes.js";
+import {
+  CODEX_PERMISSION_PROFILES,
+  isClaudePermissionMode,
+  normalizeCodexPermissionProfile,
+} from "../../shared/permission-modes.js";
 
 export function resolveCodexSandboxForPermissionMode(permissionMode: string): LaunchOptions["codexSandbox"] {
   switch (normalizeCodexPermissionProfile(permissionMode)) {
@@ -16,20 +20,15 @@ export function resolveCodexSandboxForPermissionMode(permissionMode: string): La
   }
 }
 
-function isValidPermissionModeForBackend(backendType: string | undefined, mode: string): boolean {
-  if (backendType === "codex") {
-    return (
-      mode === "codex-default" ||
-      mode === "codex-auto-review" ||
-      mode === "codex-full-access" ||
-      mode === "codex-custom" ||
-      mode === "suggest" ||
-      mode === "acceptEdits" ||
-      mode === "default" ||
-      mode === "plan" ||
-      mode === "bypassPermissions"
-    );
-  }
+function resolvePermissionBackend(backendType: string | undefined): "claude" | "codex" | null {
+  if (backendType === "codex") return "codex";
+  if (!backendType || backendType === "claude" || backendType === "claude-sdk") return "claude";
+  return null;
+}
+
+function isValidPermissionModeForBackend(backend: "claude" | "codex", mode: string): boolean {
+  if (backend === "codex")
+    return CODEX_PERMISSION_PROFILES.includes(mode as (typeof CODEX_PERMISSION_PROFILES)[number]);
   return isClaudePermissionMode(mode);
 }
 
@@ -45,7 +44,11 @@ export function registerSessionPermissionModeRoute(api: Hono, ctx: RouteContext)
 
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
-    if (!isValidPermissionModeForBackend(info.backendType, mode)) {
+    const backend = resolvePermissionBackend(info.backendType);
+    if (!backend) {
+      return c.json({ error: `Unsupported backend for permission modes: ${info.backendType}` }, 400);
+    }
+    if (!isValidPermissionModeForBackend(backend, mode)) {
       return c.json({ error: `Unsupported permission mode for ${info.backendType || "claude"} session: ${mode}` }, 400);
     }
 

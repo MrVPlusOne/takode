@@ -38,6 +38,7 @@ import {
   handleUserMessage,
   handleWorkerStream,
 } from "./takode-orchestration-commands.js";
+import { handlePermission } from "./takode-permission-commands.js";
 import {
   handleInfo,
   handleLeaderContextResume,
@@ -91,6 +92,7 @@ try {
     ["board", {}],
     ["timer", {}],
     ["lease", {}],
+    ["permission", { requireOrchestrator: true }],
   ]);
   if (!command || command === "-h" || command === "--help") {
     printUsage();
@@ -228,6 +230,9 @@ try {
         formatInlineText,
         formatTimestampCompact,
       });
+      break;
+    case "permission":
+      await handlePermission(base, args);
       break;
     default:
       console.error(`Unknown command: ${command}`);
