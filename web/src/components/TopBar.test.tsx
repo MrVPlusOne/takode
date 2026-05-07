@@ -8,11 +8,16 @@ const mockNavigateToSession = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
     relaunchSession: vi.fn().mockResolvedValue({ ok: true }),
+    getSessionNotifications: vi.fn().mockResolvedValue([]),
+    markNotificationDone: vi.fn().mockResolvedValue({ ok: true }),
   },
 }));
 vi.mock("../utils/navigation.js", () => ({
   navigateTo: (...args: unknown[]) => mockNavigateTo(...args),
   navigateToSession: (...args: unknown[]) => mockNavigateToSession(...args),
+}));
+vi.mock("../ws.js", () => ({
+  sendToSession: vi.fn(() => true),
 }));
 vi.mock("./SessionInfoPopover.js", () => ({
   SessionInfoPopover: () => <div data-testid="session-info-popover" />,
@@ -58,6 +63,7 @@ interface MockStoreState {
   changedFiles: Map<string, Set<string>>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   sessionAttention: Map<string, "action" | "error" | "review" | null>;
+  sessionNotifications: Map<string, Array<any>>;
   sessionNames: Map<string, string>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   quests: { status: string }[];
@@ -70,6 +76,10 @@ interface MockStoreState {
   };
   openSessionSearch: ReturnType<typeof vi.fn>;
   closeSessionSearch: ReturnType<typeof vi.fn>;
+  setSessionNotifications: ReturnType<typeof vi.fn>;
+  requestScrollToMessage: ReturnType<typeof vi.fn>;
+  setExpandAllInTurn: ReturnType<typeof vi.fn>;
+  requestBottomAlignOnNextUserMessage: ReturnType<typeof vi.fn>;
 }
 
 let storeState: MockStoreState;
@@ -93,6 +103,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     changedFiles: new Map(),
     pendingPermissions: new Map(),
     sessionAttention: new Map(),
+    sessionNotifications: new Map(),
     sessionNames: new Map(),
     diffFileStats: new Map(),
     quests: [],
@@ -101,32 +112,41 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     shortcutSettings: { enabled: false, preset: "standard", overrides: {} },
     openSessionSearch: vi.fn(),
     closeSessionSearch: vi.fn(),
+    setSessionNotifications: vi.fn(),
+    requestScrollToMessage: vi.fn(),
+    setExpandAllInTurn: vi.fn(),
+    requestBottomAlignOnNextUserMessage: vi.fn(),
     ...overrides,
   };
 }
 
-vi.mock("../store.js", () => ({
-  useStore: (selector: (s: MockStoreState) => unknown) => selector(storeState),
-  countUserPermissions: (perms: Map<string, unknown> | undefined): number => {
-    if (!perms) return 0;
-    let count = 0;
-    for (const p of perms.values()) {
-      const perm = p as { evaluating?: boolean; autoApproved?: string };
-      if (!perm?.evaluating && !perm?.autoApproved) count++;
-    }
-    return count;
-  },
-  getSessionSearchState: () => ({
-    query: "",
-    isOpen: false,
-    mode: "strict",
-    category: "all",
-    matches: [],
-    currentMatchIndex: -1,
-  }),
-}));
+vi.mock("../store.js", () => {
+  const useStore: any = (selector: (s: MockStoreState) => unknown) => selector(storeState);
+  useStore.getState = () => storeState;
+  return {
+    useStore,
+    countUserPermissions: (perms: Map<string, unknown> | undefined): number => {
+      if (!perms) return 0;
+      let count = 0;
+      for (const p of perms.values()) {
+        const perm = p as { evaluating?: boolean; autoApproved?: string };
+        if (!perm?.evaluating && !perm?.autoApproved) count++;
+      }
+      return count;
+    },
+    getSessionSearchState: () => ({
+      query: "",
+      isOpen: false,
+      mode: "strict",
+      category: "all",
+      matches: [],
+      currentMatchIndex: -1,
+    }),
+  };
+});
 
-import { TopBar, getTopBarStatusSummary, splitAttentionSessionIdsKey } from "./TopBar.js";
+import { TopBar } from "./TopBar.js";
+import { getGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -135,10 +155,44 @@ beforeEach(() => {
 });
 
 describe("TopBar", () => {
-  it("derives attention summary counts from visible session state", () => {
+  it("derives the global needs-input aggregate from unresolved needs-input notifications only", () => {
     resetStore({
       sdkSessions: [
-        { sessionId: "s-archived", createdAt: 99, archived: true, cliConnected: true, state: "idle" },
+        { sessionId: "s1", createdAt: 40, cliConnected: true, state: "running", sessionNum: 11, name: "One" },
+        { sessionId: "s2", createdAt: 30, cliConnected: true, state: "idle", sessionNum: 12, name: "Two" },
+        { sessionId: "archived", createdAt: 20, archived: true, sessionNum: 13, name: "Archived" },
+      ],
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            { id: "n-1", category: "needs-input", summary: "Need scope", timestamp: 3, messageId: "m1", done: false },
+            { id: "review", category: "review", summary: "Review", timestamp: 4, messageId: "m2", done: false },
+          ],
+        ],
+        [
+          "s2",
+          [
+            { id: "done", category: "needs-input", summary: "Done", timestamp: 5, messageId: "m3", done: true },
+            { id: "n-2", category: "needs-input", summary: "Need launch", timestamp: 6, messageId: "m4", done: false },
+          ],
+        ],
+        [
+          "archived",
+          [{ id: "hidden", category: "needs-input", summary: "Archived", timestamp: 7, messageId: "m5", done: false }],
+        ],
+      ]),
+    });
+
+    const entries = getGlobalNeedsInputEntries(storeState as any);
+
+    expect(entries.map((entry) => entry.notification.id)).toEqual(["n-2", "n-1"]);
+    expect(entries.map((entry) => entry.sessionNum)).toEqual([12, 11]);
+  });
+
+  it("does not render the global control for running, permission, review, or blue unread state alone", () => {
+    resetStore({
+      sdkSessions: [
         { sessionId: "s-running", createdAt: 40, cliConnected: true, state: "running" },
         { sessionId: "s-waiting", createdAt: 30, cliConnected: true, state: "idle" },
         { sessionId: "s-unread", createdAt: 20, cliConnected: true, state: "idle" },
@@ -155,14 +209,65 @@ describe("TopBar", () => {
       ]),
       pendingPermissions: new Map([["s-waiting", new Map([["perm-1", {}]])]]),
       sessionAttention: new Map([["s-unread", "review"]]),
+      sessionNotifications: new Map([
+        [
+          "s-unread",
+          [{ id: "review", category: "review", summary: "Review only", timestamp: Date.now(), done: false }],
+        ],
+      ]),
     });
 
-    const summary = getTopBarStatusSummary(storeState as unknown as Parameters<typeof getTopBarStatusSummary>[0]);
+    render(<TopBar />);
 
-    expect(summary.running).toBe(1);
-    expect(summary.waiting).toBe(1);
-    expect(summary.unread).toBe(1);
-    expect(splitAttentionSessionIdsKey(summary.attentionSessionIdsKey)).toEqual(["s-waiting", "s-unread"]);
+    expect(screen.queryByRole("button", { name: /unresolved needs-input/ })).not.toBeInTheDocument();
+  });
+
+  it("opens an aggregated needs-input menu across sessions", () => {
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-1",
+              category: "needs-input",
+              summary: "Pick deployment window",
+              timestamp: 1,
+              messageId: "m1",
+              done: false,
+            },
+          ],
+        ],
+        [
+          "s2",
+          [
+            {
+              id: "n-2",
+              category: "needs-input",
+              summary: "Confirm rollback plan",
+              timestamp: 2,
+              messageId: "m2",
+              done: false,
+            },
+            { id: "review", category: "review", summary: "Review", timestamp: 3, messageId: "m3", done: false },
+          ],
+        ],
+      ]),
+      sdkSessions: [
+        { sessionId: "s1", createdAt: 10, sessionNum: 101, name: "Worker One" },
+        { sessionId: "s2", createdAt: 20, sessionNum: 102, name: "Worker Two" },
+      ],
+    });
+
+    render(<TopBar />);
+
+    fireEvent.click(screen.getByRole("button", { name: "2 unresolved needs-input notifications across sessions" }));
+
+    expect(screen.getByRole("dialog", { name: "Global needs-input notifications" })).toBeInTheDocument();
+    expect(screen.getByText("#102 Worker Two")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Confirm rollback plan" })).toBeInTheDocument();
+    expect(screen.getByText("#101 Worker One")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Pick deployment window" })).toBeInTheDocument();
   });
 
   it("stops quest badge polling while the tab is hidden", async () => {
@@ -317,65 +422,5 @@ describe("TopBar", () => {
 
     render(<TopBar />);
     expect(screen.getByTitle("Search messages (Ctrl+F)")).toBeInTheDocument();
-  });
-
-  it("cycles to the next attention session on mobile without opening the sidebar", () => {
-    window.innerWidth = 390;
-    resetStore({
-      currentSessionId: "s1",
-      sdkSessions: [
-        { sessionId: "s1", createdAt: 20, name: "First" },
-        { sessionId: "s2", createdAt: 10, name: "Second" },
-      ],
-      sessionAttention: new Map([
-        ["s1", "review"],
-        ["s2", "review"],
-      ]),
-      sessionStatus: new Map([
-        ["s1", "idle"],
-        ["s2", "idle"],
-      ]),
-      cliConnected: new Map([
-        ["s1", true],
-        ["s2", true],
-      ]),
-    });
-
-    render(<TopBar />);
-
-    fireEvent.click(screen.getByTitle("Cycle through sessions needing attention"));
-
-    expect(mockNavigateToSession).toHaveBeenCalledWith("s2");
-    expect(storeState.setSidebarOpen).not.toHaveBeenCalled();
-  });
-
-  it("does nothing on mobile when there is no next attention session", () => {
-    window.innerWidth = 390;
-    resetStore({
-      currentSessionId: "s2",
-      sdkSessions: [
-        { sessionId: "s1", createdAt: 20, name: "First" },
-        { sessionId: "s2", createdAt: 10, name: "Second" },
-      ],
-      sessionAttention: new Map([
-        ["s1", "review"],
-        ["s2", "review"],
-      ]),
-      sessionStatus: new Map([
-        ["s1", "idle"],
-        ["s2", "idle"],
-      ]),
-      cliConnected: new Map([
-        ["s1", true],
-        ["s2", true],
-      ]),
-    });
-
-    render(<TopBar />);
-
-    fireEvent.click(screen.getByTitle("Cycle through sessions needing attention"));
-
-    expect(mockNavigateToSession).not.toHaveBeenCalled();
-    expect(storeState.setSidebarOpen).not.toHaveBeenCalled();
   });
 });

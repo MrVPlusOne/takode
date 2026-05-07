@@ -1,4 +1,5 @@
 import { NotificationChip } from "../NotificationChip.js";
+import { GlobalNeedsInputMenu } from "../GlobalNeedsInputMenu.js";
 import { TimerChip } from "../TimerWidget.js";
 import { useStore } from "../../store.js";
 import { Card, Section } from "./shared.js";
@@ -84,6 +85,71 @@ function seedSummaryOnlyNeedsInput() {
   ]);
 }
 
+function seedGlobalNeedsInputData() {
+  const now = Date.now();
+  useStore.setState({
+    sessionNotifications: new Map([
+      [
+        "global-needs-input-leader",
+        [
+          {
+            id: "global-n-1",
+            category: "needs-input" as const,
+            summary: "Choose the worker handoff path",
+            suggestedAnswers: ["dispatch now", "wait for review"],
+            timestamp: now - 90_000,
+            messageId: "global-msg-1",
+            done: false,
+          },
+        ],
+      ],
+      [
+        "global-needs-input-worker",
+        [
+          {
+            id: "global-n-2",
+            category: "needs-input" as const,
+            summary: "Confirm validation coverage",
+            questions: [
+              { prompt: "Run browser validation?", suggestedAnswers: ["yes", "no"] },
+              { prompt: "Include mobile viewport?", suggestedAnswers: ["yes", "desktop only"] },
+            ],
+            timestamp: now - 30_000,
+            messageId: "global-msg-2",
+            done: false,
+          },
+          {
+            id: "global-review",
+            category: "review" as const,
+            summary: "Review-only item excluded from global needs-input",
+            timestamp: now - 15_000,
+            messageId: "global-msg-review",
+            done: false,
+          },
+        ],
+      ],
+    ]),
+  });
+  useStore.getState().setSdkSessions([
+    {
+      sessionId: "global-needs-input-leader",
+      state: "connected",
+      cwd: "/playground",
+      createdAt: now,
+      sessionNum: 401,
+      name: "Leader",
+    },
+    {
+      sessionId: "global-needs-input-worker",
+      state: "connected",
+      cwd: "/playground",
+      createdAt: now,
+      sessionNum: 402,
+      name: "Worker",
+    },
+  ]);
+}
+
 export function PlaygroundNotificationInboxSection() {
   return (
     <Section
@@ -119,6 +185,25 @@ export function PlaygroundNotificationInboxSection() {
               review), multi-question needs-input answer fields with direct Send Response, compact quest-first review
               rows, and a collapsible Done section. On mobile, the modal stretches across the viewport while staying
               scrollable and height-capped.
+            </p>
+          </div>
+        </Card>
+
+        <Card label="Global top-bar needs-input aggregate">
+          <div className="p-3 space-y-2">
+            <button
+              type="button"
+              onClick={seedGlobalNeedsInputData}
+              className="text-xs font-medium px-3 py-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
+            >
+              Seed global needs-input data
+            </button>
+            <div className="flex h-16 items-start justify-end rounded-lg border border-cc-border bg-cc-bg p-3">
+              <GlobalNeedsInputMenu />
+            </div>
+            <p className="text-[10px] text-cc-muted">
+              Shows the replacement top-bar aggregate: unresolved needs-input notifications only, with review and
+              unread-style activity excluded.
             </p>
           </div>
         </Card>

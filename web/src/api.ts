@@ -1,4 +1,11 @@
-import type { SdkSessionInfo, TreeGroup, ChatMessage, BrowserIncomingMessage } from "./types.js";
+import type {
+  SdkSessionInfo,
+  TreeGroup,
+  ChatMessage,
+  BrowserIncomingMessage,
+  StreamRecord,
+  SessionNotification,
+} from "./types.js";
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
@@ -1110,6 +1117,9 @@ export const api = {
       `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/done`,
       { done },
     ),
+
+  getSessionNotifications: (sessionId: string) =>
+    get<SessionNotification[]>(`/sessions/${encodeURIComponent(sessionId)}/notifications`),
 
   markAllNotificationsDone: (sessionId: string, done = true) =>
     post<{ ok: boolean; count: number }>(`/sessions/${encodeURIComponent(sessionId)}/notifications/done-all`, { done }),

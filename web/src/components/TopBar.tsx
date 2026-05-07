@@ -3,17 +3,14 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore, countUserPermissions, getSessionSearchState } from "../store.js";
 import { api } from "../api.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
-import { SessionStatusDot, deriveSessionStatus } from "./SessionStatusDot.js";
-import { YarnBallDot } from "./CatIcons.js";
+import { SessionStatusDot } from "./SessionStatusDot.js";
 import { parseHash } from "../utils/routing.js";
-import { navigateTo, navigateToSession } from "../utils/navigation.js";
-import { isDesktopShellLayout } from "../utils/layout.js";
+import { navigateTo } from "../utils/navigation.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
 import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
 import { questLabel } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
-
-const ATTENTION_SESSION_KEY_SEPARATOR = "\u001f";
+import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 
@@ -36,47 +33,6 @@ function countScopedChangedFiles(state: TopBarState, sessionId: string, sessionV
     const st = stats.get(fp);
     return !st || st.additions > 0 || st.deletions > 0;
   }).length;
-}
-
-export function getTopBarStatusSummary(state: TopBarState) {
-  let running = 0;
-  let waiting = 0;
-  let unread = 0;
-  const attentionSessionIds: Array<{ sessionId: string; createdAt: number }> = [];
-
-  for (const sdk of state.sdkSessions) {
-    if (sdk.archived) continue;
-
-    const visualStatus = deriveSessionStatus({
-      permCount: countUserPermissions(state.pendingPermissions.get(sdk.sessionId)),
-      isConnected: state.cliConnected.get(sdk.sessionId) ?? sdk.cliConnected ?? false,
-      sdkState: sdk.state ?? null,
-      status: state.sessionStatus.get(sdk.sessionId) ?? null,
-      hasUnread: !!state.sessionAttention.get(sdk.sessionId),
-      idleKilled: state.cliDisconnectReason.get(sdk.sessionId) === "idle_limit",
-    });
-
-    if (visualStatus === "running" || visualStatus === "compacting") running++;
-    else if (visualStatus === "permission") waiting++;
-    else if (visualStatus === "completed_unread") unread++;
-
-    if (visualStatus === "permission" || visualStatus === "completed_unread") {
-      attentionSessionIds.push({ sessionId: sdk.sessionId, createdAt: sdk.createdAt });
-    }
-  }
-
-  attentionSessionIds.sort((a, b) => b.createdAt - a.createdAt);
-
-  return {
-    running,
-    waiting,
-    unread,
-    attentionSessionIdsKey: attentionSessionIds.map((item) => item.sessionId).join(ATTENTION_SESSION_KEY_SEPARATOR),
-  };
-}
-
-export function splitAttentionSessionIdsKey(key: string): string[] {
-  return key ? key.split(ATTENTION_SESSION_KEY_SEPARATOR) : [];
 }
 
 export function getCurrentTopBarSessionState(state: TopBarState) {
@@ -135,7 +91,6 @@ export function TopBar() {
   const isQuestmasterPage = route.page === "questmaster";
   const {
     currentSessionId,
-    zoomLevel,
     sidebarOpen,
     shortcutSettings,
     setSidebarOpen,
@@ -147,7 +102,6 @@ export function TopBar() {
   } = useStore(
     useShallow((s) => ({
       currentSessionId: s.currentSessionId,
-      zoomLevel: s.zoomLevel,
       sidebarOpen: s.sidebarOpen,
       shortcutSettings: s.shortcutSettings,
       setSidebarOpen: s.setSidebarOpen,
@@ -173,13 +127,8 @@ export function TopBar() {
     idleKilled,
     changedFilesCount,
   } = useStore(useShallow(getCurrentTopBarSessionState));
-  const { running, waiting, unread, attentionSessionIdsKey } = useStore(useShallow(getTopBarStatusSummary));
   const [copiedCliId, setCopiedCliId] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
-  const attentionSessionIds = useMemo(
-    () => splitAttentionSessionIdsKey(attentionSessionIdsKey),
-    [attentionSessionIdsKey],
-  );
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
   useEffect(() => {
@@ -236,44 +185,6 @@ export function TopBar() {
       })
       .catch(console.error);
   }, [cliSessionId]);
-  // Cycle through attention sessions on yarn ball click
-  const cycleIndexRef = useRef(-1);
-  const attentionKey = attentionSessionIds.join(",");
-  useEffect(() => {
-    cycleIndexRef.current = -1;
-  }, [attentionKey]);
-
-  const handleAttentionCycle = useCallback(() => {
-    if (attentionSessionIds.length === 0) return;
-
-    if (!isDesktopShellLayout(zoomLevel)) {
-      if (!currentSessionId) {
-        navigateToSession(attentionSessionIds[0]);
-        return;
-      }
-
-      const currentIdx = attentionSessionIds.indexOf(currentSessionId);
-      if (currentIdx < 0) {
-        navigateToSession(attentionSessionIds[0]);
-        return;
-      }
-
-      const nextSessionId = attentionSessionIds[currentIdx + 1];
-      if (!nextSessionId) return;
-
-      navigateToSession(nextSessionId);
-      return;
-    }
-
-    setSidebarOpen(true);
-    // Find current session's position in the attention list to cycle from there
-    const currentIdx = currentSessionId ? attentionSessionIds.indexOf(currentSessionId) : -1;
-    const startFrom = currentIdx >= 0 ? currentIdx : cycleIndexRef.current;
-    const nextIdx = (startFrom + 1) % attentionSessionIds.length;
-    cycleIndexRef.current = nextIdx;
-    navigateToSession(attentionSessionIds[nextIdx]);
-  }, [attentionSessionIds, currentSessionId, setSidebarOpen, zoomLevel]);
-
   // Track the hash before navigating to questmaster so we can toggle back
   const prevHashRef = useRef<string>("");
 
@@ -378,33 +289,7 @@ export function TopBar() {
 
       {/* Right side */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-[12px] text-cc-muted">
-        {/* Global session status summary — right-aligned so it stays in a fixed position */}
-        {(running > 0 || waiting > 0 || unread > 0) && (
-          <button
-            onClick={handleAttentionCycle}
-            className="flex items-center gap-1 text-[10px] font-medium cursor-pointer hover:opacity-80 transition-opacity"
-            title="Cycle through sessions needing attention"
-          >
-            {running > 0 && (
-              <span className="text-cc-success flex items-center gap-0.5">
-                {running}
-                <YarnBallDot className="text-cc-success" />
-              </span>
-            )}
-            {waiting > 0 && (
-              <span className="text-cc-warning flex items-center gap-0.5">
-                {waiting}
-                <YarnBallDot className="text-cc-warning" />
-              </span>
-            )}
-            {unread > 0 && (
-              <span className="text-blue-500 flex items-center gap-0.5">
-                {unread}
-                <YarnBallDot className="text-blue-500" />
-              </span>
-            )}
-          </button>
-        )}
+        <GlobalNeedsInputMenu />
         {currentSessionId && isSessionView && (
           <>
             {status === "compacting" && (
