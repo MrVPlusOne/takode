@@ -543,6 +543,92 @@ describe("ChatView leader open thread tabs", () => {
     expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
+  it("persists active board-row quest tabs before completion so board removal does not drop them", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs([])),
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-1231", status: "PORTING", title: "Permission CLI", updatedAt: 10 }]],
+      ]),
+      messages: new Map([["s1", [threadMessage("q-1231", 10)]]]),
+      quests: [{ questId: "q-1231", title: "Permission CLI", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1231"));
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-1231",
+        placement: "last",
+        source: "server_candidate",
+        eventAt: 10,
+      },
+    });
+
+    mockSendToSession.mockClear();
+    mockState.sessionBoards = new Map([["s1", []]]);
+    mockState.sessionCompletedBoards = new Map([
+      [
+        "s1",
+        [
+          {
+            questId: "q-1231",
+            status: "DONE",
+            title: "Permission CLI",
+            updatedAt: 20,
+            completedAt: 20,
+            journey: { mode: "completed", phaseIds: ["alignment", "implement", "port"] },
+          },
+        ],
+      ],
+    ]);
+    mockState.quests = [{ questId: "q-1231", title: "Permission CLI", status: "done" }];
+    view.rerender(<ChatView sessionId="s1" />);
+
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1231");
+    expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
+  it("does not resurrect an active quest thread that the user explicitly closed", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs([], [{ threadKey: "q-1231", closedAt: 20 }])),
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-1231", status: "PORTING", title: "Closed quest", updatedAt: 10 }]],
+      ]),
+      messages: new Map([["s1", [threadMessage("q-1231", 10)]]]),
+      quests: [{ questId: "q-1231", title: "Closed quest", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", ""));
+    expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
+  it("does not force unrelated historical completed quests into open thread tabs", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs([])),
+      sessionCompletedBoards: new Map([
+        [
+          "s1",
+          [{ questId: "q-888", status: "DONE", title: "Historical completed quest", updatedAt: 10, completedAt: 10 }],
+        ],
+      ]),
+      messages: new Map([["s1", [threadMessage("q-888", 10)]]]),
+      quests: [{ questId: "q-888", title: "Historical completed quest", status: "done" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    await waitFor(() => expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", ""));
+    expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
   it("opens fresh server-created candidates but suppresses candidates older than a user close", async () => {
     const attachedAt = Date.now();
     resetStore({

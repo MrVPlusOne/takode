@@ -1013,6 +1013,17 @@ export function ChatView({
   }, [authoritativeLeaderOpenThreadTabs, isLeaderSession, preview, sendLeaderThreadTabUpdate, sessionId]);
 
   useEffect(() => {
+    if (!isLeaderSession || preview) return;
+    for (const row of activeBoard) {
+      const threadKey = normalizeThreadKey(row.questId);
+      if (!shouldPersistOpenThreadTab(threadKey)) continue;
+      if (openThreadTabKeysRef.current.includes(threadKey)) continue;
+      if (!canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, threadKey, row.updatedAt)) continue;
+      openThreadTab(threadKey, { source: "server_candidate", eventAt: row.updatedAt, placement: "last" });
+    }
+  }, [activeBoard, authoritativeLeaderOpenThreadTabs, isLeaderSession, openThreadTab, preview]);
+
+  useEffect(() => {
     if (!routeSyncEnabled || preview) return;
     const liveHash = window.location.hash;
     const liveThreadRoute = threadRouteFromHash(liveHash);
