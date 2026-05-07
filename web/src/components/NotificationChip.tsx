@@ -4,7 +4,7 @@ import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { sendToSession } from "../ws.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
-import type { SessionNotification } from "../types.js";
+import type { ChatMessage, SessionNotification } from "../types.js";
 import { isClearedNotificationStatus, type NotificationStatusSnapshot } from "../notification-status.js";
 import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
@@ -15,8 +15,10 @@ import {
   runAfterNotificationOwnerThreadSelected,
 } from "../utils/notification-thread.js";
 import { useVisibleReviewNotificationAutoResolve } from "../hooks/useVisibleReviewNotificationAutoResolve.js";
+import { getActionableNotificationMessageId } from "../utils/notification-targets.js";
 
 const EMPTY: SessionNotification[] = [];
+const EMPTY_MESSAGES: ChatMessage[] = [];
 type NotificationCategory = SessionNotification["category"];
 const NOTIFICATION_POPOVER_MIN_BOTTOM_PX = 56;
 const NOTIFICATION_POPOVER_ANCHOR_GAP_PX = 8;
@@ -241,12 +243,14 @@ function NotificationItem({
     api.markNotificationDone(sessionId, notif.id, !notif.done).catch(() => {});
   }, [sessionId, notif.id, notif.done]);
 
+  const messages = useStore((s) => s.messages?.get(sessionId) ?? EMPTY_MESSAGES);
   const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
+  const actionableMessageId = getActionableNotificationMessageId(notif, messages);
   const fallbackChipMessageId =
-    notif.category === "needs-input" && !notif.messageId && ownerThreadKey !== MAIN_THREAD_KEY
+    notif.category === "needs-input" && !actionableMessageId && ownerThreadKey !== MAIN_THREAD_KEY
       ? attentionLedgerMessageIdForNotificationId(notif.id)
       : null;
-  const jumpTargetMessageId = notif.messageId ?? fallbackChipMessageId;
+  const jumpTargetMessageId = actionableMessageId ?? fallbackChipMessageId;
 
   const jumpToMessage = useCallback(() => {
     if (!jumpTargetMessageId) return;

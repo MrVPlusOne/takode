@@ -34,6 +34,7 @@ import {
   recoverRoutedNotificationSourceMessages,
 } from "./thread-projection.js";
 import { composeSelectedFeedMessages } from "./thread-window-messages.js";
+import { sanitizeNotificationMessageTargets } from "./notification-targets.js";
 
 export interface BuildFeedMessageModelInput {
   leaderSessionId: string;
@@ -68,7 +69,11 @@ export interface FeedMessageModel {
 export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMessageModel {
   const normalizedThreadKey = normalizeThreadKey(input.threadKey || "main");
   const activeSelectedFeedWindow = input.selectedFeedWindowEnabled ? input.selectedFeedWindow : null;
-  const retainedMessageIds = collectRetainedNotificationSourceMessageIds(input.sessionNotifications, input.threadKey);
+  const sanitizedNotifications = sanitizeNotificationMessageTargets(input.sessionNotifications, [
+    ...input.allMessages,
+    ...input.selectedFeedWindowMessages,
+  ]);
+  const retainedMessageIds = collectRetainedNotificationSourceMessageIds(sanitizedNotifications, input.threadKey);
   const messagesAvailableForDerivation = composeSelectedFeedMessages({
     allMessages: input.allMessages,
     historyLoading: input.historyLoading,
@@ -79,7 +84,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
   });
   const messagesAvailableForProjection = recoverRoutedNotificationSourceMessages(
     messagesAvailableForDerivation,
-    input.sessionNotifications,
+    sanitizedNotifications,
     input.threadKey,
   );
   const baseMessages = input.projectThreadRoutes
@@ -92,7 +97,7 @@ export function buildFeedMessageModel(input: BuildFeedMessageModelInput): FeedMe
   const attentionRecords = buildAttentionRecords({
     leaderSessionId: input.leaderSessionId,
     records,
-    notifications: input.sessionNotifications,
+    notifications: sanitizedNotifications,
     boardRows: input.sessionBoard,
     completedBoardRows: input.sessionCompletedBoard,
     messages: messagesAvailableForDerivation,

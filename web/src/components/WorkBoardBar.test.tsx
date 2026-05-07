@@ -167,6 +167,8 @@ interface MockStoreState {
 }
 
 let mockState: MockStoreState;
+const mockRequestScrollToMessage = vi.fn();
+const mockSetExpandAllInTurn = vi.fn();
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
@@ -192,8 +194,8 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
 vi.mock("../store.js", () => ({
   useStore: Object.assign((selector: (s: MockStoreState) => unknown) => selector(mockState), {
     getState: () => ({
-      requestScrollToMessage: vi.fn(),
-      setExpandAllInTurn: vi.fn(),
+      requestScrollToMessage: mockRequestScrollToMessage,
+      setExpandAllInTurn: mockSetExpandAllInTurn,
     }),
   }),
   countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
@@ -284,6 +286,8 @@ beforeEach(() => {
   resetStore();
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
+  mockRequestScrollToMessage.mockClear();
+  mockSetExpandAllInTurn.mockClear();
 });
 
 afterEach(() => {
@@ -439,6 +443,47 @@ describe("WorkBoardBar", () => {
     );
     expect(queryByText("q-4 ready for review")).toBeInTheDocument();
     expect(queryByText("Finished work")).not.toBeInTheDocument();
+  });
+
+  it("selects attention tabs without replaying notification route targets", () => {
+    const onSelectThread = vi.fn();
+    vi.useFakeTimers();
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", []]]),
+    });
+
+    try {
+      const view = render(
+        <WorkBoardBar
+          sessionId="s1"
+          currentThreadKey="main"
+          onSelectThread={onSelectThread}
+          openThreadKeys={["q-977"]}
+          attentionRecords={[
+            attentionRecord({
+              id: "needs-input-q977",
+              route: { threadKey: "q-977", questId: "q-977", messageId: "herd-turn-end" },
+              threadKey: "q-977",
+              questId: "q-977",
+              title: "q-977 needs input",
+              dedupeKey: "needs-input-q977",
+            }),
+          ]}
+        />,
+      );
+
+      const tab = view.getAllByTestId("thread-tab").find((node) => node.getAttribute("data-thread-key") === "q-977");
+      expect(tab).toBeTruthy();
+      fireEvent.click(within(tab!).getByTestId("thread-tab-select"));
+      vi.runOnlyPendingTimers();
+
+      expect(onSelectThread).toHaveBeenCalledWith("q-977");
+      expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+      expect(mockSetExpandAllInTurn).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("renders open and board-active threads on one continuous tab track", () => {

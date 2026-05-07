@@ -733,6 +733,62 @@ describe("feed render model builders", () => {
     expect(model.attentionLedgerMessages).toHaveLength(0);
   });
 
+  it("uses a synthetic decision row when a needs-input notification points at a producer-shaped turn_end herd event", () => {
+    const history: BrowserIncomingMessage[] = [
+      makeRawUserMessage({
+        id: "u-q1237",
+        content: "Continue q-1237 review coordination.",
+        timestamp: 100,
+        threadKey: "q-1237",
+      }),
+      {
+        type: "user_message",
+        id: "herd-turn-end",
+        content: "1 event from 1 session\n\n#1590 | turn_end | ✓ 2m 54s | tools: 30",
+        timestamp: 200,
+        agentSource: { sessionId: "herd-events" },
+        threadKey: "q-1237",
+        questId: "q-1237",
+        threadRefs: [{ threadKey: "q-1237", questId: "q-1237", source: "explicit" }],
+      },
+    ];
+    const sync = buildThreadWindowSync({
+      messageHistory: history,
+      threadKey: "q-1237",
+      fromItem: 0,
+      itemCount: 10,
+      sectionItemCount: 10,
+      visibleItemCount: 3,
+    });
+    const selectedFeedWindowMessages = sync.entries.flatMap((entry) =>
+      normalizeHistoryMessageToChatMessages(entry.message, entry.history_index),
+    );
+
+    const model = buildMessageModel({
+      threadKey: "q-1237",
+      allMessages: [],
+      selectedFeedWindow: sync.window,
+      selectedFeedWindowMessages,
+      sessionNotifications: [
+        makeNotification({
+          id: "n-q1237",
+          messageId: "herd-turn-end",
+          threadKey: "q-1237",
+          questId: "q-1237",
+          summary: "Approve q-1237 review handoff?",
+        }),
+      ],
+    });
+
+    expect(sync.entries.map((entry) => (entry.message as { id?: string }).id)).toEqual(["u-q1237", "herd-turn-end"]);
+    expect(model.attentionRecords[0]?.route).toEqual({ threadKey: "q-1237", questId: "q-1237" });
+    expect(model.attentionLedgerMessages.map((message) => message.id)).toEqual([
+      "attention-ledger:notification:n-q1237",
+    ]);
+    expect(model.messages.map((message) => message.id)).toContain("herd-turn-end");
+    expect(model.messages.map((message) => message.id)).toContain("attention-ledger:notification:n-q1237");
+  });
+
   it("derives bounded local section metadata separately from scroll/runtime behavior", () => {
     const turns = Array.from({ length: 8 }, (_, index) => makeTurn(`turn-${index + 1}`));
 

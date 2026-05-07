@@ -931,23 +931,14 @@ function ThreadTabRail({
     return "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg";
   }
 
-  const openThread = (threadKey: string, route?: AttentionRecord["route"]) => {
+  const openThread = (threadKey: string) => {
     const targetThread = normalizeThreadKey(threadKey || MAIN_THREAD_KEY);
     const selectedThread = normalizeThreadKey(currentThreadKey || "main");
-    const scrollToRouteTarget = () => {
-      if (!route?.messageId) return;
-      const store = useStore.getState();
-      store.requestScrollToMessage(sessionId, route.messageId);
-      store.setExpandAllInTurn(sessionId, route.messageId);
-    };
 
     if (onSelectThread && (selectedThread === ALL_THREADS_KEY || selectedThread !== targetThread)) {
       onSelectThread(targetThread);
-      setTimeout(scrollToRouteTarget, 0);
       return;
     }
-
-    scrollToRouteTarget();
   };
 
   const mainSelected = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
@@ -1180,7 +1171,7 @@ function ThreadTabRail({
                   {activeOutput && <ActiveOutputIndicator />}
                   <button
                     type="button"
-                    onClick={() => openThread(tab.threadKey, tab.route)}
+                    onClick={() => openThread(tab.threadKey)}
                     className="inline-flex min-w-0 flex-1 items-center gap-1.5 rounded-t-[inherit] px-1.5 py-1 text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset"
                     data-testid="thread-tab-select"
                     data-dragging={dragSurfaceProps?.isDragging ? "true" : "false"}
@@ -1391,7 +1382,7 @@ function ThreadTabRail({
                           type="button"
                           disabled={reorderMode}
                           onClick={() => {
-                            openThread(threadKey, tab.route);
+                            openThread(threadKey);
                             setMoreTabsOpen(false);
                           }}
                           className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 disabled:cursor-default"

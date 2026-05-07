@@ -402,6 +402,55 @@ describe("NotificationChip", () => {
     }
   });
 
+  it("uses the needs-input decision row instead of unrelated herd turn_end anchors", () => {
+    const onSelectThread = vi.fn();
+    vi.useFakeTimers();
+    mockStoreState.messages = new Map([
+      [
+        "s1",
+        [
+          {
+            id: "herd-turn-end",
+            role: "user",
+            content: "1 event from 1 session\n\n#1590 | turn_end | ✓ 2m 54s | tools: 30",
+            timestamp: Date.now(),
+            agentSource: { sessionId: "herd-events" },
+          },
+        ],
+      ],
+    ]);
+    setNotifications("s1", [
+      {
+        id: "n-q977",
+        category: "needs-input",
+        summary: "Approve q-977 dispatch?",
+        timestamp: Date.now(),
+        messageId: "herd-turn-end",
+        threadKey: "q-977",
+        questId: "q-977",
+        done: false,
+      },
+    ]);
+
+    try {
+      render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
+      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      fireEvent.click(screen.getByRole("button", { name: /Approve q-977 dispatch/i }));
+
+      expect(onSelectThread).toHaveBeenCalledWith("q-977");
+      expect(mockRequestScrollToMessage).not.toHaveBeenCalledWith("s1", "herd-turn-end");
+
+      act(() => {
+        vi.runOnlyPendingTimers();
+      });
+
+      expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
+      expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "attention-ledger:notification:n-q977");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("switches out of All Threads before sending a direct response", () => {
     const onSelectThread = vi.fn();
     vi.useFakeTimers();
