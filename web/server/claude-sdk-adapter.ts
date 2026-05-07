@@ -719,18 +719,14 @@ export class ClaudeSdkAdapter
   }
 
   private mapPermissionMode(mode?: string): string | undefined {
-    // Direct mapping — Companion modes match SDK modes exactly:
-    //   "plan"              → "plan" (planning only, no tool execution)
-    //   "acceptEdits"       → "acceptEdits" (auto-approve file edits)
-    //   "bypassPermissions" → "bypassPermissions" (auto-approve everything)
-    //   "default" / other   → "default" (canUseTool callback handles permissions)
     switch (mode) {
+      case "default":
       case "bypassPermissions":
-        return "bypassPermissions";
       case "acceptEdits":
-        return "acceptEdits";
       case "plan":
-        return "plan";
+      case "delegate":
+      case "dontAsk":
+        return mode;
       default:
         return "default";
     }

@@ -2,6 +2,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { homedir } from "node:os";
 import { getServerId } from "./settings-manager.js";
+import { deriveAskPermissionForMode, normalizeClaudePermissionMode } from "../shared/permission-modes.js";
 
 export type NewSessionBackend = "claude" | "codex";
 
@@ -79,12 +80,22 @@ function normalizeCodexPermissionMode(
   }
 }
 
+function normalizeMode(backend: NewSessionBackend, value: unknown, askPermission: boolean): string {
+  const mode = normalizeString(value);
+  if (backend === "codex") return "default";
+  if (mode === "agent") return askPermission ? "acceptEdits" : "bypassPermissions";
+  return normalizeClaudePermissionMode(mode || "acceptEdits");
+}
+
 function normalizeDefaults(input: unknown): NewSessionDefaults | null {
   if (!input || typeof input !== "object" || Array.isArray(input)) return null;
   const raw = input as Record<string, unknown>;
   const backend = raw.backend === "codex" ? "codex" : "claude";
-  const mode = normalizeString(raw.mode) || "agent";
-  const askPermission = raw.askPermission !== false;
+  const rawAskPermission = raw.askPermission !== false;
+  const mode = normalizeMode(backend, raw.mode, rawAskPermission);
+  const codexPermissionMode = normalizeCodexPermissionMode(raw.codexPermissionMode, backend, mode, rawAskPermission);
+  const askPermission =
+    backend === "codex" ? codexPermissionMode !== "full-access" : deriveAskPermissionForMode("claude", mode);
   return {
     backend,
     model: normalizeString(raw.model),
@@ -98,7 +109,7 @@ function normalizeDefaults(input: unknown): NewSessionDefaults | null {
     useWorktree: raw.useWorktree === undefined ? true : raw.useWorktree === true,
     codexInternetAccess: raw.codexInternetAccess === true,
     codexReasoningEffort: normalizeString(raw.codexReasoningEffort),
-    codexPermissionMode: normalizeCodexPermissionMode(raw.codexPermissionMode, backend, mode, askPermission),
+    codexPermissionMode,
   };
 }
 

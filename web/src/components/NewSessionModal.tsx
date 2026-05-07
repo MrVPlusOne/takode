@@ -11,18 +11,18 @@ import {
 import { getRecentDirs } from "../utils/recent-dirs.js";
 import { queuePendingSession } from "../utils/pending-creation.js";
 import {
+  CLAUDE_PERMISSION_MODES,
   CODEX_REASONING_EFFORTS,
   CODEX_PERMISSION_MODES,
   getModelsForBackend,
-  getModesForBackend,
   getDefaultModel,
   getDefaultMode,
   toModelOptions,
+  deriveAskPermissionForMode,
+  normalizeClaudePermission,
   normalizeCodexPermissionMode,
+  resolveClaudePermissionCliMode,
   resolveCodexPermissionCliMode,
-  resolveClaudeCliMode,
-  deriveCodexUiMode,
-  deriveCodexAskPermission,
   type ModelOption,
   type CodexPermissionMode,
 } from "../utils/backends.js";
@@ -162,11 +162,12 @@ export function NewSessionModal({
   function applyDefaults(d: NewSessionDefaults | ServerNewSessionDefaults, opts?: { preserveEditedCwd?: boolean }) {
     setBackend(d.backend);
     setModel(d.model);
-    setMode(d.mode);
+    const nextMode = d.backend === "claude" ? normalizeClaudePermission(d.mode) : getDefaultMode("codex");
+    setMode(nextMode);
     if (!opts?.preserveEditedCwd || !cwdUserEditedRef.current) {
       setSystemCwd(resolveDefaultCwd(d));
     }
-    setAskPermission(d.askPermission);
+    setAskPermission(d.backend === "claude" ? deriveAskPermissionForMode("claude", nextMode) : d.askPermission);
     setSelectedEnv(d.envSlug);
     setUseWorktree(d.useWorktree);
     setCodexInternetAccess(d.codexInternetAccess);
@@ -314,13 +315,12 @@ export function NewSessionModal({
   useEffect(() => {
     if (backend !== "codex") return;
     if (mode !== "suggest" && mode !== "bypassPermissions") return;
-    const uiMode = deriveCodexUiMode(mode);
-    const ask = deriveCodexAskPermission(mode);
+    const ask = deriveAskPermissionForMode("codex", mode);
     const migratedPermissionMode: CodexPermissionMode = mode === "bypassPermissions" ? "full-access" : "auto-review";
-    setMode(uiMode);
+    setMode(getDefaultMode("codex"));
     setAskPermission(ask);
     setCodexPermissionMode(migratedPermissionMode);
-    persistGlobalDefault("cc-mode", uiMode);
+    persistGlobalDefault("cc-mode", getDefaultMode("codex"));
     persistGlobalDefault("cc-ask-permission", String(ask));
     persistGlobalDefault("cc-codex-permission-mode", migratedPermissionMode);
   }, [backend, mode]);
@@ -421,6 +421,9 @@ export function NewSessionModal({
         )
       : MODELS;
   const selectedModel = displayModels.find((m) => m.value === model) || displayModels[0];
+  const selectedClaudePermission =
+    CLAUDE_PERMISSION_MODES.find((option) => option.value === normalizeClaudePermission(mode)) ||
+    CLAUDE_PERMISSION_MODES[0];
   const selectedCodexPermission =
     CODEX_PERMISSION_MODES.find((option) => option.value === codexPermissionMode) || CODEX_PERMISSION_MODES[0];
 
@@ -455,7 +458,8 @@ export function NewSessionModal({
     const permissionMode =
       backend === "codex"
         ? resolveCodexPermissionCliMode(codexPermissionMode)
-        : resolveClaudeCliMode(mode, askPermission);
+        : resolveClaudePermissionCliMode(normalizeClaudePermission(mode));
+    const effectiveAskPermission = deriveAskPermissionForMode(backend === "codex" ? "codex" : "claude", permissionMode);
 
     // Build creation opts (stored in pending session for retry)
     const createOpts = {
@@ -470,7 +474,7 @@ export function NewSessionModal({
       codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
       codexReasoningEffort: backend === "codex" ? codexReasoningEffort || undefined : undefined,
       assistantMode: undefined,
-      askPermission,
+      askPermission: effectiveAskPermission,
       role: sessionRole === "leader" ? ("orchestrator" as const) : undefined,
       treeGroupId: treeGroupId || undefined,
     };
@@ -480,8 +484,8 @@ export function NewSessionModal({
       const defaultsToPersist: NewSessionDefaults = {
         backend: backend as NewSessionBackend,
         model,
-        mode,
-        askPermission,
+        mode: backend === "codex" ? getDefaultMode("codex") : permissionMode,
+        askPermission: effectiveAskPermission,
         sessionRole,
         envSlug: selectedEnv,
         cwd: cwdSnapshot,
@@ -561,8 +565,11 @@ export function NewSessionModal({
       permissionMode:
         backend === "codex"
           ? resolveCodexPermissionCliMode(codexPermissionMode)
-          : resolveClaudeCliMode(mode, askPermission),
-      askPermission,
+          : resolveClaudePermissionCliMode(normalizeClaudePermission(mode)),
+      askPermission: deriveAskPermissionForMode(
+        backend === "codex" ? "codex" : "claude",
+        backend === "codex" ? resolveCodexPermissionCliMode(codexPermissionMode) : normalizeClaudePermission(mode),
+      ),
       codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
       codexReasoningEffort: backend === "codex" ? codexReasoningEffort || undefined : undefined,
       treeGroupId: treeGroupId || undefined,
@@ -916,66 +923,41 @@ export function NewSessionModal({
                       )}
                     </div>
                   ) : (
-                    /* Mode selector: Claude Plan/Agent + Ask toggle */
-                    <div className="flex items-center gap-2">
-                      <div className="flex items-center bg-cc-hover/50 rounded-lg p-0.5">
-                        <button
-                          onClick={() => updateMode("plan")}
-                          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
-                            mode === "plan" ? "bg-cc-primary/15 text-cc-primary" : "text-cc-muted hover:text-cc-fg"
-                          }`}
-                          title="Plan mode: agent creates a plan before executing"
-                        >
-                          Plan
-                        </button>
-                        <button
-                          onClick={() => updateMode("agent")}
-                          className={`px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer select-none ${
-                            mode === "agent" ? "bg-cc-primary/15 text-cc-primary" : "text-cc-muted hover:text-cc-fg"
-                          }`}
-                          title="Agent mode: executes tools directly"
-                        >
-                          Agent
-                        </button>
-                      </div>
-
+                    <div className="relative" ref={codexPermissionDropdownRef}>
                       <button
-                        onClick={() => {
-                          const next = !askPermission;
-                          setAskPermission(next);
-                          persistGlobalDefault("cc-ask-permission", String(next));
-                        }}
-                        className="flex items-center justify-center w-7 h-7 rounded-md transition-colors cursor-pointer select-none hover:bg-cc-hover"
-                        title={
-                          askPermission
-                            ? "Permissions: will ask before tool use"
-                            : "Permissions: auto-approving tool use"
-                        }
+                        onClick={() => setShowCodexPermissionDropdown(!showCodexPermissionDropdown)}
+                        className="flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium rounded-md transition-colors cursor-pointer bg-cc-hover/50 text-cc-fg hover:bg-cc-hover"
+                        title={selectedClaudePermission.description}
                       >
-                        {askPermission ? (
-                          <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-cc-primary">
-                            <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                            <path
-                              d="M6.5 8.5L7.5 9.5L10 7"
-                              stroke="white"
-                              strokeWidth="1.5"
-                              fill="none"
-                              strokeLinecap="round"
-                              strokeLinejoin="round"
-                            />
-                          </svg>
-                        ) : (
-                          <svg
-                            viewBox="0 0 16 16"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="1.2"
-                            className="w-4 h-4 text-cc-muted"
-                          >
-                            <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                          </svg>
-                        )}
+                        <span>{selectedClaudePermission.label}</span>
+                        <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3 opacity-50">
+                          <path d="M4 6l4 4 4-4" />
+                        </svg>
                       </button>
+                      {showCodexPermissionDropdown && (
+                        <div className="absolute left-0 top-full mt-1 w-64 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 py-1 overflow-hidden">
+                          {CLAUDE_PERMISSION_MODES.map((option) => (
+                            <button
+                              key={option.value}
+                              onClick={() => {
+                                updateMode(option.value);
+                                setAskPermission(deriveAskPermissionForMode("claude", option.value));
+                                persistGlobalDefault(
+                                  "cc-ask-permission",
+                                  String(deriveAskPermissionForMode("claude", option.value)),
+                                );
+                                setShowCodexPermissionDropdown(false);
+                              }}
+                              className={`w-full px-3 py-2 text-left hover:bg-cc-hover transition-colors cursor-pointer ${
+                                option.value === normalizeClaudePermission(mode) ? "text-cc-primary" : "text-cc-fg"
+                              }`}
+                            >
+                              <div className="text-xs font-medium">{option.label}</div>
+                              <div className="text-[11px] leading-snug text-cc-muted mt-0.5">{option.description}</div>
+                            </button>
+                          ))}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

@@ -1,20 +1,36 @@
 import type { Hono } from "hono";
 import type { LaunchOptions } from "../cli-launcher.js";
 import type { RouteContext } from "./context.js";
+import { isClaudePermissionMode, normalizeCodexPermissionProfile } from "../../shared/permission-modes.js";
 
 export function resolveCodexSandboxForPermissionMode(permissionMode: string): LaunchOptions["codexSandbox"] {
-  switch (permissionMode) {
+  switch (normalizeCodexPermissionProfile(permissionMode)) {
     case "codex-custom":
       return undefined;
     case "codex-auto-review":
       return "workspace-write";
     case "codex-full-access":
-    case "bypassPermissions":
       return "danger-full-access";
     case "codex-default":
-    default:
       return "workspace-write";
   }
+}
+
+function isValidPermissionModeForBackend(backendType: string | undefined, mode: string): boolean {
+  if (backendType === "codex") {
+    return (
+      mode === "codex-default" ||
+      mode === "codex-auto-review" ||
+      mode === "codex-full-access" ||
+      mode === "codex-custom" ||
+      mode === "suggest" ||
+      mode === "acceptEdits" ||
+      mode === "default" ||
+      mode === "plan" ||
+      mode === "bypassPermissions"
+    );
+  }
+  return isClaudePermissionMode(mode);
 }
 
 export function registerSessionPermissionModeRoute(api: Hono, ctx: RouteContext): void {
@@ -29,6 +45,9 @@ export function registerSessionPermissionModeRoute(api: Hono, ctx: RouteContext)
 
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
+    if (!isValidPermissionModeForBackend(info.backendType, mode)) {
+      return c.json({ error: `Unsupported permission mode for ${info.backendType || "claude"} session: ${mode}` }, 400);
+    }
 
     const leaderId = typeof body.leaderSessionId === "string" ? resolveId(body.leaderSessionId) : null;
     if (leaderId) {

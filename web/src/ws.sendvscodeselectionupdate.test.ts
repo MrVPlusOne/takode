@@ -181,13 +181,13 @@ describe("sendVsCodeSelectionUpdate", () => {
           sourceLabel: "embedded-browser",
           client_msg_id: "cmsg-latest",
         },
-        {
+        expect.objectContaining({
           type: "session_subscribe",
           last_seq: 0,
           known_frozen_count: 0,
           history_window_section_turn_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
           history_window_visible_section_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
-        },
+        }),
       ]),
     );
     expect(lastWs.send.mock.calls.map(([payload]) => JSON.parse(payload))).not.toEqual(

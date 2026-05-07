@@ -31,7 +31,7 @@ describe("new-session-defaults", () => {
     expect(getGlobalNewSessionDefaults()).toEqual({
       backend: "codex",
       model: "gpt-5.4",
-      mode: "agent",
+      mode: "default",
       askPermission: false,
       sessionRole: "worker",
       envSlug: "prod",
@@ -55,7 +55,7 @@ describe("new-session-defaults", () => {
     expect(getGroupNewSessionDefaults("/repo-a")).toEqual({
       backend: "claude",
       model: "claude-opus-4-6",
-      mode: "agent",
+      mode: "acceptEdits",
       askPermission: true,
       sessionRole: "worker",
       envSlug: "",
@@ -76,7 +76,7 @@ describe("new-session-defaults", () => {
     saveGroupNewSessionDefaults("/repo-a", {
       backend: "codex",
       model: "gpt-5.4",
-      mode: "agent",
+      mode: "default",
       askPermission: false,
       sessionRole: "leader",
       envSlug: "sandbox",
@@ -90,7 +90,7 @@ describe("new-session-defaults", () => {
     expect(getGroupNewSessionDefaults("/repo-a")).toEqual({
       backend: "codex",
       model: "gpt-5.4",
-      mode: "agent",
+      mode: "default",
       askPermission: false,
       sessionRole: "worker",
       envSlug: "sandbox",
@@ -110,7 +110,7 @@ describe("new-session-defaults", () => {
     expect(getGlobalNewSessionDefaults()).toEqual({
       backend: "claude",
       model: "claude-opus-4-6",
-      mode: "agent",
+      mode: "acceptEdits",
       askPermission: true,
       sessionRole: "worker",
       envSlug: "",
@@ -129,7 +129,7 @@ describe("new-session-defaults", () => {
     expect(getGlobalNewSessionDefaults()).toMatchObject({
       backend: "codex",
       model: "",
-      mode: "agent",
+      mode: "default",
       askPermission: false,
       sessionRole: "worker",
       cwd: "",

@@ -603,7 +603,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     if (askPermission !== undefined) {
       createPayload.askPermission = askPermission;
       if (backendRaw === "codex" && askPermission === false && !codexPermissionMode) {
-        createPayload.permissionMode = "bypassPermissions";
+        createPayload.permissionMode = "codex-full-access";
       }
     }
 

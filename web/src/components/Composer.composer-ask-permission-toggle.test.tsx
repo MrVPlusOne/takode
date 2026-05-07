@@ -531,14 +531,23 @@ beforeEach(() => {
 
 // ─── Basic rendering ────────────────────────────────────────────────────────
 
-describe("Composer ask permission toggle", () => {
-  it("renders ask permission shield icon for Claude sessions", () => {
+describe("Composer permission picker", () => {
+  it("uses a confirmed Claude permission picker instead of the ask shield", async () => {
     setupMockStore({ session: { permissionMode: "acceptEdits" } });
     render(<Composer sessionId="s1" />);
 
-    // The toggle should render a shield button with a title indicating permission mode
-    const shieldButton = screen.getByTitle(/Permissions:/);
-    expect(shieldButton).toBeTruthy();
+    expect(screen.queryByTitle(/Permissions:/)).toBeNull();
+    await userEvent.click(screen.getByTitle(/Accept edits:/));
+    await userEvent.click(screen.getByText("Full access"));
+
+    expect(screen.getByText("Change permissions to Full access?")).toBeTruthy();
+
+    await userEvent.click(screen.getByText("Restart"));
+
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "set_permission_mode",
+      mode: "bypassPermissions",
+    });
   });
 
   it("uses a confirmed Codex permission profile picker instead of the ask shield", async () => {
@@ -546,10 +555,10 @@ describe("Composer ask permission toggle", () => {
     render(<Composer sessionId="s1" />);
 
     expect(screen.queryByTitle(/Permissions:/)).toBeNull();
-    await userEvent.click(screen.getByTitle(/Default permissions:/));
+    await userEvent.click(screen.getByTitle(/Default:/));
     await userEvent.click(screen.getByText("Auto-review"));
 
-    expect(screen.getByText("Change Codex permissions to Auto-review?")).toBeTruthy();
+    expect(screen.getByText("Change permissions to Auto-review?")).toBeTruthy();
     expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "set_permission_mode" }));
 
     await userEvent.click(screen.getByText("Restart"));

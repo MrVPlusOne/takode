@@ -1,11 +1,12 @@
 import { scopedGetItem, scopedSetItem } from "./scoped-storage.js";
 import {
   deriveCodexAskPermission,
-  deriveCodexUiMode,
+  deriveAskPermissionForMode,
   getDefaultMode,
   getDefaultModel,
   getModelsForBackend,
   getModesForBackend,
+  normalizeClaudePermission,
   normalizeCodexPermissionMode,
   type CodexPermissionMode,
 } from "./backends.js";
@@ -53,18 +54,33 @@ function normalizeMode(
   rawMode: string | null | undefined,
   rawAskPermission: boolean | null | undefined,
 ): { mode: string; askPermission: boolean } {
-  if (backend === "codex" && (rawMode === "suggest" || rawMode === "bypassPermissions")) {
+  if (backend === "codex") {
+    const askPermission =
+      rawMode === "suggest" || rawMode === "bypassPermissions"
+        ? deriveCodexAskPermission(rawMode)
+        : normalizeAskPermission(rawAskPermission);
     return {
-      mode: deriveCodexUiMode(rawMode),
-      askPermission: deriveCodexAskPermission(rawMode),
+      mode: getDefaultMode(backend),
+      askPermission,
+    };
+  }
+
+  if (rawMode === "agent") {
+    const askPermission = normalizeAskPermission(rawAskPermission);
+    return {
+      mode: askPermission ? "acceptEdits" : "bypassPermissions",
+      askPermission,
     };
   }
 
   const modes = getModesForBackend(backend);
-  const mode = rawMode && modes.some((entry) => entry.value === rawMode) ? rawMode : getDefaultMode(backend);
+  const mode =
+    rawMode && modes.some((entry) => entry.value === rawMode)
+      ? normalizeClaudePermission(rawMode)
+      : getDefaultMode(backend);
   return {
     mode,
-    askPermission: normalizeAskPermission(rawAskPermission),
+    askPermission: deriveAskPermissionForMode("claude", mode),
   };
 }
 

@@ -3,18 +3,18 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { sendToSession } from "../ws.js";
 import {
+  CLAUDE_PERMISSION_MODES,
   CODEX_PERMISSION_MODES,
   CODEX_REASONING_EFFORTS,
-  resolveClaudeCliMode,
   deriveUiMode,
-  resolveCodexCliMode,
   deriveCodexPermissionMode,
-  deriveCodexUiMode,
-  deriveCodexAskPermission,
   formatModel,
   getModelsForBackend,
+  normalizeClaudePermission,
+  resolveClaudePermissionCliMode,
   resolveCodexPermissionCliMode,
   toModelOptions,
+  type ClaudePermissionMode,
   type CodexPermissionMode,
   type ModelOption,
 } from "../utils/backends.js";
@@ -104,9 +104,8 @@ export function Composer({
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showCodexReasoningDropdown, setShowCodexReasoningDropdown] = useState(false);
-  const [showCodexPermissionDropdown, setShowCodexPermissionDropdown] = useState(false);
-  const [pendingCodexPermissionMode, setPendingCodexPermissionMode] = useState<CodexPermissionMode | null>(null);
-  const [showAskConfirm, setShowAskConfirm] = useState(false);
+  const [showPermissionDropdown, setShowPermissionDropdown] = useState(false);
+  const [pendingPermissionMode, setPendingPermissionMode] = useState<string | null>(null);
   const [dynamicCodexModels, setDynamicCodexModels] = useState<ModelOption[] | null>(null);
   const [dynamicClaudeModels, setDynamicClaudeModels] = useState<ModelOption[] | null>(null);
   const [sendPressing, setSendPressing] = useState(false);
@@ -122,8 +121,7 @@ export function Composer({
   const draftImageSourceFilesRef = useRef(new Map<string, File>());
   const modelDropdownRef = useRef<HTMLDivElement>(null);
   const codexReasoningDropdownRef = useRef<HTMLDivElement>(null);
-  const codexPermissionDropdownRef = useRef<HTMLDivElement>(null);
-  const askConfirmRef = useRef<HTMLDivElement>(null);
+  const permissionDropdownRef = useRef<HTMLDivElement>(null);
   const voiceCaptureModeRef = useRef<"dictation" | "edit" | "append">("dictation");
   const voiceEditBaseTextRef = useRef("");
   const activeVoiceTranscriptionThreadKeyRef = useRef<string | undefined>(transcriptionThreadKey);
@@ -466,20 +464,17 @@ export function Composer({
   const isConnected = sessionView.isConnected;
   const currentMode = sessionView.permissionMode;
   const isCodex = sessionView.backendType === "codex";
-  const askPermission =
-    typeof sessionView.explicitAskPermission === "boolean"
-      ? sessionView.explicitAskPermission
-      : isCodex
-        ? deriveCodexAskPermission(currentMode)
-        : true;
   const diffLinesAdded = sessionView.totalLinesAdded ?? sdkDiffTotals.totalLinesAdded;
   const diffLinesRemoved = sessionView.totalLinesRemoved ?? sdkDiffTotals.totalLinesRemoved;
   // Prefer the server-provided UI mode when available. permissionMode can be
   // stale during backend transitions (e.g., SDK init/status replay) while uiMode
   // is the authoritative virtual mode for the composer toggle.
-  const uiMode = sessionView.serverUiMode ?? (isCodex ? deriveCodexUiMode(currentMode) : deriveUiMode(currentMode));
+  const uiMode = isCodex ? "agent" : (sessionView.serverUiMode ?? deriveUiMode(currentMode));
   const isPlan = uiMode === "plan";
   const codexPermissionMode = deriveCodexPermissionMode(currentMode);
+  const claudePermissionMode = normalizeClaudePermission(currentMode);
+  const permissionOptions = isCodex ? CODEX_PERMISSION_MODES : CLAUDE_PERMISSION_MODES;
+  const permissionMode = isCodex ? codexPermissionMode : claudePermissionMode;
   const codexReasoningEffort = sessionView.codexReasoningEffort;
   const codexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
   // Resolve the "Default" option: replace the empty-value placeholder with
@@ -602,25 +597,13 @@ export function Composer({
       if (codexReasoningDropdownRef.current && !codexReasoningDropdownRef.current.contains(e.target as Node)) {
         setShowCodexReasoningDropdown(false);
       }
-      if (codexPermissionDropdownRef.current && !codexPermissionDropdownRef.current.contains(e.target as Node)) {
-        setShowCodexPermissionDropdown(false);
+      if (permissionDropdownRef.current && !permissionDropdownRef.current.contains(e.target as Node)) {
+        setShowPermissionDropdown(false);
       }
     }
     document.addEventListener("pointerdown", handleClick);
     return () => document.removeEventListener("pointerdown", handleClick);
   }, []);
-
-  // Close ask-permission confirm popover on outside click
-  useEffect(() => {
-    if (!showAskConfirm) return;
-    function handlePointerDown(e: PointerEvent) {
-      if (askConfirmRef.current && !askConfirmRef.current.contains(e.target as Node)) {
-        setShowAskConfirm(false);
-      }
-    }
-    document.addEventListener("pointerdown", handlePointerDown);
-    return () => document.removeEventListener("pointerdown", handlePointerDown);
-  }, [showAskConfirm]);
 
   const acceptVoiceEdit = useCallback(() => {
     if (!voiceEditProposal) return;
@@ -692,13 +675,10 @@ export function Composer({
     if (isCodex) {
       const targetMode = parseCodexModeSlashCommand(msg);
       if (targetMode) {
-        const switched =
-          targetMode.askPermission === undefined
-            ? sendToSession(sessionId, { type: "set_codex_ui_mode", uiMode: targetMode.uiMode })
-            : sendToSession(sessionId, {
-                type: "set_permission_mode",
-                mode: resolveCodexCliMode(targetMode.uiMode, targetMode.askPermission),
-              });
+        const switched = sendToSession(sessionId, {
+          type: "set_permission_mode",
+          mode: resolveCodexPermissionCliMode(targetMode.permissionMode),
+        });
         if (!switched) return;
         store.clearComposerDraft(sessionId);
         closeAutocompleteMenus();
@@ -896,7 +876,6 @@ export function Composer({
 
     if (e.key === "Tab" && e.shiftKey) {
       e.preventDefault();
-      cycleMode();
       return;
     }
     // Desktop: Enter sends, Shift+Enter inserts newline.
@@ -1213,41 +1192,17 @@ export function Composer({
     });
   }, [images, startImagePreparation]);
 
-  function selectMode(mode: string) {
-    if (!isConnected) return;
-    if (isCodex) {
-      sendToSession(sessionId, { type: "set_codex_ui_mode", uiMode: mode === "plan" ? "plan" : "agent" });
-      return;
-    }
-    // Claude Code: resolve the UI mode + askPermission to the actual CLI mode
-    const cliMode = resolveClaudeCliMode(mode, askPermission);
-    // Server will broadcast the updated permissionMode and uiMode to all browsers
-    sendToSession(sessionId, { type: "set_permission_mode", mode: cliMode });
-  }
-
-  function toggleAskPermission() {
-    if (!isConnected) return;
-    setShowAskConfirm(true);
-  }
-
-  function confirmAskPermissionChange() {
-    const newValue = !askPermission;
-    sendToSession(sessionId, { type: "set_ask_permission", askPermission: newValue });
-    setShowAskConfirm(false);
-  }
-
-  function confirmCodexPermissionChange() {
-    if (!pendingCodexPermissionMode) return;
+  function confirmPermissionChange() {
+    if (!pendingPermissionMode) return;
+    const mode = isCodex
+      ? resolveCodexPermissionCliMode(pendingPermissionMode as CodexPermissionMode)
+      : resolveClaudePermissionCliMode(pendingPermissionMode as ClaudePermissionMode);
     sendToSession(sessionId, {
       type: "set_permission_mode",
-      mode: resolveCodexPermissionCliMode(pendingCodexPermissionMode),
+      mode,
     });
-    setPendingCodexPermissionMode(null);
-    setShowCodexPermissionDropdown(false);
-  }
-
-  function cycleMode() {
-    selectMode(uiMode === "plan" ? "agent" : "plan");
+    setPendingPermissionMode(null);
+    setShowPermissionDropdown(false);
   }
 
   // Detect pending ExitPlanMode permission for auto-reject and ghost text
@@ -1570,30 +1525,22 @@ export function Composer({
                 onSelectCodexReasoning={(effort) =>
                   sendToSession(sessionId, { type: "set_codex_reasoning_effort", effort })
                 }
-                isPlan={isPlan}
-                cycleMode={cycleMode}
-                codexPermissionOptions={CODEX_PERMISSION_MODES}
-                codexPermissionMode={codexPermissionMode}
-                showCodexPermissionDropdown={showCodexPermissionDropdown}
-                setShowCodexPermissionDropdown={setShowCodexPermissionDropdown}
-                codexPermissionDropdownRef={codexPermissionDropdownRef}
-                pendingCodexPermissionMode={pendingCodexPermissionMode}
-                onRequestCodexPermissionMode={(mode) => {
-                  if (mode === codexPermissionMode) {
-                    setShowCodexPermissionDropdown(false);
+                permissionOptions={permissionOptions}
+                permissionMode={permissionMode}
+                showPermissionDropdown={showPermissionDropdown}
+                setShowPermissionDropdown={setShowPermissionDropdown}
+                permissionDropdownRef={permissionDropdownRef}
+                pendingPermissionMode={pendingPermissionMode}
+                onRequestPermissionMode={(mode) => {
+                  if (mode === permissionMode) {
+                    setShowPermissionDropdown(false);
                     return;
                   }
-                  setPendingCodexPermissionMode(mode);
-                  setShowCodexPermissionDropdown(false);
+                  setPendingPermissionMode(mode);
+                  setShowPermissionDropdown(false);
                 }}
-                onCancelCodexPermissionMode={() => setPendingCodexPermissionMode(null)}
-                onConfirmCodexPermissionMode={confirmCodexPermissionChange}
-                askConfirmRef={askConfirmRef}
-                toggleAskPermission={toggleAskPermission}
-                askPermission={askPermission}
-                showAskConfirm={showAskConfirm}
-                setShowAskConfirm={setShowAskConfirm}
-                confirmAskPermissionChange={confirmAskPermissionChange}
+                onCancelPermissionMode={() => setPendingPermissionMode(null)}
+                onConfirmPermissionMode={confirmPermissionChange}
                 collapseAllButton={<CollapseAllButton sessionId={sessionId} />}
                 onOpenFilePicker={() => fileInputRef.current?.click()}
                 warmMicrophone={warmMicrophone}

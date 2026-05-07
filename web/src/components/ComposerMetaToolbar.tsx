@@ -1,11 +1,5 @@
 import type { RefObject, ReactNode } from "react";
-import {
-  CODEX_REASONING_EFFORTS,
-  formatModel,
-  type CodexPermissionMode,
-  type CodexPermissionOption,
-  type ModelOption,
-} from "../utils/backends.js";
+import { CODEX_REASONING_EFFORTS, formatModel, type PermissionOption, type ModelOption } from "../utils/backends.js";
 import { CatPawAvatar } from "./CatIcons.js";
 
 function PaperPlaneIcon({ className = "w-4 h-4" }: { className?: string }) {
@@ -34,23 +28,15 @@ export function ComposerMetaToolbar({
   codexReasoningDropdownRef,
   codexReasoningEffort,
   onSelectCodexReasoning,
-  isPlan,
-  cycleMode,
-  codexPermissionOptions,
-  codexPermissionMode,
-  showCodexPermissionDropdown,
-  setShowCodexPermissionDropdown,
-  codexPermissionDropdownRef,
-  pendingCodexPermissionMode,
-  onRequestCodexPermissionMode,
-  onCancelCodexPermissionMode,
-  onConfirmCodexPermissionMode,
-  askConfirmRef,
-  toggleAskPermission,
-  askPermission,
-  showAskConfirm,
-  setShowAskConfirm,
-  confirmAskPermissionChange,
+  permissionOptions,
+  permissionMode,
+  showPermissionDropdown,
+  setShowPermissionDropdown,
+  permissionDropdownRef,
+  pendingPermissionMode,
+  onRequestPermissionMode,
+  onCancelPermissionMode,
+  onConfirmPermissionMode,
   collapseAllButton,
   onOpenFilePicker,
   warmMicrophone,
@@ -91,23 +77,15 @@ export function ComposerMetaToolbar({
   codexReasoningDropdownRef: RefObject<HTMLDivElement | null>;
   codexReasoningEffort: string;
   onSelectCodexReasoning: (effort: string) => void;
-  isPlan: boolean;
-  cycleMode: () => void;
-  codexPermissionOptions: CodexPermissionOption[];
-  codexPermissionMode: CodexPermissionMode;
-  showCodexPermissionDropdown: boolean;
-  setShowCodexPermissionDropdown: (open: boolean) => void;
-  codexPermissionDropdownRef: RefObject<HTMLDivElement | null>;
-  pendingCodexPermissionMode: CodexPermissionMode | null;
-  onRequestCodexPermissionMode: (mode: CodexPermissionMode) => void;
-  onCancelCodexPermissionMode: () => void;
-  onConfirmCodexPermissionMode: () => void;
-  askConfirmRef: RefObject<HTMLDivElement | null>;
-  toggleAskPermission: () => void;
-  askPermission: boolean;
-  showAskConfirm: boolean;
-  setShowAskConfirm: (open: boolean) => void;
-  confirmAskPermissionChange: () => void;
+  permissionOptions: PermissionOption[];
+  permissionMode: string;
+  showPermissionDropdown: boolean;
+  setShowPermissionDropdown: (open: boolean) => void;
+  permissionDropdownRef: RefObject<HTMLDivElement | null>;
+  pendingPermissionMode: string | null;
+  onRequestPermissionMode: (mode: string) => void;
+  onCancelPermissionMode: () => void;
+  onConfirmPermissionMode: () => void;
   collapseAllButton: ReactNode;
   onOpenFilePicker: () => void;
   warmMicrophone: () => void;
@@ -125,192 +103,78 @@ export function ComposerMetaToolbar({
   sendButtonTitle: string;
   sendPressing: boolean;
 }) {
-  const selectedCodexPermission =
-    codexPermissionOptions.find((option) => option.value === codexPermissionMode) ?? codexPermissionOptions[0];
-  const pendingCodexPermission = pendingCodexPermissionMode
-    ? codexPermissionOptions.find((option) => option.value === pendingCodexPermissionMode)
+  const selectedPermission =
+    permissionOptions.find((option) => option.value === permissionMode) ?? permissionOptions[0];
+  const pendingPermission = pendingPermissionMode
+    ? permissionOptions.find((option) => option.value === pendingPermissionMode)
     : null;
 
   return (
     <div data-testid="composer-footer-toolbar" className="flex items-center gap-2 px-2.5 pb-2.5 pt-1">
       <div className="flex min-w-0 flex-1 items-center gap-1.5">
         <div className="flex items-center gap-1 shrink-0">
-          <button
-            onClick={cycleMode}
-            disabled={!isConnected}
-            className={`flex items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors select-none ${
-              !isConnected
-                ? "opacity-30 cursor-not-allowed text-cc-muted"
-                : isPlan
-                  ? "bg-cc-primary/15 text-cc-primary cursor-pointer"
+          <div className="relative" ref={permissionDropdownRef}>
+            <button
+              onClick={() => setShowPermissionDropdown(!showPermissionDropdown)}
+              disabled={!isConnected}
+              className={`flex max-w-[150px] items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors select-none ${
+                !isConnected
+                  ? "opacity-30 cursor-not-allowed text-cc-muted"
                   : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
-            }`}
-            title={
-              isPlan
-                ? "Plan mode: agent creates a plan before executing (Shift+Tab to toggle)"
-                : "Agent mode: executes tools directly (Shift+Tab to toggle)"
-            }
-          >
-            {isPlan ? (
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                <path d="M2 3.5h12v1H2zm0 4h8v1H2zm0 4h10v1H2z" />
+              }`}
+              title={`${selectedPermission.label}: ${selectedPermission.description}`}
+            >
+              <span className="truncate">{selectedPermission.label}</span>
+              <svg viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5 shrink-0 opacity-50">
+                <path d="M4 6l4 4 4-4" />
               </svg>
-            ) : (
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5">
-                <path
-                  d="M2.5 4l4 4-4 4"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                />
-                <path
-                  d="M8.5 4l4 4-4 4"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                />
-              </svg>
-            )}
-            <span>{isPlan ? "Plan" : "Agent"}</span>
-          </button>
-
-          {isCodex ? (
-            <div className="relative" ref={codexPermissionDropdownRef}>
-              <button
-                onClick={() => setShowCodexPermissionDropdown(!showCodexPermissionDropdown)}
-                disabled={!isConnected}
-                className={`flex max-w-[150px] items-center gap-1 px-2 py-1 rounded-md text-[11px] font-medium transition-colors select-none ${
-                  !isConnected
-                    ? "opacity-30 cursor-not-allowed text-cc-muted"
-                    : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
-                }`}
-                title={`${selectedCodexPermission.label}: ${selectedCodexPermission.description}`}
+            </button>
+            {showPermissionDropdown && (
+              <div
+                data-testid="composer-permission-mode-menu"
+                className="absolute left-0 bottom-full z-10 mb-1 w-64 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
               >
-                <span className="truncate">{selectedCodexPermission.label}</span>
-                <svg viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5 shrink-0 opacity-50">
-                  <path d="M4 6l4 4 4-4" />
-                </svg>
-              </button>
-              {showCodexPermissionDropdown && (
-                <div
-                  data-testid="composer-codex-permission-menu"
-                  className="absolute left-0 bottom-full z-10 mb-1 w-64 overflow-hidden rounded-[10px] border border-cc-border bg-cc-card py-1 shadow-lg"
-                >
-                  {codexPermissionOptions.map((option) => (
-                    <button
-                      key={option.value}
-                      onClick={() => onRequestCodexPermissionMode(option.value)}
-                      className={`w-full cursor-pointer px-3 py-2 text-left transition-colors hover:bg-cc-hover ${
-                        option.value === codexPermissionMode ? "text-cc-primary" : "text-cc-fg"
-                      }`}
-                    >
-                      <div className="text-xs font-medium">{option.label}</div>
-                      <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">{option.description}</div>
-                    </button>
-                  ))}
-                </div>
-              )}
-              {pendingCodexPermission && (
-                <div
-                  data-testid="composer-codex-permission-popover"
-                  className="absolute left-0 bottom-full z-20 mb-2 w-72 rounded-[10px] border border-cc-border bg-cc-card p-3 shadow-lg"
-                >
-                  <p className="mb-1 text-xs font-medium text-cc-fg">
-                    Change Codex permissions to {pendingCodexPermission.label}?
-                  </p>
-                  <p className="mb-3 text-[11px] leading-relaxed text-cc-muted">
-                    This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation
-                    will be preserved.
-                  </p>
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      onClick={onCancelCodexPermissionMode}
-                      className="cursor-pointer rounded-md px-2.5 py-1 text-[11px] text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={onConfirmCodexPermissionMode}
-                      className="cursor-pointer rounded-md bg-cc-primary/15 px-2.5 py-1 text-[11px] font-medium text-cc-primary transition-colors hover:bg-cc-primary/25"
-                    >
-                      Restart
-                    </button>
-                  </div>
-                </div>
-              )}
-            </div>
-          ) : (
-            <div className="relative" ref={askConfirmRef}>
-              <button
-                onClick={toggleAskPermission}
-                disabled={!isConnected}
-                className={`flex items-center justify-center w-7 h-7 rounded-md transition-colors select-none ${
-                  !isConnected ? "opacity-30 cursor-not-allowed text-cc-muted" : "cursor-pointer hover:bg-cc-hover"
-                }`}
-                title={
-                  askPermission
-                    ? "Permissions: asking before tool use (click to change)"
-                    : "Permissions: auto-approving tool use (click to change)"
-                }
-              >
-                {askPermission ? (
-                  <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 text-cc-primary">
-                    <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                    <path
-                      d="M6.5 8.5L7.5 9.5L10 7"
-                      stroke="white"
-                      strokeWidth="1.5"
-                      fill="none"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                ) : (
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.2"
-                    className="w-4 h-4 text-cc-muted"
+                {permissionOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    onClick={() => onRequestPermissionMode(option.value)}
+                    className={`w-full cursor-pointer px-3 py-2 text-left transition-colors hover:bg-cc-hover ${
+                      option.value === permissionMode ? "text-cc-primary" : "text-cc-fg"
+                    }`}
                   >
-                    <path d="M8 1L2 4v4c0 3.5 2.6 6.4 6 7 3.4-.6 6-3.5 6-7V4L8 1z" />
-                  </svg>
-                )}
-              </button>
-              {showAskConfirm && (
-                <div
-                  data-testid="composer-permission-popover"
-                  className="absolute left-1/2 -translate-x-1/2 bottom-full mb-2 w-64 bg-cc-card border border-cc-border rounded-[10px] shadow-lg z-10 p-3"
-                >
-                  <p className="text-xs text-cc-fg mb-1 font-medium">
-                    {askPermission ? "Disable permission prompts?" : "Enable permission prompts?"}
-                  </p>
-                  <p className="text-[11px] text-cc-muted mb-3 leading-relaxed">
-                    This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation
-                    will be preserved.
-                  </p>
-                  <div className="flex items-center justify-end gap-2">
-                    <button
-                      onClick={() => setShowAskConfirm(false)}
-                      className="px-2.5 py-1 text-[11px] rounded-md text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={confirmAskPermissionChange}
-                      className="px-2.5 py-1 text-[11px] rounded-md bg-cc-primary/15 text-cc-primary hover:bg-cc-primary/25 transition-colors cursor-pointer font-medium"
-                    >
-                      Restart
-                    </button>
-                  </div>
+                    <div className="text-xs font-medium">{option.label}</div>
+                    <div className="mt-0.5 text-[11px] leading-snug text-cc-muted">{option.description}</div>
+                  </button>
+                ))}
+              </div>
+            )}
+            {pendingPermission && (
+              <div
+                data-testid="composer-permission-mode-popover"
+                className="absolute left-0 bottom-full z-20 mb-2 w-72 rounded-[10px] border border-cc-border bg-cc-card p-3 shadow-lg"
+              >
+                <p className="mb-1 text-xs font-medium text-cc-fg">Change permissions to {pendingPermission.label}?</p>
+                <p className="mb-3 text-[11px] leading-relaxed text-cc-muted">
+                  This will restart the CLI session. Any in-progress operation will be interrupted. Your conversation
+                  will be preserved.
+                </p>
+                <div className="flex items-center justify-end gap-2">
+                  <button
+                    onClick={onCancelPermissionMode}
+                    className="cursor-pointer rounded-md px-2.5 py-1 text-[11px] text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={onConfirmPermissionMode}
+                    className="cursor-pointer rounded-md bg-cc-primary/15 px-2.5 py-1 text-[11px] font-medium text-cc-primary transition-colors hover:bg-cc-primary/25"
+                  >
+                    Restart
+                  </button>
                 </div>
-              )}
-            </div>
-          )}
+              </div>
+            )}
+          </div>
         </div>
 
         <div className="shrink-0">{collapseAllButton}</div>

@@ -435,11 +435,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       await emit("resolving_env", "Environment resolved", "done");
 
       const resumeAskPermission = body.askPermission !== false;
-      const initialModeState: ReturnType<RouteContext["resolveInitialModeState"]> = {
-        permissionMode: resumeAskPermission ? "plan" : "bypassPermissions",
-        askPermission: resumeAskPermission,
-        uiMode: resumeAskPermission ? "plan" : "agent",
-      };
+      const initialModeState = resolveInitialModeState(backend, body.permissionMode, resumeAskPermission);
       const initialCwd = body.cwd ? resolve(expandTilde(body.cwd)) : process.cwd();
       const binarySettings = getSettings();
       const requestedTreeGroupId = await validateRequestedTreeGroupId(body.treeGroupId);

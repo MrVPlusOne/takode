@@ -532,33 +532,23 @@ beforeEach(() => {
 // ─── Basic rendering ────────────────────────────────────────────────────────
 
 describe("Composer mode cycling", () => {
-  it("pressing Shift+Tab toggles from agent to plan mode", () => {
-    // Start in acceptEdits (Agent mode with askPermission=true)
+  it("pressing Shift+Tab does not change backend-native permission mode", () => {
     setupMockStore({ session: { permissionMode: "acceptEdits" } });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")!;
 
     fireEvent.keyDown(textarea, { key: "Tab", shiftKey: true });
 
-    // Should switch to plan mode (CLI mode is "plan")
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_permission_mode",
-      mode: "plan",
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
-  it("pressing Shift+Tab toggles from plan back to agent mode", () => {
-    // Start in plan mode — should toggle to agent
+  it("pressing Shift+Tab does not rewrite plan permission mode", () => {
     setupMockStore({ session: { permissionMode: "plan" } });
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")!;
 
     fireEvent.keyDown(textarea, { key: "Tab", shiftKey: true });
 
-    // Should switch to agent mode; with askPermission=true → CLI mode is "acceptEdits"
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_permission_mode",
-      mode: "acceptEdits",
-    });
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 });

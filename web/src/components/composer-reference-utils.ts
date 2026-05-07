@@ -1,4 +1,5 @@
 import type { ChatMessage, CodexAppReference, CodexSkillReference, QuestmasterTask, SdkSessionInfo } from "../types.js";
+import type { CodexPermissionMode } from "../utils/backends.js";
 
 export const AUTOCOMPLETE_RECENCY_MAX_RECENT_TURNS = 24;
 export const AUTOCOMPLETE_RECENCY_MAX_SCANNED_MESSAGES = 120;
@@ -473,18 +474,24 @@ export function toAppMentionInsertText(app: CodexAppReference): string {
   return `[$${toAppMentionSlug(app.name)}](app://${app.id})`;
 }
 
-export function parseCodexModeSlashCommand(text: string): { uiMode: "plan" | "agent"; askPermission?: boolean } | null {
+export function parseCodexModeSlashCommand(text: string): { permissionMode: CodexPermissionMode } | null {
   const normalized = text.trim().toLowerCase().replace(/\s+/g, "");
   switch (normalized) {
-    case "/plan":
-      return { uiMode: "plan" };
+    case "/default":
     case "/suggest":
-      return { uiMode: "agent", askPermission: true };
+      return { permissionMode: "default" };
+    case "/auto-review":
+    case "/autoreview":
+      return { permissionMode: "auto-review" };
     case "/accept-edits":
     case "/acceptedits":
-      return { uiMode: "agent", askPermission: true };
+      return { permissionMode: "default" };
     case "/auto":
-      return { uiMode: "agent", askPermission: false };
+    case "/full-access":
+    case "/fullaccess":
+      return { permissionMode: "full-access" };
+    case "/custom":
+      return { permissionMode: "custom" };
     default:
       return null;
   }

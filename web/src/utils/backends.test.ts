@@ -6,6 +6,7 @@ import {
   getDefaultModel,
   getDefaultMode,
   resolveClaudeCliMode,
+  resolveClaudePermissionCliMode,
   resolvePostPlanMode,
   deriveUiMode,
   resolveCodexCliMode,
@@ -18,6 +19,7 @@ import {
   CODEX_MODELS,
   CLAUDE_MODES,
   CODEX_MODES,
+  CLAUDE_PERMISSION_MODES,
 } from "./backends.js";
 
 describe("toModelOptions", () => {
@@ -129,25 +131,23 @@ describe("static model/mode lists", () => {
     expect(CODEX_MODES.length).toBeGreaterThanOrEqual(2);
   });
 
-  it("codex plan mode label is explicit in UI", () => {
-    const codexPlan = CODEX_MODES.find((m) => m.value === "plan");
-    expect(codexPlan?.label).toBe("Plan");
-  });
-
-  it("codex modes contain plan and agent virtual modes", () => {
+  it("codex modes expose backend-native permission profiles", () => {
     const values = CODEX_MODES.map((m) => m.value);
-    expect(values).toContain("plan");
-    expect(values).toContain("agent");
+    expect(values).toEqual(["default", "auto-review", "full-access", "custom"]);
   });
 
-  it("claude modes contain plan and agent virtual modes", () => {
+  it("claude modes expose backend-native permission modes", () => {
     const values = CLAUDE_MODES.map((m) => m.value);
+    expect(values).toContain("default");
+    expect(values).toContain("acceptEdits");
+    expect(values).toContain("bypassPermissions");
     expect(values).toContain("plan");
-    expect(values).toContain("agent");
+    expect(values).toContain("delegate");
+    expect(values).toContain("dontAsk");
   });
 
-  it("default claude mode is agent", () => {
-    expect(getDefaultMode("claude")).toBe("agent");
+  it("default claude creation mode preserves the previous Agent + Ask behavior", () => {
+    expect(getDefaultMode("claude")).toBe("acceptEdits");
   });
 });
 
@@ -167,8 +167,8 @@ describe("resolveCodexCliMode", () => {
 });
 
 describe("deriveCodexUiMode", () => {
-  it("maps 'plan' to plan UI mode", () => {
-    expect(deriveCodexUiMode("plan")).toBe("plan");
+  it("maps legacy plan to agent because Codex no longer exposes a separate plan axis", () => {
+    expect(deriveCodexUiMode("plan")).toBe("agent");
   });
 
   it("maps execution modes to agent UI mode", () => {
@@ -208,6 +208,14 @@ describe("resolveCodexPermissionCliMode", () => {
     expect(resolveCodexPermissionCliMode("auto-review")).toBe("codex-auto-review");
     expect(resolveCodexPermissionCliMode("full-access")).toBe("codex-full-access");
     expect(resolveCodexPermissionCliMode("custom")).toBe("codex-custom");
+  });
+});
+
+describe("resolveClaudePermissionCliMode", () => {
+  it("uses Claude's backend-native permission strings directly", () => {
+    for (const option of CLAUDE_PERMISSION_MODES) {
+      expect(resolveClaudePermissionCliMode(option.value)).toBe(option.value);
+    }
   });
 });
 

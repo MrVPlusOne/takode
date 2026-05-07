@@ -972,7 +972,7 @@ describe("Composer sending messages", () => {
     expect(textarea.value).toBe("");
   });
 
-  it("treats /plan as a Codex mode switch (not a user message)", () => {
+  it("sends /plan as a normal Codex user message", () => {
     setupMockStore({
       session: {
         backend_type: "codex",
@@ -986,19 +986,16 @@ describe("Composer sending messages", () => {
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
     fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
 
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_codex_ui_mode",
-      uiMode: "plan",
-    });
-    expect(mockSendToSession).not.toHaveBeenCalledWith(
+    expect(mockSendToSession).toHaveBeenCalledWith(
       "s1",
       expect.objectContaining({
         type: "user_message",
+        content: "/plan",
       }),
     );
   });
 
-  it("treats /suggest as a Codex mode switch to suggest mode", () => {
+  it("treats /suggest as a Codex permission switch to the default profile", () => {
     setupMockStore({
       session: {
         backend_type: "codex",
@@ -1014,7 +1011,7 @@ describe("Composer sending messages", () => {
 
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "set_permission_mode",
-      mode: "suggest",
+      mode: "codex-default",
     });
     expect(mockSendToSession).not.toHaveBeenCalledWith(
       "s1",

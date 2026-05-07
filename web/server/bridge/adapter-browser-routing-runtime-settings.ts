@@ -6,6 +6,13 @@ import type {
   AdapterBrowserRoutingSessionLike,
 } from "./adapter-browser-routing-controller.js";
 import { clearActionAttentionIfNoPermissions as clearActionAttentionIfNoPermissionsSessionRegistryController } from "./session-registry-controller.js";
+import {
+  deriveAskPermissionForMode,
+  deriveUiModeForMode,
+  isCodexPermissionProfile,
+  normalizeClaudePermissionMode,
+  normalizeCodexPermissionProfile,
+} from "../../shared/permission-modes.js";
 
 export function handleSetModel(
   session: AdapterBrowserRoutingSessionLike,
@@ -55,26 +62,33 @@ export function handleSetPermissionMode(
   mode: string,
   deps: AdapterBrowserRoutingDeps,
 ): void {
+  const nextMode = normalizeClaudePermissionMode(mode);
   if (session.backendType === "claude-sdk" && session.claudeSdkAdapter) {
-    session.claudeSdkAdapter.sendBrowserMessage({ type: "set_permission_mode", mode });
+    session.claudeSdkAdapter.sendBrowserMessage({ type: "set_permission_mode", mode: nextMode });
   } else {
     deps.sendToCLI(
       session,
       JSON.stringify({
         type: "control_request",
         request_id: randomUUID(),
-        request: { subtype: "set_permission_mode", mode },
+        request: { subtype: "set_permission_mode", mode: nextMode },
       }),
     );
   }
-  const uiMode = mode === "plan" ? "plan" : "agent";
-  session.state.permissionMode = mode;
+  const uiMode = deriveUiModeForMode("claude", nextMode);
+  const askPermission = deriveAskPermissionForMode("claude", nextMode);
+  session.state.permissionMode = nextMode;
   session.state.uiMode = uiMode;
+  session.state.askPermission = askPermission;
   const launchInfo = deps.getLauncherSessionInfo(session.id);
-  if (launchInfo) launchInfo.permissionMode = mode;
+  if (launchInfo) {
+    launchInfo.permissionMode = nextMode;
+    launchInfo.askPermission = askPermission;
+    launchInfo.uiMode = uiMode;
+  }
   deps.broadcastToBrowsers(session, {
     type: "session_update",
-    session: { permissionMode: mode, uiMode },
+    session: { permissionMode: nextMode, uiMode, askPermission },
   });
   deps.persistSession(session);
 }
@@ -84,10 +98,12 @@ export function handleCodexSetPermissionMode(
   mode: string,
   deps: AdapterBrowserRoutingDeps,
 ): void {
-  const nextProfile = normalizeCodexPermissionProfile(mode, session.state.permissionMode);
+  const nextProfile = normalizeCodexPermissionProfile(
+    mode,
+    isCodexPermissionProfile(session.state.permissionMode) ? session.state.permissionMode : "codex-default",
+  );
   if (!nextProfile) return;
-  const currentUiMode = session.state.uiMode === "plan" ? "plan" : "agent";
-  const nextUiMode = resolveCodexUiModeForPermissionMessage(mode, currentUiMode);
+  const nextUiMode = "agent";
   if (session.state.permissionMode === nextProfile && session.state.uiMode === nextUiMode) return;
   const isFullAccessMode = nextProfile === "codex-full-access";
   if (session.pendingPermissions.size > 0) {
@@ -145,49 +161,6 @@ export function handleCodexSetPermissionMode(
   deps.requestCodexIntentionalRelaunch(session, "set_permission_mode", 100);
 }
 
-function normalizeCodexPermissionProfile(mode: string, currentMode?: string): string | null {
-  switch (mode) {
-    case "codex-default":
-    case "codex-auto-review":
-    case "codex-full-access":
-    case "codex-custom":
-      return mode;
-    case "bypassPermissions":
-      return "codex-full-access";
-    case "suggest":
-    case "acceptEdits":
-    case "default":
-      return "codex-default";
-    case "plan":
-      if (isCodexProfilePermissionMode(currentMode)) return currentMode;
-      return "codex-default";
-    default:
-      return null;
-  }
-}
-
-function isCodexProfilePermissionMode(
-  mode?: string,
-): mode is "codex-default" | "codex-auto-review" | "codex-full-access" | "codex-custom" {
-  return (
-    mode === "codex-default" || mode === "codex-auto-review" || mode === "codex-full-access" || mode === "codex-custom"
-  );
-}
-
-function resolveCodexUiModeForPermissionMessage(mode: string, currentUiMode: "plan" | "agent"): "plan" | "agent" {
-  switch (mode) {
-    case "plan":
-      return "plan";
-    case "suggest":
-    case "acceptEdits":
-    case "default":
-    case "bypassPermissions":
-      return "agent";
-    default:
-      return currentUiMode;
-  }
-}
-
 function resolveCodexSandboxForPermissionProfile(
   mode: string,
 ): "read-only" | "workspace-write" | "danger-full-access" | undefined {
@@ -217,33 +190,33 @@ function setLauncherCodexSandbox(
 
 export function handleCodexSetUiMode(
   session: AdapterBrowserRoutingSessionLike,
-  uiMode: "plan" | "agent",
+  _uiMode: "plan" | "agent",
   deps: AdapterBrowserRoutingDeps,
 ): void {
-  const nextProfile = normalizeCodexPermissionProfile(session.state.permissionMode ?? "codex-default", undefined);
+  const nextProfile = normalizeCodexPermissionProfile(session.state.permissionMode ?? "codex-default");
   if (!nextProfile) return;
   const codexAskPermission = nextProfile !== "codex-full-access";
   if (
     session.state.permissionMode === nextProfile &&
-    session.state.uiMode === uiMode &&
+    session.state.uiMode === "agent" &&
     session.state.askPermission === codexAskPermission
   ) {
     return;
   }
 
   session.state.permissionMode = nextProfile;
-  session.state.uiMode = uiMode;
+  session.state.uiMode = "agent";
   session.state.askPermission = codexAskPermission;
   const launchInfo = deps.getLauncherSessionInfo(session.id);
   if (launchInfo) {
     launchInfo.permissionMode = nextProfile;
     launchInfo.askPermission = codexAskPermission;
-    launchInfo.uiMode = uiMode;
+    launchInfo.uiMode = "agent";
     setLauncherCodexSandbox(launchInfo, nextProfile);
   }
   deps.broadcastToBrowsers(session, {
     type: "session_update",
-    session: { permissionMode: nextProfile, uiMode, askPermission: codexAskPermission },
+    session: { permissionMode: nextProfile, uiMode: "agent", askPermission: codexAskPermission },
   });
   deps.persistSession(session);
   deps.requestCodexIntentionalRelaunch(session, "set_codex_ui_mode", 100);
@@ -298,8 +271,8 @@ export function handleSetAskPermission(
   deps: AdapterBrowserRoutingDeps,
 ): void {
   if (session.backendType === "codex") {
-    const uiMode = session.state.uiMode === "plan" ? "plan" : "agent";
-    const newMode = uiMode === "plan" ? "plan" : askPermission ? "suggest" : "bypassPermissions";
+    const uiMode = "agent";
+    const newMode = askPermission ? "codex-default" : "codex-full-access";
     if (session.state.askPermission === askPermission && session.state.permissionMode === newMode) return;
     session.state.askPermission = askPermission;
     session.state.permissionMode = newMode;
@@ -318,8 +291,13 @@ export function handleSetAskPermission(
     return;
   }
   session.state.askPermission = askPermission;
-  const uiMode = session.state.uiMode ?? "agent";
-  const newMode = uiMode === "plan" ? "plan" : askPermission ? "acceptEdits" : "bypassPermissions";
+  const currentMode = session.state.permissionMode || "acceptEdits";
+  const uiMode = deriveUiModeForMode("claude", currentMode);
+  const newMode = askPermission
+    ? currentMode === "bypassPermissions" || currentMode === "dontAsk"
+      ? "acceptEdits"
+      : currentMode
+    : "bypassPermissions";
   session.state.permissionMode = newMode;
   deps.broadcastToBrowsers(session, {
     type: "session_update",

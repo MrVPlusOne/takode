@@ -23,7 +23,7 @@ describe("new-session-defaults-store", () => {
     await saveDefaults("tree-group:team-alpha", {
       backend: "codex",
       model: "gpt-5.5",
-      mode: "agent",
+      mode: "default",
       askPermission: false,
       sessionRole: "leader",
       envSlug: "sandbox",
@@ -41,8 +41,8 @@ describe("new-session-defaults-store", () => {
     expect(entry?.defaults).toEqual({
       backend: "codex",
       model: "gpt-5.5",
-      mode: "agent",
-      askPermission: false,
+      mode: "default",
+      askPermission: true,
       sessionRole: "worker",
       envSlug: "sandbox",
       cwd: "/repo/companion",
@@ -60,7 +60,7 @@ describe("new-session-defaults-store", () => {
     await saveDefaults("tree-group:takode", {
       backend: "claude",
       model: "",
-      mode: "agent",
+      mode: "acceptEdits",
       askPermission: true,
       sessionRole: "worker",
       envSlug: "",

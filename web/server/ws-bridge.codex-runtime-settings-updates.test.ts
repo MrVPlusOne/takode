@@ -649,12 +649,12 @@ describe("Codex runtime settings updates", () => {
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });
 
-  it("set_ask_permission keeps codex plan mode while updating askPermission", async () => {
+  it("legacy set_ask_permission maps Codex to backend-native full access", async () => {
     const sid = "s3";
     const browser = makeBrowserSocket(sid);
     const adapter = makeCodexAdapterMock();
     const relaunchCb = vi.fn();
-    const launcherInfo = { permissionMode: "plan", askPermission: true };
+    const launcherInfo = { permissionMode: "codex-default", askPermission: true };
     const launcherMock = {
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
@@ -665,8 +665,8 @@ describe("Codex runtime settings updates", () => {
     bridge.attachCodexAdapter(sid, adapter as any);
     bridge.handleBrowserOpen(browser, sid);
     const session = bridge.getSession(sid)!;
-    session.state.permissionMode = "plan";
-    session.state.uiMode = "plan";
+    session.state.permissionMode = "codex-default";
+    session.state.uiMode = "agent";
     session.state.askPermission = true;
     browser.send.mockClear();
 
@@ -678,10 +678,10 @@ describe("Codex runtime settings updates", () => {
       }),
     );
 
-    expect(session.state.permissionMode).toBe("plan");
-    expect(session.state.uiMode).toBe("plan");
+    expect(session.state.permissionMode).toBe("codex-full-access");
+    expect(session.state.uiMode).toBe("agent");
     expect(session.state.askPermission).toBe(false);
-    expect(launcherInfo.permissionMode).toBe("plan");
+    expect(launcherInfo.permissionMode).toBe("codex-full-access");
     expect(launcherInfo.askPermission).toBe(false);
     expect(relaunchCb).toHaveBeenCalledWith(sid);
 
@@ -692,8 +692,8 @@ describe("Codex runtime settings updates", () => {
         type: "session_update",
         session: expect.objectContaining({
           askPermission: false,
-          permissionMode: "plan",
-          uiMode: "plan",
+          permissionMode: "codex-full-access",
+          uiMode: "agent",
         }),
       }),
     );

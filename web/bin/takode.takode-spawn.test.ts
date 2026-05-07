@@ -826,7 +826,7 @@ describe("takode spawn", () => {
             cliConnected: true,
             isGenerating: false,
             askPermission: false,
-            permissionMode: "bypassPermissions",
+            permissionMode: "codex-full-access",
             isWorktree: false,
             codexReasoningEffort: "medium",
             codexInternetAccess: true,
@@ -876,7 +876,7 @@ describe("takode spawn", () => {
         createdBy: "leader-3",
         model: "gpt-5.4",
         askPermission: false,
-        permissionMode: "bypassPermissions",
+        permissionMode: "codex-full-access",
         codexReasoningEffort: "medium",
         codexInternetAccess: true,
       },
@@ -896,7 +896,7 @@ describe("takode spawn", () => {
     expect(parsed.sessions).toEqual([
       expect.objectContaining({
         model: "gpt-5.4",
-        permissionMode: "bypassPermissions",
+        permissionMode: "codex-full-access",
         codexReasoningEffort: "medium",
         codexInternetAccess: true,
         askPermission: false,

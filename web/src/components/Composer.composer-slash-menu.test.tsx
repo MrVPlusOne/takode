@@ -628,10 +628,13 @@ describe("Composer slash menu", () => {
 
     fireEvent.change(textarea, { target: { value: "/" } });
 
-    expect(screen.getByText("/plan")).toBeTruthy();
+    expect(screen.getByText("/default")).toBeTruthy();
     expect(screen.getByText("/suggest")).toBeTruthy();
     expect(screen.getByText("/accept-edits")).toBeTruthy();
+    expect(screen.getByText("/auto-review")).toBeTruthy();
     expect(screen.getByText("/auto")).toBeTruthy();
+    expect(screen.getByText("/full-access")).toBeTruthy();
+    expect(screen.getByText("/custom")).toBeTruthy();
     expect(screen.getByText("/compact")).toBeTruthy();
     expect(screen.getByText("/status")).toBeTruthy();
   });
@@ -652,7 +655,7 @@ describe("Composer slash menu", () => {
 
     const suggestions = Array.from(container.querySelectorAll("[data-cmd-index]"));
     expect(suggestions.length).toBeGreaterThan(1);
-    expect(within(suggestions[0] as HTMLElement).getByText("/plan")).toBeTruthy();
+    expect(within(suggestions[0] as HTMLElement).getByText("/default")).toBeTruthy();
     expect(suggestions.some((item) => within(item as HTMLElement).queryByText("/review"))).toBe(true);
   });
 

@@ -776,7 +776,7 @@ describe("Codex permission mode switch with pending approvals", () => {
     vi.useRealTimers();
   });
 
-  it("preserves Codex permission profile when toggling Plan and Agent ui modes", async () => {
+  it("ignores the legacy Codex Plan/Agent ui mode axis", async () => {
     const sid = "s-mode-toggle-preserves-profile";
     const browser = makeBrowserSocket(sid);
     const adapter = makeCodexAdapterMock();
@@ -813,24 +813,6 @@ describe("Codex permission mode switch with pending approvals", () => {
 
     expect(session.state.permissionMode).toBe("codex-auto-review");
     expect(session.state.askPermission).toBe(true);
-    expect(session.state.uiMode).toBe("plan");
-    expect(launcherInfo).toEqual({
-      permissionMode: "codex-auto-review",
-      askPermission: true,
-      uiMode: "plan",
-      codexSandbox: "workspace-write",
-    });
-
-    await bridge.handleBrowserMessage(
-      browser,
-      JSON.stringify({
-        type: "set_codex_ui_mode",
-        uiMode: "agent",
-      }),
-    );
-
-    expect(session.state.permissionMode).toBe("codex-auto-review");
-    expect(session.state.askPermission).toBe(true);
     expect(session.state.uiMode).toBe("agent");
     expect(launcherInfo).toEqual({
       permissionMode: "codex-auto-review",
@@ -840,7 +822,7 @@ describe("Codex permission mode switch with pending approvals", () => {
     });
 
     vi.advanceTimersByTime(150);
-    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(relaunchCb).not.toHaveBeenCalled();
     vi.useRealTimers();
   });
 

@@ -94,7 +94,7 @@ describe("NewSessionModal", () => {
     mockGetGroupNewSessionDefaults.mockReturnValue({
       backend: "claude",
       model: "",
-      mode: "agent",
+      mode: "acceptEdits",
       askPermission: true,
       sessionRole: "worker",
       envSlug: "",
@@ -167,7 +167,7 @@ describe("NewSessionModal", () => {
     mockGetGroupNewSessionDefaults.mockReturnValue({
       backend: "claude",
       model: "",
-      mode: "agent",
+      mode: "acceptEdits",
       askPermission: true,
       sessionRole: "worker",
       envSlug: "",
@@ -196,7 +196,7 @@ describe("NewSessionModal", () => {
         "tree-group:team-alpha",
         expect.objectContaining({
           backend: "claude",
-          mode: "agent",
+          mode: "acceptEdits",
           askPermission: true,
           cwd: "/tmp/tree-saved-folder",
         }),

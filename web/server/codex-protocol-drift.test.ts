@@ -79,10 +79,15 @@ describe("Codex adapter method drift vs upstream protocol snapshot", () => {
       "suggest",
       // The pinned snapshot predates the adapter's current approval-mode
       // compatibility mapping switch, which still needs to recognize these
-      // legacy bridge-side mode strings.
+      // legacy bridge-side mode strings and Takode's backend-native Codex
+      // permission profiles.
       "plan",
       "acceptEdits",
       "default",
+      "codex-default",
+      "codex-auto-review",
+      "codex-full-access",
+      "codex-custom",
     ]);
 
     for (const method of handledNotifications) {

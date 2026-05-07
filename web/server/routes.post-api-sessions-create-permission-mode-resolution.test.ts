@@ -581,9 +581,9 @@ describe("POST /api/sessions/create permission mode resolution", () => {
     expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ permissionMode: "plan" }));
   });
 
-  it("uses 'suggest' permission mode for codex sessions when askPermission is true", async () => {
-    // Guarded Codex agent mode should ask on untrusted actions and keep the
-    // workspace sandbox instead of silently escalating to full access.
+  it("uses the Codex default permission profile when askPermission is true", async () => {
+    // Legacy askPermission callers migrate to the backend-native default
+    // profile instead of the old shared suggest/agent axis.
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -592,7 +592,7 @@ describe("POST /api/sessions/create permission mode resolution", () => {
 
     expect(res.status).toBe(200);
     expect(launcher.launch).toHaveBeenCalledWith(
-      expect.objectContaining({ permissionMode: "suggest", codexSandbox: "workspace-write" }),
+      expect.objectContaining({ permissionMode: "codex-default", codexSandbox: "workspace-write" }),
     );
     expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
       "session-1",
@@ -600,7 +600,7 @@ describe("POST /api/sessions/create permission mode resolution", () => {
     );
   });
 
-  it("uses 'bypassPermissions' permission mode for codex sessions when askPermission is false", async () => {
+  it("uses the Codex full-access profile when askPermission is false", async () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -609,7 +609,7 @@ describe("POST /api/sessions/create permission mode resolution", () => {
 
     expect(res.status).toBe(200);
     expect(launcher.launch).toHaveBeenCalledWith(
-      expect.objectContaining({ permissionMode: "bypassPermissions", codexSandbox: "danger-full-access" }),
+      expect.objectContaining({ permissionMode: "codex-full-access", codexSandbox: "danger-full-access" }),
     );
     expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
       "session-1",
@@ -617,7 +617,7 @@ describe("POST /api/sessions/create permission mode resolution", () => {
     );
   });
 
-  it("forwards explicit codex permissionMode to launcher", async () => {
+  it("migrates explicit legacy Codex permissionMode to a backend-native profile", async () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -632,7 +632,7 @@ describe("POST /api/sessions/create permission mode resolution", () => {
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({
         backendType: "codex",
-        permissionMode: "bypassPermissions",
+        permissionMode: "codex-full-access",
         codexSandbox: "danger-full-access",
       }),
     );
@@ -642,9 +642,7 @@ describe("POST /api/sessions/create permission mode resolution", () => {
     );
   });
 
-  it("keeps codex plan mode when askPermission is false", async () => {
-    // Explicit plan mode stays sandboxed even when permission prompts are
-    // disabled, because plan is still a guarded/non-executing UI mode.
+  it("migrates legacy Codex plan mode to the default backend-native profile", async () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -655,13 +653,13 @@ describe("POST /api/sessions/create permission mode resolution", () => {
     expect(launcher.launch).toHaveBeenCalledWith(
       expect.objectContaining({
         backendType: "codex",
-        permissionMode: "plan",
+        permissionMode: "codex-default",
         codexSandbox: "workspace-write",
       }),
     );
     expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
       "session-1",
-      expect.objectContaining({ cwd: "/test", askPermission: false, uiMode: "plan" }),
+      expect.objectContaining({ cwd: "/test", askPermission: true, uiMode: "agent" }),
     );
   });
 

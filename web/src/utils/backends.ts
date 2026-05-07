@@ -2,6 +2,17 @@ import type { BackendType } from "../types.js";
 import { assertNever } from "../types.js";
 import type { BackendModelInfo } from "../api.js";
 import { getDefaultModelForBackend } from "../../shared/backend-defaults.js";
+import {
+  CLAUDE_PERMISSION_MODES as CLAUDE_PERMISSION_MODE_VALUES,
+  deriveAskPermissionForMode as deriveSharedAskPermissionForMode,
+  deriveCodexPermissionMode as deriveSharedCodexPermissionMode,
+  deriveUiModeForMode,
+  normalizeClaudePermissionMode,
+  normalizeCodexPermissionProfile,
+  resolveCodexPermissionProfile,
+  type ClaudePermissionMode,
+  type CodexPermissionMode,
+} from "../../shared/permission-modes.js";
 
 export interface ModelOption {
   value: string;
@@ -14,13 +25,15 @@ export interface ModeOption {
   label: string;
 }
 
-export type CodexPermissionMode = "default" | "auto-review" | "full-access" | "custom";
-
-export interface CodexPermissionOption {
-  value: CodexPermissionMode;
+export interface PermissionOption<T extends string = string> {
+  value: T;
   label: string;
   description: string;
 }
+
+export type { ClaudePermissionMode, CodexPermissionMode };
+export type CodexPermissionOption = PermissionOption<CodexPermissionMode>;
+export type ClaudePermissionOption = PermissionOption<ClaudePermissionMode>;
 
 // ─── Icon assignment for dynamically fetched models ──────────────────────────
 
@@ -63,13 +76,19 @@ export const CODEX_MODELS: ModelOption[] = [
 ];
 
 export const CLAUDE_MODES: ModeOption[] = [
-  { value: "agent", label: "Agent" },
+  { value: "acceptEdits", label: "Accept edits" },
+  { value: "bypassPermissions", label: "Full access" },
   { value: "plan", label: "Plan" },
+  { value: "default", label: "Default" },
+  { value: "delegate", label: "Delegate" },
+  { value: "dontAsk", label: "Don't ask" },
 ];
 
 export const CODEX_MODES: ModeOption[] = [
-  { value: "agent", label: "Agent" },
-  { value: "plan", label: "Plan" },
+  { value: "default", label: "Default" },
+  { value: "auto-review", label: "Auto-review" },
+  { value: "full-access", label: "Full access" },
+  { value: "custom", label: "Custom" },
 ];
 
 export const CODEX_REASONING_EFFORTS: ModeOption[] = [
@@ -80,10 +99,43 @@ export const CODEX_REASONING_EFFORTS: ModeOption[] = [
   { value: "xhigh", label: "XHigh" },
 ];
 
+export const CLAUDE_PERMISSION_MODES: ClaudePermissionOption[] = [
+  {
+    value: "default",
+    label: "Default",
+    description: "Use Claude Code's default permission behavior.",
+  },
+  {
+    value: "acceptEdits",
+    label: "Accept edits",
+    description: "Auto-approve file edits; ask before other tools.",
+  },
+  {
+    value: "bypassPermissions",
+    label: "Full access",
+    description: "Auto-approve all tools locally.",
+  },
+  {
+    value: "plan",
+    label: "Plan",
+    description: "Start in planning mode before executing changes.",
+  },
+  {
+    value: "delegate",
+    label: "Delegate",
+    description: "Use Claude Code's delegate permission mode.",
+  },
+  {
+    value: "dontAsk",
+    label: "Don't ask",
+    description: "Use Claude Code's non-prompting permission mode.",
+  },
+];
+
 export const CODEX_PERMISSION_MODES: CodexPermissionOption[] = [
   {
     value: "default",
-    label: "Default permissions",
+    label: "Default",
     description: "Sandboxed workspace access; Codex can ask for elevated actions.",
   },
   {
@@ -185,38 +237,11 @@ export function formatModel(model: string): string {
   return result.join("-") + bracket;
 }
 
-// ─── Claude Code mode mapping ─────────────────────────────────────────────────
+// ─── Permission mode compatibility helpers ────────────────────────────────────
 //
-// The Companion simplifies Claude Code's 6 CLI permission modes into a 2-mode
-// toggle (Plan / Agent) plus an "Ask" switch. The mapping:
-//
-//   ┌──────────────────────────────────────────────────────────────────────┐
-//   │ UI              │ CLI Mode           │ Behavior                      │
-//   │─────────────────│────────────────────│───────────────────────────────│
-//   │ Plan            │ plan               │ Read-only. All writes prompt. │
-//   │ Agent + Ask ON  │ acceptEdits        │ Edits auto-approved locally,  │
-//   │                 │                    │ Bash & other tools prompted.  │
-//   │ Agent + Ask OFF │ bypassPermissions  │ Everything auto-approved,     │
-//   │                 │                    │ nothing sent over the wire.   │
-//   └──────────────────────────────────────────────────────────────────────┘
-//
-// Key behaviors:
-//   - In `bypassPermissions`, the CLI never sends `can_use_tool` — tools are
-//     approved locally and the Companion never sees permission requests.
-//   - In `acceptEdits`, file edits (Edit/Write) are approved locally; only
-//     non-edit tools (Bash, etc.) send `can_use_tool` over the wire.
-//   - In `plan`, ALL write operations send `can_use_tool` over the wire.
-//
-// Plan mode lifecycle:
-//   1. User or agent enters plan mode → CLI set to "plan"
-//   2. Agent explores, then calls ExitPlanMode
-//   3. User approves/denies via the plan overlay UI
-//   4. On approval, the SERVER must send `set_permission_mode` to the CLI
-//      to switch it to `acceptEdits` or `bypassPermissions`. The CLI does
-//      NOT auto-transition — without an explicit mode switch it stays in
-//      `plan` and keeps prompting for every write.
-//
-// The other CLI modes (default, delegate, dontAsk) are not exposed in the UI.
+// The current UI exposes backend-native permission modes directly. These helpers
+// remain for stored defaults, protocol compatibility, and existing tests that
+// still exercise the historical Plan/Agent + Ask mapping.
 
 /**
  * Maps the UI mode ("plan" or "agent") + askPermission toggle to the actual
@@ -232,6 +257,14 @@ export function resolveClaudeCliMode(uiMode: string, askPermission: boolean): st
   if (uiMode === "plan") return "plan";
   // agent mode
   return askPermission ? "acceptEdits" : "bypassPermissions";
+}
+
+export function normalizeClaudePermission(raw: string | null | undefined): ClaudePermissionMode {
+  return normalizeClaudePermissionMode(raw);
+}
+
+export function resolveClaudePermissionCliMode(permissionMode: ClaudePermissionMode): string {
+  return permissionMode;
 }
 
 /**
@@ -251,10 +284,10 @@ export function resolvePostPlanMode(askPermission: boolean): string {
  * Used to translate server-reported permissionMode back to the UI concept.
  */
 export function deriveUiMode(cliMode: string): "plan" | "agent" {
-  return cliMode === "plan" ? "plan" : "agent";
+  return deriveUiModeForMode("claude", cliMode);
 }
 
-// ─── Codex mode mapping ────────────────────────────────────────────────────────
+// ─── Codex legacy mode mapping ─────────────────────────────────────────────────
 
 /**
  * Maps the shared UI mode ("plan" or "agent") + askPermission toggle to the
@@ -277,45 +310,27 @@ export function normalizeCodexPermissionMode(raw: string | null | undefined): Co
 }
 
 export function resolveCodexPermissionCliMode(permissionMode: CodexPermissionMode): string {
-  switch (permissionMode) {
-    case "default":
-      return "codex-default";
-    case "auto-review":
-      return "codex-auto-review";
-    case "full-access":
-      return "codex-full-access";
-    case "custom":
-      return "codex-custom";
-    default:
-      return assertNever(permissionMode);
-  }
+  return resolveCodexPermissionProfile(permissionMode);
 }
 
 export function deriveCodexPermissionMode(cliMode: string | null | undefined): CodexPermissionMode {
-  switch (cliMode) {
-    case "codex-auto-review":
-      return "auto-review";
-    case "codex-full-access":
-    case "bypassPermissions":
-      return "full-access";
-    case "codex-custom":
-      return "custom";
-    case "codex-default":
-    case "suggest":
-    case "plan":
-    case "acceptEdits":
-    case "default":
-    default:
-      return "default";
-  }
+  return deriveSharedCodexPermissionMode(cliMode);
 }
 
 /** Derive the shared UI mode from a raw Codex mode string. */
 export function deriveCodexUiMode(cliMode: string): "plan" | "agent" {
-  return cliMode === "plan" ? "plan" : "agent";
+  return deriveUiModeForMode("codex", cliMode);
 }
 
 /** Derive askPermission state from a raw Codex mode string. */
 export function deriveCodexAskPermission(cliMode: string): boolean {
-  return cliMode !== "bypassPermissions" && cliMode !== "codex-full-access";
+  return deriveSharedAskPermissionForMode("codex", normalizeCodexPermissionProfile(cliMode));
+}
+
+export function getClaudePermissionOptions(): ClaudePermissionOption[] {
+  return CLAUDE_PERMISSION_MODES.filter((option) => CLAUDE_PERMISSION_MODE_VALUES.includes(option.value));
+}
+
+export function deriveAskPermissionForMode(backend: "claude" | "codex", permissionMode: string): boolean {
+  return deriveSharedAskPermissionForMode(backend, permissionMode);
 }

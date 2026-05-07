@@ -639,12 +639,12 @@ describe("Composer basic rendering", () => {
     const footer = screen.getByTestId("composer-footer-toolbar");
     const meta = screen.getByTestId("composer-footer-meta");
     const sendButton = screen.getByTitle("Send message");
-    const modeToggle = screen.getByTitle("Plan mode: agent creates a plan before executing (Shift+Tab to toggle)");
+    const permissionSelector = screen.getByTitle(/Default:/);
 
     expect(textarea).toBeTruthy();
     expect(Boolean(textarea && textarea.compareDocumentPosition(footer) & Node.DOCUMENT_POSITION_FOLLOWING)).toBe(true);
     expect(sendButton.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
-    expect(modeToggle.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
+    expect(permissionSelector.closest('[data-testid="composer-footer-toolbar"]')).toBe(footer);
     expect(within(meta).getByText("feature/composer-footer")).toBeTruthy();
     expect(within(meta).getByText("gpt-5.4")).toBeTruthy();
     expect(within(meta).getByText("high")).toBeTruthy();
@@ -662,8 +662,8 @@ describe("Composer basic rendering", () => {
     render(<Composer sessionId="s1" />);
 
     const footer = screen.getByTestId("composer-footer-toolbar");
-    await userEvent.click(screen.getByTitle("Permissions: asking before tool use (click to change)"));
-    expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-permission-popover"), footer);
+    await userEvent.click(screen.getByTitle(/Accept edits:/));
+    expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-permission-mode-menu"), footer);
 
     await userEvent.click(screen.getByTitle("Model: claude-sonnet-4-5-20250929 (click to change)"));
     expectNoOverflowHiddenAncestorWithin(screen.getByTestId("composer-model-menu"), footer);

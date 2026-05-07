@@ -531,23 +531,25 @@ beforeEach(() => {
 
 // ─── Basic rendering ────────────────────────────────────────────────────────
 
-describe("Composer mode toggle", () => {
-  it("renders mode toggle button for Claude sessions", () => {
-    // Start in acceptEdits (Agent mode) — single toggle shows "Agent"
+describe("Composer permission mode selector", () => {
+  it("renders a backend-native permission selector for Claude sessions", () => {
     setupMockStore({ session: { permissionMode: "acceptEdits" } });
     render(<Composer sessionId="s1" />);
 
-    const toggleBtn = screen.getByTitle("Agent mode: executes tools directly (Shift+Tab to toggle)");
-    expect(toggleBtn).toBeTruthy();
+    expect(screen.getByTitle(/Accept edits:/)).toBeTruthy();
   });
 
-  it("clicking mode toggle in agent mode sends set_permission_mode with plan", () => {
-    // Start in agent mode — clicking toggles to plan
+  it("confirmed Claude selector changes send set_permission_mode with the selected native mode", async () => {
     setupMockStore({ session: { permissionMode: "acceptEdits" } });
     render(<Composer sessionId="s1" />);
 
-    const toggleBtn = screen.getByTitle("Agent mode: executes tools directly (Shift+Tab to toggle)");
-    fireEvent.click(toggleBtn);
+    await userEvent.click(screen.getByTitle(/Accept edits:/));
+    await userEvent.click(screen.getByText("Plan"));
+
+    expect(screen.getByText("Change permissions to Plan?")).toBeTruthy();
+    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "set_permission_mode" }));
+
+    await userEvent.click(screen.getByText("Restart"));
 
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "set_permission_mode",
@@ -555,60 +557,43 @@ describe("Composer mode toggle", () => {
     });
   });
 
-  it("clicking mode toggle in plan mode sends set_permission_mode with acceptEdits when askPermission is true", () => {
-    // Start in plan mode — clicking toggles to agent
-    setupMockStore({ session: { permissionMode: "plan" } });
-    render(<Composer sessionId="s1" />);
-
-    const toggleBtn = screen.getByTitle("Plan mode: agent creates a plan before executing (Shift+Tab to toggle)");
-    fireEvent.click(toggleBtn);
-
-    // askPermission defaults to true → CLI mode should be acceptEdits
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_permission_mode",
-      mode: "acceptEdits",
-    });
-  });
-
-  it("clicking Codex mode toggle sends uiMode without clobbering the selected permission profile", () => {
-    // Codex keeps Plan/Agent collaboration mode separate from its permission
-    // profile. Toggling to Plan must not rewrite Auto-review into legacy
-    // suggest/plan permission modes.
+  it("confirmed Codex selector changes send set_permission_mode with the selected native profile", async () => {
     setupMockStore({
       session: {
         backend_type: "codex",
-        permissionMode: "codex-auto-review",
-        uiMode: "agent",
+        permissionMode: "codex-default",
       },
     });
     render(<Composer sessionId="s1" />);
 
-    const toggleBtn = screen.getByTitle("Agent mode: executes tools directly (Shift+Tab to toggle)");
-    fireEvent.click(toggleBtn);
+    await userEvent.click(screen.getByTitle(/Default:/));
+    await userEvent.click(screen.getByText("Auto-review"));
+
+    expect(screen.getByText("Change permissions to Auto-review?")).toBeTruthy();
+    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "set_permission_mode" }));
+
+    await userEvent.click(screen.getByText("Restart"));
 
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "set_codex_ui_mode",
-      uiMode: "plan",
+      type: "set_permission_mode",
+      mode: "codex-auto-review",
     });
-    expect(mockSendToSession).not.toHaveBeenCalledWith("s1", expect.objectContaining({ type: "set_permission_mode" }));
   });
 
-  it("prefers server uiMode over stale permissionMode for the mode toggle label", () => {
-    // Regression: SDK/session replay can transiently report a stale CLI mode
-    // while server uiMode is already authoritative.
-    setupMockStore({ session: { permissionMode: "acceptEdits", uiMode: "plan" } });
+  it("ignores the old Codex uiMode axis when labeling permissions", () => {
+    setupMockStore({ session: { backend_type: "codex", permissionMode: "codex-auto-review", uiMode: "plan" } });
     render(<Composer sessionId="s1" />);
 
-    const toggleBtn = screen.getByTitle("Plan mode: agent creates a plan before executing (Shift+Tab to toggle)");
-    expect(toggleBtn).toBeTruthy();
+    expect(screen.getByTitle(/Auto-review:/)).toBeTruthy();
+    expect(screen.queryByTitle(/Plan mode:/)).toBeNull();
   });
 
-  it("mode toggle is disabled when CLI is not connected", () => {
+  it("permission selector is disabled when CLI is not connected", () => {
     setupMockStore({ isConnected: false, session: { permissionMode: "acceptEdits" } });
     render(<Composer sessionId="s1" />);
 
-    const toggleBtn = screen.getByTitle("Agent mode: executes tools directly (Shift+Tab to toggle)");
-    expect(toggleBtn.hasAttribute("disabled")).toBe(true);
+    const selector = screen.getByTitle(/Accept edits:/);
+    expect(selector.hasAttribute("disabled")).toBe(true);
   });
 
   it("codex reasoning dropdown sends set_codex_reasoning_effort", async () => {

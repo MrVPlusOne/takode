@@ -29,6 +29,12 @@ import { createStreamRoutes } from "./streams.js";
 import { createMemoryRoutes } from "./memory.js";
 import { createLogsRoutes } from "./logs.js";
 import type { InitialModeState, RouteContext } from "./context.js";
+import {
+  deriveAskPermissionForMode,
+  deriveUiModeForMode,
+  isClaudePermissionMode,
+  normalizeCodexPermissionProfile,
+} from "../../shared/permission-modes.js";
 
 // Keep legacy semantics after moving from server/routes.ts to server/routes/index.ts
 const ROUTES_DIR = dirname(dirname(fileURLToPath(import.meta.url)));
@@ -108,84 +114,32 @@ function resolveInitialModeState(
 ): InitialModeState {
   if (backend !== "codex") {
     const requested = typeof requestedPermissionMode === "string" ? requestedPermissionMode.trim() : "";
-    if (requested === "acceptEdits") {
-      return { permissionMode: "acceptEdits", askPermission: true, uiMode: "agent" };
-    }
-    if (requested === "bypassPermissions") {
-      return { permissionMode: "bypassPermissions", askPermission: false, uiMode: "agent" };
-    }
-    if (requested === "plan") {
-      return { permissionMode: "plan", askPermission: askPermissionRequested, uiMode: "plan" };
+    if (isClaudePermissionMode(requested)) {
+      return {
+        permissionMode: requested,
+        askPermission: deriveAskPermissionForMode("claude", requested),
+        uiMode: deriveUiModeForMode("claude", requested),
+      };
     }
     const permissionMode = askPermissionRequested ? "plan" : "bypassPermissions";
     return {
       permissionMode,
-      askPermission: askPermissionRequested,
-      uiMode: permissionMode === "plan" ? "plan" : "agent",
+      askPermission: deriveAskPermissionForMode("claude", permissionMode),
+      uiMode: deriveUiModeForMode("claude", permissionMode),
     };
   }
 
   const requested = typeof requestedPermissionMode === "string" ? requestedPermissionMode.trim() : "";
-
-  switch (requested) {
-    case "codex-default":
-      return {
-        permissionMode: "codex-default",
-        askPermission: true,
-        uiMode: "agent",
-      };
-    case "codex-auto-review":
-      return {
-        permissionMode: "codex-auto-review",
-        askPermission: true,
-        uiMode: "agent",
-      };
-    case "codex-full-access":
-      return {
-        permissionMode: "codex-full-access",
-        askPermission: false,
-        uiMode: "agent",
-      };
-    case "codex-custom":
-      return {
-        permissionMode: "codex-custom",
-        askPermission: true,
-        uiMode: "agent",
-      };
-    case "plan":
-      return {
-        permissionMode: "plan",
-        askPermission: askPermissionRequested,
-        uiMode: "plan",
-      };
-    case "bypassPermissions":
-      return {
-        permissionMode: "bypassPermissions",
-        askPermission: false,
-        uiMode: "agent",
-      };
-    case "suggest":
-      return {
-        permissionMode: "suggest",
-        askPermission: true,
-        uiMode: "agent",
-      };
-    case "acceptEdits":
-    case "default":
-      return {
-        permissionMode: "suggest",
-        askPermission: true,
-        uiMode: "agent",
-      };
-    case "agent":
-    case "":
-    default:
-      return {
-        permissionMode: askPermissionRequested ? "suggest" : "bypassPermissions",
-        askPermission: askPermissionRequested,
-        uiMode: "agent",
-      };
-  }
+  const permissionMode = requested
+    ? normalizeCodexPermissionProfile(requested)
+    : askPermissionRequested
+      ? "codex-default"
+      : "codex-full-access";
+  return {
+    permissionMode,
+    askPermission: deriveAskPermissionForMode("codex", permissionMode),
+    uiMode: "agent",
+  };
 }
 
 export function createRoutes(
