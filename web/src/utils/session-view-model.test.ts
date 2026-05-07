@@ -70,6 +70,8 @@ describe("toSessionViewModel", () => {
       repoRoot: "/work",
       sessionNum: 9,
       name: "Test",
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
     } as SdkSessionInfo;
 
     const vm = toSessionViewModel(sdk);
@@ -82,6 +84,8 @@ describe("toSessionViewModel", () => {
     expect(vm.codexRetainedPayloadBytes).toBe(4_096);
     expect(vm.modelContextWindow).toBe(258_400);
     expect(vm.sessionNum).toBe(9);
+    expect(vm.claimedQuestStatus).toBe("done");
+    expect(vm.claimedQuestVerificationInboxUnread).toBe(true);
   });
 });
 

@@ -407,6 +407,48 @@ describe("Session management", () => {
     });
   });
 
+  it("setSdkSessions: updates sdkSessions when only claimed quest status changes", () => {
+    // Idle sidebar rows derive quest title markers from the polled session
+    // snapshot, so quest-status-only updates must pass the equality guard.
+    useStore.getState().setCurrentSession("current");
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        cliConnected: true,
+        claimedQuestId: "q-1215",
+        claimedQuestTitle: "Fix stale quest completion status",
+        claimedQuestStatus: "in_progress",
+        claimedQuestLeaderSessionId: "leader-1",
+      },
+    ]);
+    const previousRef = useStore.getState().sdkSessions;
+
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "worker",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 123,
+        cliConnected: true,
+        claimedQuestId: "q-1215",
+        claimedQuestTitle: "Fix stale quest completion status",
+        claimedQuestStatus: "done",
+        claimedQuestVerificationInboxUnread: true,
+        claimedQuestLeaderSessionId: "leader-1",
+      },
+    ]);
+
+    const state = useStore.getState();
+    expect(state.sdkSessions).not.toBe(previousRef);
+    expect(state.sdkSessions[0]).toMatchObject({
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
+  });
+
   it("setSdkSessionsWithNotificationFreshness: keeps newer cleared notification status over stale REST data", () => {
     // A slow /api/sessions response may contain an older needs-input summary.
     // The freshness wrapper must preserve the newer resolved status already in the store.

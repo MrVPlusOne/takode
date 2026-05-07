@@ -95,6 +95,8 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
       return {
         id,
         claimedQuestStatus: bridgeState?.claimedQuestStatus ?? sdkInfo?.claimedQuestStatus ?? undefined,
+        claimedQuestVerificationInboxUnread:
+          bridgeState?.claimedQuestVerificationInboxUnread ?? sdkInfo?.claimedQuestVerificationInboxUnread,
         model: bridgeState?.model || sdkInfo?.model || "",
         cwd: bridgeState?.cwd || sdkInfo?.cwd || "",
         gitBranch: bridgeState?.git_branch || sdkInfo?.gitBranch || "",

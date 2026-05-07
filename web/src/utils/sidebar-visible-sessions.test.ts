@@ -184,4 +184,86 @@ describe("buildSidebarVisibleSessions", () => {
 
     expect(result.orderedVisibleSessionIds).toEqual(["default-session"]);
   });
+
+  it("preserves completed quest review metadata from idle session snapshots", () => {
+    const sessions = new Map<string, SessionState>();
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("worker", {
+        claimedQuestStatus: "done",
+        claimedQuestVerificationInboxUnread: true,
+        createdAt: 1,
+        sessionNum: 12,
+      }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sessions,
+      sdkSessions,
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map(),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.allSessionList[0]).toMatchObject({
+      id: "worker",
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
+  });
+
+  it("keeps live completed quest state when a polled snapshot is stale", () => {
+    const sessions = new Map<string, SessionState>([
+      [
+        "worker",
+        makeSessionState("worker", {
+          claimedQuestStatus: "done",
+          claimedQuestVerificationInboxUnread: true,
+        }),
+      ],
+    ]);
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("worker", {
+        claimedQuestStatus: "in_progress",
+        claimedQuestVerificationInboxUnread: undefined,
+        createdAt: 1,
+        sessionNum: 12,
+      }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sessions,
+      sdkSessions,
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map(),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.allSessionList[0]).toMatchObject({
+      id: "worker",
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
+  });
 });

@@ -31,7 +31,16 @@ interface MockStoreState {
   setTaskPanelOpen: ReturnType<typeof vi.fn>;
   activeTab: "chat" | "diff";
   setActiveTab: ReturnType<typeof vi.fn>;
-  sessions: Map<string, { cwd?: string; permissionMode?: string; backend_type?: string }>;
+  sessions: Map<
+    string,
+    {
+      cwd?: string;
+      permissionMode?: string;
+      backend_type?: string;
+      claimedQuestStatus?: string;
+      claimedQuestVerificationInboxUnread?: boolean;
+    }
+  >;
   sdkSessions: {
     sessionId: string;
     createdAt: number;
@@ -42,7 +51,9 @@ interface MockStoreState {
     permissionMode?: string;
     backendType?: string;
     cliConnected?: boolean;
-    state?: "idle" | "running" | "compacting" | null;
+    state?: "idle" | "starting" | "connected" | "running" | "compacting" | "exited" | null;
+    claimedQuestStatus?: string | null;
+    claimedQuestVerificationInboxUnread?: boolean;
   }[];
   changedFiles: Map<string, Set<string>>;
   pendingPermissions: Map<string, Map<string, unknown>>;
@@ -209,6 +220,59 @@ describe("TopBar", () => {
 
     render(<TopBar />);
     expect(screen.queryByTitle("Current mode: Plan")).not.toBeInTheDocument();
+  });
+
+  it("shows checked quest marker from SDK metadata for a selected snapshot-only session", () => {
+    // Direct navigation to an archived/exited session may render the title from
+    // the /api/sessions snapshot before any live session state exists.
+    resetStore({
+      currentSessionId: "archived-worker",
+      sessions: new Map(),
+      cliConnected: new Map([["archived-worker", false]]),
+      sessionStatus: new Map(),
+      sessionNames: new Map([["archived-worker", "Use active leader thread tab as voice transcription context"]]),
+      questNamedSessions: new Set(["archived-worker"]),
+      sdkSessions: [
+        {
+          sessionId: "archived-worker",
+          createdAt: 1,
+          archived: true,
+          state: "exited",
+          sessionNum: 1544,
+          name: "Use active leader thread tab as voice transcription context",
+          claimedQuestStatus: "done",
+          claimedQuestVerificationInboxUnread: true,
+        },
+      ],
+    });
+
+    render(<TopBar />);
+
+    expect(screen.getByText("☑ Use active leader thread tab as voice transcription context")).toBeInTheDocument();
+  });
+
+  it("preserves incomplete quest marker for selected in-progress SDK sessions", () => {
+    resetStore({
+      currentSessionId: "worker",
+      sessions: new Map(),
+      cliConnected: new Map([["worker", true]]),
+      sessionNames: new Map([["worker", "Fix stale quest completion status in session sidebar titles"]]),
+      questNamedSessions: new Set(["worker"]),
+      sdkSessions: [
+        {
+          sessionId: "worker",
+          createdAt: 1,
+          state: "connected",
+          sessionNum: 1550,
+          name: "Fix stale quest completion status in session sidebar titles",
+          claimedQuestStatus: "in_progress",
+        },
+      ],
+    });
+
+    render(<TopBar />);
+
+    expect(screen.getByText("☐ Fix stale quest completion status in session sidebar titles")).toBeInTheDocument();
   });
 
   it("shows diff badge count only for files within cwd", () => {

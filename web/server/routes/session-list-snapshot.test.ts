@@ -128,4 +128,26 @@ describe("buildEnrichedSessionsSnapshot", () => {
 
     expect(snapshot[0]).not.toHaveProperty("codexLeaderRecycleThresholdTokens");
   });
+
+  it("includes claimed quest review metadata for idle sidebar session rows", async () => {
+    const launcherSession = makeLauncherSession();
+    const bridgeSession = {
+      ...makeBridgeSession([]),
+      state: {
+        claimedQuestId: "q-1207",
+        claimedQuestTitle: "Hide thread-detail hints inside collapsed agent turns",
+        claimedQuestStatus: "done",
+        claimedQuestVerificationInboxUnread: true,
+      },
+    };
+
+    const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, bridgeSession));
+
+    expect(snapshot[0]).toMatchObject({
+      claimedQuestId: "q-1207",
+      claimedQuestTitle: "Hide thread-detail hints inside collapsed agent turns",
+      claimedQuestStatus: "done",
+      claimedQuestVerificationInboxUnread: true,
+    });
+  });
 });

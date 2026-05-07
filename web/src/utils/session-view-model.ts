@@ -104,8 +104,8 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     name: session.name,
     isOrchestrator: session.isOrchestrator,
     herdedBy: session.herdedBy,
-    claimedQuestStatus: undefined,
-    claimedQuestVerificationInboxUnread: undefined,
+    claimedQuestStatus: session.claimedQuestStatus ?? undefined,
+    claimedQuestVerificationInboxUnread: session.claimedQuestVerificationInboxUnread,
     askPermission: undefined,
   };
 }

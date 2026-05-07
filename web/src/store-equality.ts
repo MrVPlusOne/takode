@@ -231,6 +231,11 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.lastReadAt === b.lastReadAt &&
     a.pendingPermissionCount === b.pendingPermissionCount &&
     a.pendingPermissionSummary === b.pendingPermissionSummary &&
+    a.claimedQuestId === b.claimedQuestId &&
+    a.claimedQuestTitle === b.claimedQuestTitle &&
+    a.claimedQuestStatus === b.claimedQuestStatus &&
+    a.claimedQuestVerificationInboxUnread === b.claimedQuestVerificationInboxUnread &&
+    a.claimedQuestLeaderSessionId === b.claimedQuestLeaderSessionId &&
     a.lastActivityAt === b.lastActivityAt &&
     a.lastUserMessageAt === b.lastUserMessageAt &&
     a.contextUsedPercent === b.contextUsedPercent &&
