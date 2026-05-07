@@ -7,7 +7,7 @@ Leader actions:
 - Send the standard alignment-only dispatch and include the exact assignee brief path: `~/.companion/quest-journey-phases/alignment/assignee.md`.
 - Require the worker to load the quest skill, read and claim the quest, do only the minimal read-in needed to avoid misunderstanding, then stop.
 - When the relevant context is already known, point the worker to the exact prior messages, quests, or discussions that matter instead of asking for broad rediscovery.
-- When prior memory may matter, tell the worker what terms to use with `memory recall`; memory reads should be visible, not silent injection into the prompt.
+- When prior memory may matter, tell the worker to run `memory catalog show` for orientation and which memory areas or terms to inspect with direct file tools; memory reads should be visible, not silent injection into the prompt.
 - Ask for a lightweight alignment read-in: concrete understanding, ambiguities, clarification questions, blockers, surprises, and evidence that may justify leader-owned Journey revision.
 - Require the worker to add or refresh phase documentation before the phase handoff. It should use phase-scoped quest feedback with full agent-oriented detail plus TLDR metadata when working on a quest, falling back to explicit `--phase alignment` if current-phase inference is unavailable.
 - Provide only deltas the assignee is unlikely to infer from the phase brief, quest record, current artifacts, or their own context: exact accepted refs, unusual scope boundaries, nonstandard verification, safety warnings, or facts unavailable to that actor. Avoid restating generic closure checklists covered by the brief.

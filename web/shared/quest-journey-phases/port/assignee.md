@@ -10,9 +10,9 @@ Boundary:
 - If you are not completing the quest, include a concise final debrief draft and debrief TLDR draft in your report, or state that a focused Bookkeeping phase is needed to record final debrief metadata. A Port handoff without submitted metadata or drafts is incomplete.
 
 File-based memory:
-- Run `memory recall` when prior memory could affect final handoff, debrief accuracy, or post-port risk.
+- Run `memory catalog show` and inspect relevant memory files directly with normal tools such as `rg`, `sed`, and `cat` when prior memory could affect final handoff, debrief accuracy, or post-port risk.
 - Port does not normally author durable memory. If accepted work created or changed memory-worthy durable facts and the leader did not explicitly include memory writing in Port scope, report `memory update deferred: <Bookkeeping/curator/reason>`.
-- Report `memory update not needed: <reason>` when recall or the ported change shows there is no durable memory update to make.
+- Report `memory update not needed: <reason>` when catalog/direct file inspection or the ported change shows there is no durable memory update to make.
 - Report `memory updated: <commit>` only when memory writing was explicitly assigned to Port and completed.
 - Include exactly one memory statement in the Port report and phase documentation when memory could be relevant.
 
