@@ -1135,7 +1135,7 @@ export const api = {
     notifId: string,
     response: { content: string; threadKey?: string; questId?: string },
   ) =>
-    post<{ ok: boolean; sessionId: string; notificationId: string; delivery: "accepted" | "already_done" }>(
+    post<{ ok: boolean; sessionId: string; notificationId: string; delivery: "sent" | "queued" | "already_done" }>(
       `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/response`,
       response,
     ),
