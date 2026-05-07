@@ -22,7 +22,10 @@ import {
   notifyUser as notifyUserController,
   summarizePendingPermissions,
 } from "../bridge/session-registry-controller.js";
-import { getBoard as getBoardController } from "../bridge/board-watchdog-controller.js";
+import {
+  getBoard as getBoardController,
+  getCompletedBoard as getCompletedBoardController,
+} from "../bridge/board-watchdog-controller.js";
 import {
   refreshGitInfoPublic as refreshGitInfoPublicController,
   setDiffBaseBranch as setDiffBaseBranchController,
@@ -748,6 +751,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
 
     const board = getBoardController(bridgeSession);
+    const completedBoard = getCompletedBoardController(bridgeSession);
     const rowSessionStatuses = await buildBoardRowSessionStatuses(board);
     const participantIds = new Set<string>();
     for (const row of board) {
@@ -803,6 +807,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         messageHistory: bridgeSession.messageHistory ?? [],
         notifications: bridgeSession.notifications ?? [],
         board,
+        completedBoard,
       },
       rowSessionStatuses,
       participants,

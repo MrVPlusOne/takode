@@ -94,6 +94,54 @@ function setQuests(quests: Array<any>) {
   mockStoreState.quests = quests;
 }
 
+function installIntersectionObserverMock() {
+  let callback: IntersectionObserverCallback | null = null;
+  let observedTarget: Element | null = null;
+  const observe = vi.fn((target: Element) => {
+    observedTarget = target;
+  });
+
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "";
+      readonly thresholds = [0];
+
+      constructor(cb: IntersectionObserverCallback) {
+        callback = cb;
+      }
+
+      observe(target: Element) {
+        observe(target);
+      }
+
+      unobserve() {}
+      disconnect() {}
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+    },
+  );
+
+  return {
+    observe,
+    trigger(isIntersecting: boolean) {
+      if (!callback || !observedTarget) return;
+      callback(
+        [
+          {
+            isIntersecting,
+            intersectionRatio: isIntersecting ? 1 : 0,
+            target: observedTarget,
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      );
+    },
+  };
+}
+
 describe("NotificationChip", () => {
   beforeEach(() => {
     mockNotifications.clear();
@@ -114,6 +162,10 @@ describe("NotificationChip", () => {
     mockRequestBottomAlignOnNextUserMessage.mockClear();
     mockSendToSession.mockClear();
     mockSendToSession.mockReturnValue(true);
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("renders nothing when there are no active notifications", () => {
@@ -664,6 +716,45 @@ describe("NotificationChip", () => {
 
     expect(screen.getByText("Compress herd events more aggressively")).toBeInTheDocument();
     expect(within(screen.getByTestId("quest-hover-status-row")).getByText("Completed")).toBeInTheDocument();
+  });
+
+  it("auto-resolves visible review rows in the notification popover", () => {
+    const observer = installIntersectionObserverMock();
+    setNotifications("s1", [
+      {
+        id: "review-visible",
+        category: "review",
+        summary: "q-345 ready for review",
+        timestamp: Date.now(),
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+
+    expect(observer.observe).toHaveBeenCalledTimes(1);
+    act(() => observer.trigger(true));
+    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "review-visible", true);
+  });
+
+  it("does not auto-resolve visible amber needs-input rows in the notification popover", () => {
+    const observer = installIntersectionObserverMock();
+    setNotifications("s1", [
+      {
+        id: "needs-input-visible",
+        category: "needs-input",
+        summary: "Deploy now?",
+        timestamp: Date.now(),
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+
+    act(() => observer.trigger(true));
+    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
   });
 
   it("shows a Read All control and marks all active notifications done", () => {

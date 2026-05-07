@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
-import type { SessionState } from "../types.js";
+import type { SessionAttentionRecord, SessionState } from "../types.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 
 interface MockStoreState {
@@ -65,6 +65,28 @@ vi.mock("./BoardTable.js", async (importOriginal) => {
 });
 
 const { WorkBoardBar, buildCompactThreadTabPartition } = await import("./WorkBoardBar.js");
+
+function reviewAttentionRecord(threadKey: string): SessionAttentionRecord {
+  return {
+    id: `review:${threadKey}`,
+    leaderSessionId: "s1",
+    type: "review_ready",
+    source: { kind: "notification", id: `n-${threadKey}`, questId: threadKey },
+    questId: threadKey,
+    threadKey,
+    title: `${threadKey} ready for review`,
+    summary: `Review ${threadKey}`,
+    actionLabel: "Review",
+    priority: "review",
+    state: "unresolved",
+    createdAt: 100,
+    updatedAt: 100,
+    route: { threadKey, questId: threadKey },
+    chipEligible: true,
+    ledgerEligible: true,
+    dedupeKey: `review:${threadKey}`,
+  };
+}
 
 function setMeasuredRailWidth(width: number) {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
@@ -214,6 +236,37 @@ describe("WorkBoardBar overflow tabs", () => {
     );
     expect(onSelectThread).toHaveBeenCalledWith("q-4");
     expect(screen.queryByTestId("thread-tabs-more-list")).not.toBeInTheDocument();
+  });
+
+  it("aggregates hidden blue notification nudges without treating More itself as viewing the notification", async () => {
+    const onSelectThread = vi.fn();
+
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-5"
+        openThreadKeys={["q-1", "q-2", "q-3", "q-4", "q-5"]}
+        onSelectThread={onSelectThread}
+        threadRows={THREAD_ROWS}
+        attentionRecords={[reviewAttentionRecord("q-4")]}
+      />,
+    );
+
+    const moreButton = await screen.findByTestId("thread-tabs-more-button");
+    expect(moreButton).toHaveAttribute("data-has-blue-notification", "true");
+
+    fireEvent.click(moreButton);
+    expect(onSelectThread).not.toHaveBeenCalled();
+
+    const q4Row = screen
+      .getAllByTestId("thread-tabs-more-row")
+      .find((row) => row.getAttribute("data-thread-key") === "q-4")!;
+    expect(q4Row).toHaveAttribute("data-hidden", "true");
+    expect(q4Row).toHaveAttribute("data-blue-notification", "true");
+    expect(within(q4Row).getByTestId("thread-tab-blue-notification-bell")).toBeInTheDocument();
+
+    fireEvent.click(within(q4Row).getByTestId("thread-tabs-more-row-select"));
+    expect(onSelectThread).toHaveBeenCalledWith("q-4");
   });
 
   it("uses muted completed color for completed hidden rows in the More tabs list", async () => {

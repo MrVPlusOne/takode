@@ -400,6 +400,7 @@ interface PrimaryThreadChip {
   detail?: string;
   messageCount?: number;
   needsInput: boolean;
+  blueNudge: boolean;
   titleColor?: string;
   canClose: boolean;
   route?: AttentionRecord["route"];
@@ -451,6 +452,7 @@ function SortableThreadTabContainer({
       data-testid="thread-tab"
       data-thread-key={tab.threadKey}
       data-needs-input={tab.needsInput ? "true" : "false"}
+      data-blue-notification={tab.blueNudge ? "true" : "false"}
       data-active-output={activeOutput ? "true" : "false"}
       data-new-tab={newTab ? "true" : "false"}
       data-min-label={minLabel ?? tab.questId ?? tab.threadKey}
@@ -552,6 +554,16 @@ function isPrimaryThreadAttention(record: AttentionRecord): boolean {
   return record.type !== "review_ready" && record.type !== "quest_completed_recent";
 }
 
+function isBlueNotificationAttention(record: AttentionRecord): boolean {
+  if (!isAttentionRecordActive(record)) return false;
+  if (record.source.kind !== "notification") return false;
+  return record.priority === "review" || record.priority === "completed" || record.type === "review_ready";
+}
+
+function isThreadTabAttention(record: AttentionRecord): boolean {
+  return isPrimaryThreadAttention(record) || isBlueNotificationAttention(record);
+}
+
 function isNeedsInputAttention(record: AttentionRecord): boolean {
   return isAttentionRecordActive(record) && record.priority === "needs_input" && record.type === "needs_input";
 }
@@ -616,6 +628,7 @@ function mergePrimaryThreadChip(chips: Map<string, PrimaryThreadChip>, chip: Pri
     detail: existing.needsInput ? existing.detail : (chip.detail ?? existing.detail),
     messageCount: Math.max(existing.messageCount ?? 0, chip.messageCount ?? 0),
     needsInput: existing.needsInput || chip.needsInput,
+    blueNudge: existing.blueNudge || chip.blueNudge,
     titleColor: existing.titleColor ?? chip.titleColor,
     canClose: existing.canClose && chip.canClose,
     route: existing.route ?? chip.route,
@@ -636,7 +649,7 @@ function buildPrimaryThreadChips({
   const primaryAttentionByThread = new Map<string, AttentionRecord[]>();
 
   for (const record of attentionRecords) {
-    if (!isPrimaryThreadAttention(record)) continue;
+    if (!isThreadTabAttention(record)) continue;
     const key = recordThreadKey(record);
     const existing = primaryAttentionByThread.get(key);
     if (existing) existing.push(record);
@@ -654,6 +667,7 @@ function buildPrimaryThreadChips({
       title: row.title ?? row.questId,
       detail: boardRowDetail(row),
       needsInput: (row.waitForInput?.length ?? 0) > 0 || attention.some(isNeedsInputAttention),
+      blueNudge: attention.some(isBlueNotificationAttention),
       titleColor: boardRowTitleColor(row),
       canClose: false,
       route: attention[0]?.route,
@@ -673,6 +687,7 @@ function buildPrimaryThreadChips({
       detail: threadRowDetail(row),
       messageCount: row.messageCount,
       needsInput: attention.some(isNeedsInputAttention),
+      blueNudge: attention.some(isBlueNotificationAttention),
       canClose: true,
       route: attention[0]?.route,
       updatedAt: Math.max(...attention.map((record) => record.updatedAt), 0),
@@ -689,6 +704,7 @@ function buildPrimaryThreadChips({
       title: record.title,
       detail: record.actionLabel,
       needsInput: records.some(isNeedsInputAttention),
+      blueNudge: records.some(isBlueNotificationAttention),
       canClose: true,
       route: record.route,
       updatedAt: Math.max(...records.map((candidate) => candidate.updatedAt), 0),
@@ -742,6 +758,7 @@ function buildOpenThreadTabs({
       detail: active?.detail ?? (boardRow ? boardRowDetail(boardRow) : doneThreadDetail(row)),
       messageCount: active?.messageCount ?? row?.messageCount,
       needsInput: active?.needsInput ?? (boardRow?.waitForInput?.length ?? 0) > 0,
+      blueNudge: active?.blueNudge ?? false,
       titleColor: completedTitleColor ?? active?.titleColor ?? (boardRow ? boardRowTitleColor(boardRow) : undefined),
       canClose: !activeBoardRow,
       route: active?.route,
@@ -850,6 +867,26 @@ function ThreadTabRail({
     );
   }
 
+  function BlueNotificationBell({ activeOutput }: { activeOutput: boolean }) {
+    return (
+      <svg
+        viewBox="0 0 16 16"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.5"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        className="relative z-10 h-3 w-3 shrink-0 text-blue-400"
+        aria-hidden="true"
+        data-testid="thread-tab-blue-notification-bell"
+        data-active-output={activeOutput ? "true" : "false"}
+      >
+        <path d="M8 2.5a3.5 3.5 0 0 0-3.5 3.5v1.8c0 .7-.24 1.38-.68 1.92L3 10.75h10l-.82-1.03a3.05 3.05 0 0 1-.68-1.92V6A3.5 3.5 0 0 0 8 2.5Z" />
+        <path d="M6.75 12.5a1.35 1.35 0 0 0 2.5 0" />
+      </svg>
+    );
+  }
+
   function ActiveTitle({
     activeOutput,
     titleColor,
@@ -877,13 +914,21 @@ function ThreadTabRail({
     );
   }
 
-  function tabTone({ selected, needsInput }: { selected: boolean; needsInput: boolean }): string {
+  function tabTone({
+    selected,
+    needsInput,
+    blueNudge,
+  }: {
+    selected: boolean;
+    needsInput: boolean;
+    blueNudge: boolean;
+  }): string {
     if (selected) {
       return "relative z-10 -mb-px rounded-b-none border-violet-100/45 border-b-transparent bg-white/[0.055] text-white shadow-[0_-1px_0_rgba(221,214,254,0.78),0_0_0_1px_rgba(196,181,253,0.16),0_10px_20px_-16px_rgba(196,181,253,0.78),inset_0_1px_0_rgba(255,255,255,0.14)]";
     }
-    return needsInput
-      ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
-      : "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg";
+    if (needsInput) return "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15";
+    if (blueNudge) return "border-blue-400/35 bg-blue-400/10 text-blue-100 hover:bg-blue-400/15";
+    return "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg";
   }
 
   const openThread = (threadKey: string, route?: AttentionRecord["route"]) => {
@@ -907,6 +952,7 @@ function ThreadTabRail({
 
   const mainSelected = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
   const mainNeedsInput = mainState?.needsInput ?? false;
+  const mainBlueNudge = mainState?.blueNudge ?? false;
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes.get(sessionId));
   const quests = useStore((s) => s.quests);
@@ -920,7 +966,7 @@ function ThreadTabRail({
   const [draftReorderKeys, setDraftReorderKeys] = useState<string[]>([]);
   const runningActiveTurnRoute = sessionStatus === "running" ? activeTurnRoute : null;
   const mainActiveOutput = isActiveOutputThread(runningActiveTurnRoute, MAIN_THREAD_KEY);
-  const mainTone = tabTone({ selected: mainSelected, needsInput: mainNeedsInput });
+  const mainTone = tabTone({ selected: mainSelected, needsInput: mainNeedsInput, blueNudge: mainBlueNudge });
   const compactTabs = useMemo(
     () => buildCompactThreadTabPartition({ tabs, currentThreadKey, railWidth }),
     [currentThreadKey, railWidth, tabs],
@@ -1058,6 +1104,7 @@ function ThreadTabRail({
   const selectedHidden = hiddenTabs.some((tab) => isSelectedThread(currentThreadKey, tab.threadKey));
   const activeOutputHidden = hiddenTabs.some((tab) => isActiveOutputThread(runningActiveTurnRoute, tab.threadKey));
   const needsInputHidden = hiddenTabs.some((tab) => tab.needsInput);
+  const blueNudgeHidden = hiddenTabs.some((tab) => tab.blueNudge);
   const tabStripStyle = {
     "--thread-tab-width": `${compactThreadTabWidthForRail(railWidth)}px`,
   } as CSSProperties;
@@ -1084,18 +1131,24 @@ function ThreadTabRail({
           type="button"
           onClick={() => openThread(MAIN_THREAD_KEY)}
           title={
-            mainNeedsInput ? `${mainState?.title ?? "Main Thread"} needs input` : (mainState?.title ?? "Main Thread")
+            mainNeedsInput
+              ? `${mainState?.title ?? "Main Thread"} needs input`
+              : mainBlueNudge
+                ? `${mainState?.title ?? "Main Thread"} has review updates`
+                : (mainState?.title ?? "Main Thread")
           }
           className={`relative inline-flex min-w-[6rem] max-w-[12rem] flex-[1_1_6.5rem] items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
           data-testid="thread-main-tab"
           data-thread-key={MAIN_THREAD_KEY}
           data-needs-input={mainNeedsInput ? "true" : "false"}
+          data-blue-notification={mainBlueNudge ? "true" : "false"}
           data-active-output={mainActiveOutput ? "true" : "false"}
           data-min-label="Main Thread"
           aria-pressed={mainSelected}
         >
           {mainActiveOutput && <ActiveOutputIndicator />}
           {mainNeedsInput && <NeedsInputBell activeOutput={mainActiveOutput} />}
+          {mainBlueNudge && <BlueNotificationBell activeOutput={mainActiveOutput} />}
           <ActiveTitle activeOutput={mainActiveOutput}>
             <span className="min-w-0 truncate">Main Thread</span>
           </ActiveTitle>
@@ -1106,7 +1159,7 @@ function ThreadTabRail({
             {visibleTabs.map((tab) => {
               const selected = isSelectedThread(currentThreadKey, tab.threadKey);
               const activeOutput = isActiveOutputThread(runningActiveTurnRoute, tab.threadKey);
-              const tone = tabTone({ selected, needsInput: tab.needsInput });
+              const tone = tabTone({ selected, needsInput: tab.needsInput, blueNudge: tab.blueNudge });
               const newTab = newTabKeys?.has(tab.threadKey) ?? false;
               const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
               const displayQuestId = hoverQuest?.questId ?? tab.questId;
@@ -1114,7 +1167,7 @@ function ThreadTabRail({
               const reorderable = onReorderThreadTabs && sortableTabKeySet.has(normalizeThreadKey(tab.threadKey));
               const title = hoverQuest
                 ? undefined
-                : `${displayQuestId ? `${displayQuestId}: ${displayTitle}` : displayTitle}${tab.needsInput ? " needs input" : ""}`;
+                : `${displayQuestId ? `${displayQuestId}: ${displayTitle}` : displayTitle}${tab.needsInput ? " needs input" : ""}${tab.blueNudge ? " has review updates" : ""}`;
               const className = `group relative inline-flex min-w-[var(--thread-tab-width)] max-w-[14rem] flex-[1_1_var(--thread-tab-width)] items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${tone}`;
               const mouseEnter = (event: ReactMouseEvent<HTMLDivElement>) =>
                 showQuestHover(hoverQuest, event.currentTarget.getBoundingClientRect());
@@ -1136,6 +1189,7 @@ function ThreadTabRail({
                     aria-pressed={selected}
                   >
                     {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
+                    {tab.blueNudge && <BlueNotificationBell activeOutput={activeOutput} />}
                     <ActiveTitle activeOutput={activeOutput} titleColor={tab.titleColor}>
                       {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}
                       <span className="min-w-0 truncate">{displayTitle}</span>
@@ -1191,6 +1245,7 @@ function ThreadTabRail({
                   data-testid="thread-tab"
                   data-thread-key={tab.threadKey}
                   data-needs-input={tab.needsInput ? "true" : "false"}
+                  data-blue-notification={tab.blueNudge ? "true" : "false"}
                   data-active-output={activeOutput ? "true" : "false"}
                   data-new-tab={newTab ? "true" : "false"}
                   data-min-label={displayQuestId ?? tab.threadKey}
@@ -1214,15 +1269,18 @@ function ThreadTabRail({
                   ? "border-violet-100/45 bg-white/[0.055] text-white"
                   : needsInputHidden
                     ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
-                    : activeOutputHidden
-                      ? "border-sky-300/35 bg-sky-400/10 text-sky-100 hover:bg-sky-400/15"
-                      : "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg"
+                    : blueNudgeHidden
+                      ? "border-blue-400/35 bg-blue-400/10 text-blue-100 hover:bg-blue-400/15"
+                      : activeOutputHidden
+                        ? "border-sky-300/35 bg-sky-400/10 text-sky-100 hover:bg-sky-400/15"
+                        : "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg"
               }`}
               data-testid="thread-tabs-more-button"
               data-hidden-count={hiddenTabs.length}
               data-has-selected={selectedHidden ? "true" : "false"}
               data-has-active-output={activeOutputHidden ? "true" : "false"}
               data-has-needs-input={needsInputHidden ? "true" : "false"}
+              data-has-blue-notification={blueNudgeHidden ? "true" : "false"}
               aria-haspopup="menu"
               aria-expanded={moreTabsOpen}
               aria-label={`${hiddenTabs.length} hidden tab${hiddenTabs.length === 1 ? "" : "s"}`}
@@ -1231,6 +1289,7 @@ function ThreadTabRail({
                 <span className="h-1.5 w-1.5 rounded-full bg-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.8)]" />
               )}
               {needsInputHidden && <NeedsInputBell activeOutput={activeOutputHidden} />}
+              {blueNudgeHidden && <BlueNotificationBell activeOutput={activeOutputHidden} />}
               <span>More</span>
               <span className="rounded-sm bg-cc-hover/70 px-1 font-mono-code text-[10px] text-cc-fg">
                 {hiddenTabs.length}
@@ -1303,6 +1362,7 @@ function ThreadTabRail({
                         data-current={selected ? "true" : "false"}
                         data-active-output={activeOutput ? "true" : "false"}
                         data-needs-input={tab.needsInput ? "true" : "false"}
+                        data-blue-notification={tab.blueNudge ? "true" : "false"}
                         data-reorderable={reorderable ? "true" : "false"}
                       >
                         {reorderMode && reorderable && (
@@ -1341,6 +1401,7 @@ function ThreadTabRail({
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.8)]" />
                           )}
                           {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
+                          {tab.blueNudge && <BlueNotificationBell activeOutput={activeOutput} />}
                           <span className="min-w-0 flex-1">
                             <span className="flex min-w-0 items-center gap-1.5">
                               {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}

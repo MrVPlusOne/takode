@@ -424,7 +424,7 @@ describe("WorkBoardBar", () => {
     const tabs = getAllByTestId("thread-tab");
     expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-unified-tab-track", "true");
     expect(queryByText("Active")).not.toBeInTheDocument();
-    expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-5", "q-1", "q-2"]);
+    expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-5", "q-1", "q-4", "q-2"]);
     expect(tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-1")).toHaveAttribute(
       "data-needs-input",
       "true",
@@ -433,7 +433,11 @@ describe("WorkBoardBar", () => {
       "data-needs-input",
       "false",
     );
-    expect(queryByText("q-4 ready for review")).not.toBeInTheDocument();
+    expect(tabs.find((tab) => tab.getAttribute("data-thread-key") === "q-4")).toHaveAttribute(
+      "data-blue-notification",
+      "true",
+    );
+    expect(queryByText("q-4 ready for review")).toBeInTheDocument();
     expect(queryByText("Finished work")).not.toBeInTheDocument();
   });
 
@@ -1331,6 +1335,39 @@ describe("WorkBoardBar", () => {
     const { dot: noBellDot } = expectStripeOriginActiveOutputMarker(noBellTab);
     expect(noBellDot.className).toBe(needsInputDot.className);
     expect(within(noBellTab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
+  });
+
+  it("renders review notification attention as a blue tab nudge without changing amber needs-input state", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+
+    const { getAllByTestId } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-1"
+        openThreadKeys={["q-1"]}
+        attentionRecords={[
+          attentionRecord({
+            id: "review-notification",
+            type: "review_ready",
+            source: { kind: "notification", id: "n-2", questId: "q-1" },
+            title: "q-1 ready for review",
+            summary: "Review q-1",
+            actionLabel: "Review",
+            priority: "review",
+            dedupeKey: "review-notification",
+          }),
+        ]}
+      />,
+    );
+
+    const reviewTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    expect(reviewTab).toHaveAttribute("data-blue-notification", "true");
+    expect(reviewTab).toHaveAttribute("data-needs-input", "false");
+    expect(within(reviewTab).getByTestId("thread-tab-blue-notification-bell")).toHaveClass("text-blue-400");
+    expect(within(reviewTab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
   });
 
   it("marks the output glint as reduced-motion-disabled while keeping the static marker contract", () => {

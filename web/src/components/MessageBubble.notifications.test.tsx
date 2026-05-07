@@ -48,11 +48,69 @@ function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role
   };
 }
 
+function installIntersectionObserverMock() {
+  let callback: IntersectionObserverCallback | null = null;
+  let observedTarget: Element | null = null;
+  const observe = vi.fn((target: Element) => {
+    observedTarget = target;
+  });
+  const disconnect = vi.fn();
+
+  vi.stubGlobal(
+    "IntersectionObserver",
+    class IntersectionObserver {
+      readonly root = null;
+      readonly rootMargin = "";
+      readonly thresholds = [0];
+
+      constructor(cb: IntersectionObserverCallback) {
+        callback = cb;
+      }
+
+      observe(target: Element) {
+        observe(target);
+      }
+
+      unobserve() {}
+
+      disconnect() {
+        disconnect();
+      }
+
+      takeRecords(): IntersectionObserverEntry[] {
+        return [];
+      }
+    },
+  );
+
+  return {
+    observe,
+    disconnect,
+    trigger(isIntersecting: boolean) {
+      if (!callback || !observedTarget) return;
+      callback(
+        [
+          {
+            isIntersecting,
+            intersectionRatio: isIntersecting ? 1 : 0,
+            target: observedTarget,
+          } as IntersectionObserverEntry,
+        ],
+        {} as IntersectionObserver,
+      );
+    },
+  };
+}
+
 describe("MessageBubble notification markers", () => {
   beforeEach(() => {
     revertToMessageMock.mockClear();
     markNotificationDoneMock.mockClear();
     sendToSessionMock.mockClear();
+  });
+
+  afterEach(() => {
+    vi.unstubAllGlobals();
   });
 
   it("uses the local toggle override for preview markers instead of the notification API", () => {
@@ -75,6 +133,110 @@ describe("MessageBubble notification markers", () => {
     expect(onToggleDone).toHaveBeenCalledTimes(1);
     expect(markNotificationDoneMock).not.toHaveBeenCalled();
     expect(screen.queryByTitle("Reply to this notification")).toBeNull();
+  });
+
+  it("does not auto-resolve review notifications before their inline marker is visible", () => {
+    const observer = installIntersectionObserverMock();
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-review-hidden",
+        category: "review",
+        summary: "q-345 ready for review",
+        timestamp: Date.now(),
+        messageId: "asst-notify",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      render(
+        <NotificationMarker
+          category="review"
+          summary="q-345 ready for review"
+          sessionId="notify-session"
+          messageId="asst-notify"
+          notificationId="n-review-hidden"
+        />,
+      );
+
+      expect(observer.observe).toHaveBeenCalledTimes(1);
+      expect(markNotificationDoneMock).not.toHaveBeenCalled();
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
+
+  it("auto-resolves review notifications once their inline marker is visible", () => {
+    const observer = installIntersectionObserverMock();
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-review-visible",
+        category: "review",
+        summary: "q-345 ready for review",
+        timestamp: Date.now(),
+        messageId: "asst-notify",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      render(
+        <NotificationMarker
+          category="review"
+          summary="q-345 ready for review"
+          sessionId="notify-session"
+          messageId="asst-notify"
+          notificationId="n-review-visible"
+        />,
+      );
+
+      act(() => observer.trigger(true));
+
+      expect(markNotificationDoneMock).toHaveBeenCalledWith("notify-session", "n-review-visible", true);
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
+  });
+
+  it("does not auto-resolve amber needs-input markers merely because they are visible", () => {
+    const observer = installIntersectionObserverMock();
+    const prevNotifications = useStore.getState().sessionNotifications;
+    const notifications = new Map(prevNotifications);
+    notifications.set("notify-session", [
+      {
+        id: "n-input-visible",
+        category: "needs-input",
+        summary: "Deploy now?",
+        timestamp: Date.now(),
+        messageId: "asst-notify",
+        done: false,
+      },
+    ]);
+    useStore.setState({ sessionNotifications: notifications });
+
+    try {
+      render(
+        <NotificationMarker
+          category="needs-input"
+          summary="Deploy now?"
+          sessionId="notify-session"
+          messageId="asst-notify"
+          notificationId="n-input-visible"
+        />,
+      );
+
+      act(() => observer.trigger(true));
+
+      expect(markNotificationDoneMock).not.toHaveBeenCalled();
+    } finally {
+      useStore.setState({ sessionNotifications: prevNotifications });
+    }
   });
 
   it("fills inline answers and sends without mutating the composer draft", () => {

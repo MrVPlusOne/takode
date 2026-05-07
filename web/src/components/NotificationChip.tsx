@@ -14,6 +14,7 @@ import {
   resolveNotificationOwnerThreadKey,
   runAfterNotificationOwnerThreadSelected,
 } from "../utils/notification-thread.js";
+import { useVisibleReviewNotificationAutoResolve } from "../hooks/useVisibleReviewNotificationAutoResolve.js";
 
 const EMPTY: SessionNotification[] = [];
 type NotificationCategory = SessionNotification["category"];
@@ -340,6 +341,7 @@ function NotificationItem({
   const label = compactReviewSummary?.text || notif.summary || (isNeedsInput ? "Needs your input" : "Ready for review");
   const questSummary = compactReviewSummary?.questSummary ?? null;
   const labelClassName = notif.done ? "text-cc-muted/60 line-through" : "text-cc-fg/90";
+  const rowRef = useVisibleReviewNotificationAutoResolve<HTMLDivElement>({ sessionId, notification: notif });
 
   const renderLabel = () => {
     if (!questSummary) {
@@ -368,7 +370,13 @@ function NotificationItem({
   };
 
   return (
-    <div className="flex items-start gap-2 px-3 py-2 hover:bg-cc-hover/40 transition-colors group">
+    <div
+      ref={rowRef}
+      className="flex items-start gap-2 px-3 py-2 hover:bg-cc-hover/40 transition-colors group"
+      data-testid="notification-inbox-row"
+      data-notification-id={notif.id}
+      data-notification-category={notif.category}
+    >
       {/* Checkbox */}
       <button
         onClick={toggleDone}

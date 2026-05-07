@@ -45,6 +45,7 @@ export interface LeaderContextResumeInput {
     messageHistory: BrowserIncomingMessage[];
     notifications: SessionNotification[];
     board: BoardRow[];
+    completedBoard?: BoardRow[];
   };
   rowSessionStatuses: Record<string, BoardRowSessionStatus>;
   participants: Map<string, LeaderContextResumeParticipant>;
@@ -135,12 +136,21 @@ export interface LeaderContextResumeReviewNotificationQuestSynthesis {
   warnings: string[];
 }
 
+export interface LeaderContextResumeCompletedBoardQuestObservation {
+  questId: string;
+  title: string;
+  status: string;
+  completedAt: number;
+  rowUpdatedAt: number;
+}
+
 export interface LeaderContextResumeModel {
   leader: LeaderContextResumeSessionRef;
   observed: {
     unresolvedUserDecisions: LeaderContextResumeNotificationObservation[];
     unresolvedNotifications: LeaderContextResumeNotificationObservation[];
     reviewNotificationQuests: LeaderContextResumeReviewNotificationQuestObservation[];
+    recentCompletedBoardQuests?: LeaderContextResumeCompletedBoardQuestObservation[];
     activeBoardQuests: LeaderContextResumeQuestObservation[];
     warnings: string[];
   };
@@ -191,6 +201,7 @@ const PHASE_PATTERNS: Record<string, RegExp[]> = {
 };
 
 const MAX_REVIEW_NOTIFICATION_QUESTS_IN_TEXT = 8;
+const MAX_RECENT_COMPLETED_BOARD_QUESTS = 10;
 
 function truncate(text: string, max = 120): string {
   const trimmed = text.trim().replace(/\s+/g, " ");
@@ -450,6 +461,11 @@ function parseNotificationQuestIds(summary: string): string[] {
 
 function formatQuestStatus(status: string | null | undefined): string {
   return status ?? "unknown";
+}
+
+function formatTimestamp(timestamp: number): string {
+  if (!Number.isFinite(timestamp) || timestamp <= 0) return "unknown";
+  return new Date(timestamp).toISOString();
 }
 
 function getVerificationProgress(
@@ -786,6 +802,26 @@ export async function buildLeaderContextResume(input: LeaderContextResumeInput):
     warnings: buildReviewNotificationWarnings(observation),
   }));
 
+  const recentCompletedBoardQuests: LeaderContextResumeCompletedBoardQuestObservation[] = [];
+  const sortedCompletedRows = [...(input.leader.completedBoard ?? [])]
+    .filter((row) => row.questId)
+    .sort(
+      (left, right) =>
+        (right.completedAt ?? right.updatedAt ?? 0) - (left.completedAt ?? left.updatedAt ?? 0) ||
+        right.questId.localeCompare(left.questId),
+    )
+    .slice(0, MAX_RECENT_COMPLETED_BOARD_QUESTS);
+  for (const row of sortedCompletedRows) {
+    const quest = await loadQuestCached(row.questId);
+    recentCompletedBoardQuests.push({
+      questId: row.questId,
+      title: row.title || quest?.title || row.questId,
+      status: row.status || "COMPLETED",
+      completedAt: row.completedAt ?? row.updatedAt ?? 0,
+      rowUpdatedAt: row.updatedAt,
+    });
+  }
+
   const observedQuests: LeaderContextResumeQuestObservation[] = [];
   const synthesizedQuests: LeaderContextResumeQuestSynthesis[] = [];
   const warnings = new Set<string>();
@@ -978,6 +1014,7 @@ export async function buildLeaderContextResume(input: LeaderContextResumeInput):
       ),
       unresolvedNotifications,
       reviewNotificationQuests: observedReviewNotificationQuests,
+      recentCompletedBoardQuests,
       activeBoardQuests: observedQuests,
       warnings: [...warnings],
     },
@@ -1051,6 +1088,20 @@ export function renderLeaderContextResumeText(model: LeaderContextResumeModel): 
       lines.push(
         `- omitted ${omittedCount} older/lower-priority review quest${omittedCount === 1 ? "" : "s"} from text output (${omittedNotifications.size} notification${omittedNotifications.size === 1 ? "" : "s"}); use \`--json\` or \`takode notify list\` for the full set`,
       );
+    }
+  }
+
+  const recentCompletedBoardQuests = model.observed.recentCompletedBoardQuests ?? [];
+  lines.push("");
+  if (recentCompletedBoardQuests.length === 0) {
+    lines.push("Recent completed workboard quests: none");
+  } else {
+    lines.push(
+      `Recent completed workboard quests: ${recentCompletedBoardQuests.length} latest${recentCompletedBoardQuests.length === MAX_RECENT_COMPLETED_BOARD_QUESTS ? " shown" : ""}`,
+    );
+    for (const completedQuest of recentCompletedBoardQuests) {
+      lines.push(`[${completedQuest.questId}](quest:${completedQuest.questId}) -- ${completedQuest.title}`);
+      lines.push(`- completed: ${formatTimestamp(completedQuest.completedAt)}; status: ${completedQuest.status}`);
     }
   }
 

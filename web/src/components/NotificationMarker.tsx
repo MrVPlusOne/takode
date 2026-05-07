@@ -11,6 +11,7 @@ import {
 } from "../utils/notification-thread.js";
 import { formatReplyContentForAssistant } from "../utils/reply-context.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
+import { useVisibleReviewNotificationAutoResolve } from "../hooks/useVisibleReviewNotificationAutoResolve.js";
 
 /** Compact marker rendered inline for notification tool calls.
  *  When sessionId and messageId are provided, shows the checkbox affordance immediately
@@ -62,6 +63,7 @@ export function NotificationMarker({
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
   const canSendQuickReply =
     !!sessionId && !!notif && questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
+  const markerRef = useVisibleReviewNotificationAutoResolve<HTMLDivElement>({ sessionId, notification: notif });
 
   useEffect(() => {
     setAnswersByQuestion({});
@@ -204,6 +206,7 @@ export function NotificationMarker({
 
   return (
     <div
+      ref={markerRef}
       className={`inline-flex max-w-full flex-col items-start gap-1 mt-2 px-2 py-0.5 rounded-xl text-[11px] font-medium border transition-opacity ${
         isDone
           ? "border-cc-border bg-cc-hover/30 text-cc-muted opacity-60"
@@ -211,6 +214,8 @@ export function NotificationMarker({
             ? "border-amber-500/20 bg-amber-500/5 text-amber-400"
             : "border-emerald-500/20 bg-emerald-500/5 text-cc-muted"
       }`}
+      data-notification-id={notif?.id ?? notificationId ?? ""}
+      data-notification-category={category}
     >
       <div className="flex min-w-0 items-center gap-1.5">
         {/* Checkbox (shown as soon as the marker has a message anchor) */}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { QuestmasterTask } from "./quest-types.js";
-import type { BoardRowSessionStatus, BrowserIncomingMessage, SessionNotification } from "./session-types.js";
+import type { BoardRow, BoardRowSessionStatus, BrowserIncomingMessage, SessionNotification } from "./session-types.js";
 import {
   buildLeaderContextResume,
   renderLeaderContextResumeText,
@@ -944,6 +944,57 @@ describe("takode leader-context-resume", () => {
     expect(rendered).toContain("[q-2](quest:q-2) -- Second aggregate quest");
     expect(rendered).not.toContain("Other unresolved same-session notifications");
     expect(rendered.indexOf("[q-2](quest:q-2)")).toBeLessThan(rendered.indexOf("Active quests: 0"));
+  });
+
+  it("includes the latest ten completed workboard quests without relying on unresolved review notifications", async () => {
+    const completedBoard: BoardRow[] = Array.from({ length: 12 }, (_, index) => {
+      const questNumber = index + 1;
+      return {
+        questId: `q-${questNumber}`,
+        title: `Completed quest ${questNumber}`,
+        status: "DONE",
+        createdAt: questNumber,
+        updatedAt: 1_000 + questNumber,
+        completedAt: 2_000 + questNumber,
+      };
+    });
+
+    const model = await buildLeaderContextResume({
+      leader: {
+        sessionId: "leader-session",
+        sessionNum: 1132,
+        name: "Leader",
+        isOrchestrator: true,
+        messageHistory: [],
+        notifications: [],
+        board: [],
+        completedBoard,
+      },
+      rowSessionStatuses: {},
+      participants: new Map(),
+      loadQuest: async (questId) => makeVerificationQuest(questId, `Loaded ${questId}`, { status: "done" }),
+    });
+
+    expect(model.observed.reviewNotificationQuests).toHaveLength(0);
+    expect(model.observed.recentCompletedBoardQuests?.map((quest) => quest.questId)).toEqual([
+      "q-12",
+      "q-11",
+      "q-10",
+      "q-9",
+      "q-8",
+      "q-7",
+      "q-6",
+      "q-5",
+      "q-4",
+      "q-3",
+    ]);
+
+    const rendered = renderLeaderContextResumeText(model);
+    expect(rendered).toContain("Review notifications / verification-ready quests: none");
+    expect(rendered).toContain("Recent completed workboard quests: 10 latest shown");
+    expect(rendered).toContain("[q-12](quest:q-12) -- Completed quest 12");
+    expect(rendered).toContain("[q-3](quest:q-3) -- Completed quest 3");
+    expect(rendered).not.toContain("[q-2](quest:q-2)");
   });
 
   it("keeps aggregate review notifications in Other unresolved when a referenced quest is not represented", () => {
