@@ -76,7 +76,7 @@ Do not present only the phase list and silently decide the worker or queueing me
 Examples:
 - **Simple immediate dispatch:** "Initial Journey: alignment -> implement -> code-review -> port. Scheduling: spawn a fresh worker and dispatch immediately if approved."
 - **Queued for context:** "Initial Journey: alignment -> explore -> implement -> code-review -> port. Scheduling: keep it queued with `--wait-for #12` because that worker's active context is materially useful; if that context stops mattering, revise to a fresh spawn."
-- **Capacity-tight immediate dispatch:** "Initial Journey: alignment -> implement -> code-review -> port. Scheduling: dispatch immediately if approved; if worker slots are still `5/5` only because completed workers are reclaimable, archive one of those completed workers first and then spawn fresh."
+- **Capacity-tight immediate dispatch:** "Initial Journey: alignment -> implement -> code-review -> port. Scheduling: dispatch immediately if approved; if worker slots are still `5/5` only because completed workers are reclaimable, replace one completed worktree worker with `takode spawn --replace-worktree-worker <session> ...` when the replacement belongs in the same repo/base-branch worktree; otherwise archive one completed worker and spawn fresh."
 
 ## Dispatch Steps
 
@@ -218,7 +218,7 @@ After the quest is created/refined or the dispatch row is active, remind the lea
 
 ### 6. Check Herd Limit
 
-Maintain at most **5 worker slots** in your herd. Reviewer sessions do **not** use worker slots. Before spawning, check `takode list` and read the worker-slot summary directly -- do **not** rely on the raw total session count or subtract reviewers yourself. Archiving reviewers does **not** free worker-slot capacity. **Never archive proactively.** Only archive when you are at the 5-worker-slot limit AND need to spawn a new worker. Idle and disconnected worker sessions retain valuable context -- keep them until you actually need the slot. **Archiving a worktree worker deletes its worktree and any uncommitted changes**, so do not archive until anything worth keeping has been ported, committed, or otherwise synced. When you must archive, choose the worker least likely to be reused -- typically the one whose work is most complete, least related to upcoming tasks, or oldest.
+Maintain at most **5 worker slots** in your herd. Reviewer sessions do **not** use worker slots. Before spawning, check `takode list` and read the worker-slot summary directly -- do **not** rely on the raw total session count or subtract reviewers yourself. Archiving reviewers does **not** free worker-slot capacity. **Never archive proactively.** Only reclaim capacity when you are at the 5-worker-slot limit AND need to spawn a new worker. Prefer `takode spawn --replace-worktree-worker <session> ...` for completed owned worktree workers when the new worker belongs in the same repo/base-branch worktree; it archives the old worker, safety-checks and resets the recycled worktree, and spawns the replacement in that path. Otherwise archive the worker least likely to be reused -- typically the one whose work is most complete, least related to upcoming tasks, or oldest. Idle and disconnected worker sessions retain valuable context, and archiving a worktree worker deletes uncommitted work, so do not reclaim until anything worth keeping has been ported, committed, or otherwise synced.
 
 ### 7. Send Standardized Dispatch Message
 

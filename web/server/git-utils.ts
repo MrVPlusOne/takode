@@ -106,6 +106,21 @@ export async function gitSafeAsync(cmd: string, cwd: string): Promise<string | n
   }
 }
 
+export async function resolveRefAsync(repoRoot: string, ref: string): Promise<string | null> {
+  return gitSafeAsync(`rev-parse --verify ${ref}`, repoRoot);
+}
+
+export async function countCommitsBetweenAsync(repoRoot: string, baseRef: string, headRef: string): Promise<number> {
+  const raw = await gitSafeAsync(`rev-list --count ${baseRef}..${headRef}`, repoRoot);
+  if (!raw) return 0;
+  const count = Number.parseInt(raw.trim(), 10);
+  return Number.isFinite(count) ? count : 0;
+}
+
+export async function resetWorktreeToRefAsync(worktreePath: string, ref: string): Promise<string> {
+  return gitAsync(`reset --hard ${ref}`, worktreePath);
+}
+
 /**
  * Async version of findClosestParentBranch. Uses non-blocking exec
  * to avoid stalling the event loop on NFS.

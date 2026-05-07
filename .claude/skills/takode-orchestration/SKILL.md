@@ -354,7 +354,7 @@ Claim worker sessions under your orchestrator. Each session can only have one le
 takode herd 2 3 5
 ```
 
-### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--message-file <path>|-] [--cwd DIR] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--json]`
+### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--message-file <path>|-] [--cwd DIR] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--replace-worktree-worker <session>] [--json]`
 
 Create worker sessions and auto-herd them to yourself. **Sessions always use worktrees by default.** Never pass `--no-worktree` unless the user explicitly asks for it or the project's repo instructions require it -- even investigation and debugging tasks should get worktrees since they almost always lead to code changes. Use `--fixed-name` only for reviewer sessions (regular workers get auto-named from their quest). Use `--reviewer <session>` to create a reviewer session linked to a parent worker.
 
@@ -362,10 +362,13 @@ Create worker sessions and auto-herd them to yourself. **Sessions always use wor
 takode spawn                                                    # worktree session (default)
 takode spawn --backend claude --count 3 --cwd ~/repos/app --message "Run tests"
 takode spawn --message-file /tmp/dispatch.txt
+takode spawn --replace-worktree-worker 5 --message-file /tmp/dispatch.txt
 takode spawn --reviewer 5 --no-worktree --fixed-name "Skeptic review of #5" --message-file /tmp/reviewer-dispatch.txt
 ```
 
 Use `--message` only for short inline text. For multiline or shell-like dispatch bodies, prefer `--message-file <path>` or `--message-file -`.
+
+Use `--replace-worktree-worker <session>` when reclaiming an owned completed worktree worker for a new worker in the same repo/base branch. Replacement mode archives the old worker, refuses dirty or committed-ahead worktrees, resets the recycled worktree to the base branch, and spawns the replacement in that path. It is not compatible with `--count > 1`, `--reviewer`, or `--no-worktree`.
 
 ### `takode rename <session> <name>`
 
@@ -436,7 +439,7 @@ If a quest is still active on the board and its worker or reviewer is `idle` or 
 
 ## Archiving Sessions
 
-Maintain at most **5 worker slots** in your herd. Reviewers can be herded for routing, but they do **not** use worker slots. **Never archive proactively.** Only archive when you are at the 5-worker-slot limit AND need to spawn a new worker. Use the worker-slot summary from `takode list` / `takode spawn` directly -- do **not** infer slot usage from the raw session total. Archiving reviewers does **not** free worker-slot capacity. Idle and disconnected worker sessions retain valuable context -- keep them until you actually need the slot. **Archiving a worktree worker deletes its worktree and any uncommitted changes**, so do not archive until anything worth keeping has been ported, committed, or otherwise synced. When you must archive, choose the worker least likely to be reused -- typically the one whose work is most complete, least related to upcoming tasks, or oldest. Archived sessions' conversation history remains readable via `takode peek`, `takode read`, and the Takode UI, but that history does not preserve uncommitted work from a deleted worktree.
+Maintain at most **5 worker slots** in your herd. Reviewers can be herded for routing, but they do **not** use worker slots. **Never archive proactively.** Only reclaim capacity when you are at the 5-worker-slot limit AND need to spawn a new worker. Use the worker-slot summary from `takode list` / `takode spawn` directly -- do **not** infer slot usage from the raw total. Archiving reviewers does **not** free worker-slot capacity. Idle and disconnected worker sessions retain valuable context -- keep them until you actually need the slot. Prefer `takode spawn --replace-worktree-worker <session> ...` over archive-then-spawn when replacing an owned completed worktree worker for the same repo/base branch. Otherwise choose the worker least likely to be reused -- typically the one whose work is most complete, least related to upcoming tasks, or oldest. Archived sessions' conversation history remains readable via `takode peek`, `takode read`, and the Takode UI, but that history does not preserve uncommitted work from a deleted worktree.
 
 ## Tips
 

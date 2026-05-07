@@ -56,7 +56,7 @@ function resolveWorktreeCleanupTarget(
   };
 }
 
-async function cleanupWorktree(
+export async function cleanupWorktree(
   target: WorktreeCleanupTarget,
   worktreeTracker: WorktreeTracker,
   force?: boolean,

@@ -330,12 +330,15 @@ Options:
   --no-worktree                Disable worktree creation
   --fixed-name <name>          Set a fixed session name (disables auto-naming)
   --reviewer <session>         Create a reviewer session tied to a parent worker (by session number)
+  --replace-worktree-worker <session>
+                              Archive an owned worktree worker and reuse its reset worktree
   --json                       Output in JSON format
 
 Examples:
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --permission-mode auto-review --model gpt-5.4 --reasoning-effort high --internet
   takode spawn --count 3 --no-worktree
+  takode spawn --replace-worktree-worker 42 --message-file /tmp/dispatch.txt
   takode spawn --message-file /tmp/dispatch.txt
   printf '%s\n' 'Review q-10' 'Treat \`$(nope)\` as literal text.' | takode spawn --reviewer 42 --message-file -`;
 
@@ -356,6 +359,7 @@ const SPAWN_ALLOWED_FLAGS = new Set([
   "no-worktree",
   "fixed-name",
   "reviewer",
+  "replace-worktree-worker",
   "json",
   "help",
   "h",
@@ -441,6 +445,38 @@ function printSpawnedSession(session: TakodeSessionInfo): void {
   }
 }
 
+type ReplacementResponse = {
+  ok: boolean;
+  oldSessionId: string;
+  oldSessionNum?: number | null;
+  oldSessionName?: string | null;
+  oldSessionLabel?: string;
+  newSessionId: string;
+  recycledPath: string;
+  repoRoot: string;
+  baseBranch: string;
+  baseSha: string;
+  reset: { ok: boolean; output?: string | null };
+};
+
+function printReplacementSummary(replacement: ReplacementResponse, newSession: TakodeSessionInfo): void {
+  const oldLabel =
+    replacement.oldSessionLabel ||
+    (replacement.oldSessionNum !== undefined && replacement.oldSessionNum !== null
+      ? `#${replacement.oldSessionNum}`
+      : replacement.oldSessionId.slice(0, 8));
+  const newLabel =
+    newSession.sessionNum !== undefined ? `#${newSession.sessionNum}` : replacement.newSessionId.slice(0, 8);
+  console.log(
+    `[${formatTime(Date.now())}] ✓ Replaced ${formatInlineText(oldLabel)} with ${formatInlineText(newLabel)}`,
+  );
+  console.log(`        recycled=${formatInlineText(replacement.recycledPath)}`);
+  console.log(
+    `        base=${formatInlineText(replacement.baseBranch)}  sha=${formatInlineText(replacement.baseSha.slice(0, 12))}`,
+  );
+  console.log(`        reset=${replacement.reset.ok ? "ok" : "failed"}`);
+}
+
 export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
   assertKnownFlags(flags, SPAWN_ALLOWED_FLAGS, SPAWN_FLAG_USAGE);
@@ -504,11 +540,25 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     }
     reviewerOfNum = parsed;
   }
+  const replaceWorktreeWorkerRaw = flags["replace-worktree-worker"];
+  const replaceWorktreeWorkerRef = typeof replaceWorktreeWorkerRaw === "string" ? replaceWorktreeWorkerRaw.trim() : "";
+  if (replaceWorktreeWorkerRaw === true || (replaceWorktreeWorkerRaw !== undefined && !replaceWorktreeWorkerRef)) {
+    err("--replace-worktree-worker requires a session reference.");
+  }
 
   const countRaw = flags.count;
   const count = countRaw === undefined ? 1 : Number(countRaw);
   if (!Number.isInteger(count) || count < 1) {
     err("Invalid --count. Expected a positive integer.");
+  }
+  if (replaceWorktreeWorkerRef && count > 1) {
+    err("--replace-worktree-worker cannot be combined with --count > 1.");
+  }
+  if (replaceWorktreeWorkerRef && reviewerOfNum !== undefined) {
+    err("--replace-worktree-worker cannot be combined with --reviewer.");
+  }
+  if (replaceWorktreeWorkerRef && !useWorktree) {
+    err("--replace-worktree-worker cannot be combined with --no-worktree.");
   }
   if (backendRaw !== "codex" && internetOverride !== undefined) {
     err("--internet and --no-internet are only supported for Codex sessions.");
@@ -567,8 +617,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   const inheritedCodexPermissionMode =
     backendRaw === "codex" && isCodexProfilePermissionMode(leader.permissionMode) ? leader.permissionMode : undefined;
 
-  const spawned: TakodeSessionInfo[] = [];
-  for (let i = 0; i < count; i++) {
+  const buildCreatePayload = (): Record<string, unknown> => {
     const createPayload: Record<string, unknown> = {
       backend: backendRaw,
       cwd,
@@ -580,11 +629,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     if (reviewerOfNum !== undefined) {
       createPayload.reviewerOf = reviewerOfNum;
       createPayload.noAutoName = true;
-      if (!fixedName) {
-        createPayload.fixedName = `Reviewer of #${reviewerOfNum}`;
-      } else {
-        createPayload.fixedName = fixedName;
-      }
+      createPayload.fixedName = fixedName || `Reviewer of #${reviewerOfNum}`;
     } else if (fixedName) {
       createPayload.noAutoName = true;
       createPayload.fixedName = fixedName;
@@ -615,6 +660,57 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
         createPayload.codexInternetAccess = true;
       }
     }
+
+    return createPayload;
+  };
+
+  if (replaceWorktreeWorkerRef) {
+    const createPayload = buildCreatePayload();
+    const replacement = (await apiPost(
+      base,
+      `/sessions/${encodeURIComponent(replaceWorktreeWorkerRef)}/replace-worktree-worker`,
+      { create: createPayload },
+    )) as ReplacementResponse;
+
+    if (message) {
+      await apiPost(base, `/sessions/${encodeURIComponent(replacement.newSessionId)}/message`, {
+        content: message,
+        agentSource: {
+          sessionId: leaderSessionId,
+          ...(leaderSessionLabel ? { sessionLabel: leaderSessionLabel } : {}),
+        },
+      });
+    }
+
+    const newSession = await fetchSessionInfo(base, replacement.newSessionId);
+    if (jsonMode) {
+      console.log(
+        JSON.stringify(
+          {
+            count: 1,
+            backend: backendRaw,
+            cwd,
+            useWorktree,
+            leaderSessionId,
+            replacement,
+            message: message || null,
+            sessions: [newSession],
+          },
+          null,
+          2,
+        ),
+      );
+      return;
+    }
+
+    printReplacementSummary(replacement, newSession);
+    printSpawnedSession(newSession);
+    return;
+  }
+
+  const spawned: TakodeSessionInfo[] = [];
+  for (let i = 0; i < count; i++) {
+    const createPayload = buildCreatePayload();
 
     const created = (await apiPost(base, "/sessions/create", createPayload)) as { sessionId: string };
 

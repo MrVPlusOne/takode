@@ -47,12 +47,13 @@ import {
 import { registerSessionsArchiveRoutes } from "./sessions-archive-routes.js";
 import { withProgressHeartbeat } from "./progress-heartbeat.js";
 import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attachment-paths.js";
-import { createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
+import { cleanupWorktree, createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
 import { registerSessionLeaderProfileRoute } from "./session-leader-profile-route.js";
+import { registerSessionReplacementRoutes } from "./session-replacement-routes.js";
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
@@ -74,8 +75,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     buildOrchestratorSystemPrompt,
     resolveInitialModeState,
   } = ctx;
-  // ─── Worktree cleanup helper ────────────────────────────────────
-  type WorktreeCleanupResult = { cleaned?: boolean; dirty?: boolean; path?: string; reason?: string } | undefined;
   const pendingWorktreeCleanups = new Map<string, Promise<void>>();
   const sessionAttentionDeps = {
     broadcastToBrowsers: (session: NonNullable<ReturnType<typeof wsBridge.getSession>>, msg: unknown) =>
@@ -113,48 +112,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     }
     bridgeAny.applyInitialSessionState?.(sessionId, options);
   };
-
-  async function cleanupWorktree(
-    sessionId: string,
-    force?: boolean,
-    options?: { archiveBranch?: boolean },
-  ): Promise<WorktreeCleanupResult> {
-    const mapping = worktreeTracker.getBySession(sessionId);
-    if (!mapping) return undefined;
-
-    if (worktreeTracker.isWorktreeInUse(mapping.worktreePath, sessionId)) {
-      worktreeTracker.removeBySession(sessionId);
-      return { cleaned: false, path: mapping.worktreePath };
-    }
-
-    const dirty = await gitUtils.isWorktreeDirtyAsync(mapping.worktreePath);
-    if (dirty && !force) {
-      return { cleaned: false, dirty: true, path: mapping.worktreePath };
-    }
-
-    const managedBranch =
-      mapping.actualBranch && mapping.actualBranch !== mapping.branch ? mapping.actualBranch : undefined;
-
-    if (options?.archiveBranch && managedBranch) {
-      await gitUtils.archiveBranchAsync(mapping.repoRoot, managedBranch);
-      const result = await gitUtils.removeWorktreeAsync(mapping.repoRoot, mapping.worktreePath, {
-        force: dirty,
-      });
-      if (result.removed) {
-        worktreeTracker.removeBySession(sessionId);
-      }
-      return { cleaned: result.removed, path: mapping.worktreePath, reason: result.reason };
-    }
-
-    const result = await gitUtils.removeWorktreeAsync(mapping.repoRoot, mapping.worktreePath, {
-      force: dirty,
-      branchToDelete: managedBranch,
-    });
-    if (result.removed) {
-      worktreeTracker.removeBySession(sessionId);
-    }
-    return { cleaned: result.removed, path: mapping.worktreePath, reason: result.reason };
-  }
 
   const queueArchivedWorktreeCleanup = createArchivedWorktreeCleanupQueue({
     launcher,
@@ -809,15 +766,31 @@ export function createSessionsRoutes(ctx: RouteContext) {
       containerInfo,
     };
   };
+  const createSessionFromBody = async (
+    body: any,
+    recycledWorktreeInfo?: WorktreeSessionInfo,
+  ): Promise<Awaited<ReturnType<CliLauncher["launch"]>>> => {
+    const backendRaw = body.backend ?? "claude";
+    const backend = resolveBackend(backendRaw);
+    if (!backend) {
+      throwPreparationError(`Invalid backend: ${String(backendRaw)}`, 400);
+    }
+
+    const sessionConfig = await prepareSession(body, applyDefaultClaudeBackend(backend));
+    if (recycledWorktreeInfo) {
+      sessionConfig.initialCwd = recycledWorktreeInfo.worktreePath;
+      sessionConfig.worktreeInfo = recycledWorktreeInfo;
+      sessionConfig.launchOptions.cwd = recycledWorktreeInfo.worktreePath;
+      sessionConfig.launchOptions.worktreeInfo = recycledWorktreeInfo;
+    }
+    const session = await launcher.launch(sessionConfig.launchOptions);
+    await applySessionPostLaunch(session, sessionConfig);
+    return session;
+  };
+
   api.post("/sessions/create", async (c) => {
     const body = await c.req.json().catch(() => ({}));
     try {
-      const backendRaw = body.backend ?? "claude";
-      const backend = resolveBackend(backendRaw);
-      if (!backend) {
-        return c.json({ error: `Invalid backend: ${String(backendRaw)}` }, 400);
-      }
-
       // Enforce one-reviewer-per-parent at the server level (prevents TOCTOU races
       // where two concurrent CLI spawn commands both pass the client-side check).
       if (typeof body.reviewerOf === "number") {
@@ -833,10 +806,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         }
       }
 
-      const sessionConfig = await prepareSession(body, applyDefaultClaudeBackend(backend));
-      const session = await launcher.launch(sessionConfig.launchOptions);
-      await applySessionPostLaunch(session, sessionConfig);
-      return c.json(session);
+      return c.json(await createSessionFromBody(body));
     } catch (e: unknown) {
       if (e instanceof SessionPreparationError) {
         return c.json({ error: e.message }, e.status);
@@ -845,6 +815,17 @@ export function createSessionsRoutes(ctx: RouteContext) {
       console.error("[routes] Failed to create session:", msg);
       return c.json({ error: msg }, 500);
     }
+  });
+  registerSessionReplacementRoutes(api, {
+    resolveId,
+    authenticateTakodeCaller,
+    launcher,
+    wsBridge,
+    sessionStore,
+    worktreeTracker,
+    prPoller,
+    timerManager: ctx.timerManager,
+    createSessionFromBody,
   });
   // ─── SSE Session Creation (with progress streaming) ─────────────────────
   api.post("/sessions/create-stream", async (c) => {
@@ -1792,7 +1773,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
     // Clean up container if any
     containerManager.removeContainer(id);
 
-    const worktreeResult = await cleanupWorktree(id, true);
+    const mapping = worktreeTracker.getBySession(id);
+    const worktreeResult = mapping ? await cleanupWorktree(mapping, worktreeTracker, true) : undefined;
     // Clean up any stale archived ref from a previous archive cycle (q-329)
     if (sessionInfo?.isWorktree && sessionInfo.repoRoot && sessionInfo.actualBranch) {
       await gitUtils.deleteArchivedRefAsync(sessionInfo.repoRoot, sessionInfo.actualBranch);

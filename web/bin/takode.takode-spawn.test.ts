@@ -987,6 +987,155 @@ describe("takode spawn", () => {
     );
   });
 
+  it("replaces an owned worktree worker while passing normal spawn options and initial message", async () => {
+    const replacementBodies: JsonObject[] = [];
+    const messages: JsonObject[] = [];
+    const sessionInfoById: Record<string, JsonObject> = {
+      "new-worker": {
+        sessionId: "new-worker",
+        sessionNum: 44,
+        name: "Replacement Worker",
+        state: "running",
+        backendType: "codex",
+        model: "gpt-5.4",
+        cwd: "/wt/main-wt-1111",
+        createdAt: Date.now(),
+        cliConnected: true,
+        isGenerating: false,
+        isWorktree: true,
+        actualBranch: "main-wt-1111",
+        askPermission: true,
+        permissionMode: "codex-auto-review",
+        codexReasoningEffort: "medium",
+        codexInternetAccess: true,
+      },
+    };
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-replace", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-replace") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "leader-replace",
+            sessionNum: 7,
+            name: "Leader Replace",
+            permissionMode: "plan",
+            backendType: "claude",
+          }),
+        );
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/12/replace-worktree-worker") {
+        replacementBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            oldSessionId: "old-worker",
+            oldSessionNum: 12,
+            oldSessionName: "Old Worker",
+            oldSessionLabel: "#12",
+            newSessionId: "new-worker",
+            recycledPath: "/wt/main-wt-1111",
+            repoRoot: "/repo",
+            baseBranch: "main",
+            baseSha: "abcdef1234567890",
+            reset: { ok: true, output: "HEAD is now at abcdef" },
+          }),
+        );
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/new-worker/message") {
+        messages.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/new-worker/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(sessionInfoById["new-worker"]));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(
+      [
+        "spawn",
+        "--port",
+        String(port),
+        "--replace-worktree-worker",
+        "12",
+        "--backend",
+        "codex",
+        "--permission-mode",
+        "auto-review",
+        "--model",
+        "gpt-5.4",
+        "--reasoning-effort",
+        "medium",
+        "--internet",
+        "--cwd",
+        "/repo",
+        "--message-file",
+        "-",
+        "--json",
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-replace",
+        COMPANION_AUTH_TOKEN: "auth-replace",
+      },
+      process.cwd(),
+      "replace dispatch",
+    );
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    expect(replacementBodies).toHaveLength(1);
+    expect(replacementBodies[0]).toEqual({
+      create: {
+        backend: "codex",
+        cwd: "/repo",
+        useWorktree: true,
+        createdBy: "leader-replace",
+        model: "gpt-5.4",
+        permissionMode: "codex-auto-review",
+        codexReasoningEffort: "medium",
+        codexInternetAccess: true,
+      },
+    });
+    expect(messages).toEqual([
+      {
+        content: "replace dispatch",
+        agentSource: { sessionId: "leader-replace", sessionLabel: "#7 Leader Replace" },
+      },
+    ]);
+    const stdout = JSON.parse(result.stdout) as JsonObject;
+    expect(stdout.replacement).toMatchObject({
+      oldSessionId: "old-worker",
+      newSessionId: "new-worker",
+      recycledPath: "/wt/main-wt-1111",
+      baseBranch: "main",
+      baseSha: "abcdef1234567890",
+    });
+    expect(stdout.sessions).toEqual([sessionInfoById["new-worker"]]);
+  });
+
   it("rejects unsupported spawn flags instead of ignoring them", async () => {
     const result = await runTakode(["spawn", "--unsupported-flag"], {
       ...process.env,
