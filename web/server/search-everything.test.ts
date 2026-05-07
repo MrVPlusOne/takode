@@ -253,6 +253,27 @@ describe("searchEverything", () => {
     expect(sessionOutput.results[0].id).toBe("session:s-current");
   });
 
+  it("keeps CamelCase matching while using the fast lowercase path", () => {
+    const output = searchEverything(
+      [
+        quest({
+          questId: "q-30",
+          title: "ExitPlanMode follow-up",
+          description: "lowercase search evidence",
+        }),
+      ],
+      [],
+      { query: "plan mode", categories: ["quests"] },
+    );
+    const lowercaseOutput = searchEverything([quest({ questId: "q-31", title: "lowercase search evidence" })], [], {
+      query: "lowercase search",
+      categories: ["quests"],
+    });
+
+    expect(output.results[0]?.id).toBe("quest:q-30");
+    expect(lowercaseOutput.results[0]?.id).toBe("quest:q-31");
+  });
+
   it("bounds stress-shaped message scans before materializing every matching child", () => {
     const sessions = Array.from({ length: 20 }, (_, sessionIndex) =>
       session({
@@ -287,6 +308,45 @@ describe("searchEverything", () => {
         "Session search limited to 3 sessions.",
         "Message search limited to 50 recent messages per session.",
         "Session child matches limited to 2 matches per parent.",
+      ]),
+    );
+  });
+
+  it("stops scanning older messages once bounded best message children are retained", () => {
+    let accessed = 0;
+    const messageHistory = Array.from({ length: 150 }, (_, index) => {
+      const msg: { type: "user_message"; id: string; timestamp: number; content: string } = {
+        type: "user_message",
+        id: `m-${index}`,
+        timestamp: index,
+        content: "",
+      };
+      Object.defineProperty(msg, "content", {
+        get() {
+          accessed++;
+          return `needle production-like message ${index}`;
+        },
+        enumerable: true,
+      });
+      return msg;
+    });
+
+    const output = searchEverything([], [session({ sessionId: "s1", messageHistory })], {
+      query: "needle",
+      categories: ["messages"],
+      messageLimitPerSession: 120,
+      limits: { maxSessionChildrenPerParent: 80 },
+    });
+
+    expect(accessed).toBe(80);
+    expect(output.results[0]?.childMatches[0]).toMatchObject({
+      type: "message",
+      route: { kind: "message", sessionId: "s1", messageId: "m-149" },
+    });
+    expect(output.warnings).toEqual(
+      expect.arrayContaining([
+        "Message search limited to 120 recent messages per session.",
+        "Session child matches limited to 80 matches per parent.",
       ]),
     );
   });

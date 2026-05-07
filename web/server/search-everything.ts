@@ -120,8 +120,9 @@ interface QueryMatcher {
   matches: (text: string | undefined | null) => boolean;
 }
 
-interface CandidateChildMatch extends SearchEverythingChildMatch {
+interface CandidateChildMatch extends Omit<SearchEverythingChildMatch, "snippet"> {
   parentScore: number;
+  snippetText: string;
 }
 
 interface SearchBudget {
@@ -230,6 +231,7 @@ function searchQuestParents(
         route: { kind: "quest", questId: quest.questId },
         children,
         childPreviewLimit,
+        queryWords: matcher.words,
         recencyTs: questRecencyTs(quest),
         meta: {
           questId: quest.questId,
@@ -283,6 +285,7 @@ function searchSessionParents(
         route: { kind: "session", sessionId: session.sessionId },
         children,
         childPreviewLimit: options.childPreviewLimit,
+        queryWords: matcher.words,
         recencyTs,
         extraScore: currentBoost,
         meta: {
@@ -311,6 +314,7 @@ function buildParentResult(input: {
   route: SearchEverythingRoute;
   children: CandidateChildMatch[];
   childPreviewLimit: number;
+  queryWords: string[];
   recencyTs: number;
   extraScore?: number;
   meta: SearchEverythingResult["meta"];
@@ -319,7 +323,10 @@ function buildParentResult(input: {
   const score = parentScore(sortedChildren, input.recencyTs, input.extraScore ?? 0);
   const childMatches = sortedChildren
     .slice(0, input.childPreviewLimit)
-    .map(({ parentScore: _parentScore, ...child }) => child);
+    .map(({ parentScore: _parentScore, snippetText, ...child }) => ({
+      ...child,
+      snippet: buildSnippet(snippetText, input.queryWords),
+    }));
   const matchedFields = Array.from(new Set(sortedChildren.map((child) => child.matchedField)));
   return {
     id: input.id,
@@ -371,7 +378,7 @@ function collectQuestMatches(
       id: `quest:${quest.questId}:${field}`,
       type,
       title,
-      snippet: buildSnippet(boundedText ?? "", matcher.words),
+      snippetText: boundedText ?? "",
       matchedField: field,
       score: parentScore,
       parentScore,
@@ -508,7 +515,7 @@ function addHistoricalQuestField(
     id: `quest:${currentQuest.questId}:${input.field}`,
     type: "quest_history",
     title: input.title,
-    snippet: buildSnippet(boundedText ?? "", matcher.words),
+    snippetText: boundedText ?? "",
     matchedField: input.field,
     score: input.parentScore,
     parentScore: input.parentScore,
@@ -536,7 +543,7 @@ function collectSessionMetadataMatches(
       id: `session:${session.sessionId}:${field}`,
       type: "session_field",
       title,
-      snippet: buildSnippet(boundedText ?? "", matcher.words),
+      snippetText: boundedText ?? "",
       matchedField: field,
       score: parentScore,
       parentScore,
@@ -586,6 +593,7 @@ function collectSessionMessageMatches(
     const candidate = messageTextCandidate(session, msg, matcher, budget);
     if (candidate)
       pushBoundedMatch(matches, budget.limits.maxSessionChildrenPerParent, budget, "Session child matches", candidate);
+    if (canStopCollectingMessages(matches, budget, messageScore("user_message"), index)) break;
   }
   if (history.length > scanned) {
     budget.warnings.add(`Message search limited to ${messageLimitPerSession} recent messages per session.`);
@@ -617,13 +625,14 @@ function collectSessionExcerptMatches(
       id: `message:${session.sessionId}:${excerpt.id ?? `excerpt-${index}`}`,
       type: "message",
       title,
-      snippet: buildSnippet(boundedContent ?? "", matcher.words),
+      snippetText: boundedContent ?? "",
       matchedField: field,
       score: messageScore(field),
       parentScore: messageScore(field),
       timestamp,
       route: { kind: "message", sessionId: session.sessionId, messageId: excerpt.id, timestamp },
     });
+    if (canStopCollectingMessages(matches, budget, messageScore("user_message"), index)) break;
   }
   if (excerpts.length > scanned) {
     budget.warnings.add(`Archived message search limited to ${messageLimitPerSession} excerpts per session.`);
@@ -699,7 +708,7 @@ function buildMessageCandidate(
     id: `message:${session.sessionId}:${messageId ?? matchedAt}`,
     type: "message",
     title,
-    snippet: buildSnippet(boundedText ?? "", matcher.words),
+    snippetText: boundedText ?? "",
     matchedField: field,
     score,
     parentScore: score,
@@ -719,6 +728,8 @@ function buildQueryMatcher(query: string): QueryMatcher | null {
     words,
     matches: (text) => {
       if (!text) return false;
+      if (words.every((word) => text.includes(word))) return true;
+      if (!/[A-Z]/.test(text)) return false;
       const haystack = normalizeForSearch(text);
       return words.every((word) => haystack.includes(word));
     },
@@ -874,6 +885,22 @@ function messageScore(field: "user_message" | "assistant" | "compact_marker"): n
   if (field === "user_message") return 660;
   if (field === "assistant") return 620;
   return 570;
+}
+
+function canStopCollectingMessages(
+  matches: CandidateChildMatch[],
+  budget: SearchBudget,
+  maxFutureScore: number,
+  remainingIndex: number,
+): boolean {
+  const maxMatches = budget.limits.maxSessionChildrenPerParent;
+  if (remainingIndex <= 0 || matches.length < maxMatches) return false;
+  const worst = matches.reduce((currentWorst, candidate) =>
+    compareChildren(candidate, currentWorst) > 0 ? candidate : currentWorst,
+  );
+  if (worst.parentScore < maxFutureScore) return false;
+  budget.warnings.add(`Session child matches limited to ${maxMatches} matches per parent.`);
+  return true;
 }
 
 function questRecencyTs(quest: QuestmasterTask): number {

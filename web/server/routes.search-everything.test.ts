@@ -38,9 +38,11 @@ function quest(overrides: Partial<QuestmasterTask> & { questId: string; title: s
 function createApp({
   sessions,
   bridgeSessions,
+  getSession,
 }: {
   sessions: Array<Record<string, unknown>>;
   bridgeSessions: Record<string, Record<string, unknown>>;
+  getSession?: (sessionId: string) => Record<string, unknown> | null;
 }) {
   const app = new Hono();
   const ctx = {
@@ -49,7 +51,7 @@ function createApp({
       getSessionNum: (sessionId: string) => (sessionId === "s1" ? 12 : sessionId === "archived" ? 21 : null),
     },
     wsBridge: {
-      getSession: (sessionId: string) => bridgeSessions[sessionId] ?? null,
+      getSession: (sessionId: string) => getSession?.(sessionId) ?? bridgeSessions[sessionId] ?? null,
     },
   } as unknown as RouteContext;
 
@@ -266,5 +268,37 @@ describe("GET /api/search", () => {
         "Session child matches limited to 80 matches per parent.",
       ]),
     );
+  });
+
+  it("caps session hydration before reading bridge state for high-volume session lists", async () => {
+    mocks.listQuests.mockResolvedValue([]);
+    mocks.getAllNames.mockReturnValue(
+      Object.fromEntries(Array.from({ length: 230 }, (_, index) => [`s-${index}`, `Needle session ${index}`])),
+    );
+    const getSession = vi.fn((sessionId: string) => ({
+      state: { cwd: `/repo/${sessionId}` },
+      messageHistory: [],
+    }));
+
+    const app = createApp({
+      sessions: Array.from({ length: 230 }, (_, index) => ({
+        sessionId: `s-${index}`,
+        archived: false,
+        createdAt: 100,
+        lastActivityAt: 10_000 - index,
+      })),
+      bridgeSessions: {},
+      getSession,
+    });
+
+    const res = await app.request("/api/search?q=needle&types=sessions", { method: "GET" });
+    const body = (await res.json()) as { degraded: boolean; warnings: string[]; results: SearchEverythingResult[] };
+
+    expect(res.status).toBe(200);
+    expect(getSession).toHaveBeenCalledTimes(200);
+    expect(getSession).not.toHaveBeenCalledWith("s-200");
+    expect(body.degraded).toBe(true);
+    expect(body.warnings).toContain("Session search limited to 200 sessions.");
+    expect(body.results.length).toBeGreaterThan(0);
   });
 });

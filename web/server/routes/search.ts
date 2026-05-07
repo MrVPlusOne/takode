@@ -51,7 +51,7 @@ export function createSearchRoutes(ctx: RouteContext) {
       : Promise.resolve([]);
     const sessionDocumentsPromise =
       categories.includes("sessions") || categories.includes("messages")
-        ? buildSessionDocuments()
+        ? buildSessionDocuments(routeWarnings)
         : Promise.resolve([]);
     const [quests, sessionDocs] = await Promise.all([questDocumentsPromise, sessionDocumentsPromise]);
     const output = searchEverything(quests, sessionDocs, {
@@ -82,9 +82,11 @@ export function createSearchRoutes(ctx: RouteContext) {
 
   async function buildQuestDocuments(routeWarnings: string[]): Promise<SearchEverythingQuestDocument[]> {
     const quests = sortByRecentActivity(await questStore.listQuests());
-    const historyLookupQuests = quests
-      .slice(0, ROUTE_LIMITS.maxQuestDocuments)
-      .slice(0, ROUTE_LIMITS.maxQuestHistoryLookups);
+    const boundedQuests = quests.slice(0, ROUTE_LIMITS.maxQuestDocuments);
+    if (quests.length > boundedQuests.length) {
+      routeWarnings.push(`Quest search limited to ${boundedQuests.length} quests.`);
+    }
+    const historyLookupQuests = boundedQuests.slice(0, ROUTE_LIMITS.maxQuestHistoryLookups);
     if (quests.length > historyLookupQuests.length) {
       routeWarnings.push(`Quest history lookup limited to ${historyLookupQuests.length} recent quests.`);
     }
@@ -97,16 +99,20 @@ export function createSearchRoutes(ctx: RouteContext) {
       },
     );
     const historyByQuest = new Map(historyEntries);
-    return quests.map((quest) => ({
+    return boundedQuests.map((quest) => ({
       quest,
       history: historyByQuest.get(quest.questId) ?? [],
     }));
   }
 
-  async function buildSessionDocuments(): Promise<SearchEverythingSessionDocument[]> {
+  async function buildSessionDocuments(routeWarnings: string[]): Promise<SearchEverythingSessionDocument[]> {
     const sessions = sortByRecentActivity(launcher.listSessions());
+    const boundedSessions = sessions.slice(0, ROUTE_LIMITS.maxSessionDocuments);
+    if (sessions.length > boundedSessions.length) {
+      routeWarnings.push(`Session search limited to ${boundedSessions.length} sessions.`);
+    }
     const names = sessionNames.getAllNames();
-    return sessions.map((session) => {
+    return boundedSessions.map((session) => {
       const bridgeSession = wsBridge.getSession(session.sessionId);
       const bridge = bridgeSession?.state;
       return {
