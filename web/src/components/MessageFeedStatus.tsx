@@ -24,6 +24,7 @@ export function ElapsedTimer({
   onJumpToLatest,
   variant = "bar",
   currentThreadKey = "main",
+  onSelectThread,
   onVisibleHeightChange,
 }: {
   sessionId: string;
@@ -31,6 +32,7 @@ export function ElapsedTimer({
   onJumpToLatest?: () => void;
   variant?: "bar" | "floating";
   currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
   onVisibleHeightChange?: (height: number) => void;
 }) {
   const streamingStartedAt = useStore((s) => s.streamingStartedAt.get(sessionId));
@@ -96,13 +98,17 @@ export function ElapsedTimer({
   const handleRelaunch = () => {
     api.relaunchSession(sessionId).catch(() => {});
   };
+  const isLeaderSession = bridgeIsOrchestrator || sdkIsOrchestrator;
+  const activeTurnNavigationTarget = leaderActiveTurnNavigationTarget(activeTurnRoute, currentThreadKey, {
+    isLeaderSession,
+  });
 
   const label = isStuck
     ? "Session may be stuck"
     : streamingPauseStartedAt
       ? "Napping..."
       : formatActiveTurnLabel(activeTurnRoute, currentThreadKey, {
-          isLeaderSession: bridgeIsOrchestrator || sdkIsOrchestrator,
+          isLeaderSession,
           isReviewerSession: sdkReviewerOf !== null,
           claimedQuestId: bridgeClaimedQuestId ?? sdkClaimedQuestId,
           reviewedQuestId,
@@ -112,30 +118,56 @@ export function ElapsedTimer({
     : streamingPauseStartedAt
       ? "text-amber-400"
       : "text-cc-primary animate-pulse";
+  const canNavigateActiveTurn =
+    variant === "floating" && !!onSelectThread && !!activeTurnNavigationTarget && !isStuck && !streamingPauseStartedAt;
+  const floatingChipClassName =
+    "relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md";
+  const floatingChipContents = (
+    <>
+      <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
+      <YarnBallDot className={dotColor} />
+      <span className="relative truncate text-cc-fg/90">{label}</span>
+      <span className="relative text-cc-muted/75">{formatElapsed(elapsed)}</span>
+      {(streamingOutputTokens ?? 0) > 0 && (
+        <span className="relative hidden sm:inline truncate text-cc-muted/70">
+          ↓ {formatTokens(streamingOutputTokens ?? 0)}
+        </span>
+      )}
+      {isStuck && (
+        <button
+          onClick={handleRelaunch}
+          className="relative ml-1 text-amber-400 hover:text-amber-300 underline cursor-pointer"
+        >
+          Relaunch
+        </button>
+      )}
+    </>
+  );
 
   if (variant === "floating") {
-    return (
-      <div
-        ref={rootRef}
-        className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md"
-      >
-        <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
-        <YarnBallDot className={dotColor} />
-        <span className="relative truncate text-cc-fg/90">{label}</span>
-        <span className="relative text-cc-muted/75">{formatElapsed(elapsed)}</span>
-        {(streamingOutputTokens ?? 0) > 0 && (
-          <span className="relative hidden sm:inline truncate text-cc-muted/70">
-            ↓ {formatTokens(streamingOutputTokens ?? 0)}
-          </span>
-        )}
-        {isStuck && (
+    if (canNavigateActiveTurn && onSelectThread && activeTurnNavigationTarget) {
+      const targetThreadKey = activeTurnNavigationTarget;
+      return (
+        <div ref={rootRef} className="pointer-events-auto">
           <button
-            onClick={handleRelaunch}
-            className="relative ml-1 text-amber-400 hover:text-amber-300 underline cursor-pointer"
+            type="button"
+            onClick={() => onSelectThread(targetThreadKey)}
+            className={`${floatingChipClassName} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
+            data-active-turn-target={targetThreadKey}
+            aria-label={`Jump to active thread ${targetThreadKey}`}
+            title={`Jump to active thread ${targetThreadKey}`}
           >
-            Relaunch
+            {floatingChipContents}
           </button>
-        )}
+        </div>
+      );
+    }
+
+    return (
+      <div ref={rootRef} className="pointer-events-auto">
+        <div className={`${floatingChipClassName} cursor-default`} data-active-turn-target="">
+          {floatingChipContents}
+        </div>
       </div>
     );
   }
@@ -217,7 +249,12 @@ export function FeedStatusPill({
         data-testid="feed-status-pill-left"
         className="pointer-events-none absolute bottom-2 left-2 z-10 sm:bottom-3 sm:left-3"
       >
-        <ElapsedTimer sessionId={sessionId} variant="floating" currentThreadKey={currentThreadKey} />
+        <ElapsedTimer
+          sessionId={sessionId}
+          variant="floating"
+          currentThreadKey={currentThreadKey}
+          onSelectThread={onSelectThread}
+        />
       </div>
       <div
         ref={rightStackRef}
@@ -256,6 +293,18 @@ function formatActiveTurnLabel(
 
   const workerQuestId = activeQuestId ?? normalizeQuestId(context.claimedQuestId);
   return workerQuestId ? `Working on ${workerQuestId}` : "Purring...";
+}
+
+function leaderActiveTurnNavigationTarget(
+  activeTurnRoute: ActiveTurnRoute | null | undefined,
+  currentThreadKey: string,
+  context: { isLeaderSession: boolean },
+): string | null {
+  if (!context.isLeaderSession || !activeTurnRoute?.threadKey) return null;
+  const targetThreadKey = normalizeThreadKey(activeTurnRoute.threadKey);
+  if (!targetThreadKey) return null;
+  if (targetThreadKey === normalizeThreadKey(currentThreadKey)) return null;
+  return targetThreadKey;
 }
 
 function findReviewedQuestId(

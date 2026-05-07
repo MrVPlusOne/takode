@@ -593,6 +593,100 @@ describe("ElapsedTimer - generation stats bar", () => {
     expect(screen.getByText("Active in q-975")).toBeTruthy();
   });
 
+  // The floating leader chip must navigate from authoritative route metadata,
+  // while same-tab and no-route states remain inert even though the visible copy is nearby.
+  it("jumps from a quest tab to active Main when leader route targets Main", () => {
+    const sid = "test-active-main-jump";
+    const onSelectThread = vi.fn();
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "main" });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+
+    render(
+      <ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-975" onSelectThread={onSelectThread} />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump to active thread main" }));
+    expect(screen.getByText("Active in main")).toBeTruthy();
+    expect(onSelectThread).toHaveBeenCalledWith("main");
+  });
+
+  it("jumps from All Threads to the active quest route", () => {
+    const sid = "test-active-all-threads-jump";
+    const onSelectThread = vi.fn();
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="all" onSelectThread={onSelectThread} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump to active thread q-975" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-975");
+  });
+
+  it("jumps from Main to another visible active quest tab", () => {
+    const sid = "test-active-visible-quest-jump";
+    const onSelectThread = vi.fn();
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-976", questId: "q-976" });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="main" onSelectThread={onSelectThread} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump to active thread q-976" }));
+    expect(onSelectThread).toHaveBeenCalledWith("q-976");
+  });
+
+  it("forwards hidden More Tabs targets through the same route-derived thread selection", () => {
+    const sid = "test-active-hidden-more-jump";
+    const onSelectThread = vi.fn();
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-hidden", questId: "q-1209" });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="main" onSelectThread={onSelectThread} />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Jump to active thread q-hidden" }));
+    expect(screen.getByText("Active in q-1209")).toBeTruthy();
+    expect(onSelectThread).toHaveBeenCalledWith("q-hidden");
+  });
+
+  it("keeps Active here states non-navigational", () => {
+    const sid = "test-active-here-not-clickable";
+    const onSelectThread = vi.fn();
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, { threadKey: "q-975", questId: "q-975" });
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+
+    render(
+      <ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="q-975" onSelectThread={onSelectThread} />,
+    );
+
+    expect(screen.getByText("Active here")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Jump to active thread/i })).toBeNull();
+    expect(onSelectThread).not.toHaveBeenCalled();
+  });
+
+  it("keeps no-target leader states non-navigational", () => {
+    const sid = "test-active-no-target-not-clickable";
+    const onSelectThread = vi.fn();
+    setStoreStatus(sid, "running");
+    setStoreStreamingStartedAt(sid, Date.now() - 5000);
+    setStoreActiveTurnRoute(sid, null);
+    setStoreSdkSessionRole(sid, { isOrchestrator: true });
+
+    render(<ElapsedTimer sessionId={sid} variant="floating" currentThreadKey="main" onSelectThread={onSelectThread} />);
+
+    expect(screen.getByText("Purring...")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Jump to active thread/i })).toBeNull();
+    expect(onSelectThread).not.toHaveBeenCalled();
+  });
+
   it("labels non-leader worker turns as working on the active quest", () => {
     const sid = "test-worker-active";
     setStoreStatus(sid, "running");
