@@ -525,6 +525,24 @@ describe("ChatView backend banners", () => {
     expectLiveBannerBetweenFeedAndComposer(view.container);
   });
 
+  it("surfaces server unreachable inside search preview chat even without composer controls", () => {
+    // Search preview mode intentionally suppresses live controls, but server
+    // reachability is still live app state and must not disappear entirely.
+    resetStore({
+      serverReachable: false,
+    });
+
+    const view = render(<ChatView sessionId="s1" preview />);
+    const scope = within(view.container);
+    const feed = scope.getByTestId("message-feed");
+    const banner = scope.getByTestId("live-connection-status-banner");
+
+    expect(scope.getByText("Previewing search result. Press Enter to select this conversation.")).toBeInTheDocument();
+    expect(scope.getByText("Server unreachable")).toBeInTheDocument();
+    expect(scope.queryByTestId("composer")).not.toBeInTheDocument();
+    expect(feed.compareDocumentPosition(banner) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it("renders the feed without the external latest-indicator rail", () => {
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);

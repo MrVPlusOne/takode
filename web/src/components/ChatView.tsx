@@ -1469,7 +1469,7 @@ export function ChatView({
           </div>
         ))}
 
-      {!preview && liveConnectionStatus && (
+      {liveConnectionStatus && (!preview || liveConnectionStatus === "server-unreachable") && (
         <LiveConnectionStatusBanner
           status={liveConnectionStatus}
           backendState={backendState}

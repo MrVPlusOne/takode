@@ -385,6 +385,30 @@ describe("App hidden panels", () => {
     expect(mockConnectSession).toHaveBeenCalledWith("s2");
   });
 
+  it("keeps search preview chat responsible for server unreachable status", () => {
+    resetStore({
+      serverReachable: false,
+      currentSessionId: "s1",
+      searchPreviewSessionId: "s2",
+      connectionStatus: new Map([
+        ["s1", "connected"],
+        ["s2", "connected"],
+      ]),
+      sessions: new Map([
+        ["s1", { backend_type: "claude" }],
+        ["s2", { backend_type: "claude" }],
+      ]),
+    });
+    window.location.hash = "#/session/s1";
+
+    render(<App />);
+
+    const chatView = screen.getByTestId("chat-view");
+    expect(chatView).toHaveAttribute("data-session-id", "s2");
+    expect(chatView).toHaveAttribute("data-preview", "true");
+    expect(screen.queryByText("Server unreachable")).toBeNull();
+  });
+
   it("resolves readable message deep links through raw history index before selecting and scrolling", async () => {
     resetStore({
       currentSessionId: null,
