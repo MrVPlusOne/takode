@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { api } from "../api.js";
 import { CollapsibleSection } from "./CollapsibleSection.js";
 import type { SettingsSearchResults, SettingsSectionId } from "./settings-search.js";
@@ -21,6 +21,7 @@ export function SettingsLeaderProfilesSection({ sectionSearchProps }: SettingsLe
   const [loading, setLoading] = useState(true);
   const [savingPool, setSavingPool] = useState<string | null>(null);
   const [error, setError] = useState("");
+  const saveInFlightRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -49,7 +50,9 @@ export function SettingsLeaderProfilesSection({ sectionSearchProps }: SettingsLe
   }, []);
 
   async function togglePool(poolId: keyof LeaderProfilePoolSettings) {
+    if (loading || saveInFlightRef.current) return;
     const next = { ...pools, [poolId]: !pools[poolId] };
+    saveInFlightRef.current = true;
     setSavingPool(poolId);
     setError("");
     try {
@@ -58,9 +61,12 @@ export function SettingsLeaderProfilesSection({ sectionSearchProps }: SettingsLe
     } catch (err: unknown) {
       setError(err instanceof Error ? err.message : String(err));
     } finally {
+      saveInFlightRef.current = false;
       setSavingPool(null);
     }
   }
+
+  const savingAnyPool = savingPool !== null;
 
   return (
     <CollapsibleSection
@@ -79,13 +85,13 @@ export function SettingsLeaderProfilesSection({ sectionSearchProps }: SettingsLe
             <button
               key={pool.id}
               type="button"
-              disabled={loading || saving}
+              disabled={loading || savingAnyPool}
               onClick={() => togglePool(pool.id)}
               className={`flex min-w-0 items-center justify-between gap-3 rounded-lg border px-3 py-2.5 text-left transition-colors ${
                 enabled
                   ? "border-cc-primary/35 bg-cc-primary/10 text-cc-fg"
                   : "border-cc-border bg-cc-hover/60 text-cc-muted hover:bg-cc-hover"
-              } ${loading || saving ? "cursor-wait opacity-70" : "cursor-pointer"}`}
+              } ${loading || savingAnyPool ? "cursor-wait opacity-70" : "cursor-pointer"}`}
             >
               <span className="min-w-0">
                 <span className="block text-sm font-medium">{pool.label}</span>

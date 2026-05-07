@@ -28,8 +28,17 @@ function sectionSearchProps() {
   };
 }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
 describe("SettingsLeaderProfilesSection", () => {
   beforeEach(() => {
+    vi.clearAllMocks();
     mockGetSettings.mockResolvedValue({ leaderProfilePools: { tako: true, shmi: true } });
     mockUpdateSettings.mockResolvedValue({ leaderProfilePools: { tako: false, shmi: true } });
   });
@@ -43,5 +52,26 @@ describe("SettingsLeaderProfilesSection", () => {
     await waitFor(() => {
       expect(mockUpdateSettings).toHaveBeenCalledWith({ leaderProfilePools: { tako: false, shmi: true } });
     });
+  });
+
+  it("disables every pool toggle while saving to avoid stale replacement writes", async () => {
+    const save = deferred<{ leaderProfilePools: { tako: boolean; shmi: boolean } }>();
+    mockUpdateSettings.mockReturnValue(save.promise);
+    render(<SettingsLeaderProfilesSection sectionSearchProps={sectionSearchProps()} />);
+
+    const tako = await screen.findByRole("button", { name: /tako/i });
+    const shmi = screen.getByRole("button", { name: /shmi/i });
+    fireEvent.click(tako);
+
+    await waitFor(() => {
+      expect(tako).toBeDisabled();
+      expect(shmi).toBeDisabled();
+    });
+    fireEvent.click(shmi);
+
+    expect(mockUpdateSettings).toHaveBeenCalledTimes(1);
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ leaderProfilePools: { tako: false, shmi: true } });
+    save.resolve({ leaderProfilePools: { tako: false, shmi: true } });
+    await waitFor(() => expect(tako).not.toBeDisabled());
   });
 });
