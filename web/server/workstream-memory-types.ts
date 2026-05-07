@@ -1,19 +1,14 @@
 export const MEMORY_KINDS = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"] as const;
-export const MEMORY_LIFECYCLES = ["active", "durable", "archived"] as const;
-export const MEMORY_COMMIT_OPERATIONS = ["add", "update", "supersede", "archive", "repair"] as const;
+export const MEMORY_COMMIT_OPERATIONS = ["add", "update", "supersede", "repair"] as const;
 
 export type MemoryKind = (typeof MEMORY_KINDS)[number];
-export type MemoryLifecycle = (typeof MEMORY_LIFECYCLES)[number];
 export type MemoryCommitOperation = (typeof MEMORY_COMMIT_OPERATIONS)[number];
 
 export type FrontmatterScalar = string | string[];
 export type FrontmatterValue = FrontmatterScalar | Record<string, FrontmatterScalar>;
 export type MemoryFrontmatter = Record<string, FrontmatterValue> & {
-  id?: string;
-  kind?: string;
-  title?: string;
-  summary?: string | string[];
-  lifecycle?: string;
+  description?: string;
+  source?: string | string[];
 };
 
 export interface MemoryRepoOptions {
@@ -33,9 +28,8 @@ export interface MemoryRepoInfo {
 export interface MemoryFile {
   id: string;
   kind: MemoryKind;
-  title: string;
-  summary: string[];
-  lifecycle: MemoryLifecycle;
+  description: string;
+  source: string[];
   path: string;
   absolutePath: string;
   frontmatter: MemoryFrontmatter;
@@ -46,12 +40,10 @@ export interface MemoryFile {
 export interface MemoryCatalogEntry {
   id: string;
   kind: MemoryKind;
-  title: string;
-  summary: string[];
-  lifecycle: MemoryLifecycle;
+  description: string;
   path: string;
+  source: string[];
   facets: Record<string, string[]>;
-  canonicalFor: string[];
 }
 
 export interface MemoryCatalog {
@@ -74,7 +66,6 @@ export interface MemoryRecallQuery {
   kinds?: MemoryKind[];
   facets?: Record<string, string[]>;
   includeContent?: boolean;
-  includeArchived?: boolean;
   limit?: number;
 }
 

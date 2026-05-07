@@ -53,11 +53,9 @@ describe("file-based memory store", () => {
     await writeFile(
       join(legacyRoot, "knowledge", "legacy.md"),
       `---
-id: legacy
-kind: knowledge
-title: Legacy
-summary: Migrated from the server-id path.
-lifecycle: durable
+description: Migrated from the server-id path.
+source:
+  - q-1217
 ---
 
 Body.
@@ -68,7 +66,7 @@ Body.
     const repo = await memoryStore.ensureMemoryRepo();
 
     expect(repo.root).toBe(join(tempDir, ".companion", "memory", "test"));
-    await expect(readFile(join(repo.root, "knowledge", "legacy.md"), "utf-8")).resolves.toContain("Legacy");
+    await expect(readFile(join(repo.root, "knowledge", "legacy.md"), "utf-8")).resolves.toContain("server-id path");
     await expect(readFile(join(legacyRoot, "knowledge", "legacy.md"), "utf-8")).rejects.toThrow();
   });
 
@@ -83,11 +81,9 @@ Body.
     await writeFile(
       join(legacyRoot, "knowledge", "legacy.md"),
       `---
-id: legacy
-kind: knowledge
-title: Legacy
-summary: Migrated even when the target slug was initialized empty.
-lifecycle: durable
+description: Migrated even when the target slug was initialized empty.
+source:
+  - q-1217
 ---
 
 Body.
@@ -112,11 +108,9 @@ Body.
     await writeFile(
       join(oldRoot, "current", "rename.md"),
       `---
-id: rename
-kind: current
-title: Rename
-summary: Survives a slug rename.
-lifecycle: active
+description: Survives a slug rename.
+source:
+  - q-1217
 ---
 
 Body text.
@@ -145,11 +139,9 @@ Body text.
     await writeFile(
       join(oldRoot, "current", "server-a.md"),
       `---
-id: server-a
-kind: current
-title: Server A
-summary: Must not be stranded by a colliding slug rename.
-lifecycle: active
+description: Must not be stranded by a colliding slug rename.
+source:
+  - q-1217
 ---
 
 Server A memory.
@@ -161,11 +153,9 @@ Server A memory.
     await writeFile(
       join(collisionRoot, "current", "server-b.md"),
       `---
-id: server-b
-kind: current
-title: Server B
-summary: Existing memory owned by another slug.
-lifecycle: active
+description: Existing memory owned by another slug.
+source:
+  - q-1217
 ---
 
 Server B memory.
@@ -189,18 +179,13 @@ Server B memory.
     await writeMemoryFile(
       "knowledge/service-x.md",
       `
-id: service-x
-kind: knowledge
-title: Service X
-summary:
-  - Explains Service X config and failure modes.
-lifecycle: durable
+description: Explains Service X config and failure modes.
+source:
+  - q-1220
 facets:
   project: takode
   service:
     - service-x
-canonical_for:
-  - service:service-x
 `,
       "Service X is started through a local dev command.",
     );
@@ -210,35 +195,32 @@ canonical_for:
     expect(catalog.issues).toEqual([]);
     expect(catalog.entries).toEqual([
       expect.objectContaining({
-        id: "service-x",
+        id: "knowledge/service-x.md",
         kind: "knowledge",
-        title: "Service X",
+        description: "Explains Service X config and failure modes.",
         path: "knowledge/service-x.md",
+        source: ["q-1220"],
         facets: { project: ["takode"], service: ["service-x"] },
-        canonicalFor: ["service:service-x"],
       }),
     ]);
   });
 
-  it("lints missing frontmatter, duplicate ids, and kind-directory mismatches", async () => {
+  it("lints missing frontmatter, missing simplified fields, and obsolete old-schema fields", async () => {
     await writeMemoryFile(
       "knowledge/service-x.md",
       `
-id: duplicated
-kind: knowledge
-title: Service X
-summary: First summary.
-lifecycle: durable
+description: First summary.
 `,
     );
     await writeMemoryFile(
       "current/service-x.md",
       `
-id: duplicated
-kind: knowledge
+id: old-schema
+kind: current
 title: Current Service X
 summary: Wrong directory.
 lifecycle: active
+source: [q-1220]
 `,
     );
     await mkdir(join(tempDir, "memory", "decisions"), { recursive: true });
@@ -248,10 +230,13 @@ lifecycle: active
 
     expect(catalog.issues).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ severity: "error", message: expect.stringContaining("Duplicate memory id") }),
         expect.objectContaining({
           severity: "error",
-          message: expect.stringContaining("must match top-level directory"),
+          message: "Memory source must list at least one contributing quest or session ref",
+        }),
+        expect.objectContaining({
+          severity: "warning",
+          message: expect.stringContaining('Obsolete memory frontmatter field "id"'),
         }),
         expect.objectContaining({
           severity: "error",
@@ -265,11 +250,9 @@ lifecycle: active
     await writeMemoryFile(
       "procedures/run-service-x.md",
       `
-id: run-service-x
-kind: procedures
-title: Run Service X
-summary: Starts Service X for local validation.
-lifecycle: durable
+description: Starts Service X for local validation.
+source:
+  - q-1220
 facets:
   project: takode
 `,
@@ -278,11 +261,9 @@ facets:
     await writeMemoryFile(
       "knowledge/service-y.md",
       `
-id: service-y
-kind: knowledge
-title: Service Y
-summary: Unrelated service notes.
-lifecycle: durable
+description: Unrelated service notes.
+source:
+  - q-1220
 facets:
   project: other
 `,
@@ -296,7 +277,7 @@ facets:
     });
 
     expect(result.matches).toHaveLength(1);
-    expect(result.matches[0]?.entry.id).toBe("run-service-x");
+    expect(result.matches[0]?.entry.id).toBe("procedures/run-service-x.md");
     expect(result.matches[0]?.content).toContain("bun run dev");
   });
 
@@ -316,11 +297,9 @@ facets:
     await writeMemoryFile(
       "current/takode-memory.md",
       `
-id: takode-memory-current
-kind: current
-title: Takode memory current state
-summary: Captures live state for the memory implementation.
-lifecycle: active
+description: Captures live state for the memory implementation.
+source:
+  - q-1205
 `,
     );
     await memoryStore.acquireMemoryLock({ owner: "worker-1" });
@@ -330,7 +309,7 @@ lifecycle: active
       quest: "q-1205",
       session: "1537",
       operation: "update",
-      memoryIds: ["takode-memory-current"],
+      memoryIds: ["current/takode-memory.md"],
       sources: ["quest:q-1205"],
     });
 
@@ -345,7 +324,7 @@ lifecycle: active
       "--pretty=%B",
     ]);
     expect(stdout).toContain("Memory-Operation: update");
-    expect(stdout).toContain("Memory-Id: takode-memory-current");
+    expect(stdout).toContain("Memory-Id: current/takode-memory.md");
     expect(stdout).toContain("Quest: q-1205");
     expect(stdout).toContain("Source: quest:q-1205");
   });
@@ -354,18 +333,16 @@ lifecycle: active
     await writeMemoryFile(
       "current/no-lock.md",
       `
-id: no-lock
-kind: current
-title: No Lock
-summary: Captures a missing lock case.
-lifecycle: active
+description: Captures a missing lock case.
+source:
+  - q-1205
 `,
     );
 
     await expect(
       memoryStore.commitMemory({
         message: "Try memory commit without lock",
-        memoryIds: ["no-lock"],
+        memoryIds: ["current/no-lock.md"],
         sources: ["quest:q-1205"],
       }),
     ).rejects.toThrow("Acquire the memory repo lock before committing");
@@ -375,11 +352,9 @@ lifecycle: active
     await writeMemoryFile(
       "current/stale-lock.md",
       `
-id: stale-lock
-kind: current
-title: Stale Lock
-summary: Captures a stale lock case.
-lifecycle: active
+description: Captures a stale lock case.
+source:
+  - q-1205
 `,
     );
     await memoryStore.acquireMemoryLock({ owner: "worker-1", ttlMs: -1 });
@@ -387,7 +362,7 @@ lifecycle: active
     await expect(
       memoryStore.commitMemory({
         message: "Try memory commit with stale lock",
-        memoryIds: ["stale-lock"],
+        memoryIds: ["current/stale-lock.md"],
         sources: ["quest:q-1205"],
       }),
     ).rejects.toThrow("Memory repo lock is stale");
@@ -397,11 +372,9 @@ lifecycle: active
     await writeMemoryFile(
       "current/provenance.md",
       `
-id: provenance
-kind: current
-title: Provenance
-summary: Captures provenance validation.
-lifecycle: active
+description: Captures provenance validation.
+source:
+  - q-1205
 `,
     );
     await memoryStore.acquireMemoryLock({ owner: "worker-1" });
@@ -409,7 +382,7 @@ lifecycle: active
     await expect(
       memoryStore.commitMemory({
         message: "Missing source",
-        memoryIds: ["provenance"],
+        memoryIds: ["current/provenance.md"],
       }),
     ).rejects.toThrow("at least one source trailer");
 

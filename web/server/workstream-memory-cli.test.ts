@@ -59,11 +59,9 @@ describe("memory CLI", () => {
     await writeMemoryFile(
       "procedures/run-service-x.md",
       `
-id: run-service-x
-kind: procedures
-title: Run Service X
-summary: Starts Service X.
-lifecycle: durable
+description: Starts Service X.
+source:
+  - q-1218
 facets:
   project: takode
 `,
@@ -83,7 +81,14 @@ facets:
       }),
     );
     await expect(readFile(join(tempDir, "memory", ".git", "HEAD"), "utf-8")).resolves.toContain("ref:");
-    expect(catalogJson.entries[0]).toEqual(expect.objectContaining({ id: "run-service-x", kind: "procedures" }));
+    expect(catalogJson.entries[0]).toEqual(
+      expect.objectContaining({
+        id: "procedures/run-service-x.md",
+        kind: "procedures",
+        description: "Starts Service X.",
+        source: ["q-1218"],
+      }),
+    );
 
     const recall = await runMemory(
       ["recall", "bun service", "--kind", "procedures", "--facet", "project:takode", "--content", "--json"],
@@ -91,6 +96,27 @@ facets:
     );
     expect(recall.status).toBe(0);
     expect(JSON.parse(recall.stdout).matches[0].content).toContain("bun run dev");
+  });
+
+  it("shows catalog entries relative to the printed memory repo root", async () => {
+    await writeMemoryFile(
+      "decisions/memory-schema.md",
+      `
+description: Memory frontmatter is intentionally small and path-derived.
+source: [q-1220, session:1559]
+`,
+      "Use the catalog for orientation and direct file tools for details.",
+    );
+
+    const catalog = await runMemory(["catalog", "show"], env);
+
+    expect(catalog.status).toBe(0);
+    expect(catalog.stdout).toContain(`Memory repo: ${join(tempDir, "memory")}`);
+    expect(catalog.stdout).toContain(
+      "decisions/memory-schema.md [decisions] Memory frontmatter is intentionally small and path-derived.",
+    );
+    expect(catalog.stdout).toContain("source: q-1220, session:1559");
+    expect(catalog.stdout).not.toContain(join(tempDir, "memory", "decisions", "memory-schema.md"));
   });
 
   it("defaults to one auto-created repo per server slug when no root override is set", async () => {
@@ -152,15 +178,121 @@ facets:
     );
   });
 
+  it("reports obsolete frontmatter fields from the old schema", async () => {
+    await writeMemoryFile(
+      "knowledge/old-schema.md",
+      `
+id: old-schema
+kind: knowledge
+title: Old Schema
+summary: Old summary.
+lifecycle: active
+canonicalFor:
+  - old-memory-schema
+source: [q-1220]
+`,
+    );
+
+    const result = await runMemory(["lint", "--json"], env);
+
+    expect(result.status).toBe(1);
+    const issues = JSON.parse(result.stdout).issues as Array<{ severity: string; message: string }>;
+    const messages = issues.map((issue) => issue.message);
+    expect(issues).toContainEqual(
+      expect.objectContaining({
+        severity: "warning",
+        message: 'Obsolete memory frontmatter field "id" is ignored; derive it from path or use description/source.',
+      }),
+    );
+    expect(messages).toContain(
+      'Obsolete memory frontmatter field "kind" is ignored; derive it from path or use description/source.',
+    );
+    expect(messages).toContain(
+      'Obsolete memory frontmatter field "title" is ignored; derive it from path or use description/source.',
+    );
+    expect(messages).toContain(
+      'Obsolete memory frontmatter field "summary" is ignored; derive it from path or use description/source.',
+    );
+    expect(messages).toContain(
+      'Obsolete memory frontmatter field "lifecycle" is ignored; derive it from path or use description/source.',
+    );
+    expect(messages).toContain(
+      'Obsolete memory frontmatter field "canonicalFor" is ignored; derive it from path or use description/source.',
+    );
+    expect(messages).toContain("Memory description is required");
+  });
+
+  it("catalogs dual-schema files from path-derived and simplified fields", async () => {
+    await writeMemoryFile(
+      "knowledge/dual-schema.md",
+      `
+id: old-id
+kind: current
+title: Old Title
+summary: Old summary.
+lifecycle: active
+description: New description wins.
+source:
+  - q-1220
+`,
+    );
+
+    const catalog = await runMemory(["catalog", "--json"], env);
+
+    expect(catalog.status).toBe(0);
+    const parsed = JSON.parse(catalog.stdout);
+    expect(parsed.entries[0]).toEqual(
+      expect.objectContaining({
+        id: "knowledge/dual-schema.md",
+        kind: "knowledge",
+        description: "New description wins.",
+        source: ["q-1220"],
+      }),
+    );
+    expect(parsed.entries[0]).not.toHaveProperty("title");
+    expect(parsed.entries[0]).not.toHaveProperty("lifecycle");
+    expect(parsed.issues).toContainEqual(
+      expect.objectContaining({
+        severity: "warning",
+        message: 'Obsolete memory frontmatter field "kind" is ignored; derive it from path or use description/source.',
+      }),
+    );
+  });
+
+  it("requires source refs as a YAML list in simplified frontmatter", async () => {
+    await writeMemoryFile(
+      "references/missing-source.md",
+      `
+description: Tracks an external source without provenance.
+`,
+    );
+    await writeMemoryFile(
+      "references/scalar-source.md",
+      `
+description: Tracks an external source with scalar provenance.
+source: q-1220
+`,
+    );
+
+    const result = await runMemory(["lint", "--json"], env);
+
+    expect(result.status).toBe(1);
+    const issues = JSON.parse(result.stdout).issues;
+    expect(issues).toContainEqual(
+      expect.objectContaining({ message: "Memory source must list at least one contributing quest or session ref" }),
+    );
+    expect(issues).toContainEqual(
+      expect.objectContaining({ message: "Memory source must be a YAML list of contributing quest or session refs" }),
+    );
+  });
+
   it("supports repo-level lock and commit helpers for direct edits", async () => {
     await writeMemoryFile(
       "current/memory-foundation.md",
       `
-id: memory-foundation
-kind: current
-title: Memory foundation
-summary: Tracks the active memory implementation state.
-lifecycle: active
+description: Tracks the active memory implementation state.
+source:
+  - q-1205
 `,
     );
 
@@ -180,7 +312,7 @@ lifecycle: active
         "--operation",
         "add",
         "--memory-id",
-        "memory-foundation",
+        "current/memory-foundation.md",
         "--source",
         "quest:q-1205",
         "--json",
@@ -201,16 +333,14 @@ lifecycle: active
     await writeMemoryFile(
       "current/provenance.md",
       `
-id: provenance
-kind: current
-title: Provenance
-summary: Tracks memory commit provenance validation.
-lifecycle: active
+description: Tracks memory commit provenance validation.
+source:
+  - q-1205
 `,
     );
 
     const noLock = await runMemory(
-      ["commit", "--message", "Missing lock", "--memory-id", "provenance", "--source", "quest:q-1205"],
+      ["commit", "--message", "Missing lock", "--memory-id", "current/provenance.md", "--source", "quest:q-1205"],
       env,
     );
     expect(noLock.status).toBe(1);
@@ -251,8 +381,13 @@ lifecycle: active
     expect(help.stdout).toContain("~/.companion/memory/<serverSlug>");
     expect(help.stdout).toContain("repo path");
     expect(help.stdout).toContain("Print the resolved repo root");
+    expect(help.stdout).toContain("catalog [show]");
+    expect(help.stdout).toContain("Show the repo root and list authored memory files");
+    expect(help.stdout).toContain("description: one or two sentences for catalog orientation");
+    expect(help.stdout).toContain("source: [q-1218, session:1476]");
+    expect(help.stdout).toContain("id and kind are derived from the repo-relative file path.");
     expect(help.stdout).toContain("Canonical health check");
-    expect(help.stdout).toContain("memory --server-slug dev repo path");
+    expect(help.stdout).toContain("memory catalog show");
     expect(help.stdout).toContain("memory lock acquire --owner <session-or-role>");
     expect(help.stdout).toContain("edit Markdown files directly under the authored directories");
     expect(help.stdout).toContain("memory commit --message");

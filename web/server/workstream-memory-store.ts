@@ -9,7 +9,6 @@ import { getServerId, getServerSlug, normalizeServerSlug } from "./settings-mana
 import {
   MEMORY_COMMIT_OPERATIONS,
   MEMORY_KINDS,
-  MEMORY_LIFECYCLES,
   type FrontmatterScalar,
   type FrontmatterValue,
   type MemoryCatalog,
@@ -20,7 +19,6 @@ import {
   type MemoryFile,
   type MemoryFrontmatter,
   type MemoryKind,
-  type MemoryLifecycle,
   type MemoryLintIssue,
   type MemoryLockAcquireInput,
   type MemoryLockInfo,
@@ -36,7 +34,15 @@ const LOCK_DIR_NAME = "takode-memory.lock";
 const LOCK_INFO_FILE = "owner.json";
 const SERVER_INDEX_DIR = ".servers";
 const DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000;
-const VALID_ID = /^[a-z0-9][a-z0-9._-]{0,159}$/;
+const OBSOLETE_FRONTMATTER_FIELDS = new Set([
+  "id",
+  "kind",
+  "title",
+  "summary",
+  "lifecycle",
+  "canonicalFor",
+  "canonical_for",
+]);
 
 interface ResolvedMemoryRepo extends MemoryRepoInfo {
   baseRoot: string;
@@ -112,38 +118,10 @@ export async function scanMemoryCatalog(options: MemoryRepoOptions = {}): Promis
     }
   }
 
-  const seenIds = new Map<string, string>();
-  const canonicalOwners = new Map<string, string>();
   const entries: MemoryCatalogEntry[] = [];
   for (const file of files) {
     issues.push(...validateMemoryFile(file));
-    const existingPath = seenIds.get(file.id);
-    if (existingPath) {
-      issues.push({
-        severity: "error",
-        id: file.id,
-        path: file.path,
-        message: `Duplicate memory id also used by ${existingPath}`,
-      });
-    } else {
-      seenIds.set(file.id, file.path);
-    }
-
-    const entry = catalogEntryFromFile(file);
-    for (const canonical of entry.canonicalFor) {
-      const owner = canonicalOwners.get(canonical);
-      if (owner) {
-        issues.push({
-          severity: "warning",
-          id: file.id,
-          path: file.path,
-          message: `Canonical claim "${canonical}" is also claimed by ${owner}`,
-        });
-      } else {
-        canonicalOwners.set(canonical, file.path);
-      }
-    }
-    entries.push(entry);
+    entries.push(catalogEntryFromFile(file));
   }
 
   return {
@@ -169,7 +147,6 @@ export async function recallMemory(
 
   for (const entry of catalog.entries) {
     if (kindSet && !kindSet.has(entry.kind)) continue;
-    if (!query.includeArchived && entry.lifecycle === "archived") continue;
     if (!matchesFacets(entry, query.facets)) continue;
     const file =
       query.includeContent || terms.length ? await readEntryContent(catalog.repo.root, entry.path) : undefined;
@@ -272,15 +249,14 @@ export async function commitMemory(input: MemoryCommitInput): Promise<MemoryComm
 
 export function parseMemoryFile(root: string, absolutePath: string, content: string): MemoryFile {
   const { frontmatter, body } = parseFrontmatter(content);
-  const kind = parseKind(requiredString(frontmatter.kind, "kind"));
-  const lifecycle = parseLifecycle(requiredString(frontmatter.lifecycle, "lifecycle"));
+  const path = repoRelative(root, absolutePath);
+  const kind = parseKindFromPath(path);
   return {
-    id: requiredString(frontmatter.id, "id"),
+    id: path,
     kind,
-    title: requiredString(frontmatter.title, "title"),
-    summary: stringList(frontmatter.summary),
-    lifecycle,
-    path: repoRelative(root, absolutePath),
+    description: optionalString(frontmatter.description),
+    source: stringList(frontmatter.source),
+    path,
     absolutePath,
     frontmatter,
     body,
@@ -292,30 +268,42 @@ function catalogEntryFromFile(file: MemoryFile): MemoryCatalogEntry {
   return {
     id: file.id,
     kind: file.kind,
-    title: file.title,
-    summary: file.summary,
-    lifecycle: file.lifecycle,
+    description: file.description,
     path: file.path,
+    source: file.source,
     facets: normalizeFacets(file.frontmatter.facets),
-    canonicalFor: stringList(file.frontmatter.canonicalFor ?? file.frontmatter.canonical_for),
   };
 }
 
 function validateMemoryFile(file: MemoryFile): MemoryLintIssue[] {
   const issues: MemoryLintIssue[] = [];
-  if (!VALID_ID.test(file.id)) {
-    issues.push({ severity: "error", id: file.id, path: file.path, message: `Invalid memory id: ${file.id}` });
+  for (const field of OBSOLETE_FRONTMATTER_FIELDS) {
+    if (file.frontmatter[field] !== undefined) {
+      issues.push({
+        severity: "warning",
+        id: file.id,
+        path: file.path,
+        message: `Obsolete memory frontmatter field "${field}" is ignored; derive it from path or use description/source.`,
+      });
+    }
   }
-  if (file.summary.length === 0) {
-    issues.push({ severity: "error", id: file.id, path: file.path, message: "Memory summary is required" });
+  if (file.description.length === 0) {
+    issues.push({ severity: "error", id: file.id, path: file.path, message: "Memory description is required" });
   }
-  const topDir = file.path.split("/")[0];
-  if (topDir !== file.kind) {
+  if (typeof file.frontmatter.source === "string") {
     issues.push({
       severity: "error",
       id: file.id,
       path: file.path,
-      message: `Memory kind "${file.kind}" must match top-level directory "${topDir}"`,
+      message: "Memory source must be a YAML list of contributing quest or session refs",
+    });
+  }
+  if (file.source.length === 0) {
+    issues.push({
+      severity: "error",
+      id: file.id,
+      path: file.path,
+      message: "Memory source must list at least one contributing quest or session ref",
     });
   }
   if (!basename(file.path).endsWith(".md")) {
@@ -428,9 +416,8 @@ function objectValue(value: FrontmatterValue | undefined): Record<string, Frontm
   return value && typeof value === "object" && !Array.isArray(value) ? { ...value } : {};
 }
 
-function requiredString(value: FrontmatterValue | undefined, field: string): string {
-  if (typeof value === "string" && value.trim()) return value.trim();
-  throw new Error(`Memory frontmatter field "${field}" is required`);
+function optionalString(value: FrontmatterValue | undefined): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 function stringList(value: FrontmatterValue | undefined): string[] {
@@ -454,9 +441,10 @@ function parseKind(value: string): MemoryKind {
   throw new Error(`Invalid memory kind "${value}". Expected one of: ${MEMORY_KINDS.join(", ")}`);
 }
 
-function parseLifecycle(value: string): MemoryLifecycle {
-  if (MEMORY_LIFECYCLES.includes(value as MemoryLifecycle)) return value as MemoryLifecycle;
-  throw new Error(`Invalid memory lifecycle "${value}". Expected one of: ${MEMORY_LIFECYCLES.join(", ")}`);
+function parseKindFromPath(path: string): MemoryKind {
+  const [topDir] = path.split("/");
+  if (topDir) return parseKind(topDir);
+  throw new Error(`Memory file path "${path}" must be under one of: ${MEMORY_KINDS.join(", ")}`);
 }
 
 function parseOperation(value: string | undefined): MemoryCommitOperation | undefined {
@@ -478,9 +466,9 @@ function scoreEntry(entry: MemoryCatalogEntry, terms: string[], content = ""): {
   if (terms.length === 0) return { score: 1, reasons: ["catalog"] };
   const haystacks = [
     { label: "id", text: entry.id, weight: 6 },
-    { label: "title", text: entry.title, weight: 5 },
     { label: "path", text: entry.path, weight: 4 },
-    { label: "summary", text: entry.summary.join(" "), weight: 3 },
+    { label: "description", text: entry.description, weight: 3 },
+    { label: "source", text: entry.source.join(" "), weight: 2 },
     { label: "content", text: content, weight: 1 },
   ];
   let score = 0;

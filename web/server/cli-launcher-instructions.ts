@@ -197,7 +197,7 @@ Memory files are authored directly under six directories with distinct responsib
 - \`references/\`: source digests and pointers that make external or hard-to-rediscover context cheap to find.
 - \`artifacts/\`: manifests for produced external outputs such as datasets, training runs, logs, model checkpoints, reports, or generated files outside the codebase.
 
-Before editing memory, acquire the repo-level write lock with \`memory lock acquire --owner <session-or-role>\`. While holding it, search and edit files directly with normal file tools, run \`memory lint\`, inspect \`memory diff\`, commit with \`memory commit --message ... --source ...\`, then release with \`memory lock release\`. Keep each memory commit source-trailed and scoped to one coherent update.
+Before editing memory, acquire the repo-level write lock with \`memory lock acquire --owner <session-or-role>\`. While holding it, search and edit files directly with normal file tools, run \`memory lint\`, inspect \`memory diff\`, commit with \`memory commit --message ... --source ... --memory-id <repo-relative-path>\`, then release with \`memory lock release\`. Keep each memory commit source-trailed and scoped to one coherent update.
 
 For quest work, include exactly one memory statement in phase reports or final debriefs when relevant: \`memory updated: <commit>\`, \`memory update deferred: <reason or curator>\`, or \`memory update not needed: <reason>\`.`;
 }

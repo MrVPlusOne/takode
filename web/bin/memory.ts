@@ -74,10 +74,10 @@ function printUsage(): void {
 Commands:
   repo path
       Print the resolved repo root. Use this to rediscover memory after compaction.
-  catalog
-      List authored memory files from frontmatter; no separate index directory exists.
+  catalog [show]
+      Show the repo root and list authored memory files from frontmatter.
   recall [query] [--kind current,knowledge] [--facet key:value] [--content] [--limit N]
-      Search memory summaries, titles, facets, and optional content.
+      Search memory descriptions, sources, facets, and optional content.
   lint
       Canonical health check for memory files and frontmatter.
   lock status|acquire|release [--owner NAME] [--ttl-ms N]
@@ -86,7 +86,7 @@ Commands:
       Show git status for pending memory edits.
   diff
       Show the unstaged/staged memory diff before commit.
-  commit --message TEXT [--quest q-N] [--session N] [--operation update] [--memory-id ID] [--source REF]
+  commit --message TEXT [--quest q-N] [--session N] [--operation update] [--memory-id PATH] [--source REF]
       Commit memory edits with provenance trailers.
 
 Options:
@@ -103,11 +103,16 @@ Default repo:
 Memory files are authored directly under:
   current/ knowledge/ procedures/ decisions/ references/ artifacts/
 
+Frontmatter schema:
+  description: one or two sentences for catalog orientation
+  source: [q-1218, session:1476]
+  id and kind are derived from the repo-relative file path.
+
 Common examples:
   memory repo path
   memory --server-slug dev repo path
+  memory catalog show
   memory recall "current task terms" --kind current --limit 5
-  memory catalog
   memory lint
 
 Write flow:
@@ -115,7 +120,7 @@ Write flow:
   edit Markdown files directly under the authored directories
   memory lint
   memory diff
-  memory commit --message "Update memory" --source <source-ref> --memory-id <id>
+  memory commit --message "Update memory" --source <source-ref> --memory-id <repo-relative-path>
   memory lock release`);
 }
 
@@ -188,8 +193,8 @@ function printCatalog(catalog: Awaited<ReturnType<typeof workstreamMemoryService
     console.log("No memory files found.");
   }
   for (const entry of catalog.entries) {
-    console.log(`${entry.id} [${entry.kind}] ${entry.title} (${entry.path})`);
-    for (const summary of entry.summary) console.log(`  ${summary}`);
+    console.log(`${entry.id} [${entry.kind}] ${entry.description}`);
+    if (entry.source.length) console.log(`  source: ${entry.source.join(", ")}`);
   }
   printIssues(catalog.issues);
 }
@@ -223,6 +228,8 @@ async function main(): Promise<void> {
   }
 
   if (command === "catalog") {
+    const subcommand = positional(0);
+    if (subcommand && subcommand !== "show") die("catalog subcommand must be show");
     printCatalog(await workstreamMemoryService.catalog(repoOptions()));
     return;
   }
@@ -234,7 +241,6 @@ async function main(): Promise<void> {
         kinds: parseKinds(),
         facets: parseFacets(),
         includeContent: flag("content"),
-        includeArchived: flag("include-archived"),
         limit: parsePositiveInt(option("limit"), "--limit"),
       },
       repoOptions(),
@@ -247,8 +253,8 @@ async function main(): Promise<void> {
     if (!result.matches.length) console.log("No matching memory files found.");
     for (const match of result.matches) {
       console.log(`${match.entry.id} [${match.entry.kind}] score=${match.score} ${match.entry.path}`);
-      console.log(`  ${match.entry.title}`);
-      for (const summary of match.entry.summary) console.log(`  ${summary}`);
+      console.log(`  ${match.entry.description}`);
+      if (match.entry.source.length) console.log(`  source: ${match.entry.source.join(", ")}`);
       if (match.content) console.log(`\n${match.content.trim()}\n`);
     }
     printIssues(result.issues);
