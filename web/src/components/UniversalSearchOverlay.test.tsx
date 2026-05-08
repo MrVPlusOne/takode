@@ -65,6 +65,54 @@ const messages: ChatMessage[] = [
   },
 ];
 
+const threadScopedMessages: ChatMessage[] = [
+  {
+    id: "main-visible",
+    role: "user",
+    content: "Visible main request about apples",
+    timestamp: now - 40_000,
+  },
+  {
+    id: "quest-hidden-new",
+    role: "user",
+    content: "Hidden quest dragonfruit request",
+    timestamp: now - 10_000,
+    metadata: {
+      threadKey: "q-1272",
+      questId: "q-1272",
+    },
+  },
+  {
+    id: "quest-ref-hidden",
+    role: "user",
+    content: "Hidden quest reference with banana",
+    timestamp: now - 20_000,
+    metadata: {
+      threadRefs: [{ threadKey: "q-1272", questId: "q-1272", source: "explicit" }],
+    },
+  },
+  {
+    id: "quest-visible",
+    role: "user",
+    content: "Quest thread-specific request about pears",
+    timestamp: now - 30_000,
+    metadata: {
+      threadKey: "q-1272",
+      questId: "q-1272",
+    },
+  },
+  {
+    id: "other-quest-hidden",
+    role: "user",
+    content: "Other quest thread-specific request about pears",
+    timestamp: now - 5_000,
+    metadata: {
+      threadKey: "q-999",
+      questId: "q-999",
+    },
+  },
+];
+
 function quest(overrides: Partial<QuestmasterTask> & Pick<QuestmasterTask, "questId" | "title">): QuestmasterTask {
   return {
     status: "in_progress",
@@ -144,6 +192,44 @@ describe("UniversalSearchOverlay", () => {
 
     expect(screen.getByRole("button", { name: "Messages" })).toBeDisabled();
     expect(screen.getByText(/New session/)).toBeInTheDocument();
+  });
+
+  it("keeps Message mode disabled when there is no current thread context", async () => {
+    renderOverlay({ currentThreadKey: null });
+
+    expect(screen.getByRole("button", { name: "Messages" })).toBeDisabled();
+    expect(await screen.findByText(/New session/)).toBeInTheDocument();
+  });
+
+  it("uses Main feed projection for empty-query Message recents and typed Message search", async () => {
+    renderOverlay({ currentThreadKey: "main", messages: threadScopedMessages });
+
+    expect(await screen.findByText("Visible main request about apples")).toBeInTheDocument();
+    expect(screen.queryByText("Hidden quest dragonfruit request")).not.toBeInTheDocument();
+    expect(screen.queryByText("Hidden quest reference with banana")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "dragonfruit" } });
+    await advanceSearchDebounce();
+
+    expect(screen.queryByText("Hidden quest dragonfruit request")).not.toBeInTheDocument();
+    expect(await screen.findByText("No results")).toBeInTheDocument();
+  });
+
+  it("uses quest-thread projection for empty-query Message recents and typed Message search", async () => {
+    renderOverlay({ currentThreadKey: "q-1272", messages: threadScopedMessages });
+
+    expect(await screen.findByText("Quest thread-specific request about pears")).toBeInTheDocument();
+    expect(screen.getByText("Hidden quest dragonfruit request")).toBeInTheDocument();
+    expect(screen.getByText("Hidden quest reference with banana")).toBeInTheDocument();
+    expect(screen.queryByText("Visible main request about apples")).not.toBeInTheDocument();
+    expect(screen.queryByText("Other quest thread-specific request about pears")).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "thread-specific" } });
+    await advanceSearchDebounce();
+
+    expect(await screen.findByText("Quest thread-specific request about pears")).toBeInTheDocument();
+    expect(screen.queryByText("Other quest thread-specific request about pears")).not.toBeInTheDocument();
+    expect(screen.queryByText("Visible main request about apples")).not.toBeInTheDocument();
   });
 
   it("runs only the selected mode adapter and uses newest-updated quest sorting for empty queries", async () => {

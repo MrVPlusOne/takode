@@ -171,8 +171,7 @@ export default function App() {
   const [universalSearchOpen, setUniversalSearchOpen] = useState(false);
   const openUniversalSearch = useCallback(() => setUniversalSearchOpen(true), []);
   const closeUniversalSearch = useCallback(() => setUniversalSearchOpen(false), []);
-  const universalSearchThreadKey =
-    route.page === "session" && threadRoute.hasThreadParam ? (threadRoute.threadKey ?? "main") : null;
+  const universalSearchThreadKey = route.page === "session" ? (threadRoute.threadKey ?? "main") : null;
 
   const handleOpenUniversalQuest = useCallback(
     (questId: string, query: string) => {

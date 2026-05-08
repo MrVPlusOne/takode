@@ -6,6 +6,7 @@ import {
   type SessionSearchCategory,
 } from "../store-session-search.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
+import { filterMessagesForThread } from "../utils/thread-projection.js";
 
 export type UniversalSearchMode = "quests" | "sessions" | "messages";
 
@@ -103,23 +104,6 @@ function truncateText(text: string, limit = 150): string {
   return `${collapsed.slice(0, Math.max(0, limit - 1)).trimEnd()}...`;
 }
 
-function normalizedThreadKey(threadKey: string | null | undefined): string | null {
-  const normalized = threadKey?.trim().toLowerCase();
-  return normalized ? normalized : null;
-}
-
-function messageBelongsToThread(message: ChatMessage, threadKey: string | null | undefined): boolean {
-  const normalized = normalizedThreadKey(threadKey);
-  if (!normalized || normalized === "main" || normalized === "all") return true;
-  const metadata = message.metadata;
-  if (!metadata) return false;
-  if (normalizedThreadKey(metadata.threadKey) === normalized) return true;
-  if (normalizedThreadKey(metadata.questId) === normalized) return true;
-  return (metadata.threadRefs ?? []).some(
-    (ref) => normalizedThreadKey(ref.threadKey) === normalized || normalizedThreadKey(ref.questId) === normalized,
-  );
-}
-
 function messageMatchesFilters(
   message: ChatMessage,
   filters: Record<MessageFilter, boolean>,
@@ -154,9 +138,9 @@ function buildMessageResults({
   limit: number;
 }): UniversalSearchResult[] {
   const trimmedQuery = query.trim();
-  const matches = messages.filter((message) => {
+  const projectedMessages = currentThreadKey ? filterMessagesForThread(messages, currentThreadKey) : [];
+  const matches = projectedMessages.filter((message) => {
     if (!message.content) return false;
-    if (!messageBelongsToThread(message, currentThreadKey)) return false;
     if (!messageMatchesFilters(message, filters, leaderSessionId)) return false;
     return !trimmedQuery || sessionSearchTextMatches(message.content, trimmedQuery, "strict");
   });
@@ -190,7 +174,7 @@ export function UniversalSearchOverlay({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const requestSeqRef = useRef(0);
-  const messageModeAvailable = Boolean(currentSessionId);
+  const messageModeAvailable = Boolean(currentSessionId && currentThreadKey);
 
   const [mode, setMode] = useState<UniversalSearchMode>("sessions");
   const [query, setQuery] = useState("");
@@ -313,7 +297,7 @@ export function UniversalSearchOverlay({
 
   const messageResults = useMemo(
     () =>
-      currentSessionId
+      currentSessionId && currentThreadKey
         ? buildMessageResults({
             messages,
             currentThreadKey,
@@ -340,10 +324,10 @@ export function UniversalSearchOverlay({
       if (debouncedQuery.trim() && remoteState.mode === "sessions") return remoteState.total;
       return sessions.filter((session) => !session.archived && !session.cronJobId).length;
     }
-    return messages.filter(
+    if (!currentThreadKey) return 0;
+    return filterMessagesForThread(messages, currentThreadKey).filter(
       (message) =>
         message.content &&
-        messageBelongsToThread(message, currentThreadKey) &&
         messageMatchesFilters(message, messageFilters, leaderSessionId) &&
         (!debouncedQuery.trim() || sessionSearchTextMatches(message.content, debouncedQuery.trim(), "strict")),
     ).length;
