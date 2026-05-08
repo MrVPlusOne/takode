@@ -14,7 +14,7 @@ const PANEL_MIN_HEIGHT = 180;
 interface LeaderProfilePortraitButtonProps {
   sessionId: string;
   portrait: LeaderProfilePortrait;
-  size?: "sm" | "md";
+  size?: "sm" | "md" | "lg";
 }
 
 export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }: LeaderProfilePortraitButtonProps) {
@@ -89,7 +89,7 @@ export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }
     setOpen(true);
   }
 
-  const triggerSize = size === "md" ? "h-7 w-7" : "h-5 w-5";
+  const triggerSize = size === "lg" ? "h-9 w-9" : size === "md" ? "h-7 w-7" : "h-5 w-5";
 
   return (
     <>

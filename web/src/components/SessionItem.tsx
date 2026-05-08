@@ -518,6 +518,8 @@ export function SessionItem({
         borderColor: "rgba(245, 158, 11, 0.18)",
         backgroundColor: "rgba(245, 158, 11, 0.1)",
       };
+  const usesExpandedLeaderPortrait =
+    !compact && !isEditing && !archived && s.isOrchestrator && !!s.leaderProfilePortrait;
 
   const renderHighlightedSnippet = (text: string): React.ReactNode => {
     const parts = getHighlightParts(text, matchQuery || "");
@@ -603,9 +605,24 @@ export function SessionItem({
         )}
 
         {/* Content */}
-        <div className="flex-1 min-w-0">
+        <div
+          className={
+            usesExpandedLeaderPortrait
+              ? "grid flex-1 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] grid-rows-[auto_auto_auto] items-start gap-x-2"
+              : "flex-1 min-w-0"
+          }
+          data-testid={usesExpandedLeaderPortrait ? "session-leader-portrait-layout" : undefined}
+        >
+          {usesExpandedLeaderPortrait && s.leaderProfilePortrait && (
+            <div className="col-start-1 row-span-2 row-start-1 self-center">
+              <LeaderProfilePortraitButton sessionId={s.id} portrait={s.leaderProfilePortrait} size="lg" />
+            </div>
+          )}
           {/* Row 1: Leader/herd/reviewer tag (inline) + title */}
-          <div className="flex items-center gap-1.5">
+          <div
+            className={`flex min-w-0 items-center gap-1.5 ${usesExpandedLeaderPortrait ? "col-start-2 row-start-1" : ""}`}
+            data-testid={usesExpandedLeaderPortrait ? "session-title-row" : undefined}
+          >
             {/* Status marker for sidebar rows. Scheduled timers replace the idle dot. */}
             {showScheduledTimerIcon ? (
               <ScheduledTimerStatusIcon timerCount={timerCount} />
@@ -621,7 +638,7 @@ export function SessionItem({
                 />
               )
             )}
-            {!archived && s.isOrchestrator && s.leaderProfilePortrait && (
+            {!usesExpandedLeaderPortrait && !archived && s.isOrchestrator && s.leaderProfilePortrait && (
               <LeaderProfilePortraitButton sessionId={s.id} portrait={s.leaderProfilePortrait} />
             )}
             {!isEditing && s.isOrchestrator && useStatusBar && (
@@ -690,21 +707,32 @@ export function SessionItem({
             )}
           </div>
 
-          {/* Row 2: Preview -- match context during search, or active task / last message */}
+          {/* Row 3 for expanded leader portraits; Row 2 for compact/default rows. */}
           {!compact &&
             !isEditing &&
             (displayMatch ? (
-              <div className="mt-0.5 text-[10.5px] text-cc-muted/80 leading-tight truncate">
+              <div
+                className={`mt-0.5 min-w-0 truncate text-[10.5px] leading-tight text-cc-muted/80 ${usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : ""}`}
+                data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
+              >
                 <span className="text-cc-primary/70 mr-1">{displayMatch.fieldLabel}</span>
                 {renderHighlightedSnippet(displayMatch.snippet)}
               </div>
             ) : (
-              <SessionPreviewRow sessionId={s.id} userPreview={sessionPreview} />
+              <SessionPreviewRow
+                sessionId={s.id}
+                userPreview={sessionPreview}
+                className={usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : undefined}
+                data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
+              />
             ))}
 
-          {/* Row 3: Metadata — backend, permissions, badges, #N, wt, git stats (all compact, one line) */}
+          {/* Row 2 for expanded leader portraits; Row 3 for compact/default rows. */}
           {!isEditing && (
-            <div className="flex items-center gap-1 mt-0.5 text-[10.5px] text-cc-muted leading-tight">
+            <div
+              className={`flex min-w-0 items-center gap-1 mt-0.5 text-[10.5px] text-cc-muted leading-tight ${usesExpandedLeaderPortrait ? "col-start-2 row-start-2" : ""}`}
+              data-testid={usesExpandedLeaderPortrait ? "session-metadata-row" : undefined}
+            >
               {s.sessionNum != null && (
                 <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
               )}
@@ -1109,7 +1137,17 @@ export function SessionItem({
 }
 
 /** Show active task preview (accent+italic) if newer than user message, else user message */
-function SessionPreviewRow({ sessionId, userPreview }: { sessionId: string; userPreview?: string }) {
+function SessionPreviewRow({
+  sessionId,
+  userPreview,
+  className = "",
+  "data-testid": testId,
+}: {
+  sessionId: string;
+  userPreview?: string;
+  className?: string;
+  "data-testid"?: string;
+}) {
   const taskPreview = useStore((s) => s.sessionTaskPreview.get(sessionId));
   const userUpdatedAt = useStore((s) => s.sessionPreviewUpdatedAt.get(sessionId) ?? 0);
 
@@ -1117,12 +1155,24 @@ function SessionPreviewRow({ sessionId, userPreview }: { sessionId: string; user
 
   if (showTask) {
     return (
-      <div className="mt-0.5 text-[10.5px] text-cc-primary/60 leading-tight truncate italic">{taskPreview.text}</div>
+      <div
+        className={`mt-0.5 min-w-0 truncate text-[10.5px] leading-tight text-cc-primary/60 italic ${className}`}
+        data-testid={testId}
+      >
+        {taskPreview.text}
+      </div>
     );
   }
 
   if (userPreview) {
-    return <div className="mt-0.5 text-[10.5px] text-cc-muted/60 leading-tight truncate">{userPreview}</div>;
+    return (
+      <div
+        className={`mt-0.5 min-w-0 truncate text-[10.5px] leading-tight text-cc-muted/60 ${className}`}
+        data-testid={testId}
+      >
+        {userPreview}
+      </div>
+    );
   }
 
   return null;

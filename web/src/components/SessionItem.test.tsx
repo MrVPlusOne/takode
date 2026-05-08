@@ -415,12 +415,48 @@ describe("SessionItem leader profiles", () => {
     expect(screen.getByRole("button", { name: /open tako 1\.1 profile/i })).toBeInTheDocument();
   });
 
+  it("lays out leader portraits across title and metadata rows while preserving preview width", () => {
+    renderSessionItem({
+      session: makeSession({
+        isOrchestrator: true,
+        leaderProfilePortrait: TAKO_PORTRAIT,
+        sessionNum: 1286,
+        isWorktree: true,
+      }),
+      sessionPreview: "recent activity stays readable across the whole row",
+    });
+
+    const layout = screen.getByTestId("session-leader-portrait-layout");
+    expect(layout).toHaveClass("grid", "grid-cols-[2.25rem_minmax(0,1fr)]");
+
+    const portraitButton = screen.getByRole("button", { name: /open tako 1\.1 profile/i });
+    expect(portraitButton).toHaveClass("h-9", "w-9");
+
+    expect(screen.getByTestId("session-title-row")).toHaveClass("col-start-2", "row-start-1");
+    expect(screen.getByTestId("session-metadata-row")).toHaveClass("col-start-2", "row-start-2");
+    expect(screen.getByTestId("session-metadata-row")).toHaveTextContent("#1286");
+    expect(screen.getByTestId("session-preview-row")).toHaveClass("col-span-2", "row-start-3");
+    expect(screen.getByTestId("session-preview-row")).toHaveTextContent("recent activity stays readable");
+  });
+
   it("does not render portraits for non-leader sessions", () => {
     renderSessionItem({
       session: makeSession({ isOrchestrator: false, leaderProfilePortrait: TAKO_PORTRAIT }),
     });
 
     expect(screen.queryByRole("button", { name: /open tako 1\.1 profile/i })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-leader-portrait-layout")).not.toBeInTheDocument();
+  });
+
+  it("keeps non-leader rows in the compact preview-before-metadata order", () => {
+    renderSessionItem({
+      session: makeSession({ sessionNum: 42 }),
+      sessionPreview: "compact non-leader preview",
+    });
+
+    const preview = screen.getByText("compact non-leader preview");
+    const backendIcon = screen.getByAltText("Codex");
+    expect(preview.compareDocumentPosition(backendIcon) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it("opens the profile picker from a leader portrait", () => {
