@@ -740,15 +740,7 @@ describe("POST /api/sessions/create", () => {
     );
   });
 
-  it("fetches and pulls before create when branch matches current branch", async () => {
-    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
-      repoRoot: "/repo",
-      repoName: "my-repo",
-      currentBranch: "main",
-      defaultBranch: "main",
-      isWorktree: false,
-    });
-
+  it("ignores branch for non-worktree create without syncing or mutating the checkout", async () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -757,92 +749,30 @@ describe("POST /api/sessions/create", () => {
 
     expect(res.status).toBe(200);
     expect(gitUtils.getRepoInfo).not.toHaveBeenCalled();
+    expect(gitUtils.getRepoInfoAsync).not.toHaveBeenCalled();
     expect(gitUtils.gitFetch).not.toHaveBeenCalled();
     expect(gitUtils.gitPull).not.toHaveBeenCalled();
-    expect(gitUtils.gitFetchAsync).toHaveBeenCalledWith("/repo");
-    expect(gitUtils.checkoutBranchAsync).not.toHaveBeenCalled();
-    expect(gitUtils.gitPullAsync).toHaveBeenCalledWith("/repo");
-  });
-
-  it("fetches, checks out selected branch, then pulls before create", async () => {
-    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
-      repoRoot: "/repo",
-      repoName: "my-repo",
-      currentBranch: "develop",
-      defaultBranch: "main",
-      isWorktree: false,
-    });
-
-    const res = await app.request("/api/sessions/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/repo", branch: "main" }),
-    });
-
-    expect(res.status).toBe(200);
-    expect(gitUtils.getRepoInfo).not.toHaveBeenCalled();
     expect(gitUtils.checkoutBranch).not.toHaveBeenCalled();
-    expect(gitUtils.gitFetchAsync).toHaveBeenCalledWith("/repo");
-    expect(gitUtils.checkoutBranchAsync).toHaveBeenCalledWith("/repo", "main");
-    expect(gitUtils.gitPullAsync).toHaveBeenCalledWith("/repo");
-    expect(vi.mocked(gitUtils.gitFetchAsync).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(gitUtils.checkoutBranchAsync).mock.invocationCallOrder[0],
-    );
-    expect(vi.mocked(gitUtils.checkoutBranchAsync).mock.invocationCallOrder[0]).toBeLessThan(
-      vi.mocked(gitUtils.gitPullAsync).mock.invocationCallOrder[0],
-    );
+    expect(gitUtils.gitFetchAsync).not.toHaveBeenCalled();
+    expect(gitUtils.checkoutBranchAsync).not.toHaveBeenCalled();
+    expect(gitUtils.gitPullAsync).not.toHaveBeenCalled();
+    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/repo" }));
   });
 
-  it("proceeds with session creation when fetch fails (non-fatal, same as pull)", async () => {
-    // git fetch failure should NOT block session creation — the branch may already exist locally.
-    // This matches the existing non-fatal behavior for git pull (see next test).
-    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
-      repoRoot: "/repo",
-      repoName: "my-repo",
-      currentBranch: "main",
-      defaultBranch: "main",
-      isWorktree: false,
-    });
-    vi.mocked(gitUtils.gitFetchAsync).mockResolvedValueOnce({
-      success: false,
-      output: "network error",
-    });
-
+  it("ignores accidental worktree and branch fields for orchestrator create", async () => {
     const res = await app.request("/api/sessions/create", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/repo", branch: "main" }),
+      body: JSON.stringify({ cwd: "/repo", branch: "main", useWorktree: true, role: "orchestrator" }),
     });
 
     expect(res.status).toBe(200);
-    expect(gitUtils.gitFetchAsync).toHaveBeenCalledWith("/repo");
-    // Pull is still called (fetch failure doesn't abort the pipeline)
-    expect(gitUtils.gitPullAsync).toHaveBeenCalledWith("/repo");
-    expect(launcher.launch).toHaveBeenCalled();
-  });
-
-  it("proceeds with session creation when pull fails (non-fatal)", async () => {
-    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
-      repoRoot: "/repo",
-      repoName: "my-repo",
-      currentBranch: "main",
-      defaultBranch: "main",
-      isWorktree: false,
-    });
-    vi.mocked(gitUtils.gitPullAsync).mockResolvedValueOnce({
-      success: false,
-      output: "no tracking information",
-    });
-
-    const res = await app.request("/api/sessions/create", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/repo", branch: "main" }),
-    });
-
-    // Pull failure is non-fatal — session should still be created
-    expect(res.status).toBe(200);
-    expect(launcher.launch).toHaveBeenCalled();
+    expect(gitUtils.getRepoInfoAsync).not.toHaveBeenCalled();
+    expect(gitUtils.ensureWorktreeAsync).not.toHaveBeenCalled();
+    expect(gitUtils.gitFetchAsync).not.toHaveBeenCalled();
+    expect(gitUtils.checkoutBranchAsync).not.toHaveBeenCalled();
+    expect(gitUtils.gitPullAsync).not.toHaveBeenCalled();
+    expect(launcher.launch).toHaveBeenCalledWith(expect.objectContaining({ cwd: "/repo" }));
   });
 
   it("returns 500 when launch throws an error", async () => {
@@ -1143,7 +1073,9 @@ describe("POST /api/sessions/create", () => {
     vi.mocked(envManager.getEffectiveImage).mockResolvedValue("companion-dev:latest");
     vi.mocked(existsSync).mockReturnValueOnce(true);
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(false);
-    const buildSpy = vi.spyOn(containerManager, "buildImage").mockReturnValue("ok");
+    const buildSpy = vi
+      .spyOn(containerManager, "buildImageFromDockerfileAsync")
+      .mockResolvedValue({ success: true, log: "ok" });
     vi.spyOn(containerManager, "createContainer").mockReturnValueOnce({
       containerId: "cid-1",
       name: "companion-temp",

@@ -590,14 +590,7 @@ describe("POST /api/sessions/create-stream", () => {
     );
   });
 
-  it("emits git progress events when branch is specified", async () => {
-    // When branch is specified without useWorktree, should emit fetch/checkout/pull events
-    vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
-      repoRoot: "/test",
-      currentBranch: "main",
-      defaultBranch: "main",
-    } as any);
-
+  it("does not run git sync progress when branch is specified without worktree mode", async () => {
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -608,10 +601,13 @@ describe("POST /api/sessions/create-stream", () => {
     const events = await parseSSE(res);
     const steps = events.filter((e) => e.event === "progress").map((e) => JSON.parse(e.data).step);
 
-    // Should include git operations
-    expect(steps).toContain("fetching_git");
-    expect(steps).toContain("checkout_branch");
-    expect(steps).toContain("pulling_git");
+    expect(gitUtils.getRepoInfoAsync).not.toHaveBeenCalled();
+    expect(gitUtils.gitFetchAsync).not.toHaveBeenCalled();
+    expect(gitUtils.checkoutBranchAsync).not.toHaveBeenCalled();
+    expect(gitUtils.gitPullAsync).not.toHaveBeenCalled();
+    expect(steps).not.toContain("fetching_git");
+    expect(steps).not.toContain("checkout_branch");
+    expect(steps).not.toContain("pulling_git");
     expect(steps).toContain("launching_cli");
   });
 
@@ -735,6 +731,64 @@ describe("POST /api/sessions/create-stream", () => {
     }
   });
 
+  it("keeps create-stream progress alive during slow container workspace copy", async () => {
+    vi.useFakeTimers();
+    try {
+      vi.mocked(envManager.getEnv).mockResolvedValue({
+        name: "Docker",
+        slug: "docker",
+        variables: { CLAUDE_CODE_OAUTH_TOKEN: "token" },
+        baseImage: "the-companion:latest",
+        createdAt: 1000,
+        updatedAt: 1000,
+      } as any);
+      vi.mocked(envManager.getEffectiveImage).mockResolvedValue("the-companion:latest");
+      vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(true);
+      vi.spyOn(containerManager, "createContainer").mockReturnValueOnce({
+        containerId: "cid-copy-stream",
+        name: "companion-copy-stream",
+        image: "the-companion:latest",
+        portMappings: [],
+        hostCwd: "/test",
+        containerCwd: "/workspace",
+        state: "running",
+      });
+      vi.spyOn(containerManager, "retrack").mockImplementation(() => {});
+
+      let resolveCopy = () => {};
+      vi.spyOn(containerManager, "copyWorkspaceToContainer").mockImplementationOnce(
+        () =>
+          new Promise<void>((resolve) => {
+            resolveCopy = resolve;
+          }),
+      );
+
+      const response = await app.request("/api/sessions/create-stream", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ cwd: "/test", envSlug: "docker" }),
+      });
+      const eventsPromise = parseSSE(response);
+
+      await vi.advanceTimersByTimeAsync(10_500);
+      resolveCopy();
+      await vi.runAllTimersAsync();
+
+      const events = await eventsPromise;
+      const copyProgress = events
+        .filter((e) => e.event === "progress")
+        .map((e) => JSON.parse(e.data))
+        .filter((event) => event.step === "copying_workspace");
+
+      expect(copyProgress.filter((event) => event.status === "in_progress").length).toBeGreaterThan(1);
+      expect(copyProgress.at(-2)?.detail).toContain("Still copying workspace");
+      expect(copyProgress.at(-1)?.status).toBe("done");
+      expect(events.find((e) => e.event === "done")).toBeDefined();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("uses current branch for worktree create-stream when branch is omitted", async () => {
     vi.mocked(gitUtils.getRepoInfoAsync).mockResolvedValueOnce({
       repoRoot: "/test",
@@ -803,11 +857,11 @@ describe("POST /api/sessions/create-stream", () => {
     expect(launcher.launch).not.toHaveBeenCalled();
   });
 
-  it("emits error event for invalid branch name", async () => {
+  it("emits error event for invalid worktree branch name", async () => {
     const res = await app.request("/api/sessions/create-stream", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ cwd: "/test", branch: "bad branch name!" }),
+      body: JSON.stringify({ cwd: "/test", branch: "bad branch name!", useWorktree: true }),
     });
 
     expect(res.status).toBe(200);
@@ -938,7 +992,9 @@ describe("POST /api/sessions/create-stream", () => {
     vi.spyOn(containerManager, "imageExists").mockReturnValueOnce(false).mockReturnValueOnce(false);
     vi.spyOn(containerManager, "pullImage").mockResolvedValueOnce(false);
     vi.mocked(existsSync).mockReturnValueOnce(true); // Dockerfile exists
-    const buildSpy = vi.spyOn(containerManager, "buildImage").mockReturnValue("ok");
+    const buildSpy = vi
+      .spyOn(containerManager, "buildImageFromDockerfileAsync")
+      .mockResolvedValue({ success: true, log: "ok" });
     vi.spyOn(containerManager, "createContainer").mockReturnValueOnce({
       containerId: "cid-built",
       name: "companion-built",

@@ -47,6 +47,7 @@ const QUICK_EXEC_TIMEOUT_MS = 8_000;
 const STANDARD_EXEC_TIMEOUT_MS = 30_000;
 const CONTAINER_BOOT_TIMEOUT_MS = 20_000;
 const IMAGE_PULL_TIMEOUT_MS = 300_000; // 5 min for pulling images
+const IMAGE_BUILD_TIMEOUT_MS = 300_000; // 5 min for image builds
 
 const DOCKER_REGISTRY = "docker.io/stangirard";
 
@@ -715,12 +716,87 @@ export class ContainerManager {
     try {
       const output = exec(
         `docker build -t ${shellEscape(tag)} -f ${shellEscape(dockerfilePath)} ${shellEscape(contextDir)}`,
-        { encoding: "utf-8", timeout: 300_000 }, // 5 min for image builds
+        { encoding: "utf-8", timeout: IMAGE_BUILD_TIMEOUT_MS },
       );
       console.log(`[container-manager] Built image ${tag}`);
       return output;
     } catch (e) {
       throw new Error(`Failed to build image ${tag}: ${e instanceof Error ? e.message : String(e)}`);
+    }
+  }
+
+  /**
+   * Build a Docker image from a Dockerfile path without blocking the event loop.
+   * The build context matches buildImage(): the Dockerfile's containing directory.
+   */
+  async buildImageFromDockerfileAsync(
+    dockerfilePath: string,
+    tag: string = "companion-dev:latest",
+    onProgress?: (line: string) => void,
+  ): Promise<{ success: boolean; log: string }> {
+    const contextDir = dockerfilePath.replace(/\/[^/]+$/, "") || ".";
+    const proc = Bun.spawn(["docker", "build", "-t", tag, "-f", dockerfilePath, contextDir], {
+      stdout: "pipe",
+      stderr: "pipe",
+    });
+
+    const lines: string[] = [];
+    const readOutput = async (stream: ReadableStream<Uint8Array>) => {
+      const reader = stream.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      try {
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+          const parts = buffer.split("\n");
+          buffer = parts.pop() || "";
+          for (const line of parts) {
+            if (line.trim()) {
+              lines.push(line);
+              onProgress?.(line);
+            }
+          }
+        }
+        if (buffer.trim()) {
+          lines.push(buffer);
+          onProgress?.(buffer);
+        }
+      } finally {
+        reader.releaseLock();
+      }
+    };
+
+    let timeoutId: ReturnType<typeof setTimeout> | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        proc.kill();
+        reject(new Error("Build timed out"));
+      }, IMAGE_BUILD_TIMEOUT_MS);
+    });
+
+    try {
+      const exitCode = await Promise.race([
+        (async () => {
+          await Promise.all([readOutput(proc.stdout), readOutput(proc.stderr)]);
+          return proc.exited;
+        })(),
+        timeoutPromise,
+      ]);
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
+
+      const log = lines.join("\n");
+      if (exitCode === 0) {
+        console.log(`[container-manager] Built image ${tag}`);
+        return { success: true, log };
+      }
+
+      return { success: false, log };
+    } catch (e) {
+      throw new Error(`Failed to build image ${tag}: ${e instanceof Error ? e.message : String(e)}`);
+    } finally {
+      if (timeoutId !== undefined) clearTimeout(timeoutId);
     }
   }
 

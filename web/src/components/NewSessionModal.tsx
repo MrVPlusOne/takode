@@ -462,8 +462,11 @@ export function NewSessionModal({
     setError("");
     setPullError("");
 
-    // Branch freshness check
-    if (gitRepoInfo) {
+    const shouldUseWorktree = useWorktree && sessionRole !== "leader";
+
+    // Branch freshness only matters when the selected branch will be used as a
+    // worktree base. Non-worktree session creation must not imply repo sync.
+    if (gitRepoInfo && shouldUseWorktree) {
       const effectiveBranch = selectedBranch || gitRepoInfo.currentBranch;
       if (effectiveBranch && effectiveBranch === gitRepoInfo.currentBranch) {
         const branchInfo = branches.find((b) => b.name === effectiveBranch && !b.isRemote);
@@ -479,7 +482,8 @@ export function NewSessionModal({
   }
 
   async function doCreateSession() {
-    const branchName = selectedBranch.trim() || (useWorktree ? gitRepoInfo?.currentBranch : undefined) || undefined;
+    const shouldUseWorktree = useWorktree && sessionRole !== "leader";
+    const branchName = shouldUseWorktree ? selectedBranch.trim() || gitRepoInfo?.currentBranch || undefined : undefined;
     const cwdSnapshot = cwd;
     const permissionMode =
       backend === "codex"
@@ -494,8 +498,8 @@ export function NewSessionModal({
       cwd: cwdSnapshot || undefined,
       envSlug: selectedEnv || undefined,
       branch: branchName,
-      createBranch: branchName && isNewBranch ? true : undefined,
-      useWorktree: useWorktree || undefined,
+      createBranch: shouldUseWorktree && branchName && isNewBranch ? true : undefined,
+      useWorktree: shouldUseWorktree || undefined,
       backend,
       codexInternetAccess: backend === "codex" ? codexInternetAccess : undefined,
       codexReasoningEffort: backend === "codex" ? codexReasoningEffort || undefined : undefined,

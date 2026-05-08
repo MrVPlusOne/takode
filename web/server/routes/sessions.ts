@@ -19,7 +19,6 @@ import { buildReadResponse } from "../takode-messages.js";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { trafficStats } from "../traffic-stats.js";
 import { generateUniqueSessionName } from "../../src/utils/names.js";
-import { GIT_CMD_TIMEOUT } from "../constants.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
 import type { RouteContext, OptionalAuthResult } from "./context.js";
 import { resolveSessionCreateModel } from "./session-create-model.js";
@@ -71,7 +70,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
     resolveId,
     authenticateTakodeCaller,
     authenticateCompanionCallerOptional,
-    execCaptureStdoutAsync,
     pathExists,
     WEB_DIR,
     buildOrchestratorSystemPrompt,
@@ -466,11 +464,13 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     await emit("resolving_env", "Environment resolved", "done");
 
-    if (body.branch && !/^[a-zA-Z0-9/_.\-]+$/.test(body.branch)) {
+    const shouldCreateWorktree = body.useWorktree && !isOrchestrator;
+
+    if (shouldCreateWorktree && body.branch && !/^[a-zA-Z0-9/_.\-]+$/.test(body.branch)) {
       throwPreparationError("Invalid branch name", 400, "checkout_branch");
     }
 
-    if (body.useWorktree && !isOrchestrator) {
+    if (shouldCreateWorktree) {
       const worktreeBaseCwd = cwd;
       if (!worktreeBaseCwd) {
         throwPreparationError("Worktree mode requires a cwd", 400, "creating_worktree");
@@ -512,36 +512,6 @@ export function createSessionsRoutes(ctx: RouteContext) {
         };
       }
       await emit("creating_worktree", "Worktree ready", "done");
-    } else if (body.branch && cwd) {
-      const repoInfo = await gitUtils.getRepoInfoAsync(cwd);
-      if (repoInfo) {
-        await emit("fetching_git", "Fetching from remote...", "in_progress");
-        const fetchResult = await gitUtils.gitFetchAsync(repoInfo.repoRoot);
-        if (!fetchResult.success) {
-          console.warn(`[routes] git fetch warning (non-fatal): ${fetchResult.output}`);
-          await emit("fetching_git", "Fetch skipped (offline or auth issue)", "done");
-        } else {
-          await emit("fetching_git", "Fetch complete", "done");
-        }
-
-        if (repoInfo.currentBranch !== body.branch) {
-          await emit("checkout_branch", `Checking out ${body.branch}...`, "in_progress");
-          try {
-            await gitUtils.checkoutBranchAsync(repoInfo.repoRoot, body.branch);
-            await emit("checkout_branch", `On branch ${body.branch}`, "done");
-          } catch (err) {
-            console.warn(`[routes] git checkout warning (non-fatal, repo may have uncommitted changes): ${err}`);
-            await emit("checkout_branch", "Checkout skipped (uncommitted changes)", "done");
-          }
-        }
-
-        await emit("pulling_git", "Pulling latest changes...", "in_progress");
-        const pullResult = await gitUtils.gitPullAsync(repoInfo.repoRoot);
-        if (!pullResult.success) {
-          console.warn(`[routes] git pull warning (non-fatal): ${pullResult.output}`);
-        }
-        await emit("pulling_git", "Up to date", "done");
-      }
     }
 
     let effectiveImage = companionEnv
@@ -584,7 +554,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
             if (registryImage) {
               console.log(`[routes] ${effectiveImage} missing locally, trying docker pull ${registryImage}...`);
               await emit("pulling_image", "Pulling Docker image...", "in_progress");
-              pulled = await containerManager.pullImage(registryImage, effectiveImage);
+              pulled = await withProgressHeartbeat(
+                emit,
+                {
+                  step: "pulling_image",
+                  label: "Pulling Docker image...",
+                  detail: "Still pulling Docker image...",
+                },
+                () => containerManager.pullImage(registryImage, effectiveImage),
+              );
               if (pulled) {
                 await emit("pulling_image", "Image pulled", "done");
               } else {
@@ -604,7 +582,22 @@ export function createSessionsRoutes(ctx: RouteContext) {
               }
               try {
                 await emit("building_image", "Building Docker image (this may take a minute)...", "in_progress");
-                containerManager.buildImage(dockerfilePath, effectiveImage);
+                const buildResult = await withProgressHeartbeat(
+                  emit,
+                  {
+                    step: "building_image",
+                    label: "Building Docker image (this may take a minute)...",
+                    detail: "Still building Docker image...",
+                  },
+                  () => containerManager.buildImageFromDockerfileAsync(dockerfilePath, effectiveImage),
+                );
+                if (!buildResult.success) {
+                  const truncated =
+                    buildResult.log.length > 2000
+                      ? `${buildResult.log.slice(0, 500)}\n...[truncated]...\n${buildResult.log.slice(-1500)}`
+                      : buildResult.log;
+                  throw new Error(truncated || "docker build failed");
+                }
                 await emit("building_image", "Image built", "done");
               } catch (err) {
                 const reason = err instanceof Error ? err.message : String(err);
@@ -662,7 +655,15 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
       await emit("copying_workspace", "Copying workspace files...", "in_progress");
       try {
-        await containerManager.copyWorkspaceToContainer(activeContainerInfo.containerId, containerWorkspaceCwd);
+        await withProgressHeartbeat(
+          emit,
+          {
+            step: "copying_workspace",
+            label: "Copying workspace files...",
+            detail: "Still copying workspace files...",
+          },
+          () => containerManager.copyWorkspaceToContainer(activeContainerInfo.containerId, containerWorkspaceCwd),
+        );
         containerManager.reseedGitAuth(activeContainerInfo.containerId);
         await emit("copying_workspace", "Workspace copied", "done");
       } catch (err) {
@@ -672,16 +673,24 @@ export function createSessionsRoutes(ctx: RouteContext) {
       }
 
       if (companionEnv?.initScript?.trim()) {
+        const initScript = companionEnv.initScript.trim();
         await emit("running_init_script", "Running init script...", "in_progress");
         try {
           console.log(
             `[routes] Running init script for env "${companionEnv.name}" in container ${activeContainerInfo.name}...`,
           );
           const initTimeout = Number(process.env.COMPANION_INIT_SCRIPT_TIMEOUT) || 120_000;
-          const result = await containerManager.execInContainerAsync(
-            activeContainerInfo.containerId,
-            ["sh", "-lc", companionEnv.initScript],
-            { timeout: initTimeout },
+          const result = await withProgressHeartbeat(
+            emit,
+            {
+              step: "running_init_script",
+              label: "Running init script...",
+              detail: "Still running init script...",
+            },
+            () =>
+              containerManager.execInContainerAsync(activeContainerInfo.containerId, ["sh", "-lc", initScript], {
+                timeout: initTimeout,
+              }),
           );
           if (result.exitCode !== 0) {
             console.error(
