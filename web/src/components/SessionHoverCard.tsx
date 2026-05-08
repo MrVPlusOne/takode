@@ -19,6 +19,7 @@ interface SessionHoverCardProps {
   anchorRect: DOMRect;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
+  zIndexClassName?: string;
 }
 
 /** Format model name for display (e.g. "claude-sonnet-4-5-20250929" → "claude-sonnet-4-5") */
@@ -37,6 +38,7 @@ export function SessionHoverCard({
   anchorRect,
   onMouseEnter,
   onMouseLeave,
+  zIndexClassName = "z-50",
 }: SessionHoverCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const taskHistoryScrollRef = useRef<HTMLDivElement>(null);
@@ -156,10 +158,11 @@ export function SessionHoverCard({
   return createPortal(
     <div
       ref={cardRef}
-      className="fixed z-50 pointer-events-auto hidden-on-touch"
+      className={`fixed ${zIndexClassName} pointer-events-auto hidden-on-touch`}
       style={{ left, top, width: cardWidth, transform: `scale(${zoomLevel})`, transformOrigin: "top left" }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
+      data-testid="session-hover-card"
     >
       <div className="bg-cc-card border border-cc-border rounded-xl shadow-xl overflow-hidden">
         {/* Header: Name + Status */}

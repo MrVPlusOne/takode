@@ -28,9 +28,18 @@ interface QuestHoverCardProps {
   anchorRect: DOMRect;
   onMouseEnter: () => void;
   onMouseLeave: () => void;
+  zIndexClassName?: string;
+  onOpenQuest?: () => void;
 }
 
-export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }: QuestHoverCardProps) {
+export function QuestHoverCard({
+  quest,
+  anchorRect,
+  onMouseEnter,
+  onMouseLeave,
+  zIndexClassName = "z-50",
+  onOpenQuest,
+}: QuestHoverCardProps) {
   const cardRef = useRef<HTMLDivElement>(null);
   const statusTheme = getQuestStatusTheme(quest.status);
   const zoomLevel = useStore((state) => state.zoomLevel ?? 1);
@@ -102,7 +111,7 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
   return createPortal(
     <div
       ref={cardRef}
-      className="fixed z-50 pointer-events-auto hidden-on-touch"
+      className={`fixed ${zIndexClassName} pointer-events-auto hidden-on-touch`}
       style={{ left, top, width: cardWidth, transform: `scale(${zoomLevel})`, transformOrigin: "top left" }}
       onMouseEnter={onMouseEnter}
       onMouseLeave={onMouseLeave}
@@ -126,6 +135,7 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
             aria-label={`Open ${quest.questId} quest details`}
             onClick={() => {
               openQuestOverlay(quest.questId);
+              onOpenQuest?.();
               onMouseLeave();
             }}
           >

@@ -20,11 +20,15 @@ export function QuestInlineLink({
   children,
   className = "text-cc-primary hover:underline",
   stopPropagation = false,
+  hoverCardZIndexClassName,
+  onNavigate,
 }: {
   questId: string;
   children?: ReactNode;
   className?: string;
   stopPropagation?: boolean;
+  hoverCardZIndexClassName?: string;
+  onNavigate?: () => void;
 }) {
   const quest = useStore((s) => findQuestById(s.quests, questId));
   const [hoverRect, setHoverRect] = useState<DOMRect | null>(null);
@@ -66,6 +70,7 @@ export function QuestInlineLink({
           e.preventDefault();
           if (stopPropagation) e.stopPropagation();
           useStore.getState().openQuestOverlay(questId);
+          onNavigate?.();
         }}
         onMouseEnter={handleLinkMouseEnter}
         onMouseLeave={handleLinkMouseLeave}
@@ -80,6 +85,8 @@ export function QuestInlineLink({
           anchorRect={hoverRect}
           onMouseEnter={handleHoverCardEnter}
           onMouseLeave={handleHoverCardLeave}
+          zIndexClassName={hoverCardZIndexClassName}
+          onOpenQuest={onNavigate}
         />
       )}
     </>

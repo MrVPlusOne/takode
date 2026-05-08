@@ -24,6 +24,8 @@ export function SessionInlineLink({
   dataTestId,
   threadKey,
   stopPropagation = false,
+  hoverCardZIndexClassName,
+  onNavigate,
 }: {
   sessionId: string | null;
   sessionNum?: number | null;
@@ -36,6 +38,8 @@ export function SessionInlineLink({
   dataTestId?: string;
   threadKey?: string | null;
   stopPropagation?: boolean;
+  hoverCardZIndexClassName?: string;
+  onNavigate?: () => void;
 }) {
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
@@ -177,6 +181,7 @@ export function SessionInlineLink({
           } else {
             navigateToSession(resolvedSessionId);
           }
+          onNavigate?.();
         }}
         onMouseEnter={handleLinkMouseEnter}
         onMouseLeave={handleLinkMouseLeave}
@@ -212,6 +217,7 @@ export function SessionInlineLink({
             anchorRect={hoverRect}
             onMouseEnter={handleHoverCardEnter}
             onMouseLeave={handleHoverCardLeave}
+            zIndexClassName={hoverCardZIndexClassName}
           />
         ))}
     </>

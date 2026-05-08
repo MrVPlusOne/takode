@@ -596,6 +596,7 @@ export function UniversalSearchOverlay({
                   selected={index === selectedIndex}
                   onPointerMove={() => setSelectedIndex(index)}
                   onOpen={() => openResult(result)}
+                  onInlineNavigate={onClose}
                 />
               ))}
               {hasMore && (
@@ -641,6 +642,7 @@ function ResultRow({
   selected,
   onPointerMove,
   onOpen,
+  onInlineNavigate,
 }: {
   result: UniversalSearchResult;
   query: string;
@@ -648,6 +650,7 @@ function ResultRow({
   selected: boolean;
   onPointerMove: () => void;
   onOpen: () => void;
+  onInlineNavigate: () => void;
 }) {
   if (result.kind === "quest") {
     return (
@@ -657,6 +660,7 @@ function ResultRow({
         selected={selected}
         onPointerMove={onPointerMove}
         onOpen={onOpen}
+        onInlineNavigate={onInlineNavigate}
       />
     );
   }
@@ -712,12 +716,14 @@ function QuestResultRow({
   selected,
   onPointerMove,
   onOpen,
+  onInlineNavigate,
 }: {
   quest: QuestmasterTask;
   sessions: SdkSessionInfo[];
   selected: boolean;
   onPointerMove: () => void;
   onOpen: () => void;
+  onInlineNavigate: () => void;
 }) {
   const leaderSessionId = getQuestLeaderSessionId(quest);
   const workerSessionId = getQuestOwnerSessionId(quest);
@@ -731,6 +737,8 @@ function QuestResultRow({
             <QuestInlineLink
               questId={quest.questId}
               stopPropagation
+              hoverCardZIndexClassName="z-[90]"
+              onNavigate={onInlineNavigate}
               className="shrink-0 font-mono-code text-[11px] text-cc-primary hover:underline"
             />
             <span className="truncate text-sm font-medium text-cc-fg">{quest.title}</span>
@@ -744,6 +752,8 @@ function QuestResultRow({
                   sessionId={leaderSessionId}
                   sessionNum={leaderSessionNum}
                   stopPropagation
+                  hoverCardZIndexClassName="z-[90]"
+                  onNavigate={onInlineNavigate}
                   className="font-mono-code text-cc-primary hover:underline"
                 >
                   {`#${leaderSessionNum ?? "?"}`}
@@ -757,6 +767,8 @@ function QuestResultRow({
                   sessionId={workerSessionId}
                   sessionNum={workerSessionNum}
                   stopPropagation
+                  hoverCardZIndexClassName="z-[90]"
+                  onNavigate={onInlineNavigate}
                   className="font-mono-code text-cc-primary hover:underline"
                 >
                   {`#${workerSessionNum ?? "?"}`}

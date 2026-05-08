@@ -365,7 +365,7 @@ describe("UniversalSearchOverlay", () => {
     expect(mockListQuestPage).toHaveBeenCalledTimes(1);
   });
 
-  it("renders quest owner metadata as quest and session links instead of tags", async () => {
+  it("keeps quest owner links visible and usable above the overlay", async () => {
     const ownedQuest = quest({
       questId: "q-303",
       title: "Owned quest result",
@@ -387,15 +387,27 @@ describe("UniversalSearchOverlay", () => {
       allTags: ["hidden-tag"],
     });
 
-    renderOverlay();
+    const callbacks = renderOverlay();
     fireEvent.click(screen.getByRole("button", { name: "Quests" }));
 
-    expect(await screen.findByRole("link", { name: "q-303" })).toBeInTheDocument();
+    const questLink = await screen.findByRole("link", { name: "q-303" });
+    expect(questLink).toBeInTheDocument();
     expect(screen.queryByText("#hidden-tag")).not.toBeInTheDocument();
     expect(screen.getByText("leader")).toBeInTheDocument();
     expect(screen.getByText("worker")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "#11" })).toBeInTheDocument();
+    const leaderLink = screen.getByRole("link", { name: "#11" });
+    expect(leaderLink).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "#12" })).toBeInTheDocument();
+
+    fireEvent.mouseEnter(questLink);
+    expect(screen.getByTestId("quest-hover-card")).toHaveClass("z-[90]");
+    fireEvent.click(questLink);
+    expect(callbacks.onClose).toHaveBeenCalledTimes(1);
+
+    fireEvent.mouseEnter(leaderLink);
+    expect(screen.getByTestId("session-hover-card")).toHaveClass("z-[90]");
+    fireEvent.click(leaderLink);
+    expect(callbacks.onClose).toHaveBeenCalledTimes(2);
   });
 
   it("ignores stale session search responses after the query changes", async () => {
