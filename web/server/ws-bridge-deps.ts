@@ -166,6 +166,7 @@ import {
   drainInlineQueuedClaudeTurns as drainInlineQueuedClaudeTurnsController,
   routeCLIMessage as routeCLIMessageController,
 } from "./bridge/claude-message-controller.js";
+import { validateLeaderThreadOutcomes as validateLeaderThreadOutcomesController } from "./bridge/leader-thread-outcome-validator.js";
 import {
   handleCodexPermissionRequest as handleCodexPermissionRequestController,
   handleControlRequest as handleControlRequestController,
@@ -652,6 +653,17 @@ export function getClaudeMessageHandlers(host: any) {
             : undefined,
         },
       ),
+    validateLeaderThreadOutcomes: (targetSession: unknown, turnTriggerSource: unknown) => {
+      validateLeaderThreadOutcomesController(targetSession as Session, {
+        isLeaderSession: (sessionId) => host.launcher?.getSession(sessionId)?.isOrchestrator === true,
+        getTurnSource: () => turnTriggerSource as "user" | "leader" | "system" | "unknown",
+        injectUserMessage: (sessionId, content, agentSource, threadRoute) => {
+          const delivery = host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute);
+          return delivery === "paused_queued" ? "queued" : delivery;
+        },
+        persistSession: (concreteSession) => host.persistSession(concreteSession as Session),
+      });
+    },
     onTurnCompleted: (targetSession: unknown) => {
       const concreteSession = targetSession as Session;
       host.onTurnCompleted?.(concreteSession.id, [...concreteSession.messageHistory], concreteSession.state.cwd);

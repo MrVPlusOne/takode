@@ -14,6 +14,7 @@ function makeState(): ResultMessageSessionLike["state"] {
     num_turns: 0,
     context_used_percent: 0,
     claude_token_details: undefined,
+    leaderThreadStatuses: undefined,
   };
 }
 
@@ -23,6 +24,8 @@ function makeSession(): ResultMessageSessionLike {
     backendType: "claude",
     cliResuming: false,
     messageHistory: [],
+    notifications: [],
+    leaderThreadOutcomeValidatedHistoryLength: 0,
     state: makeState(),
     diffStatsDirty: false,
     generationStartedAt: undefined,
@@ -71,6 +74,7 @@ function makeDeps() {
     cancelPermissionNotification: vi.fn(),
     onSessionActivityStateChanged: vi.fn(),
     onResultAttentionAndNotifications: vi.fn(),
+    validateLeaderThreadOutcomes: vi.fn(),
     onTurnCompleted: vi.fn(),
     injectUserMessage: vi.fn(),
   };
@@ -131,6 +135,7 @@ describe("result-message-controller", () => {
     );
     expect(deps.cancelPermissionNotification).toHaveBeenCalledWith("s1", "perm-1");
     expect(deps.onSessionActivityStateChanged).toHaveBeenCalledWith("s1", "result_cleared_permissions");
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
     expect(deps.onResultAttentionAndNotifications).toHaveBeenCalled();
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
   });
@@ -161,8 +166,21 @@ describe("result-message-controller", () => {
       }),
     );
     expect(deps.onResultAttentionAndNotifications).not.toHaveBeenCalled();
+    expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
     expect(deps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("skips leader-thread outcome validation for interrupted generation results", () => {
+    const session = makeSession();
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ stop_reason: "interrupted" }), deps);
+
+    expect(session.messageHistory.at(-1)).toEqual(expect.objectContaining({ type: "result", interrupted: true }));
+    expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
+    expect(deps.onResultAttentionAndNotifications).not.toHaveBeenCalled();
+    expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
   });
 
   it("injects a synthetic thread-routing reminder after unrouted leader output", () => {

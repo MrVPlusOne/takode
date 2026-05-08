@@ -18,6 +18,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
+import { THREAD_OUTCOME_REMINDER_SOURCE_ID } from "../shared/thread-outcome-reminder.js";
 import {
   advanceBoardRow as advanceBoardRowController,
   advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
@@ -805,6 +806,64 @@ describe("CLI message routing", () => {
     const session = bridge.getSession("s1")!;
     const injectedUser = session.messageHistory.findLast((m: any) => m.type === "user_message") as any;
     expect(injectedUser?.content).toBe("start work");
+    expect(
+      session.messageHistory.some((m: any) => m.agentSource?.sessionId === THREAD_OUTCOME_REMINDER_SOURCE_ID),
+    ).toBe(false);
+  });
+
+  it("assistant: injects a Thread Outcome Reminder for completed leader output without a fresh outcome", () => {
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ isOrchestrator: true })),
+    } as any);
+
+    bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "coordinate main",
+      }),
+    );
+
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "assistant",
+        message: {
+          id: "msg-missing-outcome",
+          type: "message",
+          role: "assistant",
+          model: "claude-sonnet-4-5-20250929",
+          content: [{ type: "text", text: "[thread:main]\nI started coordinating this." }],
+          stop_reason: "end_turn",
+          usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        session_id: "s1",
+      }),
+    );
+
+    bridge.handleCLIMessage(
+      cli,
+      JSON.stringify({
+        type: "result",
+        subtype: "success",
+        result: "",
+        is_error: false,
+        stop_reason: "end_turn",
+        total_cost_usd: 0.01,
+        num_turns: 1,
+        session_id: "s1",
+      }),
+    );
+
+    const session = bridge.getSession("s1")!;
+    const reminder = session.messageHistory.find(
+      (m: any) => m.type === "user_message" && m.agentSource?.sessionId === THREAD_OUTCOME_REMINDER_SOURCE_ID,
+    ) as any;
+    expect(reminder?.content).toContain("Missing outcome marker for: Main.");
+    expect(reminder?.threadKey).toBe("main");
   });
 
   it("assistant: does not inject reminder after SDK leader interrupt (stop_reason=end_turn)", () => {
@@ -871,6 +930,9 @@ describe("CLI message routing", () => {
       (m: any) => m.type === "user_message" && m.content?.includes("As a leader session"),
     );
     expect(hasReminder).toBe(false);
+    expect(
+      session.messageHistory.some((m: any) => m.agentSource?.sessionId === THREAD_OUTCOME_REMINDER_SOURCE_ID),
+    ).toBe(false);
   });
 
   it("assistant: treats tool-only leader messages as internal without reminder", () => {

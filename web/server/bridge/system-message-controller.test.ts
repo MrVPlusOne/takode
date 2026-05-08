@@ -133,6 +133,7 @@ function makeSdkDeps() {
     finalizeOrphanedTerminalToolsOnResult: vi.fn(),
     cancelPermissionNotification: vi.fn(),
     onResultAttentionAndNotifications: vi.fn(),
+    validateLeaderThreadOutcomes: vi.fn(),
     onTurnCompleted: vi.fn(),
     injectUserMessage: vi.fn(),
     hasUserPromptReplay: vi.fn(() => false),

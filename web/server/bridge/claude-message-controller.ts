@@ -17,6 +17,7 @@ import type {
   CLIToolUseSummaryMessage,
   CLIUserMessage,
   PermissionRequest,
+  SessionNotification,
   SessionState,
   ContentBlock,
   ToolResultPreview,
@@ -232,7 +233,12 @@ export interface ResultMessageSessionLike {
   dropReplayHistoryAfterRevert?: boolean;
   messageHistory: BrowserIncomingMessage[];
   questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
-  state: Pick<SessionState, "model" | "total_cost_usd" | "num_turns" | "context_used_percent" | "claude_token_details">;
+  state: Pick<
+    SessionState,
+    "model" | "total_cost_usd" | "num_turns" | "context_used_percent" | "claude_token_details" | "leaderThreadStatuses"
+  >;
+  notifications?: SessionNotification[];
+  leaderThreadOutcomeValidatedHistoryLength?: number;
   diffStatsDirty: boolean;
   generationStartedAt?: number | null;
   interruptedDuringTurn: boolean;
@@ -352,6 +358,10 @@ interface ResultMessageDeps {
   onResultAttentionAndNotifications: (
     session: ResultMessageSessionLike,
     msg: CLIResultMessage,
+    turnTriggerSource: "user" | "leader" | "system" | "unknown",
+  ) => void;
+  validateLeaderThreadOutcomes: (
+    session: ResultMessageSessionLike,
     turnTriggerSource: "user" | "leader" | "system" | "unknown",
   ) => void;
   onTurnCompleted: (session: ResultMessageSessionLike) => void;
@@ -775,6 +785,7 @@ export function handleResultMessage(
   deps.persistSession(session);
 
   if (!turnWasInterrupted) {
+    deps.validateLeaderThreadOutcomes(session, turnTriggerSource);
     deps.onResultAttentionAndNotifications(session, msg, turnTriggerSource);
   }
   deps.onTurnCompleted(session);
@@ -1045,6 +1056,7 @@ export function createClaudeMessageHandlers(
     cancelPermissionNotification: deps.cancelPermissionNotification,
     onSessionActivityStateChanged: deps.onSessionActivityStateChanged,
     onResultAttentionAndNotifications: deps.onResultAttentionAndNotifications,
+    validateLeaderThreadOutcomes: deps.validateLeaderThreadOutcomes,
     onTurnCompleted: deps.onTurnCompleted,
     injectUserMessage: deps.injectUserMessage,
   };
