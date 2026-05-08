@@ -191,6 +191,7 @@ describe("WorkBoardBar overflow tabs", () => {
 
   it("shows More tabs with hidden status aggregation and selects hidden rows from the list", async () => {
     const onSelectThread = vi.fn();
+    const onReorderThreadTabs = vi.fn();
     // Hidden q-3 owns needs-input state and hidden q-4 owns active output, so the More button must aggregate both.
     resetStore({
       sessionStatus: new Map([["s1", "running"]]),
@@ -206,18 +207,26 @@ describe("WorkBoardBar overflow tabs", () => {
         currentThreadKey="q-5"
         openThreadKeys={["q-1", "q-2", "q-3", "q-4", "q-5"]}
         onSelectThread={onSelectThread}
+        onReorderThreadTabs={onReorderThreadTabs}
         threadRows={THREAD_ROWS}
       />,
     );
 
     const visibleTabs = await screen.findAllByTestId("thread-tab");
     expect(visibleTabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual(["q-1", "q-2", "q-5"]);
+    expect(visibleTabs.every((tab) => tab.getAttribute("data-reorderable") === "true")).toBe(true);
+    expect(
+      visibleTabs.every(
+        (tab) => within(tab).getByTestId("thread-tab-select").getAttribute("aria-roledescription") === "sortable",
+      ),
+    ).toBe(true);
     const moreButton = screen.getByTestId("thread-tabs-more-button");
     expect(screen.getByTestId("thread-tab-rail")).toHaveAttribute("data-overflow", "more-tabs-list");
     expect(moreButton).toHaveAttribute("data-hidden-count", "2");
     expect(moreButton).toHaveAttribute("data-has-active-output", "true");
     expect(moreButton).toHaveAttribute("data-has-needs-input", "true");
-    expect(visibleTabs.every((tab) => tab.getAttribute("data-reorderable") === "false")).toBe(true);
+    expect(screen.getByTestId("thread-main-tab")).not.toHaveAttribute("data-reorderable", "true");
+    expect(moreButton).not.toHaveAttribute("aria-roledescription", "sortable");
 
     fireEvent.click(moreButton);
     const rows = screen.getAllByTestId("thread-tabs-more-row");

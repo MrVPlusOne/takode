@@ -967,10 +967,8 @@ function ThreadTabRail({
   const hasOverflowTabs = hiddenTabs.length > 0;
   const sortableTabKeys = useMemo(
     () =>
-      (hasOverflowTabs ? [] : visibleTabs)
-        .map((tab) => normalizeThreadKey(tab.threadKey))
-        .filter((key) => reorderableThreadKeys.includes(key)),
-    [hasOverflowTabs, reorderableThreadKeys, visibleTabs],
+      visibleTabs.map((tab) => normalizeThreadKey(tab.threadKey)).filter((key) => reorderableThreadKeys.includes(key)),
+    [reorderableThreadKeys, visibleTabs],
   );
   const allReorderableTabKeys = useMemo(
     () => tabs.map((tab) => normalizeThreadKey(tab.threadKey)).filter((key) => reorderableThreadKeys.includes(key)),
