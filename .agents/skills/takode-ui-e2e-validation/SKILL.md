@@ -13,6 +13,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
 - Never stop, kill, restart, bind over, or replace an existing server on `:3456`. In this project, `:3456` is the live/session server agents depend on.
 - Default normal Takode E2E/browser validation to the authorized shared persistent validation state when one is documented or explicitly authorized. Treat this as persistent validation state, not as permission to mutate live `:3456`.
 - Use isolated temp HOME/state only for destructive tests, privacy-sensitive data, reset-sensitive scenarios, narrow frontend-only checks, or when retained shared state would make the result misleading. Playground/browser fixtures and sanitized copied-live snapshots remain valid for their narrower cases.
+- Do not treat "the accepted code is only in my worktree / not ported yet" as an isolation reason by itself. Code and state are separable: run the worker worktree process on safe alternate ports, but point it at an authorized persistent validation profile when that profile is safe to reuse. Prefer that, or a sanitized copied persistent snapshot, before falling back to an empty temp HOME.
 - If no shared persistent validation state is documented or authorized for the task, say so before falling back to isolated temp state, a Playground/browser fixture, or a sanitized copied-live snapshot.
 - Hold the Takode lease for each shared resource you will use:
   - Full browser validation usually needs both `dev-server:companion` and `agent-browser`.
@@ -29,6 +30,7 @@ Validate Takode UI changes with `agent-browser`, scoped leases, an explicit stat
    - Use isolated temp HOME/state only when destructive behavior, privacy, resetability, or misleading retained state makes sharing unsafe.
    - Use Playground/browser fixtures for frontend-only component states.
    - Use sanitized copied-live snapshots for bugs anchored to a specific live session/history.
+   - If the implementation is still in a worker worktree, remember that code location and state location are separate choices: run the worktree frontend/backend on alternate ports, then point it at the authorized persistent validation state when safe. If direct reuse is unsafe, try a sanitized copied persistent snapshot. Empty isolated state is the last fallback, not the default consequence of working before Port.
 3. Before using shared persistent validation state, inventory the starting state: profile name or state location, URL/ports, known useful scenarios, owner/lease status, and anything you expect to preserve.
 4. If starting a server, use authorized profile ports or alternate isolated ports only. Keep `:3456` untouched.
 5. Open and operate the UI with `agent-browser`.
