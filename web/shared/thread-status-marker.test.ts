@@ -19,10 +19,19 @@ describe("thread-status-marker", () => {
       target: { threadKey: "q-1258", questId: "q-1258" },
       summary: "code review dispatched",
     });
+    expect(
+      parseThreadStatusMarkerLine(
+        "  {[(Thread Ready: q-1259 | clarified routing markers are separate from Thread Waiting/Ready status markers)]}  ",
+      ),
+    ).toMatchObject({
+      kind: "ready",
+      label: "Thread Ready",
+      target: { threadKey: "q-1259", questId: "q-1259" },
+      summary: "clarified routing markers are separate from Thread Waiting/Ready status markers",
+    });
   });
 
   it("rejects non-standalone, loose, or unsupported marker syntax", () => {
-    expect(parseThreadStatusMarkerLine(" {[(Thread Waiting: main | indented)]}")).toBeNull();
     expect(parseThreadStatusMarkerLine("{[(Thread Waiting: main|missing spaces)]}")).toBeNull();
     expect(parseThreadStatusMarkerLine("{[(Thread Waiting: MAIN | uppercase target)]}")).toBeNull();
     expect(parseThreadStatusMarkerLine("{[(Thread Needs Input: main | ask user)]}")).toBeNull();

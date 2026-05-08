@@ -294,6 +294,95 @@ describe("assistant-message-controller", () => {
     );
   });
 
+  it("strips standalone Thread Ready markers even when the response has no routed prose", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant(
+        [
+          {
+            type: "text",
+            text: "  {[(Thread Ready: q-1259 | clarified routing markers are separate from Thread Waiting/Ready status markers)]}  ",
+          },
+        ],
+        "standalone-ready",
+      ),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const assistant = broadcasts.find((msg) => msg.type === "assistant");
+    expect(assistant).toMatchObject({
+      type: "assistant",
+      threadStatusMarkers: [
+        {
+          kind: "ready",
+          label: "Thread Ready",
+          threadKey: "q-1259",
+          questId: "q-1259",
+          summary: "clarified routing markers are separate from Thread Waiting/Ready status markers",
+        },
+      ],
+    });
+    expect(assistant?.type === "assistant" ? assistant.message.content : []).toEqual([]);
+    expect(assistant?.type === "assistant" ? assistant.threadRefs : undefined).toBeUndefined();
+    expect(assistant?.type === "assistant" ? assistant.threadKey : undefined).toBeUndefined();
+    expect(session.state.leaderThreadStatuses?.["q-1259"]).toMatchObject({
+      kind: "ready",
+      threadKey: "q-1259",
+      summary: "clarified routing markers are separate from Thread Waiting/Ready status markers",
+    });
+  });
+
+  it("does not let cross-thread status markers route ordinary Main-thread prose", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant([
+        {
+          type: "text",
+          text: [
+            "Waiting on your confirmation for the restart-prep reliability quest proposal.",
+            "{[(Thread Waiting: q-1262 | rework Implement queued to worker)]}",
+          ].join("\n"),
+        },
+      ]),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const msg = broadcasts.find((message) => message.type === "assistant");
+    expect(msg).toBeDefined();
+
+    expect(msg!).toMatchObject({
+      type: "assistant",
+      threadStatusMarkers: [
+        expect.objectContaining({
+          kind: "waiting",
+          threadKey: "q-1262",
+          summary: "rework Implement queued to worker",
+        }),
+      ],
+    });
+    expect(msg!.type === "assistant" ? msg!.message.content : []).toEqual([
+      { type: "text", text: "Waiting on your confirmation for the restart-prep reliability quest proposal." },
+    ]);
+    expect(msg!.type === "assistant" ? msg!.threadRefs : undefined).toBeUndefined();
+    expect(msg!.type === "assistant" ? msg!.threadKey : undefined).toBeUndefined();
+  });
+
   it("keeps invalid marker-looking lines visible and does not create Thread Needs Input status", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;
@@ -346,13 +435,8 @@ describe("assistant-message-controller", () => {
       kind: "ready",
       summary: "implementation complete",
     });
-    expect(assistant).toMatchObject({
-      type: "assistant",
-      threadRefs: expect.arrayContaining([
-        expect.objectContaining({ threadKey: "q-941" }),
-        expect.objectContaining({ threadKey: "q-942" }),
-      ]),
-    });
+    expect(assistant?.type === "assistant" ? assistant.threadRefs : undefined).toBeUndefined();
+    expect(assistant?.type === "assistant" ? assistant.threadKey : undefined).toBeUndefined();
   });
 
   it("updates the active running route when leader assistant output is routed to a quest thread", () => {

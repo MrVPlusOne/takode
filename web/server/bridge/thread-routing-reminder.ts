@@ -61,17 +61,9 @@ function threadRefForTarget(target: { threadKey: string; questId?: string }): Th
   };
 }
 
-function mergeThreadRefs(
-  existing: ThreadRef[] | undefined,
-  markers: ParsedThreadStatusMarker[] | undefined,
-): ThreadRef[] | undefined {
+function mergeThreadRefs(existing: ThreadRef[] | undefined): ThreadRef[] | undefined {
   const refs = new Map<string, ThreadRef>();
   for (const ref of existing ?? []) {
-    refs.set(threadStatusKey(ref.threadKey), ref);
-  }
-  for (const marker of markers ?? []) {
-    const ref = threadRefForTarget(marker.target);
-    if (!ref) continue;
     refs.set(threadStatusKey(ref.threadKey), ref);
   }
   return refs.size > 0 ? [...refs.values()] : undefined;
@@ -148,10 +140,8 @@ export function normalizeLeaderAssistantRouting(
     const firstText = nextContent[firstTextIndex] as Extract<ContentBlock, { type: "text" }>;
     const parsed = parseThreadTextPrefix(firstText.text);
     if (!parsed.ok) {
-      const refs = mergeThreadRefs(undefined, statusExtracted.markers);
       return {
         content: nextContent,
-        ...(refs ? { threadRefs: refs } : {}),
         threadRoutingError: threadRoutingErrorForText(parsed, content),
         ...questThreadReminders,
         ...threadStatusMarkers,
@@ -160,7 +150,7 @@ export function normalizeLeaderAssistantRouting(
     const routed = nextContent.slice();
     routed[firstTextIndex] = { ...firstText, text: parsed.body };
     const ref = threadRefForTarget(parsed.target);
-    const refs = mergeThreadRefs(ref ? [ref] : undefined, statusExtracted.markers);
+    const refs = mergeThreadRefs(ref ? [ref] : undefined);
     return {
       content: routed,
       threadKey: parsed.target.threadKey,
@@ -186,7 +176,7 @@ export function normalizeLeaderAssistantRouting(
       };
     }
     const ref = threadRefForTarget(target);
-    const refs = mergeThreadRefs(ref ? [ref] : undefined, statusExtracted.markers);
+    const refs = mergeThreadRefs(ref ? [ref] : undefined);
     return {
       content: nextContent,
       threadKey: target.threadKey,
@@ -197,10 +187,8 @@ export function normalizeLeaderAssistantRouting(
     };
   }
 
-  const refs = mergeThreadRefs(undefined, statusExtracted.markers);
   return {
     content: nextContent,
-    ...(refs ? { threadRefs: refs } : {}),
     ...questThreadReminders,
     ...threadStatusMarkers,
   };

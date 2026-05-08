@@ -10,6 +10,7 @@ import {
   isQuestThreadKey,
   normalizeThreadTarget,
 } from "../../shared/thread-routing.js";
+import { threadStatusKey } from "../../shared/thread-status-marker.js";
 
 export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
@@ -126,6 +127,26 @@ function normalizedRouteKeys(message: ChatMessage): Set<string> {
 function messageHasThreadRef(message: ChatMessage, threadKey: string): boolean {
   if (isThreadAttachmentMarkerMessage(message) || isThreadTransitionMarkerMessage(message)) return false;
   return normalizedRouteKeys(message).has(normalizeThreadKey(threadKey));
+}
+
+function messageThreadStatusMarkersForThread(message: ChatMessage, threadKey: string) {
+  const target = normalizeThreadKey(threadKey);
+  return (message.metadata?.threadStatusMarkers ?? []).filter((marker) => threadStatusKey(marker.threadKey) === target);
+}
+
+function projectThreadStatusOnlyMessage(message: ChatMessage, threadKey: string): ChatMessage | null {
+  const markers = messageThreadStatusMarkersForThread(message, threadKey);
+  if (markers.length === 0) return null;
+  const { notification: _notification, ...messageWithoutNotification } = message;
+  return {
+    ...messageWithoutNotification,
+    id: `thread-status:${normalizeThreadKey(threadKey)}:${message.id}`,
+    content: "",
+    contentBlocks: [],
+    metadata: {
+      threadStatusMarkers: markers,
+    },
+  };
 }
 
 export function recoverRoutedNotificationSourceMessages(
@@ -379,6 +400,12 @@ function filterMainThreadMessages(messages: ChatMessage[]): ChatMessage[] {
       continue;
     }
 
+    const mainStatusOnlyMessage = projectThreadStatusOnlyMessage(message, MAIN_THREAD_KEY);
+    if (mainStatusOnlyMessage) {
+      flushHiddenRun();
+      projected.push(mainStatusOnlyMessage);
+    }
+
     const route = explicitNonMainRoute(message);
     if (!route) continue;
     if (isHerdEventMessage(message)) continue;
@@ -406,12 +433,29 @@ function filterQuestThreadMessages(messages: ChatMessage[], threadKey: string): 
     }
   }
 
-  return messages.filter((message) => {
-    if (threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)) return true;
-    if (messageHasThreadRef(message, threadKey)) return true;
-    if (message.parentToolUseId && includedToolUseIds.has(message.parentToolUseId)) return true;
-    return messageToolUseIds(message).some((toolUseId) => includedToolUseIds.has(toolUseId));
-  });
+  const projected: ChatMessage[] = [];
+  for (const message of messages) {
+    if (threadSystemMarkerVisibleInQuestThread(message, messages, threadKey)) {
+      projected.push(message);
+      continue;
+    }
+    if (messageHasThreadRef(message, threadKey)) {
+      projected.push(message);
+      continue;
+    }
+    if (message.parentToolUseId && includedToolUseIds.has(message.parentToolUseId)) {
+      projected.push(message);
+      continue;
+    }
+    if (messageToolUseIds(message).some((toolUseId) => includedToolUseIds.has(toolUseId))) {
+      projected.push(message);
+      continue;
+    }
+
+    const statusOnlyMessage = projectThreadStatusOnlyMessage(message, threadKey);
+    if (statusOnlyMessage) projected.push(statusOnlyMessage);
+  }
+  return projected;
 }
 
 export function formatThreadLabel(threadKey: string): string {

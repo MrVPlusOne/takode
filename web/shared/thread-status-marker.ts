@@ -26,11 +26,12 @@ const THREAD_STATUS_MARKER_RE = /^\{\[\(Thread (Waiting|Ready): (main|q-\d+) \| 
 const THREAD_STATUS_MARKER_LIKE_RE = /^\{\[\(Thread\b/;
 
 export function isThreadStatusMarkerLikeLine(line: string): boolean {
-  return THREAD_STATUS_MARKER_LIKE_RE.test(line);
+  return THREAD_STATUS_MARKER_LIKE_RE.test(line.trim());
 }
 
 export function parseThreadStatusMarkerLine(line: string, lineIndex = 0): ParsedThreadStatusMarker | null {
-  const match = THREAD_STATUS_MARKER_RE.exec(line);
+  const normalizedLine = line.trim();
+  const match = THREAD_STATUS_MARKER_RE.exec(normalizedLine);
   if (!match) return null;
 
   const target = normalizeThreadTarget(match[2]!);
@@ -44,7 +45,7 @@ export function parseThreadStatusMarkerLine(line: string, lineIndex = 0): Parsed
     label,
     target,
     summary,
-    raw: line,
+    raw: normalizedLine,
     lineIndex,
   };
 }

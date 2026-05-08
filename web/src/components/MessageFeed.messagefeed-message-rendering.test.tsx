@@ -29,7 +29,7 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
-import type { ChatMessage } from "../types.js";
+import type { ChatMessage, SessionNotification } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 
 // Mock react-markdown to avoid ESM issues in tests
@@ -253,7 +253,7 @@ function setStorePendingUserUploads(sessionId: string, uploads: Array<Record<str
   mockStoreValues.pendingUserUploads = map;
 }
 
-function setStoreNotifications(sessionId: string, notifications: Array<Record<string, unknown>>) {
+function setStoreNotifications(sessionId: string, notifications: Array<Record<string, unknown> | SessionNotification>) {
   const map = new Map();
   map.set(sessionId, notifications);
   mockStoreValues.sessionNotifications = map;
@@ -610,6 +610,61 @@ describe("MessageFeed - message rendering", () => {
 
     expect(screen.queryByLabelText("Thread Waiting for thread:q-941: waiting on reviewer pass")).toBeNull();
     expect(screen.getByLabelText("Thread Ready for thread:q-941: review accepted")).toBeTruthy();
+  });
+
+  it("keeps Main needs-input UI on the source message while projecting cross-thread status only", () => {
+    const sid = "test-thread-status-does-not-route-notification";
+    const status = {
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "q-1262",
+      questId: "q-1262",
+      summary: "rework Implement queued to worker",
+      messageId: "main-prompt",
+      timestamp: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    };
+    const notification: SessionNotification = {
+      id: "n-140",
+      category: "needs-input",
+      summary: "confirm restart-prep reliability quest and dispatch plan",
+      suggestedAnswers: ["approve", "revise scope"],
+      timestamp: 1_700_000_000_000,
+      messageId: "main-prompt",
+      threadKey: "main",
+      done: false,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1262": status } });
+    setStoreNotifications(sid, [notification]);
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "main-prompt",
+        role: "assistant",
+        content: "Waiting on your confirmation for the restart-prep reliability quest proposal.",
+        notification,
+        metadata: {
+          threadStatusMarkers: [status],
+        },
+      }),
+    ]);
+
+    const mainRender = render(<MessageFeed sessionId={sid} threadKey="main" />);
+    expect(
+      screen.getByText("Waiting on your confirmation for the restart-prep reliability quest proposal."),
+    ).toBeTruthy();
+    expect(screen.getByLabelText("Use suggested answer: approve")).toBeTruthy();
+    expect(screen.getByLabelText("Use suggested answer: revise scope")).toBeTruthy();
+    expect(screen.queryByLabelText("Thread Waiting for thread:q-1262: rework Implement queued to worker")).toBeNull();
+
+    mainRender.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1262" />);
+    expect(
+      screen.queryByText("Waiting on your confirmation for the restart-prep reliability quest proposal."),
+    ).toBeNull();
+    expect(screen.queryByLabelText("Use suggested answer: approve")).toBeNull();
+    expect(screen.queryByLabelText("Use suggested answer: revise scope")).toBeNull();
+    expect(screen.getByLabelText("Thread Waiting for thread:q-1262: rework Implement queued to worker")).toBeTruthy();
   });
 
   it("renders system messages in the feed", () => {
