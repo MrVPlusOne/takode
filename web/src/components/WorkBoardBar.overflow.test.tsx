@@ -312,6 +312,41 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(within(moreButton).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
   });
 
+  it("prioritizes hidden amber over blue on More and hidden rows", async () => {
+    resetStore({
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-4", title: "Quest 4 thread", status: "WAITING", updatedAt: 4, waitForInput: ["user"] }]],
+      ]),
+    });
+
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-5"
+        openThreadKeys={["q-1", "q-2", "q-3", "q-4", "q-5"]}
+        threadRows={THREAD_ROWS}
+        attentionRecords={[reviewAttentionRecord("q-4")]}
+      />,
+    );
+
+    const moreButton = await screen.findByTestId("thread-tabs-more-button");
+    expect(moreButton).toHaveAttribute("data-has-needs-input", "true");
+    expect(moreButton).toHaveAttribute("data-has-blue-notification", "true");
+    expectNoNotificationSurfaceTone(moreButton);
+    expect(within(moreButton).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+    expect(within(moreButton).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
+
+    fireEvent.click(moreButton);
+    const q4Row = screen
+      .getAllByTestId("thread-tabs-more-row")
+      .find((row) => row.getAttribute("data-thread-key") === "q-4")!;
+    expect(q4Row).toHaveAttribute("data-hidden", "true");
+    expect(q4Row).toHaveAttribute("data-needs-input", "true");
+    expect(q4Row).toHaveAttribute("data-blue-notification", "true");
+    expect(within(q4Row).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+    expect(within(q4Row).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
+  });
+
   it("uses muted completed color for completed hidden rows in the More tabs list", async () => {
     resetStore({
       sessionCompletedBoards: new Map([
