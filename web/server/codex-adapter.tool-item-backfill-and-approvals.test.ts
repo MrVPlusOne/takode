@@ -836,7 +836,7 @@ describe("CodexAdapter", () => {
     }
   });
 
-  it("does not emit tool_result for successful command with no output", async () => {
+  it("emits a normal tool_result when successful command has no output", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
     adapter.onBrowserMessage((msg) => messages.push(msg));
@@ -872,13 +872,111 @@ describe("CodexAdapter", () => {
     });
     expect(toolUseMsg).toBeDefined();
 
-    // But should not emit a synthetic success tool_result
     const toolResultMsg = messages.find((m) => {
       if (m.type !== "assistant") return false;
-      const content = (m as { message: { content: Array<{ type: string; tool_use_id?: string }> } }).message.content;
+      const content = (m as { message: { content: Array<{ type: string; tool_use_id?: string; content?: string }> } })
+        .message.content;
       return content.some((b) => b.type === "tool_result" && b.tool_use_id === "cmd_silent");
+    }) as { message: { content: Array<{ type: string; tool_use_id?: string; content?: string }> } } | undefined;
+    expect(toolResultMsg).toBeDefined();
+    const resultBlock = toolResultMsg!.message.content.find(
+      (b) => b.type === "tool_result" && b.tool_use_id === "cmd_silent",
+    );
+    expect(resultBlock?.content).toBe("Exit code: 0");
+  });
+
+  it("emits silent success tool_result before turn result when command completion wins the race", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "turn/started",
+        params: { turn: { id: "turn_silent" }, threadId: "thr_123" },
+      }) + "\n",
+    );
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "item/completed",
+        params: {
+          item: {
+            type: "commandExecution",
+            id: "cmd_silent_order",
+            command: "true",
+            status: "completed",
+            exitCode: 0,
+          },
+          threadId: "thr_123",
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    stdout.push(
+      JSON.stringify({
+        method: "turn/completed",
+        params: {
+          turn: { id: "turn_silent", status: "completed" },
+          threadId: "thr_123",
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const resultIndex = messages.findIndex((m) => m.type === "result");
+    const toolResultIndex = messages.findIndex((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; tool_use_id?: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_result" && b.tool_use_id === "cmd_silent_order");
     });
-    expect(toolResultMsg).toBeUndefined();
+    expect(toolResultIndex).toBeGreaterThanOrEqual(0);
+    expect(resultIndex).toBeGreaterThan(toolResultIndex);
+  });
+
+  it("emits only one command tool_result when a completion event is duplicated", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", { model: "o4-mini" });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    const completion = {
+      method: "item/completed",
+      params: {
+        item: {
+          type: "commandExecution",
+          id: "cmd_once",
+          command: "pwd",
+          status: "completed",
+          exitCode: 0,
+          stdout: "/repo\n",
+        },
+      },
+    };
+    stdout.push(JSON.stringify(completion) + "\n");
+    await tick();
+    stdout.push(JSON.stringify(completion) + "\n");
+    await tick();
+
+    const toolResultMessages = messages.filter((m) => {
+      if (m.type !== "assistant") return false;
+      const content = (m as { message: { content: Array<{ type: string; tool_use_id?: string }> } }).message.content;
+      return content.some((b) => b.type === "tool_result" && b.tool_use_id === "cmd_once");
+    });
+    expect(toolResultMessages).toHaveLength(1);
   });
 
   it("uses aggregatedOutput when command completion omits stdout/stderr", async () => {

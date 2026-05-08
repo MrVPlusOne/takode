@@ -459,10 +459,6 @@ export class CodexItemEventManager {
         const durationMs = typeof cmd.durationMs === "number" ? cmd.durationMs : undefined;
         const failed = cmd.status === "failed" || cmd.status === "declined" || exitCode !== 0;
 
-        if (!combinedOutput && !failed) {
-          break;
-        }
-
         let resultText = combinedOutput;
         if (!resultText) {
           resultText = `Exit code: ${exitCode}`;
@@ -474,7 +470,7 @@ export class CodexItemEventManager {
           resultText = `${resultText}\n(${durationStr})`;
         }
 
-        this.emitToolResult(item.id, resultText, failed, parentToolUseId);
+        this.emitToolResultOnce(item.id, resultText, failed, parentToolUseId);
         break;
       }
 

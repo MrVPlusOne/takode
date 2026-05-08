@@ -1148,7 +1148,7 @@ describe("Codex resumed-turn recovery", () => {
     }
   });
 
-  it("result finalizes silent bash tools so they do not stay running forever", async () => {
+  it("result finalizes truly unresolved bash tools so they do not stay running forever", async () => {
     const sid = "s-result-silent-terminal";
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter(sid, adapter as any);
@@ -1201,6 +1201,7 @@ describe("Codex resumed-turn recovery", () => {
         session_id: sid,
       },
     });
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const preview = calls.find(
@@ -1212,7 +1213,94 @@ describe("Codex resumed-turn recovery", () => {
     expect(preview).toBeDefined();
     expect(preview.previews[0].is_error).toBe(false);
     expect(preview.previews[0].content).toContain("no output was captured");
+    expect(preview.previews[0].synthetic_reason).toBe("result_orphaned_terminal");
     expect(bridge.getSession(sid)?.toolStartTimes.has("cmd_silent")).toBe(false);
+  });
+
+  it("does not synthesize result_orphaned_terminal after normal silent success finalizes first", async () => {
+    const sid = "s-silent-success-finalized";
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+    browser.send.mockClear();
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "run true",
+      }),
+    );
+    adapter.emitBrowserMessage({
+      type: "assistant",
+      message: {
+        id: "assistant-cmd-silent-success",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.3-codex",
+        content: [{ type: "tool_use", id: "cmd_silent_success", name: "Bash", input: { command: "true" } }],
+        stop_reason: "tool_use",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: Date.now(),
+    });
+
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      adapter.emitBrowserMessage({
+        type: "assistant",
+        message: {
+          id: "assistant-cmd-silent-success-result",
+          type: "message",
+          role: "assistant",
+          model: "gpt-5.3-codex",
+          content: [
+            { type: "tool_result", tool_use_id: "cmd_silent_success", content: "Exit code: 0", is_error: false },
+          ],
+          stop_reason: null,
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        },
+        parent_tool_use_id: null,
+        timestamp: Date.now(),
+      });
+      await flushAsync();
+
+      browser.send.mockClear();
+      adapter.emitBrowserMessage({
+        type: "result",
+        data: {
+          type: "result",
+          subtype: "success",
+          is_error: false,
+          result: "done",
+          duration_ms: 1000,
+          duration_api_ms: 1000,
+          num_turns: 1,
+          total_cost_usd: 0,
+          stop_reason: "completed",
+          usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+          uuid: "codex-result-silent-success",
+          session_id: sid,
+        },
+      });
+      await flushAsync();
+
+      const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+      const syntheticPreview = calls.find(
+        (c: any) =>
+          c.type === "tool_result_preview" &&
+          Array.isArray(c.previews) &&
+          c.previews.some((p: any) => p.synthetic_reason === "result_orphaned_terminal"),
+      );
+      expect(syntheticPreview).toBeUndefined();
+      expect(bridge.getSession(sid)?.toolStartTimes.has("cmd_silent_success")).toBe(false);
+      expect(warnSpy).not.toHaveBeenCalledWith(expect.stringContaining("result_orphaned_terminal"));
+    } finally {
+      warnSpy.mockRestore();
+    }
   });
 
   it("prefers retained terminal transcript when aged superseded codex bash tool lacks a final result", async () => {
