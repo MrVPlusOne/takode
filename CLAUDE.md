@@ -17,6 +17,12 @@ The Takode server symlinks project skills into global skill directories at start
 
 Global skills are auto-discovered by every session and can be hard to remove once installed. Avoid adding global skills for context-dependent instructions. Prefer repo instruction files in known locations, then inject or reference those exact file paths only for the agents that need that context.
 
+### Design Decisions as Skills
+
+For Takode repo work only, leaders should proactively propose focused repo-level design-principle skills when a user describes reusable guidance or when repeated failures suggest codified guidance would prevent recurrence. These skills should explain the principle, motivation, and practical application. Their frontmatter descriptions must clearly state when future agents should read them, using concrete trigger terms rather than vague names.
+
+If an implementation plan or user proposal conflicts with an existing design-principle skill, surface the conflict before changing code and decide whether to update the principle or revise the proposal. Preserve the existing skill-source boundaries above: use `.claude/skills` for Claude-facing Takode project skills, `.agents/skills` only when a distinct non-Claude source is needed, and do not add new project skills under legacy `.codex/skills`. This is a Takode-repo instruction, not a universal rule for other repositories.
+
 | Skill | Source | Purpose |
 |-------|--------|---------|
 | `takode-orchestration` | `.claude/skills/takode-orchestration/` | Cross-session orchestration: CLI reference, quest journey, board, herd events |
