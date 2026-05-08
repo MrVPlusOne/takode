@@ -68,6 +68,7 @@ Add or update a row.
   - `#N` for a specific session to become reusable
   - `free-worker` when herd worker-slot capacity must clear
 - A row with multiple `--wait-for` blockers remains queued until every listed quest, session, or capacity blocker is clear. Use the comma-separated form directly instead of retargeting the row from one blocker to the next.
+- `QUEUED --wait-for` is durable board tracking, not a substitute for the resource-lease queue. When the next active phase is Execute and the only blocker is a shared lease, dispatch the worker so it can run `takode lease acquire --wait` and receive the lease-promotion event. If a leader queues externally instead, the leader owns an explicit `takode timer` checkback and `takode notify waiting` marker.
 - `--wait-for-input` links an active row to same-session `needs-input` notification IDs when the quest is intentionally paused on a human answer
 - `--clear-wait-for-input` removes that intentional human-input hold and resolves the linked notification(s)
 - `--phases` assembles the row's Journey from built-in phase IDs; repeated phases are allowed
@@ -136,6 +137,7 @@ Remove row(s) manually.
 - `--wait-for` and `--wait-for-input` are mutually exclusive on a single row.
 - `--wait-for-input` is valid on active rows and proposed approval-hold rows. Do not use it on `QUEUED` rows.
 - When an active phase is paused because a human or safety decision is needed before continuing, keep the row active, create a `needs-input` notification, and attach it with `--wait-for-input <id>`. Do not convert the row to `QUEUED --wait-for #N`; use `QUEUED --wait-for` only for pre-active scheduling/dependency waits.
+- Do not convert an approved Execute phase to `QUEUED` only because a shared lease is currently held. The worker should enter Execute and use the lease queue; leader-side queueing bypasses worker lease-promotion wakeups.
 - Update the board immediately when herd events change quest state.
 - Do not restate current board rows in chat after updating the board; the UI already shows them live.
 - Treat quest threads as the shared quest-scoped context surface: Main is the staging area for unthreaded/global work, quest-backed threads carry quest-specific activity, and All Threads/global inspection preserves the append-only audit stream. Chat should carry the next decision, reasoning, and facts that are not yet modeled structurally.
