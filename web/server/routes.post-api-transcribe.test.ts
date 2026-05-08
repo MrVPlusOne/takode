@@ -884,6 +884,101 @@ describe("POST /api/transcribe", () => {
     ]);
   });
 
+  it("broadcasts request-scoped progress through dictation enhancement", async () => {
+    mockVoiceSettings({ enhancementEnabled: true });
+    ensureBridgeSession(bridge, "session-1", {
+      taskHistory: [{ title: "Improve mobile voice progress" }],
+      messageHistory: [{ type: "user_message", content: "Prior context should let enhancement run." }],
+    });
+    vi.mocked(fetch)
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            text: "This mobile Safari recording is intentionally long enough to run the dictation enhancer after speech to text finishes, so the WebSocket progress path should report enhancement before the final result.",
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            choices: [
+              {
+                message: {
+                  content:
+                    "This mobile Safari recording should report enhancement progress before the final transcript result.",
+                },
+              },
+            ],
+          }),
+          {
+            status: 200,
+            headers: { "Content-Type": "application/json" },
+          },
+        ),
+      );
+
+    const res = await app.request(
+      "/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&requestId=voice-request-enhance-1",
+      {
+        method: "POST",
+        headers: {
+          "Content-Type": "audio/wav",
+          "X-Companion-Audio-Filename": "recording.wav",
+        },
+        body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+      },
+    );
+
+    expect(res.status).toBe(200);
+    const body = await res.text();
+    expect(body).toContain('"enhanced":true');
+    expect(body).toContain('"timing"');
+
+    const progressMessages = (
+      bridge.broadcastToSession.mock.calls as Array<
+        [string, { type?: string; phase?: string; timing?: Record<string, unknown> }]
+      >
+    )
+      .map((call) => call[1])
+      .filter((msg) => msg?.type === "transcription_progress");
+    expect(progressMessages).toEqual([
+      expect.objectContaining({
+        requestId: "voice-request-enhance-1",
+        phase: "transcribing",
+        mode: "dictation",
+        timing: expect.objectContaining({
+          audioSizeBytes: 4,
+          audioMimeType: "audio/wav",
+          audioFileName: "recording.wav",
+          uploadDurationMs: expect.any(Number),
+        }),
+      }),
+      expect.objectContaining({
+        requestId: "voice-request-enhance-1",
+        phase: "enhancing",
+        mode: "dictation",
+        timing: expect.objectContaining({
+          uploadDurationMs: expect.any(Number),
+          sttDurationMs: expect.any(Number),
+        }),
+      }),
+      expect.objectContaining({
+        requestId: "voice-request-enhance-1",
+        phase: "complete",
+        mode: "dictation",
+        timing: expect.objectContaining({
+          uploadDurationMs: expect.any(Number),
+          sttDurationMs: expect.any(Number),
+          enhancementDurationMs: expect.any(Number),
+        }),
+      }),
+    ]);
+  });
+
   it("passes custom vocabulary through to the post-STT dictation enhancer", async () => {
     vi.mocked(settingsManager.getSettings).mockReturnValue({
       serverName: "",

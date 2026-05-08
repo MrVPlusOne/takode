@@ -4,8 +4,9 @@ import { Profiler } from "react";
 import { render, screen, fireEvent, createEvent, waitFor, act, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { SessionState } from "../../server/session-types.js";
-import type { VoiceTranscriptionResult } from "../api.js";
+import type { VoiceTranscriptionProgressEvent, VoiceTranscriptionResult } from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
+import { clearFrontendPerfEntries, getFrontendPerfEntries } from "../utils/frontend-perf-recorder.js";
 
 // Polyfill scrollIntoView for jsdom
 Element.prototype.scrollIntoView = vi.fn();
@@ -490,6 +491,7 @@ beforeEach(() => {
   mockPrepareUserMessageImages.mockReset();
   mockDeletePreparedUserMessageImage.mockReset();
   mockDeletePreparedUserMessageImage.mockResolvedValue({ ok: true });
+  clearFrontendPerfEntries();
   mockPrepareUserMessageImages.mockImplementation(
     async (sessionId: string, images: Array<{ mediaType: string }>, _signal?: AbortSignal) => ({
       imageRefs: images.map((image, index) => ({
@@ -548,6 +550,66 @@ describe("Composer voice edit mode", () => {
     });
     const options = mockTranscribe.mock.calls[0]?.[1] as Record<string, unknown>;
     expect(options?.composerText).toBeUndefined();
+  });
+
+  it("passes a request id and records voice progress evidence for transcription", async () => {
+    let progressRequestId = "";
+    mockTranscribe.mockImplementationOnce(async (_blob: Blob, options: unknown) => {
+      const transcriptionOptions = options as {
+        requestId?: string;
+        onProgress?: (event: VoiceTranscriptionProgressEvent) => void;
+      };
+      expect(transcriptionOptions.requestId).toBeTypeOf("string");
+      expect(transcriptionOptions.requestId?.length).toBeGreaterThan(0);
+      expect(transcriptionOptions.onProgress).toEqual(expect.any(Function));
+
+      progressRequestId = transcriptionOptions.requestId!;
+      transcriptionOptions.onProgress?.({
+        requestId: progressRequestId,
+        phase: "transcribing",
+        mode: "dictation",
+        source: "websocket",
+        timestamp: 123,
+        timing: {
+          audioSizeBytes: 5,
+          audioMimeType: "audio/webm",
+          audioFileName: "recording.webm",
+          uploadDurationMs: 17,
+        },
+      });
+
+      return { mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false };
+    });
+
+    render(<Composer sessionId="s1" />);
+    fireEvent.click(screen.getByLabelText("Voice input"));
+
+    await waitFor(() => {
+      expect(mockTranscribe).toHaveBeenCalledWith(
+        expect.any(Blob),
+        expect.objectContaining({
+          mode: "dictation",
+          sessionId: "s1",
+          requestId: progressRequestId,
+          onProgress: expect.any(Function),
+        }),
+      );
+    });
+
+    expect(getFrontendPerfEntries()).toEqual([
+      expect.objectContaining({
+        kind: "voice_transcription_progress",
+        sessionId: "s1",
+        requestId: progressRequestId,
+        phase: "transcribing",
+        source: "websocket",
+        mode: "dictation",
+        audioSizeBytes: 5,
+        audioMimeType: "audio/webm",
+        audioFileName: "recording.webm",
+        uploadDurationMs: 17,
+      }),
+    ]);
   });
 
   it("waits for the initial settings fetch before the first non-empty recording so the persisted mode wins", async () => {
