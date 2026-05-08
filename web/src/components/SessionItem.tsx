@@ -453,8 +453,8 @@ export function SessionItem({
     onSelect(s.id);
   }, [onSelect, s.id]);
 
-  // Backend icon source
-  const backendLogo = s.backendType === "codex" ? "/logo-codex.svg" : "/logo.png";
+  // Backend identity badge. Session portraits remain the primary session identity.
+  const backendLogo = s.backendType === "codex" ? "/backend-logos/codex.svg" : "/backend-logos/claude.svg";
   const backendAlt = s.backendType === "codex" ? "Codex" : s.backendType === "claude-sdk" ? "Claude SDK" : "Claude";
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
@@ -774,7 +774,7 @@ export function SessionItem({
               {s.sessionNum != null && (
                 <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
               )}
-              <img src={backendLogo} alt={backendAlt} className="w-3 h-3 shrink-0 object-contain opacity-60" />
+              <img src={backendLogo} alt={backendAlt} className="w-3.5 h-3.5 shrink-0 object-contain opacity-85" />
               {/* Shield icon: ask permission status (Claude only, hidden in compact/linear modes) */}
               {!compact && !useStatusBar && s.backendType !== "codex" && s.askPermission === true && (
                 <span title="Permissions: asking before tool use">

@@ -1,0 +1,119 @@
+<svg width="960" height="540" viewBox="0 0 960 540" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="preview-title preview-desc">
+  <title id="preview-title">Backend logo candidate preview</title>
+  <desc id="preview-desc">Preview sheet showing Codex and Claude backend badge candidates at large and tiny sidebar sizes beside session portrait context.</desc>
+  <rect width="960" height="540" fill="#181818"/>
+  <rect x="24" y="24" width="912" height="492" rx="18" fill="#1E1E1E" stroke="#303030"/>
+  <text x="52" y="68" fill="#EEEEEE" font-family="system-ui, -apple-system, sans-serif" font-size="22" font-weight="650">Backend logo candidates</text>
+  <text x="52" y="94" fill="#9D9D9D" font-family="system-ui, -apple-system, sans-serif" font-size="13">Shared 64x64 badge tile, previewed down to 18px and 14px for sidebar use.</text>
+
+  <defs>
+    <g id="codex-knot-mark">
+      <path
+        fill="#111413"
+        transform="translate(11.2 11.2) scale(0.13)"
+        d="M297.06 130.97c7.26-21.79 4.76-45.66-6.85-65.48-17.46-30.4-52.56-46.04-86.84-38.68C188.12 9.63 166.21-.14 143.24 0c-35.04-.08-66.13 22.48-76.91 55.82-22.51 4.61-41.94 18.7-53.31 38.67-17.59 30.32-13.58 68.54 9.92 94.54-7.26 21.79-4.76 45.66 6.85 65.48 17.46 30.4 52.56 46.04 86.84 38.68 15.24 17.18 37.16 26.95 60.13 26.8 35.06.09 66.16-22.49 76.94-55.86 22.51-4.61 41.94-18.7 53.31-38.67 17.57-30.32 13.55-68.51-9.94-94.51zM176.78 299.08c-14.03.02-27.62-4.89-38.39-13.88.49-.26 1.34-.73 1.89-1.07l63.72-36.8c3.26-1.85 5.26-5.32 5.24-9.07v-89.83l26.93 15.55c.29.14.48.42.52.74v74.39c-.04 33.08-26.83 59.9-59.91 59.97zM47.94 244.05c-7.03-12.14-9.56-26.37-7.15-40.18.47.28 1.3.79 1.89 1.13l63.72 36.8c3.23 1.89 7.23 1.89 10.47 0l77.79-44.92v31.1c.02.32-.13.63-.38.83L129.87 266c-28.69 16.52-65.33 6.7-81.92-21.95zM31.17 104.96c7-12.16 18.05-21.46 31.21-26.29 0 .55-.03 1.52-.03 2.2v73.61c-.02 3.74 1.98 7.21 5.23 9.06l77.79 44.91-26.93 15.55c-.27.18-.61.21-.91.08l-64.42-37.22c-28.63-16.58-38.45-53.21-21.95-81.89zm221.26 51.49-77.79-44.92 26.93-15.54c.27-.18.61-.21.91-.08l64.42 37.19c28.68 16.57 38.51 53.26 21.94 81.94-7.01 12.14-18.05 21.44-31.2 26.28v-75.81c.03-3.74-1.96-7.2-5.2-9.06zm26.8-40.34c-.47-.29-1.3-.79-1.89-1.13l-63.72-36.8c-3.23-1.89-7.23-1.89-10.47 0l-77.79 44.92V92c-.02-.32.13-.63.38-.83l64.41-37.16c28.69-16.55 65.37-6.7 81.91 22 6.99 12.12 9.52 26.31 7.15 40.1zm-168.51 55.43-26.94-15.55c-.29-.14-.48-.42-.52-.74V80.86c.02-33.12 26.89-59.96 60.01-59.94 14.01 0 27.57 4.92 38.34 13.88-.49.26-1.33.73-1.89 1.07L116 72.67c-3.26 1.85-5.26 5.31-5.24 9.06l-.04 89.79zM125.35 140l34.65-20.01 34.65 20V180L160 200l-34.65-20z"
+      />
+    </g>
+    <g id="claude-radial-mark">
+      <g stroke="#F7F2EA" stroke-linecap="round">
+        <line x1="32" y1="31.8" x2="32" y2="14" stroke-width="5.6"/>
+        <line x1="32.5" y1="31.6" x2="43.5" y2="17.8" stroke-width="5.1"/>
+        <line x1="32.8" y1="31.5" x2="49.6" y2="24" stroke-width="4.8"/>
+        <line x1="33" y1="32" x2="52" y2="32" stroke-width="4.5"/>
+        <line x1="32.8" y1="32.5" x2="49.4" y2="39.8" stroke-width="4.8"/>
+        <line x1="32.5" y1="32.6" x2="43.7" y2="46.4" stroke-width="5.1"/>
+        <line x1="32" y1="32.2" x2="31" y2="50" stroke-width="5.6"/>
+        <line x1="31.5" y1="32.6" x2="20.5" y2="46.8" stroke-width="5.1"/>
+        <line x1="31.2" y1="32.5" x2="14.6" y2="40.2" stroke-width="4.8"/>
+        <line x1="31" y1="32" x2="12" y2="32" stroke-width="4.5"/>
+        <line x1="31.2" y1="31.5" x2="14.8" y2="23.7" stroke-width="4.8"/>
+        <line x1="31.5" y1="31.4" x2="20.2" y2="17.6" stroke-width="5.1"/>
+      </g>
+      <circle cx="32" cy="32" r="6.4" fill="#F7F2EA"/>
+    </g>
+    <g id="cat-portrait-proxy">
+      <circle cx="32" cy="32" r="28" fill="#C68C70"/>
+      <path d="M17 26L23 13L31 24Z" fill="#B7755A"/>
+      <path d="M47 26L41 13L33 24Z" fill="#B7755A"/>
+      <circle cx="23.5" cy="33" r="2.8" fill="#2B221E"/>
+      <circle cx="40.5" cy="33" r="2.8" fill="#2B221E"/>
+      <path d="M30 39C31.2 40 32.8 40 34 39" stroke="#2B221E" stroke-width="2.2" stroke-linecap="round"/>
+      <path d="M24 45C29 48 35 48 40 45" stroke="#7A4C3F" stroke-width="2.2" stroke-linecap="round"/>
+    </g>
+  </defs>
+
+  <g transform="translate(68 136)">
+    <rect width="260" height="176" rx="14" fill="#242424" stroke="#363636"/>
+    <g transform="translate(98 24)">
+      <rect x="4" y="4" width="56" height="56" rx="14" fill="#BAC5C7"/>
+      <rect x="4.5" y="4.5" width="55" height="55" rx="13.5" stroke="#D6DFE1" stroke-opacity="0.72"/>
+      <use href="#codex-knot-mark"/>
+    </g>
+    <text x="130" y="112" text-anchor="middle" fill="#EEEEEE" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">Codex</text>
+    <text x="130" y="138" text-anchor="middle" fill="#9D9D9D" font-family="system-ui, -apple-system, sans-serif" font-size="12">OpenAI-like knot, cool gray tile</text>
+  </g>
+
+  <g transform="translate(350 136)">
+    <rect width="260" height="176" rx="14" fill="#242424" stroke="#363636"/>
+    <g transform="translate(98 24)">
+      <rect x="4" y="4" width="56" height="56" rx="14" fill="#C97854"/>
+      <rect x="4.5" y="4.5" width="55" height="55" rx="13.5" stroke="#E0A184" stroke-opacity="0.6"/>
+      <use href="#claude-radial-mark"/>
+    </g>
+    <text x="130" y="112" text-anchor="middle" fill="#EEEEEE" font-family="system-ui, -apple-system, sans-serif" font-size="16" font-weight="600">Claude</text>
+    <text x="130" y="138" text-anchor="middle" fill="#9D9D9D" font-family="system-ui, -apple-system, sans-serif" font-size="12">ivory burst, warm copper tile</text>
+  </g>
+
+  <g transform="translate(652 122)">
+    <text x="0" y="18" fill="#EEEEEE" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="600">Sidebar scale</text>
+    <text x="0" y="39" fill="#9D9D9D" font-family="system-ui, -apple-system, sans-serif" font-size="12">Badges beside avatars.</text>
+    <rect x="0" y="58" width="228" height="74" rx="12" fill="#191919" stroke="#313131"/>
+    <g transform="translate(14 70) scale(0.72)">
+      <use href="#cat-portrait-proxy"/>
+    </g>
+    <g transform="translate(54 106) scale(0.28125)">
+      <rect x="4" y="4" width="56" height="56" rx="14" fill="#BAC5C7"/>
+      <use href="#codex-knot-mark"/>
+    </g>
+    <text x="74" y="89" fill="#EEEEEE" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="550">Worker session</text>
+    <text x="74" y="109" fill="#858585" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11">codex</text>
+
+    <rect x="0" y="146" width="228" height="74" rx="12" fill="#191919" stroke="#313131"/>
+    <g transform="translate(14 158) scale(0.72)">
+      <use href="#cat-portrait-proxy"/>
+    </g>
+    <g transform="translate(54 194) scale(0.28125)">
+      <rect x="4" y="4" width="56" height="56" rx="14" fill="#C97854"/>
+      <use href="#claude-radial-mark"/>
+    </g>
+    <text x="74" y="177" fill="#EEEEEE" font-family="system-ui, -apple-system, sans-serif" font-size="13" font-weight="550">Leader session</text>
+    <text x="74" y="197" fill="#858585" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11">claude</text>
+  </g>
+
+  <g transform="translate(68 358)">
+    <text x="0" y="0" fill="#EEEEEE" font-family="system-ui, -apple-system, sans-serif" font-size="14" font-weight="600">Tiny-size checks</text>
+    <text x="0" y="24" fill="#9D9D9D" font-family="system-ui, -apple-system, sans-serif" font-size="12">18px is the intended badge read; 14px is the stress case.</text>
+    <g transform="translate(0 45)">
+      <g transform="scale(0.28125)">
+        <rect x="4" y="4" width="56" height="56" rx="14" fill="#BAC5C7"/>
+        <use href="#codex-knot-mark"/>
+      </g>
+      <g transform="translate(28 2) scale(0.21875)">
+        <rect x="4" y="4" width="56" height="56" rx="14" fill="#BAC5C7"/>
+        <use href="#codex-knot-mark"/>
+      </g>
+      <text x="54" y="15" fill="#858585" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11">Codex 18px / 14px</text>
+    </g>
+    <g transform="translate(0 76)">
+      <g transform="scale(0.28125)">
+        <rect x="4" y="4" width="56" height="56" rx="14" fill="#C97854"/>
+        <use href="#claude-radial-mark"/>
+      </g>
+      <g transform="translate(28 2) scale(0.21875)">
+        <rect x="4" y="4" width="56" height="56" rx="14" fill="#C97854"/>
+        <use href="#claude-radial-mark"/>
+      </g>
+      <text x="54" y="15" fill="#858585" font-family="ui-monospace, SFMono-Regular, monospace" font-size="11">Claude 18px / 14px</text>
+    </g>
+  </g>
+</svg>
