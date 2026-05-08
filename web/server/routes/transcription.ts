@@ -198,6 +198,11 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     return normalizeThreadTarget(trimmed)?.threadKey;
   }
 
+  function normalizeTranscriptionThreadTitle(rawThreadTitle: string | undefined): string | undefined {
+    const trimmed = rawThreadTitle?.trim().replace(/\s+/g, " ");
+    return trimmed ? trimmed.slice(0, 300) : undefined;
+  }
+
   function buildThreadScopedTranscriptionHistory(
     history: BrowserIncomingMessage[] | null,
     threadKey: string | undefined,
@@ -215,12 +220,17 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     return sync.entries.map((entry) => entry.message);
   }
 
-  function getTranscriptionSessionContext(sessionId: string | undefined, threadKey: string | undefined) {
+  function getTranscriptionSessionContext(
+    sessionId: string | undefined,
+    threadKey: string | undefined,
+    threadTitle: string | undefined,
+  ) {
     if (!sessionId) {
       return {
         messageHistory: null,
         taskHistory: [],
         sessionName: undefined,
+        threadTitle: undefined,
         activeSessionNames: undefined,
       };
     }
@@ -231,6 +241,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       messageHistory: buildThreadScopedTranscriptionHistory(session?.messageHistory ?? null, threadKey),
       taskHistory: session?.taskHistory ?? [],
       sessionName: sessionNames.getName(sessionId),
+      threadTitle,
       activeSessionNames: activeSessionNames.length > 0 ? activeSessionNames : undefined,
     };
   }
@@ -353,6 +364,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     let composerText: string | undefined;
     let requestedBackend: string | undefined;
     let rawThreadKey: string | undefined;
+    let rawThreadTitle: string | undefined;
     let transcriptionRequestId: string | undefined;
 
     if (contentType.toLowerCase().startsWith("multipart/form-data")) {
@@ -369,6 +381,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       composerText = typeof body["composerText"] === "string" ? body["composerText"] : undefined;
       requestedBackend = typeof body["backend"] === "string" ? body["backend"] : undefined;
       rawThreadKey = typeof body["threadKey"] === "string" ? body["threadKey"] : undefined;
+      rawThreadTitle = typeof body["threadTitle"] === "string" ? body["threadTitle"] : undefined;
       transcriptionRequestId = typeof body["requestId"] === "string" ? body["requestId"] : undefined;
     } else {
       buf = Buffer.from(await c.req.arrayBuffer());
@@ -382,12 +395,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       composerText = c.req.query("composerText") || undefined;
       requestedBackend = c.req.query("backend") || undefined;
       rawThreadKey = c.req.query("threadKey") || undefined;
+      rawThreadTitle = c.req.query("threadTitle") || undefined;
       transcriptionRequestId = c.req.query("requestId") || undefined;
     }
 
     const uploadDurationMs = Date.now() - requestStart;
     const mode = rawMode === "edit" ? "edit" : rawMode === "append" ? "append" : "dictation";
     const threadKey = normalizeTranscriptionThreadKey(rawThreadKey);
+    const threadTitle = normalizeTranscriptionThreadTitle(rawThreadTitle);
     const { default: defaultBackend } = getAvailableBackends();
     const backend = requestedBackend || defaultBackend;
     const uploadTiming = {
@@ -452,13 +467,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
         // Build context-aware STT prompt (guides vocabulary recognition)
         // Get recent non-archived session names sorted by activity (most recent first)
-        const sessionContext = getTranscriptionSessionContext(sessionId, threadKey);
+        const sessionContext = getTranscriptionSessionContext(sessionId, threadKey, threadTitle);
         let sttPrompt = "";
         if (sessionId) {
           sttPrompt = buildSttPrompt({
             mode,
             taskHistory: sessionContext.taskHistory,
             sessionName: sessionContext.sessionName,
+            threadTitle: sessionContext.threadTitle,
             activeSessionNames: sessionContext.activeSessionNames?.slice(0, 10),
             composerText: mode === "edit" || mode === "append" ? composerText : undefined,
             messageHistory: sessionContext.messageHistory,
@@ -555,6 +571,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               composerText,
               taskTitles: sessionContext.taskHistory.map((t) => t.title),
               sessionName: sessionContext.sessionName,
+              threadTitle: sessionContext.threadTitle,
               activeSessionNames: sessionContext.activeSessionNames,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
             },
@@ -627,6 +644,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               composerText,
               taskTitles: sessionContext.taskHistory.map((t) => t.title),
               sessionName: sessionContext.sessionName,
+              threadTitle: sessionContext.threadTitle,
               activeSessionNames: sessionContext.activeSessionNames,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
             },
@@ -696,6 +714,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               mode,
               taskTitles: sessionContext.taskHistory.map((t) => t.title),
               sessionName: sessionContext.sessionName,
+              threadTitle: sessionContext.threadTitle,
               activeSessionNames: sessionContext.activeSessionNames,
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
             },

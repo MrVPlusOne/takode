@@ -1197,7 +1197,7 @@ describe("POST /api/transcribe", () => {
       );
 
     const res = await app.request(
-      "/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&threadKey=q-1210",
+      "/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&threadKey=q-1210&threadTitle=q-1210%3A%20Use%20active%20leader%20thread%20tab%20as%20voice%20transcription%20context",
       {
         method: "POST",
         headers: {
@@ -1215,11 +1215,15 @@ describe("POST /api/transcribe", () => {
     const [, sttInit] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     const sttPrompt = String((sttInit.body as FormData).get("prompt"));
     expect(sttPrompt).toContain("SelectedThreadOnly");
+    expect(sttPrompt).toContain("Current thread: q-1210: Use active leader thread tab as voice transcription context");
     expect(sttPrompt).not.toContain("AlphaMainOnly");
 
     const [, enhanceInit] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
     const enhanceBody = JSON.parse(String(enhanceInit.body));
     expect(enhanceBody.messages[1].content).toContain("SelectedThreadOnly");
+    expect(enhanceBody.messages[1].content).toContain(
+      "Current thread: q-1210: Use active leader thread tab as voice transcription context",
+    );
     expect(enhanceBody.messages[1].content).not.toContain("AlphaMainOnly");
   });
 

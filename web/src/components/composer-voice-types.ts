@@ -10,4 +10,5 @@ export interface FailedTranscription {
   composerText: string;
   cursorContext: { before: string; after: string };
   transcriptionThreadKey?: string;
+  transcriptionThreadTitle?: string;
 }

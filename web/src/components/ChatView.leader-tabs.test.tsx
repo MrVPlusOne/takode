@@ -112,7 +112,13 @@ vi.mock("./SearchBar.js", () => ({ SearchBar: () => null }));
 vi.mock("./TaskOutlineBar.js", () => ({ TaskOutlineBar: () => null }));
 vi.mock("./TodoStatusLine.js", () => ({ TodoStatusLine: () => null }));
 vi.mock("./Composer.js", () => ({
-  Composer: ({ threadKey }: { threadKey?: string }) => <div data-testid="composer" data-thread-key={threadKey} />,
+  Composer: ({ threadKey, transcriptionThreadTitle }: { threadKey?: string; transcriptionThreadTitle?: string }) => (
+    <div
+      data-testid="composer"
+      data-thread-key={threadKey}
+      data-transcription-thread-title={transcriptionThreadTitle}
+    />
+  ),
 }));
 vi.mock("./PermissionBanner.js", () => ({
   PermissionBanner: () => null,
@@ -294,6 +300,29 @@ describe("ChatView leader open thread tabs", () => {
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
     expect(localStorage.getItem("test-server:cc-leader-open-thread-tabs:s1")).toBeNull();
+  });
+
+  it("passes the selected leader thread title to the composer for voice transcription vocabulary", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-1210"])),
+      messages: new Map([["s1", [threadMessage("q-1210", 2)]]]),
+      quests: [
+        {
+          questId: "q-1210",
+          title: "Use active leader thread tab as voice transcription context",
+          status: "in_progress",
+        },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={true} routeThreadKey="q-1210" />);
+    const scope = within(view.container);
+
+    await waitFor(() => expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "q-1210"));
+    expect(scope.getByTestId("composer")).toHaveAttribute(
+      "data-transcription-thread-title",
+      "q-1210: Use active leader thread tab as voice transcription context",
+    );
   });
 
   it("restores the browser-local selected leader tab when returning without an explicit thread route", async () => {

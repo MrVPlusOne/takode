@@ -549,13 +549,19 @@ describe("Composer transcription retry", () => {
     expect(screen.getByLabelText("Dismiss transcription error")).toBeTruthy();
   });
 
-  it("retries transcription with the same audio blob on Retry click (dictation mode)", async () => {
+  it("retries transcription with the same audio blob and active thread title on Retry click (dictation mode)", async () => {
     // First call fails, second succeeds
     mockTranscribe
       .mockRejectedValueOnce(new Error("server error"))
       .mockResolvedValueOnce({ mode: "dictation", text: "hello world", backend: "openai", enhanced: false });
 
-    render(<Composer sessionId="s1" />);
+    render(
+      <Composer
+        sessionId="s1"
+        transcriptionThreadKey="q-1210"
+        transcriptionThreadTitle="q-1210: Use active leader thread tab as voice transcription context"
+      />,
+    );
 
     // Trigger recording (empty composer -> dictation mode)
     fireEvent.click(screen.getByLabelText("Voice input"));
@@ -582,6 +588,12 @@ describe("Composer transcription retry", () => {
     const blob1 = mockTranscribe.mock.calls[0][0] as Blob;
     const blob2 = mockTranscribe.mock.calls[1][0] as Blob;
     expect(blob1).toBe(blob2);
+    expect(mockTranscribe.mock.calls[1][1]).toEqual(
+      expect.objectContaining({
+        threadKey: "q-1210",
+        threadTitle: "q-1210: Use active leader thread tab as voice transcription context",
+      }),
+    );
   });
 
   it("re-saves the blob for another retry when retry also fails", async () => {

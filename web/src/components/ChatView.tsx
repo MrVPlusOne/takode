@@ -505,6 +505,16 @@ function threadLabelForKey(threadKey: string, rows: LeaderThreadRow[]): string {
   return row?.questId ?? row?.title ?? threadKey;
 }
 
+function threadTitleForTranscription(threadKey: string, rows: LeaderThreadRow[]): string | undefined {
+  const normalized = threadKey.toLowerCase();
+  if (normalized === MAIN_THREAD_KEY) return "Main Thread";
+  if (normalized === ALL_THREADS_KEY) return "All Threads";
+  const row = rows.find((candidate) => candidate.threadKey === normalized);
+  if (!row) return undefined;
+  if (row.questId && row.title) return `${row.questId}: ${row.title}`;
+  return row.title || row.questId;
+}
+
 function toWorkBoardThreadRows(rows: LeaderThreadRow[]): WorkBoardThreadNavigationRow[] {
   return rows.map((row) => ({
     threadKey: row.threadKey,
@@ -1014,6 +1024,9 @@ export function ChatView({
     () => mergeAttentionThreadRows(threadRows, attentionRecords),
     [attentionRecords, threadRows],
   );
+  const composerThreadTitle = isLeaderSession
+    ? threadTitleForTranscription(selectedThreadKey, navigationThreadRows)
+    : undefined;
   const selectedThreadLabel = useMemo(
     () => threadLabelForKey(selectedThreadKey, navigationThreadRows),
     [navigationThreadRows, selectedThreadKey],
@@ -1562,6 +1575,7 @@ export function ChatView({
           threadKey={composerThreadKey}
           questId={composerQuestId}
           transcriptionThreadKey={isLeaderSession ? composerThreadKey : undefined}
+          transcriptionThreadTitle={composerThreadTitle}
         />
       )}
     </div>

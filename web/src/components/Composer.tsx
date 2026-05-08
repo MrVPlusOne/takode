@@ -127,11 +127,13 @@ export function Composer({
   threadKey = "main",
   questId,
   transcriptionThreadKey,
+  transcriptionThreadTitle,
 }: {
   sessionId: string;
   threadKey?: string;
   questId?: string;
   transcriptionThreadKey?: string;
+  transcriptionThreadTitle?: string;
 }) {
   const draft = useStore((s) => s.composerDrafts.get(sessionId));
   const pendingUserUploads = useStore((s) => s.pendingUserUploads.get(sessionId)) ?? EMPTY_PENDING_USER_UPLOADS;
@@ -182,6 +184,7 @@ export function Composer({
   const voiceCaptureModeRef = useRef<"dictation" | "edit" | "append">("dictation");
   const voiceEditBaseTextRef = useRef("");
   const activeVoiceTranscriptionThreadKeyRef = useRef<string | undefined>(transcriptionThreadKey);
+  const activeVoiceTranscriptionThreadTitleRef = useRef<string | undefined>(transcriptionThreadTitle);
   const preferredVoiceModeRef = useRef<"edit" | "append">("edit");
   const persistedSettingsRef = useRef<Awaited<ReturnType<typeof api.getSettings>> | null>(null);
   const persistedSettingsLoadedRef = useRef(false);
@@ -217,6 +220,7 @@ export function Composer({
           ...preRecordingTextRef.current,
         },
         activeVoiceTranscriptionThreadKeyRef.current,
+        activeVoiceTranscriptionThreadTitleRef.current,
       );
     },
   });
@@ -312,6 +316,7 @@ export function Composer({
       const el = textareaRef.current;
       const cursorPos = el?.selectionStart ?? text.length;
       activeVoiceTranscriptionThreadKeyRef.current = transcriptionThreadKey;
+      activeVoiceTranscriptionThreadTitleRef.current = transcriptionThreadTitle;
       preRecordingTextRef.current = {
         before: text.slice(0, cursorPos),
         after: text.slice(cursorPos),
@@ -347,6 +352,7 @@ export function Composer({
     text,
     toggleRecording,
     transcriptionThreadKey,
+    transcriptionThreadTitle,
     voiceSupported,
     voiceUnsupportedMessage,
   ]);
@@ -358,6 +364,7 @@ export function Composer({
     composerText: string,
     cursorContext: { before: string; after: string },
     contextThreadKey?: string,
+    contextThreadTitle?: string,
   ) {
     const requestId = createVoiceTranscriptionRequestId();
     const startedAt = nowMs();
@@ -405,6 +412,7 @@ export function Composer({
     const transcriptionOptions = {
       sessionId,
       threadKey: contextThreadKey,
+      threadTitle: contextThreadTitle,
       requestId,
       onPhase: (phase: VoiceTranscriptionPhase) => setTranscriptionPhase(phase),
       onProgress: recordProgress,
@@ -450,7 +458,14 @@ export function Composer({
       status = "error";
       const message = err instanceof Error ? err.message : "Transcription failed";
       setVoiceError(message);
-      setFailedTranscription({ blob, mode, composerText, cursorContext, transcriptionThreadKey: contextThreadKey });
+      setFailedTranscription({
+        blob,
+        mode,
+        composerText,
+        cursorContext,
+        transcriptionThreadKey: contextThreadKey,
+        transcriptionThreadTitle: contextThreadTitle,
+      });
     } finally {
       const completedAt = Date.now();
       const totalElapsedMs = Math.max(0, nowMs() - startedAt);
@@ -474,10 +489,18 @@ export function Composer({
 
   const retryTranscription = useCallback(async () => {
     if (!failedTranscription) return;
-    const { blob, mode, composerText, cursorContext, transcriptionThreadKey } = failedTranscription;
+    const { blob, mode, composerText, cursorContext, transcriptionThreadKey, transcriptionThreadTitle } =
+      failedTranscription;
     setFailedTranscription(null);
     setVoiceError(null);
-    await performTranscription(blob, mode, composerText, cursorContext, transcriptionThreadKey);
+    await performTranscription(
+      blob,
+      mode,
+      composerText,
+      cursorContext,
+      transcriptionThreadKey,
+      transcriptionThreadTitle,
+    );
   }, [failedTranscription, sessionId, setVoiceError]);
 
   const toggleVoiceUnsupportedInfo = useCallback(

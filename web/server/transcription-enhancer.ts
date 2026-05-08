@@ -404,6 +404,8 @@ export interface EnhancementContextInput {
   taskTitles?: string[];
   /** Session display name. */
   sessionName?: string;
+  /** Title of the currently selected leader thread, used only as vocabulary context. */
+  threadTitle?: string;
   /** Names of other active sessions (vocabulary from the user's workspace). */
   activeSessionNames?: string[];
   /** Comma-separated custom vocabulary terms from user settings. */
@@ -417,6 +419,9 @@ function appendSessionContext(parts: string[], extra: EnhancementContextInput | 
   }
   if (extra?.sessionName) {
     supplementary.push(`Current session: ${extra.sessionName}`);
+  }
+  if (extra?.threadTitle) {
+    supplementary.push(`Current thread: ${extra.threadTitle}`);
   }
   if (extra?.activeSessionNames && extra.activeSessionNames.length > 0) {
     supplementary.push(`Other active sessions: ${extra.activeSessionNames.join("; ")}`);
@@ -553,6 +558,8 @@ export interface SttPromptInput {
   composerText?: string;
   /** Session display name. */
   sessionName?: string;
+  /** Title of the currently selected leader thread, used only as vocabulary context. */
+  threadTitle?: string;
   /** Names of other active sessions (vocabulary from the user's workspace). */
   activeSessionNames?: string[];
   /** Full message history for extracting recent user messages. */
@@ -627,18 +634,23 @@ export function buildSttPrompt(input: SttPromptInput): string {
     addMeta("Session: " + trunc(input.sessionName, MAX_SESSION_NAME_CHARS));
   }
 
-  // 3. Other session names (pre-filtered by caller)
+  // 3. Current leader thread title
+  if (input.threadTitle && metaRemaining > 0) {
+    addMeta("Current thread: " + trunc(input.threadTitle, 200));
+  }
+
+  // 4. Other session names (pre-filtered by caller)
   if (input.activeSessionNames && input.activeSessionNames.length > 0 && metaRemaining > 0) {
     const truncated = input.activeSessionNames.slice(0, 5).map((n) => trunc(n, 60));
     addMeta("Sessions: " + truncated.join(", "));
   }
 
-  // 4. Composer text (voice-edit and voice-append modes -- provides vocabulary from the draft)
+  // 5. Composer text (voice-edit and voice-append modes -- provides vocabulary from the draft)
   if ((input.mode === "edit" || input.mode === "append") && input.composerText && metaRemaining > 0) {
     addDraftSection(input.composerText);
   }
 
-  // 5. Custom vocabulary terms from user settings
+  // 6. Custom vocabulary terms from user settings
   if (input.customVocabulary && metaRemaining > 0) {
     const terms = input.customVocabulary.trim();
     if (terms) addMeta(`Custom vocabulary: ${terms}`);

@@ -695,10 +695,13 @@ describe("transcribe", () => {
       mode: "dictation",
       sessionId: "session-1",
       threadKey: "q-1210",
+      threadTitle: "q-1210: Use active leader thread tab as voice transcription context",
     });
 
     const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("/api/transcribe?mode=dictation&sessionId=session-1&threadKey=q-1210");
+    expect(url).toBe(
+      "/api/transcribe?mode=dictation&sessionId=session-1&threadKey=q-1210&threadTitle=q-1210%3A+Use+active+leader+thread+tab+as+voice+transcription+context",
+    );
     expect(opts?.body).toBeInstanceOf(Blob);
   });
 
@@ -788,6 +791,7 @@ describe("transcribe", () => {
       composerText: "draft text",
       sessionId: "session-1",
       threadKey: "q-1210",
+      threadTitle: "q-1210: Use active leader thread tab as voice transcription context",
       onPhase,
     });
 
@@ -802,7 +806,9 @@ describe("transcribe", () => {
     });
 
     const [url, opts] = mockFetch.mock.calls[0];
-    expect(url).toBe("/api/transcribe?mode=edit&sessionId=session-1&threadKey=q-1210");
+    expect(url).toBe(
+      "/api/transcribe?mode=edit&sessionId=session-1&threadKey=q-1210&threadTitle=q-1210%3A+Use+active+leader+thread+tab+as+voice+transcription+context",
+    );
     expect(opts?.method).toBe("POST");
     expect(opts?.signal).toBeInstanceOf(AbortSignal);
     const form = opts?.body as FormData;
@@ -813,6 +819,7 @@ describe("transcribe", () => {
     expect(form.get("composerText")).toBe("draft text");
     expect(form.get("sessionId")).toBe("session-1");
     expect(form.get("threadKey")).toBe("q-1210");
+    expect(form.get("threadTitle")).toBe("q-1210: Use active leader thread tab as voice transcription context");
   });
 });
 

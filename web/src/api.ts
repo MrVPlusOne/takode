@@ -1408,6 +1408,7 @@ export const api = {
       mode?: VoiceTranscriptionMode;
       sessionId?: string;
       threadKey?: string;
+      threadTitle?: string;
       composerText?: string;
       /** Called when transcription phase changes (e.g. first stream ack -> "transcribing"). */
       onPhase?: (phase: VoiceTranscriptionPhase) => void;
@@ -1442,6 +1443,7 @@ export const api = {
     if (mode) query.set("mode", mode);
     if (options?.sessionId) query.set("sessionId", options.sessionId);
     if (options?.threadKey) query.set("threadKey", options.threadKey);
+    if (options?.threadTitle) query.set("threadTitle", options.threadTitle);
     if (options?.requestId) query.set("requestId", requestId);
     const path = `${BASE}/transcribe${query.size > 0 ? `?${query.toString()}` : ""}`;
     const headers = new Headers();
@@ -1457,6 +1459,7 @@ export const api = {
       if (mode) form.append("mode", mode);
       if (options?.sessionId) form.append("sessionId", options.sessionId);
       if (options?.threadKey) form.append("threadKey", options.threadKey);
+      if (options?.threadTitle) form.append("threadTitle", options.threadTitle);
       if (options?.composerText !== undefined) form.append("composerText", options.composerText);
       if (options?.requestId) form.append("requestId", requestId);
       body = form;

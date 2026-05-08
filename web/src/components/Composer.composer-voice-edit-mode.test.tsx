@@ -813,8 +813,16 @@ describe("Composer voice edit mode", () => {
     });
   });
 
-  it("passes the active leader thread key to voice dictation transcription", async () => {
-    render(<Composer sessionId="s1" threadKey="q-1210" questId="q-1210" transcriptionThreadKey="q-1210" />);
+  it("passes the active leader thread key and title to voice dictation transcription", async () => {
+    render(
+      <Composer
+        sessionId="s1"
+        threadKey="q-1210"
+        questId="q-1210"
+        transcriptionThreadKey="q-1210"
+        transcriptionThreadTitle="q-1210: Use active leader thread tab as voice transcription context"
+      />,
+    );
 
     fireEvent.click(screen.getByLabelText("Voice input"));
 
@@ -825,6 +833,7 @@ describe("Composer voice edit mode", () => {
           mode: "dictation",
           sessionId: "s1",
           threadKey: "q-1210",
+          threadTitle: "q-1210: Use active leader thread tab as voice transcription context",
         }),
       );
     });
