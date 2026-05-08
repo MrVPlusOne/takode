@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { BrowserIncomingMessage } from "../types.js";
 import { buildThreadWindowSync } from "../../shared/thread-window.js";
@@ -7,6 +7,12 @@ import { normalizeHistoryMessageToChatMessages } from "../utils/history-message-
 
 const mockMarkNotificationDone = vi.fn(async (_sessionId: string, _notifId: string, _done = true) => ({ ok: true }));
 const mockMarkAllNotificationsDone = vi.fn(async (_sessionId: string, _done = true) => ({ ok: true, count: 0 }));
+const mockSendNeedsInputResponse = vi.fn(async (_sessionId: string, _notifId: string, _response: any) => ({
+  ok: true,
+  sessionId: _sessionId,
+  notificationId: _notifId,
+  delivery: "sent",
+}));
 const mockRequestScrollToMessage = vi.fn();
 const mockSetExpandAllInTurn = vi.fn();
 const mockOpenQuestOverlay = vi.fn();
@@ -56,6 +62,8 @@ vi.mock("../api.js", () => ({
     markNotificationDone: (sessionId: string, notifId: string, done = true) =>
       mockMarkNotificationDone(sessionId, notifId, done),
     markAllNotificationsDone: (sessionId: string, done = true) => mockMarkAllNotificationsDone(sessionId, done),
+    sendNeedsInputResponse: (sessionId: string, notifId: string, response: any) =>
+      mockSendNeedsInputResponse(sessionId, notifId, response),
   },
 }));
 
@@ -182,6 +190,13 @@ describe("NotificationChip", () => {
     mockStoreState.sdkSessions = [];
     mockMarkNotificationDone.mockClear();
     mockMarkAllNotificationsDone.mockClear();
+    mockSendNeedsInputResponse.mockClear();
+    mockSendNeedsInputResponse.mockResolvedValue({
+      ok: true,
+      sessionId: "s1",
+      notificationId: "n-1",
+      delivery: "sent",
+    });
     mockRequestScrollToMessage.mockClear();
     mockSetExpandAllInTurn.mockClear();
     mockOpenQuestOverlay.mockClear();
@@ -347,11 +362,22 @@ describe("NotificationChip", () => {
     expect(screen.getByText("Needs review")).toBeInTheDocument();
   });
 
-  it("renders a single-question answer input and sends a direct response", () => {
+  it("sends a paused-session notification answer through the response API", async () => {
     mockComposerDrafts.set("s1", {
       text: "old draft",
       images: [{ id: "img-1", name: "keep.png", base64: "abc", mediaType: "image/png", status: "ready" }],
     });
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        state: "connected",
+        cwd: "/repo",
+        createdAt: 1,
+        archived: false,
+        pause: { pausedAt: 1234, pausedBy: "test" },
+        pausedInputQueueCount: 1,
+      },
+    ];
     setNotifications("s1", [
       {
         id: "n-1",
@@ -373,19 +399,15 @@ describe("NotificationChip", () => {
     expect(screen.getByLabelText("Answer for Deploy now?")).toHaveValue("yes");
     fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
-    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-      type: "user_message",
-      content: "Deploy now?\n\nAnswer: yes",
-      deliveryContent: "[reply] Deploy now?\n\nDeploy now?\n\nAnswer: yes",
-      replyContext: {
-        messageId: "msg-123",
-        notificationId: "n-1",
-        previewText: "Deploy now?",
-      },
-      session_id: "s1",
-      threadKey: "main",
-    });
-    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "n-1", true);
+    await waitFor(() =>
+      expect(mockSendNeedsInputResponse).toHaveBeenCalledWith("s1", "n-1", {
+        content: "Deploy now?\n\nAnswer: yes",
+        threadKey: "main",
+      }),
+    );
+    expect(mockSendToSession).not.toHaveBeenCalled();
+    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
+    expect(mockRequestBottomAlignOnNextUserMessage).toHaveBeenCalledWith("s1");
     expect(mockSetComposerDraft).not.toHaveBeenCalled();
     expect(mockFocusComposer).not.toHaveBeenCalled();
   });
@@ -579,19 +601,12 @@ describe("NotificationChip", () => {
         vi.runOnlyPendingTimers();
       });
 
-      expect(mockSendToSession).toHaveBeenCalledWith("s1", {
-        type: "user_message",
+      expect(mockSendNeedsInputResponse).toHaveBeenCalledWith("s1", "n-1", {
         content: "Deploy q-977?\n\nAnswer: yes",
-        deliveryContent: "[reply] Deploy q-977?\n\nDeploy q-977?\n\nAnswer: yes",
-        replyContext: {
-          messageId: "msg-977",
-          notificationId: "n-1",
-          previewText: "Deploy q-977?",
-        },
-        session_id: "s1",
         threadKey: "q-977",
         questId: "q-977",
       });
+      expect(mockSendToSession).not.toHaveBeenCalled();
     } finally {
       vi.useRealTimers();
     }
@@ -682,13 +697,16 @@ describe("NotificationChip", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "Send Response" }));
 
-    expect(mockSendToSession).toHaveBeenCalledWith(
+    expect(mockSendNeedsInputResponse).toHaveBeenCalledWith(
       "s1",
+      "n-1",
       expect.objectContaining({
         content:
           "Answers for: Need rollout choices\n\n1. Which rollout?\nAnswer: staged\n\n2. When should it start?\nAnswer: after the smoke test",
+        threadKey: "main",
       }),
     );
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("renders the quest mention as a quest link while keeping the row clickable for jump-to-message", () => {

@@ -1,15 +1,24 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { act, fireEvent, render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ChatMessage } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
 const markNotificationDoneMock = vi.hoisted(() => vi.fn(async () => ({})));
+const sendNeedsInputResponseMock = vi.hoisted(() =>
+  vi.fn(async (_sessionId: string, _notifId: string, _response: unknown) => ({
+    ok: true,
+    sessionId: _sessionId,
+    notificationId: _notifId,
+    delivery: "sent",
+  })),
+);
 const sendToSessionMock = vi.hoisted(() => vi.fn((_sessionId: string, _msg: unknown) => true));
 vi.mock("../api.js", () => ({
   api: {
     revertToMessage: revertToMessageMock,
     markNotificationDone: markNotificationDoneMock,
+    sendNeedsInputResponse: sendNeedsInputResponseMock,
   },
 }));
 
@@ -106,6 +115,7 @@ describe("MessageBubble notification markers", () => {
   beforeEach(() => {
     revertToMessageMock.mockClear();
     markNotificationDoneMock.mockClear();
+    sendNeedsInputResponseMock.mockClear();
     sendToSessionMock.mockClear();
   });
 
@@ -239,7 +249,7 @@ describe("MessageBubble notification markers", () => {
     }
   });
 
-  it("fills inline answers and sends without mutating the composer draft", () => {
+  it("fills inline answers and sends without mutating the composer draft", async () => {
     const prevNotifications = useStore.getState().sessionNotifications;
     const prevDrafts = useStore.getState().composerDrafts;
     const prevReplyContexts = useStore.getState().replyContexts;
@@ -295,19 +305,14 @@ describe("MessageBubble notification markers", () => {
 
       fireEvent.click(reply);
 
-      expect(sendToSessionMock).toHaveBeenCalledWith("notify-session", {
-        type: "user_message",
-        content: "Deploy now?\n\nAnswer: yes",
-        deliveryContent: "[reply] Deploy now?\n\nDeploy now?\n\nAnswer: yes",
-        replyContext: {
-          messageId: "asst-notify",
-          notificationId: "n-17",
-          previewText: "Deploy now?",
-        },
-        session_id: "notify-session",
-        threadKey: "main",
-      });
-      expect(markNotificationDoneMock).toHaveBeenCalledWith("notify-session", "n-17", true);
+      await waitFor(() =>
+        expect(sendNeedsInputResponseMock).toHaveBeenCalledWith("notify-session", "n-17", {
+          content: "Deploy now?\n\nAnswer: yes",
+          threadKey: "main",
+        }),
+      );
+      expect(sendToSessionMock).not.toHaveBeenCalled();
+      expect(markNotificationDoneMock).not.toHaveBeenCalled();
       expect(useStore.getState().composerDrafts.get("notify-session")).toMatchObject({
         text: "existing draft",
         images: [{ id: "img-1" }],
@@ -412,14 +417,16 @@ describe("MessageBubble notification markers", () => {
         vi.runOnlyPendingTimers();
       });
 
-      expect(sendToSessionMock).toHaveBeenCalledWith(
+      expect(sendNeedsInputResponseMock).toHaveBeenCalledWith(
         "notify-session",
+        "n-20",
         expect.objectContaining({
           content: "Deploy now?\n\nAnswer: yes",
           threadKey: "q-977",
           questId: "q-977",
         }),
       );
+      expect(sendToSessionMock).not.toHaveBeenCalled();
       expect(useStore.getState().composerDrafts.get("notify-session")).toBeUndefined();
       expect(useStore.getState().focusComposerTrigger).toBe(prevFocusTrigger);
     } finally {
@@ -478,17 +485,15 @@ describe("MessageBubble notification markers", () => {
       fireEvent.click(screen.getByRole("button", { name: "Use suggested answer: ship" }));
       fireEvent.click(screen.getByRole("button", { name: "Reply" }));
 
-      expect(sendToSessionMock).toHaveBeenCalledWith(
+      expect(sendNeedsInputResponseMock).toHaveBeenCalledWith(
         "notify-session",
+        "n-2",
         expect.objectContaining({
           content: "Second prompt\n\nAnswer: ship",
-          replyContext: {
-            messageId: "asst-shared-anchor",
-            notificationId: "n-2",
-            previewText: "Second prompt",
-          },
+          threadKey: "main",
         }),
       );
+      expect(sendToSessionMock).not.toHaveBeenCalled();
       expect(useStore.getState().replyContexts.get("notify-session")).toBeUndefined();
       expect(useStore.getState().composerDrafts.get("notify-session")).toBeUndefined();
     } finally {
@@ -636,13 +641,16 @@ describe("MessageBubble notification markers", () => {
       expect(reply.disabled).toBe(false);
       fireEvent.click(reply);
 
-      expect(sendToSessionMock).toHaveBeenCalledWith(
+      expect(sendNeedsInputResponseMock).toHaveBeenCalledWith(
         "notify-session",
+        "n-questions",
         expect.objectContaining({
           content:
             "Answers for: Need rollout choices\n\n1. Which rollout?\nAnswer: staged\n\n2. When should it start?\nAnswer: after smoke test",
+          threadKey: "main",
         }),
       );
+      expect(sendToSessionMock).not.toHaveBeenCalled();
       expect(useStore.getState().composerDrafts.get("notify-session")?.text).toBe("do not touch");
     } finally {
       useStore.setState({

@@ -3,13 +3,11 @@ import type { MouseEvent } from "react";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { SessionNotification } from "../types.js";
-import { sendToSession } from "../ws.js";
 import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
 import {
   resolveNotificationOwnerThreadKey,
   runAfterNotificationOwnerThreadSelected,
 } from "../utils/notification-thread.js";
-import { formatReplyContentForAssistant } from "../utils/reply-context.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { useVisibleReviewNotificationAutoResolve } from "../hooks/useVisibleReviewNotificationAutoResolve.js";
 
@@ -150,27 +148,19 @@ export function NotificationMarker({
         currentThreadKey,
         onSelectThread,
         action: () => {
-          const notificationMessageId = notif.messageId ?? messageId;
           const threadKey = resolveNotificationOwnerThreadKey(notif);
           const content = formatNeedsInputResponse(notif.summary ?? summary, questionViews, answersByQuestion);
-          const replyContext = {
-            ...(notificationMessageId ? { messageId: notificationMessageId } : {}),
-            notificationId: notif.id,
-            previewText: notif.summary || summary || "Needs your input",
-          };
-          const sent = sendToSession(sessionId, {
-            type: "user_message",
-            content,
-            deliveryContent: formatReplyContentForAssistant(content, replyContext),
-            replyContext,
-            session_id: sessionId,
-            threadKey,
-            ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
-          });
-          if (!sent) return;
-          useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
-          api.markNotificationDone(sessionId, notif.id, true).catch(() => {});
-          setAnswersByQuestion({});
+          api
+            .sendNeedsInputResponse(sessionId, notif.id, {
+              content,
+              threadKey,
+              ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
+            })
+            .then(() => {
+              useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
+              setAnswersByQuestion({});
+            })
+            .catch(() => {});
         },
       });
     },

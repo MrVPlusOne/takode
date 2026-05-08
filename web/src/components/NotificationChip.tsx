@@ -2,7 +2,6 @@ import { useState, useCallback, useEffect, useLayoutEffect, useMemo, useRef, typ
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
-import { sendToSession } from "../ws.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { ChatMessage, SessionNotification } from "../types.js";
 import {
@@ -12,7 +11,6 @@ import {
 } from "../notification-status.js";
 import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
-import { formatReplyContentForAssistant } from "../utils/reply-context.js";
 import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
 import {
   resolveNotificationOwnerThreadKey,
@@ -368,24 +366,17 @@ function NotificationItem({
           const ownerThreadKey = resolveNotificationOwnerThreadKey(notif);
           const threadKey = ownerThreadKey || MAIN_THREAD_KEY;
           const content = formatNeedsInputResponse(notif.summary, questionViews, answersByQuestion);
-          const replyContext = {
-            ...(notif.messageId ? { messageId: notif.messageId } : {}),
-            notificationId: notif.id,
-            previewText: notif.summary || "Needs your input",
-          };
-          const sent = sendToSession(sessionId, {
-            type: "user_message",
-            content,
-            deliveryContent: formatReplyContentForAssistant(content, replyContext),
-            replyContext,
-            session_id: sessionId,
-            threadKey,
-            ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
-          });
-          if (!sent) return;
-          useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
-          api.markNotificationDone(sessionId, notif.id, true).catch(() => {});
-          setAnswersByQuestion({});
+          api
+            .sendNeedsInputResponse(sessionId, notif.id, {
+              content,
+              threadKey,
+              ...(threadKey !== MAIN_THREAD_KEY ? { questId: notif.questId ?? threadKey } : {}),
+            })
+            .then(() => {
+              useStore.getState().requestBottomAlignOnNextUserMessage?.(sessionId);
+              setAnswersByQuestion({});
+            })
+            .catch(() => {});
         },
       });
     },
