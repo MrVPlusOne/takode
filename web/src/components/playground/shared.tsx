@@ -25,6 +25,10 @@ import {
   QUEST_THREAD_REMINDER_SOURCE_ID,
   QUEST_THREAD_REMINDER_SOURCE_LABEL,
 } from "../../../shared/quest-thread-reminder.js";
+import {
+  THREAD_OUTCOME_REMINDER_SOURCE_ID,
+  THREAD_OUTCOME_REMINDER_TITLE,
+} from "../../utils/thread-outcome-reminder.js";
 
 const PlaygroundSectionGroupContext = createContext<PlaygroundSectionGroupId | null>(null);
 const NEEDS_INPUT_REMINDER_SOURCE = {
@@ -938,6 +942,26 @@ export function PlaygroundQuestThreadReminderMessage() {
   };
 
   return <MessageBubble message={message} sessionId="playground-quest-thread-reminder" showTimestamp={false} />;
+}
+
+export function PlaygroundThreadOutcomeReminderMessage() {
+  const message: ChatMessage = {
+    id: "playground-thread-outcome-reminder-msg",
+    role: "user",
+    content: [
+      "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
+      "Missing outcome marker for: Main.",
+      'Use `takode notify needs-input "..."` only for user-blocking prompts, `takode notify waiting "..."` for non-attention waiting/WIP, or `takode notify review "..."` or quest completion when done.',
+    ].join("\n"),
+    timestamp: Date.now() - 16_000,
+    agentSource: {
+      sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+      sessionLabel: THREAD_OUTCOME_REMINDER_TITLE,
+    },
+    metadata: { threadKey: "main" },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-thread-outcome-reminder" showTimestamp={false} />;
 }
 
 // ─── Inline MCP Server Row (static preview, no WebSocket) ──────────────────

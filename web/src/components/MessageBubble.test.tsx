@@ -598,6 +598,51 @@ describe("MessageBubble - agent source badge", () => {
     expect(screen.queryByText("Open session")).toBeNull();
   });
 
+  it("renders Thread Outcome Reminder as a collapsed chip by default", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: [
+        "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
+        "Missing outcome marker for: Main.",
+        'Use `takode notify waiting "..."` for non-attention waiting/WIP.',
+      ].join("\n"),
+      agentSource: {
+        sessionId: "system:leader-thread-outcome-reminder",
+        sessionLabel: "Thread Outcome Reminder",
+      },
+    });
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByRole("button", { name: "Expand Thread Outcome Reminder" });
+    expect(chip.textContent).toContain("Thread Outcome Reminder");
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText(/mark every touched leader thread/)).toBeNull();
+    expect(screen.queryByTestId("agent-source-badge")).toBeNull();
+  });
+
+  it("expands Thread Outcome Reminder content on demand", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: [
+        "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
+        "Missing outcome marker for: Main.",
+      ].join("\n"),
+      agentSource: {
+        sessionId: "system:leader-thread-outcome-reminder",
+        sessionLabel: "Thread Outcome Reminder",
+      },
+    });
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByRole("button", { name: "Expand Thread Outcome Reminder" });
+    fireEvent.click(chip);
+
+    expect(chip.getAttribute("aria-expanded")).toBe("true");
+    expect(screen.getByRole("button", { name: "Collapse Thread Outcome Reminder" })).toBeTruthy();
+    expect(screen.getByText(/mark every touched leader thread/)).toBeTruthy();
+    expect(screen.getByText(/Missing outcome marker for: Main/)).toBeTruthy();
+  });
+
   it("does not render the generic interactive badge for timer sources", () => {
     const msg = makeMessage({
       role: "user",

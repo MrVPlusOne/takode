@@ -96,6 +96,7 @@ import {
   PlaygroundAddressedNotifyToolBlock,
   PlaygroundNeedsInputReminderMessage,
   PlaygroundQuestThreadReminderMessage,
+  PlaygroundThreadOutcomeReminderMessage,
   PlaygroundThreadRoutingReminderMessage,
   PlaygroundSectionGroup,
   TaskRow,
@@ -694,6 +695,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Quest thread reminder">
             <PlaygroundQuestThreadReminderMessage />
+          </Card>
+          <Card label="Thread outcome reminder (collapsed chip)">
+            <PlaygroundThreadOutcomeReminderMessage />
           </Card>
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />
