@@ -113,6 +113,20 @@ describe("Playground", () => {
     );
   });
 
+  it("documents the labeled New Session modal layout", () => {
+    render(<Playground />);
+
+    const modal = screen.getByTestId("playground-new-session-modal-layout");
+    expect(within(modal).getByText("Engine")).toBeTruthy();
+    expect(within(modal).getByText("Permission mode")).toBeTruthy();
+    expect(within(modal).getByText("Codex options")).toBeTruthy();
+    expect(within(modal).getByText("Network access")).toBeTruthy();
+    expect(within(modal).getByText("Workspace")).toBeTruthy();
+    expect(within(modal).getByText("Runtime")).toBeTruthy();
+    expect(within(modal).getByText("Model")).toBeTruthy();
+    expect(within(modal).getByText("Default (gpt-5.5) ▾")).toBeTruthy();
+  });
+
   it("documents leader thread routing and full Main activity", () => {
     render(<Playground />);
 

@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import "@testing-library/jest-dom";
 
@@ -421,6 +421,42 @@ describe("NewSessionModal", () => {
     await user.click(await screen.findByRole("button", { name: "Codex" }));
 
     expect(await screen.findByText("Default (gpt-5.5)")).toBeInTheDocument();
+  });
+
+  it("labels the grouped Codex controls so duplicate Default values have context", async () => {
+    mockGetGlobalNewSessionDefaults.mockReturnValue({
+      backend: "codex",
+      model: "",
+      mode: "agent",
+      askPermission: true,
+      sessionRole: "worker",
+      envSlug: "",
+      cwd: "",
+      useWorktree: true,
+      codexInternetAccess: true,
+      codexReasoningEffort: "high",
+      codexPermissionMode: "default",
+    });
+
+    render(<NewSessionModal open={true} onClose={() => {}} />);
+
+    const modal = await screen.findByTestId("new-session-modal-card");
+    expect(within(modal).getByText("Engine")).toBeInTheDocument();
+    expect(within(modal).getByText("Permission mode")).toBeInTheDocument();
+    expect(within(modal).getByRole("button", { name: "Default" })).toBeInTheDocument();
+
+    expect(within(modal).getByText("Codex options")).toBeInTheDocument();
+    expect(within(modal).getByText("Network access")).toBeInTheDocument();
+    expect(within(modal).getByText("Reasoning effort")).toBeInTheDocument();
+
+    expect(within(modal).getByText("Workspace")).toBeInTheDocument();
+    expect(within(modal).getByText("Folder")).toBeInTheDocument();
+    expect(within(modal).getByText("Session role")).toBeInTheDocument();
+
+    expect(within(modal).getByText("Runtime")).toBeInTheDocument();
+    expect(within(modal).getByText("Environment")).toBeInTheDocument();
+    expect(within(modal).getByText("Model")).toBeInTheDocument();
+    expect(await within(modal).findByText("Default (gpt-5.5)")).toBeInTheDocument();
   });
 
   it("passes the Codex config default as the explicit model when creating from Default", async () => {

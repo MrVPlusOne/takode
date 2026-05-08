@@ -1357,6 +1357,113 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
           </Card>
         </div>
       </Section>
+      {/* ─── New Session Modal Layout ─────────────────────── */}
+      <Section
+        title="New Session Modal Layout"
+        description="Static layout mock for the labeled New Session controls without mounting the API-backed modal"
+      >
+        <div
+          className="w-full max-w-[460px] rounded-2xl border border-cc-border bg-cc-card shadow-xl"
+          data-testid="playground-new-session-modal-layout"
+        >
+          <div className="flex items-center justify-between border-b border-cc-border px-5 py-4">
+            <h3 className="text-sm font-semibold text-cc-fg">New Session</h3>
+            <button className="flex h-6 w-6 items-center justify-center rounded-md text-cc-muted hover:bg-cc-hover hover:text-cc-fg">
+              ×
+            </button>
+          </div>
+          <div className="space-y-4 px-5 py-4">
+            <section className="space-y-2">
+              <h4 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cc-muted/80">Engine</h4>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="space-y-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-cc-muted/75">Backend</div>
+                  <div className="inline-flex rounded-lg bg-cc-hover/50 p-0.5">
+                    <button className="rounded-md px-2.5 py-1 text-xs text-cc-muted">Claude</button>
+                    <button className="rounded-md bg-cc-primary/15 px-2.5 py-1 text-xs font-medium text-cc-primary">
+                      Codex
+                    </button>
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-cc-muted/75">
+                    Permission mode
+                  </div>
+                  <button className="rounded-md bg-cc-hover/50 px-2.5 py-1 text-xs font-medium text-cc-fg">
+                    Default ▾
+                  </button>
+                </div>
+              </div>
+            </section>
+            <section className="space-y-2">
+              <h4 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cc-muted/80">Codex options</h4>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="space-y-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-cc-muted/75">
+                    Network access
+                  </div>
+                  <button className="rounded-md bg-cc-primary/15 px-2 py-1 text-xs font-medium text-cc-primary">
+                    Internet
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-cc-muted/75">
+                    Reasoning effort
+                  </div>
+                  <button className="rounded-md px-2 py-1 text-xs text-cc-muted hover:bg-cc-hover hover:text-cc-fg">
+                    High ▾
+                  </button>
+                </div>
+              </div>
+            </section>
+            <section className="space-y-2">
+              <h4 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cc-muted/80">Workspace</h4>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="min-w-0 flex-[1_1_12rem] space-y-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-cc-muted/75">Folder</div>
+                  <button className="flex max-w-full items-center rounded-md px-2 py-1 text-xs text-cc-muted hover:bg-cc-hover hover:text-cc-fg">
+                    <span className="truncate font-mono-code">companion</span>
+                    <span className="ml-1">▾</span>
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-cc-muted/75">Isolation</div>
+                  <button className="rounded-md px-2 py-1 text-xs text-cc-muted hover:bg-cc-hover hover:text-cc-fg">
+                    Worktree
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-cc-muted/75">
+                    Session role
+                  </div>
+                  <button className="rounded-md px-2 py-1 text-xs text-cc-muted hover:bg-cc-hover hover:text-cc-fg">
+                    Leader
+                  </button>
+                </div>
+              </div>
+            </section>
+            <section className="space-y-2">
+              <h4 className="text-[10px] font-semibold uppercase tracking-[0.14em] text-cc-muted/80">Runtime</h4>
+              <div className="flex flex-wrap items-end gap-2">
+                <div className="space-y-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-cc-muted/75">
+                    Environment
+                  </div>
+                  <button className="rounded-md px-2 py-1 text-xs text-cc-muted hover:bg-cc-hover hover:text-cc-fg">
+                    No env ▾
+                  </button>
+                </div>
+                <div className="space-y-1">
+                  <div className="text-[10px] font-medium uppercase tracking-[0.12em] text-cc-muted/75">Model</div>
+                  <button className="rounded-md px-2 py-1 text-xs text-cc-muted hover:bg-cc-hover hover:text-cc-fg">
+                    Default (gpt-5.5) ▾
+                  </button>
+                </div>
+              </div>
+            </section>
+          </div>
+        </div>
+      </Section>
       {/* ─── Session Creation Progress ─────────────────────── */}
       <Section
         title="Session Creation Progress"
