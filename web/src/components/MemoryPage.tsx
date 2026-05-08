@@ -602,14 +602,17 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
         </header>
 
         <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-3 lg:grid-cols-[minmax(220px,270px)_minmax(320px,460px)_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[280px_minmax(360px,500px)_minmax(520px,1fr)]">
-          <aside className="min-h-0">
+          <aside aria-label="Memory spaces" className="flex min-h-0 flex-col overflow-hidden">
             <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
               <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Spaces</h2>
               {spacesState.status === "ready" ? (
                 <span className="text-[11px] text-cc-muted">{spacesState.data.spaces.length}</span>
               ) : null}
             </div>
-            <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:space-y-2 lg:overflow-y-auto lg:overflow-x-visible lg:pb-0">
+            <div
+              data-testid="memory-spaces-list"
+              className="flex min-h-0 flex-1 gap-2 overflow-x-auto pb-1 lg:block lg:space-y-2 lg:overflow-y-auto lg:overflow-x-visible lg:pb-0"
+            >
               {spacesState.status === "loading" ? <SkeletonRows count={3} /> : null}
               {spacesState.status === "error" ? (
                 <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">

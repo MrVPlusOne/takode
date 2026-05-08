@@ -191,6 +191,13 @@ describe("MemoryPage", () => {
     render(<MemoryPage embedded />);
 
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeInTheDocument();
+    expect(screen.getByRole("complementary", { name: "Memory spaces" })).toHaveClass(
+      "flex",
+      "min-h-0",
+      "flex-col",
+      "overflow-hidden",
+    );
+    expect(screen.getByTestId("memory-spaces-list")).toHaveClass("min-h-0", "flex-1", "lg:overflow-y-auto");
     expect(screen.getAllByText("prod/Takode").length).toBeGreaterThan(0);
     expect(screen.getAllByText("prod/Other").length).toBeGreaterThan(0);
     expect(screen.getByText("dev")).toBeInTheDocument();
