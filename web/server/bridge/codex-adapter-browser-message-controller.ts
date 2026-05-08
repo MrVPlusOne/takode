@@ -8,6 +8,7 @@ import type {
   PermissionRequest,
   ThreadRef,
 } from "../session-types.js";
+import type { ParsedThreadStatusMarker } from "../../shared/thread-status-marker.js";
 import { sessionTag } from "../session-tag.js";
 import { normalizeLeaderAssistantRouting, recordLeaderThreadStatusMarkers } from "./thread-routing-reminder.js";
 import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
@@ -259,6 +260,7 @@ export async function handleCodexAdapterBrowserMessage(
 
   let outgoing: BrowserIncomingMessage | null = msg;
   let activeRouteFromAssistant: ThreadRouteMetadata | undefined;
+  let pendingThreadStatusMarkers: ParsedThreadStatusMarker[] | undefined;
 
   if (msg.type === "session_init") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
@@ -341,10 +343,7 @@ export async function handleCodexAdapterBrowserMessage(
     }
     const timestamp = Date.now();
     const resolvedMessageId = msg.message.id ?? msg.uuid ?? `assistant-${timestamp}-${session.messageHistory.length}`;
-    const threadStatusRecords = recordLeaderThreadStatusMarkers(session, routed.threadStatusMarkers, {
-      messageId: resolvedMessageId,
-      timestamp,
-    });
+    pendingThreadStatusMarkers = routed.threadStatusMarkers;
     const routedMsg = {
       ...msg,
       message: { ...msg.message, id: resolvedMessageId, content: routed.content },
@@ -353,7 +352,6 @@ export async function handleCodexAdapterBrowserMessage(
       ...(routed.questId ? { questId: routed.questId } : {}),
       ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
       ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
-      ...(threadStatusRecords.length > 0 ? { threadStatusMarkers: threadStatusRecords } : {}),
     };
     msg = routedMsg;
     outgoing = routedMsg;
@@ -413,12 +411,20 @@ export async function handleCodexAdapterBrowserMessage(
   }
 
   if (outgoing?.type === "assistant") {
-    const normalizedAssistant: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
+    const assistantTimestamp = outgoing.timestamp || Date.now();
+    let normalizedAssistant: Extract<BrowserIncomingMessage, { type: "assistant" }> = {
       ...outgoing,
-      timestamp: outgoing.timestamp || Date.now(),
+      timestamp: assistantTimestamp,
     };
     if (deps.isDuplicateCodexAssistantReplay(session, normalizedAssistant)) {
       return;
+    }
+    const threadStatusRecords = recordLeaderThreadStatusMarkers(session, pendingThreadStatusMarkers, {
+      messageId: normalizedAssistant.message.id,
+      timestamp: assistantTimestamp,
+    });
+    if (threadStatusRecords.length > 0) {
+      normalizedAssistant = { ...normalizedAssistant, threadStatusMarkers: threadStatusRecords };
     }
     outgoing = normalizedAssistant;
   }

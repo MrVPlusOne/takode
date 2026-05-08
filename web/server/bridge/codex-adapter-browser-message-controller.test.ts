@@ -257,6 +257,97 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
     expect(session.messageHistory[0]).toMatchObject(msg);
   });
 
+  it("records Codex thread status markers only after replay duplicate detection", async () => {
+    const session = makeSession();
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+
+    try {
+      await handleCodexAdapterBrowserMessage(
+        session,
+        makeAssistant(
+          [
+            {
+              type: "text",
+              text: "[thread:q-941]\n{[(Thread Waiting: q-941 | waiting on reviewer)]}",
+            },
+          ],
+          "codex-status-live",
+        ),
+        deps,
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toMatchObject({
+      kind: "waiting",
+      threadKey: "q-941",
+      messageId: "codex-status-live",
+      timestamp: 1_000_000,
+    });
+    expect(broadcasts).toEqual([
+      expect.objectContaining({
+        type: "session_update",
+        session: {
+          leaderThreadStatuses: expect.objectContaining({
+            "q-941": expect.objectContaining({ kind: "waiting" }),
+          }),
+        },
+      }),
+      expect.objectContaining({
+        type: "assistant",
+        threadStatusMarkers: [expect.objectContaining({ kind: "waiting", threadKey: "q-941" })],
+      }),
+    ]);
+  });
+
+  it("does not refresh stale thread status state from duplicate Codex assistant replay markers", async () => {
+    const session = makeSession();
+    const staleStatus = {
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "q-941",
+      questId: "q-941",
+      summary: "old wait",
+      messageId: "old-status",
+      timestamp: 10,
+      updatedAt: 10,
+    };
+    session.state.leaderThreadStatuses = { "q-941": staleStatus };
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+    deps.isDuplicateCodexAssistantReplay = vi.fn(() => true);
+    const nowSpy = vi.spyOn(Date, "now").mockReturnValue(1_000_000);
+
+    try {
+      await handleCodexAdapterBrowserMessage(
+        session,
+        makeAssistant(
+          [
+            {
+              type: "text",
+              text: "[thread:q-941]\n{[(Thread Ready: q-941 | replayed historical ready marker)]}",
+            },
+          ],
+          "codex-status-replay",
+        ),
+        deps,
+      );
+    } finally {
+      nowSpy.mockRestore();
+    }
+
+    const duplicateAssistantArg = vi.mocked(deps.isDuplicateCodexAssistantReplay).mock.calls[0]?.[1];
+    expect(duplicateAssistantArg).toMatchObject({ type: "assistant", threadKey: "q-941" });
+    expect(duplicateAssistantArg).not.toHaveProperty("threadStatusMarkers");
+    expect(session.state.leaderThreadStatuses).toEqual({ "q-941": staleStatus });
+    expect(session.state.leaderThreadStatuses["q-941"].timestamp).not.toBe(1_000_000);
+    expect(session.messageHistory).toHaveLength(0);
+    expect(broadcasts).toEqual([]);
+  });
+
   it("updates the active running route when Codex leader assistant output is routed to a quest thread", async () => {
     const session = makeSession();
     session.isGenerating = true;
