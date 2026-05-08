@@ -341,6 +341,8 @@ export function getSessionGitStateDeps(host: any) {
     gitSessionKeys: WS_BRIDGE_GIT_SESSION_KEYS,
     sessions: host.sessions,
     inFlightRefreshes: host.worktreeSnapshotRefreshes,
+    nonWorktreeAheadBehindRefreshes: host.nonWorktreeAheadBehindRefreshes,
+    isHeavyRepoModeEnabled: () => getSettings().heavyRepoModeEnabled,
     broadcastSessionUpdate,
     broadcastGitUpdate: (targetSession: unknown) => {
       const session = targetSession as Session;

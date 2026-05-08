@@ -42,6 +42,7 @@ import {
   upsertVsCodeWindowState as upsertVsCodeWindowStateController,
 } from "./bridge/browser-transport-controller.js";
 import {
+  refreshGitInfo as refreshGitInfoController,
   refreshGitInfoPublic as refreshGitInfoPublicController,
   setDiffBaseBranch as setDiffBaseBranchController,
 } from "./bridge/session-git-state.js";
@@ -1080,6 +1081,167 @@ describe("Diff stats computation", () => {
     expect(session.state.total_lines_removed).toBe(4);
     expect(session.state.git_status_refreshed_at).toBe(1234);
     expect(session.state.git_status_refresh_error).toBe("Unable to refresh diff stats");
+  });
+
+  it("skips non-worktree default-main diff stats in heavy repo mode", async () => {
+    // Heavy Repo Mode should still refresh cheap git metadata, but it must not
+    // launch an unbounded line-stat diff against default-main anchors.
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("diff --numstat") || cmd.includes("merge-base")) {
+        throw new Error(`unexpected expensive diff command: ${cmd}`);
+      }
+      return "";
+    });
+
+    const session = bridge.getOrCreateSession("s1");
+    session.state.cwd = "/repo";
+    session.state.is_worktree = false;
+    session.state.git_branch = "feature";
+    session.state.git_default_branch = "origin/master";
+    session.state.diff_base_branch = "origin/master";
+    session.state.total_lines_added = 999;
+    session.state.total_lines_removed = 111;
+    session.diffStatsDirty = true;
+
+    const result = await refreshGitInfoPublicController(
+      session as any,
+      {
+        refreshGitInfo: vi.fn(async (targetSession: any) => {
+          targetSession.state.git_status_refreshed_at = 4444;
+          targetSession.state.git_status_refresh_error = null;
+        }),
+        broadcastSessionUpdate: vi.fn(),
+        broadcastDiffTotals: vi.fn(),
+        persistSession: vi.fn(),
+        isHeavyRepoModeEnabled: () => true,
+      },
+      { broadcastUpdate: true, force: true },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(session.diffStatsDirty).toBe(false);
+    expect(session.state.total_lines_added).toBe(0);
+    expect(session.state.total_lines_removed).toBe(0);
+    expect(mockExecSync).not.toHaveBeenCalled();
+  });
+
+  it("preserves worktree diff stats in heavy repo mode", async () => {
+    // Worktrees compare against their bounded creation/base anchor, so Heavy
+    // Repo Mode should not suppress these useful local line totals.
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("diff --numstat base-sha")) return "14\t5\tsrc/app.ts\n";
+      if (cmd.includes("diff --numstat")) throw new Error(`unexpected diff base: ${cmd}`);
+      return "";
+    });
+
+    const session = bridge.getOrCreateSession("s1");
+    session.state.cwd = "/repo-worktree";
+    session.state.is_worktree = true;
+    session.state.git_branch = "feature-wt";
+    session.state.git_default_branch = "main";
+    session.state.diff_base_branch = "main";
+    session.state.diff_base_start_sha = "base-sha";
+    session.state.git_head_sha = "head-sha";
+    session.state.git_ahead = 2;
+    session.diffStatsDirty = true;
+
+    const result = await refreshGitInfoPublicController(
+      session as any,
+      {
+        refreshGitInfo: vi.fn(async (targetSession: any) => {
+          targetSession.state.git_status_refreshed_at = 5555;
+          targetSession.state.git_status_refresh_error = null;
+        }),
+        broadcastSessionUpdate: vi.fn(),
+        broadcastDiffTotals: vi.fn(),
+        persistSession: vi.fn(),
+        isHeavyRepoModeEnabled: () => true,
+      },
+      { broadcastUpdate: true, force: true },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(session.diffStatsDirty).toBe(false);
+    expect(session.state.total_lines_added).toBe(14);
+    expect(session.state.total_lines_removed).toBe(5);
+    expect(mockExecSync.mock.calls.some((call: unknown[]) => String(call[0]).includes("diff --numstat base-sha"))).toBe(
+      true,
+    );
+  });
+
+  it("dedupes non-worktree ahead-behind refreshes and shares the result", async () => {
+    // Equivalent non-worktree sessions in the same repo/base/HEAD context should
+    // wait on one rev-list computation and all receive that shared count.
+    const revListCallbacks: Array<(err: Error | null, result: { stdout: string; stderr: string }) => void> = [];
+    const commands: string[] = [];
+    mockExec.mockImplementation((cmd: string, opts: any, cb?: Function) => {
+      commands.push(cmd);
+      const callback = typeof opts === "function" ? opts : cb;
+      if (cmd.includes("rev-list --left-right --count")) {
+        if (callback) revListCallbacks.push(callback);
+        return;
+      }
+      if (cmd.includes("--abbrev-ref HEAD")) callback?.(null, { stdout: "feature\n", stderr: "" });
+      else if (cmd.includes("rev-parse HEAD")) callback?.(null, { stdout: "same-head-sha\n", stderr: "" });
+      else if (cmd.includes("--git-dir")) callback?.(null, { stdout: ".git\n", stderr: "" });
+      else if (cmd.includes("--show-toplevel")) callback?.(null, { stdout: "/repo\n", stderr: "" });
+      else if (cmd.includes("@{upstream}")) callback?.(null, { stdout: "origin/main\n", stderr: "" });
+      else callback?.(null, { stdout: "", stderr: "" });
+    });
+
+    const s1 = bridge.getOrCreateSession("s1");
+    const s2 = bridge.getOrCreateSession("s2");
+    s1.state.cwd = "/repo";
+    s2.state.cwd = "/repo";
+    const sessions = new Map([
+      ["s1", s1],
+      ["s2", s2],
+    ]);
+    const broadcastSessionUpdate = vi.fn();
+    const deps = {
+      gitSessionKeys: [
+        "git_branch",
+        "git_default_branch",
+        "diff_base_branch",
+        "git_head_sha",
+        "diff_base_start_sha",
+        "is_worktree",
+        "is_containerized",
+        "repo_root",
+        "git_ahead",
+        "git_behind",
+        "total_lines_added",
+        "total_lines_removed",
+      ],
+      sessions,
+      nonWorktreeAheadBehindRefreshes: new Map(),
+      broadcastSessionUpdate,
+      broadcastGitUpdate: vi.fn((session: typeof s1) => {
+        broadcastSessionUpdate(session, {
+          git_ahead: session.state.git_ahead,
+          git_behind: session.state.git_behind,
+        });
+      }),
+      broadcastDiffTotals: vi.fn(),
+      persistSession: vi.fn(),
+      notifyPoller: vi.fn(),
+      updateBranchIndex: vi.fn(),
+      invalidateSessionsSharingBranch: vi.fn(),
+    };
+
+    const first = refreshGitInfoController(s1 as any, deps as any, { broadcastUpdate: true, force: true });
+    const second = refreshGitInfoController(s2 as any, deps as any, { broadcastUpdate: true, force: true });
+
+    await vi.waitFor(() => expect(revListCallbacks).toHaveLength(1));
+    revListCallbacks[0]!(null, { stdout: "7\t11\n", stderr: "" });
+    await Promise.all([first, second]);
+
+    expect(commands.filter((cmd) => cmd.includes("rev-list --left-right --count"))).toHaveLength(1);
+    expect(s1.state.git_ahead).toBe(11);
+    expect(s1.state.git_behind).toBe(7);
+    expect(s2.state.git_ahead).toBe(11);
+    expect(s2.state.git_behind).toBe(7);
+    expect(deps.nonWorktreeAheadBehindRefreshes.size).toBe(0);
   });
 
   it("refreshWorktreeGitStateForSnapshot preserves stale totals when required diff recompute fails", async () => {
