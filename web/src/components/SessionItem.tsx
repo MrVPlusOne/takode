@@ -85,6 +85,16 @@ const STATUS_DOT_CLASS: Record<SessionVisualStatus, string> = {
   idle: "bg-cc-muted/50",
 };
 
+const STATUS_RING_CLASS: Record<SessionVisualStatus, string> = {
+  archived: "ring-2 ring-cc-muted/35",
+  permission: "ring-2 ring-amber-400/80",
+  disconnected: "ring-2 ring-cc-muted/50",
+  running: "ring-2 ring-emerald-500/80",
+  compacting: "ring-2 ring-emerald-500/80",
+  completed_unread: "ring-2 ring-blue-500/70",
+  idle: "ring-2 ring-cc-muted/35",
+};
+
 /** Maps reviewer session status to badge border/text/glow colors */
 const REVIEWER_BADGE_THEME: Record<
   SessionVisualStatus,
@@ -520,6 +530,13 @@ export function SessionItem({
       };
   const usesExpandedLeaderPortrait =
     !compact && !isEditing && !archived && s.isOrchestrator && !!s.leaderProfilePortrait;
+  const leaderPortraitStatusRing = usesExpandedLeaderPortrait
+    ? {
+        className: STATUS_RING_CLASS[visualStatus],
+        status: visualStatus,
+        style: glowStyle,
+      }
+    : undefined;
 
   const renderHighlightedSnippet = (text: string): React.ReactNode => {
     const parts = getHighlightParts(text, matchQuery || "");
@@ -608,14 +625,19 @@ export function SessionItem({
         <div
           className={
             usesExpandedLeaderPortrait
-              ? "grid flex-1 min-w-0 grid-cols-[2.25rem_minmax(0,1fr)] grid-rows-[auto_auto_auto] items-start gap-x-2"
+              ? "grid flex-1 min-w-0 grid-cols-[1.8rem_minmax(0,1fr)] grid-rows-[auto_auto_auto] items-start gap-x-2"
               : "flex-1 min-w-0"
           }
           data-testid={usesExpandedLeaderPortrait ? "session-leader-portrait-layout" : undefined}
         >
           {usesExpandedLeaderPortrait && s.leaderProfilePortrait && (
             <div className="col-start-1 row-span-2 row-start-1 self-center">
-              <LeaderProfilePortraitButton sessionId={s.id} portrait={s.leaderProfilePortrait} size="lg" />
+              <LeaderProfilePortraitButton
+                sessionId={s.id}
+                portrait={s.leaderProfilePortrait}
+                size="lg"
+                statusRing={leaderPortraitStatusRing}
+              />
             </div>
           )}
           {/* Row 1: Leader/herd/reviewer tag (inline) + title */}
@@ -627,7 +649,8 @@ export function SessionItem({
             {showScheduledTimerIcon ? (
               <ScheduledTimerStatusIcon timerCount={timerCount} />
             ) : (
-              !useStatusBar && (
+              !useStatusBar &&
+              !usesExpandedLeaderPortrait && (
                 <span
                   className={`shrink-0 w-1.5 h-1.5 rounded-full ${statusColorClass} ${
                     isActive ? "opacity-100" : "opacity-60 group-hover:opacity-85"

@@ -15,9 +15,19 @@ interface LeaderProfilePortraitButtonProps {
   sessionId: string;
   portrait: LeaderProfilePortrait;
   size?: "sm" | "md" | "lg";
+  statusRing?: {
+    className: string;
+    status: string;
+    style?: CSSProperties;
+  };
 }
 
-export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }: LeaderProfilePortraitButtonProps) {
+export function LeaderProfilePortraitButton({
+  sessionId,
+  portrait,
+  size = "sm",
+  statusRing,
+}: LeaderProfilePortraitButtonProps) {
   const triggerRef = useRef<HTMLSpanElement | null>(null);
   const [open, setOpen] = useState(false);
   const [savingId, setSavingId] = useState<string | null>(null);
@@ -89,7 +99,8 @@ export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }
     setOpen(true);
   }
 
-  const triggerSize = size === "lg" ? "h-9 w-9" : size === "md" ? "h-7 w-7" : "h-5 w-5";
+  const triggerSize = size === "lg" ? "h-[1.8rem] w-[1.8rem]" : size === "md" ? "h-7 w-7" : "h-5 w-5";
+  const ringClass = statusRing?.className ?? "ring-1 ring-cc-border/70";
 
   return (
     <>
@@ -108,7 +119,9 @@ export function LeaderProfilePortraitButton({ sessionId, portrait, size = "sm" }
           if (triggerRef.current) setAnchor(triggerRef.current.getBoundingClientRect());
           setOpen(true);
         }}
-        className={`inline-flex ${triggerSize} shrink-0 items-center justify-center rounded-full ring-1 ring-cc-border/70 transition hover:ring-cc-primary/60 focus:outline-none focus:ring-2 focus:ring-cc-primary/60`}
+        className={`inline-flex ${triggerSize} shrink-0 items-center justify-center rounded-full ${ringClass} transition hover:ring-cc-primary/60 focus:outline-none focus:ring-2 focus:ring-cc-primary/60`}
+        data-status={statusRing?.status}
+        style={statusRing?.style}
       >
         <img src={portrait.smallUrl} alt="" className="h-full w-full rounded-full object-cover" draggable={false} />
       </span>

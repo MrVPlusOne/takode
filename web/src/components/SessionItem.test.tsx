@@ -422,15 +422,18 @@ describe("SessionItem leader profiles", () => {
         leaderProfilePortrait: TAKO_PORTRAIT,
         sessionNum: 1286,
         isWorktree: true,
+        status: "running",
       }),
       sessionPreview: "recent activity stays readable across the whole row",
     });
 
     const layout = screen.getByTestId("session-leader-portrait-layout");
-    expect(layout).toHaveClass("grid", "grid-cols-[2.25rem_minmax(0,1fr)]");
+    expect(layout).toHaveClass("grid", "grid-cols-[1.8rem_minmax(0,1fr)]");
 
     const portraitButton = screen.getByRole("button", { name: /open tako 1\.1 profile/i });
-    expect(portraitButton).toHaveClass("h-9", "w-9");
+    expect(portraitButton).toHaveClass("h-[1.8rem]", "w-[1.8rem]", "ring-2", "ring-emerald-500/80");
+    expect(portraitButton).toHaveAttribute("data-status", "running");
+    expect(screen.queryByTestId("session-status-dot")).not.toBeInTheDocument();
 
     expect(screen.getByTestId("session-title-row")).toHaveClass("col-start-2", "row-start-1");
     expect(screen.getByTestId("session-metadata-row")).toHaveClass("col-start-2", "row-start-2");
@@ -457,6 +460,7 @@ describe("SessionItem leader profiles", () => {
     const preview = screen.getByText("compact non-leader preview");
     const backendIcon = screen.getByAltText("Codex");
     expect(preview.compareDocumentPosition(backendIcon) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(screen.getByTestId("session-status-dot")).toBeInTheDocument();
   });
 
   it("opens the profile picker from a leader portrait", () => {
