@@ -7,6 +7,7 @@ import {
   LEASE_WAIT_HELP,
 } from "./takode-lease.js";
 import { stripHelpFlags, TIMER_CREATE_GUIDANCE } from "./takode-core.js";
+import { FILE_RESOLVE_HELP } from "./takode-file-resolve.js";
 import {
   BOARD_ADVANCE_HELP,
   BOARD_DETAIL_HELP,
@@ -288,6 +289,9 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "leader-context-resume":
       console.log(LEADER_CONTEXT_RESUME_HELP);
       return true;
+    case "file-resolve":
+      console.log(FILE_RESOLVE_HELP);
+      return true;
     case "spawn":
       console.log(SPAWN_FLAG_USAGE);
       return true;
@@ -469,6 +473,7 @@ Commands:
   search   Search sessions via server-side ranking (available to all sessions)
   info     Show detailed metadata for a session
   leader-context-resume  Recover compact leader/orchestrator context for a session
+  file-resolve  Resolve paths or file links against a session filesystem context
   spawn    Create and auto-herd new worker sessions
   tasks    Show a session task outline (available to all sessions)
   timers   Inspect pending timers for a session
@@ -521,6 +526,7 @@ Examples:
   takode info 1
   takode info 1 --json
   takode leader-context-resume 1
+  takode file-resolve --session 1 artifacts/preview.png file:artifacts/preview.png
   takode spawn --backend claude-sdk --count 2
   takode spawn --backend codex --count 3 --message "Check flaky tests"
   takode spawn --message-file /tmp/dispatch.txt

@@ -16,6 +16,7 @@ import {
   hasHelpFlag,
   stripGlobalFlags,
 } from "./takode-core.js";
+import { handleFileResolve } from "./takode-file-resolve.js";
 import { printCommandHelp, printUsage } from "./takode-help.js";
 import { handleLease } from "./takode-lease.js";
 import { handleExport, handleGrep, handleLogs, handlePeek, handleRead, handleScan } from "./takode-message-commands.js";
@@ -67,6 +68,7 @@ try {
     ["search", {}],
     ["info", {}],
     ["leader-context-resume", {}],
+    ["file-resolve", {}],
     ["tasks", {}],
     ["timers", {}],
     ["scan", {}],
@@ -143,6 +145,9 @@ try {
       break;
     case "leader-context-resume":
       await handleLeaderContextResume(base, args);
+      break;
+    case "file-resolve":
+      await handleFileResolve(base, args);
       break;
     case "spawn":
       await handleSpawn(base, args);
