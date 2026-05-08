@@ -9,7 +9,12 @@ import { Lightbox } from "./Lightbox.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { getMessageMarkdown, getMessagePlainText, copyRichText, writeClipboardText } from "../utils/copy-utils.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
-import { useStore, getSessionSearchState, countUserPermissions } from "../store.js";
+import {
+  useStore,
+  getSessionSearchState,
+  countUserPermissions,
+  sessionSearchMessageMatchesCategory,
+} from "../store.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
 import { absoluteUrlForHash, navigateToSession, routeSessionRefForId, sessionMessageHash } from "../utils/routing.js";
 import { api } from "../api.js";
@@ -49,18 +54,20 @@ export function isEmptyAssistantMessage(msg: ChatMessage): boolean {
  * Per-message search highlight info, derived from the session search state.
  * Returns null when no search is active (zero overhead path).
  */
-function useMessageSearchHighlight(sessionId: string | undefined, messageId: string, messageRole: ChatMessage["role"]) {
+function useMessageSearchHighlight(sessionId: string | undefined, message: ChatMessage) {
   const query = useStore((s) => (sessionId ? getSessionSearchState(s, sessionId).query : ""));
   const mode = useStore((s) => (sessionId ? getSessionSearchState(s, sessionId).mode : ("strict" as const)));
   const category = useStore((s) => (sessionId ? getSessionSearchState(s, sessionId).category : "all"));
+  const leaderSessionId = useStore((s) =>
+    sessionId ? s.sdkSessions.find((sdk) => sdk.sessionId === sessionId)?.herdedBy : undefined,
+  );
   const isCurrent = useStore((s) => {
     if (!sessionId) return false;
     const ss = getSessionSearchState(s, sessionId);
     if (ss.matches.length === 0 || ss.currentMatchIndex < 0) return false;
-    return ss.matches[ss.currentMatchIndex]?.messageId === messageId;
+    return ss.matches[ss.currentMatchIndex]?.messageId === message.id;
   });
-  const roleMatchesCategory = category === "all" || category === messageRole;
-  if (!roleMatchesCategory) return null;
+  if (!sessionSearchMessageMatchesCategory(message, category, leaderSessionId)) return null;
   if (!query.trim()) return null;
   return { query, mode, isCurrent };
 }
@@ -164,7 +171,7 @@ export const MessageBubble = memo(function MessageBubble({
   onSelectThread?: (threadKey: string) => void;
 }) {
   // Search highlight state -- must be called unconditionally (hooks can't be after early returns)
-  const searchHighlight = useMessageSearchHighlight(sessionId, message.id, message.role);
+  const searchHighlight = useMessageSearchHighlight(sessionId, message);
 
   if (message.role === "system") {
     if (message.variant === "error") {
