@@ -6,7 +6,11 @@ import {
   type SessionSearchCategory,
 } from "../store-session-search.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
+import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
+import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { filterMessagesForThread } from "../utils/thread-projection.js";
+import { QuestInlineLink } from "./QuestInlineLink.js";
+import { SessionInlineLink } from "./SessionInlineLink.js";
 
 export type UniversalSearchMode = "quests" | "sessions" | "messages";
 
@@ -32,7 +36,8 @@ export interface UniversalSearchOverlayProps {
 }
 
 const PAGE_SIZE = 20;
-const DEBOUNCE_MS = 130;
+const DEBOUNCE_MS = 300;
+const LAST_MODE_STORAGE_KEY = "cc-universal-search-mode";
 const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string }> = [
   { id: "quests", label: "Quests" },
   { id: "sessions", label: "Sessions" },
@@ -54,6 +59,27 @@ function useDebouncedValue(value: string, delayMs: number): string {
   }, [delayMs, value]);
 
   return debounced;
+}
+
+function isUniversalSearchMode(value: string | null): value is UniversalSearchMode {
+  return value === "quests" || value === "sessions" || value === "messages";
+}
+
+function readLastMode(): UniversalSearchMode | null {
+  if (typeof window === "undefined") return null;
+  const stored = scopedGetItem(LAST_MODE_STORAGE_KEY);
+  return isUniversalSearchMode(stored) ? stored : null;
+}
+
+function writeLastMode(mode: UniversalSearchMode): void {
+  if (typeof window === "undefined") return;
+  scopedSetItem(LAST_MODE_STORAGE_KEY, mode);
+}
+
+function initialMode(currentSessionId: string | null, messageModeAvailable: boolean): UniversalSearchMode {
+  const stored = readLastMode();
+  if (stored && (stored !== "messages" || messageModeAvailable)) return stored;
+  return currentSessionId && messageModeAvailable ? "messages" : "sessions";
 }
 
 function sessionRecency(session: SdkSessionInfo): number {
@@ -158,6 +184,11 @@ function nextMode(current: UniversalSearchMode, direction: 1 | -1, messageModeAv
   return modes[(currentIndex + direction + modes.length) % modes.length]!;
 }
 
+function sessionNumForId(sessions: SdkSessionInfo[], sessionId: string | null): number | null {
+  if (!sessionId) return null;
+  return sessions.find((session) => session.sessionId === sessionId)?.sessionNum ?? null;
+}
+
 export function UniversalSearchOverlay({
   open,
   currentSessionId,
@@ -174,9 +205,11 @@ export function UniversalSearchOverlay({
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const requestSeqRef = useRef(0);
+  const sessionByIdRef = useRef<Map<string, SdkSessionInfo>>(new Map());
+  const searchKeyRef = useRef("");
   const messageModeAvailable = Boolean(currentSessionId && currentThreadKey);
 
-  const [mode, setMode] = useState<UniversalSearchMode>("sessions");
+  const [mode, setMode] = useState<UniversalSearchMode>(() => initialMode(currentSessionId, messageModeAvailable));
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, DEBOUNCE_MS);
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
@@ -199,15 +232,23 @@ export function UniversalSearchOverlay({
   );
 
   useEffect(() => {
+    sessionByIdRef.current = sessionById;
+  }, [sessionById]);
+
+  const setUserMode = useCallback((next: UniversalSearchMode) => {
+    setMode(next);
+    writeLastMode(next);
+  }, []);
+
+  useEffect(() => {
     if (!open) return;
-    const initialMode = currentSessionId ? "messages" : "sessions";
-    setMode(initialMode);
+    setMode(initialMode(currentSessionId, messageModeAvailable));
     setQuery("");
     setVisibleLimit(PAGE_SIZE);
     setSelectedIndex(0);
     const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
-  }, [currentSessionId, open]);
+  }, [currentSessionId, messageModeAvailable, open]);
 
   useEffect(() => {
     if (mode === "messages" && !messageModeAvailable) setMode("sessions");
@@ -218,6 +259,8 @@ export function UniversalSearchOverlay({
     setSelectedIndex(0);
     listRef.current?.scrollTo({ top: 0 });
   }, [debouncedQuery, messageFilters.assistant, messageFilters.event, messageFilters.user, mode]);
+
+  const searchKey = `${mode}:${debouncedQuery.trim()}:user=${messageFilters.user}:assistant=${messageFilters.assistant}:event=${messageFilters.event}`;
 
   useEffect(() => {
     if (!open) return;
@@ -279,7 +322,7 @@ export function UniversalSearchOverlay({
             results: response.results.map((result) => ({
               kind: "session",
               id: result.sessionId,
-              session: sessionById.get(result.sessionId),
+              session: sessionByIdRef.current.get(result.sessionId),
               searchResult: result,
             })),
           });
@@ -291,7 +334,7 @@ export function UniversalSearchOverlay({
         });
       return () => controller.abort();
     }
-  }, [debouncedQuery, mode, open, sessionById, visibleLimit]);
+  }, [debouncedQuery, mode, open, visibleLimit]);
 
   const localSessionResults = useMemo(() => buildLocalSessionResults(sessions, visibleLimit), [sessions, visibleLimit]);
 
@@ -344,10 +387,12 @@ export function UniversalSearchOverlay({
   useEffect(() => {
     setSelectedIndex((current) => {
       if (results.length === 0) return -1;
+      if (searchKeyRef.current !== searchKey) return 0;
       if (current < 0) return 0;
       return Math.min(current, results.length - 1);
     });
-  }, [results.length]);
+    searchKeyRef.current = searchKey;
+  }, [results.length, searchKey]);
 
   const openResult = useCallback(
     (result: UniversalSearchResult | undefined) => {
@@ -365,7 +410,12 @@ export function UniversalSearchOverlay({
   );
 
   const cycleMode = useCallback(
-    (direction: 1 | -1) => setMode((current) => nextMode(current, direction, messageModeAvailable)),
+    (direction: 1 | -1) =>
+      setMode((current) => {
+        const next = nextMode(current, direction, messageModeAvailable);
+        writeLastMode(next);
+        return next;
+      }),
     [messageModeAvailable],
   );
 
@@ -477,7 +527,7 @@ export function UniversalSearchOverlay({
                     type="button"
                     disabled={disabled}
                     aria-pressed={active}
-                    onClick={() => !disabled && setMode(option.id)}
+                    onClick={() => !disabled && setUserMode(option.id)}
                     className={`rounded-md px-2.5 py-1 text-[11px] font-medium transition-colors ${
                       active
                         ? "bg-cc-primary/18 text-cc-primary"
@@ -542,8 +592,9 @@ export function UniversalSearchOverlay({
                   key={`${result.kind}:${result.id}`}
                   result={result}
                   query={debouncedQuery}
+                  sessions={sessions}
                   selected={index === selectedIndex}
-                  onPointerEnter={() => setSelectedIndex(index)}
+                  onPointerMove={() => setSelectedIndex(index)}
                   onOpen={() => openResult(result)}
                 />
               ))}
@@ -586,18 +637,28 @@ function EmptySearchState({ title, detail }: { title: string; detail: string }) 
 function ResultRow({
   result,
   query,
+  sessions,
   selected,
-  onPointerEnter,
+  onPointerMove,
   onOpen,
 }: {
   result: UniversalSearchResult;
   query: string;
+  sessions: SdkSessionInfo[];
   selected: boolean;
-  onPointerEnter: () => void;
+  onPointerMove: () => void;
   onOpen: () => void;
 }) {
   if (result.kind === "quest") {
-    return <QuestResultRow quest={result.quest} selected={selected} onPointerEnter={onPointerEnter} onOpen={onOpen} />;
+    return (
+      <QuestResultRow
+        quest={result.quest}
+        sessions={sessions}
+        selected={selected}
+        onPointerMove={onPointerMove}
+        onOpen={onOpen}
+      />
+    );
   }
   if (result.kind === "session") {
     return (
@@ -607,76 +668,106 @@ function ResultRow({
         sessionId={result.id}
         query={query}
         selected={selected}
-        onPointerEnter={onPointerEnter}
+        onPointerMove={onPointerMove}
         onOpen={onOpen}
       />
     );
   }
   return (
-    <MessageResultRow message={result.message} selected={selected} onPointerEnter={onPointerEnter} onOpen={onOpen} />
+    <MessageResultRow message={result.message} selected={selected} onPointerMove={onPointerMove} onOpen={onOpen} />
   );
 }
 
-function ResultButton({
+function ResultOption({
   selected,
-  onPointerEnter,
+  onPointerMove,
   onOpen,
   children,
 }: {
   selected: boolean;
-  onPointerEnter: () => void;
+  onPointerMove: () => void;
   onOpen: () => void;
   children: ReactNode;
 }) {
   return (
-    <button
-      type="button"
+    <div
       role="option"
       aria-selected={selected}
-      onPointerEnter={onPointerEnter}
+      onPointerMove={onPointerMove}
       onClick={onOpen}
-      className={`w-full rounded-lg border px-3 py-2 text-left transition-colors ${
+      className={`w-full cursor-pointer rounded-lg border px-3 py-2 text-left transition-colors ${
         selected
           ? "border-cc-primary/35 bg-cc-primary/12"
           : "border-transparent bg-transparent hover:border-cc-border hover:bg-cc-hover/70"
       }`}
     >
       {children}
-    </button>
+    </div>
   );
 }
 
 function QuestResultRow({
   quest,
+  sessions,
   selected,
-  onPointerEnter,
+  onPointerMove,
   onOpen,
 }: {
   quest: QuestmasterTask;
+  sessions: SdkSessionInfo[];
   selected: boolean;
-  onPointerEnter: () => void;
+  onPointerMove: () => void;
   onOpen: () => void;
 }) {
+  const leaderSessionId = getQuestLeaderSessionId(quest);
+  const workerSessionId = getQuestOwnerSessionId(quest);
+  const leaderSessionNum = sessionNumForId(sessions, leaderSessionId);
+  const workerSessionNum = sessionNumForId(sessions, workerSessionId);
   return (
-    <ResultButton selected={selected} onPointerEnter={onPointerEnter} onOpen={onOpen}>
+    <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
-            <span className="shrink-0 font-mono-code text-[11px] text-cc-primary">{quest.questId}</span>
+            <QuestInlineLink
+              questId={quest.questId}
+              stopPropagation
+              className="shrink-0 font-mono-code text-[11px] text-cc-primary hover:underline"
+            />
             <span className="truncate text-sm font-medium text-cc-fg">{quest.title}</span>
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-cc-muted">
             <span className="rounded-md bg-cc-hover px-1.5 py-0.5">{quest.status}</span>
-            {(quest.tags ?? []).slice(0, 3).map((tag) => (
-              <span key={tag} className="rounded-md border border-cc-border px-1.5 py-0.5">
-                #{tag}
+            {leaderSessionId && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-cc-border px-1.5 py-0.5">
+                <span>leader</span>
+                <SessionInlineLink
+                  sessionId={leaderSessionId}
+                  sessionNum={leaderSessionNum}
+                  stopPropagation
+                  className="font-mono-code text-cc-primary hover:underline"
+                >
+                  {`#${leaderSessionNum ?? "?"}`}
+                </SessionInlineLink>
               </span>
-            ))}
+            )}
+            {workerSessionId && (
+              <span className="inline-flex items-center gap-1 rounded-md border border-cc-border px-1.5 py-0.5">
+                <span>worker</span>
+                <SessionInlineLink
+                  sessionId={workerSessionId}
+                  sessionNum={workerSessionNum}
+                  stopPropagation
+                  className="font-mono-code text-cc-primary hover:underline"
+                >
+                  {`#${workerSessionNum ?? "?"}`}
+                </SessionInlineLink>
+              </span>
+            )}
           </div>
         </div>
         <span className="shrink-0 text-[11px] text-cc-muted">{formatRelativeTime(questRecency(quest))}</span>
       </div>
-    </ResultButton>
+    </ResultOption>
   );
 }
 
@@ -686,7 +777,7 @@ function SessionResultRow({
   sessionId,
   query,
   selected,
-  onPointerEnter,
+  onPointerMove,
   onOpen,
 }: {
   session: SdkSessionInfo | undefined;
@@ -694,14 +785,14 @@ function SessionResultRow({
   sessionId: string;
   query: string;
   selected: boolean;
-  onPointerEnter: () => void;
+  onPointerMove: () => void;
   onOpen: () => void;
 }) {
   const matchLabel = result ? result.matchedField.replace(/_/g, " ") : null;
   const context = result?.messageMatch?.snippet ?? result?.matchContext;
 
   return (
-    <ResultButton selected={selected} onPointerEnter={onPointerEnter} onOpen={onOpen}>
+    <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
@@ -720,23 +811,23 @@ function SessionResultRow({
           {query.trim() ? "match" : session ? formatRelativeTime(sessionRecency(session)) : ""}
         </span>
       </div>
-    </ResultButton>
+    </ResultOption>
   );
 }
 
 function MessageResultRow({
   message,
   selected,
-  onPointerEnter,
+  onPointerMove,
   onOpen,
 }: {
   message: ChatMessage;
   selected: boolean;
-  onPointerEnter: () => void;
+  onPointerMove: () => void;
   onOpen: () => void;
 }) {
   return (
-    <ResultButton selected={selected} onPointerEnter={onPointerEnter} onOpen={onOpen}>
+    <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
@@ -748,6 +839,6 @@ function MessageResultRow({
           <div className="mt-1 line-clamp-2 text-sm text-cc-fg">{truncateText(message.content, 180)}</div>
         </div>
       </div>
-    </ResultButton>
+    </ResultOption>
   );
 }

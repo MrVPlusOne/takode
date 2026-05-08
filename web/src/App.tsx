@@ -173,13 +173,9 @@ export default function App() {
   const closeUniversalSearch = useCallback(() => setUniversalSearchOpen(false), []);
   const universalSearchThreadKey = route.page === "session" ? (threadRoute.threadKey ?? "main") : null;
 
-  const handleOpenUniversalQuest = useCallback(
-    (questId: string, query: string) => {
-      useStore.getState().openQuestOverlay(questId, query || undefined);
-      if (route.page !== "questmaster") navigateTo("/questmaster");
-    },
-    [route.page],
-  );
+  const handleOpenUniversalQuest = useCallback((questId: string, query: string) => {
+    useStore.getState().openQuestOverlay(questId, query || undefined);
+  }, []);
   const handleOpenUniversalSession = useCallback((sessionId: string, messageId?: string) => {
     useStore.getState().setSearchPreviewSessionId(null);
     if (messageId) {
@@ -326,7 +322,12 @@ export default function App() {
       }
       const actionId = getMatchingShortcutAction(state.shortcutSettings, event);
       if (!actionId) return;
-      if (editableTarget && !isAppGlobalShortcutAction(actionId)) return;
+      const searchShortcutWhileSearchOpen = actionId === "search_session" && universalSearchOpen;
+      if (editableTarget && !isAppGlobalShortcutAction(actionId) && !searchShortcutWhileSearchOpen) return;
+      if (actionId === "search_session") {
+        event.preventDefault();
+        event.stopPropagation();
+      }
 
       const currentSessionId = state.currentSessionId;
       const currentSession =
@@ -354,8 +355,10 @@ export default function App() {
         navigateToMostRecentSession: () => navigateToMostRecentSession(),
       });
       if (!handled) return;
-      event.preventDefault();
-      event.stopPropagation();
+      if (actionId !== "search_session") {
+        event.preventDefault();
+        event.stopPropagation();
+      }
     }
 
     document.addEventListener("keydown", handleKeyDown, { capture: true });

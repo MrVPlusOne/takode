@@ -23,6 +23,7 @@ export function SessionInlineLink({
   title,
   dataTestId,
   threadKey,
+  stopPropagation = false,
 }: {
   sessionId: string | null;
   sessionNum?: number | null;
@@ -34,6 +35,7 @@ export function SessionInlineLink({
   title?: string;
   dataTestId?: string;
   threadKey?: string | null;
+  stopPropagation?: boolean;
 }) {
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
@@ -166,6 +168,7 @@ export function SessionInlineLink({
         href={href}
         onClick={(e) => {
           e.preventDefault();
+          if (stopPropagation) e.stopPropagation();
           if (!resolvedSessionId) return;
           if (messageIndex != null) {
             navigateToSessionMessage(resolvedSessionId, messageIndex);

@@ -77,6 +77,7 @@ interface MockStoreState {
   setActiveTab: ReturnType<typeof vi.fn>;
   openSessionSearch: ReturnType<typeof vi.fn>;
   closeSessionSearch: ReturnType<typeof vi.fn>;
+  openQuestOverlay: ReturnType<typeof vi.fn>;
   openNewSessionModal: ReturnType<typeof vi.fn>;
   openTerminal: ReturnType<typeof vi.fn>;
   sessions: Map<string, { backend_type?: string; cwd?: string }>;
@@ -135,6 +136,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     setActiveTab: vi.fn(),
     openSessionSearch: vi.fn(),
     closeSessionSearch: vi.fn(),
+    openQuestOverlay: vi.fn(),
     openNewSessionModal: vi.fn(),
     openTerminal: vi.fn(),
     sessions: new Map([["s1", { backend_type: "claude" }]]),
@@ -254,9 +256,21 @@ vi.mock("./components/QuestDetailPanel.js", () => ({
 }));
 
 vi.mock("./components/UniversalSearchOverlay.js", () => ({
-  UniversalSearchOverlay: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+  UniversalSearchOverlay: ({
+    open,
+    onClose,
+    onOpenQuest,
+  }: {
+    open: boolean;
+    onClose: () => void;
+    onOpenQuest: (questId: string, query: string) => void;
+  }) =>
     open ? (
       <div role="dialog" aria-label="Universal Search" data-testid="universal-search-overlay">
+        <input aria-label="Universal Search input" />
+        <button type="button" onClick={() => onOpenQuest("q-1272", "needle")}>
+          Open quest result
+        </button>
         <button type="button" onClick={onClose}>
           Close
         </button>
@@ -328,6 +342,41 @@ describe("App hidden panels", () => {
 
     expect(screen.getByTestId("universal-search-overlay")).toBeInTheDocument();
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
+  });
+
+  it("keeps Universal Search shortcut captured while the overlay input is focused", () => {
+    resetStore({
+      shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
+    });
+
+    render(<App />);
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+    const input = screen.getByLabelText("Universal Search input");
+    input.focus();
+    const event = new KeyboardEvent("keydown", {
+      key: "f",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(screen.getByTestId("universal-search-overlay")).toBeInTheDocument();
+  });
+
+  it("opens quest results as the global quest modal without navigating to Questmaster", () => {
+    resetStore({
+      shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
+    });
+    window.location.hash = "#/session/s1";
+
+    render(<App />);
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+    fireEvent.click(screen.getByRole("button", { name: "Open quest result" }));
+
+    expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1272", "needle");
+    expect(window.location.hash).toBe("#/session/s1");
   });
 
   it("mounts ActiveTimersPage on the scheduled route", () => {

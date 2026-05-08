@@ -48,6 +48,7 @@ const SCOPED_KEYS = [
   "cc-recent-dirs",
   "cc-questmaster-view",
   "cc-shortcuts",
+  "cc-universal-search-mode",
   "cc-last-session-creation-context",
   "cc-collapsed-tree-groups",
   "cc-collapsed-tree-nodes",

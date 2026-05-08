@@ -14,6 +14,7 @@ vi.mock("../api.js", () => ({
 }));
 
 import { UniversalSearchOverlay } from "./UniversalSearchOverlay.js";
+import { useStore } from "../store.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
 
 const now = 1778274000000;
@@ -26,6 +27,7 @@ type OnOpenMessageMock = ReturnType<typeof vi.fn<OverlayProps["onOpenMessage"]>>
 const sessions: SdkSessionInfo[] = [
   {
     sessionId: "s-new",
+    sessionNum: 11,
     state: "connected",
     cwd: "/repo/new",
     createdAt: now - 2_000,
@@ -35,6 +37,7 @@ const sessions: SdkSessionInfo[] = [
   },
   {
     sessionId: "s-old",
+    sessionNum: 12,
     state: "connected",
     cwd: "/repo/old",
     createdAt: now - 10_000,
@@ -136,7 +139,7 @@ function renderOverlay(
   const onOpenQuest = callbacks.onOpenQuest ?? vi.fn<OverlayProps["onOpenQuest"]>(() => undefined);
   const onOpenSession = callbacks.onOpenSession ?? vi.fn<OverlayProps["onOpenSession"]>(() => undefined);
   const onOpenMessage = callbacks.onOpenMessage ?? vi.fn<OverlayProps["onOpenMessage"]>(() => undefined);
-  render(
+  const view = render(
     <UniversalSearchOverlay
       open
       currentSessionId="s-new"
@@ -150,15 +153,20 @@ function renderOverlay(
       {...props}
     />,
   );
-  return { onClose, onOpenQuest, onOpenSession, onOpenMessage };
+  return { ...view, onClose, onOpenQuest, onOpenSession, onOpenMessage };
 }
 
 async function advanceSearchDebounce() {
-  await new Promise((resolve) => window.setTimeout(resolve, 160));
+  await new Promise((resolve) => window.setTimeout(resolve, 330));
 }
 
 describe("UniversalSearchOverlay", () => {
   beforeEach(() => {
+    localStorage.clear();
+    mockListQuestPage.mockClear();
+    mockSearchSessions.mockClear();
+    useStore.getState().setQuests([]);
+    useStore.getState().setSdkSessions(sessions);
     mockListQuestPage.mockResolvedValue({
       quests: [],
       total: 0,
@@ -174,6 +182,8 @@ describe("UniversalSearchOverlay", () => {
   });
 
   afterEach(() => {
+    useStore.getState().setQuests([]);
+    useStore.getState().setSdkSessions([]);
     vi.restoreAllMocks();
   });
 
@@ -233,15 +243,15 @@ describe("UniversalSearchOverlay", () => {
   });
 
   it("runs only the selected mode adapter and uses newest-updated quest sorting for empty queries", async () => {
+    const recentQuest = quest({
+      questId: "q-101",
+      title: "Recently updated quest",
+      updatedAt: now - 1_000,
+      tags: ["search"],
+    });
+    useStore.getState().setQuests([recentQuest]);
     mockListQuestPage.mockResolvedValueOnce({
-      quests: [
-        quest({
-          questId: "q-101",
-          title: "Recently updated quest",
-          updatedAt: now - 1_000,
-          tags: ["search"],
-        }),
-      ],
+      quests: [recentQuest],
       total: 1,
       offset: 0,
       limit: 20,
@@ -264,6 +274,128 @@ describe("UniversalSearchOverlay", () => {
     });
     expect(mockSearchSessions).not.toHaveBeenCalled();
     expect(await screen.findByText("Recently updated quest")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "q-101" })).toBeInTheDocument();
+  });
+
+  it("remembers the last selected mode when reopened", async () => {
+    const { rerender, onClose, onOpenQuest, onOpenSession, onOpenMessage } = renderOverlay();
+
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+    expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
+
+    rerender(
+      <UniversalSearchOverlay
+        open={false}
+        currentSessionId="s-new"
+        currentThreadKey="main"
+        sessions={sessions}
+        messages={messages}
+        onClose={onClose}
+        onOpenQuest={onOpenQuest}
+        onOpenSession={onOpenSession}
+        onOpenMessage={onOpenMessage}
+      />,
+    );
+    rerender(
+      <UniversalSearchOverlay
+        open
+        currentSessionId="s-new"
+        currentThreadKey="main"
+        sessions={sessions}
+        messages={messages}
+        onClose={onClose}
+        onOpenQuest={onOpenQuest}
+        onOpenSession={onOpenSession}
+        onOpenMessage={onOpenMessage}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
+    await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
+  });
+
+  it("selects the top result for a new query after a lower result was selected", async () => {
+    const callbacks = renderOverlay();
+    const dialog = screen.getByRole("dialog", { name: "Universal Search" });
+
+    await screen.findByText("Recent user request about universal search");
+    fireEvent.keyDown(dialog, { key: "ArrowDown" });
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "recent" } });
+    await advanceSearchDebounce();
+    fireEvent.keyDown(dialog, { key: "Enter" });
+
+    expect(callbacks.onOpenMessage).toHaveBeenCalledWith("s-new", "user-new", "main");
+  });
+
+  it("does not repeat remote quest searches when unrelated session props refresh", async () => {
+    mockListQuestPage.mockResolvedValue({
+      quests: [quest({ questId: "q-202", title: "Stable quest result", updatedAt: now - 1_000 })],
+      total: 1,
+      offset: 0,
+      limit: 20,
+      hasMore: false,
+      nextOffset: null,
+      previousOffset: null,
+      counts: { all: 1, idea: 0, refined: 0, in_progress: 1, done: 0 },
+      allTags: [],
+    });
+    const callbacks = renderOverlay();
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+    await waitFor(() => expect(mockListQuestPage).toHaveBeenCalledTimes(1));
+    mockListQuestPage.mockClear();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "stable" } });
+    await advanceSearchDebounce();
+    await waitFor(() => expect(mockListQuestPage).toHaveBeenCalledTimes(1));
+
+    callbacks.rerender(
+      <UniversalSearchOverlay
+        open
+        currentSessionId="s-new"
+        currentThreadKey="main"
+        sessions={[...sessions]}
+        messages={messages}
+        onClose={callbacks.onClose}
+        onOpenQuest={callbacks.onOpenQuest}
+        onOpenSession={callbacks.onOpenSession}
+        onOpenMessage={callbacks.onOpenMessage}
+      />,
+    );
+
+    await new Promise((resolve) => window.setTimeout(resolve, 20));
+    expect(mockListQuestPage).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders quest owner metadata as quest and session links instead of tags", async () => {
+    const ownedQuest = quest({
+      questId: "q-303",
+      title: "Owned quest result",
+      updatedAt: now - 1_000,
+      tags: ["hidden-tag"],
+      leaderSessionId: "s-new",
+      sessionId: "s-old",
+    });
+    useStore.getState().setQuests([ownedQuest]);
+    mockListQuestPage.mockResolvedValueOnce({
+      quests: [ownedQuest],
+      total: 1,
+      offset: 0,
+      limit: 20,
+      hasMore: false,
+      nextOffset: null,
+      previousOffset: null,
+      counts: { all: 1, idea: 0, refined: 0, in_progress: 1, done: 0 },
+      allTags: ["hidden-tag"],
+    });
+
+    renderOverlay();
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+
+    expect(await screen.findByRole("link", { name: "q-303" })).toBeInTheDocument();
+    expect(screen.queryByText("#hidden-tag")).not.toBeInTheDocument();
+    expect(screen.getByText("leader")).toBeInTheDocument();
+    expect(screen.getByText("worker")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "#11" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "#12" })).toBeInTheDocument();
   });
 
   it("ignores stale session search responses after the query changes", async () => {
