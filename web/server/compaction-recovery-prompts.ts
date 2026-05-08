@@ -1,8 +1,8 @@
-const LEADER_COMPACTION_RECOVERY_PREFIX =
-  "Context was compacted. Before continuing, recover enough context to safely resume orchestration:";
-
-const STANDARD_COMPACTION_RECOVERY_PREFIX =
-  "Context was compacted. Before continuing, recover enough context from your own session history to safely resume work:";
+import {
+  LEADER_COMPACTION_RECOVERY_PREFIX,
+  STANDARD_COMPACTION_RECOVERY_PREFIX,
+  isCompactionRecoveryPrompt as isCurrentCompactionRecoveryPrompt,
+} from "../shared/injected-event-message.js";
 
 export const LEGACY_LEADER_COMPACTION_RECOVERY_PROMPT = `${LEADER_COMPACTION_RECOVERY_PREFIX}
 
@@ -60,7 +60,6 @@ export function isCompactionRecoveryPrompt(content: string): boolean {
   return (
     content === LEGACY_LEADER_COMPACTION_RECOVERY_PROMPT ||
     content === LEGACY_STANDARD_COMPACTION_RECOVERY_PROMPT ||
-    content.startsWith(LEADER_COMPACTION_RECOVERY_PREFIX) ||
-    content.startsWith(STANDARD_COMPACTION_RECOVERY_PREFIX)
+    isCurrentCompactionRecoveryPrompt(content)
   );
 }

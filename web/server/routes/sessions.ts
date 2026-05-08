@@ -57,6 +57,7 @@ import { registerSessionReplacementRoutes } from "./session-replacement-routes.j
 import { registerSessionNotificationContextRoute } from "./session-notification-context.js";
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 import { isSessionPaused } from "../session-pause.js";
+import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../../shared/injected-event-message.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -157,7 +158,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
   }
 
   const markOrchestratorSession = (sessionId: string, backend: SessionBackend) =>
-    markOrchestratorSessionAfterConnect({ launcher, wsBridge }, sessionId, buildOrchestratorSystemPrompt(backend));
+    markOrchestratorSessionAfterConnect({ launcher, wsBridge }, sessionId, buildOrchestratorSystemPrompt(backend), {
+      sessionId: LEADER_KICKOFF_SOURCE_ID,
+      sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,
+    });
 
   /** Helper: broadcast current tree group state to all browsers. */
   async function broadcastTreeGroups() {

@@ -22,6 +22,8 @@ import { buildNeedsInputReminderViewModel } from "../utils/needs-input-reminder.
 import { buildThreadRoutingReminderViewModel } from "../utils/thread-routing-reminder.js";
 import { buildQuestThreadReminderViewModel } from "../utils/quest-thread-reminder.js";
 import { buildThreadOutcomeReminderViewModel } from "../utils/thread-outcome-reminder.js";
+import { buildInjectedEventMessageViewModel } from "../utils/injected-event-message.js";
+import { InjectedEventMessageView } from "./InjectedEventMessageView.js";
 import { NeedsInputReminderView, QuestThreadReminderView, ThreadRoutingReminderView } from "./MessageReminderViews.js";
 import { FILE_TOOL_NAMES, isToolHiddenFromChat } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
@@ -265,6 +267,19 @@ export const MessageBubble = memo(function MessageBubble({
         <span className="text-[11px] text-cc-muted italic font-mono-code shrink-0 px-1">{message.content}</span>
         <div className="flex-1 h-px bg-cc-border" />
       </div>
+    );
+  }
+
+  const injectedEventMessage = buildInjectedEventMessageViewModel(message);
+  if (message.role === "user" && injectedEventMessage) {
+    return (
+      <InjectedEventMessageView
+        event={injectedEventMessage}
+        message={message}
+        sessionId={sessionId}
+        showTimestamp={showTimestamp}
+        searchHighlight={searchHighlight}
+      />
     );
   }
 

@@ -571,4 +571,27 @@ describe("MessageFeed - floating status pill", () => {
 
     getBoundingClientRectSpy.mockRestore();
   });
+
+  it("excludes leader kickoff injected events from previous and next user-message navigation targets", () => {
+    const sid = "test-feed-injected-event-navigation";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "First real user turn", timestamp: 1000 }),
+      makeMessage({
+        id: "kickoff",
+        role: "user",
+        content: "[System] You are a leader session. Historical kickoff without source metadata.",
+        timestamp: 1001,
+      }),
+      makeMessage({ id: "u2", role: "user", content: "Second real user turn", timestamp: 1002 }),
+    ]);
+    setStoreFeedScrollPosition(sid, {
+      scrollTop: 120,
+      scrollHeight: 600,
+      isAtBottom: false,
+    });
+
+    const { container } = render(<MessageFeed sessionId={sid} />);
+
+    expect(container.querySelectorAll("[data-user-turn]")).toHaveLength(2);
+  });
 });

@@ -18,6 +18,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
+import { COMPACTION_RECOVERY_SOURCE_ID, COMPACTION_RECOVERY_SOURCE_LABEL } from "../shared/injected-event-message.js";
 import {
   advanceBoardRow as advanceBoardRowController,
   advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
@@ -612,7 +613,9 @@ describe("Compaction recovery prompts", () => {
 
     // Recovery message should have been injected with system source tag
     const recoveryCalls = spy.mock.calls.filter(
-      ([, , source]) => source?.sessionId === "system" && source?.sessionLabel === "System",
+      ([, , source]) =>
+        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
     );
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("/takode-orchestration");
@@ -671,7 +674,9 @@ describe("Compaction recovery prompts", () => {
 
     const recoveryCalls = spy.mock.calls.filter(
       ([targetSid, , source]) =>
-        targetSid === sid && source?.sessionId === "system" && source?.sessionLabel === "System",
+        targetSid === sid &&
+        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
     );
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("/takode-orchestration");
@@ -697,7 +702,9 @@ describe("Compaction recovery prompts", () => {
     bridge.handleCLIMessage(cli, JSON.stringify({ type: "system", subtype: "status", status: null }));
 
     const recoveryCalls = spy.mock.calls.filter(
-      ([, , source]) => source?.sessionId === "system" && source?.sessionLabel === "System",
+      ([, , source]) =>
+        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
     );
     expect(recoveryCalls).toHaveLength(0);
   });
@@ -753,8 +760,8 @@ describe("Compaction recovery prompts", () => {
         entry.content.includes(
           "Context was compacted. Before continuing, recover enough context to safely resume orchestration:",
         ) &&
-        entry.agentSource?.sessionId === "system" &&
-        entry.agentSource?.sessionLabel === "System",
+        entry.agentSource?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+        entry.agentSource?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
     );
     expect(replayRecoveries).toHaveLength(1);
 
@@ -790,8 +797,8 @@ describe("Compaction recovery prompts", () => {
         entry.content.includes(
           "Context was compacted. Before continuing, recover enough context to safely resume orchestration:",
         ) &&
-        entry.agentSource?.sessionId === "system" &&
-        entry.agentSource?.sessionLabel === "System",
+        entry.agentSource?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+        entry.agentSource?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
     );
     expect(recoveries).toHaveLength(2);
   });
@@ -826,7 +833,9 @@ describe("Compaction recovery prompts", () => {
     adapter.emitBrowserMessage({ type: "status_change", status: null });
 
     const recoveryCalls = spy.mock.calls.filter(
-      ([, , source]) => source?.sessionId === "system" && source?.sessionLabel === "System",
+      ([, , source]) =>
+        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
     );
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("recover enough context from your own session history");
@@ -872,7 +881,9 @@ describe("Compaction recovery prompts", () => {
     adapter.emitBrowserMessage({ type: "status_change", status: null });
 
     const recoveryCalls = spy.mock.calls.filter(
-      ([, , source]) => source?.sessionId === "system" && source?.sessionLabel === "System",
+      ([, , source]) =>
+        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
     );
     expect(recoveryCalls).toHaveLength(1);
     expect(recoveryCalls[0][1]).toContain("recover enough context from your own session history");

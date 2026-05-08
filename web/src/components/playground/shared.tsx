@@ -29,6 +29,12 @@ import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../../shared/thread-outcome-reminder.js";
+import {
+  COMPACTION_RECOVERY_SOURCE_ID,
+  COMPACTION_RECOVERY_SOURCE_LABEL,
+  LEADER_KICKOFF_SOURCE_ID,
+  LEADER_KICKOFF_SOURCE_LABEL,
+} from "../../../shared/injected-event-message.js";
 
 const PlaygroundSectionGroupContext = createContext<PlaygroundSectionGroupId | null>(null);
 const NEEDS_INPUT_REMINDER_SOURCE = {
@@ -962,6 +968,45 @@ export function PlaygroundThreadOutcomeReminderMessage() {
   };
 
   return <MessageBubble message={message} sessionId="playground-thread-outcome-reminder" showTimestamp={false} />;
+}
+
+export function PlaygroundCompactionRecoveryEventMessage() {
+  const message: ChatMessage = {
+    id: "playground-compaction-recovery-event-msg",
+    role: "user",
+    content: [
+      "Context was compacted. Before continuing, recover enough context from your own session history to safely resume work:",
+      "",
+      "1. Inspect your own session history with Takode tools. Start with `takode scan 1639`",
+      "2. Re-read the quest or latest assignment only after recovering enough context.",
+    ].join("\n"),
+    timestamp: Date.now() - 14_000,
+    agentSource: {
+      sessionId: COMPACTION_RECOVERY_SOURCE_ID,
+      sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
+    },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-compaction-recovery-event" showTimestamp={false} />;
+}
+
+export function PlaygroundLeaderKickoffEventMessage() {
+  const message: ChatMessage = {
+    id: "playground-leader-kickoff-event-msg",
+    role: "user",
+    content: [
+      "[System] You are a leader session. Your job is to coordinate worker sessions through the phase-based Quest Journey lifecycle.",
+      "",
+      "**On startup**: Load the `takode-orchestration` and `quest` skills for full CLI references.",
+    ].join("\n"),
+    timestamp: Date.now() - 12_000,
+    agentSource: {
+      sessionId: LEADER_KICKOFF_SOURCE_ID,
+      sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,
+    },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-leader-kickoff-event" showTimestamp={false} />;
 }
 
 // ─── Inline MCP Server Row (static preview, no WebSocket) ──────────────────

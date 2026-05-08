@@ -6,6 +6,12 @@ import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
+import {
+  COMPACTION_RECOVERY_SOURCE_ID,
+  COMPACTION_RECOVERY_SOURCE_LABEL,
+  LEADER_KICKOFF_SOURCE_ID,
+  LEADER_KICKOFF_SOURCE_LABEL,
+} from "../../shared/injected-event-message.js";
 import type { ChatMessage, ContentBlock } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -645,6 +651,52 @@ describe("MessageBubble - agent source badge", () => {
     expect(screen.getByRole("button", { name: `Collapse ${THREAD_OUTCOME_REMINDER_SOURCE_LABEL}` })).toBeTruthy();
     expect(screen.getByText(/mark every touched leader thread/)).toBeTruthy();
     expect(screen.getByText(/Missing outcome marker for: Main/)).toBeTruthy();
+  });
+
+  it("renders compaction recovery injections as collapsed event chips by default", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: [
+        "Context was compacted. Before continuing, recover enough context from your own session history to safely resume work:",
+        "",
+        "1. Inspect your own session history with Takode tools.",
+      ].join("\n"),
+      agentSource: {
+        sessionId: COMPACTION_RECOVERY_SOURCE_ID,
+        sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
+      },
+    });
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByRole("button", { name: `Expand ${COMPACTION_RECOVERY_SOURCE_LABEL}` });
+    expect(chip.textContent).toContain("Compaction Recovery");
+    expect(chip.textContent).toContain("event");
+    expect(chip.getAttribute("aria-expanded")).toBe("false");
+    expect(screen.queryByText(/Inspect your own session history/)).toBeNull();
+    expect(screen.queryByTestId("agent-source-badge")).toBeNull();
+  });
+
+  it("expands leader kickoff event injections on demand", () => {
+    const msg = makeMessage({
+      role: "user",
+      content: [
+        "[System] You are a leader session. Your job is to coordinate worker sessions.",
+        "",
+        "**On startup**: Load the `takode-orchestration` and `quest` skills.",
+      ].join("\n"),
+      agentSource: {
+        sessionId: LEADER_KICKOFF_SOURCE_ID,
+        sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,
+      },
+    });
+    render(<MessageBubble message={msg} showTimestamp={false} />);
+
+    const chip = screen.getByRole("button", { name: `Expand ${LEADER_KICKOFF_SOURCE_LABEL}` });
+    fireEvent.click(chip);
+
+    expect(screen.getByRole("button", { name: `Collapse ${LEADER_KICKOFF_SOURCE_LABEL}` })).toBeTruthy();
+    expect(screen.getByText(/coordinate worker sessions/)).toBeTruthy();
+    expect(screen.getByText(/System-injected startup instructions/)).toBeTruthy();
   });
 
   it("does not render the generic interactive badge for timer sources", () => {

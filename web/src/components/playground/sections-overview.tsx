@@ -95,6 +95,8 @@ import {
   PlaygroundMcpRow,
   PlaygroundAddressedNotifyToolBlock,
   PlaygroundNeedsInputReminderMessage,
+  PlaygroundCompactionRecoveryEventMessage,
+  PlaygroundLeaderKickoffEventMessage,
   PlaygroundQuestThreadReminderMessage,
   PlaygroundThreadOutcomeReminderMessage,
   PlaygroundThreadRoutingReminderMessage,
@@ -677,6 +679,12 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Thread outcome reminder (collapsed chip)">
             <PlaygroundThreadOutcomeReminderMessage />
+          </Card>
+          <Card label="Compaction recovery event (collapsed chip)">
+            <PlaygroundCompactionRecoveryEventMessage />
+          </Card>
+          <Card label="Leader kickoff event (collapsed chip)">
+            <PlaygroundLeaderKickoffEventMessage />
           </Card>
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />

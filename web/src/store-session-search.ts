@@ -1,5 +1,6 @@
 import { normalizeForSearch } from "../shared/search-utils.js";
 import type { ChatMessage } from "./types.js";
+import { isInjectedEventMessage } from "./utils/injected-event-message.js";
 
 export interface SearchMatch {
   messageId: string;
@@ -46,13 +47,16 @@ function isSessionSearchEventSource(agentSource: ChatMessage["agentSource"]): bo
 }
 
 export function sessionSearchMessageMatchesCategory(
-  message: Pick<ChatMessage, "role" | "agentSource">,
+  message: Pick<ChatMessage, "role" | "agentSource"> & { content?: string },
   category: SessionSearchCategory,
   leaderSessionId?: string,
 ): boolean {
   if (category === "all") return true;
   if (message.role === "assistant") return category === "assistant";
   if (message.role === "system") return category === "event";
+  if (typeof message.content === "string" && isInjectedEventMessage({ ...message, content: message.content })) {
+    return category === "event";
+  }
   const sourceId = message.agentSource?.sessionId;
   const semanticCategory =
     !sourceId || (leaderSessionId !== undefined && sourceId === leaderSessionId)

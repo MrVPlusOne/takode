@@ -18,6 +18,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 import { WsBridge, type SocketData } from "./ws-bridge.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
+import { COMPACTION_RECOVERY_SOURCE_ID, COMPACTION_RECOVERY_SOURCE_LABEL } from "../shared/injected-event-message.js";
 import {
   advanceBoardRow as advanceBoardRowController,
   advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
@@ -815,7 +816,9 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     expect(session.messageHistory.filter((m) => m.type === "compact_marker")).toHaveLength(0);
     expect(
       injectSpy.mock.calls.filter(
-        ([, , source]) => source?.sessionId === "system" && source?.sessionLabel === "System",
+        ([, , source]) =>
+          source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+          source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
       ),
     ).toHaveLength(0);
 
@@ -857,7 +860,9 @@ describe("cliResuming debounce prevents false compaction events on --resume repl
     expect((markers[0] as any).cliUuid).toBe("new-compact-uuid");
 
     const recoveryCalls = injectSpy.mock.calls.filter(
-      ([, , source]) => source?.sessionId === "system" && source?.sessionLabel === "System",
+      ([, , source]) =>
+        source?.sessionId === COMPACTION_RECOVERY_SOURCE_ID &&
+        source?.sessionLabel === COMPACTION_RECOVERY_SOURCE_LABEL,
     );
     expect(recoveryCalls).toHaveLength(1);
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef } from "react";
 import { isSubagentToolName, type ChatMessage, type ContentBlock, type SessionAttentionRecord } from "../types.js";
 import { EVENT_HEADER_RE } from "../utils/herd-event-parser.js";
 import { recordFeedRenderSnapshot } from "../utils/frontend-perf-recorder.js";
+import { isInjectedEventMessage } from "../utils/injected-event-message.js";
 
 export interface ToolItem {
   id: string;
@@ -457,7 +458,13 @@ function getEntryId(entry: FeedEntry): string {
 }
 
 export function isUserBoundaryEntry(entry: FeedEntry | null): boolean {
-  return !!(entry && entry.kind === "message" && entry.msg.role === "user" && entry.msg.agentSource == null);
+  return !!(
+    entry &&
+    entry.kind === "message" &&
+    entry.msg.role === "user" &&
+    entry.msg.agentSource == null &&
+    !isInjectedEventMessage(entry.msg)
+  );
 }
 
 /** Check if a FeedEntry is a herd event message (user message injected by herd dispatcher). */

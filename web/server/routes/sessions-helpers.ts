@@ -44,10 +44,17 @@ export function throwPreparationError(message: string, status: SessionPreparatio
 export function markOrchestratorSessionAfterConnect(
   deps: {
     launcher: { getSession(sessionId: string): { state?: string } | undefined };
-    wsBridge: { injectUserMessage(sessionId: string, prompt: string): void };
+    wsBridge: {
+      injectUserMessage(
+        sessionId: string,
+        prompt: string,
+        agentSource?: { sessionId: string; sessionLabel?: string },
+      ): void;
+    };
   },
   sessionId: string,
   prompt: string,
+  agentSource?: { sessionId: string; sessionLabel?: string },
 ): void {
   (async () => {
     const maxWait = 30_000;
@@ -56,7 +63,7 @@ export function markOrchestratorSessionAfterConnect(
     while (Date.now() - start < maxWait) {
       const info = deps.launcher.getSession(sessionId);
       if (info && (info.state === "connected" || info.state === "running")) {
-        deps.wsBridge.injectUserMessage(sessionId, prompt);
+        deps.wsBridge.injectUserMessage(sessionId, prompt, agentSource);
         return;
       }
       if (info?.state === "exited") return;

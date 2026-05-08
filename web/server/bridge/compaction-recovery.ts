@@ -2,6 +2,10 @@ import type { BrowserIncomingMessage } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
 import { getKnownSessionNum } from "../cli-launcher.js";
 import { getCompactionRecoveryPrompt, isCompactionRecoveryPrompt } from "../compaction-recovery-prompts.js";
+import {
+  COMPACTION_RECOVERY_SOURCE_ID,
+  COMPACTION_RECOVERY_SOURCE_LABEL,
+} from "../../shared/injected-event-message.js";
 
 export {
   LEGACY_LEADER_COMPACTION_RECOVERY_PROMPT,
@@ -86,7 +90,7 @@ export function injectCompactionRecovery(
   const prompt = getCompactionRecoveryPrompt(role, sessionRef);
   console.log(`[ws-bridge] Injecting ${role} compaction recovery for session ${sessionTag(session.id)}`);
   deps.injectUserMessage(session.id, prompt, {
-    sessionId: "system",
-    sessionLabel: "System",
+    sessionId: COMPACTION_RECOVERY_SOURCE_ID,
+    sessionLabel: COMPACTION_RECOVERY_SOURCE_LABEL,
   });
 }

@@ -4,6 +4,7 @@ import {
   getSessionSearchState,
   sessionSearchMessageMatchesCategory,
 } from "./store-session-search.js";
+import { COMPACTION_RECOVERY_SOURCE_ID, LEADER_KICKOFF_SOURCE_ID } from "../shared/injected-event-message.js";
 
 describe("store session search helpers", () => {
   it("returns default state for sessions without local search state", () => {
@@ -85,6 +86,43 @@ describe("store session search helpers", () => {
         "leader-1",
       ),
     ).toEqual([{ messageId: "m2" }, { messageId: "m3" }, { messageId: "m4" }]);
+  });
+
+  it("classifies compaction recovery and leader kickoff injections as events", () => {
+    const messages = [
+      {
+        id: "m1",
+        role: "user" as const,
+        content:
+          "Context was compacted. Before continuing, recover enough context from your own session history to safely resume work:",
+        agentSource: { sessionId: COMPACTION_RECOVERY_SOURCE_ID },
+      },
+      {
+        id: "m2",
+        role: "user" as const,
+        content: "[System] You are a leader session. Your job is to coordinate worker sessions.",
+        agentSource: { sessionId: LEADER_KICKOFF_SOURCE_ID },
+      },
+      {
+        id: "m3",
+        role: "user" as const,
+        content: "[System] You are a leader session. Historical kickoff context without metadata.",
+      },
+      { id: "m4", role: "user" as const, content: "real user context" },
+    ];
+
+    expect(computeSessionSearchMatches(messages, "context", "strict", "user", "leader-1")).toEqual([
+      { messageId: "m4" },
+    ]);
+    expect(computeSessionSearchMatches(messages, "context", "strict", "event", "leader-1")).toEqual([
+      { messageId: "m1" },
+      { messageId: "m3" },
+    ]);
+    expect(computeSessionSearchMatches(messages, "context", "strict", "all", "leader-1")).toEqual([
+      { messageId: "m1" },
+      { messageId: "m3" },
+      { messageId: "m4" },
+    ]);
   });
 
   it("keeps only the active leader injection in the user category", () => {

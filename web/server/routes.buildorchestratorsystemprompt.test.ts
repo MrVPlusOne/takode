@@ -176,6 +176,7 @@ import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
+import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../shared/injected-event-message.js";
 import { _resetModelCache } from "./routes/system.js";
 import { trafficStats } from "./traffic-stats.js";
 import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
@@ -583,6 +584,9 @@ describe("buildOrchestratorSystemPrompt", () => {
     });
 
     expect(res.status).toBe(200);
-    expect(bridge.injectUserMessage).toHaveBeenCalledWith("session-1", buildOrchestratorSystemPrompt("codex"));
+    expect(bridge.injectUserMessage).toHaveBeenCalledWith("session-1", buildOrchestratorSystemPrompt("codex"), {
+      sessionId: LEADER_KICKOFF_SOURCE_ID,
+      sessionLabel: LEADER_KICKOFF_SOURCE_LABEL,
+    });
   });
 });

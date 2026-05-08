@@ -63,7 +63,7 @@ function computeMatches(
 }
 
 function messageMatchesCategory(
-  message: Pick<ChatMessage, "role" | "agentSource">,
+  message: Pick<ChatMessage, "role" | "agentSource"> & { content?: string },
   category: SessionSearchCategory,
   leaderSessionId?: string,
 ): boolean {
