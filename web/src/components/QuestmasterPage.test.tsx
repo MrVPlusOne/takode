@@ -317,8 +317,12 @@ function mockQuestRecencyTs(quest: QuestmasterTask) {
 async function enterBackendSearch(input: HTMLElement, value: string, expectedText = value.trim()) {
   fireEvent.change(input, { target: { value } });
   await waitFor(() => {
-    expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ text: expectedText }));
+    expectLastQuestPageCall({ text: expectedText });
   });
+}
+
+function expectLastQuestPageCall(options: Partial<MockQuestPageOptions>) {
+  expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining(options), expect.any(AbortSignal));
 }
 
 vi.mock("../store.js", () => {
@@ -857,6 +861,7 @@ describe("QuestmasterPage status display", () => {
         document.dispatchEvent(new Event("visibilitychange"));
       });
       expect(mockListQuestPage).toHaveBeenCalledTimes(2);
+      await settleLatestQuestPageRequest();
 
       await act(async () => {
         vi.advanceTimersByTime(5_000);
@@ -899,7 +904,7 @@ describe("QuestmasterPage status display", () => {
         await Promise.resolve();
       });
       expect(mockListQuestPage).toHaveBeenCalledTimes(1);
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ text: "q-2" }));
+      expectLastQuestPageCall({ text: "q-2" });
     } finally {
       vi.useRealTimers();
     }
@@ -930,9 +935,7 @@ describe("QuestmasterPage status display", () => {
     renderQuestmaster({ isActive: true });
 
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(
-        expect.objectContaining({ offset: 0, limit: 50, sortColumn: "quest", sortDirection: "asc" }),
-      );
+      expectLastQuestPageCall({ offset: 0, limit: 50, sortColumn: "quest", sortDirection: "asc" });
       expect(renderedQuestIds()).toHaveLength(50);
       expect(renderedQuestIds()[0]).toBe("q-1");
     });
@@ -943,21 +946,21 @@ describe("QuestmasterPage status display", () => {
 
     scrollNearQuestmasterBottom();
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 50 }));
+      expectLastQuestPageCall({ offset: 50, limit: 50 });
       expect(renderedQuestIds()).toHaveLength(100);
       expect(renderedQuestIds()[99]).toBe("q-100");
     });
 
     scrollNearQuestmasterBottom();
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100, limit: 50 }));
+      expectLastQuestPageCall({ offset: 100, limit: 50 });
       expect(renderedQuestIds()).toHaveLength(150);
       expect(renderedQuestIds()[149]).toBe("q-150");
     });
 
     scrollNearQuestmasterBottom();
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 150, limit: 50 }));
+      expectLastQuestPageCall({ offset: 150, limit: 50 });
       expect(renderedQuestIds()).toHaveLength(150);
       expect(renderedQuestIds()[0]).toBe("q-26");
       expect(renderedQuestIds()[149]).toBe("q-175");
@@ -998,9 +1001,7 @@ describe("QuestmasterPage status display", () => {
 
     await screen.findByRole("button", { name: /q-21 Newest refined/ });
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(
-        expect.objectContaining({ sortColumn: "updated", sortDirection: "desc" }),
-      );
+      expectLastQuestPageCall({ sortColumn: "updated", sortDirection: "desc" });
       expect(compactRowQuestIds()).toEqual(["q-21", "q-22", "q-20"]);
     });
     expect(screen.getAllByRole("table")).toHaveLength(1);
@@ -1029,9 +1030,7 @@ describe("QuestmasterPage status display", () => {
 
     await screen.findByRole("button", { name: /q-41 Alpha task/ });
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(
-        expect.objectContaining({ sortColumn: "title", sortDirection: "asc" }),
-      );
+      expectLastQuestPageCall({ sortColumn: "title", sortDirection: "asc" });
       expect(compactRowQuestIds()).toEqual(["q-41", "q-40"]);
     });
   });
@@ -1069,9 +1068,7 @@ describe("QuestmasterPage status display", () => {
     renderQuestmaster({ isActive: true });
     await screen.findByRole("button", { name: /q-71 Alpha background note/ });
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(
-        expect.objectContaining({ sortColumn: "title", sortDirection: "asc" }),
-      );
+      expectLastQuestPageCall({ sortColumn: "title", sortDirection: "asc" });
       expect(compactRowQuestIds()).toEqual(["q-71", "q-70"]);
     });
 
@@ -1235,7 +1232,7 @@ describe("QuestmasterPage status display", () => {
     fireEvent.click(screen.getByRole("button", { name: /^Actionable1$/ }));
 
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ status: "refined" }));
+      expectLastQuestPageCall({ status: "refined" });
       expect(screen.queryByRole("button", { name: /q-30 Verification row/ })).toBeNull();
       expect(screen.getByRole("button", { name: /q-31 Refined row/ })).toBeInTheDocument();
     });
@@ -1544,7 +1541,7 @@ describe("QuestmasterPage status display", () => {
 
     expect(screen.getByText("#mobile")).toBeInTheDocument();
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ tags: ["mobile"] }));
+      expectLastQuestPageCall({ tags: ["mobile"] });
       expect(screen.getByText("Auth mobile quest")).toBeInTheDocument();
       expect(screen.getByText("Infra mobile quest")).toBeInTheDocument();
       expect(screen.queryByText("Auth backend quest")).toBeNull();
@@ -1636,7 +1633,7 @@ describe("QuestmasterPage status display", () => {
     const searchInput = screen.getByPlaceholderText("Search or #tag...");
     fireEvent.change(searchInput, { target: { value: "!#mobile" } });
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ excludeTags: ["mobile"] }));
+      expectLastQuestPageCall({ excludeTags: ["mobile"] });
     });
 
     expect(document.querySelector('[data-quest-id="q-61"]')).toBeTruthy();
@@ -1763,9 +1760,7 @@ describe("QuestmasterPage status display", () => {
     fireEvent.change(searchInput, { target: { value: "!#backend" } });
 
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(
-        expect.objectContaining({ tags: ["auth"], excludeTags: ["backend"] }),
-      );
+      expectLastQuestPageCall({ tags: ["auth"], excludeTags: ["backend"] });
       expect(document.querySelector('[data-quest-id="q-80"]')).toBeTruthy();
       expect(document.querySelector('[data-quest-id="q-81"]')).toBeNull();
       expect(document.querySelector('[data-quest-id="q-82"]')).toBeNull();

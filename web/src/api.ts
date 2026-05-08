@@ -1670,7 +1670,7 @@ export const api = {
     const qs = params.toString();
     return get<import("./types.js").QuestmasterTask[]>(`/quests${qs ? `?${qs}` : ""}`);
   },
-  listQuestPage: (options?: QuestListPageOptions) => {
+  listQuestPage: (options?: QuestListPageOptions, signal?: AbortSignal) => {
     const params = new URLSearchParams();
     if (typeof options?.offset === "number") params.set("offset", String(options.offset));
     if (typeof options?.limit === "number") params.set("limit", String(options.limit));
@@ -1683,7 +1683,7 @@ export const api = {
     if (options?.sortColumn) params.set("sortColumn", options.sortColumn);
     if (options?.sortDirection) params.set("sortDirection", options.sortDirection);
     const qs = params.toString();
-    return get<QuestListPage>(`/quests/_page${qs ? `?${qs}` : ""}`);
+    return get<QuestListPage>(`/quests/_page${qs ? `?${qs}` : ""}`, signal);
   },
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
   getQuestHistory: (id: string) =>

@@ -3,8 +3,11 @@ import {
   expandCamelCase,
   normalizeForSearch,
   multiWordMatch,
+  prepareSearchQuery,
   rankSearchFields,
+  rankTokenizedSearchFields,
   tokenizeForSearch,
+  tokenizeSearchRankFields,
 } from "./search-utils.js";
 
 describe("expandCamelCase", () => {
@@ -150,5 +153,25 @@ describe("rankSearchFields", () => {
     expect(exact).not.toBeNull();
     expect(prefix).not.toBeNull();
     expect(exact![0]).toBeLessThan(prefix![0]);
+  });
+
+  it("keeps prepared query and tokenized-field ranking equivalent to direct ranking", () => {
+    // Questmaster page search prepares query analysis once per request, then
+    // ranks each quest from tokenized fields. It should preserve relevance.
+    const fields = [
+      { rank: 1, text: "Memory controls" },
+      { rank: 2, text: "questmaster ui controls" },
+      { rank: 8, text: "Long feedback mentions memory uikit fallback" },
+    ];
+    const prepared = prepareSearchQuery("memory ui");
+
+    expect(prepared).not.toBeNull();
+    expect(rankTokenizedSearchFields(tokenizeSearchRankFields(fields), prepared!)).toEqual(
+      rankSearchFields(fields, "memory ui"),
+    );
+  });
+
+  it("treats punctuation-only prepared queries as non-searchable", () => {
+    expect(prepareSearchQuery("!!!")).toBeNull();
   });
 });

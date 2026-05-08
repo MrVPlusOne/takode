@@ -1,6 +1,14 @@
 import type { QuestmasterTask } from "./quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
-import { compareSearchRanks, rankSearchFields } from "../shared/search-utils.js";
+import {
+  compareSearchRanks,
+  prepareSearchQuery,
+  rankTokenizedSearchFields,
+  tokenizeSearchRankFields,
+  type PreparedSearchQuery,
+  type SearchRank,
+  type SearchRankField,
+} from "../shared/search-utils.js";
 import { questRelationshipSearchText } from "./quest-relationships.js";
 
 export interface QuestListFilterOptions {
@@ -45,7 +53,24 @@ export interface QuestListPageResult {
 }
 
 type QuestStatusOrAll = QuestmasterTask["status"] | "all";
-type SearchRank = NonNullable<ReturnType<typeof rankSearchFields>>;
+type QuestListEntry = { quest: QuestmasterTask; rank?: SearchRank };
+
+type QuestListFilterResult = {
+  beforeStatusFilter: QuestmasterTask[];
+  filtered: QuestmasterTask[];
+  filteredEntries: QuestListEntry[];
+};
+
+type ParsedQuestListFilters = {
+  statuses: Set<string>;
+  wantsReviewStatusAlias: boolean;
+  tagTokens: Set<string>;
+  excludedTagTokens: Set<string>;
+  verificationScopes: Set<string>;
+  sessionId: string;
+  hasTextQuery: boolean;
+  preparedSearchQuery: PreparedSearchQuery | null;
+};
 
 const STATUS_DISPLAY_ORDER: Record<QuestmasterTask["status"], number> = {
   in_progress: 0,
@@ -61,6 +86,7 @@ const STATUS_SORT_RANK: Record<QuestmasterTask["status"], number> = {
   done: 3,
 };
 const MAX_PAGE_LIMIT = 150;
+const TEXT_SEARCH_YIELD_INTERVAL = 25;
 
 function parseCsv(value: string | undefined): string[] {
   if (!value) return [];
@@ -75,8 +101,27 @@ export function applyQuestListFilters(quests: QuestmasterTask[], filters: QuestL
 }
 
 export function getQuestListPage(quests: QuestmasterTask[], options: QuestListPageOptions): QuestListPageResult {
-  const { beforeStatusFilter, filtered } = filterQuestList(quests, options);
-  const sorted = sortQuestList(filtered, options);
+  const { beforeStatusFilter, filteredEntries } = filterQuestList(quests, options);
+  return buildQuestListPage(quests, options, beforeStatusFilter, filteredEntries);
+}
+
+export async function getQuestListPageAsync(
+  quests: QuestmasterTask[],
+  options: QuestListPageOptions,
+): Promise<QuestListPageResult> {
+  const hasTextQuery = (options.text ?? "").trim().length > 0;
+  if (!hasTextQuery) return getQuestListPage(quests, options);
+  const { beforeStatusFilter, filteredEntries } = await filterQuestListAsync(quests, options);
+  return buildQuestListPage(quests, options, beforeStatusFilter, filteredEntries);
+}
+
+function buildQuestListPage(
+  quests: QuestmasterTask[],
+  options: QuestListPageOptions,
+  beforeStatusFilter: QuestmasterTask[],
+  filteredEntries: QuestListEntry[],
+): QuestListPageResult {
+  const sorted = sortQuestList(filteredEntries, options);
   const limit = normalizeLimit(options.limit);
   const offset = normalizeOffset(options.offset, sorted.length);
   const pageQuests = sorted.slice(offset, offset + limit);
@@ -96,10 +141,37 @@ export function getQuestListPage(quests: QuestmasterTask[], options: QuestListPa
   };
 }
 
-function filterQuestList(
+function filterQuestList(quests: QuestmasterTask[], filters: QuestListFilterOptions): QuestListFilterResult {
+  const parsed = parseQuestListFilters(filters);
+  if (parsed.hasTextQuery && !parsed.preparedSearchQuery) return finishQuestListFilter(parsed, []);
+
+  const beforeStatusEntries: QuestListEntry[] = [];
+  for (const quest of quests) {
+    const entry = buildQuestListEntry(quest, parsed);
+    if (entry) beforeStatusEntries.push(entry);
+  }
+
+  return finishQuestListFilter(parsed, beforeStatusEntries);
+}
+
+async function filterQuestListAsync(
   quests: QuestmasterTask[],
   filters: QuestListFilterOptions,
-): { beforeStatusFilter: QuestmasterTask[]; filtered: QuestmasterTask[] } {
+): Promise<QuestListFilterResult> {
+  const parsed = parseQuestListFilters(filters);
+  if (parsed.hasTextQuery && !parsed.preparedSearchQuery) return finishQuestListFilter(parsed, []);
+
+  const beforeStatusEntries: QuestListEntry[] = [];
+  for (const [index, quest] of quests.entries()) {
+    if (index > 0 && index % TEXT_SEARCH_YIELD_INTERVAL === 0) await yieldToEventLoop();
+    const entry = buildQuestListEntry(quest, parsed);
+    if (entry) beforeStatusEntries.push(entry);
+  }
+
+  return finishQuestListFilter(parsed, beforeStatusEntries);
+}
+
+function parseQuestListFilters(filters: QuestListFilterOptions): ParsedQuestListFilters {
   const requestedStatuses = parseCsv(filters.status);
   const statuses = new Set(requestedStatuses.filter((status) => status !== "needs_verification"));
   const wantsReviewStatusAlias = requestedStatuses.includes("needs_verification");
@@ -107,92 +179,124 @@ function filterQuestList(
   const excludedTagTokens = new Set(parseCsv(filters.excludeTags).map((tag) => tag.toLowerCase()));
   const verificationScopes = new Set(parseCsv(filters.verification).map((scope) => scope.toLowerCase()));
   const sessionId = filters.session?.trim() || "";
-  const hasTextQuery = (filters.text ?? "").trim().length > 0;
+  const textQuery = (filters.text ?? "").trim();
+  const hasTextQuery = textQuery.length > 0;
+  const preparedSearchQuery = hasTextQuery ? prepareSearchQuery(textQuery) : null;
 
-  const beforeStatusFilter = quests.filter((quest) => {
-    if (verificationScopes.size > 0) {
-      const isReview = hasQuestReviewMetadata(quest);
-      const inInbox = isQuestReviewInboxUnread(quest);
-      const wantsAnyVerification =
-        verificationScopes.has("all") ||
-        verificationScopes.has("verification") ||
-        verificationScopes.has("needs_verification");
-      const wantsInbox =
-        verificationScopes.has("inbox") || verificationScopes.has("unread") || verificationScopes.has("new");
-      const wantsReviewed =
-        verificationScopes.has("reviewed") ||
-        verificationScopes.has("non-inbox") ||
-        verificationScopes.has("non_inbox") ||
-        verificationScopes.has("read") ||
-        verificationScopes.has("acknowledged");
-
-      let matchesVerificationScope = false;
-      if (wantsAnyVerification && isReview) matchesVerificationScope = true;
-      if (wantsInbox && inInbox) matchesVerificationScope = true;
-      if (wantsReviewed && isReview && !inInbox) matchesVerificationScope = true;
-      if (!matchesVerificationScope) return false;
-    }
-
-    if (tagTokens.size > 0) {
-      const questTags = new Set((quest.tags || []).map((tag) => tag.toLowerCase()));
-      let hasAnyTag = false;
-      for (const tag of tagTokens) {
-        if (questTags.has(tag)) {
-          hasAnyTag = true;
-          break;
-        }
-      }
-      if (!hasAnyTag) return false;
-    }
-
-    if (excludedTagTokens.size > 0) {
-      const questTags = new Set((quest.tags || []).map((tag) => tag.toLowerCase()));
-      for (const tag of excludedTagTokens) {
-        if (questTags.has(tag)) return false;
-      }
-    }
-
-    if (sessionId) {
-      const owner = "sessionId" in quest ? (quest as { sessionId?: string }).sessionId : undefined;
-      const previousOwners = Array.isArray(quest.previousOwnerSessionIds) ? quest.previousOwnerSessionIds : [];
-      if (owner !== sessionId && !previousOwners.includes(sessionId)) return false;
-    }
-
-    if (hasTextQuery) {
-      if (!getQuestSearchRank(quest, filters.text ?? "")) return false;
-    }
-
-    return true;
-  });
-
-  const filtered =
-    statuses.size > 0 || wantsReviewStatusAlias
-      ? beforeStatusFilter.filter(
-          (quest) => statuses.has(quest.status) || (wantsReviewStatusAlias && hasQuestReviewMetadata(quest)),
-        )
-      : beforeStatusFilter;
-
-  return { beforeStatusFilter, filtered };
+  return {
+    statuses,
+    wantsReviewStatusAlias,
+    tagTokens,
+    excludedTagTokens,
+    verificationScopes,
+    sessionId,
+    hasTextQuery,
+    preparedSearchQuery,
+  };
 }
 
-function sortQuestList(quests: QuestmasterTask[], options: QuestListPageOptions): QuestmasterTask[] {
+function buildQuestListEntry(quest: QuestmasterTask, filters: ParsedQuestListFilters): QuestListEntry | null {
+  if (!matchesVerificationFilter(quest, filters.verificationScopes)) return null;
+  if (!matchesTagFilters(quest, filters.tagTokens, filters.excludedTagTokens)) return null;
+  if (!matchesSessionFilter(quest, filters.sessionId)) return null;
+
+  if (!filters.hasTextQuery) return { quest };
+  if (!filters.preparedSearchQuery) return null;
+  const rank = getQuestSearchRank(quest, filters.preparedSearchQuery);
+  return rank ? { quest, rank } : null;
+}
+
+function finishQuestListFilter(
+  filters: ParsedQuestListFilters,
+  beforeStatusEntries: QuestListEntry[],
+): QuestListFilterResult {
+  const filteredEntries =
+    filters.statuses.size > 0 || filters.wantsReviewStatusAlias
+      ? beforeStatusEntries.filter(
+          (entry) =>
+            filters.statuses.has(entry.quest.status) ||
+            (filters.wantsReviewStatusAlias && hasQuestReviewMetadata(entry.quest)),
+        )
+      : beforeStatusEntries;
+  return {
+    beforeStatusFilter: beforeStatusEntries.map((entry) => entry.quest),
+    filtered: filteredEntries.map((entry) => entry.quest),
+    filteredEntries,
+  };
+}
+
+function matchesVerificationFilter(quest: QuestmasterTask, verificationScopes: Set<string>): boolean {
+  if (verificationScopes.size === 0) return true;
+  const isReview = hasQuestReviewMetadata(quest);
+  const inInbox = isQuestReviewInboxUnread(quest);
+  const wantsAnyVerification =
+    verificationScopes.has("all") ||
+    verificationScopes.has("verification") ||
+    verificationScopes.has("needs_verification");
+  const wantsInbox =
+    verificationScopes.has("inbox") || verificationScopes.has("unread") || verificationScopes.has("new");
+  const wantsReviewed =
+    verificationScopes.has("reviewed") ||
+    verificationScopes.has("non-inbox") ||
+    verificationScopes.has("non_inbox") ||
+    verificationScopes.has("read") ||
+    verificationScopes.has("acknowledged");
+
+  if (wantsAnyVerification && isReview) return true;
+  if (wantsInbox && inInbox) return true;
+  return wantsReviewed && isReview && !inInbox;
+}
+
+function matchesTagFilters(quest: QuestmasterTask, tagTokens: Set<string>, excludedTagTokens: Set<string>): boolean {
+  if (tagTokens.size === 0 && excludedTagTokens.size === 0) return true;
+  const questTags = new Set((quest.tags || []).map((tag) => tag.toLowerCase()));
+
+  if (tagTokens.size > 0) {
+    let hasAnyTag = false;
+    for (const tag of tagTokens) {
+      if (!questTags.has(tag)) continue;
+      hasAnyTag = true;
+      break;
+    }
+    if (!hasAnyTag) return false;
+  }
+
+  for (const tag of excludedTagTokens) {
+    if (questTags.has(tag)) return false;
+  }
+  return true;
+}
+
+function matchesSessionFilter(quest: QuestmasterTask, sessionId: string): boolean {
+  if (!sessionId) return true;
+  const owner = "sessionId" in quest ? (quest as { sessionId?: string }).sessionId : undefined;
+  const previousOwners = Array.isArray(quest.previousOwnerSessionIds) ? quest.previousOwnerSessionIds : [];
+  return owner === sessionId || previousOwners.includes(sessionId);
+}
+
+function yieldToEventLoop(): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, 0));
+}
+
+function sortQuestList(entries: QuestListEntry[], options: QuestListPageOptions): QuestmasterTask[] {
   const textQuery = (options.text ?? "").trim();
   if (textQuery) {
-    return quests
-      .map((quest) => ({ quest, rank: getQuestSearchRank(quest, textQuery) }))
-      .filter((entry): entry is { quest: QuestmasterTask; rank: SearchRank } => entry.rank !== null)
+    return entries
+      .filter((entry): entry is { quest: QuestmasterTask; rank: SearchRank } => entry.rank !== undefined)
       .sort((left, right) => compareSearchRank(left.rank, right.rank) || compareQuestIds(left.quest, right.quest))
       .map((entry) => entry.quest);
   }
 
   const column = options.sortColumn ?? "cards";
   const direction = options.sortDirection ?? (column === "cards" ? "asc" : "desc");
-  return [...quests].sort((left, right) => {
-    const columnResult = compareSortColumn(left, right, column);
-    const directed = direction === "asc" ? columnResult : -columnResult;
-    if (directed !== 0) return directed;
-    return questRecencyTs(right) - questRecencyTs(left) || compareQuestIds(left, right);
-  });
+  return entries
+    .map((entry) => entry.quest)
+    .sort((left, right) => {
+      const columnResult = compareSortColumn(left, right, column);
+      const directed = direction === "asc" ? columnResult : -columnResult;
+      if (directed !== 0) return directed;
+      return questRecencyTs(right) - questRecencyTs(left) || compareQuestIds(left, right);
+    });
 }
 
 function compareSortColumn(left: QuestmasterTask, right: QuestmasterTask, column: QuestListSortColumn): number {
@@ -246,8 +350,12 @@ function listAllTags(quests: QuestmasterTask[]): string[] {
   return Array.from(tags).sort((a, b) => a.localeCompare(b));
 }
 
-function getQuestSearchRank(quest: QuestmasterTask, query: string): SearchRank | null {
-  const fields = [
+function getQuestSearchRank(quest: QuestmasterTask, query: PreparedSearchQuery): SearchRank | null {
+  return rankTokenizedSearchFields(tokenizeSearchRankFields(getQuestSearchFields(quest)), query);
+}
+
+function getQuestSearchFields(quest: QuestmasterTask): SearchRankField[] {
+  return [
     { rank: 0, text: quest.questId },
     { rank: 1, text: quest.title },
     { rank: 2, text: (quest.tags ?? []).join(" ") },
@@ -263,8 +371,6 @@ function getQuestSearchRank(quest: QuestmasterTask, query: string): SearchRank |
         ])
       : []),
   ];
-
-  return rankSearchFields(fields, query);
 }
 
 function compareSearchRank(left: SearchRank, right: SearchRank): number {

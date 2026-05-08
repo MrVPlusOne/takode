@@ -11,10 +11,18 @@ export type SearchRankField = {
   text: string | undefined;
 };
 
+export type PreparedSearchQuery = readonly string[];
+
 export type SearchTextToken = {
   value: string;
   start: number;
   end: number;
+};
+
+export type TokenizedSearchRankField = {
+  rank: number;
+  textLength: number;
+  tokens: readonly SearchTextToken[];
 };
 
 const SEARCH_TOKEN_PATTERN = /[\p{L}\p{N}]+/gu;
@@ -76,10 +84,36 @@ export function multiWordMatch(text: string, query: string): boolean {
 }
 
 export function rankSearchFields(fields: SearchRankField[], query: string): SearchRank | null {
+  const words = prepareSearchQuery(query);
+  if (!words) return null;
+  return rankTokenizedSearchFields(tokenizeSearchRankFields(fields), words);
+}
+
+export function prepareSearchQuery(query: string): PreparedSearchQuery | null {
   const words = tokenizeForSearch(query);
+  return words.length > 0 ? words : null;
+}
+
+export function tokenizeSearchRankFields(fields: SearchRankField[]): TokenizedSearchRankField[] {
+  const tokenizedFields: TokenizedSearchRankField[] = [];
+  for (const field of fields) {
+    if (!field.text) continue;
+    tokenizedFields.push({
+      rank: field.rank,
+      textLength: field.text.length,
+      tokens: tokenizeSearchText(field.text),
+    });
+  }
+  return tokenizedFields;
+}
+
+export function rankTokenizedSearchFields(
+  fields: readonly TokenizedSearchRankField[],
+  words: PreparedSearchQuery,
+): SearchRank | null {
   if (words.length === 0) return null;
 
-  const bestMatches = words.map((word) => bestSearchFieldMatch(fields, word));
+  const bestMatches = words.map((word) => bestTokenizedSearchFieldMatch(fields, word));
   if (bestMatches.some((match) => match === null)) return null;
 
   const matches = bestMatches.filter((match): match is FieldTokenMatch => match !== null);
@@ -107,14 +141,16 @@ type FieldTokenMatch = {
   textLength: number;
 };
 
-function bestSearchFieldMatch(fields: SearchRankField[], word: string): FieldTokenMatch | null {
+function bestTokenizedSearchFieldMatch(
+  fields: readonly TokenizedSearchRankField[],
+  word: string,
+): FieldTokenMatch | null {
   let best: FieldTokenMatch | null = null;
   for (const field of fields) {
-    if (!field.text) continue;
-    for (const token of tokenizeSearchText(field.text)) {
+    for (const token of field.tokens) {
       const quality = token.value === word ? 0 : token.value.startsWith(word) ? 1 : null;
       if (quality === null) continue;
-      const match: FieldTokenMatch = { quality, fieldRank: field.rank, token, textLength: field.text.length };
+      const match: FieldTokenMatch = { quality, fieldRank: field.rank, token, textLength: field.textLength };
       if (!best || compareFieldTokenMatch(match, best) < 0) best = match;
     }
   }

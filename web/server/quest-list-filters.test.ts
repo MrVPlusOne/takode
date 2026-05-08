@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyQuestListFilters, getQuestListPage } from "./quest-list-filters.js";
+import { applyQuestListFilters, getQuestListPage, getQuestListPageAsync } from "./quest-list-filters.js";
 import type { QuestDone, QuestmasterTask } from "./quest-types.js";
 
 function makeQuest(
@@ -128,6 +128,34 @@ describe("applyQuestListFilters", () => {
     const result = getQuestListPage([prefixMatch, bodyMatch, tagMatch], { text: "memory ui" });
 
     expect(result.quests.map((q) => q.questId)).toEqual(["q-24", "q-25", "q-26"]);
+  });
+
+  it("keeps search-filtered counts before applying the status filter", () => {
+    // Questmaster status tabs display counts for the current search corpus,
+    // even when one status tab is selected.
+    const doneMatch = makeQuest({ questId: "q-30", title: "Shared search result", status: "done" });
+    const ideaMatch = makeQuest({ questId: "q-31", title: "Shared search draft", status: "idea" });
+    const miss = makeQuest({ questId: "q-32", title: "Unrelated task", status: "refined" });
+
+    const result = getQuestListPage([doneMatch, ideaMatch, miss], { text: "shared", status: "done" });
+
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-30"]);
+    expect(result.counts).toMatchObject({ all: 2, done: 1, idea: 1, refined: 0, in_progress: 0 });
+  });
+
+  it("keeps the async page path semantically equivalent to the sync page path", async () => {
+    // The HTTP route uses the async path so long text searches can yield
+    // between chunks without changing result ordering or counts.
+    const tagMatch = makeQuest({ questId: "q-33", title: "Memory controls", status: "done", tags: ["ui"] });
+    const bodyMatch = makeQuest({ questId: "q-34", title: "Memory controls", status: "done" });
+    bodyMatch.description = "Body copy documents ui behavior.";
+    const prefixMatch = makeQuest({ questId: "q-35", title: "Memory uikit controls", status: "done" });
+
+    const options = { text: "memory ui", status: "done", limit: 2 };
+    const sync = getQuestListPage([prefixMatch, bodyMatch, tagMatch], options);
+    const asyncPage = await getQuestListPageAsync([prefixMatch, bodyMatch, tagMatch], options);
+
+    expect(asyncPage).toEqual(sync);
   });
 
   it("filters by TLDR and still searches full feedback text when a feedback TLDR exists", () => {

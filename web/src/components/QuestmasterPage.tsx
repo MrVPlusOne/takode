@@ -171,6 +171,10 @@ function fallbackQuestPage(quests: QuestmasterTask[]): QuestListPage {
   };
 }
 
+function isAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === "AbortError";
+}
+
 function questMatchesCurrentPageCorpus(
   quest: QuestmasterTask,
   selectedTags: Set<string>,
@@ -272,6 +276,8 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const [loadingMoreDirection, setLoadingMoreDirection] = useState<"next" | "previous" | null>(null);
   const [debouncedSearchText, setDebouncedSearchText] = useState("");
   const pageRequestSeqRef = useRef(0);
+  const pageAbortControllerRef = useRef<AbortController | null>(null);
+  const pageRequestInFlightRef = useRef(false);
   const visibleWindowRef = useRef({ offset: 0, count: 0 });
   const autoPagingDirectionRef = useRef<"next" | "previous" | null>(null);
   const prependAnchorRef = useRef<{
@@ -368,6 +374,10 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
   const loadQuestPage = useCallback(
     async (offset: number, mode: "replace" | "append" | "prepend", pageLimit = QUEST_PAGE_SIZE) => {
       const requestSeq = ++pageRequestSeqRef.current;
+      pageAbortControllerRef.current?.abort();
+      const abortController = new AbortController();
+      pageAbortControllerRef.current = abortController;
+      pageRequestInFlightRef.current = true;
       const loadingDirection = mode === "append" ? "next" : mode === "prepend" ? "previous" : null;
       if (mode === "replace") setQuestsLoading(true);
       else setLoadingMoreDirection(loadingDirection);
@@ -384,9 +394,12 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           sortColumn: debouncedSearchText ? undefined : viewMode === "compact" ? compactSort.column : "cards",
           sortDirection: debouncedSearchText ? undefined : viewMode === "compact" ? compactSort.direction : "asc",
         };
-        let page = await api.listQuestPage({ ...pageOptions, offset });
+        let page = await api.listQuestPage({ ...pageOptions, offset }, abortController.signal);
         if (page.quests.length === 0 && page.total > 0 && offset > 0) {
-          page = await api.listQuestPage({ ...pageOptions, offset: Math.max(0, page.total - pageLimit) });
+          page = await api.listQuestPage(
+            { ...pageOptions, offset: Math.max(0, page.total - pageLimit) },
+            abortController.signal,
+          );
         }
         if (requestSeq !== pageRequestSeqRef.current) return;
 
@@ -407,13 +420,18 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
           return merged.slice(0, MAX_RENDERED_QUESTS);
         });
       } catch (err) {
+        if (isAbortError(err)) return;
         if (requestSeq === pageRequestSeqRef.current) {
           setError(err instanceof Error ? err.message : "Failed to load quests");
         }
       } finally {
+        if (pageAbortControllerRef.current === abortController) pageAbortControllerRef.current = null;
         if (requestSeq === pageRequestSeqRef.current) {
-          setQuestsLoading(false);
-          setLoadingMoreDirection(null);
+          pageRequestInFlightRef.current = false;
+          if (!abortController.signal.aborted) {
+            setQuestsLoading(false);
+            setLoadingMoreDirection(null);
+          }
         }
       }
     },
@@ -426,6 +444,12 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
     return loadQuestPage(offset, "replace", limit);
   }, [loadQuestPage]);
 
+  useEffect(() => {
+    return () => {
+      pageAbortControllerRef.current?.abort();
+    };
+  }, []);
+
   // Load quests on mount, pause polling entirely while hidden, and resume with
   // a foreground refresh when the tab becomes visible again.
   useEffect(() => {
@@ -436,7 +460,7 @@ export function QuestmasterPage({ isActive = true }: { isActive?: boolean }) {
       if (timeoutId !== null) window.clearTimeout(timeoutId);
       if (document.visibilityState !== "visible") return;
       timeoutId = window.setTimeout(() => {
-        void refreshVisibleQuestWindow();
+        if (!pageRequestInFlightRef.current) void refreshVisibleQuestWindow();
         scheduleNextPoll();
       }, 5_000);
     };

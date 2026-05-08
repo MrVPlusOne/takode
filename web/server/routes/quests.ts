@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import * as questStore from "../quest-store.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
 import { hasQuestReviewMetadata } from "../quest-types.js";
-import { applyQuestListFilters, getQuestListPage, type QuestListSortColumn } from "../quest-list-filters.js";
+import { applyQuestListFilters, getQuestListPageAsync, type QuestListSortColumn } from "../quest-list-filters.js";
 import { SERVER_GIT_CMD } from "../constants.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -313,7 +313,7 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.get("/quests/_page", async (c) => {
-    const page = getQuestListPage(await questStore.listQuests(), {
+    const page = await getQuestListPageAsync(await questStore.listQuests(), {
       status: c.req.query("status"),
       tags: c.req.query("tags"),
       tag: c.req.query("tag"),
