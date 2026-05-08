@@ -17,6 +17,8 @@ export type SearchTextToken = {
   end: number;
 };
 
+const SEARCH_TOKEN_PATTERN = /[\p{L}\p{N}]+/gu;
+
 /**
  * Insert spaces at CamelCase boundaries.
  *
@@ -48,7 +50,7 @@ export function tokenizeForSearch(text: string): string[] {
 
 export function tokenizeSearchText(text: string): SearchTextToken[] {
   const tokens: SearchTextToken[] = [];
-  for (const match of text.matchAll(/[A-Za-z0-9]+/g)) {
+  for (const match of text.matchAll(SEARCH_TOKEN_PATTERN)) {
     const word = match[0];
     const wordStart = match.index ?? 0;
     let tokenStart = 0;

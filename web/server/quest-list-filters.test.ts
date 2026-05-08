@@ -95,6 +95,19 @@ describe("applyQuestListFilters", () => {
     expect(applyQuestListFilters([bad, good], { text: "memory ui" }).map((q) => q.questId)).toEqual(["q-21"]);
   });
 
+  it("filters non-ASCII text queries instead of treating them as empty", () => {
+    const match = makeQuest({ questId: "q-27", title: "修复 记忆 搜索", status: "idea" });
+    const miss = makeQuest({ questId: "q-28", title: "Fix memory search", status: "idea" });
+
+    expect(applyQuestListFilters([match, miss], { text: "记忆" }).map((q) => q.questId)).toEqual(["q-27"]);
+  });
+
+  it("returns no text matches for punctuation-only queries", () => {
+    const quest = makeQuest({ questId: "q-29", title: "Any quest", status: "idea" });
+
+    expect(applyQuestListFilters([quest], { text: "!!!" })).toEqual([]);
+  });
+
   it("matches word prefixes, CamelCase, and divided word tokens", () => {
     // Prefix matching should be token-aware across common code and title forms.
     const camel = makeQuest({ questId: "q-22", title: "Fix QuestmasterSearchPanel", status: "idea" });

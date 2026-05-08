@@ -316,6 +316,38 @@ describe("searchSessionDocuments", () => {
     expect(out.results[0].sessionId).toBe("s-match");
   });
 
+  it("intentionally keeps normalized substring matching for global session search", () => {
+    // Questmaster search is token-aware, but global session search remains a
+    // broad recall surface so short substrings can still find message/session text.
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-substring",
+        archived: false,
+        createdAt: 100,
+        name: "Guidance required for release",
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "ui" });
+
+    expect(out.results.map((result) => result.sessionId)).toEqual(["s-substring"]);
+  });
+
+  it("matches non-ASCII normalized substring queries", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "s-unicode",
+        archived: false,
+        createdAt: 100,
+        name: "修复 记忆 搜索",
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "记忆" });
+
+    expect(out.results.map((result) => result.sessionId)).toEqual(["s-unicode"]);
+  });
+
   it("searches archived sessions via searchExcerpts when messageHistory is empty", () => {
     // Simulates search-data-only archived session: no messageHistory, only excerpts
     const docs: SessionSearchDocument[] = [

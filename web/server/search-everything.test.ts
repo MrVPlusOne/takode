@@ -133,6 +133,38 @@ describe("searchEverything", () => {
     expect(result.childMatches.some((match) => match.type === "quest_debrief")).toBe(true);
   });
 
+  it("intentionally keeps normalized substring matching for app-wide search", () => {
+    // Questmaster list search is token-aware, while Search Everything remains a
+    // broader discovery surface that can recall substring evidence.
+    const output = searchEverything(
+      [quest({ questId: "q-11", title: "Release notes", description: "Guidance required for rollout." })],
+      [],
+      { query: "ui", categories: ["quests"] },
+    );
+
+    expect(output.results.map((result) => result.id)).toEqual(["quest:q-11"]);
+  });
+
+  it("matches non-ASCII quest text instead of dropping the query", () => {
+    const output = searchEverything(
+      [quest({ questId: "q-12", title: "修复 记忆 搜索", description: "Unicode search evidence" })],
+      [],
+      { query: "记忆", categories: ["quests"] },
+    );
+
+    expect(output.results.map((result) => result.id)).toEqual(["quest:q-12"]);
+  });
+
+  it("returns no results for punctuation-only queries", () => {
+    const output = searchEverything([quest({ questId: "q-13", title: "Anything" })], [], {
+      query: "!!!",
+      categories: ["quests"],
+    });
+
+    expect(output.totalMatches).toBe(0);
+    expect(output.results).toEqual([]);
+  });
+
   it("searches quest history content that is not present on the current quest record", () => {
     const current = quest({
       questId: "q-20",

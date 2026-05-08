@@ -62,6 +62,10 @@ describe("normalizeForSearch", () => {
     expect(normalizeForSearch("memory-ui_setting")).toBe("memory ui setting");
   });
 
+  it("preserves non-ASCII letters and numbers as searchable tokens", () => {
+    expect(normalizeForSearch("修复 记忆 搜索 café")).toBe("修复 记忆 搜索 café");
+  });
+
   it("trims whitespace", () => {
     expect(normalizeForSearch("  hello  ")).toBe("hello");
   });
@@ -72,6 +76,10 @@ describe("normalizeForSearch", () => {
 
   it("handles empty string", () => {
     expect(normalizeForSearch("")).toBe("");
+  });
+
+  it("normalizes punctuation-only text to empty", () => {
+    expect(normalizeForSearch("!!! -- ___")).toBe("");
   });
 });
 
@@ -118,11 +126,20 @@ describe("multiWordMatch", () => {
     expect(multiWordMatch("QuestmasterSearchPanel", "quest search")).toBe(true);
     expect(multiWordMatch("memory-ui_setting", "memory ui setting")).toBe(true);
   });
+
+  it("matches non-ASCII exact words and prefixes", () => {
+    expect(multiWordMatch("修复 记忆 搜索", "记忆")).toBe(true);
+    expect(multiWordMatch("修复 记忆 搜索", "搜")).toBe(true);
+  });
 });
 
 describe("tokenizeForSearch", () => {
   it("returns searchable word tokens for divided and CamelCase input", () => {
     expect(tokenizeForSearch("abc-def_ghi ExitPlanMode")).toEqual(["abc", "def", "ghi", "exit", "plan", "mode"]);
+  });
+
+  it("returns Unicode tokens instead of dropping non-ASCII text", () => {
+    expect(tokenizeForSearch("修复-记忆_search")).toEqual(["修复", "记忆", "search"]);
   });
 });
 

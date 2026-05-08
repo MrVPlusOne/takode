@@ -30,6 +30,7 @@ const TEST_DIR = join(tmpdir(), `companion-fs-search-test-${Date.now()}`);
 // needing the full Hono server setup. The core logic is simple: run rg --files,
 // filter by substring, sort by relevance.
 import { getRipgrepPath } from "./ripgrep.js";
+import { normalizeForSearch } from "../shared/search-utils.js";
 import { exec as execCb } from "node:child_process";
 import { promisify } from "node:util";
 
@@ -47,7 +48,8 @@ async function searchFiles(root: string, query: string): Promise<Array<{ relativ
     { cwd: root, timeout: 5000 },
   );
 
-  const queryLower = query.toLowerCase();
+  const queryNorm = normalizeForSearch(query);
+  if (!queryNorm) return [];
   const files = stdout
     .split("\n")
     .filter(Boolean)
@@ -55,10 +57,10 @@ async function searchFiles(root: string, query: string): Promise<Array<{ relativ
   const matches: Array<{ relativePath: string; fileName: string; score: number }> = [];
 
   for (const relPath of files) {
-    const lower = relPath.toLowerCase();
-    if (!lower.includes(queryLower)) continue;
+    const pathNorm = normalizeForSearch(relPath);
+    if (!pathNorm.includes(queryNorm)) continue;
     const name = relPath.split("/").pop() || relPath;
-    const nameMatch = name.toLowerCase().includes(queryLower);
+    const nameMatch = normalizeForSearch(name).includes(queryNorm);
     const score = (nameMatch ? 0 : 1000) + relPath.length;
     matches.push({ relativePath: relPath, fileName: name, score });
   }
@@ -84,6 +86,7 @@ describe.skipIf(!rgAvailable)("file search (fs/search logic)", () => {
       writeFile(join(TEST_DIR, "src/components/App.tsx"), "export default App"),
       writeFile(join(TEST_DIR, "src/components/Composer.tsx"), "export function Composer() {}"),
       writeFile(join(TEST_DIR, "src/components/Sidebar.tsx"), "export function Sidebar() {}"),
+      writeFile(join(TEST_DIR, "src/components/记忆Search.ts"), "export const memory = true"),
       writeFile(join(TEST_DIR, "src/utils/helpers.ts"), "export function help() {}"),
       writeFile(join(TEST_DIR, "src/utils/api.ts"), "export const api = {}"),
       writeFile(join(TEST_DIR, "package.json"), "{}"),
@@ -112,7 +115,7 @@ describe.skipIf(!rgAvailable)("file search (fs/search logic)", () => {
 
   it("matches directory segments too", async () => {
     const results = await searchFiles(TEST_DIR, "components");
-    expect(results.length).toBe(3); // App.tsx, Composer.tsx, Sidebar.tsx
+    expect(results.length).toBe(4); // App.tsx, Composer.tsx, Sidebar.tsx, 记忆Search.ts
     // All results should be in the components directory
     for (const r of results) {
       expect(r.relativePath).toContain("components/");
@@ -149,6 +152,16 @@ describe.skipIf(!rgAvailable)("file search (fs/search logic)", () => {
   it("returns empty results for empty query", async () => {
     const results = await searchFiles(TEST_DIR, "");
     expect(results).toEqual([]);
+  });
+
+  it("returns empty results for punctuation-only query", async () => {
+    const results = await searchFiles(TEST_DIR, "!!!");
+    expect(results).toEqual([]);
+  });
+
+  it("finds files with non-ASCII names", async () => {
+    const results = await searchFiles(TEST_DIR, "记忆");
+    expect(results[0]).toEqual({ relativePath: "src/components/记忆Search.ts", fileName: "记忆Search.ts" });
   });
 
   it("limits results to 15 entries", async () => {

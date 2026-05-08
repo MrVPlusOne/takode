@@ -41,6 +41,35 @@ describe("store session search helpers", () => {
     ).toEqual([{ messageId: "m1" }]);
   });
 
+  it("intentionally keeps normalized substring matching for in-chat search", () => {
+    // Questmaster search is token-aware, but in-chat search stays broad so
+    // small pasted fragments can still find message text.
+    expect(
+      computeSessionSearchMatches(
+        [{ id: "m1", role: "assistant", content: "Guidance required before rollout" }],
+        "ui",
+        "fuzzy",
+      ),
+    ).toEqual([{ messageId: "m1" }]);
+    expect(
+      computeSessionSearchMatches(
+        [{ id: "m1", role: "assistant", content: "Guidance required before rollout" }],
+        "ui",
+        "strict",
+      ),
+    ).toEqual([{ messageId: "m1" }]);
+  });
+
+  it("matches non-ASCII text and ignores punctuation-only queries", () => {
+    expect(
+      computeSessionSearchMatches([{ id: "m1", role: "assistant", content: "修复 记忆 搜索" }], "记忆", "strict"),
+    ).toEqual([{ messageId: "m1" }]);
+
+    expect(
+      computeSessionSearchMatches([{ id: "m1", role: "assistant", content: "anything" }], "!!!", "strict"),
+    ).toEqual([]);
+  });
+
   it("classifies injected pseudo-user messages as events for category filtering", () => {
     expect(
       computeSessionSearchMatches(

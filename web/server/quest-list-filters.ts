@@ -1,6 +1,6 @@
 import type { QuestmasterTask } from "./quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
-import { compareSearchRanks, normalizeForSearch, rankSearchFields } from "../shared/search-utils.js";
+import { compareSearchRanks, rankSearchFields } from "../shared/search-utils.js";
 import { questRelationshipSearchText } from "./quest-relationships.js";
 
 export interface QuestListFilterOptions {
@@ -107,7 +107,7 @@ function filterQuestList(
   const excludedTagTokens = new Set(parseCsv(filters.excludeTags).map((tag) => tag.toLowerCase()));
   const verificationScopes = new Set(parseCsv(filters.verification).map((scope) => scope.toLowerCase()));
   const sessionId = filters.session?.trim() || "";
-  const textQuery = normalizeForSearch(filters.text ?? "");
+  const hasTextQuery = (filters.text ?? "").trim().length > 0;
 
   const beforeStatusFilter = quests.filter((quest) => {
     if (verificationScopes.size > 0) {
@@ -158,7 +158,7 @@ function filterQuestList(
       if (owner !== sessionId && !previousOwners.includes(sessionId)) return false;
     }
 
-    if (textQuery) {
+    if (hasTextQuery) {
       if (!getQuestSearchRank(quest, filters.text ?? "")) return false;
     }
 

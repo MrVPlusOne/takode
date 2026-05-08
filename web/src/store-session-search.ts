@@ -66,8 +66,10 @@ export function sessionSearchMessageMatchesCategory(
 export function sessionSearchTextMatches(text: string, query: string, mode: "strict" | "fuzzy"): boolean {
   const normalizedText = normalizeForSearch(text);
   const normalizedQuery = normalizeForSearch(query);
+  if (!normalizedQuery) return false;
   if (mode === "strict") return normalizedText.includes(normalizedQuery);
   const words = normalizedQuery.split(/\s+/).filter(Boolean);
+  if (words.length === 0) return false;
   return words.every((word) => normalizedText.includes(word));
 }
 

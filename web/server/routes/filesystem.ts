@@ -489,6 +489,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       );
 
       const queryNorm = normalizeForSearch(query);
+      if (!queryNorm) return c.json({ results: [] });
       const files = stdout
         .split("\n")
         .filter(Boolean)
@@ -502,7 +503,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
         // Score: prefer filename matches over directory-only matches,
         // then shorter paths over longer ones
         const name = relPath.split("/").pop() || relPath;
-        const nameNorm = pathNorm.split("/").pop() || pathNorm;
+        const nameNorm = normalizeForSearch(name);
         const nameMatch = nameNorm.includes(queryNorm);
         const score = (nameMatch ? 0 : 1000) + relPath.length;
 

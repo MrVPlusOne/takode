@@ -11,7 +11,7 @@ type SearchField = {
 
 export function rankQuestsBySearchRelevance(quests: QuestmasterTask[], query: string): QuestmasterTask[] {
   const words = normalizeForSearch(query).split(/\s+/).filter(Boolean);
-  if (words.length === 0) return quests;
+  if (words.length === 0) return query.trim() ? [] : quests;
 
   return quests
     .map((quest) => ({ quest, rank: getQuestSearchRank(quest, query, words) }))
