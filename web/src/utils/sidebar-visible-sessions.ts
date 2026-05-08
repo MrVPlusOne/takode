@@ -121,6 +121,12 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
         activeNotificationCount: sdkInfo?.activeNotificationCount ?? 0,
         notificationStatusVersion: sdkInfo?.notificationStatusVersion,
         notificationStatusUpdatedAt: sdkInfo?.notificationStatusUpdatedAt,
+        pause: bridgeState?.pause ?? sdkInfo?.pause ?? null,
+        pausedInputQueueCount:
+          bridgeState?.pause?.queuedMessages.length ??
+          sdkInfo?.pausedInputQueueCount ??
+          sdkInfo?.pause?.queuedMessages.length ??
+          0,
         cronJobId: bridgeState?.cronJobId || sdkInfo?.cronJobId,
         cronJobName: bridgeState?.cronJobName || sdkInfo?.cronJobName,
         isWorktree: bridgeState?.is_worktree || sdkInfo?.isWorktree || false,

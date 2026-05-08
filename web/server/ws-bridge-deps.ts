@@ -54,6 +54,7 @@ import type { CliLauncher } from "./cli-launcher.js";
 import { buildBoardRowSessionStatuses } from "./board-row-session-status.js";
 import * as gitUtils from "./git-utils.js";
 import { sessionTag } from "./session-tag.js";
+import { isSessionPaused } from "./session-pause.js";
 import type { PerfTracer } from "./perf-tracer.js";
 import { HerdEventDispatcher, isSessionIdleRuntime } from "./herd-event-dispatcher.js";
 import { injectCompactionRecovery as injectCompactionRecoveryController } from "./bridge/compaction-recovery.js";
@@ -317,6 +318,17 @@ const WS_BRIDGE_USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
 const WS_BRIDGE_VSCODE_OPEN_FILE_TIMEOUT_MS = 8_000;
 const WS_BRIDGE_VSCODE_WINDOW_STALE_MS = 30_000;
 
+function requestCliRelaunchIfUnpaused(host: any): ((sessionId: string) => void) | undefined {
+  if (!host.onCLIRelaunchNeeded) return undefined;
+  return (sessionId: string) => {
+    if (isSessionPaused(host.sessions?.get(sessionId))) {
+      console.log(`[ws-bridge] Relaunch deferred for paused session ${sessionTag(sessionId)}`);
+      return;
+    }
+    host.onCLIRelaunchNeeded?.(sessionId);
+  };
+}
+
 export function getSessionGitStateDeps(host: any) {
   const broadcastSessionUpdate = (targetSession: unknown, update: Record<string, unknown>) => {
     const session = targetSession as Session;
@@ -443,9 +455,7 @@ export function getSessionRegistryDeps(host: any) {
       }),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
     persistSessionSync: (sessionId: string) => host.persistSessionSync(sessionId),
-    requestCliRelaunch: host.onCLIRelaunchNeeded
-      ? (sessionId: string) => host.onCLIRelaunchNeeded?.(sessionId)
-      : undefined,
+    requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
       host.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
     attached: (targetSession: unknown) => backendAttachedController(targetSession as Session),
@@ -723,9 +733,7 @@ export function getBrowserTransportDeps(host: any) {
       host.requestCodexAutoRecovery(targetSession as Session, reason),
     requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
       host.recycleCodexLeaderSession((targetSession as Session).id, trigger),
-    requestCliRelaunch: host.onCLIRelaunchNeeded
-      ? (sessionId: string) => host.onCLIRelaunchNeeded?.(sessionId)
-      : undefined,
+    requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
     getRouteChain: (sessionId: string) => host.sessionRouteChains.get(sessionId),
     setRouteChain: (sessionId: string, task: Promise<void>) => {
       host.sessionRouteChains.set(sessionId, task);
@@ -859,9 +867,7 @@ export function getClaudeCliTransportDeps(host: any) {
     setAttentionError: (targetSession: unknown) =>
       setAttentionController(targetSession as Session, "error", host.getSessionRegistryDeps()),
     onOrchestratorDisconnect: (sessionId: string) => host.herdEventDispatcher?.onOrchestratorDisconnect(sessionId),
-    requestCliRelaunch: host.onCLIRelaunchNeeded
-      ? (sessionId: string) => host.onCLIRelaunchNeeded?.(sessionId)
-      : undefined,
+    requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
     markRunningFromUserDispatch: (targetSession: unknown, reason: string, userMessageHistoryIndex?: number) =>
       markRunningFromUserDispatchLifecycle(
         host.getGenerationLifecycleDeps(),
@@ -893,9 +899,7 @@ export function getClaudeSdkAdapterLifecycleDeps(host: any) {
       handleSdkPermissionRequestController(targetSession as Session, request, host.getBrowserRoutingDeps()),
     setCliSessionId: (sessionId: string, cliSessionId: string) =>
       host.launcher?.setCLISessionId(sessionId, cliSessionId),
-    requestCliRelaunch: host.onCLIRelaunchNeeded
-      ? (sessionId: string) => host.onCLIRelaunchNeeded?.(sessionId)
-      : undefined,
+    requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
     isCurrentSession: (sessionId: string, session: unknown) => host.sessions.get(sessionId) === session,
     maxAdapterRelaunchFailures: MAX_ADAPTER_RELAUNCH_FAILURES,
     adapterFailureResetWindowMs: ADAPTER_FAILURE_RESET_WINDOW_MS,
@@ -1183,9 +1187,7 @@ export function getBrowserRoutingDeps(host: any) {
       host.requestCodexAutoRecovery(targetSession as Session, reason),
     requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
       host.recycleCodexLeaderSession((targetSession as Session).id, trigger),
-    requestCliRelaunch: host.onCLIRelaunchNeeded
-      ? (sessionId: string) => host.onCLIRelaunchNeeded?.(sessionId)
-      : undefined,
+    requestCliRelaunch: requestCliRelaunchIfUnpaused(host),
     injectUserMessage: (
       sessionId: string,
       content: string,

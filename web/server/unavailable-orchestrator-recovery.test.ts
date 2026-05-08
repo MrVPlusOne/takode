@@ -66,6 +66,15 @@ describe("shouldWakeUnavailableOrchestratorForPendingEvents", () => {
       ),
     ).toBe(false);
   });
+
+  it("does not wake paused leaders", () => {
+    expect(
+      shouldWakeUnavailableOrchestratorForPendingEvents(makeSession(), {
+        ...makeDeps(),
+        isSessionPaused: () => true,
+      }),
+    ).toBe(false);
+  });
 });
 
 describe("createUnavailableOrchestratorRecoveryWake", () => {

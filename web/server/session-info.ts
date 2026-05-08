@@ -1,4 +1,9 @@
-import type { BackendType, CodexLeaderRecycleLineage, CodexLeaderRecycleTrigger } from "./session-types.js";
+import type {
+  BackendType,
+  CodexLeaderRecycleLineage,
+  CodexLeaderRecycleTrigger,
+  SessionPauseState,
+} from "./session-types.js";
 
 export interface SdkSessionInfo {
   sessionId: string;
@@ -72,6 +77,10 @@ export interface SdkSessionInfo {
   cronJobName?: string;
   /** Number of active timers currently waiting on this session. */
   pendingTimerCount?: number;
+  /** Emergency pause state for this session, when paused. */
+  pause?: SessionPauseState | null;
+  /** Number of inputs held while this session is paused. */
+  pausedInputQueueCount?: number;
   /** Highest active Takode notification urgency restored from the session inbox. */
   notificationUrgency?: "needs-input" | "review" | null;
   /** Number of unresolved Takode notifications for sidebar snapshots. */

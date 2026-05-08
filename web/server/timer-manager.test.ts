@@ -23,11 +23,12 @@ vi.mock("./timer-store.js", () => ({
 // Import after mock so the mock is in effect.
 import { TimerManager } from "./timer-manager.js";
 
-function createMockBridge(options?: { backendConnected?: () => boolean }) {
+function createMockBridge(options?: { backendConnected?: () => boolean; sessionPaused?: () => boolean }) {
   return {
     injectUserMessage: vi.fn(() => (options?.backendConnected?.() === false ? ("queued" as const) : ("sent" as const))),
     broadcastToSession: vi.fn(),
     isBackendConnected: vi.fn(() => options?.backendConnected?.() ?? true),
+    isSessionPaused: vi.fn(() => options?.sessionPaused?.() ?? false),
   } as any;
 }
 
@@ -37,12 +38,14 @@ describe("TimerManager", () => {
   let bridge: ReturnType<typeof createMockBridge>;
   let manager: TimerManager;
   let backendConnected: boolean;
+  let sessionPaused: boolean;
 
   beforeEach(() => {
     vi.useFakeTimers({ now: new Date("2026-04-08T12:00:00Z") });
     mockFiles.clear();
     backendConnected = true;
-    bridge = createMockBridge({ backendConnected: () => backendConnected });
+    sessionPaused = false;
+    bridge = createMockBridge({ backendConnected: () => backendConnected, sessionPaused: () => sessionPaused });
     manager = new TimerManager(bridge);
   });
 
@@ -358,6 +361,31 @@ describe("TimerManager", () => {
       const content = bridge.injectUserMessage.mock.calls[0]?.[1] as string;
       expect(content).toContain("This timer was initially scheduled to fire at 2026-04-08T12:05:00.000Z.");
       expect(content).toContain("Earlier note:\nSend the one-time handoff.");
+      expect(manager.listTimers("session-1")).toHaveLength(0);
+    });
+
+    it("holds due timers while a session is paused and fires after unpause", async () => {
+      // Paused sessions must not turn scheduled reminders into model input.
+      // Keeping the timer due lets unpause resume the normal timer path.
+      await manager.createTimer("session-1", {
+        title: "paused reminder",
+        description: "Resume only after explicit unpause.",
+        in: "5m",
+      });
+
+      sessionPaused = true;
+      vi.advanceTimersByTime(6 * 60_000);
+      const pausedResult = await (manager as any).sweep();
+
+      expect(pausedResult.skipped).toEqual([{ sessionId: "session-1", timerId: "t1", reason: "session_paused" }]);
+      expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+      expect(manager.listTimers("session-1")[0]).toMatchObject({ fireCount: 0 });
+
+      sessionPaused = false;
+      await triggerSweep(manager);
+
+      expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+      expect(bridge.injectUserMessage.mock.calls[0]?.[1]).toContain("[⏰ Timer t1 reminder] paused reminder");
       expect(manager.listTimers("session-1")).toHaveLength(0);
     });
 

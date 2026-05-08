@@ -22,6 +22,7 @@ export interface UnavailableOrchestratorLauncherInfo {
 export interface UnavailableOrchestratorRecoveryDeps {
   getSession: (sessionId: string) => UnavailableOrchestratorSessionLike | undefined;
   getLauncherSessionInfo: (sessionId: string) => UnavailableOrchestratorLauncherInfo | undefined;
+  isSessionPaused?: (sessionId: string) => boolean;
   requestCodexAutoRecovery: (session: UnavailableOrchestratorSessionLike, reason: string) => boolean;
   requestCliRelaunch?: (sessionId: string) => void;
   recoveryDedupeMs?: number;
@@ -29,11 +30,12 @@ export interface UnavailableOrchestratorRecoveryDeps {
 
 export function shouldWakeUnavailableOrchestratorForPendingEvents(
   session: UnavailableOrchestratorSessionLike | undefined,
-  deps: Pick<UnavailableOrchestratorRecoveryDeps, "getLauncherSessionInfo">,
+  deps: Pick<UnavailableOrchestratorRecoveryDeps, "getLauncherSessionInfo" | "isSessionPaused">,
 ): boolean {
   if (!session) return false;
   const launcherInfo = deps.getLauncherSessionInfo(session.id);
   if (!launcherInfo?.isOrchestrator) return false;
+  if (deps.isSessionPaused?.(session.id)) return false;
   if (launcherInfo.archived || launcherInfo.killedByIdleManager) return false;
   if (session.isGenerating) return false;
   if (session.state?.backend_state === "broken") return false;

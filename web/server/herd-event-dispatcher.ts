@@ -126,7 +126,7 @@ export interface WsBridgeHandle {
     agentSource?: { sessionId: string; sessionLabel?: string },
     takodeHerdBatch?: TakodeHerdBatchSnapshot,
     threadRoute?: ThreadRouteMetadata,
-  ): "sent" | "queued" | "dropped" | "no_session";
+  ): "sent" | "queued" | "paused_queued" | "dropped" | "no_session";
   isSessionIdle?(sessionId: string): boolean;
   /** Test-only escape hatch while production callers move to the shared idle helper. */
   wakeIdleKilledSession?(sessionId: string): boolean;
@@ -845,6 +845,16 @@ export class HerdEventDispatcher {
         threadKey: group.route.threadKey,
       });
       if (delivery === "dropped") return { status: "dropped", deliveredCount: deliveredEvents.length };
+      if (delivery === "paused_queued") {
+        deliveredEvents.push(...events);
+        acceptedEntries.push(
+          ...group.entries.map((entry) => ({
+            entry,
+            status: "queued" as const,
+          })),
+        );
+        continue;
+      }
       if (delivery === "queued" && !this.isCodexLeader(orchId))
         return { status: "retry", deliveredCount: deliveredEvents.length };
       if (delivery !== "sent" && delivery !== "queued")

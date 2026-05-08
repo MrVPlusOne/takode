@@ -216,6 +216,8 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.activeNotificationCount === b.activeNotificationCount &&
     a.notificationStatusVersion === b.notificationStatusVersion &&
     a.notificationStatusUpdatedAt === b.notificationStatusUpdatedAt &&
+    sessionPauseStateEqual(a.pause, b.pause) &&
+    a.pausedInputQueueCount === b.pausedInputQueueCount &&
     a.lastMessagePreview === b.lastMessagePreview &&
     a.cliConnected === b.cliConnected &&
     a.isWorktree === b.isWorktree &&
@@ -256,6 +258,18 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     codexTokenDetailsEqual(a.codexTokenDetails, b.codexTokenDetails) &&
     claudeTokenDetailsEqual(a.claudeTokenDetails, b.claudeTokenDetails) &&
     sessionLifecycleEventsEqual(a.sessionLifecycleEvents, b.sessionLifecycleEvents)
+  );
+}
+
+function sessionPauseStateEqual(a: SdkSessionInfo["pause"], b: SdkSessionInfo["pause"]): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.pausedAt === b.pausedAt &&
+    a.pausedBy === b.pausedBy &&
+    a.reason === b.reason &&
+    a.lastQueuedAt === b.lastQueuedAt &&
+    a.queuedMessages.length === b.queuedMessages.length
   );
 }
 

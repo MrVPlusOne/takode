@@ -85,6 +85,33 @@ describe("startup-recovery", () => {
     ]);
   });
 
+  it("does not relaunch paused sessions with restored pending work", async () => {
+    const launcherSessions = [{ sessionId: "worker-1", state: "exited" }];
+    const sessions = new Map<string, StartupRecoverySession>([
+      ["worker-1", { pendingMessages: [userMessage({ sessionId: "herd-events", sessionLabel: "Herd Events" })] }],
+    ]);
+    const requestCliRelaunch = vi.fn();
+
+    const result = await runStartupRecovery({
+      listLauncherSessions: () => launcherSessions,
+      getSession: (sessionId) => sessions.get(sessionId),
+      isBackendConnected: () => false,
+      isSessionPaused: (sessionId) => sessionId === "worker-1",
+      requestCliRelaunch,
+    });
+
+    expect(requestCliRelaunch).not.toHaveBeenCalled();
+    expect(result.recovered).toEqual([
+      {
+        sessionId: "worker-1",
+        reasons: ["pending_messages", "pending_herd_delivery"],
+        requestedRelaunch: false,
+        clearedIdleKilled: false,
+        skippedReason: "session_paused",
+      },
+    ]);
+  });
+
   it("recognizes durable queued herd delivery without requiring the raw in-memory herd inbox", () => {
     // Raw HerdEventDispatcher inbox entries are not durable, but once a herd
     // batch has become a queued user message or Codex pending input, startup

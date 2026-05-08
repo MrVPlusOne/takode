@@ -28,6 +28,7 @@ import {
 } from "./codex-turn-queue.js";
 import { requestCodexAutoRecovery as requestCodexAutoRecoveryController } from "./session-registry-controller.js";
 import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
+import { isSessionPaused } from "../session-pause.js";
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
 const CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP = 2;
 const CODEX_INIT_RETRY_BASE_DELAY_MS = 1_000;
@@ -399,6 +400,7 @@ export function dispatchQueuedCodexTurns(
     "pruneStalePendingCodexHerdInputs" | "setPendingCodexInputsCancelable" | "persistSession"
   >,
 ): void {
+  if (isSessionPaused(session as any)) return;
   const outcome = dispatchQueuedCodexTurnsState(session, reason, {
     pruneStalePendingCodexHerdInputs: (dispatchReason) =>
       deps.pruneStalePendingCodexHerdInputs(session, dispatchReason),

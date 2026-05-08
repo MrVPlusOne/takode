@@ -26,6 +26,7 @@ import {
   handleHerd,
   handleInterrupt,
   handleNotify,
+  handlePause,
   handlePending,
   handlePhases,
   handleRename,
@@ -34,6 +35,7 @@ import {
   handleSetBase,
   handleSpawn,
   handleThread,
+  handleUnpause,
   handleUnherd,
   handleUserMessage,
   handleWorkerStream,
@@ -74,6 +76,8 @@ try {
     ["logs", {}],
     ["export", {}],
     ["send", { requireOrchestrator: true }],
+    ["pause", { requireOrchestrator: true }],
+    ["unpause", { requireOrchestrator: true }],
     ["user-message", { requireOrchestrator: true }],
     ["thread", { requireOrchestrator: true }],
     ["rename", { requireOrchestrator: true }],
@@ -175,6 +179,12 @@ try {
       break;
     case "send":
       await handleSend(base, args);
+      break;
+    case "pause":
+      await handlePause(base, args);
+      break;
+    case "unpause":
+      await handleUnpause(base, args);
       break;
     case "user-message":
       await handleUserMessage(base, args);

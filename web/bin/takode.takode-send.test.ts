@@ -252,4 +252,120 @@ describe("takode send", () => {
       server.close();
     }
   });
+
+  it("prints an explicit held diagnostic when the server pauses delivery", async () => {
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-paused", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/worker-paused") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-paused", sessionNum: 17, name: "Paused Worker" }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-paused/herd") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([{ sessionId: "worker-paused" }]));
+        return;
+      }
+      if (method === "GET" && url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify([{ sessionId: "leader-paused", sessionNum: 3, name: "Leader Paused" }]));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/worker-paused/message") {
+        await readJson(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            ok: true,
+            sessionId: "worker-paused",
+            delivery: "paused_queued",
+            paused: true,
+            diagnostic: "Session is paused; message held until unpause (1 held).",
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const result = await runTakode(["send", "worker-paused", "stop", "--port", String(port)], {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-paused",
+        COMPANION_AUTH_TOKEN: "auth-paused",
+      });
+
+      expect(result.status).toBe(0);
+      expect(result.stdout).toContain("Message held for paused session worker-paused");
+      expect(result.stdout).toContain("Session is paused; message held until unpause (1 held).");
+    } finally {
+      server.close();
+    }
+  });
+});
+
+describe("takode pause controls", () => {
+  it("calls pause and unpause session endpoints", async () => {
+    const calls: string[] = [];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-control", isOrchestrator: true }));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/worker-control/pause") {
+        calls.push("pause");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId: "worker-control", queued: 0 }));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/worker-control/unpause") {
+        calls.push("unpause");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true, sessionId: "worker-control", resumed: 2 }));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const env = {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-control",
+      COMPANION_AUTH_TOKEN: "auth-control",
+    };
+
+    try {
+      const paused = await runTakode(["pause", "worker-control", "--port", String(port)], env);
+      const unpaused = await runTakode(["unpause", "worker-control", "--port", String(port)], env);
+
+      expect(paused.status).toBe(0);
+      expect(paused.stdout).toContain("Paused session worker-control (0 held inputs)");
+      expect(unpaused.status).toBe(0);
+      expect(unpaused.stdout).toContain("Unpaused session worker-control (2 held inputs released)");
+      expect(calls).toEqual(["pause", "unpause"]);
+    } finally {
+      server.close();
+    }
+  });
 });

@@ -90,6 +90,7 @@ import {
   findMatchingPendingCodexInput as findMatchingPendingCodexInputBrowserTransportController,
   getPendingCodexInputDeliveryState as getPendingCodexInputDeliveryStateBrowserTransportController,
   handleBrowserClose as handleBrowserCloseController,
+  handleBrowserIngressMessage as handleBrowserIngressMessageTransportController,
   handleBrowserMessage as handleBrowserMessageTransportController,
   handleBrowserOpen as handleBrowserOpenController,
   isHerdEventSource as isHerdEventSourceBrowserTransportController,
@@ -99,6 +100,13 @@ import {
   sameAgentSource as sameAgentSourceBrowserTransportController,
   sendToBrowser as sendToBrowserController,
 } from "./bridge/browser-transport-controller.js";
+import {
+  buildProgrammaticUserMessage,
+  isSessionPaused,
+  pauseSessionState,
+  queuePausedUserMessage,
+  unpauseSessionState,
+} from "./session-pause.js";
 import type { BrowserTransportStateLike } from "./bridge/browser-transport-controller.js";
 import {
   flushQueuedCliMessages as flushQueuedCliMessagesController,
@@ -768,6 +776,35 @@ export class WsBridge {
     this.persistSession(session);
   }
 
+  pauseSession(sessionId: string, options?: { pausedBy?: string; reason?: string }) {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    const pause = pauseSessionState(session, options);
+    this.broadcastToBrowsers(session, { type: "session_update", session: { pause } } as any);
+    this.persistSession(session);
+    return pause;
+  }
+
+  async unpauseSession(sessionId: string): Promise<{ queued: number } | null> {
+    const session = this.sessions.get(sessionId);
+    if (!session) return null;
+    const queued = unpauseSessionState(session);
+    this.broadcastToBrowsers(session, { type: "session_update", session: { pause: null } } as any);
+    this.persistSession(session);
+    for (const item of queued) {
+      await handleBrowserIngressMessageTransportController(
+        session,
+        item.message,
+        undefined,
+        this.getBrowserTransportDeps(),
+      );
+    }
+    if (queued.length === 0 && !backendAttachedController(session)) {
+      this.onCLIRelaunchNeeded?.(sessionId);
+    }
+    return { queued: queued.length };
+  }
+
   private getSessionGitStateDeps() {
     return getSessionGitStateDepsController(this);
   }
@@ -1135,6 +1172,10 @@ export class WsBridge {
     return backendConnectedController(session);
   }
 
+  isSessionPaused(sessionId: string): boolean {
+    return isSessionPaused(this.sessions.get(sessionId));
+  }
+
   getBoardRowSessionStatuses(sessionId: string, board: BoardRow[], completedBoard: BoardRow[]) {
     if (board.length === 0 && completedBoard.length === 0) return {};
     const launcherSessions = this.launcher?.listSessions?.() ?? [];
@@ -1316,7 +1357,7 @@ export class WsBridge {
     takodeHerdBatch?: TakodeHerdBatchSnapshot,
     threadRoute?: { threadKey: string; questId?: string; threadRefs?: ThreadRef[] },
     options?: ProgrammaticUserMessageOptions,
-  ): "sent" | "queued" | "dropped" | "no_session" {
+  ): "sent" | "queued" | "paused_queued" | "dropped" | "no_session" {
     const session = this.sessions.get(sessionId);
     if (!session) {
       console.error(`[ws-bridge] Cannot inject message: session ${sessionId} not found`);
@@ -1333,6 +1374,19 @@ export class WsBridge {
         deliveryContent = pruned.content;
         deliveryBatch = pruned.batch;
       }
+    }
+    if (isSessionPaused(session)) {
+      const message = buildProgrammaticUserMessage({
+        content: deliveryContent,
+        agentSource,
+        takodeHerdBatch: deliveryBatch,
+        threadRoute,
+        options,
+      });
+      queuePausedUserMessage(session, "programmatic", message);
+      this.broadcastToBrowsers(session, { type: "session_update", session: { pause: session.state.pause } } as any);
+      this.persistSession(session);
+      return "paused_queued";
     }
     this.syncBackendTypeFromLauncher(session, "inject_user_message");
     return injectUserMessageController(
@@ -1569,6 +1623,7 @@ export class WsBridge {
   ): Promise<{ ok: true } | { ok: false; error: string }> {
     const session = this.sessions.get(sessionId);
     if (!session) return { ok: false, error: "Session not found" };
+    if (isSessionPaused(session)) return { ok: false, error: "Session is paused; unpause before recycling" };
     if (session.backendType !== "codex") return { ok: false, error: "Session is not a Codex session" };
     const launcherInfo = this.launcher?.getSession(sessionId);
     if (!launcherInfo) return { ok: false, error: "Session not found" };
@@ -1632,6 +1687,7 @@ export class WsBridge {
   queueForceCompactForRelaunch(sessionId: string): { ok: true } | { ok: false; error: string } {
     const session = this.sessions.get(sessionId);
     if (!session) return { ok: false, error: "Session not found" };
+    if (isSessionPaused(session)) return { ok: false, error: "Session is paused; unpause before compacting" };
     if (session.backendType === "codex") return { ok: false, error: "Force compact not supported for Codex" };
     queueForceCompactPendingMessageController(session, this.getBrowserRoutingDeps());
     return { ok: true };

@@ -174,6 +174,15 @@ export function Sidebar() {
     await hydrateTreeGroups();
   }, []);
 
+  const refreshSessionListNow = useCallback(async () => {
+    try {
+      const list = await api.listSessions();
+      hydrateSessionList(list);
+    } catch (err) {
+      console.warn("[sidebar] session refresh failed:", err);
+    }
+  }, []);
+
   const nextAutoGroupName = useCallback(() => {
     const existing = new Set(treeGroups.map((g) => g.name));
     let n = 1;
@@ -495,6 +504,19 @@ export function Sidebar() {
   function handleContextMenu(e: React.MouseEvent, sessionId: string) {
     setContextMenu({ sessionId, x: e.clientX, y: e.clientY });
   }
+
+  const handlePauseToggle = useCallback(
+    async (sessionId: string, paused: boolean) => {
+      try {
+        if (paused) await api.unpauseSession(sessionId);
+        else await api.pauseSession(sessionId);
+        await refreshSessionListNow();
+      } catch (err) {
+        console.warn("[sidebar] failed to toggle session pause:", err);
+      }
+    },
+    [refreshSessionListNow],
+  );
 
   // Hover card: use a flag to detect if mouse moved to the popover card
   const hoverIntentRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -1550,6 +1572,7 @@ export function Sidebar() {
           const cliId = sdk?.cliSessionId || "";
           const isArchived = sdk?.archived ?? sessionInfo?.archived ?? false;
           const isExited = sdk?.state === "exited";
+          const isPaused = !!(sessionInfo?.pause?.pausedAt || sdk?.pause?.pausedAt);
           const attention = sessionAttention.get(contextMenu.sessionId);
           const backendType = sessionInfo?.backendType || sdk?.backendType || "claude";
           const currentLeader = currentSessionId
@@ -1606,6 +1629,16 @@ export function Sidebar() {
                 handleStartRename(contextMenu.sessionId, name);
               },
             },
+            ...(!isArchived
+              ? [
+                  {
+                    label: isPaused ? "Unpause Session" : "Pause Session",
+                    onClick: () => {
+                      void handlePauseToggle(contextMenu.sessionId, isPaused);
+                    },
+                  },
+                ]
+              : []),
             ...(!isExited && !isArchived
               ? [
                   {

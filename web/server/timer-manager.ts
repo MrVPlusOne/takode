@@ -18,12 +18,12 @@ export interface TimerSweepResult {
   fired: Array<{
     sessionId: string;
     timerId: string;
-    delivery: "sent" | "queued" | "dropped" | "no_session";
+    delivery: "sent" | "queued" | "paused_queued" | "dropped" | "no_session";
   }>;
   skipped: Array<{
     sessionId: string;
     timerId: string;
-    reason: "backend_disconnected";
+    reason: "backend_disconnected" | "session_paused";
   }>;
 }
 
@@ -188,6 +188,11 @@ export class TimerManager {
       for (const timer of file.timers) {
         if (timer.nextFireAt > now) continue;
 
+        if (this.isSessionPaused(sessionId)) {
+          result.skipped.push({ sessionId, timerId: timer.id, reason: "session_paused" });
+          continue;
+        }
+
         const fireContext =
           timer.type === "recurring" && timer.intervalMs && timer.intervalMs > 0
             ? this.resolveRecurringFireContext(sessionId, timer, now)
@@ -234,7 +239,7 @@ export class TimerManager {
     sessionId: string,
     timer: SessionTimer,
     context: TimerFireContext,
-  ): "sent" | "queued" | "dropped" | "no_session" {
+  ): "sent" | "queued" | "paused_queued" | "dropped" | "no_session" {
     const content =
       `[⏰ Timer ${timer.id} reminder] ${timer.title}` +
       `\n\nThis is a reminder from your earlier timer note, not a new user instruction.` +
@@ -250,7 +255,7 @@ export class TimerManager {
   }
 
   private resolveRecurringFireContext(sessionId: string, timer: SessionTimer, now: number): TimerFireContext | null {
-    if (!this.isBackendConnected(sessionId)) return null;
+    if (!this.isBackendConnected(sessionId) || this.isSessionPaused(sessionId)) return null;
     const intervalMs = timer.intervalMs;
     if (!intervalMs || intervalMs <= 0) return { scheduledFireAt: timer.nextFireAt };
     const skippedCount = Math.floor((now - timer.nextFireAt) / intervalMs);
@@ -263,6 +268,11 @@ export class TimerManager {
   private isBackendConnected(sessionId: string): boolean {
     const bridge = this.wsBridge as WsBridge & { isBackendConnected?: (sessionId: string) => boolean };
     return bridge.isBackendConnected?.(sessionId) ?? true;
+  }
+
+  private isSessionPaused(sessionId: string): boolean {
+    const bridge = this.wsBridge as WsBridge & { isSessionPaused?: (sessionId: string) => boolean };
+    return bridge.isSessionPaused?.(sessionId) ?? false;
   }
 
   private formatSkippedOccurrences(skippedCount: number | undefined): string {

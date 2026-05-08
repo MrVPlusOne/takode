@@ -1,5 +1,5 @@
 import type { SessionState } from "../types.js";
-import type { BackendType, SdkSessionInfo } from "../types.js";
+import type { BackendType, SdkSessionInfo, SessionPauseState } from "../types.js";
 
 export interface SessionViewModel {
   sessionId: string;
@@ -35,6 +35,8 @@ export interface SessionViewModel {
   claimedQuestStatus?: string;
   claimedQuestVerificationInboxUnread?: boolean;
   askPermission?: boolean;
+  pause?: SessionPauseState | null;
+  pausedInputQueueCount?: number;
 }
 
 function isSessionState(session: SessionState | SdkSessionInfo): session is SessionState {
@@ -72,6 +74,8 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       claimedQuestVerificationInboxUnread: session.claimedQuestVerificationInboxUnread,
       askPermission: session.askPermission,
       isOrchestrator: session.isOrchestrator,
+      pause: session.pause ?? null,
+      pausedInputQueueCount: session.pause?.queuedMessages.length ?? 0,
     };
   }
 
@@ -107,6 +111,8 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     claimedQuestStatus: session.claimedQuestStatus ?? undefined,
     claimedQuestVerificationInboxUnread: session.claimedQuestVerificationInboxUnread,
     askPermission: undefined,
+    pause: session.pause ?? null,
+    pausedInputQueueCount: session.pausedInputQueueCount ?? session.pause?.queuedMessages.length ?? 0,
   };
 }
 

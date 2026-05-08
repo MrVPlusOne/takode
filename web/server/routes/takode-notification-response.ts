@@ -1,6 +1,7 @@
 import type { Hono } from "hono";
 import { formatReplyContentForAssistant } from "../../shared/reply-context.js";
 import { markNotificationDone as markNotificationDoneController } from "../bridge/session-registry-controller.js";
+import { isSessionPaused } from "../session-pause.js";
 import { normalizeThreadRoute } from "../thread-routing-metadata.js";
 import type { RouteContext } from "./context.js";
 
@@ -22,6 +23,12 @@ export function registerTakodeNotificationResponseRoute(
 
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
+    if (isSessionPaused(session)) {
+      return c.json(
+        { error: "Session is paused; unpause before answering notifications", code: "SESSION_PAUSED" },
+        409,
+      );
+    }
 
     const notifId = c.req.param("notifId");
     const notification = session.notifications.find(

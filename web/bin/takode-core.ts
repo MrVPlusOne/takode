@@ -517,6 +517,8 @@ export type TakodeSessionInfo = {
   codexInternetAccess?: boolean;
   codexSandbox?: string;
   codexReasoningEffort?: string;
+  pause?: { pausedAt: number; queuedMessages?: unknown[] } | null;
+  pausedInputQueueCount?: number;
 };
 
 export async function fetchSessionInfo(base: string, sessionRef: string): Promise<TakodeSessionInfo> {

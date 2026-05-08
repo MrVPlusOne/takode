@@ -25,6 +25,12 @@ import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { shouldBufferForReplayWithContext } from "./replay-buffer-policy.js";
 import { routeFromHistoryEntry } from "../thread-routing-metadata.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
+import {
+  buildPausedDiagnostic,
+  canQueuePausedUserMessage,
+  isSessionPaused,
+  queuePausedUserMessage,
+} from "../session-pause.js";
 import type {
   ActiveTurnRoute,
   BoardRow,
@@ -258,7 +264,11 @@ export function handleBrowserOpen(
       type: "backend_disconnected",
       ...(idleKilled ? { reason: "idle_limit" } : {}),
     } as BrowserIncomingMessage);
-    if (session.backendType === "codex") {
+    if (isSessionPaused(session)) {
+      console.log(
+        `[ws-bridge] Browser connected but backend is dead for paused session ${sessionTag(session.id)}; relaunch deferred until unpause`,
+      );
+    } else if (session.backendType === "codex") {
       console.log(
         `[ws-bridge] Browser connected but backend is dead for session ${sessionTag(session.id)}, requesting relaunch`,
       );
@@ -303,6 +313,31 @@ export async function handleBrowserIngressMessage(
   ws: BrowserTransportSocketLike | undefined,
   deps: BrowserTransportDeps,
 ): Promise<void> {
+  if (isSessionPaused(session)) {
+    if (msg.type === "user_message") {
+      if (!canQueuePausedUserMessage(msg)) {
+        deps.broadcastError(session, "Session is paused. Raw image messages cannot be safely held; unpause and retry.");
+        return;
+      }
+      queuePausedUserMessage(session, "browser", msg);
+      deps.persistSession(session);
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { pause: session.state.pause },
+      } as BrowserIncomingMessage);
+      deps.broadcastError(session, buildPausedDiagnostic(session));
+      return;
+    }
+    if (
+      msg.type === "permission_response" ||
+      msg.type === "codex_start_pending" ||
+      msg.type === "codex_steer_pending"
+    ) {
+      deps.broadcastError(session, "Session is paused. Unpause before answering prompts or starting queued turns.");
+      return;
+    }
+  }
+
   const routeTask = async () => {
     const maybeProtocolHandled = handleBrowserProtocolMessage(session, msg, ws, deps);
     const protocolHandled = maybeProtocolHandled instanceof Promise ? await maybeProtocolHandled : maybeProtocolHandled;

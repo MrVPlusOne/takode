@@ -62,6 +62,8 @@ export async function handleList(base: string, args: string[]): Promise<void> {
     claimedQuestStatus?: string | null;
     claimedQuestVerificationInboxUnread?: boolean;
     pendingTimerCount?: number;
+    pause?: { pausedAt: number; queuedMessages?: unknown[] } | null;
+    pausedInputQueueCount?: number;
     taskHistory?: Array<{ title: string; timestamp: number }>;
   }>;
 
@@ -195,7 +197,7 @@ export async function handleList(base: string, args: string[]): Promise<void> {
     );
   }
   console.log(
-    `Status: ● running  ○ idle  ✗ disconnected  ⊘ archived  ⚠ needs attention  📋 quest  ↑↓ commits ahead/behind`,
+    `Status: ● running  ○ idle  || paused  ✗ disconnected  ⊘ archived  ⚠ needs attention  📋 quest  ↑↓ commits ahead/behind`,
   );
 }
 
@@ -227,6 +229,8 @@ export function printSessionLine(
     claimedQuestStatus?: string | null;
     claimedQuestVerificationInboxUnread?: boolean;
     pendingTimerCount?: number;
+    pause?: { pausedAt: number; queuedMessages?: unknown[] } | null;
+    pausedInputQueueCount?: number;
   },
   opts?: {
     indent?: boolean;
@@ -245,7 +249,8 @@ export function printSessionLine(
   const herd = s.herdedBy ? " [herd]" : "";
   // Backend type tag: only show for codex (sdk is implied by session details)
   const backend = s.backendType === "codex" ? " [codex]" : "";
-  const status = s.cliConnected ? (s.state === "running" ? "●" : "○") : s.archived ? "⊘" : "✗";
+  const paused = !!s.pause?.pausedAt;
+  const status = paused ? "||" : s.cliConnected ? (s.state === "running" ? "●" : "○") : s.archived ? "⊘" : "✗";
   const attention = s.pendingPermissionSummary
     ? ` ⚠ ${formatInlineText(s.pendingPermissionSummary)}`
     : s.attentionReason
@@ -260,6 +265,7 @@ export function printSessionLine(
     ? ` 📋 ${formatInlineText(s.claimedQuestId)}${questStatus ? ` ${formatInlineText(questStatus)}` : ""}`
     : "";
   const timers = ` ⏰${s.pendingTimerCount ?? 0}`;
+  const pause = paused ? ` [paused:${s.pausedInputQueueCount ?? s.pause?.queuedMessages?.length ?? 0}]` : "";
   let reviewerSummary = "";
   if (!opts?.indent && s.reviewerOf === undefined && opts?.attachedReviewer) {
     const reviewer = opts.attachedReviewer;
@@ -293,7 +299,7 @@ export function printSessionLine(
   const preview = s.lastMessagePreview ? `  "${truncate(s.lastMessagePreview, 50)}"` : "";
 
   console.log(
-    `${prefix}${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${quest}${timers}${reviewerSummary}${attention}`,
+    `${prefix}${num.padEnd(5)} ${status} ${name}${role}${herd}${backend}${pause}${quest}${timers}${reviewerSummary}${attention}`,
   );
   // Compact display for indented reviewer sessions: skip the detail line (cwd/branch)
   // since reviewers share the parent's worktree and the extra line is just noise
@@ -403,14 +409,25 @@ function printSessionInfo(data: TakodeSessionInfo): void {
   // ── Header ──
   const num = data.sessionNum != null ? `#${data.sessionNum}` : "";
   const name = formatInlineText(data.name || "(unnamed)");
-  const statusIcon = data.cliConnected ? (data.state === "running" ? "●" : "○") : data.archived ? "⊘" : "✗";
-  const statusLabel = data.cliConnected
-    ? data.isGenerating
-      ? "running (generating)"
-      : data.state
-    : data.archived
-      ? "archived"
-      : "disconnected";
+  const paused = !!data.pause?.pausedAt;
+  const statusIcon = paused
+    ? "||"
+    : data.cliConnected
+      ? data.state === "running"
+        ? "●"
+        : "○"
+      : data.archived
+        ? "⊘"
+        : "✗";
+  const statusLabel = paused
+    ? `paused (${data.pausedInputQueueCount ?? data.pause?.queuedMessages?.length ?? 0} held inputs)`
+    : data.cliConnected
+      ? data.isGenerating
+        ? "running (generating)"
+        : data.state
+      : data.archived
+        ? "archived"
+        : "disconnected";
   console.log(`${num} ${name}  ${statusIcon} ${statusLabel}`);
   console.log("─".repeat(60));
 

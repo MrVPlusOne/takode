@@ -555,6 +555,23 @@ export type BrowserOutgoingMessage =
   | { type: "set_ask_permission"; askPermission: boolean; client_msg_id?: string }
   | { type: "permission_user_viewing"; request_id: string };
 
+export type PausedInboundSource = "browser" | "programmatic";
+
+export interface PausedInboundMessage {
+  id: string;
+  queuedAt: number;
+  source: PausedInboundSource;
+  message: Extract<BrowserOutgoingMessage, { type: "user_message" }>;
+}
+
+export interface SessionPauseState {
+  pausedAt: number;
+  pausedBy?: string;
+  reason?: string;
+  queuedMessages: PausedInboundMessage[];
+  lastQueuedAt?: number;
+}
+
 // Quest Journey state machine -- canonical source in shared/quest-journey.ts
 export { QUEST_JOURNEY_STATES, QUEST_JOURNEY_HINTS } from "../shared/quest-journey.js";
 export type { QuestJourneyPlanState, QuestJourneyState } from "../shared/quest-journey.js";
@@ -1119,6 +1136,8 @@ export interface SessionState {
   lastReadAt?: number;
   /** Current attention reason (server-only, never from CLI) */
   attentionReason?: "action" | "error" | "review" | null;
+  /** Server-owned emergency pause state. While set, new user work is held or rejected. */
+  pause?: SessionPauseState | null;
   /** Questmaster: ID of the quest claimed by this session */
   claimedQuestId?: string;
   /** Questmaster: title of the claimed quest (for display without fetching) */

@@ -52,9 +52,11 @@ import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_ME
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
+import { registerSessionPauseRoutes } from "./session-pause-routes.js";
 import { registerSessionLeaderProfileRoute } from "./session-leader-profile-route.js";
 import { registerSessionReplacementRoutes } from "./session-replacement-routes.js";
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
+import { isSessionPaused } from "../session-pause.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -1130,6 +1132,8 @@ export function createSessionsRoutes(ctx: RouteContext) {
     const { injectedSystemPrompt: _prompt, ...rest } = session;
     return c.json({
       ...rest,
+      pause: bridgeSession?.state.pause ?? null,
+      pausedInputQueueCount: bridgeSession?.state.pause?.queuedMessages.length ?? 0,
       sessionLifecycleEvents: bridgeSession?.state.lifecycle_events ?? [],
       isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
     });
@@ -1358,6 +1362,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
   });
 
   registerSessionPermissionModeRoute(api, ctx);
+  registerSessionPauseRoutes(api, ctx);
 
   // Leader-initiated interrupt: halt a herded worker's current turn so the
   // leader can redirect.
@@ -1455,6 +1460,9 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     const info = launcher.getSession(id);
     if (!info) return c.json({ error: "Session not found" }, 404);
+    if (isSessionPaused(wsBridge.getSession(id))) {
+      return c.json({ error: "Session is paused; unpause before relaunching", code: "SESSION_PAUSED" }, 409);
+    }
     await backfillSessionProjectMeta(info, wsBridge.getSession(id));
 
     // Worktree sessions: validate the worktree still exists and isn't used by another session

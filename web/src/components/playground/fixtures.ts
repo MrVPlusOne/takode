@@ -123,6 +123,42 @@ export const PLAYGROUND_SESSION_ROWS: Array<{ session: SidebarSessionItem; sessi
   },
   {
     session: {
+      id: "paused-session",
+      model: "gpt-5.4",
+      cwd: "/Users/stan/Dev/takode",
+      gitBranch: "main",
+      isContainerized: false,
+      gitAhead: 0,
+      gitBehind: 0,
+      linesAdded: 0,
+      linesRemoved: 0,
+      isConnected: false,
+      status: "idle",
+      sdkState: "exited",
+      createdAt: 3.5,
+      archived: false,
+      backendType: "codex",
+      repoRoot: "/Users/stan/Dev/takode",
+      permCount: 0,
+      sessionNum: 15,
+      pause: {
+        pausedAt: Date.now() - 90_000,
+        queuedMessages: [
+          {
+            id: "paused-playground-1",
+            queuedAt: Date.now() - 30_000,
+            source: "programmatic",
+            message: { type: "user_message", content: "Held while paused" },
+          },
+        ],
+      },
+      pausedInputQueueCount: 1,
+    },
+    sessionName: "Paused Emergency Session",
+    preview: "Inbound work is held until this session is unpaused.",
+  },
+  {
+    session: {
       id: "worker-beta",
       model: "claude-haiku-4-5",
       cwd: "/Users/stan/Dev/takode",

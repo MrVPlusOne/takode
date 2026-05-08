@@ -608,6 +608,31 @@ describe("SessionItem status dot", () => {
     expect(container.querySelector('[data-testid="session-status-dot"]')).toBeNull();
   });
 
+  it("shows a pause badge with held-input count instead of the timer icon", () => {
+    setSessionTimers("s1", ["t1"]);
+
+    const { container } = renderSessionItem({
+      session: makeSession({
+        pause: {
+          pausedAt: 123,
+          queuedMessages: [
+            {
+              id: "p1",
+              queuedAt: 124,
+              source: "programmatic",
+              message: { type: "user_message", content: "held" },
+            },
+          ],
+        },
+        pausedInputQueueCount: 1,
+      }),
+      permCount: 0,
+    });
+
+    expect(screen.getByTestId("session-pause-badge")).toHaveTextContent("1");
+    expect(container.querySelector('[data-testid="session-status-timer-icon"]')).toBeNull();
+  });
+
   it("uses the dedicated alignment classes for the timer icon slot", () => {
     setSessionTimers("s1", ["t1"]);
 

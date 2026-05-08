@@ -55,6 +55,7 @@ import type { RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
+import { getPauseState, isSessionPaused } from "../session-pause.js";
 
 const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
 const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
@@ -730,6 +731,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
       uiMode: bridge?.uiMode ?? null,
       pendingTimerCount: timerManager?.listTimers(sessionId).length ?? 0,
+      pause: bridge?.pause ?? null,
+      pausedInputQueueCount: bridge?.pause?.queuedMessages.length ?? 0,
       ...(attention ?? {}),
       taskHistory: currentBridgeSession?.taskHistory ?? [],
       keywords: currentBridgeSession?.keywords ?? [],
@@ -1058,6 +1061,16 @@ export function createTakodeRoutes(ctx: RouteContext) {
         return c.json({ error: "Session is herded — only its leader can send messages" }, 403);
       }
     }
+    if (isSessionPaused(wsBridge.getSession(id))) {
+      const delivery = wsBridge.injectUserMessage(id, body.content, agentSource, undefined, threadRoute);
+      return c.json({
+        ok: true,
+        sessionId: id,
+        delivery,
+        paused: true,
+        diagnostic: `Session is paused; message held until unpause (${getPauseState(wsBridge.getSession(id))?.queuedMessages.length ?? 0} held).`,
+      });
+    }
     const delivery = wsBridge.injectUserMessage(id, body.content, agentSource, undefined, threadRoute);
     if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
     return c.json({ ok: true, sessionId: id, delivery });
@@ -1079,6 +1092,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+    if (isSessionPaused(session)) {
+      return c.json(
+        { error: "Session is paused; unpause before publishing user-visible messages", code: "SESSION_PAUSED" },
+        409,
+      );
+    }
 
     const body = await c.req.json().catch(() => ({}));
     if (typeof body.content !== "string" || !body.content.trim()) {
@@ -1456,6 +1475,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
+    if (isSessionPaused(session)) {
+      return c.json(
+        { error: "Session is paused; unpause before answering pending prompts", code: "SESSION_PAUSED" },
+        409,
+      );
+    }
 
     const body = await c.req.json().catch(() => ({}));
     const response = typeof body.response === "string" ? body.response : "";

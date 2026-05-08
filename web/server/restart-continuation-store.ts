@@ -31,7 +31,7 @@ interface RestartContinuationBridge {
     sessionId: string,
     content: string,
     agentSource?: { sessionId: string; sessionLabel?: string },
-  ) => "sent" | "queued" | "dropped" | "no_session";
+  ) => "sent" | "queued" | "paused_queued" | "dropped" | "no_session";
 }
 
 export function buildRestartContinuationPlan(options: {
@@ -88,7 +88,7 @@ export async function resumeRestartContinuations(
   for (const target of plan.sessions) {
     const status = bridge.injectUserMessage(target.sessionId, plan.message, agentSource);
     if (status === "sent") result.sent += 1;
-    else if (status === "queued") result.queued += 1;
+    else if (status === "queued" || status === "paused_queued") result.queued += 1;
     else if (status === "dropped") result.dropped += 1;
     else result.noSession += 1;
   }

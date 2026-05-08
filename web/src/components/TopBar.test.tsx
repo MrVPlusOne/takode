@@ -8,6 +8,8 @@ const mockNavigateToSession = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
     relaunchSession: vi.fn().mockResolvedValue({ ok: true }),
+    pauseSession: vi.fn().mockResolvedValue({ ok: true }),
+    unpauseSession: vi.fn().mockResolvedValue({ ok: true }),
     getSessionNotifications: vi.fn().mockResolvedValue([]),
     markNotificationDone: vi.fn().mockResolvedValue({ ok: true }),
     updateLeaderProfilePortrait: vi.fn(),
@@ -47,6 +49,7 @@ interface MockStoreState {
       backend_type?: string;
       claimedQuestStatus?: string;
       claimedQuestVerificationInboxUnread?: boolean;
+      pause?: any;
     }
   >;
   sdkSessions: {
@@ -63,6 +66,8 @@ interface MockStoreState {
     state?: "idle" | "starting" | "connected" | "running" | "compacting" | "exited" | null;
     claimedQuestStatus?: string | null;
     claimedQuestVerificationInboxUnread?: boolean;
+    pause?: any;
+    pausedInputQueueCount?: number;
     isOrchestrator?: boolean;
     leaderProfilePortrait?: {
       id: string;
@@ -165,6 +170,7 @@ vi.mock("../store.js", () => {
 
 import { TopBar } from "./TopBar.js";
 import { getGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
+import { api } from "../api.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -238,6 +244,68 @@ describe("TopBar", () => {
     render(<TopBar />);
 
     expect(screen.queryByRole("button", { name: /unresolved needs-input/ })).not.toBeInTheDocument();
+  });
+
+  it("pauses the current session from the top bar", async () => {
+    resetStore({
+      currentSessionId: "s1",
+      sessions: new Map([["s1", { cwd: "/repo", pause: null }]]),
+      sdkSessions: [{ sessionId: "s1", createdAt: 40, cliConnected: true, state: "connected", name: "Active" }],
+    });
+
+    render(<TopBar />);
+    fireEvent.click(screen.getByTitle("Pause session"));
+
+    await waitFor(() => expect(api.pauseSession).toHaveBeenCalledWith("s1"));
+  });
+
+  it("shows paused state and unpauses from the top bar", async () => {
+    resetStore({
+      currentSessionId: "s1",
+      sessions: new Map([
+        [
+          "s1",
+          {
+            cwd: "/repo",
+            pause: {
+              pausedAt: 123,
+              queuedMessages: [
+                { id: "p1", queuedAt: 124, source: "browser", message: { type: "user_message", content: "held" } },
+                {
+                  id: "p2",
+                  queuedAt: 125,
+                  source: "programmatic",
+                  message: { type: "user_message", content: "later" },
+                },
+              ],
+            },
+          },
+        ],
+      ]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 40,
+          cliConnected: false,
+          state: "exited",
+          name: "Emergency Hold",
+          pause: {
+            pausedAt: 123,
+            queuedMessages: [],
+          },
+          pausedInputQueueCount: 2,
+        },
+      ],
+      cliConnected: new Map([["s1", false]]),
+    });
+
+    render(<TopBar />);
+
+    expect(screen.getByText("Paused")).toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Unpause session (2 held inputs)"));
+
+    await waitFor(() => expect(api.unpauseSession).toHaveBeenCalledWith("s1"));
+    expect(screen.queryByText("Reconnect")).not.toBeInTheDocument();
   });
 
   it("opens an aggregated needs-input menu across sessions", () => {

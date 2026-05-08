@@ -45,6 +45,7 @@ export interface StartupRecoveryDeps {
   listLauncherSessions: () => StartupRecoveryLauncherSession[];
   getSession: (sessionId: string) => StartupRecoverySession | undefined;
   isBackendConnected: (sessionId: string) => boolean;
+  isSessionPaused?: (sessionId: string) => boolean;
   requestCliRelaunch?: (sessionId: string) => void;
   timerManager?: StartupRecoveryTimerManager;
   restartContinuationSessionIds?: string[];
@@ -58,7 +59,7 @@ export interface StartupRecoverySessionResult {
   reasons: StartupRecoveryReason[];
   requestedRelaunch: boolean;
   clearedIdleKilled: boolean;
-  skippedReason?: "already_connected" | "no_relaunch_callback" | "relaunch_already_requested";
+  skippedReason?: "already_connected" | "no_relaunch_callback" | "relaunch_already_requested" | "session_paused";
 }
 
 export interface StartupRecoveryResult {
@@ -95,6 +96,12 @@ export async function runStartupRecovery(deps: StartupRecoveryDeps): Promise<Sta
 
     if (deps.isBackendConnected(launcherSession.sessionId)) {
       result.skippedReason = "already_connected";
+      recovered.push(result);
+      continue;
+    }
+
+    if (deps.isSessionPaused?.(launcherSession.sessionId)) {
+      result.skippedReason = "session_paused";
       recovered.push(result);
       continue;
     }

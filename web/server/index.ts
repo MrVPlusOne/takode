@@ -218,6 +218,7 @@ const herdBridge = Object.assign(wsBridge, {
   wakeUnavailableOrchestratorForPendingEvents: createUnavailableOrchestratorRecoveryWake({
     getSession: (sessionId) => wsBridge.getSession(sessionId),
     getLauncherSessionInfo: (sessionId) => launcher.getSession(sessionId),
+    isSessionPaused: (sessionId) => wsBridge.isSessionPaused(sessionId),
     requestCodexAutoRecovery: (session, reason) => bridgeAny.requestCodexAutoRecovery(session, reason),
     requestCliRelaunch: (sessionId) => wsBridge.onCLIRelaunchNeeded?.(sessionId),
   }),
@@ -343,6 +344,10 @@ const relaunchQueue = new RelaunchQueue(async (sessionId) => {
 wsBridge.onCLIRelaunchNeeded = (sessionId) => {
   const info = launcher.getSession(sessionId);
   if (!info || info.archived || info.killedByIdleManager) return;
+  if (wsBridge.isSessionPaused(sessionId)) {
+    console.log(`[server] Auto-relaunch deferred for paused session ${sessionId}`);
+    return;
+  }
   // Only suppress relaunch for sessions that are mid-startup AND have an
   // attached backend. After server restart, restored sessions show state
   // "starting" but the old process is orphaned (connected to the dead
@@ -940,6 +945,7 @@ await captureStartupInjectedRelaunches(async () => {
     listLauncherSessions: () => launcher.listSessions(),
     getSession: (sessionId) => wsBridge.getSession(sessionId),
     isBackendConnected: (sessionId) => wsBridge.isBackendConnected(sessionId),
+    isSessionPaused: (sessionId) => wsBridge.isSessionPaused(sessionId),
     requestCliRelaunch: (sessionId) => wsBridge.onCLIRelaunchNeeded?.(sessionId),
     timerManager,
     restartContinuationSessionIds,

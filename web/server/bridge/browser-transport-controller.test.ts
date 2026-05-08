@@ -11,6 +11,7 @@ import { describe, it, expect, vi } from "vitest";
 import {
   broadcastToBrowsers,
   handleBrowserProtocolMessage,
+  handleBrowserIngressMessage,
   handleSessionSubscribe,
   injectUserMessage,
   sendLeaderProjectionSnapshot,
@@ -915,6 +916,48 @@ describe("selected feed thread windows", () => {
 });
 
 describe("programmatic user message injection", () => {
+  it("queues browser user messages while a session is paused", async () => {
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: { permissionMode: "default", pause: { pausedAt: 123, queuedMessages: [] } } as any,
+    });
+
+    await handleBrowserIngressMessage(session, { type: "user_message", content: "hold this input" }, undefined, deps);
+
+    expect(session.state.pause?.queuedMessages).toHaveLength(1);
+    expect(session.state.pause?.queuedMessages[0]).toMatchObject({
+      source: "browser",
+      message: { type: "user_message", content: "hold this input" },
+    });
+    expect(deps.routeBrowserMessage).not.toHaveBeenCalled();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+    expect(deps.broadcastError).toHaveBeenCalledWith(
+      session,
+      "Session is paused. New work is held until unpause (1 held input).",
+    );
+  });
+
+  it("rejects paused browser messages with raw images instead of silently processing them", async () => {
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: { permissionMode: "default", pause: { pausedAt: 123, queuedMessages: [] } } as any,
+    });
+
+    await handleBrowserIngressMessage(
+      session,
+      { type: "user_message", content: "image", images: [{ path: "/tmp/screenshot.png" }] } as any,
+      undefined,
+      deps,
+    );
+
+    expect(session.state.pause?.queuedMessages).toHaveLength(0);
+    expect(deps.routeBrowserMessage).not.toHaveBeenCalled();
+    expect(deps.broadcastError).toHaveBeenCalledWith(
+      session,
+      "Session is paused. Raw image messages cannot be safely held; unpause and retry.",
+    );
+  });
+
   it("passes reply and thread metadata through programmatic user-message injection", () => {
     const routeBrowserMessage = vi.fn();
     const deps = makeInjectDeps({ routeBrowserMessage });

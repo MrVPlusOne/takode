@@ -192,14 +192,61 @@ export async function handleSend(base: string, args: string[]): Promise<void> {
     return;
   }
 
-  const delivery = (result as { delivery?: string }).delivery;
-  if (delivery === "queued") {
+  const delivery = (result as { delivery?: string; paused?: boolean; diagnostic?: string }).delivery;
+  if ((result as { paused?: boolean }).paused) {
+    console.log(
+      `[${formatTime(Date.now())}] ✓ Message held for paused session ${formatInlineText(sessionRef)}. ${
+        (result as { diagnostic?: string }).diagnostic ?? "Unpause to resume delivery."
+      }`,
+    );
+  } else if (delivery === "queued") {
     console.log(
       `[${formatTime(Date.now())}] \u2713 Message queued for session ${formatInlineText(sessionRef)} (session restarting)`,
     );
   } else {
     console.log(`[${formatTime(Date.now())}] \u2713 Message sent to session ${formatInlineText(sessionRef)}`);
   }
+}
+
+export async function handlePause(base: string, args: string[]): Promise<void> {
+  const sessionRef = args.filter((arg) => !arg.startsWith("--"))[0];
+  const jsonMode = args.includes("--json");
+  if (!sessionRef) err("Usage: takode pause <session> [--json]");
+
+  const result = (await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/pause`, {
+    pausedBy: getCallerSessionId(),
+  })) as { ok: boolean; sessionId?: string; queued?: number; error?: string };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  if (!result.ok) err(result.error || "Failed to pause session.");
+  console.log(
+    `[${formatTime(Date.now())}] ✓ Paused session ${formatInlineText(sessionRef)} (${result.queued ?? 0} held inputs)`,
+  );
+}
+
+export async function handleUnpause(base: string, args: string[]): Promise<void> {
+  const sessionRef = args.filter((arg) => !arg.startsWith("--"))[0];
+  const jsonMode = args.includes("--json");
+  if (!sessionRef) err("Usage: takode unpause <session> [--json]");
+
+  const result = (await apiPost(base, `/sessions/${encodeURIComponent(sessionRef)}/unpause`, {})) as {
+    ok: boolean;
+    sessionId?: string;
+    resumed?: number;
+    error?: string;
+  };
+
+  if (jsonMode) {
+    console.log(JSON.stringify(result, null, 2));
+    return;
+  }
+  if (!result.ok) err(result.error || "Failed to unpause session.");
+  console.log(
+    `[${formatTime(Date.now())}] ✓ Unpaused session ${formatInlineText(sessionRef)} (${result.resumed ?? 0} held inputs released)`,
+  );
 }
 
 export async function handleUserMessage(base: string, args: string[]): Promise<void> {

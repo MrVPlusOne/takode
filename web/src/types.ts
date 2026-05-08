@@ -40,6 +40,7 @@ import type {
   ThreadWindowEntry,
   ThreadWindowState,
   ThreadRoutingError,
+  SessionPauseState,
 } from "../server/session-types.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
@@ -108,6 +109,7 @@ export type {
   ThreadWindowEntry,
   ThreadWindowState,
   ThreadRoutingError,
+  SessionPauseState,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";
 export type {
@@ -317,6 +319,10 @@ export interface SdkSessionInfo {
   notificationStatusVersion?: number;
   /** Epoch ms when notification status last changed on the server. */
   notificationStatusUpdatedAt?: number;
+  /** Emergency pause state for this session, when paused. */
+  pause?: SessionPauseState | null;
+  /** Number of inputs held while this session is paused. */
+  pausedInputQueueCount?: number;
   /** Truncated preview of the last user message */
   lastMessagePreview?: string;
   /** Whether the CLI process is currently connected (from REST API) */

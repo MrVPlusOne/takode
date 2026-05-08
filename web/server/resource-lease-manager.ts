@@ -32,7 +32,7 @@ interface ResourceLeaseBridge {
     sessionId: string,
     content: string,
     agentSource?: { sessionId: string; sessionLabel?: string },
-  ) => "sent" | "queued" | "dropped" | "no_session";
+  ) => "sent" | "queued" | "paused_queued" | "dropped" | "no_session";
 }
 
 export class ResourceLeaseManager {

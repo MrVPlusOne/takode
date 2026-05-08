@@ -115,6 +115,16 @@ Options:
   --json        Output JSON
 `;
 
+const PAUSE_HELP = `Usage: takode pause <session> [--json]
+
+Emergency-hold a session. New inbound work is held until \`takode unpause\`.
+`;
+
+const UNPAUSE_HELP = `Usage: takode unpause <session> [--json]
+
+Resume a paused session and release held inbound work.
+`;
+
 const USER_MESSAGE_HELP = `Usage: takode user-message --text-file <path|-> [--json]
 
 Deprecated compatibility command. New leader thread routing uses mandatory [thread:main] / [thread:q-N] assistant prefixes instead.
@@ -302,6 +312,12 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
     case "send":
       console.log(SEND_HELP);
       return true;
+    case "pause":
+      console.log(PAUSE_HELP);
+      return true;
+    case "unpause":
+      console.log(UNPAUSE_HELP);
+      return true;
     case "user-message":
       console.log(USER_MESSAGE_HELP);
       return true;
@@ -457,6 +473,8 @@ Commands:
   logs     Query and tail structured server logs
   export   Export full session history to a text file
   send     Send a message to a herded session
+  pause    Emergency-hold new inbound work for a session
+  unpause  Resume a paused session and release held work
   thread   Associate Main history entries with quest threads
   user-message  Deprecated compatibility publisher
   rename   Rename a session (e.g. takode rename 5 My Session Name)

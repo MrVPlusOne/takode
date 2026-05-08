@@ -135,6 +135,8 @@ export async function buildEnrichedSessionsSnapshot(
           claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
           claimedQuestLeaderSessionId: bridge?.claimedQuestLeaderSessionId ?? null,
           pendingTimerCount,
+          pause: bridge?.pause ?? null,
+          pausedInputQueueCount: bridge?.pause?.queuedMessages.length ?? 0,
           ...notificationSummary,
           ...(attention ?? {}),
           ...(s.isWorktree && s.archived ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),

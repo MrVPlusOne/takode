@@ -1057,6 +1057,12 @@ export const api = {
 
   relaunchSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/relaunch`),
 
+  pauseSession: (sessionId: string) =>
+    post<{ ok: boolean; sessionId: string; queued: number }>(`/sessions/${encodeURIComponent(sessionId)}/pause`),
+
+  unpauseSession: (sessionId: string) =>
+    post<{ ok: boolean; sessionId: string; resumed: number }>(`/sessions/${encodeURIComponent(sessionId)}/unpause`),
+
   upgradeTransport: (sessionId: string) =>
     post<{ ok: boolean; error?: string }>(`/sessions/${encodeURIComponent(sessionId)}/upgrade-transport`),
 

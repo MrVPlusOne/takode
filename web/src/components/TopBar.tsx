@@ -51,6 +51,8 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
       idleKilled: false,
       changedFilesCount: 0,
       leaderProfilePortrait: undefined,
+      pause: null,
+      pausedInputQueueCount: 0,
     };
   }
 
@@ -74,6 +76,9 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     idleKilled: state.cliDisconnectReason.get(currentSessionId) === "idle_limit",
     changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
     leaderProfilePortrait: currentSdkSession?.isOrchestrator ? currentSdkSession.leaderProfilePortrait : undefined,
+    pause: currentSessionVm?.pause ?? null,
+    pausedInputQueueCount:
+      currentSessionVm?.pausedInputQueueCount ?? currentSessionVm?.pause?.queuedMessages.length ?? 0,
   };
 }
 
@@ -125,10 +130,14 @@ export function TopBar() {
     idleKilled,
     changedFilesCount,
     leaderProfilePortrait,
+    pause,
+    pausedInputQueueCount,
   } = useStore(useShallow(getCurrentTopBarSessionState));
   const [infoOpen, setInfoOpen] = useState(false);
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
+  const [pauseBusy, setPauseBusy] = useState(false);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
+  const isPaused = !!pause?.pausedAt;
 
   useEffect(() => {
     const openSessionId = infoOpen && isSessionView ? currentSessionId : null;
@@ -175,6 +184,22 @@ export function TopBar() {
       window.removeEventListener("focus", handleFocus);
     };
   }, [refreshQuests]);
+
+  const handleTogglePause = useCallback(async () => {
+    if (!currentSessionId || pauseBusy) return;
+    setPauseBusy(true);
+    try {
+      if (isPaused) {
+        await api.unpauseSession(currentSessionId);
+      } else {
+        await api.pauseSession(currentSessionId);
+      }
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setPauseBusy(false);
+    }
+  }, [currentSessionId, isPaused, pauseBusy]);
   // Track the hash before navigating to questmaster so we can toggle back
   const prevHashRef = useRef<string>("");
 
@@ -249,7 +274,16 @@ export function TopBar() {
                 </span>
               )}
             </button>
-            {!isConnected && (
+            {isPaused && (
+              <span
+                className="hidden sm:inline-flex items-center gap-1 rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-400"
+                title={`${pausedInputQueueCount} held input${pausedInputQueueCount === 1 ? "" : "s"}`}
+              >
+                Paused
+                {pausedInputQueueCount > 0 && <span>{pausedInputQueueCount}</span>}
+              </span>
+            )}
+            {!isConnected && !isPaused && (
               <button
                 onClick={() => currentSessionId && api.relaunchSession(currentSessionId).catch(console.error)}
                 className="text-[11px] text-cc-warning hover:text-cc-warning/80 font-medium cursor-pointer hidden sm:inline"
@@ -273,6 +307,29 @@ export function TopBar() {
 
             {/* Search toggle */}
             <SearchToggleButton sessionId={currentSessionId} />
+
+            <button
+              onClick={handleTogglePause}
+              disabled={pauseBusy}
+              className={`relative flex items-center justify-center w-7 h-7 rounded-lg transition-colors ${
+                pauseBusy ? "cursor-wait opacity-60" : "cursor-pointer"
+              } ${isPaused ? "text-amber-400 bg-amber-500/10" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"}`}
+              title={
+                isPaused
+                  ? `Unpause session (${pausedInputQueueCount} held input${pausedInputQueueCount === 1 ? "" : "s"})`
+                  : "Pause session"
+              }
+            >
+              {isPaused ? (
+                <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                  <path d="M5 3.5a.75.75 0 011.2-.6l5 3.75a.75.75 0 010 1.2l-5 3.75A.75.75 0 015 11V3.5z" />
+                </svg>
+              ) : (
+                <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                  <path d="M4.5 3A1.5 1.5 0 003 4.5v7A1.5 1.5 0 004.5 13h1A1.5 1.5 0 007 11.5v-7A1.5 1.5 0 005.5 3h-1zM10.5 3A1.5 1.5 0 009 4.5v7a1.5 1.5 0 001.5 1.5h1a1.5 1.5 0 001.5-1.5v-7A1.5 1.5 0 0011.5 3h-1z" />
+                </svg>
+              )}
+            </button>
 
             {/* Diffs toggle */}
             <button

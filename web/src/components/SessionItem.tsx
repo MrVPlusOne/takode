@@ -496,7 +496,10 @@ export function SessionItem({
     idleKilled: s.idleKilled,
   });
   const timerCount = s.id === currentSessionId ? liveTimerCount : (s.pendingTimerCount ?? 0);
+  const isPaused = !!s.pause?.pausedAt;
+  const pausedHeldCount = s.pausedInputQueueCount ?? s.pause?.queuedMessages.length ?? 0;
   const showScheduledTimerIcon =
+    !isPaused &&
     !archived &&
     visualStatus === "idle" &&
     permCount === 0 &&
@@ -695,6 +698,18 @@ export function SessionItem({
                 style={roleBadgeStyle}
               >
                 herd
+              </span>
+            )}
+            {!isEditing && isPaused && (
+              <span
+                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-400/25 bg-amber-500/10 px-1.5 text-[9px] font-medium leading-[16px] text-amber-400"
+                title={`${pausedHeldCount} held input${pausedHeldCount === 1 ? "" : "s"}`}
+                data-testid="session-pause-badge"
+              >
+                <svg viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5">
+                  <path d="M4.5 3A1.5 1.5 0 003 4.5v7A1.5 1.5 0 004.5 13h1A1.5 1.5 0 007 11.5v-7A1.5 1.5 0 005.5 3h-1zM10.5 3A1.5 1.5 0 009 4.5v7a1.5 1.5 0 001.5 1.5h1a1.5 1.5 0 001.5-1.5v-7A1.5 1.5 0 0011.5 3h-1z" />
+                </svg>
+                {pausedHeldCount > 0 ? pausedHeldCount : "paused"}
               </span>
             )}
             {isEditing ? (

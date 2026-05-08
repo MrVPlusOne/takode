@@ -18,6 +18,7 @@ function createTestApp() {
     ]),
     notifications: [] as any[],
     messageHistory: [{ type: "permission_request", request: { request_id: "req-exit-plan" } }],
+    state: { pause: null } as any,
     board: new Map(),
     completedBoard: new Map(),
     attentionRecords: [],
@@ -27,7 +28,7 @@ function createTestApp() {
   const handleBrowserMessage = vi.fn(async (_ws: any, _raw: string) => {});
   const broadcastToSession = vi.fn();
   const persistSessionById = vi.fn();
-  const injectUserMessage = vi.fn((): "sent" | "queued" | "dropped" | "no_session" => "sent");
+  const injectUserMessage = vi.fn((): "sent" | "queued" | "paused_queued" | "dropped" | "no_session" => "sent");
   const launcher = {
     resolveSessionId: vi.fn((id: string) => id),
     getSession: vi.fn((id: string) =>
@@ -127,6 +128,51 @@ describe("takode cross-session message routing", () => {
       undefined,
       undefined,
     );
+  });
+
+  it("holds takode send delivery while the target session is paused", async () => {
+    const { app, injectUserMessage, session } = createTestApp();
+    session.state.pause = {
+      pausedAt: 123,
+      queuedMessages: [
+        { id: "p1", queuedAt: 124, source: "programmatic", message: { type: "user_message", content: "held" } },
+      ],
+    };
+    injectUserMessage.mockReturnValue("paused_queued");
+
+    const res = await app.request("/api/sessions/worker-1/message", {
+      method: "POST",
+      body: JSON.stringify({ content: "please stop looping" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      sessionId: "worker-1",
+      delivery: "paused_queued",
+      paused: true,
+      diagnostic: "Session is paused; message held until unpause (1 held).",
+    });
+    expect(injectUserMessage).toHaveBeenCalled();
+  });
+});
+
+describe("takode answer paused sessions", () => {
+  it("rejects answers while the target session is paused", async () => {
+    const { app, handleBrowserMessage, session } = createTestApp();
+    session.state.pause = { pausedAt: 123, queuedMessages: [] };
+
+    const res = await app.request("/api/sessions/worker-1/answer", {
+      method: "POST",
+      body: JSON.stringify({ response: "approve" }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toEqual({
+      error: "Session is paused; unpause before answering pending prompts",
+      code: "SESSION_PAUSED",
+    });
+    expect(handleBrowserMessage).not.toHaveBeenCalled();
   });
 });
 

@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type { BrowserIncomingMessage, CLIControlResponseMessage, CLIMessage } from "../session-types.js";
 import { getTrafficMessageType, trafficStats } from "../traffic-stats.js";
 import { sessionTag } from "../session-tag.js";
+import { isSessionPaused } from "../session-pause.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 
 type CliSocketLike = {
@@ -28,6 +29,7 @@ export interface ClaudeCliTransportSessionLike {
   state: {
     cwd: string;
     session_id?: string;
+    pause?: unknown;
   };
   pendingMessages: string[];
   messageHistory: BrowserIncomingMessage[];
@@ -419,6 +421,12 @@ export function flushQueuedCliMessages(
   deps: ClaudeCliTransportDeps,
 ): void {
   if (session.pendingMessages.length === 0) return;
+  if (isSessionPaused(session as any)) {
+    console.log(
+      `[ws-bridge] Deferring ${session.pendingMessages.length} queued CLI message(s) for paused session ${sessionTag(session.id)}`,
+    );
+    return;
+  }
   console.log(
     `[ws-bridge] Flushing ${session.pendingMessages.length} queued message(s) ${reason} for session ${sessionTag(session.id)}`,
   );

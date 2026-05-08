@@ -28,6 +28,8 @@ export interface SidebarSessionItem {
   activeNotificationCount?: number;
   notificationStatusVersion?: number;
   notificationStatusUpdatedAt?: number;
+  pause?: import("../types.js").SessionPauseState | null;
+  pausedInputQueueCount?: number;
   cronJobId?: string;
   cronJobName?: string;
   isWorktree?: boolean;
