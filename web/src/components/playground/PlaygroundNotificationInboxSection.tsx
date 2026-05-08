@@ -91,32 +91,6 @@ function seedSummaryOnlyNeedsInput() {
         ],
       ],
     ]),
-    messages: new Map([
-      [
-        "global-needs-input-leader",
-        [
-          {
-            id: "global-msg-1",
-            role: "assistant" as const,
-            content:
-              "The worker can start now if the reviewer only needs a scope pass. Waiting preserves reviewer bandwidth but delays the current handoff.",
-            timestamp: now - 100_000,
-          },
-        ],
-      ],
-      [
-        "global-needs-input-worker",
-        [
-          {
-            id: "global-msg-2",
-            role: "assistant" as const,
-            content:
-              "Validation coverage should include the desktop operator view plus the mobile approval path, because the notification panel sits close to feed controls on narrow screens.",
-            timestamp: now - 45_000,
-          },
-        ],
-      ],
-    ]),
   });
   useStore.getState().setSdkSessions([
     {
@@ -173,6 +147,32 @@ function seedGlobalNeedsInputData() {
             timestamp: now - 15_000,
             messageId: "global-msg-review",
             done: false,
+          },
+        ],
+      ],
+    ]),
+    messages: new Map([
+      [
+        "global-needs-input-leader",
+        [
+          {
+            id: "global-msg-1",
+            role: "assistant" as const,
+            content:
+              "The worker can start now if the reviewer only needs a scope pass. Waiting preserves reviewer bandwidth but delays the current handoff.",
+            timestamp: now - 100_000,
+          },
+        ],
+      ],
+      [
+        "global-needs-input-worker",
+        [
+          {
+            id: "global-msg-2",
+            role: "assistant" as const,
+            content:
+              "Validation coverage should include the desktop operator view plus the mobile approval path, because the notification panel sits close to feed controls on narrow screens.",
+            timestamp: now - 45_000,
           },
         ],
       ],
