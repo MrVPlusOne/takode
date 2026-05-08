@@ -108,7 +108,7 @@ takode info <N>
 
 Ask: is the new quest related to this worker's recent context (same feature area, same files, direct follow-up)?
 
-Prefer the plain-text forms of `takode info`, `takode scan`, `takode peek`, and `quest show` when making human judgment calls about reuse, context, or relevance. Use `quest status <id>` for compact quest state and `quest feedback list/latest/show` for indexed feedback inspection. Use `--json` only when you need exact machine fields such as IDs, `commitShas`, version-local quest metadata, or feedback `addressed` flags from `quest feedback list --json`.
+Prefer the plain-text forms of `takode info`, `takode scan`, `takode peek`, and `quest show` when making human judgment calls about reuse, context, or relevance. Use `quest status <id>` for compact quest state and `quest feedback list/latest/show` for indexed feedback inspection. Use `--json` only when you need exact machine fields such as IDs, `commitShas`, version-local quest metadata, or feedback `addressed` flags from `quest feedback list --json`. Do not use `--json` on `takode spawn` or `takode spawn --replace-worktree-worker` for routine dispatch; the compact text output is the default source for new session IDs and replacement status. If a script needs structured spawn output, start with compact JSON and reveal bulky fields only with explicit `--details` or `--include <field>`.
 
 ### 4. Decision Rules
 
@@ -134,7 +134,7 @@ Prefer the plain-text forms of `takode info`, `takode scan`, `takode peek`, and 
 - ask the old worker to write down the hard-to-discover context in a response, then pass that exact session message link to the fresh worker so it can read the note directly via Takode CLI
 - ask the new worker to inspect the older session directly with Takode CLI (`takode info`, `takode scan`, `takode peek`, `takode read`) when a source note is unnecessary
 
-When doing that inspection yourself, prefer the plain-text CLI output first. Reach for `--json` only if the dispatch decision depends on exact structured fields.
+When doing that inspection yourself, prefer the plain-text CLI output first. Reach for `--json` only if the dispatch decision depends on exact structured fields. Bulky or uncommon fields such as injected prompts, raw session objects, full task/history/message payloads, images, recordings, or long logs must be requested explicitly by detail/include flags or a dedicated inspection command.
 
 **Prefer link-based handoffs over paraphrase.** If the old worker writes a context note, pass the specific session message link rather than rewriting the note yourself. This preserves source fidelity and lets the fresh worker inspect the original wording directly.
 

@@ -42,9 +42,15 @@ Options:
   --json  Output JSON
 `;
 
-const INFO_HELP = `Usage: takode info <session> [--json]
+const INFO_HELP = `Usage: takode info <session> [--json] [--details | --include <fields>]
 
 Show detailed metadata for a session, including backend, git, quest, and timer state.
+
+Options:
+  --json              Output compact JSON
+  --details           With --json, output the full session info payload
+  --include <fields>  With --json, include opt-in bulky fields:
+                      injectedSystemPrompt, taskHistory, tools, mcpServers, keywords
 `;
 
 const LEADER_CONTEXT_RESUME_HELP = `Usage: takode leader-context-resume <session> [--json]

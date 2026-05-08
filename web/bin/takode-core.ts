@@ -477,6 +477,7 @@ export type TakodeSessionInfo = {
   isOrchestrator?: boolean;
   isAssistant?: boolean;
   herdedBy?: string;
+  reviewerOf?: number;
   isWorktree?: boolean;
   repoRoot?: string;
   branch?: string;
@@ -511,9 +512,12 @@ export type TakodeSessionInfo = {
   pendingTimerCount?: number;
   uiMode?: string | null;
   attentionReason?: string | null;
+  pendingPermissionSummary?: string | null;
   lastReadAt?: number;
   taskHistory?: Array<{ title: string; startedAt: number }>;
   keywords?: string[];
+  tools?: string[];
+  injectedSystemPrompt?: string;
   codexInternetAccess?: boolean;
   codexSandbox?: string;
   codexReasoningEffort?: string;
@@ -523,6 +527,132 @@ export type TakodeSessionInfo = {
 
 export async function fetchSessionInfo(base: string, sessionRef: string): Promise<TakodeSessionInfo> {
   return apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/info`) as Promise<TakodeSessionInfo>;
+}
+
+export type SessionInfoJsonOptions = {
+  details?: boolean;
+  include?: string[];
+};
+
+const SESSION_INFO_INCLUDE_FIELDS = ["injectedSystemPrompt", "taskHistory", "tools", "mcpServers", "keywords"] as const;
+
+const SESSION_INFO_INCLUDE_FIELD_SET = new Set<string>(SESSION_INFO_INCLUDE_FIELDS);
+
+export function parseSessionInfoIncludeFlag(raw: string | boolean | undefined): string[] {
+  if (raw === undefined) return [];
+  if (raw === true) err("--include requires one or more comma-separated field names.");
+
+  const fields = raw
+    .split(",")
+    .map((field) => field.trim())
+    .filter(Boolean);
+  if (fields.length === 0) err("--include requires one or more comma-separated field names.");
+
+  const unknown = fields.filter((field) => !SESSION_INFO_INCLUDE_FIELD_SET.has(field));
+  if (unknown.length > 0) {
+    err(
+      `Unknown --include field(s): ${unknown.join(", ")}. ` +
+        `Supported fields: ${SESSION_INFO_INCLUDE_FIELDS.join(", ")}.`,
+    );
+  }
+
+  return [...new Set(fields)];
+}
+
+export function resolveSessionInfoJsonOptions(
+  flags: Record<string, string | boolean>,
+  options: { jsonMode: boolean },
+): SessionInfoJsonOptions {
+  const details = flags.details;
+  if (details !== undefined && details !== true) err("--details does not take a value.");
+
+  const include = parseSessionInfoIncludeFlag(flags.include);
+  if ((details === true || include.length > 0) && !options.jsonMode) {
+    err("--details and --include are only supported with --json.");
+  }
+  if (details === true && include.length > 0) {
+    err("Cannot combine --details and --include; --details already includes all session fields.");
+  }
+
+  return { details: details === true, include };
+}
+
+export function buildSessionInfoJson(
+  session: TakodeSessionInfo,
+  options: SessionInfoJsonOptions = {},
+): Record<string, unknown> {
+  if (options.details) return { ...session };
+
+  const compact: Record<string, unknown> = {
+    sessionId: session.sessionId,
+    sessionNum: session.sessionNum ?? null,
+    name: session.name ?? null,
+    state: session.state,
+    backendType: session.backendType ?? null,
+    model: session.model ?? null,
+    cwd: session.cwd,
+    createdAt: session.createdAt,
+    lastActivityAt: session.lastActivityAt ?? null,
+    cliSessionId: session.cliSessionId ?? null,
+    pid: session.pid ?? null,
+    exitCode: session.exitCode ?? null,
+    archived: session.archived ?? false,
+    archivedAt: session.archivedAt ?? null,
+    cliConnected: session.cliConnected,
+    isGenerating: session.isGenerating,
+    isOrchestrator: session.isOrchestrator ?? false,
+    isAssistant: session.isAssistant ?? false,
+    herdedBy: session.herdedBy ?? null,
+    reviewerOf: session.reviewerOf ?? null,
+    isWorktree: session.isWorktree ?? false,
+    repoRoot: session.repoRoot ?? null,
+    branch: session.branch ?? null,
+    actualBranch: session.actualBranch ?? null,
+    envSlug: session.envSlug ?? null,
+    cronJobId: session.cronJobId ?? null,
+    cronJobName: session.cronJobName ?? null,
+    containerId: session.containerId ?? null,
+    containerName: session.containerName ?? null,
+    containerImage: session.containerImage ?? null,
+    gitBranch: session.gitBranch ?? null,
+    gitHeadSha: session.gitHeadSha ?? null,
+    gitDefaultBranch: session.gitDefaultBranch ?? null,
+    diffBaseBranch: session.diffBaseBranch ?? null,
+    gitAhead: session.gitAhead ?? 0,
+    gitBehind: session.gitBehind ?? 0,
+    totalLinesAdded: session.totalLinesAdded ?? 0,
+    totalLinesRemoved: session.totalLinesRemoved ?? 0,
+    totalCostUsd: session.totalCostUsd ?? 0,
+    numTurns: session.numTurns ?? 0,
+    contextUsedPercent: session.contextUsedPercent ?? 0,
+    isCompacting: session.isCompacting ?? false,
+    permissionMode: session.permissionMode ?? null,
+    askPermission: session.askPermission ?? null,
+    claudeCodeVersion: session.claudeCodeVersion ?? null,
+    claimedQuestId: session.claimedQuestId ?? null,
+    claimedQuestTitle: session.claimedQuestTitle ?? null,
+    claimedQuestStatus: session.claimedQuestStatus ?? null,
+    claimedQuestVerificationInboxUnread: session.claimedQuestVerificationInboxUnread ?? false,
+    pendingTimerCount: session.pendingTimerCount ?? 0,
+    uiMode: session.uiMode ?? null,
+    attentionReason: session.attentionReason ?? null,
+    pendingPermissionSummary: session.pendingPermissionSummary ?? null,
+    lastReadAt: session.lastReadAt ?? null,
+    codexInternetAccess: session.codexInternetAccess ?? null,
+    codexSandbox: session.codexSandbox ?? null,
+    codexReasoningEffort: session.codexReasoningEffort ?? null,
+    pausedInputQueueCount: session.pausedInputQueueCount ?? 0,
+    taskHistoryCount: session.taskHistory?.length ?? 0,
+    toolsCount: session.tools?.length ?? 0,
+    mcpServerCount: session.mcpServers?.length ?? 0,
+    keywordCount: session.keywords?.length ?? 0,
+  };
+
+  for (const field of options.include ?? []) {
+    compact[field] = field in session ? (session as unknown as Record<string, unknown>)[field] : null;
+  }
+
+  return compact;
 }
 
 // ─── Formatting helpers ─────────────────────────────────────────────────────

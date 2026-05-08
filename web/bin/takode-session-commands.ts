@@ -6,6 +6,8 @@ import {
 } from "../server/takode-leader-context-resume.js";
 import {
   apiGet,
+  assertKnownFlags,
+  buildSessionInfoJson,
   dateKey,
   err,
   fetchSessionInfo,
@@ -20,10 +22,24 @@ import {
   getCallerSessionId,
   parseFlags,
   printTimerRows,
+  resolveSessionInfoJsonOptions,
   truncate,
   type SessionTimerDetail,
   type TakodeSessionInfo,
 } from "./takode-core.js";
+
+const INFO_USAGE = `Usage: takode info <session> [--json] [--details | --include <fields>]
+
+Show detailed metadata for a session.
+
+Options:
+  --json              Output compact JSON
+  --details           With --json, output the full session info payload
+  --include <fields>  With --json, include opt-in bulky fields.
+                      Supported: injectedSystemPrompt, taskHistory, tools, mcpServers, keywords
+`;
+
+const INFO_ALLOWED_FLAGS = new Set(["json", "details", "include"]);
 
 export async function handleList(base: string, args: string[]): Promise<void> {
   const flags = parseFlags(args);
@@ -376,14 +392,16 @@ function printSessionTasks(taskHistory?: Array<{ title: string; timestamp: numbe
 
 export async function handleInfo(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
-  if (!sessionRef) err("Usage: takode info <session> [--json]");
+  if (!sessionRef) err(INFO_USAGE);
 
   const flags = parseFlags(args.slice(1));
+  assertKnownFlags(flags, INFO_ALLOWED_FLAGS, INFO_USAGE);
   const jsonMode = flags.json === true;
+  const jsonOptions = resolveSessionInfoJsonOptions(flags, { jsonMode });
   const data = await fetchSessionInfo(base, sessionRef);
 
   if (jsonMode) {
-    console.log(JSON.stringify(data, null, 2));
+    console.log(JSON.stringify(buildSessionInfoJson(data, jsonOptions), null, 2));
     return;
   }
 

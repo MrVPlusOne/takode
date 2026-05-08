@@ -7,6 +7,7 @@ import {
   apiPatch,
   apiPost,
   assertKnownFlags,
+  buildSessionInfoJson,
   err,
   fetchSessionInfo,
   formatInlineText,
@@ -20,6 +21,7 @@ import {
   readOptionTextFile,
   readStdinText,
   resolveBooleanToggleFlag,
+  resolveSessionInfoJsonOptions,
   resolveStringFlag,
   takodeAuthHeaders,
   truncate,
@@ -384,7 +386,10 @@ Options:
   --reviewer <session>         Create a reviewer session tied to a parent worker (by session number)
   --replace-worktree-worker <session>
                               Archive an owned worktree worker and reuse its reset worktree
-  --json                       Output in JSON format
+  --json                       Output compact JSON
+  --details                    With --json, output full session info payloads
+  --include <fields>           With --json, include opt-in bulky session fields:
+                               injectedSystemPrompt, taskHistory, tools, mcpServers, keywords
 
 Examples:
   takode spawn --backend claude-sdk --count 2
@@ -413,6 +418,8 @@ const SPAWN_ALLOWED_FLAGS = new Set([
   "reviewer",
   "replace-worktree-worker",
   "json",
+  "details",
+  "include",
   "help",
   "h",
 ]);
@@ -541,6 +548,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   await ensureTakodeAccess(base, { requireOrchestrator: true });
 
   const jsonMode = flags.json === true;
+  const jsonOptions = resolveSessionInfoJsonOptions(flags, { jsonMode });
   const leaderSessionId = getCallerSessionId();
 
   // Fetch leader session first -- we need backendType for default resolution
@@ -746,7 +754,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
             leaderSessionId,
             replacement,
             message: message || null,
-            sessions: [newSession],
+            sessions: [buildSessionInfoJson(newSession, jsonOptions)],
           },
           null,
           2,
@@ -817,7 +825,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
           inheritedAskPermission: askOverride === undefined && inheritBypass ? false : null,
           defaultModel: backendRaw === "codex" && !model ? getCliDefaultModelForBackend("codex") : null,
           message: message || null,
-          sessions: spawned,
+          sessions: spawned.map((session) => buildSessionInfoJson(session, jsonOptions)),
           ...(herdWarning ? { herdWarning } : {}),
         },
         null,

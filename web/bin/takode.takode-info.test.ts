@@ -65,8 +65,8 @@ async function runTakode(
 }
 
 describe("takode info", () => {
-  it("prints codex metadata from the enriched session info shape", async () => {
-    const server = createServer((req, res) => {
+  function createInfoServer(sessionPayload: JsonObject) {
+    return createServer((req, res) => {
       const method = req.method || "";
       const url = req.url || "";
 
@@ -78,34 +78,36 @@ describe("takode info", () => {
 
       if (method === "GET" && url === "/api/sessions/worker-info/info") {
         res.writeHead(200, { "content-type": "application/json" });
-        res.end(
-          JSON.stringify({
-            sessionId: "worker-info",
-            sessionNum: 52,
-            name: "Info Worker",
-            state: "running",
-            backendType: "codex",
-            model: "gpt-5.4",
-            cwd: "/tmp/info-worker",
-            createdAt: Date.now(),
-            cliConnected: true,
-            isGenerating: false,
-            permissionMode: "bypassPermissions",
-            askPermission: false,
-            isWorktree: true,
-            branch: "jiayi",
-            actualBranch: "jiayi-wt-7173",
-            pendingTimerCount: 3,
-            codexReasoningEffort: "high",
-            codexInternetAccess: true,
-            codexSandbox: "danger-full-access",
-          }),
-        );
+        res.end(JSON.stringify(sessionPayload));
         return;
       }
 
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: "not found" }));
+    });
+  }
+
+  it("prints codex metadata from the enriched session info shape", async () => {
+    const server = createInfoServer({
+      sessionId: "worker-info",
+      sessionNum: 52,
+      name: "Info Worker",
+      state: "running",
+      backendType: "codex",
+      model: "gpt-5.4",
+      cwd: "/tmp/info-worker",
+      createdAt: Date.now(),
+      cliConnected: true,
+      isGenerating: false,
+      permissionMode: "bypassPermissions",
+      askPermission: false,
+      isWorktree: true,
+      branch: "jiayi",
+      actualBranch: "jiayi-wt-7173",
+      pendingTimerCount: 3,
+      codexReasoningEffort: "high",
+      codexInternetAccess: true,
+      codexSandbox: "danger-full-access",
     });
 
     server.listen(0);
@@ -131,5 +133,100 @@ describe("takode info", () => {
     expect(result.stdout).toContain("WT Branch      jiayi");
     expect(result.stdout).toContain("Actual Branch  jiayi-wt-7173");
     expect(result.stdout).toContain("Timers         3 pending");
+  });
+
+  it("outputs compact session JSON by default and hides bulky fields", async () => {
+    const server = createInfoServer({
+      sessionId: "worker-info",
+      sessionNum: 52,
+      name: "Info Worker",
+      state: "running",
+      backendType: "codex",
+      model: "gpt-5.4",
+      cwd: "/tmp/info-worker",
+      createdAt: 123,
+      cliConnected: true,
+      isGenerating: false,
+      injectedSystemPrompt: "large injected prompt",
+      taskHistory: [{ title: "Investigate output", startedAt: 100 }],
+      tools: ["Read", "Bash"],
+      mcpServers: [{ name: "slack", status: "connected" }],
+      keywords: ["verbose", "cli"],
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const result = await runTakode(["info", "worker-info", "--port", String(port), "--json"], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-info",
+      COMPANION_AUTH_TOKEN: "auth-info",
+    });
+
+    server.close();
+
+    expect(result.status).toBe(0);
+    const parsed = JSON.parse(result.stdout) as JsonObject;
+    expect(parsed).toMatchObject({
+      sessionId: "worker-info",
+      sessionNum: 52,
+      backendType: "codex",
+      taskHistoryCount: 1,
+      toolsCount: 2,
+      mcpServerCount: 1,
+      keywordCount: 2,
+    });
+    expect(parsed).not.toHaveProperty("injectedSystemPrompt");
+    expect(parsed).not.toHaveProperty("taskHistory");
+    expect(parsed).not.toHaveProperty("tools");
+    expect(parsed).not.toHaveProperty("mcpServers");
+    expect(parsed).not.toHaveProperty("keywords");
+  });
+
+  it("reveals opt-in session detail fields in JSON", async () => {
+    const server = createInfoServer({
+      sessionId: "worker-info",
+      sessionNum: 52,
+      name: "Info Worker",
+      state: "running",
+      backendType: "codex",
+      cwd: "/tmp/info-worker",
+      createdAt: 123,
+      cliConnected: true,
+      isGenerating: false,
+      injectedSystemPrompt: "large injected prompt",
+      taskHistory: [{ title: "Investigate output", startedAt: 100 }],
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const included = await runTakode(
+      ["info", "worker-info", "--port", String(port), "--json", "--include", "injectedSystemPrompt"],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-info",
+        COMPANION_AUTH_TOKEN: "auth-info",
+      },
+    );
+    const detailed = await runTakode(["info", "worker-info", "--port", String(port), "--json", "--details"], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-info",
+      COMPANION_AUTH_TOKEN: "auth-info",
+    });
+
+    server.close();
+
+    expect(included.status).toBe(0);
+    expect(JSON.parse(included.stdout)).toMatchObject({ injectedSystemPrompt: "large injected prompt" });
+    expect(JSON.parse(included.stdout)).not.toHaveProperty("taskHistory");
+
+    expect(detailed.status).toBe(0);
+    expect(JSON.parse(detailed.stdout)).toMatchObject({
+      injectedSystemPrompt: "large injected prompt",
+      taskHistory: [{ title: "Investigate output", startedAt: 100 }],
+    });
   });
 });

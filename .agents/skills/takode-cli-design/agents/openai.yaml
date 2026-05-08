@@ -1,0 +1,4 @@
+interface:
+  display_name: "Takode CLI Design"
+  short_description: "Design compact Takode CLI output"
+  default_prompt: "Use $takode-cli-design to design this Takode CLI output progressively."

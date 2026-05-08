@@ -21,6 +21,7 @@ Global skills are auto-discovered by every session and can be hard to remove onc
 |-------|--------|---------|
 | `takode-orchestration` | `.claude/skills/takode-orchestration/` | Cross-session orchestration: CLI reference, quest journey, board, herd events |
 | `takode-orchestration-design` | `.claude/skills/takode-orchestration-design/` | Placement rubric for Takode leader/worker/reviewer orchestration guidance and phase instruction design |
+| `takode-cli-design` | `.claude/skills/takode-cli-design/`, `.agents/skills/takode-cli-design/` | Progressive Takode CLI output design: compact defaults, explicit detail/include paths, and bulky-field guardrails |
 | `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
 | `confirm` | `.claude/skills/confirm/` | Confirmation workflow for instruction-scoped `/confirm` requests |
 | `quest-design` | `.claude/skills/quest-design/` | Confirmation workflow before creating or refining quests |

@@ -830,6 +830,11 @@ describe("takode spawn", () => {
             isWorktree: false,
             codexReasoningEffort: "medium",
             codexInternetAccess: true,
+            injectedSystemPrompt: "large injected prompt",
+            taskHistory: [{ title: "Trace spawn output", startedAt: 100 }],
+            tools: ["Bash", "Read"],
+            mcpServers: [{ name: "slack", status: "connected" }],
+            keywords: ["spawn", "json"],
           }),
         );
         return;
@@ -889,6 +894,10 @@ describe("takode spawn", () => {
         codexInternetAccess: boolean;
         askPermission: boolean;
         isWorktree: boolean;
+        taskHistoryCount: number;
+        toolsCount: number;
+        mcpServerCount: number;
+        keywordCount: number;
       }>;
       defaultModel: string | null;
     };
@@ -901,8 +910,96 @@ describe("takode spawn", () => {
         codexInternetAccess: true,
         askPermission: false,
         isWorktree: false,
+        taskHistoryCount: 1,
+        toolsCount: 2,
+        mcpServerCount: 1,
+        keywordCount: 2,
       }),
     ]);
+    expect(parsed.sessions[0]).not.toHaveProperty("injectedSystemPrompt");
+    expect(parsed.sessions[0]).not.toHaveProperty("taskHistory");
+    expect(parsed.sessions[0]).not.toHaveProperty("tools");
+    expect(parsed.sessions[0]).not.toHaveProperty("mcpServers");
+    expect(parsed.sessions[0]).not.toHaveProperty("keywords");
+  });
+
+  it("reveals opt-in spawn session fields in JSON", async () => {
+    const sessionInfo = {
+      sessionId: "worker-detail",
+      sessionNum: 42,
+      name: "Detail Worker",
+      state: "running",
+      backendType: "codex",
+      cwd: "/tmp/detail-worker",
+      createdAt: Date.now(),
+      cliConnected: true,
+      isGenerating: false,
+      isWorktree: true,
+      injectedSystemPrompt: "large spawn prompt",
+      taskHistory: [{ title: "Trace detail output", startedAt: 300 }],
+      tools: ["Bash"],
+    };
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-detail", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-detail") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-detail", permissionMode: "plan", backendType: "codex" }));
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/create") {
+        await readJson(req);
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "worker-detail" }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/worker-detail/info") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(sessionInfo));
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    const included = await runTakode(
+      ["spawn", "--port", String(port), "--json", "--include", "injectedSystemPrompt", "--no-worktree"],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-detail",
+        COMPANION_AUTH_TOKEN: "auth-detail",
+      },
+    );
+    const detailed = await runTakode(["spawn", "--port", String(port), "--json", "--details", "--no-worktree"], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-detail",
+      COMPANION_AUTH_TOKEN: "auth-detail",
+    });
+
+    server.close();
+
+    expect(included.status).toBe(0);
+    const includedSession = (JSON.parse(included.stdout) as { sessions: JsonObject[] }).sessions[0];
+    expect(includedSession.injectedSystemPrompt).toBe("large spawn prompt");
+    expect(includedSession).not.toHaveProperty("taskHistory");
+
+    expect(detailed.status).toBe(0);
+    expect((JSON.parse(detailed.stdout) as { sessions: JsonObject[] }).sessions[0]).toMatchObject({
+      injectedSystemPrompt: "large spawn prompt",
+      taskHistory: [{ title: "Trace detail output", startedAt: 300 }],
+      tools: ["Bash"],
+    });
   });
 
   it("warns about worker-slot overage without counting reviewers", async () => {
@@ -1008,6 +1105,10 @@ describe("takode spawn", () => {
         permissionMode: "codex-auto-review",
         codexReasoningEffort: "medium",
         codexInternetAccess: true,
+        injectedSystemPrompt: "large replacement prompt",
+        taskHistory: [{ title: "Replacement output", startedAt: 200 }],
+        tools: ["Bash"],
+        keywords: ["replacement"],
       },
     };
     const server = createServer(async (req, res) => {
@@ -1103,8 +1204,6 @@ describe("takode spawn", () => {
       "replace dispatch",
     );
 
-    server.close();
-
     expect(result.status).toBe(0);
     expect(replacementBodies).toHaveLength(1);
     expect(replacementBodies[0]).toEqual({
@@ -1133,7 +1232,49 @@ describe("takode spawn", () => {
       baseBranch: "main",
       baseSha: "abcdef1234567890",
     });
-    expect(stdout.sessions).toEqual([sessionInfoById["new-worker"]]);
+    expect(stdout.sessions).toEqual([
+      expect.objectContaining({
+        sessionId: "new-worker",
+        sessionNum: 44,
+        backendType: "codex",
+        taskHistoryCount: 1,
+        toolsCount: 1,
+        keywordCount: 1,
+      }),
+    ]);
+    expect((stdout.sessions as JsonObject[])[0]).not.toHaveProperty("injectedSystemPrompt");
+    expect((stdout.sessions as JsonObject[])[0]).not.toHaveProperty("taskHistory");
+    expect((stdout.sessions as JsonObject[])[0]).not.toHaveProperty("tools");
+    expect((stdout.sessions as JsonObject[])[0]).not.toHaveProperty("keywords");
+
+    const included = await runTakode(
+      [
+        "spawn",
+        "--port",
+        String(port),
+        "--replace-worktree-worker",
+        "12",
+        "--backend",
+        "codex",
+        "--cwd",
+        "/repo",
+        "--json",
+        "--include",
+        "injectedSystemPrompt",
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-replace",
+        COMPANION_AUTH_TOKEN: "auth-replace",
+      },
+    );
+
+    server.close();
+
+    expect(included.status).toBe(0);
+    expect((JSON.parse(included.stdout) as { sessions: JsonObject[] }).sessions[0].injectedSystemPrompt).toBe(
+      "large replacement prompt",
+    );
   });
 
   it("rejects unsupported spawn flags instead of ignoring them", async () => {

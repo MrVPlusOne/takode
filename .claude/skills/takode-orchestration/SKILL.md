@@ -49,7 +49,7 @@ Read these files or invoke these skills when performing the corresponding operat
 - **Never use `AskUserQuestion` or `EnterPlanMode`.** These block your turn and prevent herd event processing. Ask clarifying questions in a normal leader response with the right `[thread:...]` marker, then call `takode notify needs-input` so the user never misses it. For obvious short choices, add one to three `--suggest <answer>` flags; for multiple independent questions, use `--question <prompt>` with each question's `--suggest <answer>` flags immediately after it.
 - **Use `takode notify` at these moments:** `needs-input` every time you ask the user a question or need a decision before work can continue; first send the detailed question or decision text as a marked leader response, then call `takode notify needs-input` with a short summary. A pending `needs-input` decision blocks only the thread, quest, or board row it concerns; continue unrelated quests and herd events normally. Treat a prompt as global only when the visible question explicitly concerns global orchestration, worker-slot scheduling, shared resource safety, or another cross-quest dependency. Use `--suggest` only for concise obvious options, typically binary choices like yes/no; use `--question <prompt>` when one notification needs multiple independent answers. Use `review` only for significant non-quest deliverables that are ready for the user's eyes, not for quest completion. Use `waiting` only when a marked leader thread, quest, or board row is intentionally parked on non-user work such as a herd event, timer, resource lease, worker, reviewer, or queued dependency; it is transient status, not user attention, so it does not create notification IDs, chip counts, or resolver work.
 - **Prefer plain-text inspection by default.** When using `takode info`, `takode peek`, `takode scan`, or `quest show` to read for judgment, scanability, or general situational awareness, use the normal plain-text output first. It is usually more token-efficient and easier to reason about than `--json`.
-- **Use `--json` only when exact machine fields matter.** Reach for JSON when you need precise structured data such as feedback `addressed` flags, `commitShas`, version-local quest metadata from `quest history`, exact IDs, or machine-oriented filtering/branching.
+- **Use `--json` only when exact machine fields matter.** Reach for JSON when you need precise structured data such as feedback `addressed` flags, `commitShas`, version-local quest metadata from `quest history`, exact IDs, or machine-oriented filtering/branching. Compact JSON omits bulky fields by default; use `--details`, `--include <field>`, or a dedicated detail command only when those fields are truly needed.
 
 ## Herd Events
 
@@ -128,18 +128,19 @@ takode search auth
 takode search jwt --all
 ```
 
-### `takode info <session> [--json]`
+### `takode info <session> [--json] [--details | --include <fields>]`
 
 Show detailed session metadata: identity, backend, working directory, git state, worktree info, quest claim, metrics, and timestamps.
 
 ```bash
 takode info 1
 takode info 1 --json
+takode info 1 --json --include injectedSystemPrompt
 ```
 
 Human-readable output shows a structured overview with sections for identity (UUID, CLI session ID, PID), backend (type, model, version, permissions), working directory, git state (branch, ahead/behind, diff stats), roles, quest claim, metrics (turns, cost, context usage), MCP servers, and timestamps.
 
-Prefer plain-text for normal inspection. Use `--json` only when you need exact structured fields for a programmatic decision.
+Prefer plain-text for normal inspection. Use compact `--json` only when you need exact structured fields for a programmatic decision. Use `--details` or `--include <field>` for opt-in bulky fields such as `injectedSystemPrompt`, task history, tools, MCP servers, or keywords.
 
 ### `takode tasks <session> [--json]`
 
@@ -356,7 +357,7 @@ Claim worker sessions under your orchestrator. Each session can only have one le
 takode herd 2 3 5
 ```
 
-### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--message-file <path>|-] [--cwd DIR] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--replace-worktree-worker <session>] [--json]`
+### `takode spawn [--backend claude|codex] [--count N] [--message "..."] [--message-file <path>|-] [--cwd DIR] [--no-worktree] [--fixed-name "..."] [--reviewer <session>] [--replace-worktree-worker <session>] [--json] [--details | --include <fields>]`
 
 Create worker sessions and auto-herd them to yourself. **Sessions always use worktrees by default.** Never pass `--no-worktree` unless the user explicitly asks for it or the project's repo instructions require it -- even investigation and debugging tasks should get worktrees since they almost always lead to code changes. Use `--fixed-name` only for reviewer sessions (regular workers get auto-named from their quest). Use `--reviewer <session>` to create a reviewer session linked to a parent worker.
 
@@ -371,6 +372,8 @@ takode spawn --reviewer 5 --no-worktree --fixed-name "Skeptic review of #5" --me
 Use `--message` only for short inline text. For multiline or shell-like dispatch bodies, prefer `--message-file <path>` or `--message-file -`.
 
 Use `--replace-worktree-worker <session>` when reclaiming an owned completed worktree worker for a new worker in the same repo/base branch. Replacement mode archives the old worker, refuses dirty or committed-ahead worktrees, resets the recycled worktree to the base branch, and spawns the replacement in that path. It is not compatible with `--count > 1`, `--reviewer`, or `--no-worktree`.
+
+Routine dispatch should use compact plain-text output, not spawn `--json`. If structured spawn output is needed for a script, compact JSON is the default and bulky session fields require `--details` or `--include <field>`.
 
 ### `takode rename <session> <name>`
 
@@ -446,7 +449,7 @@ Maintain at most **5 worker slots** in your herd. Reviewers can be herded for ro
 ## Tips
 
 - **Use `peek` over `read`** to protect your context window -- peek gives truncated summaries. Drill into specific messages with `read` only when the summary isn't enough. Paginate long messages with `--offset`/`--limit`.
-- **Use `--json` only for programmatic decisions.** Parse JSON output when you need to branch on exact event data, IDs, or other structured fields.
+- **Use `--json` only for programmatic decisions.** Parse JSON output when you need to branch on exact event data, IDs, or other structured fields. Do not use spawn/replacement `--json` for routine dispatch; use the compact text result first and request details explicitly only when needed.
 - **Verify spawn settings.** After `takode spawn`, check the output to confirm worktree and other settings match your intent. Never use `--no-worktree` unless the user explicitly requests it or the project instructions require it.
 - **Mixed backends work seamlessly.** The `takode` CLI talks to the Companion server, not to any backend directly. You can orchestrate both Claude Code and Codex sessions from either backend.
 - **Coordinate with quests.** Use the `quest` CLI alongside `takode` for task tracking. Always create a quest for non-trivial work before dispatching.
