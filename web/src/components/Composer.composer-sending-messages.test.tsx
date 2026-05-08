@@ -544,6 +544,7 @@ describe("Composer sending messages", () => {
       expect.objectContaining({
         type: "user_message",
         content: "test message",
+        inputSource: "composer",
         session_id: "s1",
         threadKey: "main",
       }),

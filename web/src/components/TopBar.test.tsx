@@ -246,7 +246,7 @@ describe("TopBar", () => {
     expect(screen.queryByRole("button", { name: /unresolved needs-input/ })).not.toBeInTheDocument();
   });
 
-  it("pauses the current session from the top bar", async () => {
+  it("keeps pause controls out of the top bar", () => {
     resetStore({
       currentSessionId: "s1",
       sessions: new Map([["s1", { cwd: "/repo", pause: null }]]),
@@ -254,12 +254,11 @@ describe("TopBar", () => {
     });
 
     render(<TopBar />);
-    fireEvent.click(screen.getByTitle("Pause session"));
 
-    await waitFor(() => expect(api.pauseSession).toHaveBeenCalledWith("s1"));
+    expect(screen.queryByTitle("Pause session")).not.toBeInTheDocument();
   });
 
-  it("shows paused state and unpauses from the top bar", async () => {
+  it("does not expose paused-state controls in the top bar", () => {
     resetStore({
       currentSessionId: "s1",
       sessions: new Map([
@@ -301,10 +300,8 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.getByText("Paused")).toBeInTheDocument();
-    fireEvent.click(screen.getByTitle("Unpause session (2 held inputs)"));
-
-    await waitFor(() => expect(api.unpauseSession).toHaveBeenCalledWith("s1"));
+    expect(screen.queryByText("Paused")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Unpause session (2 held inputs)")).not.toBeInTheDocument();
     expect(screen.queryByText("Reconnect")).not.toBeInTheDocument();
   });
 

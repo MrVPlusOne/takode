@@ -28,6 +28,7 @@ import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import {
   buildPausedDiagnostic,
   canQueuePausedUserMessage,
+  isComposerUserMessage,
   isSessionPaused,
   queuePausedUserMessage,
 } from "../session-pause.js";
@@ -61,6 +62,8 @@ export interface ProgrammaticUserMessageOptions {
   replyContext?: ProgrammaticUserMessage["replyContext"];
   sessionId?: string;
   vscodeSelection?: ProgrammaticUserMessage["vscodeSelection"];
+  /** Safe human controls, such as answering a pending prompt, may bypass pause. */
+  bypassPause?: boolean;
 }
 
 export interface BrowserTransportSocketLike {
@@ -314,7 +317,7 @@ export async function handleBrowserIngressMessage(
   deps: BrowserTransportDeps,
 ): Promise<void> {
   if (isSessionPaused(session)) {
-    if (msg.type === "user_message") {
+    if (msg.type === "user_message" && !isComposerUserMessage(session, msg)) {
       if (!canQueuePausedUserMessage(msg)) {
         deps.broadcastError(session, "Session is paused. Raw image messages cannot be safely held; unpause and retry.");
         return;
@@ -326,14 +329,6 @@ export async function handleBrowserIngressMessage(
         session: { pause: session.state.pause },
       } as BrowserIncomingMessage);
       deps.broadcastError(session, buildPausedDiagnostic(session));
-      return;
-    }
-    if (
-      msg.type === "permission_response" ||
-      msg.type === "codex_start_pending" ||
-      msg.type === "codex_steer_pending"
-    ) {
-      deps.broadcastError(session, "Session is paused. Unpause before answering prompts or starting queued turns.");
       return;
     }
   }

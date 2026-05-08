@@ -389,6 +389,43 @@ describe("TimerManager", () => {
       expect(manager.listTimers("session-1")).toHaveLength(0);
     });
 
+    it("coalesces recurring timer occurrences missed while the session is paused", async () => {
+      // Paused recurring timers behave like downtime: unpause delivers the newest
+      // due occurrence once and reports older occurrences as skipped.
+      await manager.createTimer("session-1", {
+        title: "pause coalescing",
+        description: "Only the newest recurrence should fire.",
+        every: "10m",
+      });
+
+      sessionPaused = true;
+      vi.advanceTimersByTime(10 * 60_000 + 1);
+      await triggerSweep(manager);
+      vi.advanceTimersByTime(10 * 60_000);
+      await triggerSweep(manager);
+      vi.advanceTimersByTime(10 * 60_000);
+      await triggerSweep(manager);
+
+      expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+      expect(manager.listTimers("session-1")[0]).toMatchObject({
+        fireCount: 0,
+        nextFireAt: new Date("2026-04-08T12:10:00Z").getTime(),
+      });
+
+      sessionPaused = false;
+      vi.advanceTimersByTime(5 * 60_000 + 1);
+      await triggerSweep(manager);
+
+      expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+      const content = bridge.injectUserMessage.mock.calls[0]?.[1] as string;
+      expect(content).toContain("2 earlier due occurrences were skipped while the session was unavailable.");
+      expect(content).toContain("This timer was initially scheduled to fire at 2026-04-08T12:30:00.000Z.");
+
+      const [timer] = manager.listTimers("session-1");
+      expect(timer.fireCount).toBe(1);
+      expect(timer.nextFireAt).toBe(new Date("2026-04-08T12:40:00Z").getTime());
+    });
+
     it("cancelled timer never fires", async () => {
       await manager.createTimer("session-1", { title: "bye", in: "5m" });
       await manager.cancelTimer("session-1", "t1");

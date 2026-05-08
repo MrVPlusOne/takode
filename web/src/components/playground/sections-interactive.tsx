@@ -5,6 +5,7 @@ import type { BoardRowData } from "../BoardTable.js";
 import { CatPawAvatar } from "../CatIcons.js";
 import { ReplyChip } from "../Composer.js";
 import { ComposerMetaToolbar } from "../ComposerMetaToolbar.js";
+import { PausedInputChip, PauseOtherSourcesButton } from "../SessionPauseComposerControls.js";
 import { WorkBoardBar } from "../WorkBoardBar.js";
 import { TimerChip } from "../TimerWidget.js";
 import { UserReplyChip } from "../MessageBubble.js";
@@ -96,6 +97,7 @@ function PlaygroundComposerPermissionToolbar({
           onCancelPermissionMode={() => {}}
           onConfirmPermissionMode={() => {}}
           collapseAllButton={<PlaygroundCollapseAllButton />}
+          pauseControl={<PauseOtherSourcesButton isPaused={isCodex} heldCount={2} busy={false} onToggle={() => {}} />}
           onOpenFilePicker={() => {}}
           warmMicrophone={() => {}}
           voiceSupported={true}
@@ -221,6 +223,55 @@ export function PlaygroundInteractiveSections() {
           <div className="mt-4" />
           <Card label="Codex permission change confirmation">
             <PlaygroundComposerPermissionToolbar backend="codex" state="popover" />
+          </Card>
+          <div className="mt-4" />
+          <Card label="Paused other input sources">
+            <div className="border-t border-cc-border bg-cc-card px-4 py-3">
+              <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-visible">
+                <PausedInputChip
+                  heldCount={2}
+                  pause={{
+                    pausedAt: Date.now() - 90_000,
+                    queuedMessages: [
+                      {
+                        id: "playground-held-timer",
+                        queuedAt: Date.now() - 60_000,
+                        source: "programmatic",
+                        message: {
+                          type: "user_message",
+                          content: "Recurring timer reminder held while paused",
+                          agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
+                        },
+                      },
+                      {
+                        id: "playground-held-herd",
+                        queuedAt: Date.now() - 30_000,
+                        source: "programmatic",
+                        message: { type: "user_message", content: "Leader herd event held for this session" },
+                      },
+                    ],
+                  }}
+                />
+                <textarea
+                  readOnly
+                  value="Direct composer messages still send while outside sources are paused."
+                  rows={1}
+                  className="w-full px-4 pt-3 pb-1 text-sm bg-transparent resize-none text-cc-fg font-sans-ui"
+                  style={{ minHeight: "36px" }}
+                />
+                <div className="flex items-center justify-between gap-2 px-2.5 pb-2.5 pt-1">
+                  <div className="flex min-w-0 items-center gap-1.5">
+                    <PlaygroundCollapseAllButton />
+                    <PauseOtherSourcesButton isPaused={true} heldCount={2} busy={false} onToggle={() => {}} />
+                  </div>
+                  <div className="flex items-center justify-center w-8 h-8 rounded-full bg-cc-primary text-white">
+                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
+                      <path d="M2 2.5L14 8 2 13.5 2 9.5 9 8 2 6.5Z" />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+            </div>
           </Card>
           <div className="mt-4" />
           <Card label="Connected — VS Code preview only">

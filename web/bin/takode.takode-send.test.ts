@@ -360,9 +360,11 @@ describe("takode pause controls", () => {
       const unpaused = await runTakode(["unpause", "worker-control", "--port", String(port)], env);
 
       expect(paused.status).toBe(0);
-      expect(paused.stdout).toContain("Paused session worker-control (0 held inputs)");
+      expect(paused.stdout).toContain("Paused other input sources for session worker-control (0 held inputs)");
       expect(unpaused.status).toBe(0);
-      expect(unpaused.stdout).toContain("Unpaused session worker-control (2 held inputs released)");
+      expect(unpaused.stdout).toContain(
+        "Resumed other input sources for session worker-control (2 held inputs released)",
+      );
       expect(calls).toEqual(["pause", "unpause"]);
     } finally {
       server.close();

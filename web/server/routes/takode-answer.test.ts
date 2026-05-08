@@ -158,7 +158,7 @@ describe("takode cross-session message routing", () => {
 });
 
 describe("takode answer paused sessions", () => {
-  it("rejects answers while the target session is paused", async () => {
+  it("routes direct human answers while the target session is paused", async () => {
     const { app, handleBrowserMessage, session } = createTestApp();
     session.state.pause = { pausedAt: 123, queuedMessages: [] };
 
@@ -167,12 +167,14 @@ describe("takode answer paused sessions", () => {
       body: JSON.stringify({ response: "approve" }),
     });
 
-    expect(res.status).toBe(409);
+    expect(res.status).toBe(200);
     expect(await res.json()).toEqual({
-      error: "Session is paused; unpause before answering pending prompts",
-      code: "SESSION_PAUSED",
+      ok: true,
+      kind: "permission",
+      tool_name: "ExitPlanMode",
+      action: "approved",
     });
-    expect(handleBrowserMessage).not.toHaveBeenCalled();
+    expect(handleBrowserMessage).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -222,6 +224,7 @@ describe("takode needs-input notification response routing", () => {
           previewText: "Confirm scope",
         },
         sessionId: "worker-1",
+        bypassPause: true,
       },
     );
     expect(session.notifications[0].done).toBe(true);

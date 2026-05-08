@@ -225,7 +225,7 @@ export async function handlePause(base: string, args: string[]): Promise<void> {
   }
   if (!result.ok) err(result.error || "Failed to pause session.");
   console.log(
-    `[${formatTime(Date.now())}] ✓ Paused session ${formatInlineText(sessionRef)} (${result.queued ?? 0} held inputs)`,
+    `[${formatTime(Date.now())}] ✓ Paused other input sources for session ${formatInlineText(sessionRef)} (${result.queued ?? 0} held inputs)`,
   );
 }
 
@@ -247,7 +247,7 @@ export async function handleUnpause(base: string, args: string[]): Promise<void>
   }
   if (!result.ok) err(result.error || "Failed to unpause session.");
   console.log(
-    `[${formatTime(Date.now())}] ✓ Unpaused session ${formatInlineText(sessionRef)} (${result.resumed ?? 0} held inputs released)`,
+    `[${formatTime(Date.now())}] ✓ Resumed other input sources for session ${formatInlineText(sessionRef)} (${result.resumed ?? 0} held inputs released)`,
   );
 }
 

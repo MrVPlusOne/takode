@@ -916,7 +916,61 @@ describe("selected feed thread windows", () => {
 });
 
 describe("programmatic user message injection", () => {
-  it("queues browser user messages while a session is paused", async () => {
+  it("routes direct composer user messages while a session is paused", async () => {
+    const routeBrowserMessage = vi.fn();
+    const deps = makeInjectDeps({ routeBrowserMessage });
+    const session = makeSession({
+      id: "session-1",
+      state: { permissionMode: "default", pause: { pausedAt: 123, queuedMessages: [] } } as any,
+    });
+
+    await handleBrowserIngressMessage(
+      session,
+      { type: "user_message", content: "send now", session_id: "session-1", inputSource: "composer" },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.pause?.queuedMessages).toHaveLength(0);
+    expect(routeBrowserMessage).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "user_message", content: "send now", inputSource: "composer" }),
+      undefined,
+    );
+    expect(deps.broadcastError).not.toHaveBeenCalled();
+  });
+
+  it("routes prepared composer image references while a session is paused", async () => {
+    const routeBrowserMessage = vi.fn();
+    const deps = makeInjectDeps({ routeBrowserMessage });
+    const session = makeSession({
+      id: "session-1",
+      state: { permissionMode: "default", pause: { pausedAt: 123, queuedMessages: [] } } as any,
+    });
+
+    await handleBrowserIngressMessage(
+      session,
+      {
+        type: "user_message",
+        content: "inspect this",
+        session_id: "session-1",
+        inputSource: "composer",
+        imageRefs: [{ imageId: "img-1", media_type: "image/png" }] as any,
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.pause?.queuedMessages).toHaveLength(0);
+    expect(routeBrowserMessage).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "user_message", content: "inspect this", imageRefs: expect.any(Array) }),
+      undefined,
+    );
+    expect(deps.broadcastError).not.toHaveBeenCalled();
+  });
+
+  it("queues non-composer browser user messages while a session is paused", async () => {
     const deps = makeInjectDeps();
     const session = makeSession({
       state: { permissionMode: "default", pause: { pausedAt: 123, queuedMessages: [] } } as any,
@@ -937,6 +991,29 @@ describe("programmatic user message injection", () => {
     );
   });
 
+  it("routes direct human control messages while a session is paused", async () => {
+    const routeBrowserMessage = vi.fn();
+    const deps = makeInjectDeps({ routeBrowserMessage });
+    const session = makeSession({
+      state: { permissionMode: "default", pause: { pausedAt: 123, queuedMessages: [] } } as any,
+    });
+
+    await handleBrowserIngressMessage(
+      session,
+      { type: "permission_response", request_id: "ask-1", behavior: "allow" },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.pause?.queuedMessages).toHaveLength(0);
+    expect(routeBrowserMessage).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "permission_response", request_id: "ask-1" }),
+      undefined,
+    );
+    expect(deps.broadcastError).not.toHaveBeenCalled();
+  });
+
   it("rejects paused browser messages with raw images instead of silently processing them", async () => {
     const deps = makeInjectDeps();
     const session = makeSession({
@@ -946,6 +1023,34 @@ describe("programmatic user message injection", () => {
     await handleBrowserIngressMessage(
       session,
       { type: "user_message", content: "image", images: [{ path: "/tmp/screenshot.png" }] } as any,
+      undefined,
+      deps,
+    );
+
+    expect(session.state.pause?.queuedMessages).toHaveLength(0);
+    expect(deps.routeBrowserMessage).not.toHaveBeenCalled();
+    expect(deps.broadcastError).toHaveBeenCalledWith(
+      session,
+      "Session is paused. Raw image messages cannot be safely held; unpause and retry.",
+    );
+  });
+
+  it("keeps raw image rejection explicit even when a browser payload claims composer origin", async () => {
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      id: "session-1",
+      state: { permissionMode: "default", pause: { pausedAt: 123, queuedMessages: [] } } as any,
+    });
+
+    await handleBrowserIngressMessage(
+      session,
+      {
+        type: "user_message",
+        content: "raw image",
+        session_id: "session-1",
+        inputSource: "composer",
+        images: [{ media_type: "image/png", data: "raw-bytes" }],
+      },
       undefined,
       deps,
     );

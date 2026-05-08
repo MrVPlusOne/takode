@@ -1375,7 +1375,7 @@ export class WsBridge {
         deliveryBatch = pruned.batch;
       }
     }
-    if (isSessionPaused(session)) {
+    if (isSessionPaused(session) && !options?.bypassPause) {
       const message = buildProgrammaticUserMessage({
         content: deliveryContent,
         agentSource,

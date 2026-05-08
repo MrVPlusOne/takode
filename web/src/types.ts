@@ -40,6 +40,7 @@ import type {
   ThreadWindowEntry,
   ThreadWindowState,
   ThreadRoutingError,
+  PausedInboundMessage,
   SessionPauseState,
 } from "../server/session-types.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
@@ -110,6 +111,7 @@ export type {
   ThreadWindowEntry,
   ThreadWindowState,
   ThreadRoutingError,
+  PausedInboundMessage,
   SessionPauseState,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";

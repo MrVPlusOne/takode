@@ -24,6 +24,7 @@ import { ComposerMetaToolbar } from "./ComposerMetaToolbar.js";
 import { ComposerReferencePreview } from "./ComposerReferencePreview.js";
 import { CollapseAllButton } from "./ComposerCollapseAllButton.js";
 import { CollapsedComposerBar, ComposerInputSurface } from "./ComposerSurface.js";
+import { PausedInputChip, PauseOtherSourcesButton } from "./SessionPauseComposerControls.js";
 import { ComposerStatusBlocks } from "./ComposerStatusBlocks.js";
 import {
   createComposerDraftImage,
@@ -50,7 +51,13 @@ import {
 } from "../utils/vscode-context.js";
 import { isNarrowComposerLayout } from "../utils/layout.js";
 import { formatReplyContentForAssistant } from "../utils/reply-context.js";
-import type { CodexAppReference, CodexSkillReference, ComposerDraftImage, PendingUserUpload } from "../types.js";
+import type {
+  CodexAppReference,
+  CodexSkillReference,
+  ComposerDraftImage,
+  PendingUserUpload,
+  SessionPauseState,
+} from "../types.js";
 import {
   abortPendingUserUpload,
   clearPendingUserUploadController,
@@ -439,9 +446,12 @@ export function Composer({
         model: sessionData?.model,
         totalLinesAdded: sessionData?.total_lines_added,
         totalLinesRemoved: sessionData?.total_lines_removed,
+        pause: sessionData?.pause ?? null,
+        pausedInputQueueCount: sessionData?.pause?.queuedMessages.length ?? 0,
       };
     }),
   );
+  const [pauseBusy, setPauseBusy] = useState(false);
   const sdkDiffTotals = useStore(
     useShallow((s) => {
       const sdkSession = s.sdkSessions?.find((x) => x.sessionId === sessionId);
@@ -476,6 +486,9 @@ export function Composer({
   const permissionOptions = isCodex ? CODEX_PERMISSION_MODES : CLAUDE_PERMISSION_MODES;
   const permissionMode = isCodex ? codexPermissionMode : claudePermissionMode;
   const codexReasoningEffort = sessionView.codexReasoningEffort;
+  const pauseState = sessionView.pause as SessionPauseState | null;
+  const isPaused = !!pauseState?.pausedAt;
+  const pausedInputQueueCount = sessionView.pausedInputQueueCount;
   const codexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
   // Resolve the "Default" option: replace the empty-value placeholder with
   // the user's actual configured model from ~/.claude/settings.json so we
@@ -619,6 +632,22 @@ export function Composer({
     textareaRef.current?.focus();
   }, [setText, voiceEditProposal]);
 
+  const handleTogglePause = useCallback(async () => {
+    if (pauseBusy) return;
+    setPauseBusy(true);
+    try {
+      if (isPaused) {
+        await api.unpauseSession(sessionId);
+      } else {
+        await api.pauseSession(sessionId);
+      }
+    } catch (err) {
+      console.error("[composer] failed to toggle pause:", err);
+    } finally {
+      setPauseBusy(false);
+    }
+  }, [isPaused, pauseBusy, sessionId]);
+
   async function handleSend() {
     const store = useStore.getState();
     const msg = text.trim();
@@ -761,6 +790,7 @@ export function Composer({
         deliveryContent,
         ...(currentReplyContext ? { replyContext: currentReplyContext } : {}),
         imageRefs,
+        inputSource: "composer",
         session_id: sessionId,
         client_msg_id: pendingId,
         threadKey,
@@ -782,6 +812,7 @@ export function Composer({
       type: "user_message",
       content: finalContent,
       ...(currentReplyContext ? { deliveryContent: replyDeliveryContent, replyContext: currentReplyContext } : {}),
+      inputSource: "composer",
       session_id: sessionId,
       threadKey,
       ...(threadKey !== "main" ? { questId: questId ?? threadKey } : {}),
@@ -1500,6 +1531,7 @@ export function Composer({
                   persistPreferredVoiceMode("append");
                 }}
               />
+              <PausedInputChip pause={pauseState} heldCount={pausedInputQueueCount} />
               <ComposerReferencePreview references={plainReferencePreviews} />
             </>
           }
@@ -1542,6 +1574,14 @@ export function Composer({
                 onCancelPermissionMode={() => setPendingPermissionMode(null)}
                 onConfirmPermissionMode={confirmPermissionChange}
                 collapseAllButton={<CollapseAllButton sessionId={sessionId} />}
+                pauseControl={
+                  <PauseOtherSourcesButton
+                    isPaused={isPaused}
+                    heldCount={pausedInputQueueCount}
+                    busy={pauseBusy}
+                    onToggle={handleTogglePause}
+                  />
+                }
                 onOpenFilePicker={() => fileInputRef.current?.click()}
                 warmMicrophone={warmMicrophone}
                 voiceSupported={voiceSupported}

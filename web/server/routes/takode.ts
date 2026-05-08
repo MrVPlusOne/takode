@@ -1092,13 +1092,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
     }
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
-    if (isSessionPaused(session)) {
-      return c.json(
-        { error: "Session is paused; unpause before publishing user-visible messages", code: "SESSION_PAUSED" },
-        409,
-      );
-    }
-
     const body = await c.req.json().catch(() => ({}));
     if (typeof body.content !== "string" || !body.content.trim()) {
       return c.json({ error: "content is required" }, 400);
@@ -1475,13 +1468,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
     if (!id) return c.json({ error: "Session not found" }, 404);
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found in bridge" }, 404);
-    if (isSessionPaused(session)) {
-      return c.json(
-        { error: "Session is paused; unpause before answering pending prompts", code: "SESSION_PAUSED" },
-        409,
-      );
-    }
-
     const body = await c.req.json().catch(() => ({}));
     const response = typeof body.response === "string" ? body.response : "";
     if (!response.trim()) {
@@ -1555,6 +1541,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         },
         undefined,
         threadRouteForTarget(target.threadKey ?? "main"),
+        { bypassPause: true },
       );
       if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
       markNotificationDoneController(session, target.notification_id, true, notificationPersistDeps);

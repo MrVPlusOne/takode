@@ -68,6 +68,17 @@ export function buildPausedDiagnostic(session: PauseableSession): string {
   return `Session is paused. New work is held until unpause (${suffix}).`;
 }
 
+export function isComposerUserMessage(
+  session: PauseableSession,
+  message: Extract<BrowserOutgoingMessage, { type: "user_message" }>,
+): boolean {
+  return (
+    message.inputSource === "composer" &&
+    (!message.session_id || message.session_id === session.id) &&
+    !message.images?.length
+  );
+}
+
 export function canQueuePausedUserMessage(message: Extract<BrowserOutgoingMessage, { type: "user_message" }>): boolean {
   return !message.images?.length;
 }

@@ -41,6 +41,8 @@ const mockUpdateSettings = vi.fn().mockResolvedValue({});
 const mockRefreshSessionSkills = vi.fn().mockResolvedValue({ ok: true, skills: [] });
 const mockPrepareUserMessageImages = vi.fn();
 const mockDeletePreparedUserMessageImage = vi.fn().mockResolvedValue({ ok: true });
+const mockPauseSession = vi.fn().mockResolvedValue({ ok: true, queued: 0 });
+const mockUnpauseSession = vi.fn().mockResolvedValue({ ok: true, resumed: 0 });
 
 // Build a controllable mock store state
 let mockStoreState: Record<string, unknown> = {};
@@ -58,6 +60,8 @@ vi.mock("../api.js", () => ({
     refreshSessionSkills: (...args: unknown[]) => mockRefreshSessionSkills(...args),
     prepareUserMessageImages: (...args: unknown[]) => mockPrepareUserMessageImages(...args),
     deletePreparedUserMessageImage: (...args: unknown[]) => mockDeletePreparedUserMessageImage(...args),
+    pauseSession: (...args: unknown[]) => mockPauseSession(...args),
+    unpauseSession: (...args: unknown[]) => mockUnpauseSession(...args),
     transcribe: (...args: unknown[]) => mockTranscribe(...args),
   },
 }));
@@ -487,6 +491,8 @@ beforeEach(() => {
   mockGetSettings.mockResolvedValue({ claudeDefaultModel: "" });
   mockUpdateSettings.mockResolvedValue({});
   mockRefreshSessionSkills.mockResolvedValue({ ok: true, skills: [] });
+  mockPauseSession.mockResolvedValue({ ok: true, queued: 0 });
+  mockUnpauseSession.mockResolvedValue({ ok: true, resumed: 0 });
   mockPrepareUserMessageImages.mockReset();
   mockDeletePreparedUserMessageImage.mockReset();
   mockDeletePreparedUserMessageImage.mockResolvedValue({ ok: true });
@@ -648,6 +654,36 @@ describe("Composer basic rendering", () => {
     expect(within(meta).getByText("feature/composer-footer")).toBeTruthy();
     expect(within(meta).getByText("gpt-5.4")).toBeTruthy();
     expect(within(meta).getByText("high")).toBeTruthy();
+  });
+
+  it("places pause controls in the composer footer and exposes held input state", async () => {
+    setupMockStore({
+      session: {
+        pause: {
+          pausedAt: 123,
+          queuedMessages: [
+            {
+              id: "held-1",
+              queuedAt: 124,
+              source: "programmatic",
+              message: { type: "user_message", content: "Held external reminder" },
+            },
+          ],
+        } as any,
+      },
+    });
+
+    render(<Composer sessionId="s1" />);
+
+    const pauseButton = screen.getByTestId("composer-pause-sources-button");
+    expect(pauseButton.closest('[data-testid="composer-footer-toolbar"]')).toBeTruthy();
+    expect(screen.getByTestId("composer-paused-chip").textContent).toContain("Other sources paused");
+
+    await userEvent.click(screen.getByTestId("composer-paused-chip"));
+    expect(screen.getByTestId("composer-held-input-list").textContent).toContain("Held external reminder");
+
+    await userEvent.click(pauseButton);
+    await waitFor(() => expect(mockUnpauseSession).toHaveBeenCalledWith("s1"));
   });
 
   it("keeps the moved footer popovers outside overflow-hidden ancestors", async () => {

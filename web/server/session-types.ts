@@ -461,6 +461,8 @@ export type BrowserOutgoingMessage =
       replyContext?: ReplyContext;
       vscodeSelection?: VsCodeSelectionMetadata;
       client_msg_id?: string;
+      /** Direct user entry point that should stay deliverable while other input sources are paused. */
+      inputSource?: "composer";
       /** UI-only thread routing metadata. Main is implicit; quest threads are optional projections. */
       threadKey?: string;
       questId?: string;
