@@ -68,7 +68,7 @@ Add or update a row.
   - `#N` for a specific session to become reusable
   - `free-worker` when herd worker-slot capacity must clear
 - A row with multiple `--wait-for` blockers remains queued until every listed quest, session, or capacity blocker is clear. Use the comma-separated form directly instead of retargeting the row from one blocker to the next.
-- `QUEUED --wait-for` is durable board tracking, not a substitute for the resource-lease queue. When the next active phase is Execute and the only blocker is a shared lease, dispatch the worker so it can run `takode lease acquire --wait` and receive the lease-promotion event. If a leader queues externally instead, the leader owns an explicit `takode timer` checkback and `takode notify waiting` marker.
+- `QUEUED --wait-for` is durable board tracking, not a substitute for the resource-lease queue. When the next active phase is Execute and the only blocker is a shared lease, dispatch the worker so it can run `takode lease acquire --wait` and receive the lease-promotion event. If a leader queues externally instead, the leader owns an explicit `takode timer` checkback and a `{[(Thread Waiting: q-N | waiting on lease)]}` marker.
 - `--wait-for-input` links an active row to same-session `needs-input` notification IDs when the quest is intentionally paused on a human answer
 - `--clear-wait-for-input` removes that intentional human-input hold and resolves the linked notification(s)
 - `--phases` assembles the row's Journey from built-in phase IDs; repeated phases are allowed

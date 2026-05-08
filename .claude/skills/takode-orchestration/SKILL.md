@@ -95,7 +95,7 @@ Three distinct operations -- never confuse them:
 
 Tie `takode notify` calls to Quest Journey phase events:
 - **`takode notify needs-input "need decision on auth approach for q-42" --suggest yes --suggest no`**: every time you ask the user a question or need a decision before work can continue. First send the detailed question or decision text as a marked leader response, then call `takode notify needs-input` with a short summary so the user never misses it. The wait is scoped to the affected thread, quest, or board row unless the visible question explicitly says it is global for orchestration, worker-slot scheduling, shared resource safety, or a cross-quest dependency. Suggested answers are optional and only for short, obvious choices. For multiple independent questions, use `takode notify needs-input "need decisions" --question "Which worker?" --suggest reuse --suggest spawn --question "Run browser validation?" --suggest yes --suggest no`.
-- **`takode notify waiting "waiting on reviewer pass for q-42"`**: use for non-attention WIP or waiting state after a marked leader thread is parked on a herd event, timer, lease, worker, reviewer, or queued dependency. Do not use it for user questions.
+- **`{[(Thread Waiting: q-42 | waiting on reviewer pass)]}`**: put this strict standalone marker line in a leader assistant response when a marked leader thread is parked on a herd event, timer, lease, worker, reviewer, or queued dependency. Use `{[(Thread Ready: q-42 | ready for review)]}` when the thread is complete or ready. Do not use inline markers for user questions.
 - **Do not call `takode notify review` for quest completion**: when a work board item is completed, Takode already fires the review notification automatically. Sending another one creates duplicate quest-completion notifications.
 
 Do not notify for routine progress or intermediate steps.
@@ -283,12 +283,13 @@ Alert the user when they need to take action or record a visible non-attention w
 
 Categories: `needs-input`, `waiting`, `review`
 
-Suggested answers are supported only for `needs-input`. Use one to three short choices when the answer set is obvious; do not use them as a substitute for detailed question text in chat. For multi-question prompts, each `--suggest` applies to the most recent `--question`; do not mix top-level `--suggest` with `--question`. `waiting` is a transient non-user wait marker; it is not listed by `takode notify list` and has no notification ID to resolve.
+Suggested answers are supported only for `needs-input`. Use one to three short choices when the answer set is obvious; do not use them as a substitute for detailed question text in chat. For multi-question prompts, each `--suggest` applies to the most recent `--question`; do not mix top-level `--suggest` with `--question`. For leader thread waiting/ready status, prefer strict standalone inline markers such as `{[(Thread Waiting: q-42 | waiting on reviewer pass)]}` and `{[(Thread Ready: main | answered the user)]}`; these are stripped from displayed prose and rendered as status chips.
 
 ```bash
 takode notify needs-input "need decision on auth approach for q-42" --suggest yes --suggest no
 takode notify needs-input "need dispatch decisions" --question "Reuse #12?" --suggest yes --suggest no --question "Run browser validation?" --suggest yes --suggest no
-takode notify waiting "waiting on reviewer pass for q-42"
+{[(Thread Waiting: q-42 | waiting on reviewer pass)]}
+{[(Thread Ready: main | answered the user's question)]}
 takode notify review "landing page copy draft is ready for review"
 ```
 

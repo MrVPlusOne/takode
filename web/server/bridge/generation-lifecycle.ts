@@ -1,5 +1,7 @@
 import { sessionTag } from "../session-tag.js";
 import type { ActiveTurnRoute } from "../session-types.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { clearLeaderThreadStatusesForGenerationStart } from "./thread-routing-reminder.js";
 
 /** Reasons that indicate the turn ended due to recovery/error, not a normal result.
  *  Queued turns should be drained (not promoted) for these reasons because the CLI
@@ -37,6 +39,7 @@ export interface GenerationLifecycleSession {
   lastUserMessage?: string;
   state: {
     claimedQuestStatus?: string;
+    leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
   };
   messageHistory: unknown[];
 }
@@ -45,6 +48,7 @@ export interface GenerationLifecycleDeps<S extends GenerationLifecycleSession> {
   sessions: Map<string, S>;
   userMessageRunningTimeoutMs: number;
   broadcastStatus: (session: S, status: "running" | "idle") => void;
+  broadcastSessionUpdate?: (session: S, update: Record<string, unknown>) => void;
   persistSession: (session: S) => void;
   onSessionActivityStateChanged: (sessionId: string, reason: string) => void;
   emitTakodeEvent: (sessionId: string, type: "turn_start" | "turn_end", data: Record<string, unknown>) => void;
@@ -260,6 +264,9 @@ function startQueuedTurn<S extends GenerationLifecycleSession>(
   session.compactedDuringTurn = false;
   session.userMessageIdsThisTurn = [...entry.userMessageIds];
   session.activeTurnRoute = entry.activeTurnRoute;
+  if (clearLeaderThreadStatusesForGenerationStart(session)) {
+    deps.broadcastSessionUpdate?.(session, { leaderThreadStatuses: session.state.leaderThreadStatuses });
+  }
   console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${turnReason})`);
   deps.recordGenerationStarted?.(session, turnReason);
   deps.emitTakodeEvent(session.id, "turn_start", {
@@ -344,6 +351,9 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.userMessageIdsThisTurn = [];
     session.questThreadRemindersThisTurn = [];
     session.activeTurnRoute = null;
+    if (clearLeaderThreadStatusesForGenerationStart(session)) {
+      deps.broadcastSessionUpdate?.(session, { leaderThreadStatuses: session.state.leaderThreadStatuses });
+    }
     console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
     deps.recordGenerationStarted?.(session, reason);
 

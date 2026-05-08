@@ -1,6 +1,7 @@
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { FeedWindowSync } from "../shared/feed-window-sync.js";
 import type { LeaderOpenThreadTabsState, LeaderThreadTabUpdate } from "../shared/leader-open-thread-tabs.js";
+import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
 
@@ -739,6 +740,7 @@ export type BrowserIncomingMessageBase =
       tool_start_times?: Record<string, number>;
       turn_duration_ms?: number;
       notification?: TakodeNotificationPayload;
+      threadStatusMarkers?: LeaderThreadStatus[];
     }
   | { type: "stream_event"; event: unknown; parent_tool_use_id: string | null }
   | { type: "result"; data: CLIResultMessage; interrupted?: boolean }
@@ -915,6 +917,7 @@ export type BrowserIncomingMessageBase =
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       notifications?: SessionNotification[];
       attentionRecords?: SessionAttentionRecord[];
+      leaderThreadStatuses?: SessionState["leaderThreadStatuses"];
       notificationStatusVersion?: number;
       notificationStatusUpdatedAt?: number;
     }
@@ -1154,6 +1157,8 @@ export interface SessionState {
   notifications?: SessionNotification[];
   /** Server-authoritative attention records for Main ledger rows and top chips. */
   attentionRecords?: SessionAttentionRecord[];
+  /** Server-authoritative current Thread Waiting/Ready markers keyed by normalized thread key. */
+  leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
 }
 
 export type NotificationUrgency = "needs-input" | "review" | null;

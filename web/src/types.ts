@@ -46,6 +46,7 @@ import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
 import type { SessionTimer } from "../server/timer-types.js";
 import type { ReplyContext } from "../shared/reply-context.js";
+import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 import type {
   LeaderProfilePool,
   LeaderProfilePoolSettings,
@@ -205,6 +206,7 @@ export interface ChatMessage {
       updatedAt: number;
     };
     attentionRecord?: SessionAttentionRecord;
+    threadStatusMarkers?: LeaderThreadStatus[];
     threadRoutingError?: ThreadRoutingError;
     replyContext?: ReplyContext;
     vscodeSelection?: VsCodeSelectionMetadata;

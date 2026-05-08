@@ -233,6 +233,128 @@ describe("assistant-message-controller", () => {
     expect(session.messageHistory[0]).toMatchObject(msg);
   });
 
+  it("strips valid inline thread status markers and stores current server status", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant([
+        {
+          type: "text",
+          text: [
+            "[thread:q-941]",
+            "Dispatched reviewer.",
+            "{[(Thread Waiting: q-941 | waiting on reviewer pass)]}",
+          ].join("\n"),
+        },
+      ]),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const assistant = broadcasts.find((msg) => msg.type === "assistant");
+    expect(assistant).toMatchObject({
+      type: "assistant",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadStatusMarkers: [
+        {
+          kind: "waiting",
+          label: "Thread Waiting",
+          threadKey: "q-941",
+          questId: "q-941",
+          summary: "waiting on reviewer pass",
+        },
+      ],
+    });
+    expect(assistant?.type === "assistant" ? assistant.message.content : []).toEqual([
+      { type: "text", text: "Dispatched reviewer." },
+    ]);
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toMatchObject({
+      kind: "waiting",
+      threadKey: "q-941",
+      summary: "waiting on reviewer pass",
+    });
+    expect(broadcasts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session_update",
+          session: {
+            leaderThreadStatuses: expect.objectContaining({
+              "q-941": expect.objectContaining({ kind: "waiting" }),
+            }),
+          },
+        }),
+      ]),
+    );
+  });
+
+  it("keeps invalid marker-looking lines visible and does not create Thread Needs Input status", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+
+    const msg = routeAssistantMessage(session, [
+      { type: "text", text: "Status typo\n{[(Thread Needs Input: main | ask user)]}" },
+    ]);
+
+    expect(msg.type === "assistant" ? msg.message.content : []).toEqual([
+      { type: "text", text: "Status typo\n{[(Thread Needs Input: main | ask user)]}" },
+    ]);
+    expect(msg.type === "assistant" ? msg.threadStatusMarkers : undefined).toBeUndefined();
+    expect(session.state.leaderThreadStatuses).toBeUndefined();
+  });
+
+  it("supports multiple thread statuses in one assistant response and newest status wins per thread", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant([
+        {
+          type: "text",
+          text: [
+            "Batch update.",
+            "{[(Thread Waiting: q-941 | waiting on reviewer pass)]}",
+            "{[(Thread Ready: q-942 | implementation complete)]}",
+            "{[(Thread Ready: q-941 | review accepted)]}",
+          ].join("\n"),
+        },
+      ]),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    const assistant = broadcasts.find((msg) => msg.type === "assistant");
+    expect(
+      assistant?.type === "assistant" ? assistant.threadStatusMarkers?.map((status) => status.threadKey) : [],
+    ).toEqual(["q-941", "q-942", "q-941"]);
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toMatchObject({
+      kind: "ready",
+      summary: "review accepted",
+    });
+    expect(session.state.leaderThreadStatuses?.["q-942"]).toMatchObject({
+      kind: "ready",
+      summary: "implementation complete",
+    });
+    expect(assistant).toMatchObject({
+      type: "assistant",
+      threadRefs: expect.arrayContaining([
+        expect.objectContaining({ threadKey: "q-941" }),
+        expect.objectContaining({ threadKey: "q-942" }),
+      ]),
+    });
+  });
+
   it("updates the active running route when leader assistant output is routed to a quest thread", () => {
     const session = makeSession();
     session.state.isOrchestrator = true;

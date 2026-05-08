@@ -1334,6 +1334,12 @@ export function getGenerationLifecycleDeps(host: any) {
         activeTurnRoute: status === "running" ? deriveActiveTurnRouteBrowserTransportController(session) : null,
       });
     },
+    broadcastSessionUpdate: (session: Session, update: Record<string, unknown>) => {
+      host.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: update,
+      });
+    },
     persistSession: (session: Session) => host.persistSession(session),
     onSessionActivityStateChanged: (sessionId: string, reason: string) =>
       host.onSessionActivityStateChanged(sessionId, reason),

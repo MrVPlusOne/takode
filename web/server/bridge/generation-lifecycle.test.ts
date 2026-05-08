@@ -173,6 +173,52 @@ describe("setGenerating(false) — queued turn handling", () => {
     expect(session.userMessageIdsThisTurn).toEqual([]);
   });
 
+  it("clears leader thread statuses when a new generation starts", () => {
+    const broadcastSessionUpdate = vi.fn();
+    session.state.leaderThreadStatuses = {
+      "q-941": {
+        kind: "waiting",
+        label: "Thread Waiting",
+        threadKey: "q-941",
+        questId: "q-941",
+        summary: "waiting on review",
+        messageId: "a1",
+        timestamp: 10,
+        updatedAt: 10,
+      },
+    };
+    deps = makeDeps({ broadcastSessionUpdate });
+    deps.sessions.set(session.id, session);
+
+    setGenerating(deps, session, true, "initial");
+
+    expect(session.state.leaderThreadStatuses).toEqual({});
+    expect(broadcastSessionUpdate).toHaveBeenCalledWith(session, { leaderThreadStatuses: {} });
+  });
+
+  it("clears leader thread statuses when a queued turn is promoted", () => {
+    const broadcastSessionUpdate = vi.fn();
+    setupWithQueuedTurns(session, deps, 1);
+    session.state.leaderThreadStatuses = {
+      main: {
+        kind: "ready",
+        label: "Thread Ready",
+        threadKey: "main",
+        summary: "ready for review",
+        messageId: "a1",
+        timestamp: 10,
+        updatedAt: 10,
+      },
+    };
+    deps.broadcastSessionUpdate = broadcastSessionUpdate;
+
+    setGenerating(deps, session, false, "result");
+
+    expect(session.isGenerating).toBe(true);
+    expect(session.state.leaderThreadStatuses).toEqual({});
+    expect(broadcastSessionUpdate).toHaveBeenCalledWith(session, { leaderThreadStatuses: {} });
+  });
+
   it("drains ALL queued turns on 'stuck_auto_recovery' reason", () => {
     setupWithQueuedTurns(session, deps, 3);
 

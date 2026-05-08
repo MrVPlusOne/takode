@@ -4,11 +4,15 @@ import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 
 type LeaderThreadOutcomeSession = {
   id: string;
   messageHistory: BrowserIncomingMessage[];
   notifications?: SessionNotification[];
+  state?: {
+    leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
+  };
   leaderThreadOutcomeValidatedHistoryLength?: number;
 };
 
@@ -56,7 +60,9 @@ export function validateLeaderThreadOutcomes(
   const touchedThreads = collectTouchedLeaderThreads(history, startIndex);
   session.leaderThreadOutcomeValidatedHistoryLength = history.length;
 
-  const missing = touchedThreads.filter((thread) => !hasFreshOutcomeMarker(thread, session.notifications ?? []));
+  const missing = touchedThreads.filter(
+    (thread) => !hasFreshOutcomeMarker(thread, session.notifications ?? [], session.state?.leaderThreadStatuses),
+  );
   if (missing.length === 0) {
     deps.persistSession?.(session);
     return { checked: true, missing: [], injected: false };
@@ -132,7 +138,14 @@ function getHistoryTimestamp(entry: BrowserIncomingMessage): number {
   return typeof timestamp === "number" && Number.isFinite(timestamp) ? timestamp : 0;
 }
 
-function hasFreshOutcomeMarker(thread: TouchedThread, notifications: SessionNotification[]): boolean {
+function hasFreshOutcomeMarker(
+  thread: TouchedThread,
+  notifications: SessionNotification[],
+  threadStatuses?: Record<string, LeaderThreadStatus>,
+): boolean {
+  const status = threadStatuses?.[thread.key];
+  if (status && status.timestamp >= thread.earliestTimestamp) return true;
+
   return notifications.some((notification) => {
     if (!sameThread(thread, notification)) return false;
     if (notification.timestamp < thread.earliestTimestamp) return false;
@@ -156,7 +169,7 @@ function buildReminderContent(missing: TouchedThread[]): string {
   return [
     "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
     `Missing outcome marker for: ${labels}.`,
-    'Use `takode notify needs-input "..."` only for user-blocking prompts, `takode notify waiting "..."` for non-attention waiting/WIP, or `takode notify review "..."` or quest completion when done.',
+    'Use `takode notify needs-input "..."` only for user-blocking prompts. For non-blocking thread status, add a standalone `{[(Thread Waiting: thread | summary)]}` or `{[(Thread Ready: thread | summary)]}` line to your assistant response.',
   ].join("\n");
 }
 

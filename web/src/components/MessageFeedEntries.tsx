@@ -2,6 +2,8 @@ import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "reac
 import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, ContentBlock, ThreadAttachmentMarker, ThreadTransitionMarker } from "../types.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
+import { threadStatusKey } from "../../shared/thread-status-marker.js";
 import { isSubagentToolName } from "../types.js";
 import {
   isUserBoundaryEntry,
@@ -35,9 +37,11 @@ import { YarnBallDot, YarnBallSpinner } from "./CatIcons.js";
 import { PawTrailAvatar, HidePawContext } from "./PawTrail.js";
 import {
   formatThreadAttachmentMarkerDetail,
+  isAllThreadsKey,
   isCrossThreadActivityMarkerMessage,
   isThreadAttachmentMarkerMessage,
   isThreadTransitionMarkerMessage,
+  normalizeThreadKey,
 } from "../utils/thread-projection.js";
 import { AttentionLedgerRow } from "./AttentionLedgerRow.js";
 import { isAttentionLedgerMessage } from "../utils/attention-records.js";
@@ -245,6 +249,84 @@ function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
     isThreadAttachmentMarkerMessage(message) ||
     isThreadTransitionMarkerMessage(message) ||
     isCrossThreadActivityMarkerMessage(message)
+  );
+}
+
+function visibleThreadStatusesForMessage(
+  message: ChatMessage,
+  currentStatuses: Record<string, LeaderThreadStatus> | undefined,
+  currentThreadKey: string | undefined,
+): LeaderThreadStatus[] {
+  const markers = message.metadata?.threadStatusMarkers;
+  if (!markers?.length || !currentStatuses) return [];
+  const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
+  const allThreads = isAllThreadsKey(normalizedCurrentThread);
+  const visible: LeaderThreadStatus[] = [];
+  for (const marker of markers) {
+    const key = threadStatusKey(marker.threadKey);
+    if (!allThreads && key !== normalizedCurrentThread) continue;
+    const current = currentStatuses[key];
+    if (!current) continue;
+    if (current.messageId !== marker.messageId) continue;
+    if (current.kind !== marker.kind || current.summary !== marker.summary) continue;
+    visible.push(current);
+  }
+  return visible;
+}
+
+function ThreadStatusChipRow({
+  statuses,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  statuses: LeaderThreadStatus[];
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  if (statuses.length === 0) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-1.5 pl-9" aria-label="Thread status updates">
+      {statuses.map((status) => {
+        const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
+        const selectable =
+          !!onSelectThread && !isAllThreadsKey(normalizedCurrentThread) && status.threadKey !== normalizedCurrentThread;
+        const label = status.threadKey === "main" ? "Main" : `thread:${status.threadKey}`;
+        const content = (
+          <>
+            <span
+              className={`h-1.5 w-1.5 rounded-full ${status.kind === "ready" ? "bg-green-400/70" : "bg-amber-300/70"}`}
+              aria-hidden="true"
+            />
+            <span className="font-medium text-cc-fg/75">{status.label}</span>
+            <span className="text-cc-muted/60">{label}</span>
+            <span className="max-w-[min(30rem,70vw)] truncate text-cc-muted/80">{status.summary}</span>
+          </>
+        );
+        const className =
+          "inline-flex max-w-full items-center gap-1.5 rounded-full border border-cc-border/60 bg-cc-card/70 px-2.5 py-1 text-[11px] leading-none shadow-[0_8px_20px_rgba(0,0,0,0.18)]";
+        return selectable ? (
+          <button
+            key={`${status.threadKey}:${status.messageId}:${status.kind}`}
+            type="button"
+            className={`${className} cursor-pointer hover:bg-cc-hover/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50`}
+            onClick={() => onSelectThread?.(status.threadKey)}
+            title={`Open ${label}`}
+            aria-label={`${status.label} for ${label}: ${status.summary}. Open thread.`}
+          >
+            {content}
+          </button>
+        ) : (
+          <div
+            key={`${status.threadKey}:${status.messageId}:${status.kind}`}
+            className={className}
+            role="status"
+            aria-label={`${status.label} for ${label}: ${status.summary}`}
+          >
+            {content}
+          </div>
+        );
+      })}
+    </div>
   );
 }
 
@@ -734,6 +816,7 @@ export const FeedEntries = memo(function FeedEntries({
   onSelectThread?: (threadKey: string) => void;
   suppressThreadSystemMarkers?: boolean;
 }) {
+  const currentThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
   const rendered = useMemo(() => {
     const result: React.ReactNode[] = [];
     let i = 0;
@@ -838,7 +921,8 @@ export const FeedEntries = memo(function FeedEntries({
           />,
         );
       } else if (isTimedChatMessage(entry.msg)) {
-        if (isEmptyAssistantMessage(entry.msg)) {
+        const threadStatuses = visibleThreadStatusesForMessage(entry.msg, currentThreadStatuses, currentThreadKey);
+        if (isEmptyAssistantMessage(entry.msg) && threadStatuses.length === 0) {
           i++;
           continue;
         }
@@ -852,16 +936,24 @@ export const FeedEntries = memo(function FeedEntries({
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
             {markerLabel && <MinuteBoundaryTimestamp timestamp={entry.msg.timestamp} label={markerLabel} />}
-            <MessageBubble
-              message={entry.msg}
-              sessionId={sessionId}
-              showTimestamp={showTimestamp}
+            {!isEmptyAssistantMessage(entry.msg) && (
+              <MessageBubble
+                message={entry.msg}
+                sessionId={sessionId}
+                showTimestamp={showTimestamp}
+                currentThreadKey={currentThreadKey}
+                onSelectThread={onSelectThread}
+              />
+            )}
+            <ThreadStatusChipRow
+              statuses={threadStatuses}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
             />
           </div>,
         );
       } else {
+        const threadStatuses = visibleThreadStatusesForMessage(entry.msg, currentThreadStatuses, currentThreadKey);
         result.push(
           <div
             key={entry.msg.id}
@@ -869,9 +961,16 @@ export const FeedEntries = memo(function FeedEntries({
             data-message-role={entry.msg.role}
             data-feed-block-id={getMessageFeedBlockId(entry.msg.id)}
           >
-            <MessageBubble
-              message={entry.msg}
-              sessionId={sessionId}
+            {!isEmptyAssistantMessage(entry.msg) && (
+              <MessageBubble
+                message={entry.msg}
+                sessionId={sessionId}
+                currentThreadKey={currentThreadKey}
+                onSelectThread={onSelectThread}
+              />
+            )}
+            <ThreadStatusChipRow
+              statuses={threadStatuses}
               currentThreadKey={currentThreadKey}
               onSelectThread={onSelectThread}
             />
@@ -886,6 +985,7 @@ export const FeedEntries = memo(function FeedEntries({
     entries,
     isCodexSession,
     currentThreadKey,
+    currentThreadStatuses,
     minuteBoundaryLabels,
     onOpenCodexTerminal,
     onSelectThread,

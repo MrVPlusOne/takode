@@ -951,7 +951,7 @@ export function PlaygroundThreadOutcomeReminderMessage() {
     content: [
       "Thread outcome reminder: mark every touched leader thread with a fresh outcome before idling.",
       "Missing outcome marker for: Main.",
-      'Use `takode notify needs-input "..."` only for user-blocking prompts, `takode notify waiting "..."` for non-attention waiting/WIP, or `takode notify review "..."` or quest completion when done.',
+      'Use `takode notify needs-input "..."` only for user-blocking prompts. For non-blocking thread status, add a standalone `{[(Thread Waiting: thread | summary)]}` or `{[(Thread Ready: thread | summary)]}` line to your assistant response.',
     ].join("\n"),
     timestamp: Date.now() - 16_000,
     agentSource: {

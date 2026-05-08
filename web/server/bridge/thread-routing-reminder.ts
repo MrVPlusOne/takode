@@ -9,6 +9,12 @@ import {
   parseThreadTextPrefix,
   stripCommandThreadComment,
 } from "../../shared/thread-routing.js";
+import {
+  extractThreadStatusMarkersFromText,
+  threadStatusKey,
+  type LeaderThreadStatus,
+  type ParsedThreadStatusMarker,
+} from "../../shared/thread-status-marker.js";
 import { routeFromHistoryEntry, threadRouteForTarget, type ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import { extractQuestThreadRemindersFromContent } from "./quest-thread-reminder.js";
 
@@ -22,6 +28,7 @@ export interface LeaderAssistantRouteResult {
   threadRefs?: ThreadRef[];
   threadRoutingError?: ThreadRoutingError;
   questThreadReminders?: string[];
+  threadStatusMarkers?: ParsedThreadStatusMarker[];
 }
 
 export interface ThreadRoutingReminderInjection {
@@ -38,6 +45,12 @@ export interface ThreadRoutingReminderSessionLike {
   userMessageIdsThisTurn?: number[];
 }
 
+export interface LeaderThreadStatusSessionLike {
+  state: {
+    leaderThreadStatuses?: Record<string, LeaderThreadStatus>;
+  };
+}
+
 function threadRefForTarget(target: { threadKey: string; questId?: string }): ThreadRef | undefined {
   if (target.threadKey === "main") return undefined;
   return {
@@ -46,6 +59,44 @@ function threadRefForTarget(target: { threadKey: string; questId?: string }): Th
     source: "explicit",
     attachedAt: Date.now(),
   };
+}
+
+function mergeThreadRefs(
+  existing: ThreadRef[] | undefined,
+  markers: ParsedThreadStatusMarker[] | undefined,
+): ThreadRef[] | undefined {
+  const refs = new Map<string, ThreadRef>();
+  for (const ref of existing ?? []) {
+    refs.set(threadStatusKey(ref.threadKey), ref);
+  }
+  for (const marker of markers ?? []) {
+    const ref = threadRefForTarget(marker.target);
+    if (!ref) continue;
+    refs.set(threadStatusKey(ref.threadKey), ref);
+  }
+  return refs.size > 0 ? [...refs.values()] : undefined;
+}
+
+export function extractLeaderThreadStatusMarkersFromContent(content: ContentBlock[]): {
+  content: ContentBlock[];
+  markers: ParsedThreadStatusMarker[];
+} {
+  const markers: ParsedThreadStatusMarker[] = [];
+  const nextContent: ContentBlock[] = [];
+
+  for (const block of content) {
+    if (block.type !== "text") {
+      nextContent.push(block);
+      continue;
+    }
+    const extracted = extractThreadStatusMarkersFromText(block.text);
+    markers.push(...extracted.markers);
+    if (extracted.text.trim()) {
+      nextContent.push({ ...block, text: extracted.text });
+    }
+  }
+
+  return { content: nextContent, markers };
 }
 
 function threadRoutingErrorForText(
@@ -76,8 +127,11 @@ export function normalizeLeaderAssistantRouting(
   if (!isLeaderSession || parentToolUseId) return { content };
 
   const extracted = extractQuestThreadRemindersFromContent(content);
+  const statusExtracted = extractLeaderThreadStatusMarkersFromContent(extracted.content);
   const questThreadReminders = extracted.reminders.length > 0 ? { questThreadReminders: extracted.reminders } : {};
-  const nextContent = extracted.content.map((block) =>
+  const threadStatusMarkers =
+    statusExtracted.markers.length > 0 ? { threadStatusMarkers: statusExtracted.markers } : {};
+  const nextContent = statusExtracted.content.map((block) =>
     block.type === "tool_use" && block.name === "Bash" && typeof block.input?.command === "string"
       ? {
           ...block,
@@ -94,25 +148,30 @@ export function normalizeLeaderAssistantRouting(
     const firstText = nextContent[firstTextIndex] as Extract<ContentBlock, { type: "text" }>;
     const parsed = parseThreadTextPrefix(firstText.text);
     if (!parsed.ok) {
+      const refs = mergeThreadRefs(undefined, statusExtracted.markers);
       return {
         content: nextContent,
+        ...(refs ? { threadRefs: refs } : {}),
         threadRoutingError: threadRoutingErrorForText(parsed, content),
         ...questThreadReminders,
+        ...threadStatusMarkers,
       };
     }
     const routed = nextContent.slice();
     routed[firstTextIndex] = { ...firstText, text: parsed.body };
     const ref = threadRefForTarget(parsed.target);
+    const refs = mergeThreadRefs(ref ? [ref] : undefined, statusExtracted.markers);
     return {
       content: routed,
       threadKey: parsed.target.threadKey,
       ...(parsed.target.questId ? { questId: parsed.target.questId } : {}),
-      ...(ref ? { threadRefs: [ref] } : {}),
+      ...(refs ? { threadRefs: refs } : {}),
       ...questThreadReminders,
+      ...threadStatusMarkers,
     };
   }
 
-  const bashBlocks = extracted.content.filter(
+  const bashBlocks = statusExtracted.content.filter(
     (block): block is Extract<ContentBlock, { type: "tool_use" }> =>
       block.type === "tool_use" && block.name === "Bash" && typeof block.input?.command === "string",
   );
@@ -123,19 +182,63 @@ export function normalizeLeaderAssistantRouting(
         content: nextContent,
         threadRoutingError: threadRoutingErrorForCommand(String(bashBlocks[0].input.command)),
         ...questThreadReminders,
+        ...threadStatusMarkers,
       };
     }
     const ref = threadRefForTarget(target);
+    const refs = mergeThreadRefs(ref ? [ref] : undefined, statusExtracted.markers);
     return {
       content: nextContent,
       threadKey: target.threadKey,
       ...(target.questId ? { questId: target.questId } : {}),
-      ...(ref ? { threadRefs: [ref] } : {}),
+      ...(refs ? { threadRefs: refs } : {}),
       ...questThreadReminders,
+      ...threadStatusMarkers,
     };
   }
 
-  return { content: nextContent, ...questThreadReminders };
+  const refs = mergeThreadRefs(undefined, statusExtracted.markers);
+  return {
+    content: nextContent,
+    ...(refs ? { threadRefs: refs } : {}),
+    ...questThreadReminders,
+    ...threadStatusMarkers,
+  };
+}
+
+export function recordLeaderThreadStatusMarkers(
+  session: LeaderThreadStatusSessionLike,
+  markers: ParsedThreadStatusMarker[] | undefined,
+  anchor: { messageId: string; timestamp: number },
+): LeaderThreadStatus[] {
+  if (!markers?.length) return [];
+
+  const statuses = { ...(session.state.leaderThreadStatuses ?? {}) };
+  const records: LeaderThreadStatus[] = [];
+  for (const marker of markers) {
+    const key = threadStatusKey(marker.target.threadKey);
+    const record: LeaderThreadStatus = {
+      kind: marker.kind,
+      label: marker.label,
+      threadKey: marker.target.threadKey,
+      ...(marker.target.questId ? { questId: marker.target.questId } : {}),
+      summary: marker.summary,
+      messageId: anchor.messageId,
+      timestamp: anchor.timestamp,
+      updatedAt: Date.now(),
+    };
+    statuses[key] = record;
+    records.push(record);
+  }
+  session.state.leaderThreadStatuses = statuses;
+  return records;
+}
+
+export function clearLeaderThreadStatusesForGenerationStart(session: LeaderThreadStatusSessionLike): boolean {
+  const existing = session.state.leaderThreadStatuses;
+  if (!existing || Object.keys(existing).length === 0) return false;
+  session.state.leaderThreadStatuses = {};
+  return true;
 }
 
 function findTriggeringTurnRoute(session: ThreadRoutingReminderSessionLike): ThreadRouteMetadata {

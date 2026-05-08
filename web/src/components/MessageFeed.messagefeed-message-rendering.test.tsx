@@ -531,6 +531,87 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByText("After empty row")).toBeTruthy();
   });
 
+  it("renders marker-only thread status messages as compact chips without raw marker text", () => {
+    const sid = "test-thread-status-chip";
+    const status = {
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "q-941",
+      questId: "q-941",
+      summary: "waiting on reviewer pass",
+      messageId: "status-a1",
+      timestamp: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { "q-941": status } });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "status-a1",
+        role: "assistant",
+        content: "",
+        metadata: {
+          threadStatusMarkers: [status],
+          threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+        },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+
+    expect(screen.getByLabelText("Thread Waiting for thread:q-941: waiting on reviewer pass")).toBeTruthy();
+    expect(screen.queryByText(/\{\[\(Thread Waiting:/)).toBeNull();
+  });
+
+  it("renders only the current thread status at its latest anchor", () => {
+    const sid = "test-thread-status-latest-anchor";
+    const oldStatus = {
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "q-941",
+      questId: "q-941",
+      summary: "waiting on reviewer pass",
+      messageId: "status-old",
+      timestamp: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    };
+    const currentStatus = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "q-941",
+      questId: "q-941",
+      summary: "review accepted",
+      messageId: "status-new",
+      timestamp: 1_700_000_010_000,
+      updatedAt: 1_700_000_010_000,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { "q-941": currentStatus } });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "status-old",
+        role: "assistant",
+        content: "",
+        metadata: {
+          threadStatusMarkers: [oldStatus],
+          threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+        },
+      }),
+      makeMessage({
+        id: "status-new",
+        role: "assistant",
+        content: "",
+        metadata: {
+          threadStatusMarkers: [currentStatus],
+          threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+        },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+
+    expect(screen.queryByLabelText("Thread Waiting for thread:q-941: waiting on reviewer pass")).toBeNull();
+    expect(screen.getByLabelText("Thread Ready for thread:q-941: review accepted")).toBeTruthy();
+  });
+
   it("renders system messages in the feed", () => {
     const sid = "test-system-msg";
     setStoreMessages(sid, [

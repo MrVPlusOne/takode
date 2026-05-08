@@ -1,6 +1,7 @@
 import { useEffect } from "react";
 import { useStore } from "../../store.js";
 import type { SessionState } from "../../types.js";
+import type { LeaderThreadStatus } from "../../../shared/thread-status-marker.js";
 import {
   THREAD_ROUTING_REMINDER_SOURCE_ID,
   THREAD_ROUTING_REMINDER_SOURCE_LABEL,
@@ -222,6 +223,27 @@ export function usePlaygroundSeed() {
     store.setSessionStatus(PLAYGROUND_LOADING_SESSION_ID, "idle");
     store.setHistoryLoading(PLAYGROUND_LOADING_SESSION_ID, true);
 
+    const threadStatusTimestamp = Date.now() - 72_000;
+    const playgroundWaitingStatus: LeaderThreadStatus = {
+      kind: "waiting",
+      label: "Thread Waiting",
+      threadKey: "q-962",
+      questId: "q-962",
+      summary: "waiting for q-961 to finish",
+      messageId: "playground-thread-status-batch",
+      timestamp: threadStatusTimestamp,
+      updatedAt: threadStatusTimestamp,
+    };
+    const playgroundReadyStatus: LeaderThreadStatus = {
+      kind: "ready",
+      label: "Thread Ready",
+      threadKey: "q-963",
+      questId: "q-963",
+      summary: "dispatch plan is ready",
+      messageId: "playground-thread-status-batch",
+      timestamp: threadStatusTimestamp,
+      updatedAt: threadStatusTimestamp,
+    };
     const threadPanelSession: SessionState = {
       ...session,
       session_id: PLAYGROUND_THREAD_PANEL_SESSION_ID,
@@ -230,6 +252,10 @@ export function usePlaygroundSeed() {
       cwd: "/Users/stan/Dev/takode/thread-panel",
       is_containerized: false,
       isOrchestrator: true,
+      leaderThreadStatuses: {
+        "q-962": playgroundWaitingStatus,
+        "q-963": playgroundReadyStatus,
+      },
     };
     store.addSession(threadPanelSession);
     store.setConnectionStatus(PLAYGROUND_THREAD_PANEL_SESSION_ID, "connected");
@@ -334,11 +360,25 @@ export function usePlaygroundSeed() {
         metadata: { threadRefs: [{ threadKey: "q-963", questId: "q-963", source: "explicit" }] },
       }),
       makePlaygroundMessage({
+        id: "playground-thread-status-batch",
+        role: "assistant",
+        content: "",
+        timestamp: threadStatusTimestamp,
+        historyIndex: 8,
+        metadata: {
+          threadRefs: [
+            { threadKey: "q-962", questId: "q-962", source: "explicit" },
+            { threadKey: "q-963", questId: "q-963", source: "explicit" },
+          ],
+          threadStatusMarkers: [playgroundWaitingStatus, playgroundReadyStatus],
+        },
+      }),
+      makePlaygroundMessage({
         id: "playground-thread-q964",
         role: "assistant",
         content: "Completed Journey is ready for review without active phase cues.",
         timestamp: Date.now() - 30_000,
-        historyIndex: 8,
+        historyIndex: 9,
         metadata: { threadRefs: [{ threadKey: "q-964", questId: "q-964", source: "explicit" }] },
       }),
       makePlaygroundMessage({
@@ -347,7 +387,7 @@ export function usePlaygroundSeed() {
         content:
           "Approval plan for q-965: run the focused worker, then hold at Code Review for the thumbnail evidence.",
         timestamp: Date.now() - 20_000,
-        historyIndex: 9,
+        historyIndex: 10,
       }),
     ]);
     store.setSessionNotifications(PLAYGROUND_THREAD_PANEL_SESSION_ID, [

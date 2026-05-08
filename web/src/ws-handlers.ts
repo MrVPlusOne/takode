@@ -1456,6 +1456,7 @@ function handleParsedMessage(
         });
       }
       store.setSessionAttentionRecords(sessionId, data.attentionRecords ?? []);
+      store.updateSession(sessionId, { leaderThreadStatuses: data.leaderThreadStatuses ?? {} });
       break;
     }
 

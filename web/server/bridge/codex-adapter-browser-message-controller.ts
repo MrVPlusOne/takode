@@ -9,7 +9,7 @@ import type {
   ThreadRef,
 } from "../session-types.js";
 import { sessionTag } from "../session-tag.js";
-import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
+import { normalizeLeaderAssistantRouting, recordLeaderThreadStatusMarkers } from "./thread-routing-reminder.js";
 import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
 import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
 import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
@@ -339,13 +339,21 @@ export async function handleCodexAdapterBrowserMessage(
     if (routed.questThreadReminders?.length) {
       queueQuestThreadRemindersForCompletedTurn(session, routed.questThreadReminders, activeRouteFromAssistant);
     }
+    const timestamp = Date.now();
+    const resolvedMessageId = msg.message.id ?? msg.uuid ?? `assistant-${timestamp}-${session.messageHistory.length}`;
+    const threadStatusRecords = recordLeaderThreadStatusMarkers(session, routed.threadStatusMarkers, {
+      messageId: resolvedMessageId,
+      timestamp,
+    });
     const routedMsg = {
       ...msg,
-      message: { ...msg.message, content: routed.content },
+      message: { ...msg.message, id: resolvedMessageId, content: routed.content },
+      timestamp,
       ...(routed.threadKey ? { threadKey: routed.threadKey } : {}),
       ...(routed.questId ? { questId: routed.questId } : {}),
       ...(routed.threadRefs ? { threadRefs: routed.threadRefs } : {}),
       ...(routed.threadRoutingError ? { threadRoutingError: routed.threadRoutingError } : {}),
+      ...(threadStatusRecords.length > 0 ? { threadStatusMarkers: threadStatusRecords } : {}),
     };
     msg = routedMsg;
     outgoing = routedMsg;
@@ -423,6 +431,12 @@ export async function handleCodexAdapterBrowserMessage(
     if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(outgoing);
     deps.persistSession(session);
+    if (outgoing.threadStatusMarkers?.length) {
+      deps.broadcastToBrowsers(session, {
+        type: "session_update",
+        session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
+      } as BrowserIncomingMessage);
+    }
   } else if (outgoing?.type === "result") {
     if (await maybeRecycleCodexLeaderForContextWindowExhaustion(session, outgoing, deps)) {
       return;

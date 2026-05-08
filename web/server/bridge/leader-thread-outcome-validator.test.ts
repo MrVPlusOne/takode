@@ -3,6 +3,7 @@ import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
   THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
 } from "../../shared/thread-outcome-reminder.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { BrowserIncomingMessage, SessionNotification } from "../session-types.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import { validateLeaderThreadOutcomes, type LeaderThreadOutcomeTurnSource } from "./leader-thread-outcome-validator.js";
@@ -43,6 +44,29 @@ function assistantMessage({
           threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }],
         }
       : {}),
+  };
+}
+
+function threadStatus({
+  kind,
+  timestamp,
+  threadKey = "main",
+  messageId = `a-${timestamp}`,
+}: {
+  kind: LeaderThreadStatus["kind"];
+  timestamp: number;
+  threadKey?: string;
+  messageId?: string;
+}): LeaderThreadStatus {
+  return {
+    kind,
+    label: kind === "waiting" ? "Thread Waiting" : "Thread Ready",
+    threadKey,
+    ...(threadKey !== "main" ? { questId: threadKey } : {}),
+    summary: kind === "waiting" ? "waiting on reviewer" : "ready for review",
+    messageId,
+    timestamp,
+    updatedAt: timestamp,
   };
 }
 
@@ -144,6 +168,56 @@ describe("validateLeaderThreadOutcomes", () => {
     expect(result).toEqual({ checked: true, missing: [], injected: false });
     expect(deps.injectUserMessage).not.toHaveBeenCalled();
     expect(session.leaderThreadOutcomeValidatedHistoryLength).toBe(1);
+  });
+
+  it("accepts a fresh inline Thread Waiting marker from server status state", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [assistantMessage({ id: "a1", text: "Waiting on reviewer", timestamp: 20, threadKey: "q-42" })],
+      notifications: [],
+      state: { leaderThreadStatuses: { "q-42": threadStatus({ kind: "waiting", timestamp: 25, threadKey: "q-42" }) } },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    const result = validateLeaderThreadOutcomes(session, deps);
+
+    expect(result).toEqual({ checked: true, missing: [], injected: false });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("accepts a fresh inline Thread Ready marker from server status state", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [assistantMessage({ id: "a1", text: "Review complete", timestamp: 20, threadKey: "q-42" })],
+      notifications: [],
+      state: { leaderThreadStatuses: { "q-42": threadStatus({ kind: "ready", timestamp: 25, threadKey: "q-42" }) } },
+      leaderThreadOutcomeValidatedHistoryLength: 0,
+    };
+    const deps = makeDeps();
+
+    const result = validateLeaderThreadOutcomes(session, deps);
+
+    expect(result).toEqual({ checked: true, missing: [], injected: false });
+    expect(deps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
+  it("rejects stale inline status markers when leader output is newer", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [
+        assistantMessage({ id: "a1", text: "Old update", timestamp: 20, threadKey: "q-42" }),
+        assistantMessage({ id: "a2", text: "New update without outcome", timestamp: 40, threadKey: "q-42" }),
+      ],
+      notifications: [],
+      state: { leaderThreadStatuses: { "q-42": threadStatus({ kind: "ready", timestamp: 30, threadKey: "q-42" }) } },
+      leaderThreadOutcomeValidatedHistoryLength: 1,
+    };
+    const deps = makeDeps();
+
+    const result = validateLeaderThreadOutcomes(session, deps);
+
+    expect(result).toEqual({ checked: true, missing: ["q-42"], injected: true });
   });
 
   it("rejects stale same-thread markers when leader output is newer", () => {

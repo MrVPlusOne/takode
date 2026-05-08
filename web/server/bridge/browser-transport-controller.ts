@@ -891,6 +891,7 @@ export function sendStateSnapshot(
     rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
     notifications: session.notifications,
     attentionRecords: session.attentionRecords,
+    leaderThreadStatuses: session.state.leaderThreadStatuses ?? {},
     notificationStatusVersion: session.notificationStatusVersion,
     notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
   } as BrowserIncomingMessage);

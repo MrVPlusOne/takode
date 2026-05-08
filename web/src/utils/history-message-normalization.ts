@@ -13,6 +13,14 @@ interface NormalizeHistoryMessageOptions {
   pendingLocalImagesByClientMsgId?: Map<string, Array<{ name: string; base64: string; mediaType: string }>>;
 }
 
+type ExistingThreadMetadataSource = {
+  threadRefs?: NonNullable<ChatMessage["metadata"]>["threadRefs"];
+  threadKey?: string;
+  questId?: string;
+  threadRoutingError?: NonNullable<ChatMessage["metadata"]>["threadRoutingError"];
+  threadStatusMarkers?: NonNullable<ChatMessage["metadata"]>["threadStatusMarkers"];
+};
+
 export function extractTextFromBlocks(blocks: ContentBlock[]): string {
   return blocks
     .map((block) => {
@@ -117,15 +125,16 @@ function repairThreadPrefixInContentBlocks(blocks: ContentBlock[]): {
   return { blocks: next, metadata: threadRefForRepairedTarget(target) };
 }
 
-function existingThreadMetadataFromMessage(
-  msg: Pick<BrowserIncomingMessage, "threadRefs" | "threadKey" | "questId" | "threadRoutingError">,
-): ChatMessage["metadata"] | undefined {
-  if (!msg.threadRefs && !msg.threadKey && !msg.questId && !msg.threadRoutingError) return undefined;
+function existingThreadMetadataFromMessage(msg: ExistingThreadMetadataSource): ChatMessage["metadata"] | undefined {
+  if (!msg.threadRefs && !msg.threadKey && !msg.questId && !msg.threadRoutingError && !msg.threadStatusMarkers) {
+    return undefined;
+  }
   return {
     ...(msg.threadRefs ? { threadRefs: msg.threadRefs } : {}),
     ...(msg.threadKey ? { threadKey: msg.threadKey } : {}),
     ...(msg.questId ? { questId: msg.questId } : {}),
     ...(msg.threadRoutingError ? { threadRoutingError: msg.threadRoutingError } : {}),
+    ...(msg.threadStatusMarkers ? { threadStatusMarkers: msg.threadStatusMarkers } : {}),
   };
 }
 
