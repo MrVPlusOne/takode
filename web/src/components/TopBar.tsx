@@ -1,6 +1,6 @@
 import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useStore, countUserPermissions, getSessionSearchState } from "../store.js";
+import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { parseHash } from "../utils/routing.js";
@@ -12,6 +12,12 @@ import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
+
+interface TopBarProps {
+  universalSearchOpen?: boolean;
+  onOpenUniversalSearch?: () => void;
+  onCloseUniversalSearch?: () => void;
+}
 
 function countScopedChangedFiles(state: TopBarState, sessionId: string, sessionVm: SessionViewModel | null): number {
   const files = state.changedFiles.get(sessionId);
@@ -79,7 +85,11 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
   };
 }
 
-export function TopBar() {
+export function TopBar({
+  universalSearchOpen = false,
+  onOpenUniversalSearch = () => {},
+  onCloseUniversalSearch = () => {},
+}: TopBarProps = {}) {
   const hash = useSyncExternalStore(
     (cb) => {
       window.addEventListener("hashchange", cb);
@@ -269,16 +279,17 @@ export function TopBar() {
       {/* Right side */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-[12px] text-cc-muted">
         <GlobalNeedsInputMenu />
+        <SearchToggleButton
+          isOpen={universalSearchOpen}
+          onOpen={onOpenUniversalSearch}
+          onClose={onCloseUniversalSearch}
+        />
         {currentSessionId && isSessionView && (
           <>
             {status === "compacting" && (
               <span className="text-cc-warning font-medium animate-pulse">Compacting...</span>
             )}
             {status === "reverting" && <span className="text-cc-warning font-medium animate-pulse">Reverting...</span>}
-
-            {/* Search toggle */}
-            <SearchToggleButton sessionId={currentSessionId} />
-
             {/* Diffs toggle */}
             <button
               onClick={() => setActiveTab(activeTab === "diff" ? "chat" : "diff")}
@@ -329,24 +340,17 @@ export function TopBar() {
   );
 }
 
-function SearchToggleButton({ sessionId }: { sessionId: string }) {
-  const { isOpen, openSearch, closeSearch } = useStore(
-    useShallow((s) => ({
-      isOpen: getSessionSearchState(s, sessionId).isOpen,
-      openSearch: s.openSessionSearch,
-      closeSearch: s.closeSessionSearch,
-    })),
-  );
+function SearchToggleButton({ isOpen, onOpen, onClose }: { isOpen: boolean; onOpen: () => void; onClose: () => void }) {
   const shortcutSettings = useStore((s) => s.shortcutSettings);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
   return (
     <button
-      onClick={() => (isOpen ? closeSearch(sessionId) : openSearch(sessionId))}
+      onClick={() => (isOpen ? onClose() : onOpen())}
       className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
         isOpen ? "text-cc-primary bg-cc-active" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
       }`}
-      title={getShortcutTitle("Search messages", shortcutSettings, "search_session", shortcutPlatform)}
+      title={getShortcutTitle("Universal Search", shortcutSettings, "search_session", shortcutPlatform)}
     >
       <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
         <path d="M11.742 10.344a6.5 6.5 0 10-1.397 1.398h-.001l3.85 3.85a1 1 0 001.415-1.414l-3.85-3.85-.017.016zm-5.442.156a5 5 0 110-10 5 5 0 010 10z" />

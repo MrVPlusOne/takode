@@ -106,6 +106,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "CLAUDE.md Editor",
     "Cat Theme Elements",
     "Session Search",
+    "Universal Search",
     "Folder Picker",
   ]),
 ];

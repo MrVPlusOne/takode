@@ -253,6 +253,17 @@ vi.mock("./components/QuestDetailPanel.js", () => ({
   QuestDetailPanel: () => null,
 }));
 
+vi.mock("./components/UniversalSearchOverlay.js", () => ({
+  UniversalSearchOverlay: ({ open, onClose }: { open: boolean; onClose: () => void }) =>
+    open ? (
+      <div role="dialog" aria-label="Universal Search" data-testid="universal-search-overlay">
+        <button type="button" onClick={onClose}>
+          Close
+        </button>
+      </div>
+    ) : null,
+}));
+
 vi.mock("./utils/vscode-context.js", () => ({
   announceVsCodeReady: vi.fn(),
   maybeReadVsCodeSelectionContext: vi.fn(() => undefined),
@@ -303,6 +314,19 @@ describe("App hidden panels", () => {
     fireEvent.keyDown(document, { key: "F", ctrlKey: true, shiftKey: true });
 
     expect(screen.queryByTestId("sidebar")).toBeNull();
+    expect(mockState.openSessionSearch).not.toHaveBeenCalled();
+    expect(screen.queryByTestId("universal-search-overlay")).toBeNull();
+  });
+
+  it("opens Universal Search from the existing configurable search shortcut", () => {
+    resetStore({
+      shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
+    });
+
+    render(<App />);
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+
+    expect(screen.getByTestId("universal-search-overlay")).toBeInTheDocument();
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
   });
 
@@ -655,6 +679,7 @@ describe("App hidden panels", () => {
       }),
     );
 
+    expect(screen.queryByTestId("universal-search-overlay")).toBeNull();
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
     input.remove();
   });

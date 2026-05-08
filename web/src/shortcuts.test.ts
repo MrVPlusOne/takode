@@ -292,6 +292,35 @@ describe("shortcuts", () => {
     expect(toggleSidebar).toHaveBeenCalledTimes(1);
   });
 
+  it("opens universal search without requiring a current session", () => {
+    const openSearch = vi.fn();
+    const navigateToSession = vi.fn();
+
+    const handled = performShortcutAction("search_session", {
+      route: { page: "questmaster" },
+      currentSessionId: null,
+      currentSessionCwd: null,
+      terminalCwd: null,
+      activeTab: "chat",
+      isSearchOpen: false,
+      sessions: [],
+      openSearch,
+      closeSearch: vi.fn(),
+      lastNewSessionContext: null,
+      openNewSessionModal: vi.fn(),
+      openTerminal: vi.fn(),
+      toggleSidebar: vi.fn(),
+      setActiveTab: vi.fn(),
+      navigateTo: vi.fn(),
+      navigateToSession,
+      navigateToMostRecentSession: vi.fn().mockReturnValue(false),
+    });
+
+    expect(handled).toBe(true);
+    expect(openSearch).toHaveBeenCalledTimes(1);
+    expect(navigateToSession).not.toHaveBeenCalled();
+  });
+
   it("marks only non-search app-wide actions as app-global shortcuts", () => {
     expect(isAppGlobalShortcutAction("open_terminal")).toBe(true);
     expect(isAppGlobalShortcutAction("previous_session")).toBe(true);

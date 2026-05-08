@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { useShallow } from "zustand/react/shallow";
-import { useStore, getSessionSearchState } from "./store.js";
+import { useStore } from "./store.js";
 import { connectSession, disconnectSession, sendVsCodeSelectionUpdate } from "./ws.js";
 import { api, checkHealth } from "./api.js";
 
 import {
   parseHash,
   navigateToSession,
+  navigateToSessionMessageId,
   navigateToMostRecentSession,
   messageIndexFromHash,
   threadRouteFromHash,
@@ -32,6 +33,7 @@ import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
 import { QuestmasterPage } from "./components/QuestmasterPage.js";
 import { QuestDetailPanel } from "./components/QuestDetailPanel.js";
+import { UniversalSearchOverlay } from "./components/UniversalSearchOverlay.js";
 import { isPendingId } from "./utils/pending-creation.js";
 import { isDesktopShellLayout, isDesktopTaskPanelLayout } from "./utils/layout.js";
 import { installAppViewportSizing } from "./utils/app-viewport.js";
@@ -59,6 +61,8 @@ type TakodeDebugWindow = Window &
     __TAKODE_SET_VSCODE_CONTEXT__?: (payload: VsCodeSelectionContextPayload | null) => void;
     __TAKODE_CLEAR_VSCODE_CONTEXT__?: () => void;
   };
+
+const EMPTY_MESSAGES: [] = [];
 
 function useHash() {
   return useSyncExternalStore(
@@ -156,11 +160,38 @@ export default function App() {
     [route, sdkSessions],
   );
   const displayedSessionId = searchPreviewSessionId ?? (route.page === "session" ? routeSessionId : currentSessionId);
+  const currentMessages = useStore((s) =>
+    currentSessionId ? (s.messages.get(currentSessionId) ?? EMPTY_MESSAGES) : EMPTY_MESSAGES,
+  );
   const isDesktopShell = isDesktopShellLayout(zoomLevel);
   const isDesktopTaskPanel = isDesktopTaskPanelLayout(zoomLevel);
   const chatSessionVisible =
     isSessionView && activeTab === "chat" && !!displayedSessionId && !isPendingId(displayedSessionId);
   const showServerUnreachableBanner = !serverReachable && !chatSessionVisible;
+  const [universalSearchOpen, setUniversalSearchOpen] = useState(false);
+  const openUniversalSearch = useCallback(() => setUniversalSearchOpen(true), []);
+  const closeUniversalSearch = useCallback(() => setUniversalSearchOpen(false), []);
+  const universalSearchThreadKey =
+    route.page === "session" && threadRoute.hasThreadParam ? (threadRoute.threadKey ?? "main") : null;
+
+  const handleOpenUniversalQuest = useCallback(
+    (questId: string, query: string) => {
+      useStore.getState().openQuestOverlay(questId, query || undefined);
+      if (route.page !== "questmaster") navigateTo("/questmaster");
+    },
+    [route.page],
+  );
+  const handleOpenUniversalSession = useCallback((sessionId: string, messageId?: string) => {
+    useStore.getState().setSearchPreviewSessionId(null);
+    if (messageId) {
+      navigateToSessionMessageId(sessionId, messageId);
+      return;
+    }
+    navigateToSession(sessionId);
+  }, []);
+  const handleOpenUniversalMessage = useCallback((sessionId: string, messageId: string, threadKey?: string | null) => {
+    navigateToSessionMessageId(sessionId, messageId, { threadKey: threadKey ?? undefined });
+  }, []);
 
   useEffect(() => {
     const el = document.documentElement;
@@ -309,10 +340,10 @@ export default function App() {
         currentSessionCwd: currentSession?.cwd ?? null,
         terminalCwd: state.terminalCwd,
         activeTab: state.activeTab,
-        isSearchOpen: currentSessionId ? getSessionSearchState(state, currentSessionId).isOpen : false,
+        isSearchOpen: universalSearchOpen,
         sessions: buildSidebarOrderedShortcutSessions(state),
-        openSearch: state.openSessionSearch,
-        closeSearch: state.closeSessionSearch,
+        openSearch: openUniversalSearch,
+        closeSearch: closeUniversalSearch,
         lastNewSessionContext: getLastSessionCreationContext(),
         openNewSessionModal: (context) => state.openNewSessionModal(context),
         openTerminal: state.openTerminal,
@@ -330,7 +361,7 @@ export default function App() {
 
     document.addEventListener("keydown", handleKeyDown, { capture: true });
     return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
-  }, [route, shortcutSettings]);
+  }, [closeUniversalSearch, openUniversalSearch, route, shortcutSettings, universalSearchOpen]);
 
   useEffect(() => {
     return installAppViewportSizing(window);
@@ -497,7 +528,11 @@ export default function App() {
 
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        <TopBar />
+        <TopBar
+          universalSearchOpen={universalSearchOpen}
+          onOpenUniversalSearch={openUniversalSearch}
+          onCloseUniversalSearch={closeUniversalSearch}
+        />
         <div className="flex-1 overflow-hidden relative">
           {/* Server unreachable banner — overlays content to avoid layout shift */}
           {showServerUnreachableBanner && (
@@ -590,6 +625,19 @@ export default function App() {
 
       {/* Global quest detail overlay */}
       <QuestDetailPanel />
+
+      <UniversalSearchOverlay
+        open={universalSearchOpen}
+        currentSessionId={currentSessionId}
+        currentThreadKey={universalSearchThreadKey}
+        sessions={sdkSessions}
+        messages={currentMessages}
+        leaderSessionId={currentSessionId ?? undefined}
+        onClose={closeUniversalSearch}
+        onOpenQuest={handleOpenUniversalQuest}
+        onOpenSession={handleOpenUniversalSession}
+        onOpenMessage={handleOpenUniversalMessage}
+      />
 
       {/* Task panel — overlay on mobile, inline on desktop */}
       {currentSessionId && isSessionView && !isPendingId(currentSessionId) && taskPanelOpen && (

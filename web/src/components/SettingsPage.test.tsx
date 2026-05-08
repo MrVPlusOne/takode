@@ -278,7 +278,7 @@ describe("SettingsPage", () => {
       within(shortcutsSection as HTMLElement).getByText("Enable shortcuts to edit presets and bindings."),
     ).toBeInTheDocument();
     expect(within(shortcutsSection as HTMLElement).queryByLabelText("Preset")).not.toBeInTheDocument();
-    expect(within(shortcutsSection as HTMLElement).queryByText("Search Current Session")).not.toBeInTheDocument();
+    expect(within(shortcutsSection as HTMLElement).queryByText("Universal Search")).not.toBeInTheDocument();
   });
 
   it("shows shortcut preset controls when shortcuts are enabled", async () => {
@@ -294,7 +294,7 @@ describe("SettingsPage", () => {
 
     await waitForSettingsPage();
     expect(screen.getByLabelText("Preset")).toHaveValue("standard");
-    expect(screen.getByText("Search Current Session")).toBeInTheDocument();
+    expect(screen.getByText("Universal Search")).toBeInTheDocument();
   });
 
   it("records and clears a custom shortcut override", async () => {

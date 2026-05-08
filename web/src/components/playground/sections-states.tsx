@@ -14,7 +14,8 @@ import {
 } from "../CatIcons.js";
 import { HighlightedText } from "../HighlightedText.js";
 import { PawTrailAvatar } from "../PawTrail.js";
-import type { CreationProgressEvent } from "../../types.js";
+import { UniversalSearchOverlay } from "../UniversalSearchOverlay.js";
+import type { ChatMessage, CreationProgressEvent, SdkSessionInfo } from "../../types.js";
 import { MOCK_SUBAGENT_TOOL_ITEMS, MOCK_TOOL_GROUP_ITEMS } from "./fixtures.js";
 import {
   Card,
@@ -27,6 +28,55 @@ import {
   PlaygroundToolGroup,
   Section,
 } from "./shared.js";
+
+const PLAYGROUND_UNIVERSAL_SESSIONS: SdkSessionInfo[] = [
+  {
+    sessionId: "playground-universal",
+    state: "connected",
+    cwd: "/repo/takode",
+    createdAt: Date.now() - 15 * 60_000,
+    lastActivityAt: Date.now() - 2 * 60_000,
+    name: "Universal search implementation",
+    backendType: "codex",
+    gitBranch: "feature/universal-search",
+  },
+  {
+    sessionId: "playground-review",
+    state: "connected",
+    cwd: "/repo/takode",
+    createdAt: Date.now() - 2 * 60 * 60_000,
+    lastActivityAt: Date.now() - 35 * 60_000,
+    name: "Review search overlay states",
+    backendType: "claude",
+  },
+];
+
+const PLAYGROUND_UNIVERSAL_MESSAGES: ChatMessage[] = [
+  {
+    id: "universal-user-new",
+    role: "user",
+    content: "Can you make the universal search overlay keyboard efficient and mode scoped?",
+    timestamp: Date.now() - 2 * 60_000,
+  },
+  {
+    id: "universal-assistant",
+    role: "assistant",
+    content: "I am wiring the app-level overlay through the existing configurable shortcut action.",
+    timestamp: Date.now() - 90_000,
+  },
+  {
+    id: "universal-event",
+    role: "system",
+    content: "Shortcut settings updated: Universal Search uses Mod+F.",
+    timestamp: Date.now() - 60_000,
+  },
+  {
+    id: "universal-user-old",
+    role: "user",
+    content: "Default message mode should show recent user messages when the query is empty.",
+    timestamp: Date.now() - 30 * 60_000,
+  },
+];
 
 export function PlaygroundStateSections() {
   return (
@@ -1819,6 +1869,43 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
                 <span className="text-[11px] text-cc-muted whitespace-nowrap tabular-nums shrink-0">2 of 3</span>
               </div>
             </div>
+          </Card>
+        </div>
+      </Section>
+
+      <Section
+        title="Universal Search"
+        description="App-level command palette for mode-scoped quest, session, and current-session message search."
+      >
+        <div className="space-y-4">
+          <Card label="Overlay with current-session message mode">
+            <UniversalSearchOverlay
+              open
+              presentation="inline"
+              currentSessionId="playground-universal"
+              currentThreadKey="main"
+              sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
+              messages={PLAYGROUND_UNIVERSAL_MESSAGES}
+              leaderSessionId="playground-universal"
+              onClose={() => {}}
+              onOpenQuest={() => {}}
+              onOpenSession={() => {}}
+              onOpenMessage={() => {}}
+            />
+          </Card>
+          <Card label="Overlay outside a session">
+            <UniversalSearchOverlay
+              open
+              presentation="inline"
+              currentSessionId={null}
+              currentThreadKey={null}
+              sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
+              messages={[]}
+              onClose={() => {}}
+              onOpenQuest={() => {}}
+              onOpenSession={() => {}}
+              onOpenMessage={() => {}}
+            />
           </Card>
         </div>
       </Section>

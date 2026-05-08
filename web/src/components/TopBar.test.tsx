@@ -565,6 +565,15 @@ describe("TopBar", () => {
     });
 
     render(<TopBar />);
-    expect(screen.getByTitle("Search messages (Ctrl+F)")).toBeInTheDocument();
+    expect(screen.getByTitle("Universal Search (Ctrl+F)")).toBeInTheDocument();
+  });
+
+  it("opens the app-level Universal Search affordance", () => {
+    const onOpenUniversalSearch = vi.fn();
+
+    render(<TopBar onOpenUniversalSearch={onOpenUniversalSearch} />);
+
+    fireEvent.click(screen.getByTitle("Universal Search"));
+    expect(onOpenUniversalSearch).toHaveBeenCalledTimes(1);
   });
 });

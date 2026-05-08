@@ -58,8 +58,8 @@ export interface ShortcutRuntime {
   activeTab: "chat" | "diff";
   isSearchOpen: boolean;
   sessions: ShortcutSessionSummary[];
-  openSearch: (sessionId: string) => void;
-  closeSearch: (sessionId: string) => void;
+  openSearch: () => void;
+  closeSearch: () => void;
   lastNewSessionContext?: ShortcutNewSessionContext | null;
   openNewSessionModal: (context?: ShortcutNewSessionContext) => void;
   openTerminal: (cwd: string, sessionId?: string | null) => void;
@@ -93,8 +93,8 @@ export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
 export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
   {
     id: "search_session",
-    label: "Search Current Session",
-    description: "Open message search for the active chat session.",
+    label: "Universal Search",
+    description: "Open mode-scoped search for quests, sessions, and current-session messages.",
   },
   {
     id: "toggle_sidebar",
@@ -500,21 +500,10 @@ export function resolveShortcutNewSessionContext(
   };
 }
 
-function getPrimaryShortcutSessionId(runtime: ShortcutRuntime): string | null {
-  if (runtime.currentSessionId) return runtime.currentSessionId;
-  return getShortcutSessions(runtime.sessions)[0]?.sessionId ?? null;
-}
-
 export function performShortcutAction(actionId: ShortcutActionId, runtime: ShortcutRuntime): boolean {
   switch (actionId) {
     case "search_session": {
-      const sessionId = getPrimaryShortcutSessionId(runtime);
-      if (!sessionId) return false;
-      if (runtime.activeTab !== "chat") runtime.setActiveTab("chat");
-      if (runtime.route.page !== "session") {
-        runtime.navigateToSession(sessionId);
-      }
-      if (!runtime.isSearchOpen) runtime.openSearch(sessionId);
+      if (!runtime.isSearchOpen) runtime.openSearch();
       return true;
     }
     case "toggle_sidebar":

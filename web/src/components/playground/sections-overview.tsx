@@ -403,7 +403,7 @@ export function PlaygroundOverviewSections() {
           <button
             type="button"
             title={getShortcutTitle(
-              "Search messages",
+              "Universal Search",
               { enabled: true, preset: "standard", overrides: {} },
               "search_session",
               "MacIntel",
