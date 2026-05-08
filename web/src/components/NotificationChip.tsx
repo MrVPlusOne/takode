@@ -169,10 +169,19 @@ function formatChipAriaLabel({
   return `Notification inbox: ${parts.join(", ")}`;
 }
 
-function NotificationCountInline({ category, count }: { category: NotificationCategory; count: number }) {
-  const iconClassName =
-    category === "needs-input" ? "text-amber-400" : category === "review" ? "text-blue-500" : "text-cc-muted/85";
-  const label = category === "needs-input" ? "Needs input" : category === "review" ? "Review" : "Waiting";
+function NotificationCountInline({
+  category,
+  count,
+  labelText,
+}: {
+  category: NotificationCategory;
+  count: number;
+  labelText: string;
+}) {
+  const isNeedsInput = category === "needs-input";
+  const isReview = category === "review";
+  const iconClassName = isNeedsInput ? "text-amber-400" : isReview ? "text-blue-500" : "text-cc-muted/85";
+  const label = isNeedsInput ? "Needs input" : isReview ? "Review" : "Waiting";
 
   return (
     <span
@@ -202,6 +211,9 @@ function NotificationCountInline({ category, count }: { category: NotificationCa
           </>
         )}
       </svg>
+      <span className={isNeedsInput ? "text-amber-100/90" : isReview ? "text-blue-100/85" : "text-cc-muted/85"}>
+        {labelText}
+      </span>
     </span>
   );
 }
@@ -698,15 +710,9 @@ export function NotificationChip({
     [active, summary],
   );
   const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review, waiting }), [needsInput, review, waiting]);
-  const visibleSegments = useMemo(
-    () =>
-      [
-        review > 0 ? { category: "review" as const, count: review } : null,
-        needsInput > 0 ? { category: "needs-input" as const, count: needsInput } : null,
-        waiting > 0 ? { category: "waiting" as const, count: waiting } : null,
-      ].filter((segment): segment is { category: NotificationCategory; count: number } => segment !== null),
-    [needsInput, review, waiting],
-  );
+  const hasNeedsInput = needsInput > 0;
+  const hasReview = review > 0;
+  const hasWaiting = waiting > 0;
 
   const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
@@ -723,13 +729,37 @@ export function NotificationChip({
       >
         <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
         <span className="relative inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
-          {visibleSegments.map((segment, index) => (
-            <span key={segment.category} className="inline-flex items-center gap-1">
-              {index > 0 && <span className="text-cc-muted/70">,</span>}
-              <NotificationCountInline category={segment.category} count={segment.count} />
-            </span>
-          ))}
-          <span className="text-cc-muted/85">{needsInput + review > 0 ? "unreads" : "status"}</span>
+          {hasNeedsInput ? (
+            <>
+              <NotificationCountInline category="needs-input" count={needsInput} labelText="needs input" />
+              {hasReview && (
+                <span
+                  data-testid="notification-chip-review-secondary"
+                  className="inline-flex items-center whitespace-nowrap text-cc-muted/85"
+                  aria-hidden="true"
+                  title={`Review: ${review}`}
+                >
+                  +{review} review
+                </span>
+              )}
+              {hasWaiting && (
+                <span className="inline-flex items-center whitespace-nowrap text-cc-muted/85" aria-hidden="true">
+                  +{waiting} status
+                </span>
+              )}
+            </>
+          ) : hasReview ? (
+            <>
+              <NotificationCountInline category="review" count={review} labelText="review" />
+              {hasWaiting && (
+                <span className="inline-flex items-center whitespace-nowrap text-cc-muted/85" aria-hidden="true">
+                  +{waiting} status
+                </span>
+              )}
+            </>
+          ) : (
+            <NotificationCountInline category="waiting" count={waiting} labelText="status" />
+          )}
         </span>
       </button>
 

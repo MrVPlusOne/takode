@@ -875,7 +875,7 @@ describe("WorkBoardBar", () => {
     expect(tabStrip).toHaveClass("overflow-visible");
     expect(tabStrip).not.toHaveClass("overflow-x-auto", "thread-tab-scroll");
     expect(getByTestId("thread-main-tab")).toHaveAttribute("data-min-label", "Main Thread");
-    expect(getByTestId("thread-main-tab")).toHaveClass("min-w-[6rem]", "max-w-[12rem]", "flex-[1_1_6.5rem]");
+    expect(getByTestId("thread-main-tab")).toHaveClass("min-w-[8.75rem]", "max-w-[14rem]", "flex-[0_0_8.75rem]");
     expect(getByTestId("thread-main-tab")).toHaveClass("focus-visible:ring-violet-100/70", "focus-visible:ring-inset");
 
     const tabs = getAllByTestId("thread-tab");
@@ -934,6 +934,17 @@ describe("WorkBoardBar", () => {
             title: "Main needs input",
             dedupeKey: "main-needs-input",
           }),
+          attentionRecord({
+            id: "main-review",
+            type: "review_ready",
+            source: { kind: "notification", id: "n-main-review", questId: undefined },
+            threadKey: "main",
+            questId: undefined,
+            route: { threadKey: "main" },
+            title: "Main review",
+            priority: "review",
+            dedupeKey: "main-review",
+          }),
         ]}
       />,
     );
@@ -948,6 +959,7 @@ describe("WorkBoardBar", () => {
     expect(mainTab).not.toHaveClass("border-amber-400/60", "border-cc-primary/70", "border-b-cc-bg");
     expectStripeOriginActiveOutputMarker(mainTab);
     expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("relative", "z-10");
+    expect(within(mainTab).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
     const mainTitle = within(mainTab).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "true");
     expect(mainTitle.getAttribute("style") ?? "").not.toContain("animation");
@@ -1259,10 +1271,10 @@ describe("WorkBoardBar", () => {
     expect(within(noBellTab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
   });
 
-  it("renders review notification attention as a blue bell without tinting the tab surface", () => {
+  it("prioritizes an amber bell when a visible tab has needs-input and blue notification attention", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionBoards: new Map([["s1", [{ ...BOARD_DATA[0]!, waitForInput: ["n-1"] }, BOARD_DATA[1]!]]]),
     });
 
     const { getAllByTestId } = render(
@@ -1287,10 +1299,10 @@ describe("WorkBoardBar", () => {
 
     const reviewTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(reviewTab).toHaveAttribute("data-blue-notification", "true");
-    expect(reviewTab).toHaveAttribute("data-needs-input", "false");
+    expect(reviewTab).toHaveAttribute("data-needs-input", "true");
     expectNoNotificationSurfaceTone(reviewTab);
-    expect(within(reviewTab).getByTestId("thread-tab-blue-notification-bell")).toHaveClass("text-blue-400");
-    expect(within(reviewTab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
+    expect(within(reviewTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+    expect(within(reviewTab).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
 
     const currentTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
     expect(currentTab).toHaveClass("border-violet-100/45", "bg-white/[0.055]", "text-white");

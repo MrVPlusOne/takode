@@ -207,7 +207,7 @@ describe("NotificationChip", () => {
 
   it("colors the bell blue when review is the highest active urgency", () => {
     // Review-only inboxes should render a single-height inline count + bell
-    // segment while keeping the blue review color.
+    // segment with explicit review copy.
     setNotifications("s1", [
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
       { id: "review-2", category: "review", summary: "Also review", timestamp: Date.now(), done: true },
@@ -215,10 +215,10 @@ describe("NotificationChip", () => {
     render(<NotificationChip sessionId="s1" />);
 
     const chip = screen.getByRole("button", { name: "Notification inbox: 1 review notification" });
-    const summary = within(chip).getByText("unreads").parentElement;
     const badge = within(chip).getByTestId("notification-chip-review");
     const bell = badge.querySelector("svg");
-    expect(summary).toHaveTextContent("1unreads");
+    expect(chip).toHaveTextContent("1review");
+    expect(within(chip).queryByText("unreads")).not.toBeInTheDocument();
     expect(bell?.className.baseVal ?? bell?.getAttribute("class")).toContain("text-blue-500");
     expect(badge).toHaveTextContent("1");
     expect(badge.className).not.toContain("rounded-full");
@@ -243,9 +243,9 @@ describe("NotificationChip", () => {
     expect(screen.queryByTestId("notification-answer-actions")).toBeNull();
   });
 
-  it("renders a compact per-type breakdown when needs-input and review are both active", () => {
-    // Mixed inboxes should stay single-height by using inline comma-separated
-    // count + bell segments and ending with "unreads".
+  it("prioritizes needs-input on the chip surface when needs-input and review are both active", () => {
+    // Mixed inboxes should show one amber bell, with review discoverable as
+    // secondary text instead of a competing blue bell.
     setNotifications("s1", [
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
       { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
@@ -257,16 +257,14 @@ describe("NotificationChip", () => {
       name: "Notification inbox: 2 needs-input notifications, 1 review notification",
     });
     const needsInputBadge = within(chip).getByTestId("notification-chip-needs-input");
-    const reviewBadge = within(chip).getByTestId("notification-chip-review");
+    const reviewSecondary = within(chip).getByTestId("notification-chip-review-secondary");
     const needsInputBell = needsInputBadge.querySelector("svg");
-    const reviewBell = reviewBadge.querySelector("svg");
-    expect(chip).toHaveTextContent("1,2unreads");
+    expect(chip).toHaveTextContent("2needs input+1 review");
     expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-amber-400");
-    expect(reviewBell?.className.baseVal ?? reviewBell?.getAttribute("class")).toContain("text-blue-500");
+    expect(within(chip).queryByTestId("notification-chip-review")).not.toBeInTheDocument();
     expect(needsInputBadge).toHaveTextContent("2");
-    expect(reviewBadge).toHaveTextContent("1");
-    expect(within(chip).getByText(",")).toBeInTheDocument();
-    expect(within(chip).getByText("unreads")).toBeInTheDocument();
+    expect(reviewSecondary).toHaveTextContent("+1 review");
+    expect(within(chip).queryByText("unreads")).not.toBeInTheDocument();
   });
 
   it("uses a newer active summary when the cached full inbox is still review-only", () => {

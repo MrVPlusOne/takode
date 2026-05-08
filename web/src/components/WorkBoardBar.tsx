@@ -100,7 +100,7 @@ export function constrainThreadTabTransformToHorizontal(transform: Transform | n
   return { ...transform, y: 0 };
 }
 
-const COMPACT_MAIN_TAB_WIDTH = 96;
+const COMPACT_MAIN_TAB_WIDTH = 140;
 const COMPACT_MOBILE_THREAD_TAB_WIDTH = 68;
 const COMPACT_DESKTOP_THREAD_TAB_WIDTH = 160;
 const COMPACT_DESKTOP_PACKING_MIN_RAIL_WIDTH = 640;
@@ -934,6 +934,7 @@ function ThreadTabRail({
   const mainSelected = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
   const mainNeedsInput = mainState?.needsInput ?? false;
   const mainBlueNudge = mainState?.blueNudge ?? false;
+  const showMainBlueNudge = mainBlueNudge && !mainNeedsInput;
   const sessionStatus = useStore((s) => s.sessionStatus.get(sessionId));
   const activeTurnRoute = useStore((s) => s.activeTurnRoutes.get(sessionId));
   const quests = useStore((s) => s.quests);
@@ -1084,6 +1085,7 @@ function ThreadTabRail({
   const activeOutputHidden = hiddenTabs.some((tab) => isActiveOutputThread(runningActiveTurnRoute, tab.threadKey));
   const needsInputHidden = hiddenTabs.some((tab) => tab.needsInput);
   const blueNudgeHidden = hiddenTabs.some((tab) => tab.blueNudge);
+  const showBlueNudgeHidden = blueNudgeHidden && !needsInputHidden;
   const tabStripStyle = {
     "--thread-tab-width": `${compactThreadTabWidthForRail(railWidth)}px`,
   } as CSSProperties;
@@ -1116,7 +1118,7 @@ function ThreadTabRail({
                 ? `${mainState?.title ?? "Main Thread"} has review updates`
                 : (mainState?.title ?? "Main Thread")
           }
-          className={`relative inline-flex min-w-[6rem] max-w-[12rem] flex-[1_1_6.5rem] items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
+          className={`relative inline-flex min-w-[8.75rem] max-w-[14rem] flex-[0_0_8.75rem] items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
           data-testid="thread-main-tab"
           data-thread-key={MAIN_THREAD_KEY}
           data-needs-input={mainNeedsInput ? "true" : "false"}
@@ -1127,7 +1129,7 @@ function ThreadTabRail({
         >
           {mainActiveOutput && <ActiveOutputIndicator />}
           {mainNeedsInput && <NeedsInputBell activeOutput={mainActiveOutput} />}
-          {mainBlueNudge && <BlueNotificationBell activeOutput={mainActiveOutput} />}
+          {showMainBlueNudge && <BlueNotificationBell activeOutput={mainActiveOutput} />}
           <ActiveTitle activeOutput={mainActiveOutput}>
             <span className="min-w-0 truncate">Main Thread</span>
           </ActiveTitle>
@@ -1138,6 +1140,7 @@ function ThreadTabRail({
             {visibleTabs.map((tab) => {
               const selected = isSelectedThread(currentThreadKey, tab.threadKey);
               const activeOutput = isActiveOutputThread(runningActiveTurnRoute, tab.threadKey);
+              const showBlueNudge = tab.blueNudge && !tab.needsInput;
               const tone = tabTone({ selected, needsInput: tab.needsInput, blueNudge: tab.blueNudge });
               const newTab = newTabKeys?.has(tab.threadKey) ?? false;
               const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
@@ -1146,7 +1149,7 @@ function ThreadTabRail({
               const reorderable = onReorderThreadTabs && sortableTabKeySet.has(normalizeThreadKey(tab.threadKey));
               const title = hoverQuest
                 ? undefined
-                : `${displayQuestId ? `${displayQuestId}: ${displayTitle}` : displayTitle}${tab.needsInput ? " needs input" : ""}${tab.blueNudge ? " has review updates" : ""}`;
+                : `${displayQuestId ? `${displayQuestId}: ${displayTitle}` : displayTitle}${tab.needsInput ? " needs input" : showBlueNudge ? " has review updates" : ""}`;
               const className = `group relative inline-flex min-w-[var(--thread-tab-width)] max-w-[14rem] flex-[1_1_var(--thread-tab-width)] items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${tone}`;
               const mouseEnter = (event: ReactMouseEvent<HTMLDivElement>) =>
                 showQuestHover(hoverQuest, event.currentTarget.getBoundingClientRect());
@@ -1168,7 +1171,7 @@ function ThreadTabRail({
                     aria-pressed={selected}
                   >
                     {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
-                    {tab.blueNudge && <BlueNotificationBell activeOutput={activeOutput} />}
+                    {showBlueNudge && <BlueNotificationBell activeOutput={activeOutput} />}
                     <ActiveTitle activeOutput={activeOutput} titleColor={tab.titleColor}>
                       {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}
                       <span className="min-w-0 truncate">{displayTitle}</span>
@@ -1264,7 +1267,7 @@ function ThreadTabRail({
                 <span className="h-1.5 w-1.5 rounded-full bg-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.8)]" />
               )}
               {needsInputHidden && <NeedsInputBell activeOutput={activeOutputHidden} />}
-              {blueNudgeHidden && <BlueNotificationBell activeOutput={activeOutputHidden} />}
+              {showBlueNudgeHidden && <BlueNotificationBell activeOutput={activeOutputHidden} />}
               <span>More</span>
               <span className="rounded-sm bg-cc-hover/70 px-1 font-mono-code text-[10px] text-cc-fg">
                 {hiddenTabs.length}
@@ -1376,7 +1379,7 @@ function ThreadTabRail({
                             <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.8)]" />
                           )}
                           {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
-                          {tab.blueNudge && <BlueNotificationBell activeOutput={activeOutput} />}
+                          {tab.blueNudge && !tab.needsInput && <BlueNotificationBell activeOutput={activeOutput} />}
                           <span className="min-w-0 flex-1">
                             <span className="flex min-w-0 items-center gap-1.5">
                               {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}
