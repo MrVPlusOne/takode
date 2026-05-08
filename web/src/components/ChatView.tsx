@@ -199,7 +199,7 @@ function LiveConnectionStatusBanner({
 
 function isDoneThreadRow(row: QuestThreadBannerRow): boolean {
   return (
-    row.section === "done" ||
+    row.boardRow?.completedAt !== undefined ||
     isCompletedJourneyPresentationStatus(row.status) ||
     isCompletedJourneyPresentationStatus(row.boardStatus)
   );
@@ -507,6 +507,8 @@ function toWorkBoardThreadRows(rows: LeaderThreadRow[]): WorkBoardThreadNavigati
     threadKey: row.threadKey,
     questId: row.questId,
     title: row.title,
+    status: row.status,
+    boardStatus: row.boardStatus,
     messageCount: row.messageCount,
     section: row.section,
   }));
@@ -582,10 +584,34 @@ function markerMovesNewestUserMessage(
   return !!newestUserMessage && markerIncludesMessage(marker, newestUserMessage);
 }
 
+function markerSourceThreadKey(marker: NonNullable<ChatMessage["metadata"]>["threadAttachmentMarker"]): string | null {
+  if (!marker) return null;
+  const sourceThreadKey = normalizeThreadKey(marker.sourceThreadKey || marker.sourceQuestId || "");
+  return sourceThreadKey || null;
+}
+
+function markerSourceMatchesSelectedThread(
+  marker: NonNullable<ChatMessage["metadata"]>["threadAttachmentMarker"],
+  selectedThreadKey: string,
+): boolean {
+  const selectedThread = normalizeThreadKey(selectedThreadKey || MAIN_THREAD_KEY);
+  const sourceThreadKey = markerSourceThreadKey(marker);
+  if (sourceThreadKey) return sourceThreadKey === selectedThread;
+  return selectedThread === MAIN_THREAD_KEY;
+}
+
 function isAvailableLeaderThread(threadKey: string, rows: LeaderThreadRow[]): boolean {
   const normalized = normalizeThreadKey(threadKey);
   if (normalized === MAIN_THREAD_KEY || normalized === ALL_THREADS_KEY) return true;
   return rows.some((row) => row.threadKey === normalized);
+}
+
+function questOrBoardRowIsCompleted(questStatus?: string, boardRowStatus?: string, completedAt?: number): boolean {
+  return (
+    completedAt !== undefined ||
+    isCompletedJourneyPresentationStatus(questStatus) ||
+    isCompletedJourneyPresentationStatus(boardRowStatus)
+  );
 }
 
 function restorableSelectedThreadKey({
@@ -1104,17 +1130,23 @@ export function ChatView({
     });
   }, [authoritativeLeaderOpenThreadTabs, isLeaderSession, preview, sendLeaderThreadTabUpdate, sessionId]);
 
+  const questStatusByKey = useMemo(
+    () => new Map(quests.map((quest) => [normalizeThreadKey(quest.questId), quest.status])),
+    [quests],
+  );
+
   useEffect(() => {
     if (!isLeaderSession || preview) return;
     // Front insertion stacks candidates, so reverse iteration preserves board order among newly opened rows.
     for (const row of [...activeBoard].reverse()) {
       const threadKey = normalizeThreadKey(row.questId);
       if (!shouldPersistOpenThreadTab(threadKey)) continue;
+      if (questOrBoardRowIsCompleted(questStatusByKey.get(threadKey), row.status, row.completedAt)) continue;
       if (openThreadTabKeysRef.current.includes(threadKey)) continue;
       if (!canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, threadKey, row.updatedAt)) continue;
       openThreadTab(threadKey, { source: "server_candidate", eventAt: row.updatedAt, placement: "first" });
     }
-  }, [activeBoard, authoritativeLeaderOpenThreadTabs, isLeaderSession, openThreadTab, preview]);
+  }, [activeBoard, authoritativeLeaderOpenThreadTabs, isLeaderSession, openThreadTab, preview, questStatusByKey]);
 
   useEffect(() => {
     if (!routeSyncEnabled || preview) return;
@@ -1253,15 +1285,15 @@ export function ChatView({
       }
 
       const manualNavigationAfterAttachment = lastManualThreadSelectionAtRef.current > marker.attachedAt;
-      const sourceStillSelected = selectedThread === MAIN_THREAD_KEY;
+      const sourceStillSelected = markerSourceMatchesSelectedThread(marker, selectedThread);
       const routeAllowsAutoSelect =
-        !hasSpecificRouteThread || normalizeThreadKey(routeThreadKey ?? "") === MAIN_THREAD_KEY;
+        !hasSpecificRouteThread || normalizeThreadKey(routeThreadKey ?? "") === selectedThread;
+      const targetAvailableForAutoSelect = wasOpen || canOpenCandidate;
       if (
-        !wasOpen &&
         !nextSelectedThreadKey &&
         sourceStillSelected &&
         routeAllowsAutoSelect &&
-        canOpenCandidate &&
+        targetAvailableForAutoSelect &&
         !manualNavigationAfterAttachment &&
         markerMovesNewestUserMessage(marker, allMessages)
       ) {

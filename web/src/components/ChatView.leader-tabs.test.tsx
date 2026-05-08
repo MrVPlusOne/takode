@@ -675,6 +675,90 @@ describe("ChatView leader open thread tabs", () => {
     expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
+  it("auto-selects the target thread when a fresh attachment marker moves context from the selected source thread", async () => {
+    const attachedAt = Date.now();
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-941"])),
+      messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10)]]]),
+      quests: [
+        { questId: "q-941", title: "Source thread", status: "in_progress" },
+        { questId: "q-1006", title: "Target thread", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          threadMessage("q-941", attachedAt - 5),
+          movedUser("q-1006", attachedAt),
+          movedMarker("q-1006", attachedAt, { sourceThreadKey: "q-941", sourceQuestId: "q-941" }),
+        ],
+      ],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1006"));
+    expect(readLeaderSelectedThreadKey("s1")).toBe("q-1006");
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-1006",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: attachedAt,
+      },
+    });
+  });
+
+  it("does not auto-select moved context when the attachment source is not the selected thread", async () => {
+    const attachedAt = Date.now();
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-941"])),
+      messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10)]]]),
+      quests: [
+        { questId: "q-941", title: "Selected thread", status: "in_progress" },
+        { questId: "q-1006", title: "Target thread", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          threadMessage("q-941", attachedAt - 5),
+          movedUser("q-1006", attachedAt),
+          movedMarker("q-1006", attachedAt, { sourceThreadKey: "main" }),
+        ],
+      ],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+    expect(readLeaderSelectedThreadKey("s1")).toBe("q-941");
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-1006",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: attachedAt,
+      },
+    });
+  });
+
   it("opens fresh server-created candidates but suppresses candidates older than a user close", async () => {
     const attachedAt = Date.now();
     resetStore({
@@ -740,7 +824,11 @@ function movedUser(questId: string, attachedAt: number) {
   };
 }
 
-function movedMarker(questId: string, attachedAt: number) {
+function movedMarker(
+  questId: string,
+  attachedAt: number,
+  source?: { sourceThreadKey?: string; sourceQuestId?: string },
+) {
   return {
     id: `marker-${questId}`,
     role: "system",
@@ -755,6 +843,7 @@ function movedMarker(questId: string, attachedAt: number) {
         markerKey: `thread-attachment:${questId}:u-${questId}`,
         threadKey: questId,
         questId,
+        ...source,
         attachedAt,
         attachedBy: "leader",
         messageIds: [`u-${questId}`],

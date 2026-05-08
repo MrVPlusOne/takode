@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
-import type { SessionAttentionRecord, SessionState } from "../types.js";
+import type { QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 
 interface MockStoreState {
@@ -19,7 +19,7 @@ interface MockStoreState {
   cliConnected: Map<string, boolean>;
   askPermission: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
-  quests: [];
+  quests: QuestmasterTask[];
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   activeTurnRoutes: Map<string, import("../types.js").ActiveTurnRoute | null>;
 }
@@ -388,6 +388,66 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(completedTitle).not.toHaveStyle({
       color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
     });
+  });
+
+  it("keeps unfinished off-board quest tab titles unmuted and closable", async () => {
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-1"
+        openThreadKeys={["q-1"]}
+        onCloseThreadTab={vi.fn()}
+        threadRows={[
+          {
+            threadKey: "q-1",
+            questId: "q-1",
+            title: "Unfinished off-board thread",
+            status: "in_progress",
+            messageCount: 2,
+            section: "done",
+          },
+        ]}
+      />,
+    );
+
+    const tab = await screen.findByTestId("thread-tab");
+    expect(tab).toHaveAttribute("data-closable", "true");
+    expect(within(tab).getByTestId("thread-tab-title")).toHaveAttribute("data-title-color", "");
+  });
+
+  it("lets completed quest status override stale active board phase color on selected open tabs", async () => {
+    resetStore({
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-1259", title: "Completed but stale active row", status: "PORTING", updatedAt: 10 }]],
+      ]),
+      quests: [
+        {
+          id: "q-1259",
+          questId: "q-1259",
+          version: 1,
+          title: "Completed but stale active row",
+          description: "",
+          status: "done",
+          tags: [],
+          createdAt: 1,
+          updatedAt: 10,
+          statusChangedAt: 10,
+          completedAt: 10,
+          verificationItems: [],
+        },
+      ],
+    });
+
+    render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1259" openThreadKeys={["q-1259"]} threadRows={[]} />);
+
+    const tab = await screen.findByTestId("thread-tab");
+    const title = within(tab).getByTestId("thread-tab-title");
+    expect(within(tab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
+    expect(title).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
+    expect(title).not.toHaveStyle({
+      color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
+    });
+    expectNoNotificationSurfaceTone(tab);
   });
 
   it("keeps hidden tab close affordances in the More tabs list", async () => {

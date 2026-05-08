@@ -40,6 +40,8 @@ export interface WorkBoardThreadNavigationRow {
   threadKey: string;
   questId?: string;
   title: string;
+  status?: string;
+  boardStatus?: string;
   messageCount?: number;
   section?: "active" | "done";
 }
@@ -581,6 +583,16 @@ function isCompletedBoardRow(row?: BoardRowData): boolean {
   return !!row && (row.completedAt !== undefined || isCompletedJourneyPresentationStatus(row.status));
 }
 
+function isFinishedThreadRow(row?: WorkBoardThreadNavigationRow): boolean {
+  return (
+    !!row && (isCompletedJourneyPresentationStatus(row.status) || isCompletedJourneyPresentationStatus(row.boardStatus))
+  );
+}
+
+function completedQuestTitleColor(quest?: QuestmasterTask): string | undefined {
+  return quest && isCompletedJourneyPresentationStatus(quest.status) ? DONE_THREAD_TITLE_COLOR : undefined;
+}
+
 function boardRowTitleColor(row: BoardRowData): string | undefined {
   if (isCompletedBoardRow(row)) return DONE_THREAD_TITLE_COLOR;
   if ((row.status ?? "").trim().toUpperCase() === "QUEUED") return QUEUED_THREAD_TITLE_COLOR;
@@ -598,7 +610,7 @@ function doneThreadTitleColor({
   row?: WorkBoardThreadNavigationRow;
   completed?: boolean;
 }): string | undefined {
-  if (completed || row?.section === "done" || isCompletedBoardRow(boardRow)) {
+  if (completed || isFinishedThreadRow(row) || isCompletedBoardRow(boardRow)) {
     return DONE_THREAD_TITLE_COLOR;
   }
   return undefined;
@@ -611,7 +623,7 @@ function threadRowDetail(row: WorkBoardThreadNavigationRow): string {
 
 function doneThreadDetail(row?: WorkBoardThreadNavigationRow): string {
   if (!row) return "History";
-  if (row.section === "done") return "Done";
+  if (isFinishedThreadRow(row)) return "Done";
   return threadRowDetail(row);
 }
 
@@ -1146,6 +1158,7 @@ function ThreadTabRail({
               const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
               const displayQuestId = hoverQuest?.questId ?? tab.questId;
               const displayTitle = hoverQuest?.title ?? tab.title;
+              const displayTitleColor = completedQuestTitleColor(hoverQuest) ?? tab.titleColor;
               const reorderable = onReorderThreadTabs && sortableTabKeySet.has(normalizeThreadKey(tab.threadKey));
               const title = hoverQuest
                 ? undefined
@@ -1172,7 +1185,7 @@ function ThreadTabRail({
                   >
                     {tab.needsInput && <NeedsInputBell activeOutput={activeOutput} />}
                     {showBlueNudge && <BlueNotificationBell activeOutput={activeOutput} />}
-                    <ActiveTitle activeOutput={activeOutput} titleColor={tab.titleColor}>
+                    <ActiveTitle activeOutput={activeOutput} titleColor={displayTitleColor}>
                       {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}
                       <span className="min-w-0 truncate">{displayTitle}</span>
                     </ActiveTitle>
@@ -1328,6 +1341,7 @@ function ThreadTabRail({
                     const hoverQuest = tab.questId ? questById.get(normalizeThreadKey(tab.questId)) : undefined;
                     const displayQuestId = hoverQuest?.questId ?? tab.questId;
                     const displayTitle = hoverQuest?.title ?? tab.title;
+                    const displayTitleColor = completedQuestTitleColor(hoverQuest) ?? tab.titleColor;
                     return (
                       <div
                         key={threadKey}
@@ -1385,9 +1399,9 @@ function ThreadTabRail({
                               {displayQuestId && <span className="shrink-0 font-mono-code">{displayQuestId}</span>}
                               <span
                                 className="min-w-0 truncate"
-                                style={tab.titleColor ? { color: tab.titleColor } : undefined}
+                                style={displayTitleColor ? { color: displayTitleColor } : undefined}
                                 data-testid="thread-tabs-more-row-title"
-                                data-title-color={tab.titleColor ?? ""}
+                                data-title-color={displayTitleColor ?? ""}
                               >
                                 {displayTitle}
                               </span>
