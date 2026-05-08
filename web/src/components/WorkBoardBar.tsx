@@ -914,20 +914,10 @@ function ThreadTabRail({
     );
   }
 
-  function tabTone({
-    selected,
-    needsInput,
-    blueNudge,
-  }: {
-    selected: boolean;
-    needsInput: boolean;
-    blueNudge: boolean;
-  }): string {
+  function tabTone({ selected }: { selected: boolean; needsInput: boolean; blueNudge: boolean }): string {
     if (selected) {
       return "relative z-10 -mb-px rounded-b-none border-violet-100/45 border-b-transparent bg-white/[0.055] text-white shadow-[0_-1px_0_rgba(221,214,254,0.78),0_0_0_1px_rgba(196,181,253,0.16),0_10px_20px_-16px_rgba(196,181,253,0.78),inset_0_1px_0_rgba(255,255,255,0.14)]";
     }
-    if (needsInput) return "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15";
-    if (blueNudge) return "border-blue-400/35 bg-blue-400/10 text-blue-100 hover:bg-blue-400/15";
     return "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg";
   }
 
@@ -1256,13 +1246,9 @@ function ThreadTabRail({
               className={`relative inline-flex h-full min-w-[4.25rem] items-center justify-center gap-1 rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${
                 moreTabsOpen || selectedHidden
                   ? "border-violet-100/45 bg-white/[0.055] text-white"
-                  : needsInputHidden
-                    ? "border-amber-400/35 bg-amber-400/10 text-amber-100 hover:bg-amber-400/15"
-                    : blueNudgeHidden
-                      ? "border-blue-400/35 bg-blue-400/10 text-blue-100 hover:bg-blue-400/15"
-                      : activeOutputHidden
-                        ? "border-sky-300/35 bg-sky-400/10 text-sky-100 hover:bg-sky-400/15"
-                        : "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg"
+                  : activeOutputHidden
+                    ? "border-sky-300/35 bg-sky-400/10 text-sky-100 hover:bg-sky-400/15"
+                    : "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg"
               }`}
               data-testid="thread-tabs-more-button"
               data-hidden-count={hiddenTabs.length}

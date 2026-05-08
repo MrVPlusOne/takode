@@ -150,6 +150,15 @@ function expectStripeOriginActiveOutputMarker(container: HTMLElement) {
   return { marker, glintTrack, glint, dot };
 }
 
+function expectNoNotificationSurfaceTone(element: HTMLElement) {
+  expect(element.className).not.toContain("border-amber-400/35");
+  expect(element.className).not.toContain("bg-amber-400/10");
+  expect(element.className).not.toContain("text-amber-100");
+  expect(element.className).not.toContain("border-blue-400/35");
+  expect(element.className).not.toContain("bg-blue-400/10");
+  expect(element.className).not.toContain("text-blue-100");
+}
+
 beforeEach(() => {
   resetStore();
   localStorage.clear();
@@ -1250,7 +1259,7 @@ describe("WorkBoardBar", () => {
     expect(within(noBellTab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
   });
 
-  it("renders review notification attention as a blue tab nudge without changing amber needs-input state", () => {
+  it("renders review notification attention as a blue bell without tinting the tab surface", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
@@ -1259,8 +1268,8 @@ describe("WorkBoardBar", () => {
     const { getAllByTestId } = render(
       <WorkBoardBar
         sessionId="s1"
-        currentThreadKey="q-1"
-        openThreadKeys={["q-1"]}
+        currentThreadKey="q-2"
+        openThreadKeys={["q-1", "q-2"]}
         attentionRecords={[
           attentionRecord({
             id: "review-notification",
@@ -1279,8 +1288,12 @@ describe("WorkBoardBar", () => {
     const reviewTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     expect(reviewTab).toHaveAttribute("data-blue-notification", "true");
     expect(reviewTab).toHaveAttribute("data-needs-input", "false");
+    expectNoNotificationSurfaceTone(reviewTab);
     expect(within(reviewTab).getByTestId("thread-tab-blue-notification-bell")).toHaveClass("text-blue-400");
     expect(within(reviewTab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
+
+    const currentTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+    expect(currentTab).toHaveClass("border-violet-100/45", "bg-white/[0.055]", "text-white");
   });
 
   it("marks the output glint as reduced-motion-disabled while keeping the static marker contract", () => {
@@ -1346,10 +1359,48 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    expect(getByTestId("thread-main-tab")).toHaveAttribute("data-needs-input", "true");
-    expect(getByTestId("thread-main-tab")).toHaveTextContent("Answer");
+    const mainTab = getByTestId("thread-main-tab");
+    expect(mainTab).toHaveAttribute("data-needs-input", "true");
+    expect(mainTab).toHaveTextContent("Answer");
+    expectNoNotificationSurfaceTone(mainTab);
+    expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
     expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
     expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-closed-chip-count", "0");
+  });
+
+  it("renders Main needs-input as an amber bell without tinting Main while a quest tab is current", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+    });
+
+    const { getAllByTestId, getByTestId } = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-1"
+        openThreadKeys={["q-1"]}
+        attentionRecords={[
+          attentionRecord({
+            id: "main-needs-input",
+            threadKey: "main",
+            questId: undefined,
+            route: { threadKey: "main" },
+            title: "Main needs input",
+            dedupeKey: "main-needs-input",
+          }),
+        ]}
+      />,
+    );
+
+    const mainTab = getByTestId("thread-main-tab");
+    expect(mainTab).toHaveAttribute("aria-pressed", "false");
+    expect(mainTab).toHaveAttribute("data-needs-input", "true");
+    expect(mainTab).toHaveTextContent("Answer");
+    expectNoNotificationSurfaceTone(mainTab);
+    expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+
+    const currentTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    expect(currentTab).toHaveClass("border-violet-100/45", "bg-white/[0.055]", "text-white");
   });
 
   it("keeps closed inactive history hidden unless the user has opened it as a tab", () => {

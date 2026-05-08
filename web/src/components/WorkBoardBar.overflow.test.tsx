@@ -88,6 +88,15 @@ function reviewAttentionRecord(threadKey: string): SessionAttentionRecord {
   };
 }
 
+function expectNoNotificationSurfaceTone(element: HTMLElement) {
+  expect(element.className).not.toContain("border-amber-400/35");
+  expect(element.className).not.toContain("bg-amber-400/10");
+  expect(element.className).not.toContain("text-amber-100");
+  expect(element.className).not.toContain("border-blue-400/35");
+  expect(element.className).not.toContain("bg-blue-400/10");
+  expect(element.className).not.toContain("text-blue-100");
+}
+
 function setMeasuredRailWidth(width: number) {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
     () =>
@@ -263,6 +272,8 @@ describe("WorkBoardBar overflow tabs", () => {
 
     const moreButton = await screen.findByTestId("thread-tabs-more-button");
     expect(moreButton).toHaveAttribute("data-has-blue-notification", "true");
+    expectNoNotificationSurfaceTone(moreButton);
+    expect(within(moreButton).getByTestId("thread-tab-blue-notification-bell")).toHaveClass("text-blue-400");
 
     fireEvent.click(moreButton);
     expect(onSelectThread).not.toHaveBeenCalled();
@@ -276,6 +287,28 @@ describe("WorkBoardBar overflow tabs", () => {
 
     fireEvent.click(within(q4Row).getByTestId("thread-tabs-more-row-select"));
     expect(onSelectThread).toHaveBeenCalledWith("q-4");
+  });
+
+  it("aggregates hidden amber needs-input nudges without tinting the More button surface", async () => {
+    resetStore({
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-4", title: "Quest 4 thread", status: "WAITING", updatedAt: 4, waitForInput: ["user"] }]],
+      ]),
+    });
+
+    render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-5"
+        openThreadKeys={["q-1", "q-2", "q-3", "q-4", "q-5"]}
+        threadRows={THREAD_ROWS}
+      />,
+    );
+
+    const moreButton = await screen.findByTestId("thread-tabs-more-button");
+    expect(moreButton).toHaveAttribute("data-has-needs-input", "true");
+    expectNoNotificationSurfaceTone(moreButton);
+    expect(within(moreButton).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
   });
 
   it("uses muted completed color for completed hidden rows in the More tabs list", async () => {
