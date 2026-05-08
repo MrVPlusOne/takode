@@ -262,7 +262,7 @@ describe("QuestHoverCard", () => {
     expect(reviewer.className).not.toContain("bg-violet");
     expect(leader.className).not.toContain("bg-amber-400");
     expect(reviewer.getAttribute("href")).toBe("#/session/8");
-    expect(leader.getAttribute("href")).toBe("#/session/7");
+    expect(leader.getAttribute("href")).toBe("#/session/7?thread=q-42");
 
     fireEvent.mouseEnter(worker);
     await waitFor(() => expect(screen.getAllByText("Auth Worker").length).toBeGreaterThan(1));

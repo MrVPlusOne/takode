@@ -825,7 +825,7 @@ export function QuestDetailPanel() {
               {leaderSessionId && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
                   <span>Leader</span>
-                  <SessionNumChip sessionId={leaderSessionId} />
+                  <SessionNumChip sessionId={leaderSessionId} threadKey={quest.questId} />
                 </span>
               )}
               {vProgress && (

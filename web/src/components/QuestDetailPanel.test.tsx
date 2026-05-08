@@ -38,8 +38,10 @@ vi.mock("../api.js", () => ({
 
 // Mock routing
 const mockNavigateToSession = vi.fn();
+const mockNavigateToSessionThread = vi.fn();
 vi.mock("../utils/routing.js", () => ({
   navigateToSession: (...args: unknown[]) => mockNavigateToSession(...args),
+  navigateToSessionThread: (...args: unknown[]) => mockNavigateToSessionThread(...args),
   withoutQuestIdInHash: (hash: string) => hash.replace(/[?&]quest=[^&]+/, ""),
   withQuestIdInHash: (_hash: string, questId: string) => `#/?quest=${questId}`,
 }));
@@ -127,6 +129,7 @@ describe("QuestDetailPanel", () => {
   beforeEach(() => {
     useStore.getState().reset();
     mockNavigateToSession.mockReset();
+    mockNavigateToSessionThread.mockReset();
     mockCheckQuestVerification.mockReset();
     mockTransitionQuest.mockReset();
     mockDeleteQuest.mockReset();
@@ -163,6 +166,31 @@ describe("QuestDetailPanel", () => {
     // Tags
     expect(screen.getByText("ui")).toBeTruthy();
     expect(screen.getByText("mobile")).toBeTruthy();
+  });
+
+  it("routes the header leader chip to the matching quest thread", () => {
+    const quest = makeVerificationQuest({ leaderSessionId: "leader-42" });
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: "q-42",
+      sdkSessions: [
+        {
+          sessionId: "leader-42",
+          sessionNum: 777,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          isOrchestrator: true,
+        } as any,
+      ],
+    });
+
+    render(<QuestDetailPanel />);
+
+    fireEvent.click(screen.getByRole("button", { name: "#777" }));
+
+    expect(mockNavigateToSessionThread).toHaveBeenCalledWith("leader-42", "q-42", false, 777);
+    expect(mockNavigateToSession).not.toHaveBeenCalled();
   });
 
   it("shows the vertical Journey detail with phase notes when the quest is active on the board", () => {

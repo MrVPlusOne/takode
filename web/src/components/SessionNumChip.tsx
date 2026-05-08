@@ -7,15 +7,16 @@
 import { useState, useRef, useCallback, useLayoutEffect } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
-import { navigateToSession } from "../utils/routing.js";
+import { navigateToSession, navigateToSessionThread } from "../utils/routing.js";
 
 interface SessionNumChipProps {
   sessionId: string;
+  threadKey?: string | null;
   /** Optional className override for the chip button */
   className?: string;
 }
 
-export function SessionNumChip({ sessionId, className }: SessionNumChipProps) {
+export function SessionNumChip({ sessionId, threadKey, className }: SessionNumChipProps) {
   const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
   const sessionName = useStore((s) => s.sessionNames.get(sessionId));
   const [hovered, setHovered] = useState(false);
@@ -46,9 +47,13 @@ export function SessionNumChip({ sessionId, className }: SessionNumChipProps) {
   const handleClick = useCallback(
     (e: React.MouseEvent) => {
       e.stopPropagation();
+      if (threadKey) {
+        navigateToSessionThread(sessionId, threadKey, false, num ?? sessionId);
+        return;
+      }
       navigateToSession(sessionId);
     },
-    [sessionId],
+    [num, sessionId, threadKey],
   );
 
   const defaultClass =

@@ -636,7 +636,7 @@ const CompactQuestRow = memo(function CompactQuestRow({
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
         {leaderSessionId ? (
-          <SessionNumChip sessionId={leaderSessionId} />
+          <SessionNumChip sessionId={leaderSessionId} threadKey={quest.questId} />
         ) : (
           <span className="text-cc-muted">{"\u2014"}</span>
         )}

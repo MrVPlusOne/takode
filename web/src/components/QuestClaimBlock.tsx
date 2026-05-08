@@ -68,7 +68,7 @@ export function QuestClaimBlock({
         {quest.leaderSessionId && (
           <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
             <span>Leader</span>
-            <SessionNumChip sessionId={quest.leaderSessionId} />
+            <SessionNumChip sessionId={quest.leaderSessionId} threadKey={quest.questId} />
           </span>
         )}
       </div>

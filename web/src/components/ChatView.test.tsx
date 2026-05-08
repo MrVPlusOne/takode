@@ -289,6 +289,7 @@ vi.mock("./SessionInlineLink.js", () => ({
     dataTestId,
     ariaLabel,
     title,
+    threadKey,
   }: {
     sessionNum?: number | null;
     children: ReactNode;
@@ -296,9 +297,10 @@ vi.mock("./SessionInlineLink.js", () => ({
     dataTestId?: string;
     ariaLabel?: string;
     title?: string;
+    threadKey?: string | null;
   }) => (
     <a
-      href={`#session-${sessionNum ?? "unknown"}`}
+      href={`#session-${sessionNum ?? "unknown"}${threadKey ? `?thread=${threadKey}` : ""}`}
       className={className}
       data-testid={dataTestId}
       aria-label={ariaLabel}
@@ -1422,7 +1424,7 @@ describe("ChatView backend banners", () => {
     expect(banner).toHaveTextContent("q-968");
     expect(banner).toHaveTextContent("Thread navigation rework");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("implement");
-    expect(scope.getByLabelText("Leader #1286")).toHaveAttribute("href", "#session-1286");
+    expect(scope.getByLabelText("Leader #1286")).toHaveAttribute("href", "#session-1286?thread=q-968");
     expect(scope.getByLabelText("Reviewer #1365")).toHaveAttribute("href", "#session-1365");
     expect(banner).not.toHaveTextContent("Worker");
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
@@ -1492,7 +1494,7 @@ describe("ChatView backend banners", () => {
     expect(banner).toHaveTextContent("Newest completed worker quest");
     expect(banner).not.toHaveTextContent("q-970");
     expect(banner).not.toHaveTextContent("q-999");
-    expect(scope.getByLabelText("Leader #1286")).toHaveAttribute("href", "#session-1286");
+    expect(scope.getByLabelText("Leader #1286")).toHaveAttribute("href", "#session-1286?thread=q-971");
   });
 
   it("defers leader message-derived tabs and attention while history restore is still loading", () => {

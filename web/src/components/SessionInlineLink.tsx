@@ -1,6 +1,13 @@
 import { useRef, useMemo, useEffect, useState, type MouseEvent, type ReactNode } from "react";
 import { useStore, countUserPermissions } from "../store.js";
-import { navigateToSession, navigateToSessionMessage, routeSessionRefForId, sessionHash } from "../utils/routing.js";
+import {
+  navigateToSession,
+  navigateToSessionMessage,
+  navigateToSessionThread,
+  routeSessionRefForId,
+  sessionHash,
+  sessionThreadHash,
+} from "../utils/routing.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import { MessageLinkHoverCard } from "./MessageLinkHoverCard.js";
@@ -15,6 +22,7 @@ export function SessionInlineLink({
   ariaLabel,
   title,
   dataTestId,
+  threadKey,
 }: {
   sessionId: string | null;
   sessionNum?: number | null;
@@ -25,6 +33,7 @@ export function SessionInlineLink({
   ariaLabel?: string;
   title?: string;
   dataTestId?: string;
+  threadKey?: string | null;
 }) {
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
@@ -134,16 +143,21 @@ export function SessionInlineLink({
     setHoverRect(null);
   }
 
+  const routeSessionRef = resolvedSessionId
+    ? (resolvedSessionNum ?? routeSessionRefForId(resolvedSessionId, sdkSessions))
+    : null;
   const href = resolvedSessionId
     ? messageIndex != null
-      ? `${sessionHash(resolvedSessionNum ?? routeSessionRefForId(resolvedSessionId, sdkSessions))}?msg=${messageIndex}`
-      : sessionHash(resolvedSessionNum ?? routeSessionRefForId(resolvedSessionId, sdkSessions))
+      ? `${sessionHash(routeSessionRef ?? resolvedSessionId)}?msg=${messageIndex}`
+      : sessionThreadHash(routeSessionRef ?? resolvedSessionId, threadKey)
     : "#";
   const sessionLabel = resolvedSessionNum != null ? `#${resolvedSessionNum}` : "session";
   const defaultTitle = resolvedSessionId
     ? messageIndex != null
       ? `Open session ${sessionLabel}, message ${messageIndex}`
-      : `Open session ${sessionLabel}`
+      : threadKey
+        ? `Open session ${sessionLabel}, thread ${threadKey}`
+        : `Open session ${sessionLabel}`
     : `${sessionLabel} not found`;
 
   return (
@@ -155,6 +169,8 @@ export function SessionInlineLink({
           if (!resolvedSessionId) return;
           if (messageIndex != null) {
             navigateToSessionMessage(resolvedSessionId, messageIndex);
+          } else if (threadKey) {
+            navigateToSessionThread(resolvedSessionId, threadKey, false, routeSessionRef ?? resolvedSessionId);
           } else {
             navigateToSession(resolvedSessionId);
           }

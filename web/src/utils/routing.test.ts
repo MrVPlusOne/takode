@@ -10,6 +10,7 @@ import {
   resolveSessionIdFromRoute,
   sessionHash,
   sessionMessageHash,
+  sessionThreadHash,
   scrollToMessageIndex,
   navigateToSession,
   navigateToSessionMessageId,
@@ -194,6 +195,14 @@ describe("sessionHash", () => {
   });
 });
 
+describe("sessionThreadHash", () => {
+  it("builds a session hash with optional normalized leader thread context", () => {
+    expect(sessionThreadHash(123, "Q-42")).toBe("#/session/123?thread=q-42");
+    expect(sessionThreadHash("abc123", "main")).toBe("#/session/abc123");
+    expect(sessionThreadHash("abc123", null)).toBe("#/session/abc123");
+  });
+});
+
 describe("sessionMessageHash", () => {
   it("builds a readable message-index path under the session route", () => {
     expect(sessionMessageHash(123, 42)).toBe("#/session/123/msg/42");
@@ -372,6 +381,14 @@ describe("navigateToSessionThread", () => {
     navigateToSessionThread("resolved-session", "q-941");
 
     expect(window.location.hash).toBe("#/session/123?quest=q-7&thread=q-941");
+  });
+
+  it("uses the supplied route session reference when opening another session thread", () => {
+    window.location.hash = "#/session/s1";
+
+    navigateToSessionThread("resolved-session", "q-941", false, 123);
+
+    expect(window.location.hash).toBe("#/session/123?thread=q-941");
   });
 });
 

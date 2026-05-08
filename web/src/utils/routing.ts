@@ -181,6 +181,14 @@ export function sessionHash(sessionId: string | number): string {
 }
 
 /**
+ * Build a hash string for a session with optional leader thread context.
+ */
+export function sessionThreadHash(sessionId: string | number, threadKey?: string | null): string {
+  const hash = sessionHash(sessionId);
+  return threadKey ? withThreadKeyInHash(hash, threadKey) : hash;
+}
+
+/**
  * Build a hash string for a given session + readable message index.
  */
 export function sessionMessageHash(sessionId: string | number, messageIndex: number): string {
@@ -216,12 +224,17 @@ function routeTargetsSession(sessionRef: string, sessionId: string): boolean {
  * Preserves the current session route shape and query params when already on a
  * session URL, so numeric session routes and quest overlays remain stable.
  */
-export function navigateToSessionThread(sessionId: string, threadKey: string, replace = false): void {
+export function navigateToSessionThread(
+  sessionId: string,
+  threadKey: string,
+  replace = false,
+  routeSessionId: string | number = sessionId,
+): void {
   const currentRoute = parseHash(window.location.hash);
   const currentHash =
     currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId)
       ? window.location.hash
-      : sessionHash(sessionId);
+      : sessionHash(routeSessionId);
   const newHash = withThreadKeyInHash(currentHash, threadKey);
   if (newHash === window.location.hash) return;
 

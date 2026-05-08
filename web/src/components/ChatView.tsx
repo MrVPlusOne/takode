@@ -383,6 +383,7 @@ function QuestBannerParticipantChip({
   fallbackSessionId,
   fallbackSessionNum,
   currentSessionId,
+  threadKey,
 }: {
   role: QuestBannerParticipantRole;
   participant?: BoardRowSessionStatus["worker"] | BoardRowSessionStatus["reviewer"] | null;
@@ -390,6 +391,7 @@ function QuestBannerParticipantChip({
   fallbackSessionId?: string;
   fallbackSessionNum?: number;
   currentSessionId?: string;
+  threadKey?: string | null;
 }) {
   const candidateSessionId = participant?.sessionId ?? explicitSessionId ?? fallbackSessionId ?? null;
   const candidateSessionNum = participant?.sessionNum ?? fallbackSessionNum ?? undefined;
@@ -423,6 +425,7 @@ function QuestBannerParticipantChip({
       dataTestId="quest-thread-participant"
       ariaLabel={label}
       title={`Open ${role.toLowerCase()} session ${sessionNum != null ? `#${sessionNum}` : sessionId}`}
+      threadKey={threadKey}
     >
       {content}
     </SessionInlineLink>
@@ -775,6 +778,7 @@ export function QuestThreadBanner({
                       sessionId={row?.leaderSessionId}
                       fallbackSessionNum={row?.leaderSessionNum ?? undefined}
                       currentSessionId={currentSessionId}
+                      threadKey={row?.questId}
                     />
                     <QuestBannerParticipantChip
                       role="Reviewer"

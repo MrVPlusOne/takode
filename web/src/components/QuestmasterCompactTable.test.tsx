@@ -69,6 +69,7 @@ function buildQuest(overrides: Partial<QuestmasterTask> = {}): QuestmasterTask {
 describe("CompactQuestTable", () => {
   beforeEach(() => {
     mockStore.openQuestOverlay.mockClear();
+    window.history.replaceState({}, "", "/#/questmaster");
   });
 
   it("omits relationship metadata from compact title rows while preserving row content and activation", () => {
@@ -170,6 +171,34 @@ describe("CompactQuestTable", () => {
     fireEvent.click(screen.getByRole("button", { name: "Copy quest ID q-100" }));
 
     await waitFor(() => expect(writeText).toHaveBeenCalledWith("q-100"));
+    expect(onOpenQuest).not.toHaveBeenCalled();
+  });
+
+  it("routes compact leader chips to the quest thread while owner chips stay plain", () => {
+    const quest = buildQuest();
+    const onOpenQuest = vi.fn();
+
+    render(
+      <CompactQuestTable
+        quests={[quest]}
+        onOpenQuest={onOpenQuest}
+        searchText=""
+        journeyContextByQuestId={new Map()}
+        sort={{ column: "updated", direction: "desc" }}
+        sortSaving={false}
+        onSortChange={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "#202" }));
+
+    expect(window.location.hash).toBe("#/session/202?thread=q-100");
+    expect(onOpenQuest).not.toHaveBeenCalled();
+
+    window.history.replaceState({}, "", "/#/questmaster");
+    fireEvent.click(screen.getByRole("button", { name: "#101" }));
+
+    expect(window.location.hash).toBe("#/session/worker-101");
     expect(onOpenQuest).not.toHaveBeenCalled();
   });
 });

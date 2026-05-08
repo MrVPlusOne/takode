@@ -474,7 +474,12 @@ describe("QuestmasterPage status display", () => {
     expect(screen.getByText("Leader-routed quest")).toBeInTheDocument();
     expect(screen.getByText("Leader")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "#10" })).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "#4" })).toBeInTheDocument();
+    const leaderChip = screen.getByRole("button", { name: "#4" });
+    expect(leaderChip).toBeInTheDocument();
+
+    fireEvent.click(leaderChip);
+
+    expect(window.location.hash).toBe("#/session/4?thread=q-50");
   });
 
   it("collapses and expands the completed section without an inbox split", () => {

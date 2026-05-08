@@ -206,7 +206,7 @@ function LeaderChip({ quest }: { quest?: QuestmasterTask }) {
       ? (state.sdkSessions.find((session) => session.sessionId === leaderSessionId)?.sessionNum ?? null)
       : null,
   );
-  if (!leaderSessionId) return null;
+  if (!leaderSessionId || !quest) return null;
 
   return (
     <div className="flex min-w-0 items-center gap-1.5 text-[11px] text-cc-muted">
@@ -214,6 +214,7 @@ function LeaderChip({ quest }: { quest?: QuestmasterTask }) {
       <SessionInlineLink
         sessionId={leaderSessionId}
         sessionNum={leaderSessionNum}
+        threadKey={quest.questId}
         className="min-w-0 truncate font-mono-code text-blue-400 hover:text-blue-300 hover:underline decoration-dotted underline-offset-2"
       >
         {leaderSessionNum != null ? `#${leaderSessionNum}` : leaderSessionId.slice(0, 8)}

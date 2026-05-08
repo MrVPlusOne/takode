@@ -8,6 +8,7 @@ import { QuestClaimBlock } from "./QuestClaimBlock.js";
 describe("QuestClaimBlock", () => {
   beforeEach(() => {
     useStore.getState().reset();
+    window.history.replaceState({}, "", "/#/session/worker-1");
   });
 
   it("uses shared quest status colors for the status badge", () => {
@@ -52,7 +53,12 @@ describe("QuestClaimBlock", () => {
     fireEvent.click(screen.getByRole("button", { name: /Quest Claimed/i }));
 
     expect(screen.getByText("Leader")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "#42" })).toBeInTheDocument();
+    const leaderChip = screen.getByRole("button", { name: "#42" });
+    expect(leaderChip).toBeInTheDocument();
+
+    fireEvent.click(leaderChip);
+
+    expect(window.location.hash).toBe("#/session/42?thread=q-78");
   });
 
   it("opens local details modal and keeps quest link scoped to the same id", () => {

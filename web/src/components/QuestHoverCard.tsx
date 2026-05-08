@@ -190,6 +190,7 @@ export function QuestHoverCard({ quest, anchorRect, onMouseEnter, onMouseLeave }
           </div>
         )}
         <QuestHoverParticipants
+          questId={quest.questId}
           workerParticipant={workerParticipant}
           reviewerParticipant={reviewerParticipant}
           ownerSessionId={showOwnerSession ? ownerSessionId : null}
@@ -228,6 +229,7 @@ function formatQueuedWaitForReason(row: QuestJourneyBoardRow | undefined): strin
 }
 
 function QuestHoverParticipants({
+  questId,
   workerParticipant,
   reviewerParticipant,
   ownerSessionId,
@@ -237,6 +239,7 @@ function QuestHoverParticipants({
   leaderSessionNum,
   leaderSessionName,
 }: {
+  questId: string;
   workerParticipant: BoardParticipantStatus | null;
   reviewerParticipant: BoardParticipantStatus | null;
   ownerSessionId: string | null;
@@ -293,6 +296,7 @@ function QuestHoverParticipants({
             sessionId={leaderSessionId}
             sessionNum={leaderSessionNum}
             sessionName={leaderSessionName}
+            threadKey={questId}
           />
         </QuestHoverParticipantSlot>
       )}
@@ -310,12 +314,14 @@ function QuestHoverSessionChip({
   sessionNum,
   sessionName,
   status,
+  threadKey,
 }: {
   role: string;
   sessionId: string;
   sessionNum: number | null | undefined;
   sessionName?: string;
   status?: BoardParticipantStatus["status"];
+  threadKey?: string | null;
 }) {
   const dotProps = useParticipantSessionStatusDotProps(sessionId, status);
   const displaySession = sessionNum != null ? `#${sessionNum}` : sessionId.slice(0, 8);
@@ -330,6 +336,7 @@ function QuestHoverSessionChip({
       dataTestId="quest-hover-session-chip"
       ariaLabel={ariaLabel}
       title={`Open ${role.toLowerCase()} ${titleSession}`}
+      threadKey={threadKey}
     >
       {dotProps && <SessionStatusDot className="mt-0" {...dotProps} />}
       <span className={QUEST_PARTICIPANT_ROLE_CLASS}>{role}</span>
