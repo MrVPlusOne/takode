@@ -10,6 +10,7 @@ import {
   type MemorySpaceInfo,
   type MemorySpacesResponse,
 } from "../api.js";
+import { MarkdownContent } from "./MarkdownContent.js";
 
 interface MemoryPageProps {
   embedded?: boolean;
@@ -21,6 +22,20 @@ type LoadState<T> =
   | { status: "error"; data: null; error: string };
 
 const MEMORY_KINDS: MemoryKind[] = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"];
+
+function spaceLabel(space: Pick<MemorySpaceInfo, "slug" | "sessionSpaceSlug">): string {
+  return space.sessionSpaceSlug ? `${space.slug}/${space.sessionSpaceSlug}` : space.slug;
+}
+
+function splitMemoryPath(path: string): { name: string; parent: string } {
+  const parts = path.split("/");
+  const name = parts.pop() || path;
+  return { name, parent: parts.join("/") };
+}
+
+function formatRecordCount(count: number): string {
+  return `${count} record${count === 1 ? "" : "s"}`;
+}
 
 function formatDate(value: number | string | undefined): string {
   if (!value) return "none";
@@ -102,6 +117,18 @@ function SkeletonRows({ count = 4 }: { count?: number }) {
   );
 }
 
+function ActionButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="rounded-md border border-cc-border bg-cc-hover px-2.5 py-1.5 text-xs font-medium text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-active focus:border-cc-primary/60 focus:outline-none"
+    >
+      {children}
+    </button>
+  );
+}
+
 function SpaceButton({
   space,
   selected,
@@ -111,22 +138,24 @@ function SpaceButton({
   selected: boolean;
   onSelect: () => void;
 }) {
-  const label = space.sessionSpaceSlug ? `${space.slug}/${space.sessionSpaceSlug}` : space.slug;
+  const label = spaceLabel(space);
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`w-full rounded-md border px-3 py-2 text-left transition-colors ${
-        selected ? "border-cc-primary/60 bg-cc-active" : "border-cc-border bg-cc-card hover:bg-cc-hover"
+      className={`w-full min-w-0 rounded-md border px-3 py-2.5 text-left transition-colors max-lg:min-w-[250px] ${
+        selected ? "border-cc-primary/70 bg-cc-active" : "border-cc-border bg-cc-card hover:bg-cc-hover"
       }`}
     >
-      <div className="flex items-center justify-between gap-2">
-        <div className="min-w-0 truncate text-sm font-semibold text-cc-fg">{label}</div>
-        <span className="shrink-0 rounded bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
+      <div className="flex items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="break-words text-sm font-semibold leading-snug text-cc-fg">{label}</div>
+          <div className="mt-1 break-all font-mono text-[10px] leading-relaxed text-cc-muted">{space.root}</div>
+        </div>
+        <span className="shrink-0 rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
           {space.current ? "current" : space.initialized ? "repo" : "dir"}
         </span>
       </div>
-      <div className="mt-1 truncate font-mono text-[10px] text-cc-muted">{space.root}</div>
       <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
         <span className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">{space.authoredDirs.length} dirs</span>
         <span className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">
@@ -148,34 +177,47 @@ function EntryRow({
   selected: boolean;
   onSelect: () => void;
 }) {
+  const { name, parent } = splitMemoryPath(entry.path);
+  const facetEntries = Object.entries(entry.facets ?? {}) as Array<[string, unknown]>;
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`w-full rounded-md border p-3 text-left transition-colors ${
-        selected ? "border-cc-primary/60 bg-cc-active" : "border-cc-border bg-cc-card hover:bg-cc-hover"
+      className={`group w-full rounded-md border p-3 text-left transition-colors ${
+        selected ? "border-cc-primary/70 bg-cc-active" : "border-cc-border bg-cc-card hover:bg-cc-hover"
       }`}
     >
       <div className="flex items-start justify-between gap-2">
         <div className="min-w-0">
-          <div className="break-all font-mono text-[11px] text-cc-fg">{entry.path}</div>
-          <div className="mt-1 line-clamp-2 text-xs leading-relaxed text-cc-muted">
+          <div className="break-words font-mono text-[13px] font-semibold leading-snug text-cc-fg">{name}</div>
+          {parent ? <div className="mt-0.5 break-all font-mono text-[10px] text-cc-muted">{parent}/</div> : null}
+          <div className="mt-2 line-clamp-2 text-xs leading-relaxed text-cc-muted">
             {entry.description || "Missing description."}
           </div>
         </div>
-        <span className="shrink-0 rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
+        <span className="shrink-0 rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted group-hover:text-cc-fg">
           {entry.kind}
         </span>
       </div>
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
+      <div className="mt-3 flex flex-wrap gap-1.5 text-[10px]">
         {entry.source.slice(0, 3).map((source) => (
-          <span key={source} className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">
+          <span key={source} className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-cc-muted">
             {source}
           </span>
         ))}
         {entry.source.length > 3 ? (
-          <span className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">+{entry.source.length - 3}</span>
+          <span className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-cc-muted">
+            +{entry.source.length - 3}
+          </span>
         ) : null}
+        {facetEntries.slice(0, 2).flatMap(([key, raw]) => {
+          const values = Array.isArray(raw) ? raw : [raw];
+          return values.slice(0, 2).map((value) => (
+            <span key={`${key}-${String(value)}`} className="rounded bg-cc-hover/70 px-1.5 py-0.5 text-cc-muted">
+              {key}: {String(value)}
+            </span>
+          ));
+        })}
         {issues.length ? (
           <span className={`rounded border px-1.5 py-0.5 ${issueTone(issues[0]!)}`}>
             {issues.length} issue{issues.length === 1 ? "" : "s"}
@@ -189,8 +231,8 @@ function EntryRow({
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div className="min-w-0">
-      <div className="text-[10px] uppercase tracking-wide text-cc-muted">{label}</div>
-      <div className="mt-1 break-words text-xs text-cc-fg">{children}</div>
+      <div className="text-[10px] font-semibold uppercase tracking-wide text-cc-muted">{label}</div>
+      <div className="mt-1 break-words text-xs leading-relaxed text-cc-fg">{children}</div>
     </div>
   );
 }
@@ -233,50 +275,51 @@ function RecordDetail({
 
 function MemoryFileDetail({ file, issues }: { file: MemoryFile; issues: MemoryLintIssue[] }) {
   const facetEntries = Object.entries(file.frontmatter.facets ?? {}) as Array<[string, unknown]>;
+  const { name, parent } = splitMemoryPath(file.path);
   return (
     <div className="h-full overflow-y-auto rounded-md border border-cc-border bg-cc-card">
       <div className="sticky top-0 z-10 border-b border-cc-border bg-cc-card/95 px-4 py-3 backdrop-blur">
-        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+        <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
           <div className="min-w-0">
-            <h2 className="break-all font-mono text-sm font-semibold text-cc-fg">{file.path}</h2>
-            <div className="mt-1 break-all font-mono text-[10px] text-cc-muted">{file.absolutePath}</div>
+            <div className="text-[10px] font-semibold uppercase tracking-wide text-cc-muted">Selected record</div>
+            <h2 className="mt-1 break-words font-mono text-base font-semibold leading-snug text-cc-fg">{name}</h2>
+            {parent ? <div className="mt-1 break-all font-mono text-[11px] text-cc-muted">{parent}/</div> : null}
           </div>
           <div className="flex shrink-0 flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={() => copyText(file.absolutePath)}
-              className="rounded-md border border-cc-border bg-cc-hover px-2 py-1 text-[11px] text-cc-fg hover:border-cc-primary/40"
-            >
-              Copy path
-            </button>
-            <button
-              type="button"
-              onClick={() => openPath(file.absolutePath, "file")}
-              className="rounded-md border border-cc-border bg-cc-hover px-2 py-1 text-[11px] text-cc-fg hover:border-cc-primary/40"
-            >
-              Open record
-            </button>
+            <ActionButton onClick={() => copyText(file.absolutePath)}>Copy path</ActionButton>
+            <ActionButton onClick={() => openPath(file.absolutePath, "file")}>Open record</ActionButton>
           </div>
         </div>
       </div>
 
       <div className="space-y-5 p-4">
-        <section className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-          <Field label="Kind">{file.kind}</Field>
-          <Field label="Description">{file.description || "missing"}</Field>
-          <Field label="Sources">
-            {file.source.length ? (
-              <div className="flex flex-wrap gap-1.5">
-                {file.source.map((source) => (
-                  <span key={source} className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5">
-                    {sourceLabel(source)}
-                  </span>
-                ))}
-              </div>
-            ) : (
-              "none"
-            )}
-          </Field>
+        <section className="grid grid-cols-1 gap-3 rounded-md border border-cc-border bg-cc-bg/30 p-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(180px,0.85fr)]">
+          <div className="min-w-0 space-y-3">
+            <Field label="Description">{file.description || "missing"}</Field>
+            <Field label="Path">
+              <div className="break-all font-mono text-[11px] leading-relaxed text-cc-muted">{file.absolutePath}</div>
+            </Field>
+          </div>
+          <div className="min-w-0 space-y-3">
+            <Field label="Kind">
+              <span className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[11px] text-cc-muted">
+                {file.kind}
+              </span>
+            </Field>
+            <Field label="Sources">
+              {file.source.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {file.source.map((source) => (
+                    <span key={source} className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5">
+                      {sourceLabel(source)}
+                    </span>
+                  ))}
+                </div>
+              ) : (
+                "none"
+              )}
+            </Field>
+          </div>
         </section>
 
         {facetEntries.length ? (
@@ -313,10 +356,14 @@ function MemoryFileDetail({ file, issues }: { file: MemoryFile; issues: MemoryLi
         </section>
 
         <section>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Markdown Body</h3>
-          <pre className="mt-2 max-h-[56vh] overflow-auto whitespace-pre-wrap break-words rounded-md border border-cc-border bg-cc-bg/50 p-3 font-mono text-xs leading-relaxed text-cc-fg">
-            {file.body || "No body content."}
-          </pre>
+          <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Markdown preview</h3>
+          <div className="mt-2 max-w-[76ch] rounded-md border border-cc-border bg-cc-bg/50 p-4">
+            {file.body ? (
+              <MarkdownContent text={file.body} size="sm" variant="conservative" wrapLongContent />
+            ) : (
+              <div className="text-xs text-cc-muted">No body content.</div>
+            )}
+          </div>
         </section>
       </div>
     </div>
@@ -453,20 +500,20 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   );
   const selectedSpace = spacesState.data?.spaces.find((space) => space.root === selectedRoot) ?? null;
   const selectedRecordPath = recordState.status === "ready" ? recordState.data.file.absolutePath : selectedSpace?.root;
+  const selectedSpaceLabel = selectedSpace ? spaceLabel(selectedSpace) : null;
+  const selectedEntry = selectedPath ? (catalog?.entries.find((entry) => entry.path === selectedPath) ?? null) : null;
 
   return (
     <div className={`${embedded ? "h-full" : "min-h-screen"} bg-cc-bg text-cc-fg`}>
       <div className="flex h-full flex-col">
-        <header className="border-b border-cc-border px-4 py-3">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-center xl:justify-between">
-            <div className="min-w-0">
-              <div className="flex flex-wrap items-center gap-2">
-                <h1 className="text-lg font-semibold text-cc-fg">Memory</h1>
+        <header className="shrink-0 border-b border-cc-border px-4 py-3">
+          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
+            <div className="min-w-0 space-y-2">
+              <div className="flex flex-wrap items-center gap-2.5">
+                <h1 className="text-xl font-semibold leading-tight text-cc-fg">Memory</h1>
                 {selectedSpace ? (
-                  <span className="rounded border border-cc-border bg-cc-hover px-2 py-0.5 font-mono text-[11px] text-cc-muted">
-                    {selectedSpace?.sessionSpaceSlug
-                      ? `${selectedSpace.slug}/${selectedSpace.sessionSpaceSlug}`
-                      : selectedSpace.slug}
+                  <span className="rounded border border-cc-border bg-cc-hover px-2 py-0.5 font-mono text-[12px] text-cc-fg">
+                    {selectedSpaceLabel}
                   </span>
                 ) : null}
                 <span className={`rounded border px-2 py-0.5 text-[11px] ${healthTone(catalog)}`}>
@@ -489,13 +536,12 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
                   </span>
                 ) : null}
               </div>
-              <div className="mt-1 break-all font-mono text-[11px] text-cc-muted">
+              <div className="max-w-[110ch] break-all font-mono text-[11px] leading-relaxed text-cc-muted">
                 {catalog?.repo.root ?? selectedSpace?.root ?? ""}
               </div>
             </div>
             <div className="flex flex-wrap items-center gap-2">
-              <button
-                type="button"
+              <ActionButton
                 onClick={() =>
                   selectedRoot &&
                   api
@@ -509,38 +555,33 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
                       }),
                     )
                 }
-                className="rounded-md border border-cc-border bg-cc-hover px-2.5 py-1.5 text-xs text-cc-fg hover:border-cc-primary/40"
               >
                 Refresh
-              </button>
+              </ActionButton>
               {selectedSpace ? (
                 <>
-                  <button
-                    type="button"
-                    onClick={() => copyText(selectedRecordPath ?? selectedSpace.root)}
-                    className="rounded-md border border-cc-border bg-cc-hover px-2.5 py-1.5 text-xs text-cc-fg hover:border-cc-primary/40"
-                  >
+                  <ActionButton onClick={() => copyText(selectedRecordPath ?? selectedSpace.root)}>
                     Copy path
-                  </button>
-                  <button
-                    type="button"
+                  </ActionButton>
+                  <ActionButton
                     onClick={() =>
                       openPath(
                         selectedRecordPath ?? selectedSpace.root,
                         recordState.status === "ready" ? "file" : "directory",
                       )
                     }
-                    className="rounded-md border border-cc-border bg-cc-hover px-2.5 py-1.5 text-xs text-cc-fg hover:border-cc-primary/40"
                   >
                     Open
-                  </button>
+                  </ActionButton>
                 </>
               ) : null}
             </div>
           </div>
           {catalog ? (
-            <div className="mt-3 flex flex-wrap gap-2 text-[11px]">
-              <span className="rounded bg-cc-hover px-2 py-1 text-cc-muted">{catalog.entries.length} records</span>
+            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
+              <span className="rounded border border-cc-border bg-cc-hover px-2 py-1 text-cc-muted">
+                {formatRecordCount(catalog.entries.length)}
+              </span>
               {MEMORY_KINDS.map((kind) => {
                 const count = catalog.entries.filter((entry) => entry.kind === kind).length;
                 return (
@@ -560,43 +601,61 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
           ) : null}
         </header>
 
-        <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 p-3 lg:grid-cols-[260px_minmax(300px,420px)_1fr]">
-          <aside className="min-h-0 space-y-2 overflow-y-auto">
-            {spacesState.status === "loading" ? <SkeletonRows count={3} /> : null}
-            {spacesState.status === "error" ? (
-              <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
-                Failed to load memory spaces: {spacesState.error}
-              </div>
-            ) : null}
-            {spacesState.status === "ready" && spacesState.data.spaces.length === 0 ? (
-              <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
-                No memory spaces found.
-              </div>
-            ) : null}
-            {spacesState.status === "ready"
-              ? spacesState.data.spaces.map((space) => (
-                  <SpaceButton
-                    key={`${space.slug}-${space.root}`}
-                    space={space}
-                    selected={selectedRoot === space.root}
-                    onSelect={() => {
-                      setSelectedRoot(space.root);
-                      setSelectedPath(null);
-                    }}
-                  />
-                ))
-              : null}
+        <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-3 lg:grid-cols-[minmax(220px,270px)_minmax(320px,460px)_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[280px_minmax(360px,500px)_minmax(520px,1fr)]">
+          <aside className="min-h-0">
+            <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
+              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Spaces</h2>
+              {spacesState.status === "ready" ? (
+                <span className="text-[11px] text-cc-muted">{spacesState.data.spaces.length}</span>
+              ) : null}
+            </div>
+            <div className="flex gap-2 overflow-x-auto pb-1 lg:block lg:space-y-2 lg:overflow-y-auto lg:overflow-x-visible lg:pb-0">
+              {spacesState.status === "loading" ? <SkeletonRows count={3} /> : null}
+              {spacesState.status === "error" ? (
+                <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+                  Failed to load memory spaces: {spacesState.error}
+                </div>
+              ) : null}
+              {spacesState.status === "ready" && spacesState.data.spaces.length === 0 ? (
+                <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
+                  No memory spaces found.
+                </div>
+              ) : null}
+              {spacesState.status === "ready"
+                ? spacesState.data.spaces.map((space) => (
+                    <SpaceButton
+                      key={`${space.slug}-${space.root}`}
+                      space={space}
+                      selected={selectedRoot === space.root}
+                      onSelect={() => {
+                        setSelectedRoot(space.root);
+                        setSelectedPath(null);
+                      }}
+                    />
+                  ))
+                : null}
+            </div>
           </aside>
 
-          <section className="min-h-0 space-y-2 overflow-y-auto">
-            <input
-              type="search"
-              value={query}
-              onChange={(event) => setQuery(event.target.value)}
-              placeholder="Filter memory..."
-              aria-label="Filter memory"
-              className="w-full rounded-md border border-cc-border bg-cc-input-bg px-2.5 py-1.5 text-xs text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60"
-            />
+          <section className="min-h-0 space-y-2 lg:overflow-y-auto">
+            <div className="sticky top-0 z-10 space-y-2 bg-cc-bg pb-2">
+              <div className="flex items-center justify-between gap-2 px-0.5">
+                <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Records</h2>
+                {catalog ? (
+                  <span className="text-[11px] text-cc-muted">
+                    {filteredEntries.length}/{catalog.entries.length}
+                  </span>
+                ) : null}
+              </div>
+              <input
+                type="search"
+                value={query}
+                onChange={(event) => setQuery(event.target.value)}
+                placeholder="Filter paths, descriptions, sources, facets..."
+                aria-label="Filter memory"
+                className="w-full rounded-md border border-cc-border bg-cc-input-bg px-3 py-2 text-xs text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60"
+              />
+            </div>
             {catalogState.status === "loading" ? <SkeletonRows count={5} /> : null}
             {catalogState.status === "error" ? (
               <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
@@ -624,35 +683,50 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
             ))}
           </section>
 
-          <section className="min-h-0 space-y-3">
-            {catalog?.git.statusEntries.length ? (
-              <div className="rounded-md border border-cc-border bg-cc-card p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Working tree</div>
-                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-                  {catalog.git.statusEntries.slice(0, 6).map((entry) => (
-                    <span key={entry.raw} className="rounded bg-cc-hover px-1.5 py-0.5 font-mono text-cc-muted">
-                      {entry.code} {entry.path}
-                    </span>
-                  ))}
-                  {catalog.git.statusEntries.length > 6 ? (
-                    <span className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">
-                      +{catalog.git.statusEntries.length - 6}
-                    </span>
+          <section className="flex min-h-0 flex-col gap-3 lg:overflow-hidden">
+            <div className="rounded-md border border-cc-border bg-cc-card p-3">
+              <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
+                <div className="min-w-0">
+                  <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Reading</h2>
+                  <div className="mt-1 break-words font-mono text-sm font-semibold leading-snug text-cc-fg">
+                    {selectedEntry ? splitMemoryPath(selectedEntry.path).name : "No record selected"}
+                  </div>
+                  {selectedEntry ? (
+                    <div className="mt-1 break-all font-mono text-[10px] text-cc-muted">{selectedEntry.path}</div>
                   ) : null}
                 </div>
+                {catalog?.git.statusEntries.length ? (
+                  <div className="min-w-0 text-[11px] xl:max-w-[48%]">
+                    <div className="font-semibold uppercase tracking-wide text-cc-muted">Working tree</div>
+                    <div className="mt-1 flex flex-wrap gap-1.5">
+                      {catalog.git.statusEntries.slice(0, 3).map((entry) => (
+                        <span key={entry.raw} className="rounded bg-cc-hover px-1.5 py-0.5 font-mono text-cc-muted">
+                          {entry.code} {entry.path}
+                        </span>
+                      ))}
+                      {catalog.git.statusEntries.length > 3 ? (
+                        <span className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">
+                          +{catalog.git.statusEntries.length - 3}
+                        </span>
+                      ) : null}
+                    </div>
+                  </div>
+                ) : catalog?.git.recentCommits.length ? (
+                  <div className="min-w-0 text-[11px] xl:max-w-[48%]">
+                    <div className="font-semibold uppercase tracking-wide text-cc-muted">Recent update</div>
+                    <div className="mt-1 truncate text-xs text-cc-fg">
+                      {catalog.git.recentCommits[0]?.shortSha} {catalog.git.recentCommits[0]?.message}
+                    </div>
+                    <div className="mt-1 text-[11px] text-cc-muted">
+                      {formatDate(catalog.git.recentCommits[0]?.timestamp)}
+                    </div>
+                  </div>
+                ) : null}
               </div>
-            ) : catalog?.git.recentCommits.length ? (
-              <div className="rounded-md border border-cc-border bg-cc-card p-3">
-                <div className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Recent update</div>
-                <div className="mt-1 truncate text-xs text-cc-fg">
-                  {catalog.git.recentCommits[0]?.shortSha} {catalog.git.recentCommits[0]?.message}
-                </div>
-                <div className="mt-1 text-[11px] text-cc-muted">
-                  {formatDate(catalog.git.recentCommits[0]?.timestamp)}
-                </div>
-              </div>
-            ) : null}
-            <RecordDetail recordState={recordState} selectedPath={selectedPath} />
+            </div>
+            <div className="min-h-[320px] flex-1">
+              <RecordDetail recordState={recordState} selectedPath={selectedPath} />
+            </div>
           </section>
         </main>
       </div>

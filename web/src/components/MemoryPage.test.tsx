@@ -198,7 +198,9 @@ describe("MemoryPage", () => {
     expect(screen.getByText("dirty")).toBeInTheDocument();
     expect(screen.getByText("?? current/live.md")).toBeInTheDocument();
     expect(screen.getAllByText("knowledge/service-x.md").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("service-x.md").length).toBeGreaterThan(1);
     expect(screen.getAllByText("Explains Service X config and failure modes.").length).toBeGreaterThan(0);
+    expect(screen.getByText("Markdown preview")).toBeInTheDocument();
     expect(await screen.findByText("Service X is started through a local dev command.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "q-1220" })).toHaveAttribute("href", "#/questmaster?quest=q-1220");
     expect(screen.getByRole("link", { name: "session:1576:99" })).toHaveAttribute("href", "#/session/1576/msg/99");
@@ -237,7 +239,8 @@ describe("MemoryPage", () => {
 
     await screen.findByText("knowledge/service-x.md");
     fireEvent.change(screen.getByLabelText("Filter memory"), { target: { value: "run-service" } });
-    expect(screen.getByText("procedures/run-service.md")).toBeInTheDocument();
+    expect(screen.getByText("run-service.md")).toBeInTheDocument();
+    expect(screen.getByText("procedures/")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "knowledge 1" }));
     expect(screen.getByText("No memory records match this filter.")).toBeInTheDocument();
