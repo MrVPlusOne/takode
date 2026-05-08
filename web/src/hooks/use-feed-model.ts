@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef } from "react";
-import { isSubagentToolName, type ChatMessage, type ContentBlock } from "../types.js";
+import { isSubagentToolName, type ChatMessage, type ContentBlock, type SessionAttentionRecord } from "../types.js";
 import { EVENT_HEADER_RE } from "../utils/herd-event-parser.js";
 import { recordFeedRenderSnapshot } from "../utils/frontend-perf-recorder.js";
 
@@ -552,8 +552,15 @@ function entryIsCollapsedVisible(
       (entry.msg.notification != null ||
         anchoredNotificationMessageIds?.has(entry.msg.id) === true ||
         (leaderMode && entry.msg.metadata?.leaderUserMessage === true))) ||
-      entry.msg.metadata?.attentionRecord != null)
+      shouldShowAttentionRecordInCollapsedTurn(entry.msg.metadata?.attentionRecord))
   );
+}
+
+function shouldShowAttentionRecordInCollapsedTurn(record: SessionAttentionRecord | undefined): boolean {
+  if (!record) return false;
+  // Approval prompts are details of the turn; Journey lifecycle records remain
+  // collapsed-visible orientation markers.
+  return !(record.type === "needs_input" && record.source.kind === "notification");
 }
 
 function buildCollapsedTurnEntries(entries: FeedEntry[], visibleEntryKeys: ReadonlySet<string>): CollapsedTurnEntry[] {

@@ -27,7 +27,7 @@ beforeAll(() => {
 });
 
 import { render, screen, within } from "@testing-library/react";
-import type { ChatMessage, ThreadTransitionMarker } from "../types.js";
+import type { ChatMessage, SessionAttentionRecord, ThreadTransitionMarker } from "../types.js";
 
 vi.mock("react-markdown", () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -204,6 +204,12 @@ function setStoreTurnOverrides(sessionId: string, overrides: [string, boolean][]
   mockStoreValues.turnActivityOverrides = map;
 }
 
+function setStoreAttentionRecords(sessionId: string, records: SessionAttentionRecord[]) {
+  const map = new Map();
+  map.set(sessionId, records);
+  mockStoreValues.sessionAttentionRecords = map;
+}
+
 function resetStore() {
   mockToggleTurnActivity.mockReset();
   mockFocusTurn.mockReset();
@@ -302,6 +308,85 @@ function seedThreadMarkerTurn(sessionId: string) {
   ]);
 }
 
+function attentionRecord(overrides: Partial<SessionAttentionRecord> & { id: string }): SessionAttentionRecord {
+  const createdAt = overrides.createdAt ?? 1;
+  const type = overrides.type ?? "needs_input";
+  const priority = overrides.priority ?? (type === "quest_journey_started" ? "created" : "needs_input");
+  const actionLabel = overrides.actionLabel ?? (priority === "needs_input" ? "Answer" : "Open");
+  const threadKey = overrides.threadKey ?? "q-1268";
+  const questId = overrides.questId ?? threadKey;
+  const title = overrides.title ?? "approve q-1268 latency instrumentation rework plan";
+  return {
+    leaderSessionId: "test-leader",
+    type,
+    source: { kind: type === "needs_input" ? "notification" : "board", id: overrides.id, questId },
+    questId,
+    threadKey,
+    title,
+    summary: overrides.summary ?? title,
+    actionLabel,
+    priority,
+    state: overrides.state ?? "resolved",
+    createdAt,
+    updatedAt: overrides.updatedAt ?? createdAt,
+    route: { threadKey, questId },
+    chipEligible: false,
+    ledgerEligible: true,
+    dedupeKey: overrides.id,
+    ...overrides,
+  };
+}
+
+function seedAttentionNoticeTurn(sessionId: string) {
+  setStoreMessages(sessionId, [
+    makeMessage({ id: "u1", role: "user", content: "Coordinate Journey notice cleanup", timestamp: 100 }),
+    makeMessage({ id: "a1", role: "assistant", content: "Collapsed turn final response", timestamp: 170 }),
+    makeMessage({ id: "u2", role: "user", content: "Next request", timestamp: 300 }),
+  ]);
+  setStoreAttentionRecords(sessionId, [
+    attentionRecord({
+      id: "journey-start-q1268",
+      type: "quest_journey_started",
+      source: { kind: "board", id: "q-1268", questId: "q-1268", signature: "started:110" },
+      title: "Journey started",
+      summary: "Diagnose and fix slow mobile Safari voice transcription progress",
+      priority: "created",
+      actionLabel: "Open",
+      createdAt: 110,
+      state: "resolved",
+    }),
+    attentionRecord({
+      id: "approval-q1268",
+      title: "approve q-1268 latency instrumentation rework plan",
+      summary: "approve q-1268 latency instrumentation rework plan",
+      createdAt: 120,
+      state: "resolved",
+    }),
+    attentionRecord({
+      id: "journey-finished-q1268",
+      type: "quest_completed_recent",
+      source: { kind: "board", id: "q-1268", questId: "q-1268", signature: "finished:130" },
+      title: "Journey finished",
+      summary: "Diagnose and fix slow mobile Safari voice transcription progress",
+      priority: "review",
+      actionLabel: "Open",
+      createdAt: 130,
+      state: "unresolved",
+      journeyLifecycleStatus: "completed",
+    }),
+    attentionRecord({
+      id: "approval-q1210",
+      questId: "q-1210",
+      threadKey: "q-1210",
+      source: { kind: "notification", id: "approval-q1210", questId: "q-1210" },
+      title: "approve q-1210 thread-title voice context rework plan",
+      summary: "approve q-1210 thread-title voice context rework plan",
+      createdAt: 140,
+      state: "resolved",
+    }),
+  ]);
+}
+
 describe("MessageFeed - collapsed thread-detail markers", () => {
   it("hides thread-detail marker rows when their containing turn is collapsed", () => {
     // Thread-routing markers remain in producer-shaped message history, but
@@ -334,5 +419,37 @@ describe("MessageFeed - collapsed thread-detail markers", () => {
     expect(marker.textContent).toContain("Work continued from Main to thread:q-941");
     expect(marker.textContent).toContain("1 activity in thread:q-941");
     expect(within(marker).getAllByRole("button", { name: "thread:q-941" }).length).toBeGreaterThan(0);
+  });
+
+  it("hides approval notice rows but keeps Journey notices when a turn is collapsed", () => {
+    // Notification-sourced approval ledger records are collapsed-turn detail,
+    // while Journey lifecycle records stay visible as orientation markers.
+    const sid = "test-collapsed-approval-notices-hidden";
+    seedAttentionNoticeTurn(sid);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Journey started")).toBeTruthy();
+    expect(screen.getByText("Journey finished")).toBeTruthy();
+    expect(screen.getByText("Collapsed turn final response")).toBeTruthy();
+    expect(screen.queryByText("approve q-1268 latency instrumentation rework plan")).toBeNull();
+    expect(screen.queryByText("approve q-1210 thread-title voice context rework plan")).toBeNull();
+    expect(screen.queryByRole("button", { name: "Answer" })).toBeNull();
+  });
+
+  it("shows approval notice rows again when the same turn is expanded", () => {
+    // Expanded inspection remains the audit path for the same attention records;
+    // the collapsed policy must not delete or globally suppress them.
+    const sid = "test-expanded-approval-notices-visible";
+    seedAttentionNoticeTurn(sid);
+    setStoreTurnOverrides(sid, [["u1", true]]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Journey started")).toBeTruthy();
+    expect(screen.getByText("Journey finished")).toBeTruthy();
+    expect(screen.getByText("approve q-1268 latency instrumentation rework plan")).toBeTruthy();
+    expect(screen.getByText("approve q-1210 thread-title voice context rework plan")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: "Answer" })).toHaveLength(2);
   });
 });
