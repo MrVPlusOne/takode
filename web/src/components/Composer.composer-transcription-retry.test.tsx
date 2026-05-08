@@ -41,6 +41,7 @@ const mockUpdateSettings = vi.fn().mockResolvedValue({});
 const mockRefreshSessionSkills = vi.fn().mockResolvedValue({ ok: true, skills: [] });
 const mockPrepareUserMessageImages = vi.fn();
 const mockDeletePreparedUserMessageImage = vi.fn().mockResolvedValue({ ok: true });
+const mockReportTranscriptionFrontendTiming = vi.fn().mockResolvedValue({ ok: true, attached: true });
 
 // Build a controllable mock store state
 let mockStoreState: Record<string, unknown> = {};
@@ -59,6 +60,7 @@ vi.mock("../api.js", () => ({
     prepareUserMessageImages: (...args: unknown[]) => mockPrepareUserMessageImages(...args),
     deletePreparedUserMessageImage: (...args: unknown[]) => mockDeletePreparedUserMessageImage(...args),
     transcribe: (...args: unknown[]) => mockTranscribe(...args),
+    reportTranscriptionFrontendTiming: (...args: unknown[]) => mockReportTranscriptionFrontendTiming(...args),
   },
 }));
 
