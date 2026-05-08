@@ -504,9 +504,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
     return { ok: true, answers };
   };
 
+  type TakodeNotifyCategory = "needs-input" | "review" | "waiting";
+
+  const isPersistentNotifyCategory = (category: TakodeNotifyCategory): category is "needs-input" | "review" =>
+    category === "needs-input" || category === "review";
+
   const normalizeSuggestedAnswers = (
     value: unknown,
-    category: "needs-input" | "review" | "waiting",
+    category: TakodeNotifyCategory,
   ): { ok: true; answers: string[] } | { ok: false; error: string } => {
     const result = normalizeSuggestedAnswerSet(value, "suggestedAnswers");
     if (!result.ok) return result;
@@ -518,7 +523,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
   const normalizeNeedsInputQuestions = (
     value: unknown,
-    category: "needs-input" | "review" | "waiting",
+    category: TakodeNotifyCategory,
   ): { ok: true; questions: NeedsInputNotificationQuestion[] } | { ok: false; error: string } => {
     if (value === undefined || value === null) return { ok: true, questions: [] };
     if (!Array.isArray(value)) return { ok: false, error: "questions must be an array" };
@@ -1782,7 +1787,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const body = await c.req.json().catch(() => ({}));
     const category = body.category;
     if (category !== "needs-input" && category !== "review" && category !== "waiting") {
-      return c.json({ error: 'category must be "needs-input", "waiting", or "review"' }, 400);
+      return c.json({ error: 'category must be "needs-input", "review", or "waiting"' }, 400);
     }
     const rawSummary = typeof body.summary === "string" ? body.summary.trim() : "";
     if (!rawSummary) {
@@ -1803,6 +1808,16 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
+    if (!isPersistentNotifyCategory(category)) {
+      return c.json({
+        ok: true,
+        category,
+        transient: true,
+        anchoredMessageId: null,
+        notificationId: null,
+        rawNotificationId: null,
+      });
+    }
     const result = notifyUserController(session, category, summary, notificationRouteDeps, {
       suggestedAnswers: suggestedAnswersResult.answers,
       questions: questionsResult.questions,
@@ -1893,7 +1908,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
   api.get("/sessions/:id/notifications", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);
-    return c.json(wsBridge.getSession(id)?.notifications ?? []);
+    const notifications = (wsBridge.getSession(id)?.notifications ?? []).filter(
+      (notification: { category?: unknown }) =>
+        notification.category === "needs-input" || notification.category === "review",
+    );
+    return c.json(notifications);
   });
 
   // ─── Work Board ──────────────────────────────────────────────────────

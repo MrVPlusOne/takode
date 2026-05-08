@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import {
   buildPersistedSessionPayload,
+  getNotificationStatusSnapshot,
   markNotificationDone,
   notifyUser,
   restorePersistedSessions,
@@ -120,15 +121,19 @@ describe("session notification status metadata", () => {
     );
   });
 
-  it("records waiting notifications without setting user attention or scheduling a push", () => {
-    const session = makeSession();
-    const deps = makeDeps();
+  it("excludes legacy waiting markers from server notification status snapshots", () => {
+    const session = makeSession({
+      notifications: [
+        { id: "waiting-1", category: "waiting", summary: "Waiting on lease", timestamp: 1000, done: false },
+        { id: "n-1", category: "review", summary: "Ready", timestamp: 1001, messageId: null, done: false },
+      ],
+    });
 
-    notifyUser(session, "waiting", "Waiting on reviewer", deps);
-
-    expect(session.notifications).toMatchObject([{ category: "waiting", summary: "Waiting on reviewer", done: false }]);
-    expect(session.attentionReason).toBeNull();
-    expect(deps.scheduleNotification).not.toHaveBeenCalled();
+    expect(getNotificationStatusSnapshot(session)).toMatchObject({
+      notificationUrgency: "review",
+      activeNotificationCount: 1,
+      notificationStatusUpdatedAt: 1001,
+    });
   });
 
   it("applies inferred thread route metadata to fallback needs-input anchor messages", () => {

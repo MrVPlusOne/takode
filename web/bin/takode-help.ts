@@ -188,6 +188,7 @@ Categories:
   needs-input  User decision or information required
   waiting      Non-attention waiting or WIP status
   review       Ready for user review
+  waiting      Transient non-user wait marker; not listed or resolved
 
 Options:
   --suggest <answer>  Suggested answer for needs-input notifications (repeat up to 3 times)

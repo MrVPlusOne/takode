@@ -82,8 +82,22 @@ describe("takode notify self-resolution workflow", () => {
       }
 
       if (method === "POST" && url === "/api/sessions/worker-7/notify") {
-        requestBodies.push(await readJson(req));
+        const body = await readJson(req);
+        requestBodies.push(body);
         res.writeHead(200, { "content-type": "application/json" });
+        if (body.category === "waiting") {
+          res.end(
+            JSON.stringify({
+              ok: true,
+              category: "waiting",
+              transient: true,
+              anchoredMessageId: null,
+              notificationId: null,
+              rawNotificationId: null,
+            }),
+          );
+          return;
+        }
         res.end(
           JSON.stringify({
             ok: true,
@@ -159,7 +173,7 @@ describe("takode notify self-resolution workflow", () => {
     expect(requestBodies[0]).toEqual({ category: "needs-input", summary: "Need approval" });
   });
 
-  it("passes waiting notifications without needs-input options", async () => {
+  it("prints a transient acknowledgement for takode notify waiting without an id", async () => {
     const result = await runTakode(["notify", "waiting", "Waiting", "on", "reviewer", "--port", String(port)], {
       ...process.env,
       COMPANION_SESSION_ID: "worker-7",
@@ -167,7 +181,8 @@ describe("takode notify self-resolution workflow", () => {
     });
 
     expect(result.status).toBe(0);
-    expect(result.stdout).toContain("Notification sent (waiting, id 7)");
+    expect(result.stdout).toContain("Waiting status noted (transient)");
+    expect(result.stdout).not.toContain("id");
     expect(requestBodies[0]).toEqual({ category: "waiting", summary: "Waiting on reviewer" });
   });
 

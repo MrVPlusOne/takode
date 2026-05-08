@@ -2,6 +2,7 @@
 
 import { beforeEach, describe, expect, it } from "vitest";
 import {
+  applySessionNotifications,
   applyNotificationStatusUpdate,
   setSdkSessionsWithNotificationFreshness,
   shouldApplyAttentionReasonWithNotificationFreshness,
@@ -30,6 +31,17 @@ function needsInputNotification(overrides: Partial<SessionNotification> = {}): S
     done: false,
     ...overrides,
   };
+}
+
+function waitingNotification(): SessionNotification {
+  return {
+    id: "waiting-1",
+    category: "waiting",
+    summary: "Waiting on reviewer",
+    timestamp: 1001,
+    messageId: null,
+    done: false,
+  } as unknown as SessionNotification;
 }
 
 describe("notification status attention freshness", () => {
@@ -134,6 +146,42 @@ describe("notification status attention freshness", () => {
     });
 
     expect(useStore.getState().sessionNotifications.get("s1")).toBe(cached);
+  });
+
+  it("filters waiting markers out of unresolved notification state", () => {
+    // `takode notify waiting` is a transient status marker, not a user-action
+    // notification. Legacy/live waiting payloads must not drive chips/counts.
+    useStore.getState().setSdkSessions([session({})]);
+
+    const applied = applySessionNotifications(
+      "s1",
+      [waitingNotification(), needsInputNotification({ id: "n2", timestamp: 1002 })],
+      {
+        notificationStatusVersion: 3,
+        notificationStatusUpdatedAt: 3000,
+      },
+    );
+
+    expect(applied).toBe(true);
+    expect(useStore.getState().sessionNotifications.get("s1")).toEqual([
+      needsInputNotification({ id: "n2", timestamp: 1002 }),
+    ]);
+    expect(useStore.getState().sdkSessions[0]?.notificationUrgency).toBe("needs-input");
+    expect(useStore.getState().sdkSessions[0]?.activeNotificationCount).toBe(1);
+  });
+
+  it("clears cached notification state when only waiting markers arrive", () => {
+    useStore.getState().setSdkSessions([session({})]);
+    useStore.setState({ sessionNotifications: new Map([["s1", [needsInputNotification()]]]) });
+
+    applySessionNotifications("s1", [waitingNotification()], {
+      notificationStatusVersion: 4,
+      notificationStatusUpdatedAt: 4000,
+    });
+
+    expect(useStore.getState().sessionNotifications.get("s1")).toBeUndefined();
+    expect(useStore.getState().sdkSessions[0]?.notificationUrgency).toBeNull();
+    expect(useStore.getState().sdkSessions[0]?.activeNotificationCount).toBe(0);
   });
 
   it("does not let an older clear summary erase a newer active notification state", () => {

@@ -205,6 +205,37 @@ describe("NotificationChip", () => {
     expect(container).toBeEmptyDOMElement();
   });
 
+  it("renders nothing for waiting-only status markers", () => {
+    // Waiting markers are transient status, not unresolved notifications that
+    // should create chip counts or resolver work.
+    setNotifications("s1", [
+      { id: "waiting-1", category: "waiting", summary: "Waiting on reviewer", timestamp: Date.now(), done: false },
+    ]);
+
+    const { container } = render(<NotificationChip sessionId="s1" />);
+
+    expect(container).toBeEmptyDOMElement();
+  });
+
+  it("filters waiting status markers out of mixed notification chips and popovers", () => {
+    // A legacy/live waiting payload may arrive beside actionable notifications,
+    // but it must not add count text or a popover row.
+    setNotifications("s1", [
+      { id: "waiting-1", category: "waiting", summary: "Waiting on reviewer", timestamp: Date.now(), done: false },
+      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+    ]);
+    render(<NotificationChip sessionId="s1" />);
+
+    const chip = screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" });
+    expect(chip).toHaveTextContent("1needs input");
+    expect(chip).not.toHaveTextContent("Waiting");
+
+    fireEvent.click(chip);
+    expect(screen.getAllByTestId("notification-inbox-row")).toHaveLength(1);
+    expect(screen.getAllByText("Need answer").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Waiting on reviewer")).not.toBeInTheDocument();
+  });
+
   it("colors the bell blue when review is the highest active urgency", () => {
     // Review-only inboxes should render a single-height inline count + bell
     // segment with explicit review copy.
@@ -222,25 +253,6 @@ describe("NotificationChip", () => {
     expect(bell?.className.baseVal ?? bell?.getAttribute("class")).toContain("text-blue-500");
     expect(badge).toHaveTextContent("1");
     expect(badge.className).not.toContain("rounded-full");
-  });
-
-  it("renders waiting as quiet status without needs-input answer controls", () => {
-    // Waiting items should be visible in the inbox while staying out of the
-    // amber needs-input reply flow.
-    setNotifications("s1", [
-      { id: "waiting-1", category: "waiting", summary: "Waiting on reviewer", timestamp: Date.now(), done: false },
-    ]);
-    render(<NotificationChip sessionId="s1" />);
-
-    const chip = screen.getByRole("button", { name: "Notification inbox: 1 waiting status" });
-    const waitingBadge = within(chip).getByTestId("notification-chip-waiting");
-    const waitingIcon = waitingBadge.querySelector("svg");
-    expect(chip).toHaveTextContent("1status");
-    expect(waitingIcon?.className.baseVal ?? waitingIcon?.getAttribute("class")).toContain("text-cc-muted/85");
-
-    fireEvent.click(chip);
-    expect(screen.getByText("Waiting on reviewer")).toBeInTheDocument();
-    expect(screen.queryByTestId("notification-answer-actions")).toBeNull();
   });
 
   it("prioritizes needs-input on the chip surface when needs-input and review are both active", () => {

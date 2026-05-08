@@ -12,6 +12,14 @@ export interface NotificationStatusSnapshot {
 
 export type AttentionReason = "action" | "error" | "review" | null;
 
+export function isActionableNotificationCategory(category: unknown): category is SessionNotification["category"] {
+  return category === "needs-input" || category === "review";
+}
+
+export function isActionableSessionNotification(notification: SessionNotification): boolean {
+  return isActionableNotificationCategory(notification.category);
+}
+
 function summarizeNotifications(
   notifications: ReadonlyArray<SessionNotification>,
 ): Required<NotificationStatusSnapshot> {
@@ -20,6 +28,7 @@ function summarizeNotifications(
   let hasReview = false;
   for (const notification of notifications) {
     if (notification.done) continue;
+    if (!isActionableSessionNotification(notification)) continue;
     activeNotificationCount += 1;
     if (notification.category === "needs-input") hasNeedsInput = true;
     if (notification.category === "review") hasReview = true;
@@ -182,7 +191,9 @@ export function isClearedNotificationStatus(status: NotificationStatusSnapshot):
 }
 
 function hasActiveCachedNotifications(notifications: SessionNotification[] | undefined): boolean {
-  return notifications?.some((notification) => !notification.done) ?? false;
+  return (
+    notifications?.some((notification) => !notification.done && isActionableSessionNotification(notification)) ?? false
+  );
 }
 
 function clearCachedActiveNotifications(
@@ -215,15 +226,16 @@ export function applySessionNotifications(
   notifications: SessionNotification[],
   status: NotificationStatusSnapshot,
 ): boolean {
-  const incoming = summarizeNotificationStatus(notifications, status);
+  const actionableNotifications = notifications.filter(isActionableSessionNotification);
+  const incoming = summarizeNotificationStatus(actionableNotifications, status);
   let applied = false;
   useStore.setState((state) => {
     const sdkSession = state.sdkSessions.find((session) => session.sessionId === sessionId);
     if (isIncomingNotificationStatusStale(notificationStatusFromSession(sdkSession), incoming)) return state;
 
     const sessionNotifications = new Map(state.sessionNotifications);
-    if (notifications.length === 0) sessionNotifications.delete(sessionId);
-    else sessionNotifications.set(sessionId, notifications);
+    if (actionableNotifications.length === 0) sessionNotifications.delete(sessionId);
+    else sessionNotifications.set(sessionId, actionableNotifications);
 
     const index = state.sdkSessions.findIndex((session) => session.sessionId === sessionId);
     if (index === -1) {

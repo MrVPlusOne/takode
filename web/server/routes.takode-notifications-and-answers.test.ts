@@ -634,25 +634,27 @@ describe("Takode server-authoritative auth", () => {
     ]);
   });
 
-  it("accepts waiting notifications as non-question status markers", async () => {
+  it("accepts waiting as a transient status marker without creating a persistent notification", async () => {
     setupTakodeSessions();
 
     const res = await app.request("/api/sessions/orch-1/notify", {
       method: "POST",
       headers: authHeaders("orch-1", "tok-1"),
-      body: JSON.stringify({ category: "waiting", summary: "Waiting on reviewer" }),
+      body: JSON.stringify({ category: "waiting", summary: "Waiting for reviewer slot" }),
     });
 
     expect(res.status).toBe(200);
-    expect(await res.json()).toMatchObject({
+    expect(await res.json()).toEqual({
       ok: true,
       category: "waiting",
-      notificationId: 1,
-      rawNotificationId: "n-1",
+      transient: true,
+      anchoredMessageId: null,
+      notificationId: null,
+      rawNotificationId: null,
     });
-    expect(bridge._sessions["orch-1"].notifications).toMatchObject([
-      { category: "waiting", summary: "Waiting on reviewer", done: false },
-    ]);
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+    expect(bridge._sessions["orch-1"].notificationCounter ?? 0).toBe(0);
+    expect(bridge._sessions["orch-1"].messageHistory).toEqual([]);
   });
 
   it("stores normalized suggested answers for needs-input notifications", async () => {
@@ -873,7 +875,7 @@ describe("Takode server-authoritative auth", () => {
     });
 
     expect(res.status).toBe(400);
-    expect((await res.json()).error).toBe('category must be "needs-input", "waiting", or "review"');
+    expect((await res.json()).error).toBe('category must be "needs-input", "review", or "waiting"');
   });
 
   it("rejects cross-session notify calls", async () => {
@@ -892,7 +894,10 @@ describe("Takode server-authoritative auth", () => {
   it("returns notification list via GET /sessions/:id/notifications", async () => {
     setupTakodeSessions();
     const mockNotifs = [{ id: "n-1", category: "review", timestamp: 1000, messageId: "mock-msg-5", done: false }];
-    bridge._sessions["orch-1"].notifications = mockNotifs;
+    bridge._sessions["orch-1"].notifications = [
+      ...mockNotifs,
+      { id: "waiting-1", category: "waiting", timestamp: 1001, messageId: null, done: false },
+    ];
 
     const res = await app.request("/api/sessions/orch-1/notifications");
     expect(res.status).toBe(200);

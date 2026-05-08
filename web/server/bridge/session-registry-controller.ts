@@ -979,11 +979,20 @@ function touchNotificationStatus(session: SessionLike): void {
   session.notificationStatusUpdatedAt = Date.now();
 }
 
+function isActionableSessionNotification(notification: Pick<SessionNotification, "category">): boolean {
+  return notification.category === "needs-input" || notification.category === "review";
+}
+
+function getActionableSessionNotifications(session: SessionLike): SessionNotification[] {
+  return (session.notifications ?? []).filter(isActionableSessionNotification);
+}
+
 export function getNotificationStatusSnapshot(session: SessionLike): NotificationStatusSnapshot {
   let activeNotificationCount = 0;
   let hasNeedsInput = false;
   let hasReview = false;
-  for (const notification of session.notifications ?? []) {
+  const notifications = getActionableSessionNotifications(session);
+  for (const notification of notifications) {
     if (notification.done) continue;
     activeNotificationCount += 1;
     if (notification.category === "needs-input") hasNeedsInput = true;
@@ -995,7 +1004,7 @@ export function getNotificationStatusSnapshot(session: SessionLike): Notificatio
     notificationStatusVersion: normalizeStatusNumber(session.notificationStatusVersion, 0),
     notificationStatusUpdatedAt: normalizeStatusNumber(
       session.notificationStatusUpdatedAt,
-      deriveNotificationStatusUpdatedAt(session.notifications ?? []),
+      deriveNotificationStatusUpdatedAt(notifications),
     ),
   };
 }
@@ -1004,7 +1013,7 @@ function buildNotificationUpdateMessage(session: SessionLike): BrowserIncomingMe
   const status = getNotificationStatusSnapshot(session);
   return {
     type: "notification_update",
-    notifications: session.notifications,
+    notifications: getActionableSessionNotifications(session),
     notificationStatusVersion: status.notificationStatusVersion,
     notificationStatusUpdatedAt: status.notificationStatusUpdatedAt,
   } as BrowserIncomingMessage;

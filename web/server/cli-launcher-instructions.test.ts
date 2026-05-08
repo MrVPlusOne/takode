@@ -98,6 +98,9 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("never use suggestions instead of writing the full context in chat");
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");
     expect(result).toContain("global orchestration, worker-slot scheduling, shared resource safety");
+    expect(result).toContain("`waiting`");
+    expect(result).toContain("transient status marker, not an unresolved user notification");
+    expect(result).toContain("does not receive an ID");
   });
 
   it("includes global resource lease guidance for shared dev-server and browser work", () => {

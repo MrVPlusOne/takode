@@ -50,8 +50,8 @@ const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--suggest <answe
 
 Categories:
   needs-input  User decision or information required
-  waiting      Non-attention waiting or WIP status
   review       Ready for user review
+  waiting      Transient non-user wait marker; not listed or resolved
 `;
 
 const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]
@@ -1475,9 +1475,10 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
   const result = (await apiPost(base, `/sessions/${encodeURIComponent(selfId)}/notify`, payload)) as {
     ok: boolean;
     category: string;
+    transient?: boolean;
     anchoredMessageId: string | null;
     notificationId: number | null;
-    rawNotificationId: string;
+    rawNotificationId: string | null;
     suggestedAnswers?: string[];
     questions?: Array<{ prompt: string; suggestedAnswers?: string[] }>;
   };
@@ -1485,10 +1486,14 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
     console.log(JSON.stringify(result, null, 2));
     return;
   }
+  if (result.transient || category === "waiting") {
+    console.log("Waiting status noted (transient)");
+    return;
+  }
   const notificationLabel =
     typeof result.notificationId === "number"
       ? String(result.notificationId)
-      : formatInlineText(result.rawNotificationId);
+      : formatInlineText(result.rawNotificationId ?? "(none)");
   console.log(`Notification sent (${category}, id ${notificationLabel})`);
 }
 

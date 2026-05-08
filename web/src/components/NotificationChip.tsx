@@ -5,7 +5,11 @@ import { api } from "../api.js";
 import { sendToSession } from "../ws.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import type { ChatMessage, SessionNotification } from "../types.js";
-import { isClearedNotificationStatus, type NotificationStatusSnapshot } from "../notification-status.js";
+import {
+  isActionableSessionNotification,
+  isClearedNotificationStatus,
+  type NotificationStatusSnapshot,
+} from "../notification-status.js";
 import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { formatReplyContentForAssistant } from "../utils/reply-context.js";
@@ -71,9 +75,10 @@ function useNotificationPopoverLayout(anchor: HTMLElement | null) {
 
 function useNotifications(sessionId: string) {
   const all = useStore((s) => s.sessionNotifications?.get(sessionId)) ?? EMPTY;
-  const active = useMemo(() => all.filter((n) => !n.done), [all]);
-  const done = useMemo(() => all.filter((n) => n.done), [all]);
-  return { all, active, done };
+  const actionable = useMemo(() => all.filter(isActionableSessionNotification), [all]);
+  const active = useMemo(() => actionable.filter((n) => !n.done), [actionable]);
+  const done = useMemo(() => actionable.filter((n) => n.done), [actionable]);
+  return { all: actionable, active, done };
 }
 
 function useNotificationSummary(sessionId: string): NotificationStatusSnapshot {
@@ -111,13 +116,11 @@ function formatRelativeTime(ts: number): string {
 function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotification, "category">>) {
   let needsInput = 0;
   let review = 0;
-  let waiting = 0;
   for (const notification of notifications) {
     if (notification.category === "needs-input") needsInput += 1;
     else if (notification.category === "review") review += 1;
-    else if (notification.category === "waiting") waiting += 1;
   }
-  return { needsInput, review, waiting };
+  return { needsInput, review, waiting: 0 };
 }
 
 function getSummaryBreakdown(summary: NotificationStatusSnapshot) {
@@ -125,7 +128,7 @@ function getSummaryBreakdown(summary: NotificationStatusSnapshot) {
   if (count <= 0) return { needsInput: 0, review: 0, waiting: 0 };
   if (summary.notificationUrgency === "needs-input") return { needsInput: count, review: 0, waiting: 0 };
   if (summary.notificationUrgency === "review") return { needsInput: 0, review: count, waiting: 0 };
-  return { needsInput: 0, review: 0, waiting: count };
+  return { needsInput: 0, review: 0, waiting: 0 };
 }
 
 function getEffectiveNotificationBreakdown(
@@ -712,7 +715,6 @@ export function NotificationChip({
   const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review, waiting }), [needsInput, review, waiting]);
   const hasNeedsInput = needsInput > 0;
   const hasReview = review > 0;
-  const hasWaiting = waiting > 0;
 
   const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
@@ -742,21 +744,9 @@ export function NotificationChip({
                   +{review} review
                 </span>
               )}
-              {hasWaiting && (
-                <span className="inline-flex items-center whitespace-nowrap text-cc-muted/85" aria-hidden="true">
-                  +{waiting} status
-                </span>
-              )}
             </>
           ) : hasReview ? (
-            <>
-              <NotificationCountInline category="review" count={review} labelText="review" />
-              {hasWaiting && (
-                <span className="inline-flex items-center whitespace-nowrap text-cc-muted/85" aria-hidden="true">
-                  +{waiting} status
-                </span>
-              )}
-            </>
+            <NotificationCountInline category="review" count={review} labelText="review" />
           ) : (
             <NotificationCountInline category="waiting" count={waiting} labelText="status" />
           )}
