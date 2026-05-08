@@ -383,65 +383,6 @@ export interface SessionSearchResponse {
   results: SessionSearchResult[];
 }
 
-export type SearchEverythingCategory = "quests" | "sessions" | "messages";
-export type SearchEverythingResultType = "quest" | "session";
-export type SearchEverythingChildType =
-  | "quest_field"
-  | "quest_feedback"
-  | "quest_debrief"
-  | "quest_history"
-  | "session_field"
-  | "message";
-
-export type SearchEverythingRoute =
-  | { kind: "quest"; questId: string }
-  | { kind: "session"; sessionId: string }
-  | { kind: "message"; sessionId: string; messageId?: string; timestamp?: number; threadKey?: string };
-
-export interface SearchEverythingChildMatch {
-  id: string;
-  type: SearchEverythingChildType;
-  title: string;
-  snippet: string;
-  matchedField: string;
-  score: number;
-  timestamp?: number;
-  route?: SearchEverythingRoute;
-}
-
-export interface SearchEverythingResult {
-  id: string;
-  type: SearchEverythingResultType;
-  title: string;
-  subtitle?: string;
-  score: number;
-  matchedFields: string[];
-  childMatches: SearchEverythingChildMatch[];
-  totalChildMatches: number;
-  remainingChildMatches: number;
-  route: SearchEverythingRoute;
-  meta: {
-    questId?: string;
-    status?: string;
-    sessionId?: string;
-    sessionNum?: number | null;
-    archived?: boolean;
-    reviewerOf?: number;
-    lastActivityAt?: number;
-    createdAt?: number;
-    cwd?: string;
-    gitBranch?: string;
-    repoRoot?: string;
-  };
-}
-
-export interface SearchEverythingResponse {
-  query: string;
-  tookMs: number;
-  totalMatches: number;
-  results: SearchEverythingResult[];
-}
-
 export interface BackendInfo {
   id: string;
   name: string;
@@ -1015,53 +956,6 @@ export const api = {
       throw new Error(err.error || res.statusText);
     }
     return res.json() as Promise<SessionSearchResponse>;
-  },
-
-  searchEverything: async (
-    query: string,
-    options?: {
-      types?: SearchEverythingCategory[];
-      limit?: number;
-      childPreviewLimit?: number;
-      includeArchived?: boolean;
-      includeReviewers?: boolean;
-      currentSessionId?: string | null;
-      messageLimitPerSession?: number;
-      signal?: AbortSignal;
-    },
-  ) => {
-    const params = new URLSearchParams();
-    params.set("q", query);
-    if (options?.types && options.types.length > 0) {
-      params.set("types", options.types.join(","));
-    }
-    if (typeof options?.limit === "number") {
-      params.set("limit", String(options.limit));
-    }
-    if (typeof options?.childPreviewLimit === "number") {
-      params.set("childPreviewLimit", String(options.childPreviewLimit));
-    }
-    if (typeof options?.includeArchived === "boolean") {
-      params.set("includeArchived", options.includeArchived ? "true" : "false");
-    }
-    if (typeof options?.includeReviewers === "boolean") {
-      params.set("includeReviewers", options.includeReviewers ? "true" : "false");
-    }
-    if (options?.currentSessionId) {
-      params.set("currentSessionId", options.currentSessionId);
-    }
-    if (typeof options?.messageLimitPerSession === "number") {
-      params.set("messageLimitPerSession", String(options.messageLimitPerSession));
-    }
-
-    const res = await fetch(`${BASE}/search?${params.toString()}`, {
-      signal: options?.signal,
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: res.statusText }));
-      throw new Error(err.error || res.statusText);
-    }
-    return res.json() as Promise<SearchEverythingResponse>;
   },
 
   killSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/kill`),

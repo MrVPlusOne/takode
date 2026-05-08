@@ -1,7 +1,6 @@
 import type { Route } from "./utils/routing.js";
 
 export type ShortcutActionId =
-  | "global_search"
   | "search_session"
   | "toggle_sidebar"
   | "open_terminal"
@@ -59,7 +58,6 @@ export interface ShortcutRuntime {
   activeTab: "chat" | "diff";
   isSearchOpen: boolean;
   sessions: ShortcutSessionSummary[];
-  focusGlobalSearch: () => void;
   openSearch: (sessionId: string) => void;
   closeSearch: (sessionId: string) => void;
   lastNewSessionContext?: ShortcutNewSessionContext | null;
@@ -76,7 +74,6 @@ export interface ShortcutRuntime {
 type ShortcutBindingMap = Record<ShortcutActionId, ShortcutBinding | null>;
 
 const ACTION_ORDER: ShortcutActionId[] = [
-  "global_search",
   "search_session",
   "toggle_sidebar",
   "open_terminal",
@@ -85,12 +82,7 @@ const ACTION_ORDER: ShortcutActionId[] = [
   "new_session",
 ];
 
-const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>([
-  "global_search",
-  "open_terminal",
-  "previous_session",
-  "next_session",
-]);
+const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>(["open_terminal", "previous_session", "next_session"]);
 
 export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
   enabled: false,
@@ -99,11 +91,6 @@ export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
 };
 
 export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
-  {
-    id: "global_search",
-    label: "Search Everything",
-    description: "Open app-wide search for quests, sessions, and messages.",
-  },
   {
     id: "search_session",
     label: "Search Current Session",
@@ -156,7 +143,6 @@ export const SHORTCUT_PRESET_OPTIONS: ShortcutPresetOption[] = [
 
 const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
   standard: {
-    global_search: "Mod+Shift+F",
     search_session: "Mod+F",
     toggle_sidebar: "Mod+B",
     open_terminal: "Mod+Shift+T",
@@ -165,7 +151,6 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     new_session: "Mod+N",
   },
   "vscode-light": {
-    global_search: "Mod+Shift+F",
     search_session: "Mod+F",
     toggle_sidebar: "Mod+B",
     open_terminal: "Ctrl+`",
@@ -174,7 +159,6 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     new_session: "Mod+N",
   },
   "vim-light": {
-    global_search: "Alt+Shift+F",
     search_session: "Alt+/",
     toggle_sidebar: "Alt+B",
     open_terminal: "Alt+T",
@@ -523,9 +507,6 @@ function getPrimaryShortcutSessionId(runtime: ShortcutRuntime): string | null {
 
 export function performShortcutAction(actionId: ShortcutActionId, runtime: ShortcutRuntime): boolean {
   switch (actionId) {
-    case "global_search":
-      runtime.focusGlobalSearch();
-      return true;
     case "search_session": {
       const sessionId = getPrimaryShortcutSessionId(runtime);
       if (!sessionId) return false;

@@ -161,14 +161,12 @@ vi.mock("./store.js", () => {
 const mockCheckHealth = vi.fn().mockResolvedValue(true);
 const mockMarkSessionRead = vi.fn().mockResolvedValue({ ok: true });
 const mockListSessions = vi.fn().mockResolvedValue([]);
-const mockSearchEverything = vi.fn().mockResolvedValue({ query: "", tookMs: 0, totalMatches: 0, results: [] });
 const mockRefreshSessionGitStatus = vi.fn().mockResolvedValue({ ok: true });
 
 vi.mock("./api.js", () => ({
   api: {
     markSessionRead: (...args: unknown[]) => mockMarkSessionRead(...args),
     listSessions: (...args: unknown[]) => mockListSessions(...args),
-    searchEverything: (...args: unknown[]) => mockSearchEverything(...args),
     refreshSessionGitStatus: (...args: unknown[]) => mockRefreshSessionGitStatus(...args),
   },
   checkHealth: (...args: unknown[]) => mockCheckHealth(...args),
@@ -295,18 +293,17 @@ describe("App hidden panels", () => {
     expect(screen.getByTestId("task-panel")).toBeInTheDocument();
   });
 
-  it("opens Search Everything from the global_search shortcut without mounting Sidebar search", async () => {
+  it("does not reserve the retired Search Everything shortcut", () => {
     resetStore({
       sidebarOpen: false,
-      shortcutSettings: { enabled: true, preset: "standard", overrides: { global_search: "Ctrl+Shift+F" } },
+      shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
     });
 
     render(<App />);
     fireEvent.keyDown(document, { key: "F", ctrlKey: true, shiftKey: true });
 
-    expect(screen.getByRole("dialog", { name: "Search Everything" })).toBeInTheDocument();
-    await waitFor(() => expect(screen.getByLabelText("Search everything query")).toHaveFocus());
     expect(screen.queryByTestId("sidebar")).toBeNull();
+    expect(mockState.openSessionSearch).not.toHaveBeenCalled();
   });
 
   it("mounts ActiveTimersPage on the scheduled route", () => {
@@ -515,9 +512,9 @@ describe("App hidden panels", () => {
     expect(mockDisconnectSession).toHaveBeenCalledWith("s2");
   });
 
-  it("triggers global search even when focus is inside an input", () => {
+  it("ignores the retired Search Everything chord inside inputs", () => {
     resetStore({
-      shortcutSettings: { enabled: true, preset: "standard", overrides: { global_search: "Ctrl+Shift+F" } },
+      shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
       sidebarOpen: false,
     });
     render(<App />);
@@ -527,7 +524,7 @@ describe("App hidden panels", () => {
     input.focus();
     fireEvent.keyDown(input, { key: "F", ctrlKey: true, shiftKey: true });
 
-    expect(screen.getByRole("dialog", { name: "Search Everything" })).toBeInTheDocument();
+    expect(mockState.openSessionSearch).not.toHaveBeenCalled();
     expect(mockState.setSidebarOpen).not.toHaveBeenCalled();
     input.remove();
   });

@@ -535,6 +535,11 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("GET /api/sessions/search", () => {
+  it("does not expose the removed broad aggregate search route", async () => {
+    const res = await app.request("/api/search?q=needle", { method: "GET" });
+    expect(res.status).toBe(404);
+  });
+
   it("returns 400 when q is missing", async () => {
     const res = await app.request("/api/sessions/search", { method: "GET" });
     expect(res.status).toBe(400);

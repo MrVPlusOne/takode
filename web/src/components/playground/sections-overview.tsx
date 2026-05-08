@@ -398,29 +398,8 @@ export function PlaygroundOverviewSections() {
         </div>
       </Section>
 
-      <Section
-        title="Search Preview Chat"
-        description="Read-only right-pane preview shown while navigating global-search results before Enter commits selection."
-      >
-        <div className="max-w-3xl border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[420px]">
-          <ChatView sessionId={MOCK_SESSION_ID} preview />
-        </div>
-      </Section>
-
       <Section title="Shortcut Hints" description="Hover helper titles for the first shortcut-enabled chat controls.">
         <div className="flex flex-wrap gap-3">
-          <button
-            type="button"
-            title={getShortcutTitle(
-              "Global search",
-              { enabled: true, preset: "standard", overrides: {} },
-              "global_search",
-              "MacIntel",
-            )}
-            className="px-3 py-2 rounded-lg bg-cc-hover text-sm text-cc-fg"
-          >
-            Global Search
-          </button>
           <button
             type="button"
             title={getShortcutTitle(

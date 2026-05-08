@@ -336,7 +336,7 @@ describe("SettingsPage", () => {
     const offButtons = screen.getAllByRole("button", { name: "Off" });
     fireEvent.click(offButtons[0]);
 
-    expect(mockState.setShortcutOverride).toHaveBeenCalledWith("global_search", null);
+    expect(mockState.setShortcutOverride).toHaveBeenCalledWith("search_session", null);
   });
 
   it("does not start settings-page background work while inactive", () => {

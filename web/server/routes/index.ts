@@ -20,7 +20,6 @@ import { createSessionGitStatusRoutes } from "./session-git-status.js";
 import { createTranscriptionRoutes } from "./transcription.js";
 import { createTakodeRoutes } from "./takode.js";
 import { createQuestRoutes } from "./quests.js";
-import { createSearchRoutes } from "./search.js";
 import { createRecordingsRoutes } from "./recordings.js";
 import { createSystemRoutes } from "./system.js";
 import { createTimerRoutes } from "./timers.js";
@@ -231,7 +230,6 @@ export function createRoutes(
   api.route("/", createTranscriptionRoutes(ctx));
   api.route("/", createGitRoutes(ctx));
   api.route("/", createQuestRoutes(ctx));
-  api.route("/", createSearchRoutes(ctx));
   api.route("/", createTimerRoutes(ctx));
   api.route("/", createResourceLeaseRoutes(ctx));
   api.route("/", createStreamRoutes(ctx));

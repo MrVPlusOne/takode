@@ -32,7 +32,6 @@ import { SessionCreationView } from "./components/SessionCreationView.js";
 import { NewSessionModal } from "./components/NewSessionModal.js";
 import { QuestmasterPage } from "./components/QuestmasterPage.js";
 import { QuestDetailPanel } from "./components/QuestDetailPanel.js";
-import { SearchEverythingOverlay } from "./components/SearchEverythingOverlay.js";
 import { isPendingId } from "./utils/pending-creation.js";
 import { isDesktopShellLayout, isDesktopTaskPanelLayout } from "./utils/layout.js";
 import { installAppViewportSizing } from "./utils/app-viewport.js";
@@ -107,7 +106,6 @@ function buildSidebarOrderedShortcutSessions(state: ReturnType<typeof useStore.g
 }
 
 export default function App() {
-  const [searchEverythingOpen, setSearchEverythingOpen] = useState(false);
   const {
     colorTheme,
     darkMode,
@@ -313,9 +311,6 @@ export default function App() {
         activeTab: state.activeTab,
         isSearchOpen: currentSessionId ? getSessionSearchState(state, currentSessionId).isOpen : false,
         sessions: buildSidebarOrderedShortcutSessions(state),
-        focusGlobalSearch: () => {
-          setSearchEverythingOpen(true);
-        },
         openSearch: state.openSessionSearch,
         closeSearch: state.closeSessionSearch,
         lastNewSessionContext: getLastSessionCreationContext(),
@@ -595,12 +590,6 @@ export default function App() {
 
       {/* Global quest detail overlay */}
       <QuestDetailPanel />
-
-      <SearchEverythingOverlay
-        open={searchEverythingOpen}
-        currentSessionId={currentSessionId}
-        onClose={() => setSearchEverythingOpen(false)}
-      />
 
       {/* Task panel — overlay on mobile, inline on desktop */}
       {currentSessionId && isSessionView && !isPendingId(currentSessionId) && taskPanelOpen && (

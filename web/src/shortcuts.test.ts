@@ -42,7 +42,6 @@ describe("shortcuts", () => {
     const navigateToSession = vi.fn();
     const navigateToMostRecentSession = vi.fn().mockReturnValue(true);
     const setActiveTab = vi.fn();
-    const focusGlobalSearch = vi.fn();
     const toggleSidebar = vi.fn();
 
     const opened = performShortcutAction("open_terminal", {
@@ -53,7 +52,6 @@ describe("shortcuts", () => {
       activeTab: "chat",
       isSearchOpen: false,
       sessions: [{ sessionId: "s1", createdAt: 1 }],
-      focusGlobalSearch,
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
       lastNewSessionContext: null,
@@ -78,7 +76,6 @@ describe("shortcuts", () => {
       activeTab: "chat",
       isSearchOpen: false,
       sessions: [{ sessionId: "s1", createdAt: 1 }],
-      focusGlobalSearch,
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
       lastNewSessionContext: null,
@@ -111,7 +108,6 @@ describe("shortcuts", () => {
         { sessionId: "s2", createdAt: 2, orderIndex: 1 },
         { sessionId: "s3", createdAt: 1, archived: true },
       ],
-      focusGlobalSearch: vi.fn(),
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
       lastNewSessionContext: null,
@@ -144,7 +140,6 @@ describe("shortcuts", () => {
       activeTab: "chat",
       isSearchOpen: false,
       sessions,
-      focusGlobalSearch: vi.fn(),
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
       lastNewSessionContext: null,
@@ -176,7 +171,6 @@ describe("shortcuts", () => {
       activeTab: "chat",
       isSearchOpen: false,
       sessions,
-      focusGlobalSearch: vi.fn(),
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
       lastNewSessionContext: null,
@@ -209,7 +203,6 @@ describe("shortcuts", () => {
       activeTab: "chat",
       isSearchOpen: false,
       sessions,
-      focusGlobalSearch: vi.fn(),
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
       lastNewSessionContext: null,
@@ -242,7 +235,6 @@ describe("shortcuts", () => {
       activeTab: "chat",
       isSearchOpen: false,
       sessions,
-      focusGlobalSearch: vi.fn(),
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
       lastNewSessionContext: null,
@@ -273,30 +265,9 @@ describe("shortcuts", () => {
     expect(nextAction).toBe("next_session");
   });
 
-  it("runs the global search and sidebar toggle actions", () => {
-    const focusGlobalSearch = vi.fn();
+  it("runs the sidebar toggle action", () => {
     const toggleSidebar = vi.fn();
 
-    const searchHandled = performShortcutAction("global_search", {
-      route: { page: "session", sessionId: "s1" },
-      currentSessionId: "s1",
-      currentSessionCwd: "/repo",
-      terminalCwd: null,
-      activeTab: "chat",
-      isSearchOpen: false,
-      sessions: [{ sessionId: "s1", createdAt: 1 }],
-      focusGlobalSearch,
-      openSearch: vi.fn(),
-      closeSearch: vi.fn(),
-      lastNewSessionContext: null,
-      openNewSessionModal: vi.fn(),
-      openTerminal: vi.fn(),
-      toggleSidebar,
-      setActiveTab: vi.fn(),
-      navigateTo: vi.fn(),
-      navigateToSession: vi.fn(),
-      navigateToMostRecentSession: vi.fn().mockReturnValue(true),
-    });
     const sidebarHandled = performShortcutAction("toggle_sidebar", {
       route: { page: "session", sessionId: "s1" },
       currentSessionId: "s1",
@@ -305,7 +276,6 @@ describe("shortcuts", () => {
       activeTab: "chat",
       isSearchOpen: false,
       sessions: [{ sessionId: "s1", createdAt: 1 }],
-      focusGlobalSearch,
       openSearch: vi.fn(),
       closeSearch: vi.fn(),
       lastNewSessionContext: null,
@@ -318,14 +288,11 @@ describe("shortcuts", () => {
       navigateToMostRecentSession: vi.fn().mockReturnValue(true),
     });
 
-    expect(searchHandled).toBe(true);
     expect(sidebarHandled).toBe(true);
-    expect(focusGlobalSearch).toHaveBeenCalledTimes(1);
     expect(toggleSidebar).toHaveBeenCalledTimes(1);
   });
 
-  it("marks global search and session switching as app-global shortcuts", () => {
-    expect(isAppGlobalShortcutAction("global_search")).toBe(true);
+  it("marks only non-search app-wide actions as app-global shortcuts", () => {
     expect(isAppGlobalShortcutAction("open_terminal")).toBe(true);
     expect(isAppGlobalShortcutAction("previous_session")).toBe(true);
     expect(isAppGlobalShortcutAction("next_session")).toBe(true);
