@@ -584,9 +584,12 @@ function isCompletedBoardRow(row?: BoardRowData): boolean {
 }
 
 function isFinishedThreadRow(row?: WorkBoardThreadNavigationRow): boolean {
-  return (
-    !!row && (isCompletedJourneyPresentationStatus(row.status) || isCompletedJourneyPresentationStatus(row.boardStatus))
-  );
+  if (!row) return false;
+  if (isCompletedJourneyPresentationStatus(row.status) || isCompletedJourneyPresentationStatus(row.boardStatus)) {
+    return true;
+  }
+  const hasExplicitStatus = row.status !== undefined || row.boardStatus !== undefined;
+  return row.section === "done" && !hasExplicitStatus;
 }
 
 function completedQuestTitleColor(quest?: QuestmasterTask): string | undefined {

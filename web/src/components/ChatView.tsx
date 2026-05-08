@@ -614,6 +614,28 @@ function questOrBoardRowIsCompleted(questStatus?: string, boardRowStatus?: strin
   );
 }
 
+function leaderThreadRowIsCompleted(row?: LeaderThreadRow): boolean {
+  if (!row) return false;
+  if (questOrBoardRowIsCompleted(row.status, row.boardStatus, row.boardRow?.completedAt)) return true;
+  const hasExplicitStatus =
+    row.status !== undefined || row.boardStatus !== undefined || row.boardRow?.completedAt !== undefined;
+  return row.section === "done" && !hasExplicitStatus;
+}
+
+function leaderThreadTargetIsCompleted({
+  threadKey,
+  questStatusByKey,
+  rows,
+}: {
+  threadKey: string;
+  questStatusByKey: ReadonlyMap<string, string | undefined>;
+  rows: ReadonlyArray<LeaderThreadRow>;
+}): boolean {
+  const normalized = normalizeThreadKey(threadKey);
+  if (isCompletedJourneyPresentationStatus(questStatusByKey.get(normalized))) return true;
+  return leaderThreadRowIsCompleted(rows.find((row) => row.threadKey === normalized));
+}
+
 function restorableSelectedThreadKey({
   threadKey,
   authoritativeLeaderOpenThreadTabs,
@@ -1275,11 +1297,14 @@ export function ChatView({
       if (!shouldPersistOpenThreadTab(targetThreadKey)) continue;
 
       const wasOpen = openThreadTabKeys.includes(targetThreadKey);
-      const canOpenCandidate = canServerCandidateOpenThread(
-        authoritativeLeaderOpenThreadTabs,
-        targetThreadKey,
-        marker.attachedAt,
-      );
+      const targetCompleted = leaderThreadTargetIsCompleted({
+        threadKey: targetThreadKey,
+        questStatusByKey,
+        rows: navigationThreadRows,
+      });
+      const canOpenCandidate =
+        !targetCompleted &&
+        canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, targetThreadKey, marker.attachedAt);
       if (!wasOpen && canOpenCandidate) {
         openThreadTab(targetThreadKey, { source: "server_candidate", eventAt: marker.attachedAt });
       }
@@ -1319,9 +1344,11 @@ export function ChatView({
     hasThreadRoute,
     historyLoading,
     isLeaderSession,
+    navigationThreadRows,
     openThreadTabKeys,
     openThreadTab,
     preview,
+    questStatusByKey,
     routeThreadKey,
     selectedThreadKey,
     sessionId,

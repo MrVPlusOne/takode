@@ -213,7 +213,8 @@ vi.mock("./SessionInlineLink.js", () => ({
 vi.mock("./SessionStatusDot.js", () => ({ SessionStatusDot: () => null }));
 vi.mock("./CatIcons.js", () => ({ YarnBallDot: () => null }));
 vi.mock("./QuestJourneyTimeline.js", () => ({
-  isCompletedJourneyPresentationStatus: () => false,
+  isCompletedJourneyPresentationStatus: (status?: string) =>
+    ["completed", "done"].includes((status ?? "").toLowerCase()),
   QuestJourneyPreviewCard: () => null,
   QuestJourneyTimeline: () => null,
 }));
@@ -759,6 +760,165 @@ describe("ChatView leader open thread tabs", () => {
     });
   });
 
+  it("does not create or select a closed completed target from an attachment marker", async () => {
+    const attachedAt = Date.now();
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-941"])),
+      messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10)]]]),
+      quests: [
+        { questId: "q-941", title: "Source thread", status: "in_progress" },
+        { questId: "q-1006", title: "Completed target", status: "done" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          threadMessage("q-941", attachedAt - 5),
+          movedUser("q-1006", attachedAt),
+          movedMarker("q-1006", attachedAt, { sourceThreadKey: "q-941", sourceQuestId: "q-941" }),
+        ],
+      ],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ operation: expect.objectContaining({ threadKey: "q-1006" }) }),
+    );
+  });
+
+  it("can auto-select an already-open completed target without reopening it", async () => {
+    const attachedAt = Date.now();
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-941", "q-1006"])),
+      messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10), threadMessage("q-1006", attachedAt - 9)]]]),
+      quests: [
+        { questId: "q-941", title: "Source thread", status: "in_progress" },
+        { questId: "q-1006", title: "Completed target", status: "done" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+
+    mockSendToSession.mockClear();
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          threadMessage("q-941", attachedAt - 5),
+          threadMessage("q-1006", attachedAt - 4),
+          movedUser("q-1006", attachedAt),
+          movedMarker("q-1006", attachedAt, { sourceThreadKey: "q-941", sourceQuestId: "q-941" }),
+        ],
+      ],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1006"));
+    expect(readLeaderSelectedThreadKey("s1")).toBe("q-1006");
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ operation: expect.objectContaining({ threadKey: "q-1006" }) }),
+    );
+  });
+
+  it("does not auto-select when the user manually navigated after the attachment time", async () => {
+    const attachedAt = 1;
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-941"])),
+      messages: new Map([["s1", [threadMessage("q-941", attachedAt)]]]),
+      quests: [
+        { questId: "q-941", title: "Source thread", status: "in_progress" },
+        { questId: "q-1006", title: "Target thread", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+    const sourceButton = await scope.findByRole("button", { name: /q-941 source thread/i });
+    fireEvent.click(sourceButton);
+    mockSendToSession.mockClear();
+
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          threadMessage("q-941", attachedAt),
+          movedUser("q-1006", attachedAt),
+          movedMarker("q-1006", attachedAt, { sourceThreadKey: "q-941", sourceQuestId: "q-941" }),
+        ],
+      ],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-1006",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: attachedAt,
+      },
+    });
+  });
+
+  it("does not auto-select when the marker did not move the latest user-authored message", async () => {
+    const attachedAt = Date.now();
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-941"])),
+      messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10)]]]),
+      quests: [
+        { questId: "q-941", title: "Source thread", status: "in_progress" },
+        { questId: "q-1006", title: "Target thread", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          threadMessage("q-941", attachedAt - 5),
+          movedUser("q-1006", attachedAt),
+          movedMarker("q-1006", attachedAt, { sourceThreadKey: "q-941", sourceQuestId: "q-941" }),
+          movedUser("q-2000", attachedAt + 1, 9),
+        ],
+      ],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-1006",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: attachedAt,
+      },
+    });
+  });
+
   it("opens fresh server-created candidates but suppresses candidates older than a user close", async () => {
     const attachedAt = Date.now();
     resetStore({
@@ -813,13 +973,13 @@ describe("ChatView leader open thread tabs", () => {
   });
 });
 
-function movedUser(questId: string, attachedAt: number) {
+function movedUser(questId: string, attachedAt: number, historyIndex = 1) {
   return {
     id: `u-${questId}`,
     role: "user",
     content: "Please make this a quest.",
     timestamp: attachedAt - 2,
-    historyIndex: 1,
+    historyIndex,
     metadata: { threadRefs: [{ threadKey: questId, questId, source: "backfill" }] },
   };
 }
