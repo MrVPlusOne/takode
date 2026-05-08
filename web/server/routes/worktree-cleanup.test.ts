@@ -73,7 +73,7 @@ describe("createArchivedWorktreeCleanupQueue", () => {
     await pending.get("s1");
 
     expect(gitUtils.archiveBranchAsync).toHaveBeenCalledWith("/repo", "feat-wt-1234");
-    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", { force: false });
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", { force: true });
     expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
       "s1",
@@ -106,7 +106,43 @@ describe("createArchivedWorktreeCleanupQueue", () => {
     await pending.get("s1");
 
     expect(gitUtils.archiveBranchAsync).toHaveBeenCalledWith("/repo", "feat-wt-1234");
-    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", { force: false });
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", { force: true });
+    expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
+      "s1",
+      expect.objectContaining({ status: "done", error: undefined, finishedAt: expect.any(Number) }),
+    );
+  });
+
+  it("preserves archive cleanup force when dirty detection reports clean", async () => {
+    // Reproduces the observed archive failure mode: very large worktrees can
+    // make dirty detection unreliable, but archive cleanup is already allowed
+    // to force-remove the managed worktree.
+    const launcher = makeLauncher({
+      sessionId: "s1",
+      cwd: "/repo-wt",
+      isWorktree: true,
+      repoRoot: "/repo",
+      branch: "feat",
+      actualBranch: "feat-wt-1234",
+    });
+    const tracker = makeTracker();
+    const pending = new Map<string, Promise<void>>();
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.removeWorktreeAsync).mockImplementation(async (_repoRoot, _worktreePath, options) =>
+      options?.force ? { removed: true } : { removed: false, reason: "missing force" },
+    );
+    const queueCleanup = createArchivedWorktreeCleanupQueue({
+      launcher,
+      pendingWorktreeCleanups: pending,
+      worktreeTracker: tracker as any,
+      logger: { error: vi.fn(), log: vi.fn() },
+    });
+
+    queueCleanup("s1", { archiveBranch: true });
+    await pending.get("s1");
+
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/repo-wt", { force: true });
+    expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
     expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
       "s1",
       expect.objectContaining({ status: "done", error: undefined, finishedAt: expect.any(Number) }),

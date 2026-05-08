@@ -72,12 +72,13 @@ export async function cleanupWorktree(
     return { cleaned: false, dirty: true, path: target.worktreePath };
   }
 
+  const shouldForceRemove = Boolean(force || dirty);
   const managedBranch = target.actualBranch && target.actualBranch !== target.branch ? target.actualBranch : undefined;
 
   if (options?.archiveBranch && managedBranch) {
     await gitUtils.archiveBranchAsync(target.repoRoot, managedBranch);
     const result = await gitUtils.removeWorktreeAsync(target.repoRoot, target.worktreePath, {
-      force: dirty,
+      force: shouldForceRemove,
     });
     if (result.removed) {
       worktreeTracker.removeBySession(target.sessionId);
@@ -86,7 +87,7 @@ export async function cleanupWorktree(
   }
 
   const result = await gitUtils.removeWorktreeAsync(target.repoRoot, target.worktreePath, {
-    force: dirty,
+    force: shouldForceRemove,
     branchToDelete: managedBranch,
   });
   if (result.removed) {
