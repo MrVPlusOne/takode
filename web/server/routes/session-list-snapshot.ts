@@ -14,12 +14,43 @@ import { getLastActualHumanUserMessageTimestamp } from "../user-message-classifi
 import { getLeaderProfilePortraitForSession } from "../leader-profile-assignments.js";
 
 type SessionListEntry = ReturnType<CliLauncher["listSessions"]>[number];
+const scheduledWorktreeGitStateRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
 
 export interface BuildEnrichedSessionsSnapshotDeps {
   launcher: CliLauncher;
   wsBridge: WsBridge;
   timerManager?: TimerManager;
   pendingWorktreeCleanups: Map<string, Promise<void>>;
+}
+
+export function scheduleWorktreeGitStateRefreshForSnapshot(
+  wsBridge: Pick<WsBridge, "refreshWorktreeGitStateForSnapshot">,
+  sessionId: string,
+): void {
+  if (scheduledWorktreeGitStateRefreshes.has(sessionId)) return;
+  const timer = setTimeout(() => {
+    scheduledWorktreeGitStateRefreshes.delete(sessionId);
+    try {
+      void Promise.resolve(
+        wsBridge.refreshWorktreeGitStateForSnapshot(sessionId, {
+          broadcastUpdate: true,
+          notifyPoller: true,
+        }),
+      ).catch((error) => {
+        console.warn(`[routes] Background worktree git refresh failed for ${sessionId}:`, error);
+      });
+    } catch (error) {
+      console.warn(`[routes] Background worktree git refresh failed for ${sessionId}:`, error);
+    }
+  }, 0);
+  scheduledWorktreeGitStateRefreshes.set(sessionId, timer);
+}
+
+export function _resetScheduledWorktreeGitStateRefreshesForTest(): void {
+  for (const timer of scheduledWorktreeGitStateRefreshes.values()) {
+    clearTimeout(timer);
+  }
+  scheduledWorktreeGitStateRefreshes.clear();
 }
 
 export async function buildEnrichedSessionsSnapshot(
@@ -60,10 +91,7 @@ export async function buildEnrichedSessionsSnapshot(
         notificationSummary =
           bridgeSession && !safeSession.herdedBy ? getNotificationStatusSnapshot(bridgeSession) : notificationSummary;
         if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
-          await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
-            broadcastUpdate: true,
-            notifyPoller: true,
-          });
+          scheduleWorktreeGitStateRefreshForSnapshot(wsBridge, s.sessionId);
         }
         const currentBridgeSession = wsBridge.getSession(s.sessionId) ?? bridgeSession;
         const bridge = currentBridgeSession?.state;

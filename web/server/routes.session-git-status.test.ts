@@ -30,8 +30,8 @@ describe("session git status routes", () => {
       state: {
         cwd: "/repo",
         git_branch: "feature",
-        git_default_branch: "main",
-        diff_base_branch: "main",
+        git_default_branch: "develop",
+        diff_base_branch: "develop",
         git_ahead: 2,
         git_behind: 0,
         is_worktree: false,

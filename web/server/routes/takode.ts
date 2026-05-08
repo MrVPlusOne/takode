@@ -56,6 +56,7 @@ import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
+import { scheduleWorktreeGitStateRefreshForSnapshot } from "./session-list-snapshot.js";
 
 const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
 const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
@@ -391,10 +392,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
           const { sessionAuthToken: _token, ...safeSession } = s;
           const bridgeSession = wsBridge.getSession(s.sessionId);
           if (bridgeSession?.state?.is_worktree && !safeSession.archived && !heavyRepoModeEnabled) {
-            await wsBridge.refreshWorktreeGitStateForSnapshot(s.sessionId, {
-              broadcastUpdate: true,
-              notifyPoller: true,
-            });
+            scheduleWorktreeGitStateRefreshForSnapshot(wsBridge, s.sessionId);
           }
           const currentBridgeSession = wsBridge.getSession(s.sessionId) ?? bridgeSession;
           const bridge = currentBridgeSession?.state;

@@ -176,6 +176,7 @@ import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
+import { _resetScheduledWorktreeGitStateRefreshesForTest } from "./routes/session-list-snapshot.js";
 import { _resetModelCache } from "./routes/system.js";
 import { _resetThreadAttachmentHistoryBroadcastsForTest } from "./routes/takode.js";
 import { trafficStats } from "./traffic-stats.js";
@@ -218,6 +219,7 @@ function createMockLauncher() {
     // resolveSessionId: pass-through for exact UUIDs (used by resolveId helper in routes)
     resolveSessionId: vi.fn((id: string) => id),
     getSessionNum: vi.fn(() => undefined),
+    setLeaderProfilePortraitId: vi.fn(() => true),
   } as any;
 }
 
@@ -456,6 +458,7 @@ let timerManager: ReturnType<typeof createMockTimerManager>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  _resetScheduledWorktreeGitStateRefreshesForTest();
   trafficStats.reset();
   _resetServerLoggerForTest();
   // Reset the LiteLLM model cache so each test starts clean.
@@ -495,6 +498,7 @@ beforeEach(() => {
 });
 
 afterEach(() => {
+  _resetScheduledWorktreeGitStateRefreshesForTest();
   _resetThreadAttachmentHistoryBroadcastsForTest();
   vi.useRealTimers();
 });
@@ -934,7 +938,8 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge.refreshWorktreeGitStateForSnapshot).not.toHaveBeenCalled();
   });
 
-  it("refreshes takode worktree rows before returning when heavy repo mode is disabled", async () => {
+  it("returns cached takode worktree rows immediately and schedules background refresh when heavy repo mode is disabled", async () => {
+    vi.useFakeTimers();
     const sessions = setupTakodeSessions();
     sessions["worker-1"].isWorktree = true;
     sessions["worker-1"].archived = false;
@@ -969,11 +974,16 @@ describe("Takode server-authoritative auth", () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
+    expect(bridge.refreshWorktreeGitStateForSnapshot).not.toHaveBeenCalled();
     expect(json.find((s: any) => s.sessionId === "worker-1")).toMatchObject({
       sessionId: "worker-1",
-      totalLinesAdded: 0,
-      totalLinesRemoved: 0,
+      totalLinesAdded: 777,
+      totalLinesRemoved: 55,
     });
+
+    vi.runOnlyPendingTimers();
+    await Promise.resolve();
+
     expect(bridge.refreshWorktreeGitStateForSnapshot).toHaveBeenCalledWith("worker-1", {
       broadcastUpdate: true,
       notifyPoller: true,

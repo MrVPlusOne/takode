@@ -1309,9 +1309,8 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
                   <div>
                     <span className="text-sm font-medium text-cc-fg">Heavy Repo Mode</span>
                     <p className="mt-0.5 text-xs text-cc-muted">
-                      Return cached session rows immediately and refresh worktree git metadata in the background. Useful
-                      for large repos or slow filesystems; diff and branch badges may update shortly after the session
-                      list renders.
+                      Return cached session rows without list-driven background git refresh. Useful for large repos or
+                      slow filesystems; selected-session and explicit refreshes still update git metadata.
                     </p>
                   </div>
                   <button

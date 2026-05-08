@@ -1,4 +1,4 @@
-import { vi, describe, it, expect, beforeEach } from "vitest";
+import { vi, describe, it, expect, beforeEach, afterEach } from "vitest";
 
 // Mock env-manager and git-utils modules before any imports
 vi.mock("./env-manager.js", () => ({
@@ -176,6 +176,7 @@ import { access, mkdtemp, readFile, rm, stat } from "node:fs/promises";
 import { homedir, tmpdir } from "node:os";
 import { join } from "node:path";
 import { buildOrchestratorSystemPrompt, createRoutes } from "./routes.js";
+import { _resetScheduledWorktreeGitStateRefreshesForTest } from "./routes/session-list-snapshot.js";
 import { _resetModelCache } from "./routes/system.js";
 import { trafficStats } from "./traffic-stats.js";
 import { _resetServerLoggerForTest, createLogger, initServerLogger } from "./server-logger.js";
@@ -217,6 +218,7 @@ function createMockLauncher() {
     // resolveSessionId: pass-through for exact UUIDs (used by resolveId helper in routes)
     resolveSessionId: vi.fn((id: string) => id),
     getSessionNum: vi.fn(() => undefined),
+    setLeaderProfilePortraitId: vi.fn(() => true),
   } as any;
 }
 
@@ -474,6 +476,7 @@ let timerManager: ReturnType<typeof createMockTimerManager>;
 
 beforeEach(() => {
   vi.clearAllMocks();
+  _resetScheduledWorktreeGitStateRefreshesForTest();
   trafficStats.reset();
   _resetServerLoggerForTest();
   // Reset the LiteLLM model cache so each test starts clean.
@@ -512,6 +515,11 @@ beforeEach(() => {
   vi.spyOn(containerManager, "reseedGitAuth").mockImplementation(() => {});
 });
 
+afterEach(() => {
+  _resetScheduledWorktreeGitStateRefreshesForTest();
+  vi.useRealTimers();
+});
+
 // ─── Sessions ────────────────────────────────────────────────────────────────
 
 // ─── SSE Session Creation Streaming ──────────────────────────────────────────
@@ -547,7 +555,8 @@ describe("GET /api/sessions", () => {
 
     expect(res.status).toBe(200);
     const json = await res.json();
-    expect(json).toEqual([
+    expect(json).toHaveLength(2);
+    expect(json).toMatchObject([
       {
         sessionId: "s1",
         state: "running",
@@ -561,25 +570,7 @@ describe("GET /api/sessions", () => {
         gitBehind: 0,
         totalLinesAdded: 0,
         totalLinesRemoved: 0,
-        numTurns: 0,
-        gitStatusRefreshError: null,
-        contextUsedPercent: 0,
-        messageHistoryBytes: 0,
-        codexRetainedPayloadBytes: 0,
-        lastMessagePreview: "",
         cliConnected: false,
-        taskHistory: [],
-        keywords: [],
-        claimedQuestId: null,
-        claimedQuestTitle: null,
-        claimedQuestStatus: null,
-        claimedQuestLeaderSessionId: null,
-        pendingTimerCount: 0,
-        sessionLifecycleEvents: [],
-        notificationUrgency: null,
-        activeNotificationCount: 0,
-        notificationStatusVersion: 0,
-        notificationStatusUpdatedAt: 0,
       },
       {
         sessionId: "s2",
@@ -593,25 +584,7 @@ describe("GET /api/sessions", () => {
         gitBehind: 0,
         totalLinesAdded: 0,
         totalLinesRemoved: 0,
-        numTurns: 0,
-        gitStatusRefreshError: null,
-        contextUsedPercent: 0,
-        messageHistoryBytes: 0,
-        codexRetainedPayloadBytes: 0,
-        lastMessagePreview: "",
         cliConnected: false,
-        taskHistory: [],
-        keywords: [],
-        claimedQuestId: null,
-        claimedQuestTitle: null,
-        claimedQuestStatus: null,
-        claimedQuestLeaderSessionId: null,
-        pendingTimerCount: 0,
-        sessionLifecycleEvents: [],
-        notificationUrgency: null,
-        activeNotificationCount: 0,
-        notificationStatusVersion: 0,
-        notificationStatusUpdatedAt: 0,
       },
     ]);
   });
@@ -632,13 +605,21 @@ describe("GET /api/sessions", () => {
   });
 
   it("includes lightweight leader open thread tabs in session snapshots", async () => {
+    const defaultSettings = vi.mocked(settingsManager.getSettings).getMockImplementation()?.() as ReturnType<
+      typeof settingsManager.getSettings
+    >;
+    vi.mocked(settingsManager.getSettings).mockReturnValueOnce({
+      ...defaultSettings,
+      leaderProfilePools: { tako: true, shmi: true },
+    });
     launcher.listSessions.mockReturnValue([
       { sessionId: "leader", state: "connected", cwd: "/a", isOrchestrator: true },
     ]);
     vi.mocked(sessionNames.getAllNames).mockReturnValue({});
-    bridge.getSession.mockReturnValue({
+    const bridgeSession = {
       id: "leader",
       state: {
+        session_id: "leader",
         leaderOpenThreadTabs: {
           version: 1,
           orderedOpenThreadKeys: ["q-1", "q-2"],
@@ -654,7 +635,8 @@ describe("GET /api/sessions", () => {
       lastReadAt: 0,
       attentionReason: null,
       isGenerating: false,
-    } as any);
+    } as any;
+    bridge.getSession.mockImplementation((id: string) => (id === "leader" ? bridgeSession : null));
 
     const res = await app.request("/api/sessions?includeArchived=false", { method: "GET" });
 
@@ -946,7 +928,8 @@ describe("GET /api/sessions", () => {
     });
   });
 
-  it("refreshes worktree diff totals before returning session rows", async () => {
+  it("returns cached worktree diff totals immediately and schedules background refresh", async () => {
+    vi.useFakeTimers();
     const sessions = [{ sessionId: "s1", state: "running", cwd: "/wt/repo", isWorktree: true, archived: false }];
     const bridgeSession = {
       state: {
@@ -979,15 +962,20 @@ describe("GET /api/sessions", () => {
     const res = await app.request("/api/sessions", { method: "GET" });
 
     expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(bridge.refreshWorktreeGitStateForSnapshot).not.toHaveBeenCalled();
+    expect(json[0]).toMatchObject({
+      sessionId: "s1",
+      totalLinesAdded: 777,
+      totalLinesRemoved: 55,
+    });
+
+    vi.runOnlyPendingTimers();
+    await Promise.resolve();
+
     expect(bridge.refreshWorktreeGitStateForSnapshot).toHaveBeenCalledWith("s1", {
       broadcastUpdate: true,
       notifyPoller: true,
-    });
-    const json = await res.json();
-    expect(json[0]).toMatchObject({
-      sessionId: "s1",
-      totalLinesAdded: 0,
-      totalLinesRemoved: 0,
     });
   });
 

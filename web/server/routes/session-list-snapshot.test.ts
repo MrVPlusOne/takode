@@ -1,8 +1,11 @@
 import { randomUUID } from "node:crypto";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import {
+  _resetScheduledWorktreeGitStateRefreshesForTest,
+  buildEnrichedSessionsSnapshot,
+} from "./session-list-snapshot.js";
 import { _resetForTest, updateSettings } from "../settings-manager.js";
 
 function makeLauncherSession(overrides: Record<string, unknown> = {}): any {
@@ -58,9 +61,107 @@ function makeDeps(launcherSession: ReturnType<typeof makeLauncherSession>, bridg
   } as never;
 }
 
+async function runPendingBackgroundRefreshTimers(): Promise<void> {
+  vi.runOnlyPendingTimers();
+  await Promise.resolve();
+}
+
 describe("buildEnrichedSessionsSnapshot", () => {
   beforeEach(() => {
     _resetForTest(join(tmpdir(), `takode-session-list-snapshot-${randomUUID()}.json`));
+    _resetScheduledWorktreeGitStateRefreshesForTest();
+  });
+
+  afterEach(() => {
+    _resetScheduledWorktreeGitStateRefreshesForTest();
+    vi.useRealTimers();
+  });
+
+  it("returns cached worktree git metadata immediately and schedules background refresh", async () => {
+    vi.useFakeTimers();
+    const launcherSession = makeLauncherSession({ isWorktree: true });
+    const bridgeSession = {
+      ...makeBridgeSession([]),
+      state: {
+        session_id: "s1",
+        is_worktree: true,
+        git_branch: "jiayi-wt-1",
+        git_ahead: 2,
+        git_behind: 0,
+        total_lines_added: 777,
+        total_lines_removed: 55,
+      },
+    };
+    const deps = makeDeps(launcherSession, bridgeSession);
+    (deps as any).wsBridge.refreshWorktreeGitStateForSnapshot.mockImplementation(async () => {
+      bridgeSession.state.total_lines_added = 0;
+      bridgeSession.state.total_lines_removed = 0;
+      return bridgeSession.state;
+    });
+
+    const snapshot = await buildEnrichedSessionsSnapshot(deps);
+
+    expect(snapshot[0]).toMatchObject({
+      sessionId: "s1",
+      gitAhead: 2,
+      totalLinesAdded: 777,
+      totalLinesRemoved: 55,
+    });
+    expect((deps as any).wsBridge.refreshWorktreeGitStateForSnapshot).not.toHaveBeenCalled();
+
+    await runPendingBackgroundRefreshTimers();
+
+    expect((deps as any).wsBridge.refreshWorktreeGitStateForSnapshot).toHaveBeenCalledWith("s1", {
+      broadcastUpdate: true,
+      notifyPoller: true,
+    });
+  });
+
+  it("coalesces duplicate background refresh scheduling before the timer runs", async () => {
+    vi.useFakeTimers();
+    const launcherSession = makeLauncherSession({ isWorktree: true });
+    const bridgeSession = {
+      ...makeBridgeSession([]),
+      state: {
+        session_id: "s1",
+        is_worktree: true,
+        git_branch: "jiayi-wt-1",
+      },
+    };
+    const deps = makeDeps(launcherSession, bridgeSession);
+
+    await buildEnrichedSessionsSnapshot(deps);
+    await buildEnrichedSessionsSnapshot(deps);
+    await runPendingBackgroundRefreshTimers();
+
+    expect((deps as any).wsBridge.refreshWorktreeGitStateForSnapshot).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not schedule list-driven background git refresh in heavy repo mode", async () => {
+    vi.useFakeTimers();
+    updateSettings({ heavyRepoModeEnabled: true });
+    const launcherSession = makeLauncherSession({ isWorktree: true });
+    const bridgeSession = {
+      ...makeBridgeSession([]),
+      state: {
+        session_id: "s1",
+        is_worktree: true,
+        git_branch: "jiayi-wt-1",
+        total_lines_added: 777,
+        total_lines_removed: 55,
+      },
+    };
+    const deps = makeDeps(launcherSession, bridgeSession);
+
+    const snapshot = await buildEnrichedSessionsSnapshot(deps);
+    await runPendingBackgroundRefreshTimers();
+
+    expect(snapshot[0]).toMatchObject({
+      sessionId: "s1",
+      totalLinesAdded: 777,
+      totalLinesRemoved: 55,
+    });
+    expect((deps as any).wsBridge.refreshWorktreeGitStateForSnapshot).not.toHaveBeenCalled();
   });
 
   it("derives lastUserMessageAt from human message history when bridge history is available", async () => {
