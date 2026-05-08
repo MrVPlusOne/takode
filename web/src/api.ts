@@ -236,11 +236,24 @@ export interface MemoryGitStatusEntry {
   raw: string;
 }
 
+export interface MemoryCommitFileChange {
+  status: string;
+  path: string;
+  previousPath?: string;
+}
+
 export interface MemoryRecentCommit {
   sha: string;
   shortSha: string;
   timestamp: number;
   message: string;
+  authorName: string;
+  authorEmail: string;
+  actor: string | null;
+  quest: string | null;
+  session: string | null;
+  sources: string[];
+  changedFiles: MemoryCommitFileChange[];
 }
 
 export interface MemoryCatalogResponse {
@@ -1222,10 +1235,11 @@ export const api = {
   // Memory (catalog-first file-based memory inspection)
   listMemorySpaces: () => get<MemorySpacesResponse>("/memory/spaces"),
 
-  getMemoryCatalog: (opts?: { serverSlug?: string; root?: string }) => {
+  getMemoryCatalog: (opts?: { serverSlug?: string; root?: string; recentLimit?: number }) => {
     const params = new URLSearchParams();
     if (opts?.serverSlug) params.set("serverSlug", opts.serverSlug);
     if (opts?.root) params.set("root", opts.root);
+    if (opts?.recentLimit) params.set("recentLimit", String(opts.recentLimit));
     const qs = params.toString();
     return get<MemoryCatalogResponse>(`/memory/catalog${qs ? `?${qs}` : ""}`);
   },

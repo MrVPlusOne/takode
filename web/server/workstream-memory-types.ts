@@ -85,11 +85,24 @@ export interface MemorySpaceInfo {
   updatedAt?: string;
 }
 
+export interface MemoryCommitFileChange {
+  status: string;
+  path: string;
+  previousPath?: string;
+}
+
 export interface MemoryRecentCommit {
   sha: string;
   shortSha: string;
   timestamp: number;
   message: string;
+  authorName: string;
+  authorEmail: string;
+  actor: string | null;
+  quest: string | null;
+  session: string | null;
+  sources: string[];
+  changedFiles: MemoryCommitFileChange[];
 }
 
 export type MemoryLintSeverity = "error" | "warning";

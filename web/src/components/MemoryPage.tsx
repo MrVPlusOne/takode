@@ -6,6 +6,7 @@ import {
   type MemoryFile,
   type MemoryKind,
   type MemoryLintIssue,
+  type MemoryRecentCommit,
   type MemoryRecordResponse,
   type MemorySpaceInfo,
   type MemorySpacesResponse,
@@ -22,6 +23,8 @@ type LoadState<T> =
   | { status: "error"; data: null; error: string };
 
 const MEMORY_KINDS: MemoryKind[] = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"];
+const INITIAL_RECENT_LIMIT = 20;
+const RECENT_INCREMENT = 20;
 
 function spaceLabel(space: Pick<MemorySpaceInfo, "slug" | "sessionSpaceSlug">): string {
   return space.sessionSpaceSlug ? `${space.slug}/${space.sessionSpaceSlug}` : space.slug;
@@ -117,113 +120,148 @@ function SkeletonRows({ count = 4 }: { count?: number }) {
   );
 }
 
-function ActionButton({ children, onClick }: { children: ReactNode; onClick: () => void }) {
+function ActionButton({
+  children,
+  onClick,
+  disabled = false,
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className="rounded-md border border-cc-border bg-cc-hover px-2.5 py-1.5 text-xs font-medium text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-active focus:border-cc-primary/60 focus:outline-none"
+      disabled={disabled}
+      className="rounded-md border border-cc-border bg-cc-hover px-2.5 py-1.5 text-xs font-medium text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-active focus:border-cc-primary/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45"
     >
       {children}
     </button>
   );
 }
 
-function SpaceButton({
-  space,
-  selected,
+function SpaceSelect({
+  spaces,
+  selectedRoot,
   onSelect,
 }: {
-  space: MemorySpaceInfo;
-  selected: boolean;
-  onSelect: () => void;
+  spaces: MemorySpaceInfo[];
+  selectedRoot: string | null;
+  onSelect: (root: string) => void;
 }) {
-  const label = spaceLabel(space);
   return (
-    <button
-      type="button"
-      onClick={onSelect}
-      className={`w-full min-w-0 rounded-md border px-3 py-2.5 text-left transition-colors max-lg:min-w-[250px] ${
-        selected ? "border-cc-primary/70 bg-cc-active" : "border-cc-border bg-cc-card hover:bg-cc-hover"
-      }`}
-    >
-      <div className="flex items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="break-words text-sm font-semibold leading-snug text-cc-fg">{label}</div>
-          <div className="mt-1 break-all font-mono text-[10px] leading-relaxed text-cc-muted">{space.root}</div>
-        </div>
-        <span className="shrink-0 rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
-          {space.current ? "current" : space.initialized ? "repo" : "dir"}
-        </span>
-      </div>
-      <div className="mt-2 flex flex-wrap gap-1.5 text-[10px]">
-        <span className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">{space.authoredDirs.length} dirs</span>
-        <span className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">
-          {space.hasAuthoredData ? "has records" : "empty"}
-        </span>
-      </div>
-    </button>
+    <label className="min-w-[220px] max-w-full text-[11px] font-semibold uppercase tracking-wide text-cc-muted">
+      Space
+      <select
+        value={selectedRoot ?? ""}
+        onChange={(event) => onSelect(event.target.value)}
+        className="mt-1 w-full rounded-md border border-cc-border bg-cc-input-bg px-2.5 py-2 text-xs normal-case tracking-normal text-cc-fg outline-none focus:border-cc-primary/60"
+        aria-label="Memory space"
+      >
+        {spaces.map((space) => (
+          <option key={space.root} value={space.root}>
+            {spaceLabel(space)}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
-function EntryRow({
+function RecordTree({
+  entriesByKind,
+  pathIssues,
+  collapsedKinds,
+  selectedPath,
+  onToggleKind,
+  onSelectEntry,
+}: {
+  entriesByKind: Map<MemoryKind, MemoryCatalogEntry[]>;
+  pathIssues: Map<string, MemoryLintIssue[]>;
+  collapsedKinds: Set<MemoryKind>;
+  selectedPath: string | null;
+  onToggleKind: (kind: MemoryKind) => void;
+  onSelectEntry: (entry: MemoryCatalogEntry) => void;
+}) {
+  return (
+    <div className="divide-y divide-cc-border rounded-md border border-cc-border bg-cc-card">
+      {MEMORY_KINDS.map((kind) => {
+        const entries = entriesByKind.get(kind) ?? [];
+        const collapsed = collapsedKinds.has(kind);
+        return (
+          <section key={kind} aria-label={`${kind} memory records`}>
+            <button
+              type="button"
+              onClick={() => onToggleKind(kind)}
+              className="flex w-full items-center justify-between gap-3 px-3 py-2 text-left text-xs transition-colors hover:bg-cc-hover focus:bg-cc-hover focus:outline-none"
+              aria-expanded={!collapsed}
+            >
+              <span className="flex min-w-0 items-center gap-2">
+                <span className="w-3 shrink-0 text-cc-muted">{collapsed ? "+" : "-"}</span>
+                <span className="truncate font-semibold text-cc-fg">{kind}</span>
+              </span>
+              <span className="shrink-0 rounded bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted">
+                {entries.length}
+              </span>
+            </button>
+            {!collapsed ? (
+              <div className="pb-1">
+                {entries.length ? (
+                  entries.map((entry) => (
+                    <RecordTreeRow
+                      key={entry.path}
+                      entry={entry}
+                      issueCount={pathIssues.get(entry.path)?.length ?? 0}
+                      selected={selectedPath === entry.path}
+                      onSelect={() => onSelectEntry(entry)}
+                    />
+                  ))
+                ) : (
+                  <div className="px-8 py-2 text-xs text-cc-muted">No records</div>
+                )}
+              </div>
+            ) : null}
+          </section>
+        );
+      })}
+    </div>
+  );
+}
+
+function RecordTreeRow({
   entry,
-  issues,
+  issueCount,
   selected,
   onSelect,
 }: {
   entry: MemoryCatalogEntry;
-  issues: MemoryLintIssue[];
+  issueCount: number;
   selected: boolean;
   onSelect: () => void;
 }) {
-  const { name, parent } = splitMemoryPath(entry.path);
-  const facetEntries = Object.entries(entry.facets ?? {}) as Array<[string, unknown]>;
+  const { name } = splitMemoryPath(entry.path);
   return (
     <button
       type="button"
       onClick={onSelect}
-      className={`group w-full rounded-md border p-3 text-left transition-colors ${
-        selected ? "border-cc-primary/70 bg-cc-active" : "border-cc-border bg-cc-card hover:bg-cc-hover"
+      aria-current={selected ? "true" : undefined}
+      className={`group flex w-full min-w-0 items-start gap-2 px-8 py-2 text-left transition-colors focus:outline-none ${
+        selected ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg focus:bg-cc-hover"
       }`}
     >
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
-          <div className="break-words font-mono text-[13px] font-semibold leading-snug text-cc-fg">{name}</div>
-          {parent ? <div className="mt-0.5 break-all font-mono text-[10px] text-cc-muted">{parent}/</div> : null}
-          <div className="mt-2 line-clamp-2 text-xs leading-relaxed text-cc-muted">
-            {entry.description || "Missing description."}
-          </div>
-        </div>
-        <span className="shrink-0 rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[10px] text-cc-muted group-hover:text-cc-fg">
-          {entry.kind}
+      <span className="mt-1 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-45" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate font-mono text-[12px] font-semibold text-cc-fg">{name}</span>
+        <span className="mt-0.5 block line-clamp-2 text-xs leading-relaxed text-cc-muted">
+          {entry.description || "Missing description."}
         </span>
-      </div>
-      <div className="mt-3 flex flex-wrap gap-1.5 text-[10px]">
-        {entry.source.slice(0, 3).map((source) => (
-          <span key={source} className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-cc-muted">
-            {source}
-          </span>
-        ))}
-        {entry.source.length > 3 ? (
-          <span className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-cc-muted">
-            +{entry.source.length - 3}
-          </span>
-        ) : null}
-        {facetEntries.slice(0, 2).flatMap(([key, raw]) => {
-          const values = Array.isArray(raw) ? raw : [raw];
-          return values.slice(0, 2).map((value) => (
-            <span key={`${key}-${String(value)}`} className="rounded bg-cc-hover/70 px-1.5 py-0.5 text-cc-muted">
-              {key}: {String(value)}
-            </span>
-          ));
-        })}
-        {issues.length ? (
-          <span className={`rounded border px-1.5 py-0.5 ${issueTone(issues[0]!)}`}>
-            {issues.length} issue{issues.length === 1 ? "" : "s"}
-          </span>
-        ) : null}
-      </div>
+      </span>
+      {issueCount ? (
+        <span className="shrink-0 rounded border border-amber-500/25 bg-amber-500/10 px-1.5 py-0.5 text-[10px] text-amber-200">
+          {issueCount}
+        </span>
+      ) : null}
     </button>
   );
 }
@@ -240,14 +278,24 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
 function RecordDetail({
   recordState,
   selectedPath,
+  history,
+  canPrevious,
+  canNext,
+  onPrevious,
+  onNext,
 }: {
   recordState: LoadState<MemoryRecordResponse> | { status: "idle"; data: null; error: null };
   selectedPath: string | null;
+  history: MemoryRecentCommit[];
+  canPrevious: boolean;
+  canNext: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
 }) {
   if (!selectedPath) {
     return (
       <div className="flex h-full min-h-[220px] items-center justify-center rounded-md border border-dashed border-cc-border px-4 text-center text-sm text-cc-muted">
-        Select a memory record to inspect provenance, health, and Markdown content.
+        Select a memory record to read its content and recent history.
       </div>
     );
   }
@@ -269,103 +317,268 @@ function RecordDetail({
   }
 
   if (recordState.status !== "ready") return null;
-  const file = recordState.data.file;
-  return <MemoryFileDetail file={file} issues={recordState.data.issues} />;
+  return (
+    <MemoryFileDetail
+      file={recordState.data.file}
+      issues={recordState.data.issues}
+      history={history}
+      canPrevious={canPrevious}
+      canNext={canNext}
+      onPrevious={onPrevious}
+      onNext={onNext}
+    />
+  );
 }
 
-function MemoryFileDetail({ file, issues }: { file: MemoryFile; issues: MemoryLintIssue[] }) {
-  const facetEntries = Object.entries(file.frontmatter.facets ?? {}) as Array<[string, unknown]>;
+function MemoryFileDetail({
+  file,
+  issues,
+  history,
+  canPrevious,
+  canNext,
+  onPrevious,
+  onNext,
+}: {
+  file: MemoryFile;
+  issues: MemoryLintIssue[];
+  history: MemoryRecentCommit[];
+  canPrevious: boolean;
+  canNext: boolean;
+  onPrevious: () => void;
+  onNext: () => void;
+}) {
+  const facetEntries = facetEntriesFromFrontmatter(file.frontmatter);
   const { name, parent } = splitMemoryPath(file.path);
   return (
-    <div className="h-full overflow-y-auto rounded-md border border-cc-border bg-cc-card">
-      <div className="sticky top-0 z-10 border-b border-cc-border bg-cc-card/95 px-4 py-3 backdrop-blur">
-        <div className="flex flex-col gap-3 2xl:flex-row 2xl:items-start 2xl:justify-between">
+    <article className="flex h-full min-h-0 flex-col overflow-hidden rounded-md border border-cc-border bg-cc-card">
+      <div className="shrink-0 border-b border-cc-border bg-cc-card px-4 py-3">
+        <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
           <div className="min-w-0">
             <div className="text-[10px] font-semibold uppercase tracking-wide text-cc-muted">Selected record</div>
             <h2 className="mt-1 break-words font-mono text-base font-semibold leading-snug text-cc-fg">{name}</h2>
             {parent ? <div className="mt-1 break-all font-mono text-[11px] text-cc-muted">{parent}/</div> : null}
           </div>
           <div className="flex shrink-0 flex-wrap gap-1.5">
+            <ActionButton onClick={onPrevious} disabled={!canPrevious}>
+              Previous
+            </ActionButton>
+            <ActionButton onClick={onNext} disabled={!canNext}>
+              Next
+            </ActionButton>
             <ActionButton onClick={() => copyText(file.absolutePath)}>Copy path</ActionButton>
             <ActionButton onClick={() => openPath(file.absolutePath, "file")}>Open record</ActionButton>
           </div>
         </div>
       </div>
 
-      <div className="space-y-5 p-4">
-        <section className="grid grid-cols-1 gap-3 rounded-md border border-cc-border bg-cc-bg/30 p-3 xl:grid-cols-[minmax(0,1.15fr)_minmax(180px,0.85fr)]">
-          <div className="min-w-0 space-y-3">
-            <Field label="Description">{file.description || "missing"}</Field>
-            <Field label="Path">
-              <div className="break-all font-mono text-[11px] leading-relaxed text-cc-muted">{file.absolutePath}</div>
-            </Field>
+      <div className="min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(220px,300px)]">
+          <div className="min-w-0 space-y-4">
+            <section className="space-y-3 rounded-md border border-cc-border bg-cc-bg/30 p-3">
+              <Field label="Description">{file.description || "missing"}</Field>
+              <Field label="Path">
+                <div className="break-all font-mono text-[11px] leading-relaxed text-cc-muted">{file.absolutePath}</div>
+              </Field>
+              <Field label="Current content">
+                <div className="mt-2 max-w-[72ch] rounded-md border border-cc-border bg-cc-bg/50 p-4">
+                  {file.body ? (
+                    <MarkdownContent text={file.body} size="sm" variant="conservative" wrapLongContent />
+                  ) : (
+                    <div className="text-xs text-cc-muted">No body content.</div>
+                  )}
+                </div>
+              </Field>
+            </section>
           </div>
-          <div className="min-w-0 space-y-3">
-            <Field label="Kind">
-              <span className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[11px] text-cc-muted">
-                {file.kind}
-              </span>
-            </Field>
-            <Field label="Sources">
-              {file.source.length ? (
-                <div className="flex flex-wrap gap-1.5">
-                  {file.source.map((source) => (
-                    <span key={source} className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5">
-                      {sourceLabel(source)}
+
+          <aside className="min-w-0 space-y-4">
+            <section className="rounded-md border border-cc-border bg-cc-bg/30 p-3">
+              <div className="grid grid-cols-1 gap-3">
+                <Field label="Kind">
+                  <span className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[11px] text-cc-muted">
+                    {file.kind}
+                  </span>
+                </Field>
+                <Field label="Sources">
+                  {file.source.length ? (
+                    <div className="flex flex-wrap gap-1.5">
+                      {file.source.map((source) => (
+                        <span key={source} className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5">
+                          {sourceLabel(source)}
+                        </span>
+                      ))}
+                    </div>
+                  ) : (
+                    "none"
+                  )}
+                </Field>
+              </div>
+            </section>
+
+            {facetEntries.length ? (
+              <section className="rounded-md border border-cc-border bg-cc-bg/30 p-3">
+                <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Facets</h3>
+                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+                  {facetEntries.map(([key, value]) => (
+                    <span key={`${key}-${value}`} className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">
+                      {key}: {value}
                     </span>
                   ))}
                 </div>
-              ) : (
-                "none"
-              )}
-            </Field>
-          </div>
-        </section>
+              </section>
+            ) : null}
 
-        {facetEntries.length ? (
-          <section>
-            <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Facets</h3>
-            <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
-              {facetEntries.map(([key, raw]) => {
-                const values = Array.isArray(raw) ? raw : [raw];
-                return values.map((value) => (
-                  <span key={`${key}-${String(value)}`} className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">
-                    {key}: {String(value)}
-                  </span>
-                ));
-              })}
-            </div>
-          </section>
-        ) : null}
-
-        <section>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Health</h3>
-          <div className="mt-2 space-y-2">
-            {issues.length ? (
-              issues.map((issue, index) => (
-                <div key={`${issue.message}-${index}`} className={`rounded-md border p-2 text-xs ${issueTone(issue)}`}>
-                  <span className="font-semibold">{issue.severity}</span>: {issue.message}
-                </div>
-              ))
-            ) : (
-              <div className="rounded-md border border-emerald-500/25 bg-emerald-500/10 p-2 text-xs text-emerald-200">
-                Lint clean for this record.
+            <section className="rounded-md border border-cc-border bg-cc-bg/30 p-3">
+              <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Health</h3>
+              <div className="mt-2 space-y-2">
+                {issues.length ? (
+                  issues.map((issue, index) => (
+                    <div
+                      key={`${issue.message}-${index}`}
+                      className={`rounded-md border p-2 text-xs ${issueTone(issue)}`}
+                    >
+                      <span className="font-semibold">{issue.severity}</span>: {issue.message}
+                    </div>
+                  ))
+                ) : (
+                  <div className="rounded-md border border-emerald-500/25 bg-emerald-500/10 p-2 text-xs text-emerald-200">
+                    Lint clean for this record.
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </section>
+            </section>
 
-        <section>
-          <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Markdown preview</h3>
-          <div className="mt-2 max-w-[76ch] rounded-md border border-cc-border bg-cc-bg/50 p-4">
-            {file.body ? (
-              <MarkdownContent text={file.body} size="sm" variant="conservative" wrapLongContent />
-            ) : (
-              <div className="text-xs text-cc-muted">No body content.</div>
-            )}
-          </div>
-        </section>
+            <RecordHistory history={history} />
+          </aside>
+        </div>
       </div>
+    </article>
+  );
+}
+
+function RecordHistory({ history }: { history: MemoryRecentCommit[] }) {
+  return (
+    <section className="rounded-md border border-cc-border bg-cc-bg/30 p-3">
+      <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Recent history</h3>
+      {history.length ? (
+        <div className="mt-2 space-y-2">
+          {history.slice(0, 3).map((commit) => (
+            <div key={commit.sha} className="min-w-0 text-xs">
+              <div className="truncate font-medium text-cc-fg">{commit.message || commit.shortSha}</div>
+              <div className="mt-0.5 text-[11px] text-cc-muted">
+                {formatDate(commit.timestamp)} by {commit.actor ?? "unknown"}
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-2 text-xs text-cc-muted">No recent timeline entries for this record.</div>
+      )}
+    </section>
+  );
+}
+
+function RecentTimeline({
+  catalog,
+  recentLimit,
+  onLoadMore,
+}: {
+  catalog: MemoryCatalogResponse | null;
+  recentLimit: number;
+  onLoadMore: () => void;
+}) {
+  const commits = catalog?.git.recentCommits ?? [];
+  const canLoadMore = commits.length >= recentLimit;
+  return (
+    <section className="flex min-h-0 flex-col overflow-hidden rounded-md border border-cc-border bg-cc-card">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-cc-border px-3 py-2">
+        <div>
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Recent memory edits</h2>
+          <div className="mt-0.5 text-[11px] text-cc-muted">{commits.length ? `${commits.length} shown` : "none"}</div>
+        </div>
+        {canLoadMore ? <ActionButton onClick={onLoadMore}>Load more</ActionButton> : null}
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto p-2">
+        {catalog?.git.statusEntries.length ? (
+          <div className="mb-2 rounded-md border border-amber-500/25 bg-amber-500/10 p-2 text-xs text-amber-100">
+            <div className="font-semibold">Uncommitted memory changes</div>
+            <div className="mt-1 space-y-1 font-mono text-[11px] text-amber-100/80">
+              {catalog.git.statusEntries.slice(0, 4).map((entry) => (
+                <div key={entry.raw} className="break-all">
+                  {entry.code} {entry.path}
+                </div>
+              ))}
+              {catalog.git.statusEntries.length > 4 ? <div>+{catalog.git.statusEntries.length - 4} more</div> : null}
+            </div>
+          </div>
+        ) : null}
+        {commits.length ? (
+          <div className="space-y-2">
+            {commits.map((commit) => (
+              <TimelineCommit key={commit.sha} commit={commit} />
+            ))}
+          </div>
+        ) : (
+          <div className="rounded-md border border-dashed border-cc-border p-3 text-xs text-cc-muted">
+            No committed memory edits found.
+          </div>
+        )}
+      </div>
+    </section>
+  );
+}
+
+function TimelineCommit({ commit }: { commit: MemoryRecentCommit }) {
+  const files = commit.changedFiles.map((change) => change.path);
+  const provenance = [commit.quest, commit.session, ...commit.sources].filter((source): source is string =>
+    Boolean(source),
+  );
+  return (
+    <article className="min-w-0 rounded-md border border-cc-border bg-cc-bg/30 p-2.5 text-xs">
+      <div className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <div className="truncate font-medium text-cc-fg">{commit.message || commit.shortSha}</div>
+          <div className="mt-1 text-[11px] text-cc-muted">
+            {formatDate(commit.timestamp)} by {commit.actor ?? "unknown"}
+          </div>
+        </div>
+        <span className="shrink-0 font-mono text-[10px] text-cc-muted">{commit.shortSha}</span>
+      </div>
+      <div className="mt-2 text-[11px] leading-relaxed text-cc-muted">
+        {files.length ? (
+          <>
+            {files.length} file{files.length === 1 ? "" : "s"}:{" "}
+            <span className="break-all font-mono">{files.slice(0, 3).join(", ")}</span>
+            {files.length > 3 ? `, +${files.length - 3} more` : ""}
+          </>
+        ) : (
+          "Changed files unknown"
+        )}
+      </div>
+      {provenance.length ? (
+        <div className="mt-2 flex flex-wrap gap-1.5">
+          {provenance.slice(0, 4).map((source) => (
+            <span key={source} className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[10px]">
+              {sourceLabel(source)}
+            </span>
+          ))}
+        </div>
+      ) : (
+        <div className="mt-2 text-[10px] uppercase tracking-wide text-cc-muted">source unknown</div>
+      )}
+    </article>
+  );
+}
+
+function MobileRecordSheet({ open, onClose, children }: { open: boolean; onClose: () => void; children: ReactNode }) {
+  if (!open) return null;
+  return (
+    <div className="fixed inset-0 z-50 flex flex-col bg-cc-bg lg:hidden" data-testid="memory-mobile-detail">
+      <div className="flex shrink-0 items-center justify-between gap-3 border-b border-cc-border px-3 py-2">
+        <div className="text-sm font-semibold text-cc-fg">Memory record</div>
+        <ActionButton onClick={onClose}>Back to records</ActionButton>
+      </div>
+      <div className="min-h-0 flex-1 overflow-hidden p-3">{children}</div>
     </div>
   );
 }
@@ -389,6 +602,28 @@ function entryMatches(entry: MemoryCatalogEntry, query: string): boolean {
     .includes(needle);
 }
 
+function groupEntries(entries: MemoryCatalogEntry[]): Map<MemoryKind, MemoryCatalogEntry[]> {
+  const map = new Map<MemoryKind, MemoryCatalogEntry[]>();
+  for (const kind of MEMORY_KINDS) map.set(kind, []);
+  for (const entry of entries) {
+    map.set(entry.kind, [...(map.get(entry.kind) ?? []), entry]);
+  }
+  return map;
+}
+
+function facetEntriesFromFrontmatter(frontmatter: Record<string, unknown>): Array<[string, string]> {
+  const facets = frontmatter.facets;
+  if (!facets || typeof facets !== "object" || Array.isArray(facets)) return [];
+  return Object.entries(facets as Record<string, unknown>).flatMap(([key, raw]) => {
+    const values = Array.isArray(raw) ? raw : [raw];
+    return values.map((value) => [key, String(value)] as [string, string]);
+  });
+}
+
+function commitTouchesPath(commit: MemoryRecentCommit, path: string): boolean {
+  return commit.changedFiles.some((change) => change.path === path || change.previousPath === path);
+}
+
 export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const [spacesState, setSpacesState] = useState<LoadState<MemorySpacesResponse>>({
     status: "loading",
@@ -406,7 +641,9 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const [selectedRoot, setSelectedRoot] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [query, setQuery] = useState("");
-  const [kindFilter, setKindFilter] = useState<MemoryKind | "all">("all");
+  const [collapsedKinds, setCollapsedKinds] = useState<Set<MemoryKind>>(new Set());
+  const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [recentLimit, setRecentLimit] = useState(INITIAL_RECENT_LIMIT);
 
   useEffect(() => {
     let cancelled = false;
@@ -439,9 +676,8 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     if (!selectedRoot) return;
     let cancelled = false;
     setCatalogState({ status: "loading", data: null, error: null });
-    setRecordState({ status: "idle", data: null, error: null });
     api
-      .getMemoryCatalog({ root: selectedRoot })
+      .getMemoryCatalog({ root: selectedRoot, recentLimit })
       .then((data) => {
         if (cancelled) return;
         setCatalogState({ status: "ready", data, error: null });
@@ -461,7 +697,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [selectedRoot]);
+  }, [recentLimit, selectedRoot]);
 
   useEffect(() => {
     if (!selectedRoot || !selectedPath) {
@@ -492,30 +728,91 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const catalog = catalogState.data;
   const pathIssues = useMemo(() => issuesByPath(catalog?.issues ?? []), [catalog?.issues]);
   const filteredEntries = useMemo(
-    () =>
-      (catalog?.entries ?? []).filter(
-        (entry) => (kindFilter === "all" || entry.kind === kindFilter) && entryMatches(entry, query),
-      ),
-    [catalog?.entries, kindFilter, query],
+    () => (catalog?.entries ?? []).filter((entry) => entryMatches(entry, query)),
+    [catalog?.entries, query],
   );
+  const entriesByKind = useMemo(() => groupEntries(filteredEntries), [filteredEntries]);
   const selectedSpace = spacesState.data?.spaces.find((space) => space.root === selectedRoot) ?? null;
-  const selectedRecordPath = recordState.status === "ready" ? recordState.data.file.absolutePath : selectedSpace?.root;
   const selectedSpaceLabel = selectedSpace ? spaceLabel(selectedSpace) : null;
   const selectedEntry = selectedPath ? (catalog?.entries.find((entry) => entry.path === selectedPath) ?? null) : null;
+  const selectedRecordPath = recordState.status === "ready" ? recordState.data.file.absolutePath : selectedSpace?.root;
+  const selectedIndex = filteredEntries.findIndex((entry) => entry.path === selectedPath);
+  const canPrevious = selectedIndex > 0;
+  const canNext = selectedIndex >= 0 && selectedIndex < filteredEntries.length - 1;
+  const selectedHistory = useMemo(
+    () =>
+      selectedPath
+        ? (catalog?.git.recentCommits ?? []).filter((commit) => commitTouchesPath(commit, selectedPath))
+        : [],
+    [catalog?.git.recentCommits, selectedPath],
+  );
+
+  function selectRoot(root: string): void {
+    setSelectedRoot(root || null);
+    setSelectedPath(null);
+    setMobileDetailOpen(false);
+    setRecentLimit(INITIAL_RECENT_LIMIT);
+  }
+
+  function selectEntry(entry: MemoryCatalogEntry): void {
+    setSelectedPath(entry.path);
+    setMobileDetailOpen(true);
+  }
+
+  function toggleKind(kind: MemoryKind): void {
+    setCollapsedKinds((current) => {
+      const next = new Set(current);
+      if (next.has(kind)) next.delete(kind);
+      else next.add(kind);
+      return next;
+    });
+  }
+
+  function selectOffset(offset: number): void {
+    if (!filteredEntries.length) return;
+    const baseIndex = selectedIndex >= 0 ? selectedIndex : 0;
+    const nextIndex = Math.min(Math.max(baseIndex + offset, 0), filteredEntries.length - 1);
+    const nextEntry = filteredEntries[nextIndex];
+    if (!nextEntry) return;
+    setSelectedPath(nextEntry.path);
+    setMobileDetailOpen(true);
+  }
+
+  function refreshCatalog(): void {
+    if (!selectedRoot) return;
+    setCatalogState({ status: "loading", data: null, error: null });
+    api
+      .getMemoryCatalog({ root: selectedRoot, recentLimit })
+      .then((data) => setCatalogState({ status: "ready", data, error: null }))
+      .catch((error) =>
+        setCatalogState({
+          status: "error",
+          data: null,
+          error: error instanceof Error ? error.message : String(error),
+        }),
+      );
+  }
+
+  const detail = (
+    <RecordDetail
+      recordState={recordState}
+      selectedPath={selectedPath}
+      history={selectedHistory}
+      canPrevious={canPrevious}
+      canNext={canNext}
+      onPrevious={() => selectOffset(-1)}
+      onNext={() => selectOffset(1)}
+    />
+  );
 
   return (
     <div className={`${embedded ? "h-full" : "min-h-screen"} bg-cc-bg text-cc-fg`}>
-      <div className="flex h-full flex-col">
+      <div className="flex h-full min-w-0 flex-col overflow-hidden">
         <header className="shrink-0 border-b border-cc-border px-4 py-3">
           <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0 space-y-2">
+            <div className="min-w-0 space-y-3">
               <div className="flex flex-wrap items-center gap-2.5">
                 <h1 className="text-xl font-semibold leading-tight text-cc-fg">Memory</h1>
-                {selectedSpace ? (
-                  <span className="rounded border border-cc-border bg-cc-hover px-2 py-0.5 font-mono text-[12px] text-cc-fg">
-                    {selectedSpaceLabel}
-                  </span>
-                ) : null}
                 <span className={`rounded border px-2 py-0.5 text-[11px] ${healthTone(catalog)}`}>
                   {catalog
                     ? catalog.issueCounts.errors
@@ -536,28 +833,22 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
                   </span>
                 ) : null}
               </div>
-              <div className="max-w-[110ch] break-all font-mono text-[11px] leading-relaxed text-cc-muted">
-                {catalog?.repo.root ?? selectedSpace?.root ?? ""}
+
+              <div className="flex flex-col gap-2 md:flex-row md:items-end">
+                {spacesState.status === "ready" ? (
+                  <SpaceSelect spaces={spacesState.data.spaces} selectedRoot={selectedRoot} onSelect={selectRoot} />
+                ) : null}
+                <div className="min-w-0 flex-1">
+                  <div className="text-[10px] font-semibold uppercase tracking-wide text-cc-muted">Repository path</div>
+                  <div className="mt-1 break-all font-mono text-[11px] leading-relaxed text-cc-muted">
+                    {catalog?.repo.root ?? selectedSpace?.root ?? ""}
+                  </div>
+                </div>
               </div>
             </div>
+
             <div className="flex flex-wrap items-center gap-2">
-              <ActionButton
-                onClick={() =>
-                  selectedRoot &&
-                  api
-                    .getMemoryCatalog({ root: selectedRoot })
-                    .then((data) => setCatalogState({ status: "ready", data, error: null }))
-                    .catch((error) =>
-                      setCatalogState({
-                        status: "error",
-                        data: null,
-                        error: error instanceof Error ? error.message : String(error),
-                      }),
-                    )
-                }
-              >
-                Refresh
-              </ActionButton>
+              <ActionButton onClick={refreshCatalog}>Refresh</ActionButton>
               {selectedSpace ? (
                 <>
                   <ActionButton onClick={() => copyText(selectedRecordPath ?? selectedSpace.root)}>
@@ -577,161 +868,95 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
               ) : null}
             </div>
           </div>
-          {catalog ? (
-            <div className="mt-3 flex flex-wrap items-center gap-2 text-[11px]">
-              <span className="rounded border border-cc-border bg-cc-hover px-2 py-1 text-cc-muted">
-                {formatRecordCount(catalog.entries.length)}
-              </span>
-              {MEMORY_KINDS.map((kind) => {
-                const count = catalog.entries.filter((entry) => entry.kind === kind).length;
-                return (
-                  <button
-                    key={kind}
-                    type="button"
-                    onClick={() => setKindFilter((current) => (current === kind ? "all" : kind))}
-                    className={`rounded px-2 py-1 ${
-                      kindFilter === kind ? "bg-cc-active text-cc-fg" : "bg-cc-hover text-cc-muted hover:text-cc-fg"
-                    }`}
-                  >
-                    {kind} {count}
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
         </header>
 
-        <main className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-y-auto p-3 lg:grid-cols-[minmax(220px,270px)_minmax(320px,460px)_minmax(0,1fr)] lg:overflow-hidden xl:grid-cols-[280px_minmax(360px,500px)_minmax(520px,1fr)]">
-          <aside aria-label="Memory spaces" className="flex min-h-0 flex-col overflow-hidden">
-            <div className="mb-2 flex items-center justify-between gap-2 px-0.5">
-              <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Spaces</h2>
-              {spacesState.status === "ready" ? (
-                <span className="text-[11px] text-cc-muted">{spacesState.data.spaces.length}</span>
-              ) : null}
-            </div>
-            <div
-              data-testid="memory-spaces-list"
-              className="flex min-h-0 flex-1 gap-2 overflow-x-auto pb-1 lg:block lg:space-y-2 lg:overflow-y-auto lg:overflow-x-visible lg:pb-0"
-            >
-              {spacesState.status === "loading" ? <SkeletonRows count={3} /> : null}
-              {spacesState.status === "error" ? (
-                <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
-                  Failed to load memory spaces: {spacesState.error}
-                </div>
-              ) : null}
-              {spacesState.status === "ready" && spacesState.data.spaces.length === 0 ? (
-                <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
-                  No memory spaces found.
-                </div>
-              ) : null}
-              {spacesState.status === "ready"
-                ? spacesState.data.spaces.map((space) => (
-                    <SpaceButton
-                      key={`${space.slug}-${space.root}`}
-                      space={space}
-                      selected={selectedRoot === space.root}
-                      onSelect={() => {
-                        setSelectedRoot(space.root);
-                        setSelectedPath(null);
-                      }}
-                    />
-                  ))
-                : null}
-            </div>
-          </aside>
-
-          <section className="min-h-0 space-y-2 lg:overflow-y-auto">
-            <div className="sticky top-0 z-10 space-y-2 bg-cc-bg pb-2">
-              <div className="flex items-center justify-between gap-2 px-0.5">
-                <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Records</h2>
-                {catalog ? (
-                  <span className="text-[11px] text-cc-muted">
-                    {filteredEntries.length}/{catalog.entries.length}
-                  </span>
-                ) : null}
-              </div>
-              <input
-                type="search"
-                value={query}
-                onChange={(event) => setQuery(event.target.value)}
-                placeholder="Filter paths, descriptions, sources, facets..."
-                aria-label="Filter memory"
-                className="w-full rounded-md border border-cc-border bg-cc-input-bg px-3 py-2 text-xs text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60"
-              />
-            </div>
-            {catalogState.status === "loading" ? <SkeletonRows count={5} /> : null}
-            {catalogState.status === "error" ? (
-              <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
-                Failed to load catalog: {catalogState.error}
-              </div>
-            ) : null}
-            {catalogState.status === "ready" && catalogState.data.entries.length === 0 ? (
-              <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
-                This memory repo has no Markdown records in authored directories.
-              </div>
-            ) : null}
-            {catalogState.status === "ready" && catalogState.data.entries.length > 0 && filteredEntries.length === 0 ? (
-              <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
-                No memory records match this filter.
-              </div>
-            ) : null}
-            {filteredEntries.map((entry) => (
-              <EntryRow
-                key={entry.path}
-                entry={entry}
-                issues={pathIssues.get(entry.path) ?? []}
-                selected={selectedPath === entry.path}
-                onSelect={() => setSelectedPath(entry.path)}
-              />
-            ))}
-          </section>
-
-          <section className="flex min-h-0 flex-col gap-3 lg:overflow-hidden">
-            <div className="rounded-md border border-cc-border bg-cc-card p-3">
-              <div className="flex flex-col gap-2 xl:flex-row xl:items-start xl:justify-between">
-                <div className="min-w-0">
-                  <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Reading</h2>
-                  <div className="mt-1 break-words font-mono text-sm font-semibold leading-snug text-cc-fg">
-                    {selectedEntry ? splitMemoryPath(selectedEntry.path).name : "No record selected"}
+        <main className="min-h-0 flex-1 overflow-hidden p-3">
+          <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[minmax(320px,460px)_minmax(0,1fr)] lg:overflow-hidden">
+            <section className="min-h-0 space-y-3 lg:flex lg:flex-col lg:overflow-hidden">
+              <div className="shrink-0 space-y-2">
+                <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
+                  <div>
+                    <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Records</h2>
+                    <div className="mt-0.5 text-[11px] text-cc-muted">
+                      {catalog
+                        ? `${filteredEntries.length}/${catalog.entries.length} in ${selectedSpaceLabel}`
+                        : "loading"}
+                    </div>
                   </div>
-                  {selectedEntry ? (
-                    <div className="mt-1 break-all font-mono text-[10px] text-cc-muted">{selectedEntry.path}</div>
+                  {catalog ? (
+                    <span className="rounded border border-cc-border bg-cc-hover px-2 py-1 text-[11px] text-cc-muted">
+                      {formatRecordCount(catalog.entries.length)}
+                    </span>
                   ) : null}
                 </div>
-                {catalog?.git.statusEntries.length ? (
-                  <div className="min-w-0 text-[11px] xl:max-w-[48%]">
-                    <div className="font-semibold uppercase tracking-wide text-cc-muted">Working tree</div>
-                    <div className="mt-1 flex flex-wrap gap-1.5">
-                      {catalog.git.statusEntries.slice(0, 3).map((entry) => (
-                        <span key={entry.raw} className="rounded bg-cc-hover px-1.5 py-0.5 font-mono text-cc-muted">
-                          {entry.code} {entry.path}
-                        </span>
-                      ))}
-                      {catalog.git.statusEntries.length > 3 ? (
-                        <span className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">
-                          +{catalog.git.statusEntries.length - 3}
-                        </span>
-                      ) : null}
-                    </div>
-                  </div>
-                ) : catalog?.git.recentCommits.length ? (
-                  <div className="min-w-0 text-[11px] xl:max-w-[48%]">
-                    <div className="font-semibold uppercase tracking-wide text-cc-muted">Recent update</div>
-                    <div className="mt-1 truncate text-xs text-cc-fg">
-                      {catalog.git.recentCommits[0]?.shortSha} {catalog.git.recentCommits[0]?.message}
-                    </div>
-                    <div className="mt-1 text-[11px] text-cc-muted">
-                      {formatDate(catalog.git.recentCommits[0]?.timestamp)}
-                    </div>
+                <input
+                  type="search"
+                  value={query}
+                  onChange={(event) => setQuery(event.target.value)}
+                  placeholder="Filter file names, descriptions, sources..."
+                  aria-label="Filter memory"
+                  className="w-full rounded-md border border-cc-border bg-cc-input-bg px-3 py-2 text-xs text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60"
+                />
+              </div>
+
+              <div className="min-h-[260px] lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
+                {spacesState.status === "loading" ? <SkeletonRows count={2} /> : null}
+                {spacesState.status === "error" ? (
+                  <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+                    Failed to load memory spaces: {spacesState.error}
                   </div>
                 ) : null}
+                {catalogState.status === "loading" ? <SkeletonRows count={5} /> : null}
+                {catalogState.status === "error" ? (
+                  <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+                    Failed to load catalog: {catalogState.error}
+                  </div>
+                ) : null}
+                {catalogState.status === "ready" && catalogState.data.entries.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
+                    This memory repo has no Markdown records in authored directories.
+                  </div>
+                ) : null}
+                {catalogState.status === "ready" &&
+                catalogState.data.entries.length > 0 &&
+                filteredEntries.length === 0 ? (
+                  <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
+                    No memory records match this filter.
+                  </div>
+                ) : null}
+                {catalogState.status === "ready" && filteredEntries.length > 0 ? (
+                  <RecordTree
+                    entriesByKind={entriesByKind}
+                    pathIssues={pathIssues}
+                    collapsedKinds={collapsedKinds}
+                    selectedPath={selectedPath}
+                    onToggleKind={toggleKind}
+                    onSelectEntry={selectEntry}
+                  />
+                ) : null}
               </div>
-            </div>
-            <div className="min-h-[320px] flex-1">
-              <RecordDetail recordState={recordState} selectedPath={selectedPath} />
-            </div>
-          </section>
+
+              <div className="min-h-[260px] shrink-0 lg:h-[280px]">
+                <RecentTimeline
+                  catalog={catalog}
+                  recentLimit={recentLimit}
+                  onLoadMore={() => setRecentLimit((current) => current + RECENT_INCREMENT)}
+                />
+              </div>
+            </section>
+
+            <section
+              className="hidden min-h-0 min-w-0 flex-col overflow-hidden lg:flex"
+              aria-label="Memory record detail"
+            >
+              {detail}
+            </section>
+          </div>
         </main>
+
+        <MobileRecordSheet open={mobileDetailOpen && Boolean(selectedPath)} onClose={() => setMobileDetailOpen(false)}>
+          {detail}
+        </MobileRecordSheet>
       </div>
     </div>
   );

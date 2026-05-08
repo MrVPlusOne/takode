@@ -359,32 +359,97 @@ export async function memoryGitStatus(options: MemoryRepoOptions = {}): Promise<
 export async function memoryRecentCommits(options: MemoryRepoOptions = {}, limit = 6): Promise<MemoryRecentCommit[]> {
   const repo = await repoForRead(options);
   if (options.readOnly && !repo.initialized) return [];
-  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 25);
+  const safeLimit = Math.min(Math.max(Math.trunc(limit), 1), 100);
   try {
     const output = await runGit(repo.root, [
       "log",
       `--max-count=${safeLimit}`,
-      "--format=%H%x1f%h%x1f%ct%x1f%s",
+      "--format=%x1e%H%x1f%h%x1f%ct%x1f%an%x1f%ae%x1f%s%x1f%B%x1d",
+      "--name-status",
       "--",
       ...MEMORY_KINDS,
     ]);
-    return output
-      .split("\n")
-      .map((line) => line.trim())
-      .filter(Boolean)
-      .map((line) => {
-        const [sha = "", shortSha = "", timestamp = "0", message = ""] = line.split("\x1f");
-        return {
-          sha,
-          shortSha,
-          timestamp: Number.parseInt(timestamp, 10) * 1000,
-          message,
-        };
-      })
-      .filter((commit) => commit.sha && commit.shortSha && Number.isFinite(commit.timestamp));
-  } catch {
+    return parseRecentMemoryCommits(output);
+  } catch (error) {
+    console.warn("Unable to read recent memory commits:", error);
     return [];
   }
+}
+
+function parseRecentMemoryCommits(output: string): MemoryRecentCommit[] {
+  return output
+    .split("\x1e")
+    .map((record) => record.trim())
+    .filter(Boolean)
+    .map(parseRecentMemoryCommit)
+    .filter((commit) => commit.sha && commit.shortSha && Number.isFinite(commit.timestamp));
+}
+
+function parseRecentMemoryCommit(record: string): MemoryRecentCommit {
+  const [metadata = "", changedFilesBlock = ""] = record.split("\x1d", 2);
+  const [sha = "", shortSha = "", timestamp = "0", authorName = "", authorEmail = "", message = "", body = ""] =
+    splitDelimitedFields(metadata, "\x1f", 7);
+  const trailers = parseCommitTrailers(body);
+  const session = firstTrailerValue(trailers, "session");
+  const author = authorName.trim();
+  return {
+    sha,
+    shortSha,
+    timestamp: Number.parseInt(timestamp, 10) * 1000,
+    message,
+    authorName: author,
+    authorEmail: authorEmail.trim(),
+    actor: session || (author && author !== "Takode Memory" ? author : null),
+    quest: firstTrailerValue(trailers, "quest"),
+    session,
+    sources: trailerValues(trailers, "source"),
+    changedFiles: parseMemoryCommitFileChanges(changedFilesBlock),
+  };
+}
+
+function splitDelimitedFields(value: string, delimiter: string, expectedFields: number): string[] {
+  const fields: string[] = [];
+  let rest = value;
+  while (fields.length < expectedFields - 1) {
+    const index = rest.indexOf(delimiter);
+    if (index === -1) break;
+    fields.push(rest.slice(0, index));
+    rest = rest.slice(index + delimiter.length);
+  }
+  fields.push(rest);
+  return fields;
+}
+
+function parseCommitTrailers(body: string): Map<string, string[]> {
+  const trailers = new Map<string, string[]>();
+  for (const line of body.split("\n")) {
+    const match = /^([A-Za-z][A-Za-z-]*):\s*(.+)$/.exec(line.trim());
+    if (!match) continue;
+    const key = match[1]!.toLowerCase();
+    trailers.set(key, [...(trailers.get(key) ?? []), match[2]!.trim()]);
+  }
+  return trailers;
+}
+
+function firstTrailerValue(trailers: Map<string, string[]>, key: string): string | null {
+  return trailers.get(key.toLowerCase())?.[0] ?? null;
+}
+
+function trailerValues(trailers: Map<string, string[]>, key: string): string[] {
+  return trailers.get(key.toLowerCase()) ?? [];
+}
+
+function parseMemoryCommitFileChanges(block: string): MemoryRecentCommit["changedFiles"] {
+  return block
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .map((line) => {
+      const [status = "", firstPath = "", secondPath] = line.split("\t");
+      if (secondPath) return { status, previousPath: firstPath, path: secondPath };
+      return { status, path: firstPath };
+    })
+    .filter((change) => change.status && change.path);
 }
 
 export async function memoryGitDiff(options: MemoryRepoOptions = {}): Promise<string> {

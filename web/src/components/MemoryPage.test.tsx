@@ -2,7 +2,7 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MemoryCatalogResponse, MemoryRecordResponse, MemorySpacesResponse } from "../api.js";
+import type { MemoryCatalogResponse, MemoryRecentCommit, MemoryRecordResponse, MemorySpacesResponse } from "../api.js";
 
 const mockListMemorySpaces = vi.fn();
 const mockGetMemoryCatalog = vi.fn();
@@ -46,15 +46,24 @@ function spacesResponse(): MemorySpacesResponse {
         sessionSpaceSlug: "Other",
         serverId: "server-test",
       },
-      {
-        slug: "dev",
-        root: "/Users/test/.companion/memory/dev",
-        current: false,
-        initialized: true,
-        authoredDirs: ["current", "knowledge"],
-        hasAuthoredData: true,
-      },
     ],
+  };
+}
+
+function recentCommit(overrides: Partial<MemoryRecentCommit> = {}): MemoryRecentCommit {
+  return {
+    sha: "abcdef123456",
+    shortSha: "abcdef1",
+    timestamp: 1_700_000_000_000,
+    message: "Seed memory",
+    authorName: "Takode Memory",
+    authorEmail: "takode-memory@local",
+    actor: "session:1576",
+    quest: "q-1220",
+    session: "session:1576",
+    sources: ["q-1220"],
+    changedFiles: [{ status: "A", path: "knowledge/service-x.md" }],
+    ...overrides,
   };
 }
 
@@ -85,6 +94,14 @@ function catalogResponse(): MemoryCatalogResponse {
         source: ["q-1227"],
         facets: {},
       },
+      {
+        id: "decisions/memory-policy.md",
+        kind: "decisions",
+        path: "decisions/memory-policy.md",
+        description: "Records how memory catalog freshness is evaluated.",
+        source: ["q-1220"],
+        facets: {},
+      },
     ],
     issues: [
       {
@@ -99,7 +116,36 @@ function catalogResponse(): MemoryCatalogResponse {
       dirty: true,
       status: "?? current/live.md",
       statusEntries: [{ code: "??", path: "current/live.md", raw: "?? current/live.md" }],
-      recentCommits: [{ sha: "abcdef1", shortSha: "abcdef1", timestamp: 1_700_000_000_000, message: "Seed memory" }],
+      recentCommits: [
+        recentCommit(),
+        recentCommit({
+          sha: "bcdef234567",
+          shortSha: "bcdef23",
+          message: "Document procedure",
+          actor: null,
+          quest: null,
+          session: null,
+          sources: [],
+          changedFiles: [{ status: "M", path: "procedures/run-service.md" }],
+        }),
+      ],
+    },
+  };
+}
+
+function catalogWithTwentyCommits(): MemoryCatalogResponse {
+  return {
+    ...catalogResponse(),
+    git: {
+      ...catalogResponse().git,
+      recentCommits: Array.from({ length: 20 }, (_, index) =>
+        recentCommit({
+          sha: `abcdef${index}`.padEnd(12, "0"),
+          shortSha: `c${index}`.padEnd(7, "0"),
+          message: `Memory edit ${index}`,
+          changedFiles: [{ status: "M", path: index % 2 ? "procedures/run-service.md" : "knowledge/service-x.md" }],
+        }),
+      ),
     },
   };
 }
@@ -131,7 +177,25 @@ function otherCatalogResponse(): MemoryCatalogResponse {
   };
 }
 
-function recordResponse(): MemoryRecordResponse {
+function recordResponse(path = "knowledge/service-x.md"): MemoryRecordResponse {
+  if (path === "procedures/run-service.md") {
+    return {
+      repo: catalogResponse().repo,
+      file: {
+        id: "procedures/run-service.md",
+        kind: "procedures",
+        path: "procedures/run-service.md",
+        absolutePath: "/Users/test/.companion/memory/prod/Takode/procedures/run-service.md",
+        description: "Starts the local service.",
+        source: ["q-1227"],
+        frontmatter: {},
+        body: "Run `bun run dev` from the web directory.",
+        content: "---\ndescription: Starts the local service.\n---\n\nRun `bun run dev` from the web directory.",
+      },
+      issues: [],
+    };
+  }
+
   return {
     repo: catalogResponse().repo,
     file: {
@@ -180,37 +244,34 @@ describe("MemoryPage", () => {
     mockGetMemoryCatalog.mockImplementation((opts?: { root?: string }) =>
       Promise.resolve(opts?.root?.endsWith("/Other") ? otherCatalogResponse() : catalogResponse()),
     );
-    mockGetMemoryRecord.mockImplementation((opts?: { root?: string }) =>
-      Promise.resolve(opts?.root?.endsWith("/Other") ? otherRecordResponse() : recordResponse()),
+    mockGetMemoryRecord.mockImplementation((opts?: { root?: string; path?: string }) =>
+      Promise.resolve(opts?.root?.endsWith("/Other") ? otherRecordResponse() : recordResponse(opts?.path)),
     );
     mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "source", commandId: "cmd" });
   });
 
-  it("renders memory spaces, catalog health, provenance, dirty status, and record detail", async () => {
-    // Verifies the replacement page is a read-only catalog/detail Memory view rather than the old stream dashboard.
+  it("renders a dropdown space selector, grouped records, contained detail, and separate timeline", async () => {
+    // Validates the structural replacement requested in feedback #9: no large Spaces column, simple rows, and a separate timeline.
     render(<MemoryPage embedded />);
 
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeInTheDocument();
-    expect(screen.getByRole("complementary", { name: "Memory spaces" })).toHaveClass(
-      "flex",
-      "min-h-0",
-      "flex-col",
-      "overflow-hidden",
-    );
-    expect(screen.getByTestId("memory-spaces-list")).toHaveClass("min-h-0", "flex-1", "lg:overflow-y-auto");
-    expect(screen.getAllByText("prod/Takode").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("prod/Other").length).toBeGreaterThan(0);
-    expect(screen.getByText("dev")).toBeInTheDocument();
-    expect(await screen.findByText("1 warnings")).toBeInTheDocument();
-    expect(screen.getByText("dirty")).toBeInTheDocument();
-    expect(screen.getByText("?? current/live.md")).toBeInTheDocument();
-    expect(screen.getAllByText("knowledge/service-x.md").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("service-x.md").length).toBeGreaterThan(1);
-    expect(screen.getAllByText("Explains Service X config and failure modes.").length).toBeGreaterThan(0);
-    expect(screen.getByText("Markdown preview")).toBeInTheDocument();
+    expect(screen.getByLabelText("Memory space")).toHaveValue("/Users/test/.companion/memory/prod/Takode");
+    expect(screen.queryByRole("complementary", { name: "Memory spaces" })).not.toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: /knowledge.*1/i })).toHaveAttribute("aria-expanded", "true");
+    expect(screen.getByRole("button", { name: /procedures.*1/i })).toBeInTheDocument();
+
+    const knowledgeGroup = screen.getByRole("region", { name: "knowledge memory records" });
+    expect(within(knowledgeGroup).getByText("service-x.md")).toBeInTheDocument();
+    expect(within(knowledgeGroup).getByText("Explains Service X config and failure modes.")).toBeInTheDocument();
+    expect(within(knowledgeGroup).queryByText("q-1220")).not.toBeInTheDocument();
+
     expect(await screen.findByText("Service X is started through a local dev command.")).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "q-1220" })).toHaveAttribute("href", "#/questmaster?quest=q-1220");
+    expect(screen.getAllByRole("link", { name: "q-1220" })[0]).toHaveAttribute("href", "#/questmaster?quest=q-1220");
     expect(screen.getByRole("link", { name: "session:1576:99" })).toHaveAttribute("href", "#/session/1576/msg/99");
+    expect(screen.getByRole("region", { name: "Memory record detail" })).toHaveClass("min-w-0", "overflow-hidden");
+    expect(screen.getByText("Recent memory edits")).toBeInTheDocument();
+    expect(screen.getAllByText(/by session:1576/).length).toBeGreaterThan(0);
+    expect(screen.getByText("source unknown")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open record" }));
     await waitFor(() =>
@@ -221,15 +282,18 @@ describe("MemoryPage", () => {
     );
   });
 
-  it("selects memory spaces by root when sibling session spaces share a server slug", async () => {
+  it("selects memory spaces by dropdown root when sibling session spaces share a server slug", async () => {
     render(<MemoryPage embedded />);
 
     expect(await screen.findByText("Service X is started through a local dev command.")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /prod\/Other/ }));
+    fireEvent.change(screen.getByLabelText("Memory space"), {
+      target: { value: "/Users/test/.companion/memory/prod/Other" },
+    });
 
     await waitFor(() =>
       expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
         root: "/Users/test/.companion/memory/prod/Other",
+        recentLimit: 20,
       }),
     );
     expect(await screen.findByText("Other memory detail.")).toBeInTheDocument();
@@ -241,17 +305,59 @@ describe("MemoryPage", () => {
     );
   });
 
-  it("filters catalog rows by query and kind without hiding the selected detail", async () => {
+  it("collapses kind groups and filters simple record rows without clearing selected detail", async () => {
     render(<MemoryPage embedded />);
 
-    await screen.findByText("knowledge/service-x.md");
+    expect(await screen.findByText("service-x.md")).toBeInTheDocument();
+    const knowledgeGroup = screen.getByRole("region", { name: "knowledge memory records" });
+    fireEvent.click(screen.getByRole("button", { name: /knowledge.*1/i }));
+    expect(within(knowledgeGroup).queryByText("service-x.md")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /knowledge.*1/i }));
+    expect(within(knowledgeGroup).getByText("service-x.md")).toBeInTheDocument();
+
     fireEvent.change(screen.getByLabelText("Filter memory"), { target: { value: "run-service" } });
     expect(screen.getByText("run-service.md")).toBeInTheDocument();
-    expect(screen.getByText("procedures/")).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("button", { name: "knowledge 1" }));
-    expect(screen.getByText("No memory records match this filter.")).toBeInTheDocument();
+    expect(within(knowledgeGroup).queryByText("service-x.md")).not.toBeInTheDocument();
     expect(screen.getByText("Service X is started through a local dev command.")).toBeInTheDocument();
+  });
+
+  it("opens mobile drill-in detail and supports next/previous record navigation", async () => {
+    render(<MemoryPage embedded />);
+
+    const knowledgeGroup = await screen.findByRole("region", { name: "knowledge memory records" });
+    fireEvent.click(within(knowledgeGroup).getByRole("button", { name: /service-x\.md/ }));
+
+    const mobileDetail = screen.getByTestId("memory-mobile-detail");
+    expect(within(mobileDetail).getByText("Memory record")).toBeInTheDocument();
+    fireEvent.click(within(mobileDetail).getByRole("button", { name: "Next" }));
+
+    expect(await within(mobileDetail).findByText("bun run dev")).toBeInTheDocument();
+    fireEvent.click(within(mobileDetail).getByRole("button", { name: "Previous" }));
+    expect(
+      await within(mobileDetail).findByText("Service X is started through a local dev command."),
+    ).toBeInTheDocument();
+
+    fireEvent.click(within(mobileDetail).getByRole("button", { name: "Back to records" }));
+    expect(screen.queryByTestId("memory-mobile-detail")).not.toBeInTheDocument();
+  });
+
+  it("loads more recent memory timeline entries from the read-only catalog API", async () => {
+    mockGetMemoryCatalog.mockResolvedValue(catalogWithTwentyCommits());
+    render(<MemoryPage embedded />);
+
+    await screen.findByText("Memory edit 0");
+    expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
+      root: "/Users/test/.companion/memory/prod/Takode",
+      recentLimit: 20,
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Load more" }));
+
+    await waitFor(() =>
+      expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
+        root: "/Users/test/.companion/memory/prod/Takode",
+        recentLimit: 40,
+      }),
+    );
   });
 
   it("shows empty and error states with concrete backend messages", async () => {

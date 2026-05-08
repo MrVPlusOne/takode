@@ -122,6 +122,8 @@ facets:
       "commit",
       "-m",
       "Seed memory",
+      "-m",
+      "Quest: q-1220\nSession: session:1576\nSource: session:1576:99",
     ]);
     await writeMemoryFile(
       "prod",
@@ -156,7 +158,75 @@ source:
     expect(json.git.statusEntries).toEqual(
       expect.arrayContaining([expect.objectContaining({ path: "current/live.md" })]),
     );
-    expect(json.git.recentCommits[0]).toMatchObject({ message: "Seed memory" });
+    expect(json.git.recentCommits[0]).toMatchObject({
+      message: "Seed memory",
+      authorName: "Takode Test",
+      authorEmail: "test@example.invalid",
+      actor: "session:1576",
+      quest: "q-1220",
+      session: "session:1576",
+      sources: ["session:1576:99"],
+      changedFiles: [expect.objectContaining({ status: "A", path: "knowledge/service-x.md" })],
+    });
+  });
+
+  it("honors the recent memory edits limit for timeline loading", async () => {
+    // Verifies the browser can request more read-only timeline entries without changing memory repo semantics.
+    await writeMemoryFile(
+      "prod",
+      "knowledge/first.md",
+      `
+description: First record.
+source:
+  - q-1220
+`,
+    );
+    const { ensureMemoryRepo } = await import("../workstream-memory-store.js");
+    const repo = await ensureMemoryRepo();
+    await execFileAsync("git", ["--no-optional-locks", "-C", repo.root, "add", "--", "knowledge"]);
+    await execFileAsync("git", [
+      "--no-optional-locks",
+      "-C",
+      repo.root,
+      "-c",
+      "user.name=Takode Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "-m",
+      "First memory",
+    ]);
+    await writeMemoryFile(
+      "prod",
+      "knowledge/second.md",
+      `
+description: Second record.
+source:
+  - q-1220
+`,
+    );
+    await execFileAsync("git", ["--no-optional-locks", "-C", repo.root, "add", "--", "knowledge"]);
+    await execFileAsync("git", [
+      "--no-optional-locks",
+      "-C",
+      repo.root,
+      "-c",
+      "user.name=Takode Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "-m",
+      "Second memory",
+    ]);
+
+    const app = await makeApp();
+    const oneRes = await app.request("/memory/catalog?serverSlug=prod&recentLimit=1");
+    const twoRes = await app.request("/memory/catalog?serverSlug=prod&recentLimit=2");
+
+    expect(oneRes.status).toBe(200);
+    expect(twoRes.status).toBe(200);
+    expect((await oneRes.json()).git.recentCommits).toHaveLength(1);
+    expect((await twoRes.json()).git.recentCommits).toHaveLength(2);
   });
 
   it("loads catalog and records for discovered sibling memory spaces without migration conflicts", async () => {

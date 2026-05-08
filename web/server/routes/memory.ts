@@ -39,6 +39,13 @@ function parseGitStatus(status: string): MemoryGitStatusEntry[] {
     }));
 }
 
+function parseRecentLimit(value: string | undefined): number {
+  if (!value) return 20;
+  const parsed = Number.parseInt(value, 10);
+  if (!Number.isFinite(parsed)) return 20;
+  return Math.min(Math.max(parsed, 1), 100);
+}
+
 async function resolveMemorySpaceOptions(c: { req: { query: (name: string) => string | undefined } }) {
   const { workstreamMemoryService } = await import("../workstream-memory-service.js");
   return workstreamMemoryService.resolveSpaceOptions({
@@ -73,11 +80,12 @@ export function createMemoryRoutes(_ctx: RouteContext) {
     if (!options.readOnly) {
       await workstreamMemoryService.ensureRepo(options);
     }
+    const recentLimit = parseRecentLimit(c.req.query("recentLimit"));
     const [catalog, lock, gitStatus, recentCommits] = await Promise.all([
       workstreamMemoryService.catalog(options),
       workstreamMemoryService.lockStatus(options),
       workstreamMemoryService.gitStatus(options),
-      workstreamMemoryService.recentCommits(options, 8),
+      workstreamMemoryService.recentCommits(options, recentLimit),
     ]);
     const statusEntries = parseGitStatus(gitStatus);
     return c.json({
