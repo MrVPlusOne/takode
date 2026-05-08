@@ -604,6 +604,50 @@ describe("POST /api/sessions/:id/archive", () => {
     );
   });
 
+  it("force-removes a managed worktree through the archive route", async () => {
+    // Regression coverage for managed archive cleanup: the route path must carry
+    // archive cleanup's force intent to final git removal for a worktree branch
+    // that differs from the base branch.
+    const sessionId = "1a5af0b7-a08f-40ab-9a43-89ee4a307133";
+    const repoRoot = "/repositories/sample-repo";
+    const worktreePath = "/tmp/takode-worktrees/sample-repo/main-wt-1234";
+    tracker.getBySession.mockReturnValue({
+      sessionId,
+      repoRoot,
+      branch: "main",
+      actualBranch: "main-wt-1234",
+      worktreePath,
+      createdAt: 1777336711998,
+    });
+    tracker.isWorktreeInUse.mockReturnValue(false);
+    vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(false);
+    vi.mocked(gitUtils.archiveBranchAsync).mockResolvedValue(true);
+    vi.mocked(gitUtils.removeWorktreeAsync).mockImplementation(async (_repoRoot, _worktreePath, options) =>
+      options?.force ? { removed: true } : { removed: false, reason: "missing --force" },
+    );
+
+    const res = await app.request(`/api/sessions/${sessionId}/archive`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.worktree).toEqual({ status: "pending", path: worktreePath });
+
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(gitUtils.archiveBranchAsync).toHaveBeenCalledWith(repoRoot, "main-wt-1234");
+    expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith(repoRoot, worktreePath, { force: true });
+    expect(tracker.removeBySession).toHaveBeenCalledWith(sessionId);
+    expect(launcher.setWorktreeCleanupState).toHaveBeenLastCalledWith(
+      sessionId,
+      expect.objectContaining({ status: "done", error: undefined, finishedAt: expect.any(Number) }),
+    );
+  });
+
   it("auto-archives reviewer sessions as inspectable records when parent is archived", async () => {
     // Parent session #42 has a reviewer session linked via reviewerOf
     launcher.getSessionNum.mockReturnValue(42);

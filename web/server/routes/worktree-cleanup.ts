@@ -35,6 +35,15 @@ interface ArchivedWorktreeCleanupDeps {
 
 type WorktreeCleanupTarget = WorktreeMapping;
 
+function withCleanupContext(
+  reason: string | undefined,
+  target: WorktreeCleanupTarget,
+  options: { force: boolean; archiveBranch: boolean },
+): string | undefined {
+  if (!reason) return undefined;
+  return `Worktree cleanup failed (force=${options.force}, archiveBranch=${options.archiveBranch}, repoRoot=${target.repoRoot}, worktreePath=${target.worktreePath}, branch=${target.branch}, actualBranch=${target.actualBranch ?? "none"}): ${reason}`;
+}
+
 function resolveWorktreeCleanupTarget(
   sessionId: string,
   launcher: WorktreeCleanupLauncher,
@@ -83,7 +92,14 @@ export async function cleanupWorktree(
     if (result.removed) {
       worktreeTracker.removeBySession(target.sessionId);
     }
-    return { cleaned: result.removed, path: target.worktreePath, reason: result.reason };
+    return {
+      cleaned: result.removed,
+      path: target.worktreePath,
+      reason: withCleanupContext(result.reason, target, {
+        force: shouldForceRemove,
+        archiveBranch: true,
+      }),
+    };
   }
 
   const result = await gitUtils.removeWorktreeAsync(target.repoRoot, target.worktreePath, {
@@ -93,7 +109,14 @@ export async function cleanupWorktree(
   if (result.removed) {
     worktreeTracker.removeBySession(target.sessionId);
   }
-  return { cleaned: result.removed, path: target.worktreePath, reason: result.reason };
+  return {
+    cleaned: result.removed,
+    path: target.worktreePath,
+    reason: withCleanupContext(result.reason, target, {
+      force: shouldForceRemove,
+      archiveBranch: Boolean(options?.archiveBranch),
+    }),
+  };
 }
 
 export function createArchivedWorktreeCleanupQueue(deps: ArchivedWorktreeCleanupDeps) {

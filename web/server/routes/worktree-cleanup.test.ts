@@ -178,13 +178,14 @@ describe("createArchivedWorktreeCleanupQueue", () => {
       "s1",
       expect.objectContaining({
         status: "failed",
-        error: "git refused removal",
+        error:
+          "Worktree cleanup failed (force=true, archiveBranch=true, repoRoot=/repo, worktreePath=/repo-wt, branch=feat, actualBranch=feat-wt-1234): git refused removal",
         finishedAt: expect.any(Number),
       }),
     );
     expect(logger.error).toHaveBeenCalledTimes(1);
     expect(logger.error).toHaveBeenCalledWith(
-      "[routes] Archived worktree cleanup failed for s1: /repo-wt (git refused removal)",
+      "[routes] Archived worktree cleanup failed for s1: /repo-wt (Worktree cleanup failed (force=true, archiveBranch=true, repoRoot=/repo, worktreePath=/repo-wt, branch=feat, actualBranch=feat-wt-1234): git refused removal)",
     );
   });
 
