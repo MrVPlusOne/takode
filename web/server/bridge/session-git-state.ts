@@ -11,6 +11,15 @@ const execPromise = promisify(execCb);
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
 const DIFF_STATS_REFRESH_FAILED_ERROR = "Unable to refresh diff stats";
 
+interface AheadBehindCounts {
+  ahead: number;
+  behind: number;
+}
+
+interface ResolveGitInfoOptions {
+  computeAheadBehind?: boolean;
+}
+
 async function resolveUpstreamRef(state: SessionState): Promise<string | null> {
   if (!state.cwd || !state.git_branch || state.git_branch === "HEAD" || state.is_worktree) return null;
   try {
@@ -66,8 +75,61 @@ export function makeDefaultState(sessionId: string, backendType: BackendType = "
   };
 }
 
-export async function resolveGitInfo(state: SessionState): Promise<void> {
+function getGitComparisonRef(state: SessionState): string {
+  return (state.diff_base_branch || state.git_default_branch || "").trim();
+}
+
+export function isDefaultMainComparisonRef(ref: string): boolean {
+  const normalized = ref
+    .trim()
+    .replace(/^refs\/heads\//, "")
+    .replace(/^refs\/remotes\//, "")
+    .replace(/^remotes\//, "");
+  if (normalized === "main" || normalized === "master") return true;
+  const parts = normalized.split("/").filter(Boolean);
+  return parts.length === 2 && (parts[1] === "main" || parts[1] === "master");
+}
+
+function getNonWorktreeAheadBehindKey(state: SessionState): string | null {
+  if (state.is_worktree || !state.cwd) return null;
+  const ref = getGitComparisonRef(state);
+  if (!ref) return null;
+  const repoKey = state.repo_root || state.cwd;
+  const headKey = state.git_head_sha || state.git_branch || "HEAD";
+  return [repoKey, ref, headKey].join("\0");
+}
+
+async function readAheadBehindCounts(cwd: string, ref: string): Promise<AheadBehindCounts> {
+  try {
+    const { stdout: countsOut } = await execPromise(
+      `${SERVER_GIT_CMD} rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
+      { cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT },
+    );
+    const [behind, ahead] = countsOut.trim().split(/\s+/).map(Number);
+    return {
+      ahead: ahead || 0,
+      behind: behind || 0,
+    };
+  } catch {
+    return { ahead: 0, behind: 0 };
+  }
+}
+
+async function resolveAheadBehindDirect(state: SessionState): Promise<void> {
+  const ref = getGitComparisonRef(state);
+  if (!ref || !state.cwd) {
+    state.git_ahead = 0;
+    state.git_behind = 0;
+    return;
+  }
+  const counts = await readAheadBehindCounts(state.cwd, ref);
+  state.git_ahead = counts.ahead;
+  state.git_behind = counts.behind;
+}
+
+export async function resolveGitInfo(state: SessionState, options: ResolveGitInfoOptions = {}): Promise<void> {
   if (!state.cwd) return;
+  const computeAheadBehind = options.computeAheadBehind !== false;
   const wasContainerized = state.is_containerized;
   try {
     const { stdout: branchOut } = await execPromise(`${SERVER_GIT_CMD} rev-parse --abbrev-ref HEAD 2>/dev/null`, {
@@ -147,20 +209,8 @@ export async function resolveGitInfo(state: SessionState): Promise<void> {
       }
     }
 
-    const ref = state.diff_base_branch || state.git_default_branch;
-    if (ref) {
-      try {
-        const { stdout: countsOut } = await execPromise(
-          `${SERVER_GIT_CMD} rev-list --left-right --count ${ref}...HEAD 2>/dev/null`,
-          { cwd: state.cwd, encoding: "utf-8", timeout: GIT_CMD_TIMEOUT },
-        );
-        const [behind, ahead] = countsOut.trim().split(/\s+/).map(Number);
-        state.git_ahead = ahead || 0;
-        state.git_behind = behind || 0;
-      } catch {
-        state.git_ahead = 0;
-        state.git_behind = 0;
-      }
+    if (computeAheadBehind) {
+      await resolveAheadBehindDirect(state);
     } else {
       state.git_ahead = 0;
       state.git_behind = 0;
@@ -237,6 +287,8 @@ interface RefreshWorktreeGitStateForSnapshotDeps {
 
 interface RefreshGitInfoDeps {
   gitSessionKeys: readonly (keyof SessionState)[];
+  sessions: Map<string, SessionDiffRefreshLike>;
+  nonWorktreeAheadBehindRefreshes: Map<string, Promise<AheadBehindCounts>>;
   broadcastSessionUpdate: (session: SessionDiffRefreshLike, update: Record<string, unknown>) => void;
   broadcastGitUpdate: (session: SessionDiffRefreshLike) => void;
   persistSession: (session: SessionDiffRefreshLike) => void;
@@ -320,6 +372,80 @@ export async function updateDiffBaseStartSha(session: SessionDiffStateLike, prev
   return false;
 }
 
+function shouldSkipNonWorktreeDefaultMainDiffStats(session: SessionDiffStateLike, diffBase: string): boolean {
+  return !session.state.is_worktree && isDefaultMainComparisonRef(diffBase);
+}
+
+async function resolveAheadBehindForRefresh(
+  session: SessionDiffRefreshLike,
+  deps: RefreshGitInfoDeps,
+): Promise<{ sharedKey: string | null; counts: AheadBehindCounts | null }> {
+  const ref = getGitComparisonRef(session.state);
+  if (!ref || !session.state.cwd) {
+    session.state.git_ahead = 0;
+    session.state.git_behind = 0;
+    return { sharedKey: null, counts: null };
+  }
+
+  const sharedKey = getNonWorktreeAheadBehindKey(session.state);
+  if (!sharedKey) {
+    const counts = await readAheadBehindCounts(session.state.cwd, ref);
+    session.state.git_ahead = counts.ahead;
+    session.state.git_behind = counts.behind;
+    return { sharedKey: null, counts };
+  }
+
+  let refresh = deps.nonWorktreeAheadBehindRefreshes.get(sharedKey);
+  if (!refresh) {
+    refresh = readAheadBehindCounts(session.state.cwd, ref).finally(() => {
+      if (deps.nonWorktreeAheadBehindRefreshes.get(sharedKey) === refresh) {
+        deps.nonWorktreeAheadBehindRefreshes.delete(sharedKey);
+      }
+    });
+    deps.nonWorktreeAheadBehindRefreshes.set(sharedKey, refresh);
+  }
+
+  const counts = await refresh;
+  session.state.git_ahead = counts.ahead;
+  session.state.git_behind = counts.behind;
+  return { sharedKey, counts };
+}
+
+function broadcastSharedAheadBehindResult(
+  sharedKey: string,
+  counts: AheadBehindCounts,
+  refreshedAt: number | undefined,
+  sourceSession: SessionDiffRefreshLike,
+  deps: RefreshGitInfoDeps,
+  options: { broadcastUpdate?: boolean },
+): void {
+  for (const candidate of deps.sessions.values()) {
+    if (candidate === sourceSession) continue;
+    if (getNonWorktreeAheadBehindKey(candidate.state) !== sharedKey) continue;
+    const changed =
+      candidate.state.git_ahead !== counts.ahead ||
+      candidate.state.git_behind !== counts.behind ||
+      (refreshedAt !== undefined && candidate.state.git_status_refreshed_at !== refreshedAt);
+    if (!changed) continue;
+
+    candidate.state.git_ahead = counts.ahead;
+    candidate.state.git_behind = counts.behind;
+    if (refreshedAt !== undefined) {
+      candidate.state.git_status_refreshed_at = refreshedAt;
+      candidate.state.git_status_refresh_error = null;
+    }
+    if (options.broadcastUpdate) {
+      deps.broadcastSessionUpdate(candidate, {
+        git_ahead: candidate.state.git_ahead,
+        git_behind: candidate.state.git_behind,
+        git_status_refreshed_at: candidate.state.git_status_refreshed_at,
+        git_status_refresh_error: candidate.state.git_status_refresh_error ?? null,
+      });
+    }
+    deps.persistSession(candidate);
+  }
+}
+
 export async function computeDiffStatsAsync(session: SessionDiffStateLike): Promise<boolean> {
   const cwd = session.state.cwd;
   if (!cwd) return false;
@@ -342,6 +468,12 @@ export async function computeDiffStatsAsync(session: SessionDiffStateLike): Prom
       diffBase = (session.state.diff_base_branch || session.state.git_default_branch || "").trim();
     }
     if (!diffBase) return false;
+
+    if (shouldSkipNonWorktreeDefaultMainDiffStats(session, diffBase)) {
+      session.state.total_lines_added = 0;
+      session.state.total_lines_removed = 0;
+      return true;
+    }
 
     if (session.state.is_worktree && !worktreeBaseIsExplicitCommit && (session.state.git_ahead || 0) <= 0) {
       session.state.total_lines_added = 0;
@@ -488,7 +620,8 @@ export async function refreshGitInfo(
   }
   const previousHeadSha = session.state.git_head_sha || "";
 
-  await resolveGitInfo(session.state);
+  await resolveGitInfo(session.state, { computeAheadBehind: false });
+  const sharedAheadBehind = await resolveAheadBehindForRefresh(session, deps);
   if (!session.state.is_worktree) {
     session.worktreeStateFingerprint = "";
   }
@@ -514,6 +647,17 @@ export async function refreshGitInfo(
       });
     }
     deps.persistSession(session);
+  }
+
+  if (sharedAheadBehind.sharedKey && sharedAheadBehind.counts) {
+    broadcastSharedAheadBehindResult(
+      sharedAheadBehind.sharedKey,
+      sharedAheadBehind.counts,
+      session.state.git_status_refreshed_at,
+      session,
+      deps,
+      options,
+    );
   }
 
   if (options.notifyPoller && session.state.git_branch && session.state.cwd) {

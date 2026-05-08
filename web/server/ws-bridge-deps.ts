@@ -245,7 +245,6 @@ import {
   type UserDispatchTurnTarget,
   trackUserMessageForTurn as trackUserMessageForTurnLifecycle,
 } from "./bridge/generation-lifecycle.js";
-import { validateLeaderThreadOutcomes } from "./bridge/leader-thread-outcome-validator.js";
 import {
   computeDiffStatsAsync as computeDiffStatsAsyncController,
   makeDefaultState,
@@ -341,6 +340,7 @@ export function getSessionGitStateDeps(host: any) {
     gitSessionKeys: WS_BRIDGE_GIT_SESSION_KEYS,
     sessions: host.sessions,
     inFlightRefreshes: host.worktreeSnapshotRefreshes,
+    nonWorktreeAheadBehindRefreshes: host.nonWorktreeAheadBehindRefreshes,
     broadcastSessionUpdate,
     broadcastGitUpdate: (targetSession: unknown) => {
       const session = targetSession as Session;
@@ -1375,26 +1375,10 @@ export function getGenerationLifecycleDeps(host: any) {
       host.recomputeAndBroadcastHistoryBytes(session);
     },
     onOrchestratorTurnEnd: (sessionId: string, reason?: string) => {
+      if (!host.herdEventDispatcher) return;
       const info = host.launcher?.getSession(sessionId);
       if (info?.isOrchestrator) {
-        const session = host.sessions.get(sessionId);
-        if (session) {
-          validateLeaderThreadOutcomes(session, {
-            isLeaderSession: () => true,
-            getTurnSource: (targetSession: unknown) =>
-              getCurrentTurnTriggerSourceController(targetSession as Session, {
-                isSystemSourceTag: (agentSource) => host.isSystemSourceTag(agentSource),
-              }),
-            injectUserMessage: (
-              targetSessionId: string,
-              content: string,
-              agentSource: { sessionId: string; sessionLabel?: string },
-              threadRoute?: { threadKey: string; questId?: string; threadRefs?: ThreadRef[] },
-            ) => host.injectUserMessage(targetSessionId, content, agentSource, undefined, threadRoute),
-            persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
-          });
-        }
-        host.herdEventDispatcher?.onOrchestratorTurnEnd(sessionId, reason);
+        host.herdEventDispatcher.onOrchestratorTurnEnd(sessionId, reason);
       }
     },
     getCurrentTurnTriggerSource: (session: Session) =>

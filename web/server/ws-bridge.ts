@@ -447,6 +447,9 @@ export class WsBridge {
   // Coalesce worktree snapshot refreshes so heavy-repo sidebar polls cannot
   // stack slow git refresh/diff jobs for the same session.
   private worktreeSnapshotRefreshes = new Map<string, Promise<SessionState | null>>();
+  // Coalesce non-worktree ahead/behind reads across sessions that share the
+  // same repo, comparison base, and HEAD.
+  private nonWorktreeAheadBehindRefreshes = new Map<string, Promise<{ ahead: number; behind: number }>>();
   private static readonly CROSS_SESSION_THROTTLE_MS = 30_000;
 
   private static readonly GIT_SESSION_KEYS: GitSessionKey[] = [
