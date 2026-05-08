@@ -747,7 +747,7 @@ export function Sidebar() {
   // Includes archived reviewers so historical review trajectories stay inspectable
   // from their parent without becoming standalone sidebar clutter.
   const reviewerByParent = useMemo(() => buildReviewerByParent(allSessionList), [allSessionList]);
-  const logoSrc = "/logo.png";
+  const logoSrc = "/logo.svg";
   const [showCronSessions, setShowCronSessions] = useState(true);
   const treeGroupIds = useMemo(() => treeViewGroups.map((g) => g.id), [treeViewGroups]);
   const groupPointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
@@ -969,7 +969,7 @@ export function Sidebar() {
       {/* Header */}
       <div className="p-4 pb-3">
         <div className="flex items-center gap-2 mb-4">
-          <img src={logoSrc} alt="" className="w-7 h-7 rounded-full object-cover" />
+          <img src={logoSrc} alt="" className="w-7 h-7 rounded-lg object-contain" />
           {editingServerName ? (
             <input
               ref={serverNameInputRef}

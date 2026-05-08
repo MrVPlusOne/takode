@@ -1,15 +1,52 @@
-<svg width="48" height="48" viewBox="0 0 48 48" xmlns="http://www.w3.org/2000/svg">
-  <title>Takode</title>
-  <defs>
-    <clipPath id="takode-icon-circle">
-      <circle cx="24" cy="24" r="24" />
-    </clipPath>
-  </defs>
-  <image
-    href="/logo.png"
-    width="48"
-    height="48"
-    preserveAspectRatio="xMidYMid slice"
-    clip-path="url(#takode-icon-circle)"
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg" role="img" aria-labelledby="title desc">
+  <title id="title">Takode</title>
+  <desc id="desc">Takode app logo: a smiling cat behind a terminal prompt.</desc>
+  <rect width="512" height="512" rx="96" fill="#111719"/>
+  <path
+    d="M104 223C125 126 182 72 256 72C330 72 387 126 408 223"
+    stroke="#FFF2D2"
+    stroke-width="18"
+    stroke-linecap="round"
   />
+  <path
+    d="M99 243L67 211L99 179"
+    stroke="#E8792E"
+    stroke-width="22"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M413 179L445 211L413 243"
+    stroke="#E8792E"
+    stroke-width="22"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path
+    d="M151 297C144 258 146 210 157 169C160 158 174 155 183 163L230 205C247 199 265 199 282 205L329 163C338 155 352 158 355 169C366 210 368 258 361 297H151Z"
+    fill="#FFF2D2"
+  />
+  <path
+    d="M151 297C144 258 146 210 157 169C160 158 174 155 183 163L230 205C247 199 265 199 282 205L329 163C338 155 352 158 355 169C366 210 368 258 361 297"
+    stroke="#FFF2D2"
+    stroke-width="14"
+    stroke-linejoin="round"
+  />
+  <path d="M205 246C214 229 235 229 244 246" stroke="#111719" stroke-width="14" stroke-linecap="round"/>
+  <path d="M268 246C277 229 298 229 307 246" stroke="#111719" stroke-width="14" stroke-linecap="round"/>
+  <path d="M124 249L89 240" stroke="#FFF2D2" stroke-width="12" stroke-linecap="round"/>
+  <path d="M126 277L88 287" stroke="#FFF2D2" stroke-width="12" stroke-linecap="round"/>
+  <path d="M388 249L423 240" stroke="#FFF2D2" stroke-width="12" stroke-linecap="round"/>
+  <path d="M386 277L424 287" stroke="#FFF2D2" stroke-width="12" stroke-linecap="round"/>
+  <rect x="116" y="277" width="280" height="122" rx="36" fill="#111719" stroke="#FFF2D2" stroke-width="17"/>
+  <path
+    d="M150 320L187 357L150 394"
+    stroke="#FFF2D2"
+    stroke-width="18"
+    stroke-linecap="round"
+    stroke-linejoin="round"
+  />
+  <path d="M222 365H270" stroke="#83BFA9" stroke-width="18" stroke-linecap="round"/>
+  <path d="M116 314C92 300 82 279 87 253" stroke="#FFF2D2" stroke-width="16" stroke-linecap="round"/>
+  <path d="M396 314C420 300 430 279 425 253" stroke="#FFF2D2" stroke-width="16" stroke-linecap="round"/>
 </svg>
