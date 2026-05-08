@@ -1373,6 +1373,10 @@ export function getGenerationLifecycleDeps(host: any) {
         if (session) {
           validateLeaderThreadOutcomes(session, {
             isLeaderSession: () => true,
+            getTurnSource: (targetSession: unknown) =>
+              getCurrentTurnTriggerSourceController(targetSession as Session, {
+                isSystemSourceTag: (agentSource) => host.isSystemSourceTag(agentSource),
+              }),
             injectUserMessage: (
               targetSessionId: string,
               content: string,

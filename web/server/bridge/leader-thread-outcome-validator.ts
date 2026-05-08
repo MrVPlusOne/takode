@@ -10,12 +10,15 @@ type LeaderThreadOutcomeSession = {
   leaderThreadOutcomeValidatedHistoryLength?: number;
 };
 
+export type LeaderThreadOutcomeTurnSource = "user" | "leader" | "system" | "unknown";
+
 export type LeaderThreadOutcomeValidationResult =
-  | { checked: false; reason: "not_leader" | "no_new_history" }
+  | { checked: false; reason: "not_leader" | "system_turn" | "no_new_history" }
   | { checked: true; missing: string[]; injected: boolean };
 
 export interface LeaderThreadOutcomeValidationDeps {
   isLeaderSession: (sessionId: string) => boolean;
+  getTurnSource?: (session: LeaderThreadOutcomeSession) => LeaderThreadOutcomeTurnSource;
   injectUserMessage: (
     sessionId: string,
     content: string,
@@ -28,6 +31,7 @@ export interface LeaderThreadOutcomeValidationDeps {
 type TouchedThread = {
   route: ThreadRouteMetadata;
   key: string;
+  earliestTimestamp: number;
   latestTimestamp: number;
   latestIndex: number;
 };
@@ -41,6 +45,11 @@ export function validateLeaderThreadOutcomes(
   const history = session.messageHistory ?? [];
   const startIndex = clampHistoryIndex(session.leaderThreadOutcomeValidatedHistoryLength, history.length);
   if (startIndex >= history.length) return { checked: false, reason: "no_new_history" };
+  if (deps.getTurnSource?.(session) === "system") {
+    session.leaderThreadOutcomeValidatedHistoryLength = history.length;
+    deps.persistSession?.(session);
+    return { checked: false, reason: "system_turn" };
+  }
 
   const touchedThreads = collectTouchedLeaderThreads(history, startIndex);
   session.leaderThreadOutcomeValidatedHistoryLength = history.length;
@@ -57,6 +66,10 @@ export function validateLeaderThreadOutcomes(
     buildReminderContent(missing),
     { sessionId: LEADER_THREAD_OUTCOME_REMINDER_SOURCE, sessionLabel: "Thread Outcome Reminder" },
     firstMissing.route,
+  );
+  session.leaderThreadOutcomeValidatedHistoryLength = Math.max(
+    session.leaderThreadOutcomeValidatedHistoryLength ?? 0,
+    history.length,
   );
   deps.persistSession?.(session);
   return {
@@ -81,8 +94,18 @@ function collectTouchedLeaderThreads(history: BrowserIncomingMessage[], startInd
     const key = routeKey(route);
     const timestamp = getHistoryTimestamp(entry);
     const existing = byThread.get(key);
-    if (existing && isLaterOrEqual(existing, timestamp, index)) continue;
-    byThread.set(key, { route, key, latestTimestamp: timestamp, latestIndex: index });
+    if (!existing) {
+      byThread.set(key, {
+        route,
+        key,
+        earliestTimestamp: timestamp,
+        latestTimestamp: timestamp,
+        latestIndex: index,
+      });
+      continue;
+    }
+    if (isLaterOrEqual(existing, timestamp, index)) continue;
+    byThread.set(key, { ...existing, route, latestTimestamp: timestamp, latestIndex: index });
   }
   return [...byThread.values()].sort((left, right) => left.latestIndex - right.latestIndex);
 }
@@ -110,7 +133,7 @@ function getHistoryTimestamp(entry: BrowserIncomingMessage): number {
 function hasFreshOutcomeMarker(thread: TouchedThread, notifications: SessionNotification[]): boolean {
   return notifications.some((notification) => {
     if (!sameThread(thread, notification)) return false;
-    if (notification.timestamp < thread.latestTimestamp) return false;
+    if (notification.timestamp < thread.earliestTimestamp) return false;
     if (notification.category === "needs-input") return !notification.done;
     if (notification.category === "waiting") return !notification.done;
     return notification.category === "review";

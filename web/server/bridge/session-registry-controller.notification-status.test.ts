@@ -276,6 +276,40 @@ describe("session notification status metadata", () => {
     expect(validationDeps.persistSession).not.toHaveBeenCalled();
   });
 
+  it("bootstraps missing leader outcome cursors to restored history length", async () => {
+    const persisted = buildPersistedSessionPayload(
+      makeSession({
+        messageHistory: [visibleLeaderMessage("a-old-1", 1000), visibleLeaderMessage("a-old-2", 2000)],
+      }),
+    ) as unknown as Record<string, unknown>;
+    delete persisted.leaderThreadOutcomeValidatedHistoryLength;
+
+    const sessions = new Map<string, any>();
+    await restorePersistedSessions(sessions, [persisted], {
+      recoverToolStartTimesFromHistory: vi.fn(),
+      finalizeRecoveredDisconnectedTerminalTools: vi.fn(),
+      scheduleCodexToolResultWatchdogs: vi.fn(),
+      reconcileRestoredBoardState: vi.fn(async () => {}),
+    });
+
+    const restored = sessions.get("s1");
+    expect(restored).toMatchObject({
+      leaderThreadOutcomeValidatedHistoryLength: 2,
+    });
+
+    const validationDeps = {
+      isLeaderSession: vi.fn(() => true),
+      injectUserMessage: vi.fn(() => "sent" as const),
+      persistSession: vi.fn(),
+    };
+
+    expect(validateLeaderThreadOutcomes(restored, validationDeps)).toEqual({
+      checked: false,
+      reason: "no_new_history",
+    });
+    expect(validationDeps.injectUserMessage).not.toHaveBeenCalled();
+  });
+
   it("broadcasts, persists, and restores server-authoritative attention records", async () => {
     const session = makeSession();
     const deps = makeDeps();

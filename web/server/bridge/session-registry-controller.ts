@@ -184,7 +184,7 @@ function createSessionRuntime(
     boardStallStates: new Map(),
     boardDispatchStates: new Map(),
     notifications,
-    leaderThreadOutcomeValidatedHistoryLength: options.leaderThreadOutcomeValidatedHistoryLength,
+    leaderThreadOutcomeValidatedHistoryLength: options.leaderThreadOutcomeValidatedHistoryLength ?? 0,
     attentionRecords: options.attentionRecords ?? [],
     notificationCounter: options.notificationCounter ?? 0,
     notificationStatusVersion,
@@ -553,7 +553,10 @@ export async function restorePersistedSessions(
         Array.isArray(p.completedBoard) ? p.completedBoard.map((row: any) => [row.questId, row]) : [],
       ),
       notifications: Array.isArray(p.notifications) ? p.notifications : [],
-      leaderThreadOutcomeValidatedHistoryLength: normalizeStatusNumber(p.leaderThreadOutcomeValidatedHistoryLength, 0),
+      leaderThreadOutcomeValidatedHistoryLength: Math.min(
+        normalizeStatusNumber(p.leaderThreadOutcomeValidatedHistoryLength, (p.messageHistory || []).length),
+        (p.messageHistory || []).length,
+      ),
       attentionRecords: Array.isArray(p.attentionRecords) ? p.attentionRecords : [],
       notificationStatusVersion: normalizeStatusNumber(p.notificationStatusVersion, 0),
       notificationStatusUpdatedAt:
