@@ -6,6 +6,7 @@ import {
   restorePersistedSessions,
 } from "./session-registry-controller.js";
 import { replaceAttentionRecords } from "./attention-record-controller.js";
+import { validateLeaderThreadOutcomes } from "./leader-thread-outcome-validator.js";
 import type { SessionAttentionRecord } from "../session-types.js";
 
 function makeSession(overrides: Record<string, unknown> = {}) {
@@ -53,6 +54,29 @@ function attentionRecord(overrides: Partial<SessionAttentionRecord> = {}): Sessi
     ledgerEligible: true,
     dedupeKey: "attention-1",
     ...overrides,
+  };
+}
+
+function visibleLeaderMessage(id: string, timestamp: number) {
+  return {
+    type: "assistant",
+    message: {
+      id,
+      type: "message",
+      role: "assistant",
+      model: "test",
+      content: [{ type: "text", text: "Visible leader output before restart" }],
+      stop_reason: null,
+      usage: {
+        input_tokens: 0,
+        output_tokens: 0,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
+      },
+    },
+    parent_tool_use_id: null,
+    timestamp,
+    threadKey: "main",
   };
 }
 
@@ -212,6 +236,44 @@ describe("session notification status metadata", () => {
       notificationStatusVersion: 9,
       notificationStatusUpdatedAt: 9000,
     });
+  });
+
+  it("persists and restores the leader thread outcome cursor without revalidating old history", async () => {
+    const persisted = buildPersistedSessionPayload(
+      makeSession({
+        messageHistory: [visibleLeaderMessage("a-before-restart", 1000)],
+        leaderThreadOutcomeValidatedHistoryLength: 1,
+      }),
+    );
+    expect(persisted).toMatchObject({
+      leaderThreadOutcomeValidatedHistoryLength: 1,
+    });
+
+    const sessions = new Map<string, any>();
+    await restorePersistedSessions(sessions, [persisted], {
+      recoverToolStartTimesFromHistory: vi.fn(),
+      finalizeRecoveredDisconnectedTerminalTools: vi.fn(),
+      scheduleCodexToolResultWatchdogs: vi.fn(),
+      reconcileRestoredBoardState: vi.fn(async () => {}),
+    });
+
+    const restored = sessions.get("s1");
+    expect(restored).toMatchObject({
+      leaderThreadOutcomeValidatedHistoryLength: 1,
+    });
+
+    const validationDeps = {
+      isLeaderSession: vi.fn(() => true),
+      injectUserMessage: vi.fn(() => "sent" as const),
+      persistSession: vi.fn(),
+    };
+
+    expect(validateLeaderThreadOutcomes(restored, validationDeps)).toEqual({
+      checked: false,
+      reason: "no_new_history",
+    });
+    expect(validationDeps.injectUserMessage).not.toHaveBeenCalled();
+    expect(validationDeps.persistSession).not.toHaveBeenCalled();
   });
 
   it("broadcasts, persists, and restores server-authoritative attention records", async () => {

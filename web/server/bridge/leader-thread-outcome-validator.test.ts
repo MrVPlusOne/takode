@@ -129,6 +129,25 @@ describe("validateLeaderThreadOutcomes", () => {
     expect(session.leaderThreadOutcomeValidatedHistoryLength).toBe(2);
   });
 
+  it("does not repeat reminders when unchanged history was already validated", () => {
+    const session = {
+      id: "leader",
+      messageHistory: [assistantMessage({ id: "a1", text: "Update without outcome", timestamp: 20 })],
+      notifications: [],
+      leaderThreadOutcomeValidatedHistoryLength: undefined as number | undefined,
+    };
+    const deps = makeDeps();
+
+    const firstResult = validateLeaderThreadOutcomes(session, deps);
+    const secondResult = validateLeaderThreadOutcomes(session, deps);
+
+    expect(firstResult).toEqual({ checked: true, missing: ["main"], injected: true });
+    expect(secondResult).toEqual({ checked: false, reason: "no_new_history" });
+    expect(deps.injectUserMessage).toHaveBeenCalledTimes(1);
+    expect(deps.persistSession).toHaveBeenCalledTimes(1);
+    expect(session.leaderThreadOutcomeValidatedHistoryLength).toBe(1);
+  });
+
   it("checks freshness independently per touched thread", () => {
     const session = {
       id: "leader",

@@ -234,6 +234,7 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(moreButton).toHaveAttribute("data-hidden-count", "2");
     expect(moreButton).toHaveAttribute("data-has-active-output", "true");
     expect(moreButton).toHaveAttribute("data-has-needs-input", "true");
+    expect(visibleTabs.every((tab) => tab.getAttribute("data-reorderable") === "true")).toBe(true);
     expect(screen.getByTestId("thread-main-tab")).not.toHaveAttribute("data-reorderable", "true");
     expect(moreButton).not.toHaveAttribute("aria-roledescription", "sortable");
 
