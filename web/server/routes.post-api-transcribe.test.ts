@@ -519,6 +519,7 @@ beforeEach(() => {
   _resetServerLoggerForTest();
   // Reset the LiteLLM model cache so each test starts clean.
   _resetModelCache();
+  transcriptionEnhancer._resetTranscriptionLogForTest();
   // Stub global fetch to prevent LiteLLM proxy calls in tests.
   // Model endpoint tests exercise the fallback path (models_cache.json).
   vi.stubGlobal(
@@ -977,6 +978,91 @@ describe("POST /api/transcribe", () => {
         }),
       }),
     ]);
+
+    const timingReport = {
+      requestId: "voice-request-enhance-1",
+      sessionId: "session-1",
+      mode: "dictation",
+      status: "success",
+      startedAt: 1_000,
+      completedAt: 8_400,
+      totalElapsedMs: 7_400,
+      phaseDurationsMs: {
+        preparing: 25,
+        transcribing: 375,
+        enhancing: 7_000,
+      },
+      events: [
+        {
+          phase: "preparing",
+          source: "client",
+          eventTimestamp: 1_000,
+          clientTimestamp: 1_000,
+          elapsedMs: 0,
+        },
+        {
+          phase: "transcribing",
+          source: "websocket",
+          eventTimestamp: 1_025,
+          clientTimestamp: 1_030,
+          elapsedMs: 25,
+          uploadDurationMs: 12,
+        },
+        {
+          phase: "enhancing",
+          source: "websocket",
+          eventTimestamp: 1_400,
+          clientTimestamp: 1_405,
+          elapsedMs: 400,
+          sttDurationMs: 350,
+        },
+        {
+          phase: "complete",
+          source: "sse",
+          eventTimestamp: 8_400,
+          clientTimestamp: 8_400,
+          elapsedMs: 7_400,
+          enhancementDurationMs: 2_100,
+        },
+      ],
+    };
+
+    const timingRes = await app.request("/api/transcribe/frontend-timing", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(timingReport),
+    });
+
+    expect(timingRes.status).toBe(200);
+    expect(await timingRes.json()).toEqual({ ok: true, attached: true, logId: 1 });
+    expect(transcriptionEnhancer.getTranscriptionLogIndex()[0]).toEqual(
+      expect.objectContaining({
+        requestId: "voice-request-enhance-1",
+        frontendTiming: expect.objectContaining({
+          requestId: "voice-request-enhance-1",
+          sessionId: "session-1",
+          totalElapsedMs: 7400,
+          phaseDurationsMs: expect.objectContaining({
+            enhancing: 7000,
+          }),
+          events: expect.arrayContaining([
+            expect.objectContaining({
+              phase: "enhancing",
+              source: "websocket",
+              elapsedMs: 400,
+              sttDurationMs: 350,
+            }),
+            expect.objectContaining({
+              phase: "complete",
+              source: "sse",
+              elapsedMs: 7400,
+              enhancementDurationMs: 2100,
+            }),
+          ]),
+          receivedAt: expect.any(Number),
+        }),
+      }),
+    );
   });
 
   it("passes custom vocabulary through to the post-STT dictation enhancer", async () => {

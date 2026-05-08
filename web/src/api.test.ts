@@ -702,6 +702,58 @@ describe("transcribe", () => {
     expect(opts?.body).toBeInstanceOf(Blob);
   });
 
+  it("reports frontend voice timing for backend log correlation", async () => {
+    const report = {
+      requestId: "voice-request-1",
+      sessionId: "session-1",
+      mode: "dictation" as const,
+      status: "success" as const,
+      startedAt: 1_000,
+      completedAt: 8_400,
+      totalElapsedMs: 7_400,
+      phaseDurationsMs: {
+        preparing: 20,
+        transcribing: 380,
+        enhancing: 7_000,
+      },
+      events: [
+        {
+          phase: "preparing" as const,
+          source: "client" as const,
+          eventTimestamp: 1_000,
+          clientTimestamp: 1_000,
+          elapsedMs: 0,
+        },
+        {
+          phase: "enhancing" as const,
+          source: "websocket" as const,
+          eventTimestamp: 1_400,
+          clientTimestamp: 1_410,
+          elapsedMs: 400,
+          sttDurationMs: 300,
+        },
+        {
+          phase: "complete" as const,
+          source: "sse" as const,
+          eventTimestamp: 8_400,
+          clientTimestamp: 8_400,
+          elapsedMs: 7_400,
+          enhancementDurationMs: 2_100,
+        },
+      ],
+    };
+    mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, attached: true, logId: 3 }));
+
+    const result = await api.reportTranscriptionFrontendTiming(report);
+
+    expect(result).toEqual({ ok: true, attached: true, logId: 3 });
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/transcribe/frontend-timing");
+    expect(opts.method).toBe("POST");
+    expect(opts.headers["Content-Type"]).toBe("application/json");
+    expect(JSON.parse(opts.body)).toEqual(report);
+  });
+
   it("keeps multipart transport for voice edit requests and parses the SSE result", async () => {
     // Edit/append still need the existing composer text, so keep the multipart
     // path working while the empty-draft dictation path is optimized separately.

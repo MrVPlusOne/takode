@@ -39,7 +39,12 @@ import { collectPlainTakodeReferences, parseCodexModeSlashCommand } from "./comp
 import { useComposerAutocomplete } from "./use-composer-autocomplete.js";
 import type { FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
-import { api, type VoiceTranscriptionPhase, type VoiceTranscriptionProgressEvent } from "../api.js";
+import {
+  api,
+  type VoiceTranscriptionFrontendTimingEvent,
+  type VoiceTranscriptionPhase,
+  type VoiceTranscriptionProgressEvent,
+} from "../api.js";
 import { recordFrontendPerfEntry } from "../utils/frontend-perf-recorder.js";
 import {
   buildVsCodeSelectionPrompt,
@@ -83,6 +88,38 @@ function createVoiceTranscriptionRequestId(): string {
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2);
   return `voice-${Date.now()}-${random}`;
+}
+
+function calculateVoiceTranscriptionPhaseDurations(
+  events: VoiceTranscriptionFrontendTimingEvent[],
+  totalElapsedMs: number,
+): Partial<Record<VoiceTranscriptionPhase, number>> {
+  const durations: Partial<Record<VoiceTranscriptionPhase, number>> = {};
+  let currentPhase: VoiceTranscriptionPhase | null = null;
+  let currentStartMs = 0;
+
+  for (const event of events) {
+    const eventElapsedMs = Math.max(0, event.elapsedMs);
+    if (event.phase === "complete" || event.phase === "error") {
+      if (currentPhase) {
+        durations[currentPhase] = (durations[currentPhase] ?? 0) + Math.max(0, eventElapsedMs - currentStartMs);
+        currentPhase = null;
+      }
+      continue;
+    }
+
+    if (event.phase === currentPhase) continue;
+    if (currentPhase) {
+      durations[currentPhase] = (durations[currentPhase] ?? 0) + Math.max(0, eventElapsedMs - currentStartMs);
+    }
+    currentPhase = event.phase;
+    currentStartMs = eventElapsedMs;
+  }
+
+  if (currentPhase) {
+    durations[currentPhase] = (durations[currentPhase] ?? 0) + Math.max(0, totalElapsedMs - currentStartMs);
+  }
+  return durations;
 }
 
 export function Composer({
@@ -324,7 +361,26 @@ export function Composer({
   ) {
     const requestId = createVoiceTranscriptionRequestId();
     const startedAt = nowMs();
+    const startedAtTimestamp = Date.now();
+    const frontendTimingEvents: VoiceTranscriptionFrontendTimingEvent[] = [];
+    let status: "success" | "error" = "success";
     const recordProgress = (progress: VoiceTranscriptionProgressEvent) => {
+      const clientTimestamp = Date.now();
+      const elapsedMs = Math.max(0, nowMs() - startedAt);
+      frontendTimingEvents.push({
+        phase: progress.phase,
+        source: progress.source,
+        eventTimestamp: progress.timestamp,
+        clientTimestamp,
+        elapsedMs,
+        ...(progress.timing?.uploadDurationMs !== undefined
+          ? { uploadDurationMs: progress.timing.uploadDurationMs }
+          : {}),
+        ...(progress.timing?.sttDurationMs !== undefined ? { sttDurationMs: progress.timing.sttDurationMs } : {}),
+        ...(progress.timing?.enhancementDurationMs !== undefined
+          ? { enhancementDurationMs: progress.timing.enhancementDurationMs }
+          : {}),
+      });
       recordFrontendPerfEntry({
         kind: "voice_transcription_progress",
         timestamp: progress.timestamp,
@@ -332,7 +388,7 @@ export function Composer({
         requestId: progress.requestId,
         phase: progress.phase,
         source: progress.source,
-        elapsedMs: Math.max(0, nowMs() - startedAt),
+        elapsedMs,
         ...(progress.mode ? { mode: progress.mode } : {}),
         ...(progress.timing?.audioSizeBytes !== undefined ? { audioSizeBytes: progress.timing.audioSizeBytes } : {}),
         ...(progress.timing?.audioMimeType !== undefined ? { audioMimeType: progress.timing.audioMimeType } : {}),
@@ -391,12 +447,28 @@ export function Composer({
         setVoiceEditProposal(null);
       }
     } catch (err) {
+      status = "error";
       const message = err instanceof Error ? err.message : "Transcription failed";
       setVoiceError(message);
       setFailedTranscription({ blob, mode, composerText, cursorContext, transcriptionThreadKey: contextThreadKey });
     } finally {
+      const completedAt = Date.now();
+      const totalElapsedMs = Math.max(0, nowMs() - startedAt);
       setIsTranscribing(false);
       setTranscriptionPhase(null);
+      void api
+        .reportTranscriptionFrontendTiming({
+          requestId,
+          sessionId,
+          mode,
+          status,
+          startedAt: startedAtTimestamp,
+          completedAt,
+          totalElapsedMs,
+          phaseDurationsMs: calculateVoiceTranscriptionPhaseDurations(frontendTimingEvents, totalElapsedMs),
+          events: frontendTimingEvents,
+        })
+        .catch(() => undefined);
     }
   }
 

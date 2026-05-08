@@ -21,6 +21,31 @@ export interface VoiceTranscriptionProgressEvent {
   error?: string;
 }
 
+export interface VoiceTranscriptionFrontendTimingEvent {
+  phase: VoiceTranscriptionProgressPhase;
+  source: "client" | "sse" | "websocket";
+  /** Timestamp supplied by the progress source. WebSocket values are server-side; client/SSE values are client-side. */
+  eventTimestamp: number;
+  /** Browser receipt timestamp for correlating visible UI latency with backend records. */
+  clientTimestamp: number;
+  elapsedMs: number;
+  uploadDurationMs?: number;
+  sttDurationMs?: number;
+  enhancementDurationMs?: number;
+}
+
+export interface VoiceTranscriptionFrontendTimingReport {
+  requestId: string;
+  sessionId: string;
+  mode: VoiceTranscriptionMode;
+  status: "success" | "error";
+  startedAt: number;
+  completedAt: number;
+  totalElapsedMs: number;
+  phaseDurationsMs: Partial<Record<VoiceTranscriptionPhase, number>>;
+  events: VoiceTranscriptionFrontendTimingEvent[];
+}
+
 type TranscriptionProgressHandler = (event: VoiceTranscriptionProgressEvent) => void;
 
 const transcriptionProgressHandlers = new Map<string, Set<TranscriptionProgressHandler>>();

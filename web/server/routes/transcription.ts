@@ -12,8 +12,11 @@ import {
   enhanceTranscript,
   buildSttPrompt,
   addTranscriptionLogEntry,
+  attachTranscriptionFrontendTiming,
   applyVoiceEdit,
   applyVoiceAppend,
+  type TranscriptionFrontendTimingEvent,
+  type TranscriptionFrontendTimingReport,
 } from "../transcription-enhancer.js";
 import * as sessionNames from "../session-names.js";
 import { getSettings } from "../settings-manager.js";
@@ -25,6 +28,14 @@ import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 const TRANSCRIPTION_THREAD_CONTEXT_TURNS = 12;
 type TranscriptionMode = "dictation" | "edit" | "append";
 type TranscriptionProgressPhase = "transcribing" | "enhancing" | "editing" | "appending" | "complete" | "error";
+type TranscriptionFrontendTimingPhase =
+  | "preparing"
+  | "transcribing"
+  | "enhancing"
+  | "editing"
+  | "appending"
+  | "complete"
+  | "error";
 
 interface TranscriptionServerTiming {
   uploadDurationMs?: number;
@@ -33,6 +44,131 @@ interface TranscriptionServerTiming {
   audioSizeBytes?: number;
   audioMimeType?: string | null;
   audioFileName?: string | null;
+}
+
+const FRONTEND_TIMING_MAX_EVENTS = 100;
+const FRONTEND_TIMING_PHASES = new Set<TranscriptionFrontendTimingPhase>([
+  "preparing",
+  "transcribing",
+  "enhancing",
+  "editing",
+  "appending",
+  "complete",
+  "error",
+]);
+const FRONTEND_TIMING_VISIBLE_PHASES = new Set<Exclude<TranscriptionFrontendTimingPhase, "complete" | "error">>([
+  "preparing",
+  "transcribing",
+  "enhancing",
+  "editing",
+  "appending",
+]);
+const FRONTEND_TIMING_SOURCES = new Set(["client", "sse", "websocket"]);
+const FRONTEND_TIMING_STATUSES = new Set(["success", "error"]);
+
+function normalizeFiniteMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
+  return Math.round(value);
+}
+
+function normalizeTimestampMs(value: unknown): number | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
+  return Math.round(value);
+}
+
+function normalizeFrontendTimingEvent(value: unknown): TranscriptionFrontendTimingEvent | null {
+  if (!value || typeof value !== "object") return null;
+  const event = value as Record<string, unknown>;
+  const phase = event.phase;
+  const source = event.source;
+  const eventTimestamp = normalizeTimestampMs(event.eventTimestamp);
+  const clientTimestamp = normalizeTimestampMs(event.clientTimestamp);
+  const elapsedMs = normalizeFiniteMs(event.elapsedMs);
+  if (
+    typeof phase !== "string" ||
+    !FRONTEND_TIMING_PHASES.has(phase as TranscriptionFrontendTimingPhase) ||
+    typeof source !== "string" ||
+    !FRONTEND_TIMING_SOURCES.has(source) ||
+    eventTimestamp === undefined ||
+    clientTimestamp === undefined ||
+    elapsedMs === undefined
+  ) {
+    return null;
+  }
+
+  const normalized: TranscriptionFrontendTimingEvent = {
+    phase: phase as TranscriptionFrontendTimingPhase,
+    source: source as "client" | "sse" | "websocket",
+    eventTimestamp,
+    clientTimestamp,
+    elapsedMs,
+  };
+  const uploadDurationMs = normalizeFiniteMs(event.uploadDurationMs);
+  if (uploadDurationMs !== undefined) normalized.uploadDurationMs = uploadDurationMs;
+  const sttDurationMs = normalizeFiniteMs(event.sttDurationMs);
+  if (sttDurationMs !== undefined) normalized.sttDurationMs = sttDurationMs;
+  const enhancementDurationMs = normalizeFiniteMs(event.enhancementDurationMs);
+  if (enhancementDurationMs !== undefined) normalized.enhancementDurationMs = enhancementDurationMs;
+  return normalized;
+}
+
+function normalizeFrontendPhaseDurations(value: unknown): TranscriptionFrontendTimingReport["phaseDurationsMs"] | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const durations: TranscriptionFrontendTimingReport["phaseDurationsMs"] = {};
+  for (const [phase, duration] of Object.entries(value)) {
+    if (!FRONTEND_TIMING_VISIBLE_PHASES.has(phase as Exclude<TranscriptionFrontendTimingPhase, "complete" | "error">)) {
+      continue;
+    }
+    const normalizedDuration = normalizeFiniteMs(duration);
+    if (normalizedDuration !== undefined) {
+      durations[phase as keyof TranscriptionFrontendTimingReport["phaseDurationsMs"]] = normalizedDuration;
+    }
+  }
+  return durations;
+}
+
+function normalizeFrontendTimingReport(value: unknown): TranscriptionFrontendTimingReport | null {
+  if (!value || typeof value !== "object") return null;
+  const body = value as Record<string, unknown>;
+  const requestId = typeof body.requestId === "string" ? body.requestId.trim() : "";
+  const sessionId = typeof body.sessionId === "string" && body.sessionId.trim() ? body.sessionId.trim() : null;
+  const mode = body.mode;
+  const status = body.status;
+  const startedAt = normalizeTimestampMs(body.startedAt);
+  const completedAt = normalizeTimestampMs(body.completedAt);
+  const totalElapsedMs = normalizeFiniteMs(body.totalElapsedMs);
+  const phaseDurationsMs = normalizeFrontendPhaseDurations(body.phaseDurationsMs);
+  const rawEvents = Array.isArray(body.events) ? body.events.slice(0, FRONTEND_TIMING_MAX_EVENTS) : null;
+
+  if (
+    !requestId ||
+    requestId.length > 200 ||
+    (mode !== undefined && mode !== "dictation" && mode !== "edit" && mode !== "append") ||
+    typeof status !== "string" ||
+    !FRONTEND_TIMING_STATUSES.has(status) ||
+    startedAt === undefined ||
+    completedAt === undefined ||
+    totalElapsedMs === undefined ||
+    !phaseDurationsMs ||
+    !rawEvents
+  ) {
+    return null;
+  }
+
+  const events = rawEvents.map(normalizeFrontendTimingEvent);
+  if (events.some((event) => event === null)) return null;
+
+  return {
+    requestId,
+    sessionId,
+    ...(mode === "dictation" || mode === "edit" || mode === "append" ? { mode } : {}),
+    status: status as "success" | "error",
+    startedAt,
+    completedAt,
+    totalElapsedMs,
+    phaseDurationsMs,
+    events: events as TranscriptionFrontendTimingEvent[],
+  };
 }
 
 export function createTranscriptionRoutes(ctx: RouteContext) {
@@ -197,6 +333,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
   api.get("/transcribe/status", (c) => {
     return c.json(getTranscriptionStatus());
+  });
+
+  api.post("/transcribe/frontend-timing", async (c) => {
+    const report = normalizeFrontendTimingReport(await c.req.json().catch(() => null));
+    if (!report) return c.json({ error: "Invalid frontend transcription timing report" }, 400);
+    const result = attachTranscriptionFrontendTiming(report);
+    return c.json({ ok: true, ...result });
   });
 
   api.post("/transcribe", async (c) => {
@@ -420,6 +563,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
           addTranscriptionLogEntry({
             sessionId: sessionId ?? null,
+            requestId: transcriptionRequestId ?? null,
             mode,
             uploadDurationMs,
             sttModel,
@@ -491,6 +635,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
           addTranscriptionLogEntry({
             sessionId: sessionId ?? null,
+            requestId: transcriptionRequestId ?? null,
             mode,
             uploadDurationMs,
             sttModel,
@@ -560,6 +705,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           // Log for debug panel
           addTranscriptionLogEntry({
             sessionId: sessionId!,
+            requestId: transcriptionRequestId ?? null,
             mode,
             uploadDurationMs,
             sttModel,
@@ -606,6 +752,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         // Log STT-only call (no enhancement attempted)
         addTranscriptionLogEntry({
           sessionId: sessionId ?? null,
+          requestId: transcriptionRequestId ?? null,
           mode,
           uploadDurationMs,
           sttModel,

@@ -36,6 +36,7 @@ const mockSendToSession = vi.fn().mockReturnValue(true);
 const mockTranscribe = vi
   .fn()
   .mockResolvedValue({ mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false });
+const mockReportTranscriptionFrontendTiming = vi.fn().mockResolvedValue({ ok: true, attached: true });
 const mockGetBackendModels = vi.fn().mockResolvedValue([]);
 const mockGetSettings = vi.fn().mockResolvedValue({ claudeDefaultModel: "" });
 const mockUpdateSettings = vi.fn().mockResolvedValue({});
@@ -60,6 +61,7 @@ vi.mock("../api.js", () => ({
     prepareUserMessageImages: (...args: unknown[]) => mockPrepareUserMessageImages(...args),
     deletePreparedUserMessageImage: (...args: unknown[]) => mockDeletePreparedUserMessageImage(...args),
     transcribe: (...args: unknown[]) => mockTranscribe(...args),
+    reportTranscriptionFrontendTiming: (...args: unknown[]) => mockReportTranscriptionFrontendTiming(...args),
   },
 }));
 
@@ -484,6 +486,7 @@ beforeEach(() => {
   mockVoiceState.toggleRecording.mockReset();
   mockVoiceState.cancelRecording.mockReset();
   mockTranscribe.mockResolvedValue({ mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false });
+  mockReportTranscriptionFrontendTiming.mockResolvedValue({ ok: true, attached: true });
   mockGetBackendModels.mockResolvedValue([]);
   mockGetSettings.mockResolvedValue({ claudeDefaultModel: "" });
   mockUpdateSettings.mockResolvedValue({});
@@ -577,6 +580,29 @@ describe("Composer voice edit mode", () => {
           uploadDurationMs: 17,
         },
       });
+      transcriptionOptions.onProgress?.({
+        requestId: progressRequestId,
+        phase: "enhancing",
+        mode: "dictation",
+        source: "websocket",
+        timestamp: 456,
+        timing: {
+          uploadDurationMs: 17,
+          sttDurationMs: 200,
+        },
+      });
+      transcriptionOptions.onProgress?.({
+        requestId: progressRequestId,
+        phase: "complete",
+        mode: "dictation",
+        source: "sse",
+        timestamp: 789,
+        timing: {
+          uploadDurationMs: 17,
+          sttDurationMs: 200,
+          enhancementDurationMs: 2100,
+        },
+      });
 
       return { mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false };
     });
@@ -609,7 +635,63 @@ describe("Composer voice edit mode", () => {
         audioFileName: "recording.webm",
         uploadDurationMs: 17,
       }),
+      expect.objectContaining({
+        kind: "voice_transcription_progress",
+        sessionId: "s1",
+        requestId: progressRequestId,
+        phase: "enhancing",
+        source: "websocket",
+        mode: "dictation",
+        sttDurationMs: 200,
+      }),
+      expect.objectContaining({
+        kind: "voice_transcription_progress",
+        sessionId: "s1",
+        requestId: progressRequestId,
+        phase: "complete",
+        source: "sse",
+        mode: "dictation",
+        enhancementDurationMs: 2100,
+      }),
     ]);
+    await waitFor(() => {
+      expect(mockReportTranscriptionFrontendTiming).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requestId: progressRequestId,
+          sessionId: "s1",
+          mode: "dictation",
+          status: "success",
+          totalElapsedMs: expect.any(Number),
+          phaseDurationsMs: expect.objectContaining({
+            transcribing: expect.any(Number),
+            enhancing: expect.any(Number),
+          }),
+          events: [
+            expect.objectContaining({
+              phase: "transcribing",
+              source: "websocket",
+              eventTimestamp: 123,
+              clientTimestamp: expect.any(Number),
+              uploadDurationMs: 17,
+            }),
+            expect.objectContaining({
+              phase: "enhancing",
+              source: "websocket",
+              eventTimestamp: 456,
+              clientTimestamp: expect.any(Number),
+              sttDurationMs: 200,
+            }),
+            expect.objectContaining({
+              phase: "complete",
+              source: "sse",
+              eventTimestamp: 789,
+              clientTimestamp: expect.any(Number),
+              enhancementDurationMs: 2100,
+            }),
+          ],
+        }),
+      );
+    });
   });
 
   it("waits for the initial settings fetch before the first non-empty recording so the persisted mode wins", async () => {

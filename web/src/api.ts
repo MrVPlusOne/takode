@@ -18,6 +18,7 @@ import { subscribeTranscriptionProgress } from "./transcription-progress.js";
 import type {
   VoiceTranscriptionMode,
   VoiceTranscriptionPhase,
+  VoiceTranscriptionFrontendTimingReport,
   VoiceTranscriptionProgressEvent,
   VoiceTranscriptionTiming,
 } from "./transcription-progress.js";
@@ -25,6 +26,8 @@ import type {
 export type {
   VoiceTranscriptionMode,
   VoiceTranscriptionPhase,
+  VoiceTranscriptionFrontendTimingEvent,
+  VoiceTranscriptionFrontendTimingReport,
   VoiceTranscriptionProgressEvent,
   VoiceTranscriptionProgressPhase,
   VoiceTranscriptionTiming,
@@ -1566,6 +1569,8 @@ export const api = {
 
   getTranscriptionStatus: () =>
     get<{ available: boolean; enhancementEnabled: boolean; backend: string | null }>("/transcribe/status"),
+  reportTranscriptionFrontendTiming: (report: VoiceTranscriptionFrontendTimingReport) =>
+    post<{ ok: boolean; attached: boolean; logId?: number }>("/transcribe/frontend-timing", report),
 
   // Usage limits
   getUsageLimits: () => get<UsageLimits>("/usage-limits"),

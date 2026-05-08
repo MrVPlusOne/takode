@@ -1071,10 +1071,47 @@ export async function applyVoiceAppend(
 
 // ─── Debug log (in-memory, for Settings debug panel) ─────────────────────────
 
+export type TranscriptionFrontendTimingPhase =
+  | "preparing"
+  | "transcribing"
+  | "enhancing"
+  | "editing"
+  | "appending"
+  | "complete"
+  | "error";
+
+export interface TranscriptionFrontendTimingEvent {
+  phase: TranscriptionFrontendTimingPhase;
+  source: "client" | "sse" | "websocket";
+  eventTimestamp: number;
+  clientTimestamp: number;
+  elapsedMs: number;
+  uploadDurationMs?: number;
+  sttDurationMs?: number;
+  enhancementDurationMs?: number;
+}
+
+export interface TranscriptionFrontendTimingReport {
+  requestId: string;
+  sessionId: string | null;
+  mode?: "dictation" | "edit" | "append";
+  status: "success" | "error";
+  startedAt: number;
+  completedAt: number;
+  totalElapsedMs: number;
+  phaseDurationsMs: Partial<Record<Exclude<TranscriptionFrontendTimingPhase, "complete" | "error">, number>>;
+  events: TranscriptionFrontendTimingEvent[];
+}
+
+export interface TranscriptionFrontendTiming extends TranscriptionFrontendTimingReport {
+  receivedAt: number;
+}
+
 export interface TranscriptionLogEntry {
   id: number;
   timestamp: number;
   sessionId: string | null;
+  requestId: string | null;
   mode?: "dictation" | "edit" | "append";
   /** Browser upload + server multipart parse time before the SSE response opens. */
   uploadDurationMs: number;
@@ -1098,6 +1135,8 @@ export interface TranscriptionLogEntry {
     durationMs: number;
     skipReason?: string;
   } | null;
+  /** Browser-visible phase timings reported after transcription completion. */
+  frontendTiming: TranscriptionFrontendTiming | null;
 }
 
 interface StoredTranscriptionLogEntry extends Omit<TranscriptionLogEntry, "audioUrl"> {
@@ -1105,8 +1144,10 @@ interface StoredTranscriptionLogEntry extends Omit<TranscriptionLogEntry, "audio
 }
 
 const MAX_LOG_ENTRIES = 50;
+const MAX_PENDING_FRONTEND_TIMINGS = 50;
 let logIdCounter = 0;
 const transcriptionLog: StoredTranscriptionLogEntry[] = [];
+const pendingFrontendTimingByRequestId = new Map<string, TranscriptionFrontendTiming>();
 
 function buildTranscriptionAudioUrl(id: number): string {
   return `/api/transcription-logs/${id}/audio`;
@@ -1119,9 +1160,21 @@ function toPublicTranscriptionLogEntry(entry: StoredTranscriptionLogEntry): Tran
 
 /** Add a transcription log entry. Called from routes.ts after each transcription. */
 export function addTranscriptionLogEntry(
-  entry: Omit<StoredTranscriptionLogEntry, "id" | "timestamp">,
+  entry: Omit<StoredTranscriptionLogEntry, "id" | "timestamp" | "requestId" | "frontendTiming"> & {
+    requestId?: string | null;
+    frontendTiming?: TranscriptionFrontendTiming | null;
+  },
 ): TranscriptionLogEntry {
-  const full = { ...entry, id: ++logIdCounter, timestamp: Date.now() };
+  const requestId = entry.requestId ?? null;
+  const pendingFrontendTiming = requestId ? pendingFrontendTimingByRequestId.get(requestId) : null;
+  if (requestId && pendingFrontendTiming) pendingFrontendTimingByRequestId.delete(requestId);
+  const full: StoredTranscriptionLogEntry = {
+    ...entry,
+    requestId,
+    frontendTiming: entry.frontendTiming ?? pendingFrontendTiming ?? null,
+    id: ++logIdCounter,
+    timestamp: Date.now(),
+  };
   transcriptionLog.push(full);
   if (transcriptionLog.length > MAX_LOG_ENTRIES) {
     transcriptionLog.splice(0, transcriptionLog.length - MAX_LOG_ENTRIES);
@@ -1129,6 +1182,37 @@ export function addTranscriptionLogEntry(
   // Persist to JSONL file (fire-and-forget, non-blocking)
   persistLogEntry(toPublicTranscriptionLogEntry(full));
   return toPublicTranscriptionLogEntry(full);
+}
+
+export function attachTranscriptionFrontendTiming(report: TranscriptionFrontendTimingReport): {
+  attached: boolean;
+  logId?: number;
+} {
+  const timing = { ...report, receivedAt: Date.now() };
+  const existing = transcriptionLog.find(
+    (entry) =>
+      entry.requestId === report.requestId &&
+      (report.sessionId === null || entry.sessionId === null || entry.sessionId === report.sessionId),
+  );
+  if (!existing) {
+    while (pendingFrontendTimingByRequestId.size >= MAX_PENDING_FRONTEND_TIMINGS) {
+      const oldestKey = pendingFrontendTimingByRequestId.keys().next().value;
+      if (!oldestKey) break;
+      pendingFrontendTimingByRequestId.delete(oldestKey);
+    }
+    pendingFrontendTimingByRequestId.set(report.requestId, timing);
+    return { attached: false };
+  }
+
+  existing.frontendTiming = timing;
+  persistFrontendTimingAttachment(existing.id, timing);
+  return { attached: true, logId: existing.id };
+}
+
+export function _resetTranscriptionLogForTest(): void {
+  logIdCounter = 0;
+  transcriptionLog.length = 0;
+  pendingFrontendTimingByRequestId.clear();
 }
 
 // ─── Persistent JSONL file logging ──────────────────────────────────────────
@@ -1145,7 +1229,15 @@ let logFlushing = false;
 let logDirReady = false;
 
 function persistLogEntry(entry: TranscriptionLogEntry): void {
-  logBuffer.push(JSON.stringify(entry) + "\n");
+  persistLogRecord(entry);
+}
+
+function persistFrontendTimingAttachment(logId: number, timing: TranscriptionFrontendTiming): void {
+  persistLogRecord({ kind: "transcription_frontend_timing", logId, ...timing });
+}
+
+function persistLogRecord(record: unknown): void {
+  logBuffer.push(JSON.stringify(record) + "\n");
   scheduleLogFlush();
 }
 
