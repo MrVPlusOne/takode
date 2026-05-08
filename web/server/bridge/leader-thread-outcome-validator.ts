@@ -1,7 +1,9 @@
 import type { BrowserIncomingMessage, SessionNotification, ThreadRef } from "../session-types.js";
 import { routeFromHistoryEntry, routeKey, type ThreadRouteMetadata } from "../thread-routing-metadata.js";
-
-export const LEADER_THREAD_OUTCOME_REMINDER_SOURCE = "system:leader-thread-outcome-reminder";
+import {
+  THREAD_OUTCOME_REMINDER_SOURCE_ID,
+  THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-outcome-reminder.js";
 
 type LeaderThreadOutcomeSession = {
   id: string;
@@ -64,7 +66,7 @@ export function validateLeaderThreadOutcomes(
   const delivery = deps.injectUserMessage(
     session.id,
     buildReminderContent(missing),
-    { sessionId: LEADER_THREAD_OUTCOME_REMINDER_SOURCE, sessionLabel: "Thread Outcome Reminder" },
+    { sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID, sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL },
     firstMissing.route,
   );
   session.leaderThreadOutcomeValidatedHistoryLength = Math.max(

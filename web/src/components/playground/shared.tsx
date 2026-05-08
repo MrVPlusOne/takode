@@ -27,8 +27,8 @@ import {
 } from "../../../shared/quest-thread-reminder.js";
 import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
-  THREAD_OUTCOME_REMINDER_TITLE,
-} from "../../utils/thread-outcome-reminder.js";
+  THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+} from "../../../shared/thread-outcome-reminder.js";
 
 const PlaygroundSectionGroupContext = createContext<PlaygroundSectionGroupId | null>(null);
 const NEEDS_INPUT_REMINDER_SOURCE = {
@@ -956,7 +956,7 @@ export function PlaygroundThreadOutcomeReminderMessage() {
     timestamp: Date.now() - 16_000,
     agentSource: {
       sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
-      sessionLabel: THREAD_OUTCOME_REMINDER_TITLE,
+      sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
     },
     metadata: { threadKey: "main" },
   };

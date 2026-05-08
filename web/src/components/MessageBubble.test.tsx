@@ -2,6 +2,10 @@
 import type { ReactNode } from "react";
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import {
+  THREAD_OUTCOME_REMINDER_SOURCE_ID,
+  THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-outcome-reminder.js";
 import type { ChatMessage, ContentBlock } from "../types.js";
 
 const revertToMessageMock = vi.hoisted(() => vi.fn(async () => ({})));
@@ -607,13 +611,13 @@ describe("MessageBubble - agent source badge", () => {
         'Use `takode notify waiting "..."` for non-attention waiting/WIP.',
       ].join("\n"),
       agentSource: {
-        sessionId: "system:leader-thread-outcome-reminder",
-        sessionLabel: "Thread Outcome Reminder",
+        sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
       },
     });
     render(<MessageBubble message={msg} showTimestamp={false} />);
 
-    const chip = screen.getByRole("button", { name: "Expand Thread Outcome Reminder" });
+    const chip = screen.getByRole("button", { name: `Expand ${THREAD_OUTCOME_REMINDER_SOURCE_LABEL}` });
     expect(chip.textContent).toContain("Thread Outcome Reminder");
     expect(chip.getAttribute("aria-expanded")).toBe("false");
     expect(screen.queryByText(/mark every touched leader thread/)).toBeNull();
@@ -628,17 +632,17 @@ describe("MessageBubble - agent source badge", () => {
         "Missing outcome marker for: Main.",
       ].join("\n"),
       agentSource: {
-        sessionId: "system:leader-thread-outcome-reminder",
-        sessionLabel: "Thread Outcome Reminder",
+        sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
       },
     });
     render(<MessageBubble message={msg} showTimestamp={false} />);
 
-    const chip = screen.getByRole("button", { name: "Expand Thread Outcome Reminder" });
+    const chip = screen.getByRole("button", { name: `Expand ${THREAD_OUTCOME_REMINDER_SOURCE_LABEL}` });
     fireEvent.click(chip);
 
     expect(chip.getAttribute("aria-expanded")).toBe("true");
-    expect(screen.getByRole("button", { name: "Collapse Thread Outcome Reminder" })).toBeTruthy();
+    expect(screen.getByRole("button", { name: `Collapse ${THREAD_OUTCOME_REMINDER_SOURCE_LABEL}` })).toBeTruthy();
     expect(screen.getByText(/mark every touched leader thread/)).toBeTruthy();
     expect(screen.getByText(/Missing outcome marker for: Main/)).toBeTruthy();
   });

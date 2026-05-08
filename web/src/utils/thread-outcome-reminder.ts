@@ -1,7 +1,8 @@
 import type { ChatMessage } from "../types.js";
-
-export const THREAD_OUTCOME_REMINDER_SOURCE_ID = "system:leader-thread-outcome-reminder";
-export const THREAD_OUTCOME_REMINDER_TITLE = "Thread Outcome Reminder";
+import {
+  THREAD_OUTCOME_REMINDER_SOURCE_ID,
+  THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-outcome-reminder.js";
 
 export interface ThreadOutcomeReminderViewModel {
   title: string;
@@ -14,7 +15,7 @@ export function buildThreadOutcomeReminderViewModel(
   if (message.agentSource?.sessionId !== THREAD_OUTCOME_REMINDER_SOURCE_ID) return null;
   if (!message.content.trim()) return null;
   return {
-    title: THREAD_OUTCOME_REMINDER_TITLE,
+    title: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
     rawContent: message.content,
   };
 }

@@ -948,7 +948,7 @@ function ThreadOutcomeReminderMessage({
               type="button"
               onClick={() => setExpanded((value) => !value)}
               aria-expanded={expanded}
-              aria-label={expanded ? "Collapse Thread Outcome Reminder" : "Expand Thread Outcome Reminder"}
+              aria-label={`${expanded ? "Collapse" : "Expand"} ${reminder.title}`}
               className="inline-flex max-w-full items-center gap-2 rounded-md border border-cc-border/35 bg-cc-hover/20 px-2 py-1 text-left text-[11px] leading-snug text-cc-muted/85 transition-colors hover:border-cc-border/55 hover:bg-cc-hover/35 hover:text-cc-fg/85 focus-visible:outline focus-visible:outline-2 focus-visible:outline-cc-primary/60"
               data-testid="thread-outcome-reminder-chip"
             >

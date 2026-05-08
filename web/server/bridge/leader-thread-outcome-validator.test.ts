@@ -1,11 +1,11 @@
 import { describe, expect, it, vi } from "vitest";
+import {
+  THREAD_OUTCOME_REMINDER_SOURCE_ID,
+  THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+} from "../../shared/thread-outcome-reminder.js";
 import type { BrowserIncomingMessage, SessionNotification } from "../session-types.js";
 import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
-import {
-  LEADER_THREAD_OUTCOME_REMINDER_SOURCE,
-  validateLeaderThreadOutcomes,
-  type LeaderThreadOutcomeTurnSource,
-} from "./leader-thread-outcome-validator.js";
+import { validateLeaderThreadOutcomes, type LeaderThreadOutcomeTurnSource } from "./leader-thread-outcome-validator.js";
 
 function assistantMessage({
   id,
@@ -61,8 +61,8 @@ function systemUserMessage({
     content: "Thread outcome reminder",
     timestamp,
     agentSource: {
-      sessionId: LEADER_THREAD_OUTCOME_REMINDER_SOURCE,
-      sessionLabel: "Thread Outcome Reminder",
+      sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+      sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
     },
     threadKey,
     ...(threadKey !== "main"
@@ -164,7 +164,10 @@ describe("validateLeaderThreadOutcomes", () => {
     expect(deps.injectUserMessage).toHaveBeenCalledWith(
       "leader",
       expect.stringContaining("Missing outcome marker for: q-42."),
-      expect.objectContaining({ sessionId: "system:leader-thread-outcome-reminder" }),
+      expect.objectContaining({
+        sessionId: THREAD_OUTCOME_REMINDER_SOURCE_ID,
+        sessionLabel: THREAD_OUTCOME_REMINDER_SOURCE_LABEL,
+      }),
       expect.objectContaining({ threadKey: "q-42" }),
     );
     expect(session.leaderThreadOutcomeValidatedHistoryLength).toBe(2);
@@ -248,7 +251,8 @@ describe("validateLeaderThreadOutcomes", () => {
         }),
       );
       expect(content).toContain("Missing outcome marker for: q-1255.");
-      expect(agentSource.sessionId).toBe(LEADER_THREAD_OUTCOME_REMINDER_SOURCE);
+      expect(agentSource.sessionId).toBe(THREAD_OUTCOME_REMINDER_SOURCE_ID);
+      expect(agentSource.sessionLabel).toBe(THREAD_OUTCOME_REMINDER_SOURCE_LABEL);
       return "sent";
     });
 
