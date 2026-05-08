@@ -74,10 +74,22 @@ interface MockStoreState {
     herdedBy?: string;
     isOrchestrator?: boolean;
     archived?: boolean;
+    leaderProfilePortrait?: {
+      id: string;
+      poolId: string;
+      label: string;
+      smallUrl: string;
+      largeUrl: string;
+      smallSize: number;
+      largeSize: number;
+      smallBytes: number;
+      largeBytes: number;
+    };
   }>;
   sessionTaskHistory: Map<string, Array<{ title: string; source?: "quest"; questId?: string }>>;
   sessionNames: Map<string, string>;
   connectionStatus: Map<string, string>;
+  updateSdkSession: ReturnType<typeof vi.fn>;
 }
 
 let storeState: MockStoreState;
@@ -109,6 +121,7 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
     sessionTaskHistory: new Map([["s1", taskHistory]]),
     sessionNames: new Map(),
     connectionStatus: new Map([["s1", "connected"]]),
+    updateSdkSession: vi.fn(),
   };
 }
 
@@ -144,6 +157,7 @@ vi.mock("../api.js", () => ({
   api: {
     getSettings: vi.fn(),
     listSessions: vi.fn(),
+    updateLeaderProfilePortrait: vi.fn(),
   },
 }));
 
@@ -152,6 +166,18 @@ vi.mock("../utils/vscode-bridge.js", () => ({
 }));
 
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
+
+const TAKO_PORTRAIT = {
+  id: "tako1-01",
+  poolId: "tako",
+  label: "Tako 1.1",
+  smallUrl: "/leader-profile-portraits/tako/tako1-01.v2.96.webp",
+  largeUrl: "/leader-profile-portraits/tako/tako1-01.v2.320.webp",
+  smallSize: 96,
+  largeSize: 320,
+  smallBytes: 2912,
+  largeBytes: 19216,
+};
 
 describe("SessionInfoPopover", () => {
   beforeEach(() => {
@@ -162,8 +188,77 @@ describe("SessionInfoPopover", () => {
     >);
     vi.mocked(api.listSessions).mockReset();
     vi.mocked(api.listSessions).mockResolvedValue([]);
+    vi.mocked(api.updateLeaderProfilePortrait).mockReset();
     vi.mocked(openPathWithEditorPreference).mockReset();
     vi.mocked(openPathWithEditorPreference).mockResolvedValue(true);
+  });
+
+  it("anchors under the provided title-area affordance with viewport clamping", () => {
+    resetStore([]);
+    window.innerWidth = 430;
+    window.innerHeight = 932;
+    const anchor = {
+      getBoundingClientRect: () =>
+        ({
+          left: 36,
+          right: 240,
+          top: 8,
+          bottom: 42,
+          width: 204,
+          height: 34,
+          x: 36,
+          y: 8,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    } as HTMLElement;
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} anchorElement={anchor} />);
+
+    const popover = screen.getByText("Session Info").parentElement?.parentElement as HTMLElement;
+    expect(popover).toHaveStyle({ left: "36px", top: "50px", width: "300px" });
+  });
+
+  it("shows the leader portrait inside session info and opens profile editing from it", () => {
+    resetStore([]);
+    storeState.sdkSessions = [
+      {
+        sessionId: "s1",
+        cwd: "/repo",
+        backendType: "codex",
+        isOrchestrator: true,
+        leaderProfilePortrait: TAKO_PORTRAIT,
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    expect(screen.getByText("Leader profile")).toBeInTheDocument();
+    const editButton = screen.getByRole("button", { name: "Edit leader profile picture" });
+    fireEvent.click(editButton);
+
+    expect(screen.getByRole("dialog", { name: "Leader profile" })).toBeInTheDocument();
+    expect(screen.getAllByText("Tako 1.1")).toHaveLength(2);
+    expect(screen.getByText("Tako")).toBeInTheDocument();
+  });
+
+  it("does not close when clicking inside the leader profile picker portal", () => {
+    resetStore([]);
+    const onClose = vi.fn();
+    vi.useFakeTimers();
+    try {
+      render(<SessionInfoPopover sessionId="s1" onClose={onClose} />);
+      vi.runAllTimers();
+
+      const pickerNode = document.createElement("div");
+      pickerNode.setAttribute("data-leader-profile-portrait-picker", "true");
+      document.body.appendChild(pickerNode);
+      fireEvent.mouseDown(pickerNode);
+
+      expect(onClose).not.toHaveBeenCalled();
+      pickerNode.remove();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("navigates to questmaster focused quest when clicking a quest history row", () => {

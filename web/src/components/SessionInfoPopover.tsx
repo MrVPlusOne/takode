@@ -1,4 +1,4 @@
-import { useEffect, useRef, useMemo, useState } from "react";
+import { useEffect, useRef, useMemo, useState, type CSSProperties } from "react";
 import { useStore } from "../store.js";
 import {
   GitHubPRSection,
@@ -19,8 +19,22 @@ import { SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type EditorKind } from "../api.js";
 import type { SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
 import { openPathWithEditorPreference } from "../utils/vscode-bridge.js";
+import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 
-export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; onClose: () => void }) {
+const POPOVER_MARGIN = 12;
+const POPOVER_GAP = 8;
+const POPOVER_WIDTH = 300;
+const POPOVER_MIN_HEIGHT = 180;
+
+export function SessionInfoPopover({
+  sessionId,
+  onClose,
+  anchorElement,
+}: {
+  sessionId: string;
+  onClose: () => void;
+  anchorElement?: HTMLElement | null;
+}) {
   const session = useStore((s) => s.sessions.get(sessionId));
   const sdkSession = useStore((s) => s.sdkSessions.find((x) => x.sessionId === sessionId));
   const sdkSessions = useStore((s) => s.sdkSessions);
@@ -52,7 +66,8 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
       const targetEl = e.target instanceof Element ? e.target : null;
       if (
         targetEl?.closest("[data-claude-md-editor-root='true']") ||
-        targetEl?.closest("[data-session-info-modal='true']")
+        targetEl?.closest("[data-session-info-modal='true']") ||
+        targetEl?.closest("[data-leader-profile-portrait-picker='true']")
       ) {
         return;
       }
@@ -200,6 +215,29 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
           ? "Configure an editor in Settings to open this directory."
           : "";
   const canOpenWorkingDirectory = !!cwd && !!editorKind && editorKind !== "none" && !editorConfigError;
+  const leaderProfilePortrait = effectiveSdkSession?.isOrchestrator ? effectiveSdkSession.leaderProfilePortrait : null;
+  const popoverStyle = useMemo(() => {
+    if (typeof window === "undefined") return undefined;
+    const viewportWidth = window.visualViewport?.width ?? window.innerWidth;
+    const viewportHeight = window.visualViewport?.height ?? window.innerHeight;
+    const anchorRect = anchorElement?.getBoundingClientRect();
+    const width = Math.min(POPOVER_WIDTH, Math.max(0, viewportWidth - POPOVER_MARGIN * 2));
+    const left = Math.min(
+      Math.max(POPOVER_MARGIN, anchorRect?.left ?? viewportWidth - width - POPOVER_MARGIN),
+      Math.max(POPOVER_MARGIN, viewportWidth - width - POPOVER_MARGIN),
+    );
+    const candidateTop = (anchorRect?.bottom ?? 44) + POPOVER_GAP;
+    const viewportMaxHeight = Math.floor(viewportHeight * 0.8);
+    const maxHeight = Math.min(
+      viewportMaxHeight,
+      Math.max(POPOVER_MIN_HEIGHT, viewportHeight - candidateTop - POPOVER_MARGIN),
+    );
+    const top = Math.min(
+      Math.max(POPOVER_MARGIN, candidateTop),
+      Math.max(POPOVER_MARGIN, viewportHeight - maxHeight - POPOVER_MARGIN),
+    );
+    return { left, top, width, maxHeight } satisfies CSSProperties;
+  }, [anchorElement]);
 
   async function handleOpenWorkingDirectory() {
     if (!cwd || !editorKind || editorKind === "none") return;
@@ -226,8 +264,8 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
   return (
     <div
       ref={popoverRef}
-      className="fixed right-2 z-50 w-[300px] max-h-[80dvh] flex flex-col bg-cc-card border border-cc-border rounded-xl shadow-xl overflow-hidden"
-      style={{ top: "calc(2.75rem + 8px)" }}
+      className="fixed z-50 flex flex-col overflow-hidden rounded-xl border border-cc-border bg-cc-card shadow-xl"
+      style={popoverStyle}
     >
       {/* Header */}
       <div className="shrink-0 flex items-center justify-between px-4 py-2.5 border-b border-cc-border">
@@ -246,6 +284,21 @@ export function SessionInfoPopover({ sessionId, onClose }: { sessionId: string; 
       <div className="flex-1 overflow-y-auto min-h-0">
         {/* Backend + model + cwd */}
         <div className="px-4 py-2.5 space-y-1.5">
+          {leaderProfilePortrait && (
+            <div className="flex items-center gap-3 rounded-lg border border-cc-border/60 bg-cc-hover/20 px-2.5 py-2">
+              <LeaderProfilePortraitButton
+                sessionId={sessionId}
+                portrait={leaderProfilePortrait}
+                size="lg"
+                ariaLabel="Edit leader profile picture"
+                title="Edit profile picture"
+              />
+              <div className="min-w-0">
+                <div className="truncate text-[12px] font-semibold text-cc-fg">{leaderProfilePortrait.label}</div>
+                <div className="text-[11px] text-cc-muted">Leader profile</div>
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-1.5">
             <span className={`text-[11px] font-medium ${backendType === "codex" ? "text-blue-500" : "text-[#D97757]"}`}>
               {backendLabel}

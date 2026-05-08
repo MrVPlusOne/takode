@@ -15,6 +15,8 @@ interface LeaderProfilePortraitButtonProps {
   sessionId: string;
   portrait: LeaderProfilePortrait;
   size?: "sm" | "md" | "lg";
+  ariaLabel?: string;
+  title?: string;
   statusRing?: {
     className: string;
     status: string;
@@ -26,6 +28,8 @@ export function LeaderProfilePortraitButton({
   sessionId,
   portrait,
   size = "sm",
+  ariaLabel,
+  title = "Leader profile",
   statusRing,
 }: LeaderProfilePortraitButtonProps) {
   const triggerRef = useRef<HTMLSpanElement | null>(null);
@@ -92,7 +96,7 @@ export function LeaderProfilePortraitButton({
     }
   }
 
-  function openPanel(event: React.MouseEvent) {
+  function openPanel(event: React.MouseEvent | React.KeyboardEvent) {
     event.preventDefault();
     event.stopPropagation();
     if (triggerRef.current) setAnchor(triggerRef.current.getBoundingClientRect());
@@ -108,16 +112,13 @@ export function LeaderProfilePortraitButton({
         ref={triggerRef}
         role="button"
         tabIndex={0}
-        aria-label={`Open ${portrait.label} profile`}
-        title="Leader profile"
+        aria-label={ariaLabel ?? `Open ${portrait.label} profile`}
+        title={title}
         onClick={openPanel}
         onMouseDown={(event) => event.stopPropagation()}
         onKeyDown={(event) => {
           if (event.key !== "Enter" && event.key !== " ") return;
-          event.preventDefault();
-          event.stopPropagation();
-          if (triggerRef.current) setAnchor(triggerRef.current.getBoundingClientRect());
-          setOpen(true);
+          openPanel(event);
         }}
         className={`inline-flex ${triggerSize} shrink-0 items-center justify-center rounded-full ${ringClass} transition hover:ring-cc-primary/60 focus:outline-none focus:ring-2 focus:ring-cc-primary/60`}
         data-status={statusRing?.status}
@@ -129,6 +130,7 @@ export function LeaderProfilePortraitButton({
         ? createPortal(
             <div
               className="fixed inset-0 z-[100]"
+              data-leader-profile-portrait-picker="true"
               onClick={() => setOpen(false)}
               onMouseDown={(event) => event.stopPropagation()}
             >

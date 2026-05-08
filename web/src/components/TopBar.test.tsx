@@ -21,7 +21,9 @@ vi.mock("../ws.js", () => ({
   sendToSession: vi.fn(() => true),
 }));
 vi.mock("./SessionInfoPopover.js", () => ({
-  SessionInfoPopover: () => <div data-testid="session-info-popover" />,
+  SessionInfoPopover: ({ anchorElement }: { anchorElement?: HTMLElement | null }) => (
+    <div data-testid="session-info-popover" data-anchor-present={anchorElement ? "true" : "false"} />
+  ),
 }));
 
 interface MockStoreState {
@@ -56,6 +58,7 @@ interface MockStoreState {
     sessionNum?: number | null;
     permissionMode?: string;
     backendType?: string;
+    cliSessionId?: string | null;
     cliConnected?: boolean;
     state?: "idle" | "starting" | "connected" | "running" | "compacting" | "exited" | null;
     claimedQuestStatus?: string | null;
@@ -323,7 +326,7 @@ describe("TopBar", () => {
     expect(screen.getByText("Main Session")).toBeInTheDocument();
   });
 
-  it("shows a leader portrait before the leader session name", () => {
+  it("shows a leader portrait before the leader session name and routes it to session info", async () => {
     resetStore({
       sessions: new Map([["s1", { cwd: "/repo", permissionMode: "acceptEdits", backend_type: "claude" }]]),
       sessionNames: new Map([["s1", "Leader Session"]]),
@@ -350,8 +353,16 @@ describe("TopBar", () => {
     });
 
     render(<TopBar />);
-    expect(screen.getByRole("button", { name: /open tako 1\.1 profile/i })).toBeInTheDocument();
+    const portrait = screen.getByTestId("topbar-leader-profile-portrait");
+    expect(portrait).toBeInTheDocument();
     expect(screen.getByText("Leader Session")).toBeInTheDocument();
+
+    fireEvent.click(portrait);
+
+    expect(screen.queryByRole("dialog", { name: "Leader profile" })).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByTestId("session-info-popover")).toHaveAttribute("data-anchor-present", "true");
+    });
   });
 
   it("does not show a duplicate plan/agent mode label in title bar", () => {
@@ -450,15 +461,37 @@ describe("TopBar", () => {
   it("publishes opened session info panel id for sidebar-linked highlights", async () => {
     render(<TopBar />);
 
-    fireEvent.click(screen.getByTitle("Session info"));
+    fireEvent.click(screen.getByRole("button", { name: /session s1/i }));
     await waitFor(() => {
       expect(storeState.setSessionInfoOpenSessionId).toHaveBeenLastCalledWith("s1");
     });
 
-    fireEvent.click(screen.getByTitle("Session info"));
+    fireEvent.click(screen.getByRole("button", { name: /session s1/i }));
     await waitFor(() => {
       expect(storeState.setSessionInfoOpenSessionId).toHaveBeenLastCalledWith(null);
     });
+  });
+
+  it("removes the duplicate title-bar copy and right-side session info buttons", () => {
+    resetStore({
+      sessions: new Map([["s1", { cwd: "/repo", permissionMode: "acceptEdits", backend_type: "claude" }]]),
+      sessionNames: new Map([["s1", "Main Session"]]),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 1,
+          sessionNum: 111,
+          name: "Main Session",
+          cliSessionId: "cli-session-123",
+        },
+      ],
+    });
+
+    render(<TopBar />);
+
+    expect(screen.queryByTitle(/Copy CLI Session ID/)).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Session info")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /main session/i })).toBeInTheDocument();
   });
 
   it("shows the enabled search shortcut in the hover title", () => {

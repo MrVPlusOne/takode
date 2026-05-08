@@ -2,7 +2,6 @@ import { useState, useMemo, useCallback, useRef, useEffect, useSyncExternalStore
 import { useShallow } from "zustand/react/shallow";
 import { useStore, countUserPermissions, getSessionSearchState } from "../store.js";
 import { api } from "../api.js";
-import { writeClipboardText } from "../utils/copy-utils.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { parseHash } from "../utils/routing.js";
 import { navigateTo } from "../utils/navigation.js";
@@ -11,7 +10,6 @@ import { coalesceSessionViewModel, type SessionViewModel } from "../utils/sessio
 import { questLabel } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
-import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 
@@ -50,7 +48,6 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
       sessionNum: null,
       isQuestNamed: false,
       questStatus: undefined,
-      cliSessionId: null,
       idleKilled: false,
       changedFilesCount: 0,
       leaderProfilePortrait: undefined,
@@ -74,7 +71,6 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
     isQuestNamed: state.questNamedSessions.has(currentSessionId),
     questStatus: currentSessionVm?.claimedQuestStatus,
     questReviewInboxUnread: currentSessionVm?.claimedQuestVerificationInboxUnread,
-    cliSessionId: currentSessionVm?.cliSessionId ?? null,
     idleKilled: state.cliDisconnectReason.get(currentSessionId) === "idle_limit",
     changedFilesCount: countScopedChangedFiles(state, currentSessionId, currentSessionVm),
     leaderProfilePortrait: currentSdkSession?.isOrchestrator ? currentSdkSession.leaderProfilePortrait : undefined,
@@ -126,13 +122,12 @@ export function TopBar() {
     isQuestNamed,
     questStatus,
     questReviewInboxUnread,
-    cliSessionId,
     idleKilled,
     changedFilesCount,
     leaderProfilePortrait,
   } = useStore(useShallow(getCurrentTopBarSessionState));
-  const [copiedCliId, setCopiedCliId] = useState(false);
   const [infoOpen, setInfoOpen] = useState(false);
+  const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
 
   useEffect(() => {
@@ -180,15 +175,6 @@ export function TopBar() {
       window.removeEventListener("focus", handleFocus);
     };
   }, [refreshQuests]);
-  const handleCopyCliSessionId = useCallback(() => {
-    if (!cliSessionId) return;
-    writeClipboardText(cliSessionId)
-      .then(() => {
-        setCopiedCliId(true);
-        setTimeout(() => setCopiedCliId(false), 1500);
-      })
-      .catch(console.error);
-  }, [cliSessionId]);
   // Track the hash before navigating to questmaster so we can toggle back
   const prevHashRef = useRef<string>("");
 
@@ -228,7 +214,7 @@ export function TopBar() {
 
         {/* Current session status + title — clickable to open session info */}
         {currentSessionId && (
-          <div className="flex items-center gap-1.5 min-w-0">
+          <div ref={sessionInfoAnchorRef} className="flex items-center gap-1.5 min-w-0">
             <button
               onClick={() => setInfoOpen(!infoOpen)}
               className="flex items-center gap-1.5 min-w-0 cursor-pointer hover:opacity-80 transition-opacity"
@@ -249,7 +235,13 @@ export function TopBar() {
                 </span>
               )}
               {leaderProfilePortrait && (
-                <LeaderProfilePortraitButton sessionId={currentSessionId} portrait={leaderProfilePortrait} size="md" />
+                <img
+                  src={leaderProfilePortrait.smallUrl}
+                  alt=""
+                  data-testid="topbar-leader-profile-portrait"
+                  className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-cc-border/70"
+                  draggable={false}
+                />
               )}
               {sessionName && (
                 <span className="text-[11px] font-medium truncate text-cc-fg" title={sessionName}>
@@ -257,31 +249,6 @@ export function TopBar() {
                 </span>
               )}
             </button>
-            {/* Copy CLI Session ID button */}
-            {cliSessionId && (
-              <button
-                onClick={handleCopyCliSessionId}
-                className="flex items-center justify-center w-5 h-5 rounded text-cc-muted/50 hover:text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer relative"
-                title={`Copy CLI Session ID: ${cliSessionId}`}
-              >
-                {copiedCliId ? (
-                  <svg
-                    viewBox="0 0 16 16"
-                    fill="none"
-                    stroke="currentColor"
-                    strokeWidth="1.5"
-                    className="w-3 h-3 text-cc-success"
-                  >
-                    <path d="M3 8.5l3.5 3.5 6.5-8" strokeLinecap="round" strokeLinejoin="round" />
-                  </svg>
-                ) : (
-                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.2" className="w-3 h-3">
-                    <rect x="5.5" y="5.5" width="7" height="8" rx="1" />
-                    <path d="M3.5 10.5V3a1 1 0 011-1h5.5" />
-                  </svg>
-                )}
-              </button>
-            )}
             {!isConnected && (
               <button
                 onClick={() => currentSessionId && api.relaunchSession(currentSessionId).catch(console.error)}
@@ -326,25 +293,12 @@ export function TopBar() {
                 </span>
               )}
             </button>
-
-            {/* Session info popover toggle */}
-            <button
-              onClick={() => setInfoOpen(!infoOpen)}
-              className={`flex items-center justify-center w-7 h-7 rounded-lg transition-colors cursor-pointer ${
-                infoOpen ? "text-cc-primary bg-cc-active" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
-              }`}
-              title="Session info"
-            >
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
-                <path
-                  fillRule="evenodd"
-                  d="M8 1a7 7 0 100 14A7 7 0 008 1zM6.5 8a.5.5 0 01.5-.5h1a.5.5 0 01.5.5v3.5a.5.5 0 01-.5.5H7a.5.5 0 01-.5-.5V8zM8 4.5a1 1 0 100 2 1 1 0 000-2z"
-                  clipRule="evenodd"
-                />
-              </svg>
-            </button>
             {infoOpen && currentSessionId && (
-              <SessionInfoPopover sessionId={currentSessionId} onClose={() => setInfoOpen(false)} />
+              <SessionInfoPopover
+                sessionId={currentSessionId}
+                onClose={() => setInfoOpen(false)}
+                anchorElement={sessionInfoAnchorRef.current}
+              />
             )}
           </>
         )}
