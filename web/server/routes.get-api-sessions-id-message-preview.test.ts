@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { createSessionsRoutes } from "./routes/sessions.js";
 import type { BrowserIncomingMessage } from "./session-types.js";
 
-function makeRoute(history: BrowserIncomingMessage[] | null) {
+function makeRoute(history: BrowserIncomingMessage[] | null, notifications: Array<Record<string, unknown>> = []) {
   const sessionId = "session-abc";
   const ctx = {
     launcher: {
@@ -11,7 +11,9 @@ function makeRoute(history: BrowserIncomingMessage[] | null) {
       getSessionNum: vi.fn(() => 123),
     },
     wsBridge: {
-      getSession: vi.fn((id: string) => (id === sessionId && history ? { id, messageHistory: history } : null)),
+      getSession: vi.fn((id: string) =>
+        id === sessionId && history ? { id, messageHistory: history, notifications } : null,
+      ),
       getToolResult: vi.fn(() => null),
       broadcastToSession: vi.fn(),
       broadcastGlobal: vi.fn(),
@@ -154,5 +156,81 @@ describe("GET /api/sessions/:id/messages/:idx/preview", () => {
 
     expect(res.status).toBe(404);
     expect(body.error).toContain("Message index 9 out of range");
+  });
+});
+
+describe("GET /api/sessions/:id/notifications/:notifId/context", () => {
+  it("returns source context from the notification anchor message", async () => {
+    // The global needs-input panel uses this route to recover the context
+    // paragraph without opening or selecting the target session.
+    const history: BrowserIncomingMessage[] = [
+      {
+        type: "assistant",
+        timestamp: 200,
+        parent_tool_use_id: null,
+        message: {
+          id: "a1",
+          type: "message",
+          role: "assistant",
+          model: "claude-test",
+          stop_reason: null,
+          usage: {
+            input_tokens: 1,
+            output_tokens: 2,
+            cache_creation_input_tokens: 0,
+            cache_read_input_tokens: 0,
+          },
+          content: [{ type: "text", text: "Approval context paragraph.\n\nRisk detail for the decision." }],
+        },
+      },
+    ];
+    const app = makeRoute(history, [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Approve candidates?",
+        timestamp: 300,
+        messageId: "a1",
+        done: false,
+      },
+    ]);
+
+    const res = await app.request("/api/sessions/session-abc/notifications/n-1/context");
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({
+      ok: true,
+      notificationId: "n-1",
+      messageId: "a1",
+      context: "Approval context paragraph.\n\nRisk detail for the decision.",
+    });
+  });
+
+  it("returns null context for duplicate fallback prompts", async () => {
+    const history: BrowserIncomingMessage[] = [
+      {
+        type: "leader_user_message",
+        id: "fallback-1",
+        content: "Needs input: Confirm scope",
+        timestamp: 200,
+      },
+    ];
+    const app = makeRoute(history, [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Confirm scope",
+        timestamp: 300,
+        messageId: "fallback-1",
+        done: false,
+      },
+    ]);
+
+    const res = await app.request("/api/sessions/session-abc/notifications/n-1/context");
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body.context).toBeNull();
   });
 });

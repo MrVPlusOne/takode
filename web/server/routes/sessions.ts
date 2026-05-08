@@ -54,6 +54,7 @@ import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMod
 import { registerSessionPauseRoutes } from "./session-pause-routes.js";
 import { registerSessionLeaderProfileRoute } from "./session-leader-profile-route.js";
 import { registerSessionReplacementRoutes } from "./session-replacement-routes.js";
+import { registerSessionNotificationContextRoute } from "./session-notification-context.js";
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 import { isSessionPaused } from "../session-pause.js";
 
@@ -1174,6 +1175,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
 
     return c.json(result);
   });
+  registerSessionNotificationContextRoute(api, { resolveId, wsBridge });
 
   // Dedicated endpoint for the injected system prompt (fetched on-demand by Session Info panel)
   api.get("/sessions/:id/system-prompt", (c) => {

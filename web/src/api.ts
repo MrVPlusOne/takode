@@ -1080,6 +1080,18 @@ export const api = {
   getSessionNotifications: (sessionId: string) =>
     get<SessionNotification[]>(`/sessions/${encodeURIComponent(sessionId)}/notifications`),
 
+  fetchNotificationContext: async (sessionId: string, notifId: string): Promise<string | null> => {
+    try {
+      const data = await get<{ context: string | null }>(
+        `/sessions/${encodeURIComponent(sessionId)}/notifications/${encodeURIComponent(notifId)}/context`,
+      );
+      return data.context ?? null;
+    } catch (error) {
+      console.warn("Failed to fetch notification context", error);
+      return null;
+    }
+  },
+
   markAllNotificationsDone: (sessionId: string, done = true) =>
     post<{ ok: boolean; count: number }>(`/sessions/${encodeURIComponent(sessionId)}/notifications/done-all`, { done }),
 

@@ -3,6 +3,9 @@ import { fireEvent, render, screen, waitFor, within } from "@testing-library/rea
 import "@testing-library/jest-dom";
 
 const mockGetSessionNotifications = vi.fn(async (_sessionId: string): Promise<any[]> => []);
+const mockFetchNotificationContext = vi.fn(
+  async (_sessionId: string, _notifId: string): Promise<string | null> => null,
+);
 const mockSendNeedsInputResponse = vi.fn(async (_sessionId: string, _notifId: string, _response: any) => ({
   ok: true,
   sessionId: _sessionId,
@@ -36,6 +39,7 @@ vi.mock("../store.js", () => {
 vi.mock("../api.js", () => ({
   api: {
     getSessionNotifications: (sessionId: string) => mockGetSessionNotifications(sessionId),
+    fetchNotificationContext: (sessionId: string, notifId: string) => mockFetchNotificationContext(sessionId, notifId),
     sendNeedsInputResponse: (sessionId: string, notifId: string, response: any) =>
       mockSendNeedsInputResponse(sessionId, notifId, response),
   },
@@ -61,6 +65,7 @@ describe("GlobalNeedsInputMenu", () => {
       notificationId: "n-1",
       delivery: "accepted",
     });
+    mockFetchNotificationContext.mockResolvedValue(null);
   });
 
   it("renders nothing when there are no unresolved needs-input notifications", () => {
@@ -130,10 +135,88 @@ describe("GlobalNeedsInputMenu", () => {
 
     const dialog = screen.getByRole("dialog", { name: "Global needs-input notifications" });
     expect(within(dialog).getByText("#22 Worker")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Choose rollout" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Open source message for Choose rollout" })).toBeInTheDocument();
     expect(within(dialog).getByText("#21 Leader")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Pick model" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Open source message for Pick model" })).toBeInTheDocument();
     expect(within(dialog).queryByText("Review")).not.toBeInTheDocument();
+  });
+
+  it("shows expandable source context from the target session without repeating the prompt as body copy", async () => {
+    window.location.hash = "#/session/current";
+    mockFetchNotificationContext.mockResolvedValueOnce(
+      "The SVG candidates are ready for approval.\n\nCodex reads well at 18px, but compresses at 14px.",
+    );
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-context",
+              category: "needs-input",
+              summary: "approve backend SVG logo candidates",
+              suggestedAnswers: ["approve", "revise"],
+              timestamp: Date.now(),
+              messageId: "msg-context",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 31, name: "Leader", createdAt: 1 }],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+
+    const context = await screen.findByTestId("global-needs-input-source-context");
+    expect(context).toHaveTextContent("Codex reads well at 18px");
+    expect(screen.getAllByText("approve backend SVG logo candidates")).toHaveLength(1);
+    expect(screen.queryByText("Jump")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Answer for approve backend SVG logo candidates")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(window.location.hash).toBe("#/session/current");
+    expect(screen.getByTestId("global-needs-input-source-context").className).toContain("whitespace-pre-line");
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "Open source message for approve backend SVG logo candidates" }),
+    );
+
+    expect(window.location.hash).toContain("#/session/31/msg/msg-context");
+    expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-context");
+    expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-context");
+  });
+
+  it("omits source context when the source is only a duplicate fallback prompt", async () => {
+    mockFetchNotificationContext.mockResolvedValueOnce("Needs input: Confirm scope");
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-duplicate",
+              category: "needs-input",
+              summary: "Confirm scope",
+              suggestedAnswers: ["yes"],
+              timestamp: Date.now(),
+              messageId: "msg-duplicate",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 41, name: "Worker", createdAt: 1 }],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+
+    await waitFor(() => expect(mockFetchNotificationContext).toHaveBeenCalledWith("s1", "n-duplicate"));
+    expect(screen.queryByTestId("global-needs-input-source-context")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
+    expect(screen.getAllByText("Confirm scope")).toHaveLength(1);
   });
 
   it("excludes stale needs-input notifications when sessions are archived or removed from the active list", () => {
@@ -189,7 +272,9 @@ describe("GlobalNeedsInputMenu", () => {
 
     const { rerender } = render(<GlobalNeedsInputMenu />);
     fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
-    expect(screen.getByRole("button", { name: "Active session needs input" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Open source message for Active session needs input" }),
+    ).toBeInTheDocument();
     expect(screen.queryByText("Archived session should not count")).not.toBeInTheDocument();
     expect(screen.queryByText("Removed session should not count")).not.toBeInTheDocument();
 

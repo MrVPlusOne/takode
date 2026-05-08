@@ -56,6 +56,20 @@ function seedNotificationData() {
         ],
       ],
     ]),
+    messages: new Map([
+      [
+        "playground-notifs",
+        [
+          {
+            id: "mock-msg-87",
+            role: "assistant" as const,
+            content:
+              "The image transport choice affects mobile screenshot upload size and how much artifact detail reviewers can inspect. JPEG q85 keeps edges readable; q75 is smaller but can blur dense UI text.",
+            timestamp: now - 130_000,
+          },
+        ],
+      ],
+    ]),
   });
 }
 
@@ -73,6 +87,32 @@ function seedSummaryOnlyNeedsInput() {
             timestamp: now - 300_000,
             messageId: "mock-msg-stale",
             done: false,
+          },
+        ],
+      ],
+    ]),
+    messages: new Map([
+      [
+        "global-needs-input-leader",
+        [
+          {
+            id: "global-msg-1",
+            role: "assistant" as const,
+            content:
+              "The worker can start now if the reviewer only needs a scope pass. Waiting preserves reviewer bandwidth but delays the current handoff.",
+            timestamp: now - 100_000,
+          },
+        ],
+      ],
+      [
+        "global-needs-input-worker",
+        [
+          {
+            id: "global-msg-2",
+            role: "assistant" as const,
+            content:
+              "Validation coverage should include the desktop operator view plus the mobile approval path, because the notification panel sits close to feed controls on narrow screens.",
+            timestamp: now - 45_000,
           },
         ],
       ],
@@ -187,12 +227,10 @@ export function PlaygroundNotificationInboxSection() {
               </div>
             </div>
             <p className="text-[10px] text-cc-muted">
-              Click &quot;Seed notification data&quot; first. Shows a compact single-height pill with inline
-              comma-separated colored bell counts for active review and needs-input notifications, ending in
-              &quot;unreads&quot;. Click to open the inbox modal with active notifications (amber = needs-input, green =
-              review), multi-question needs-input answer fields with direct Send Response, compact quest-first review
-              rows, and a collapsible Done section. On mobile, the modal stretches across the viewport while staying
-              scrollable and height-capped.
+              Click &quot;Seed notification data&quot; first. The inbox shows needs-input rows with one prompt title,
+              expandable source context, direct Send Response controls, compact quest-first review rows, and a
+              collapsible Done section. On mobile, the modal stretches across the viewport while staying scrollable and
+              height-capped.
             </p>
           </div>
         </Card>
@@ -210,8 +248,8 @@ export function PlaygroundNotificationInboxSection() {
               <GlobalNeedsInputMenu />
             </div>
             <p className="text-[10px] text-cc-muted">
-              Shows the replacement top-bar aggregate: unresolved needs-input notifications only, with review and
-              unread-style activity excluded.
+              Shows the top-bar aggregate for unresolved needs-input notifications, with quiet source-context navigation
+              and review or unread-style activity excluded.
             </p>
           </div>
         </Card>

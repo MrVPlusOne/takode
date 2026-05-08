@@ -412,6 +412,69 @@ describe("NotificationChip", () => {
     expect(mockFocusComposer).not.toHaveBeenCalled();
   });
 
+  it("shows expandable source context on needs-input rows without duplicating the prompt", () => {
+    mockStoreState.messages = new Map([
+      [
+        "s1",
+        [
+          {
+            id: "msg-123",
+            role: "assistant",
+            content: "The deployment is staged and the smoke test is green.\n\nRollback is ready if the canary fails.",
+            timestamp: Date.now() - 10,
+          },
+        ],
+      ],
+    ]);
+    setNotifications("s1", [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Deploy now?",
+        suggestedAnswers: ["yes", "no"],
+        timestamp: Date.now(),
+        messageId: "msg-123",
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+
+    expect(screen.getAllByText("Deploy now?")).toHaveLength(1);
+    expect(screen.getByTestId("notification-source-context")).toHaveTextContent("Rollback is ready");
+    expect(screen.queryByText("Jump")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    expect(screen.getByTestId("notification-source-context").className).toContain("whitespace-pre-line");
+    expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Open source message for Deploy now?" }));
+    expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-123");
+    expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-123");
+  });
+
+  it("falls back to a title-only needs-input row when source context is unavailable", () => {
+    setNotifications("s1", [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Confirm scope",
+        suggestedAnswers: ["yes"],
+        timestamp: Date.now(),
+        messageId: null,
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+
+    expect(screen.queryByTestId("notification-source-context")).toBeNull();
+    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
+    expect(screen.getAllByText("Confirm scope")).toHaveLength(1);
+  });
+
   it("switches to the notification owner thread before jumping to the message", () => {
     const onSelectThread = vi.fn();
     vi.useFakeTimers();

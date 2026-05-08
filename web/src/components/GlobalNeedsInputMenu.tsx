@@ -3,14 +3,22 @@ import { createPortal } from "react-dom";
 import { useShallow } from "zustand/react/shallow";
 import { api } from "../api.js";
 import { useStore } from "../store.js";
-import type { SdkSessionInfo, SessionNotification } from "../types.js";
+import type { ChatMessage, SdkSessionInfo, SessionNotification } from "../types.js";
 import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
 import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
+import {
+  getNotificationSourceContext,
+  getNotificationTitle,
+  normalizeNotificationSourceContext,
+  shouldShowNeedsInputQuestionPrompt,
+} from "../utils/notification-source-context.js";
 import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import { navigateToSessionMessageId, navigateToSessionThread, routeSessionRefForId } from "../utils/routing.js";
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
+import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 
 const MENU_TOP_PX = 44;
+const EMPTY_MESSAGES: ChatMessage[] = [];
 
 export interface GlobalNeedsInputEntry {
   sessionId: string;
@@ -143,12 +151,21 @@ function BellIcon({ className = "" }: { className?: string }) {
 function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEntry; sdkSessions: SdkSessionInfo[] }) {
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
+  const [remoteSourceContext, setRemoteSourceContext] = useState<{ key: string; value: string | null } | null>(null);
   const [sending, setSending] = useState(false);
+  const messages = useStore((s) => s.messages?.get(entry.sessionId) ?? EMPTY_MESSAGES);
   const questionViews = useMemo(() => getNeedsInputQuestionViews(entry.notification), [entry.notification]);
   const canSendResponse = questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
   const canSubmitResponse = canSendResponse && !sending;
   const sessionLabel = entry.sessionNum == null ? entry.sessionName : `#${entry.sessionNum} ${entry.sessionName}`;
-  const summary = entry.notification.summary || "Needs your input";
+  const summary = getNotificationTitle(entry.notification);
+  const localSourceContext = useMemo(
+    () => getNotificationSourceContext(entry.notification, messages),
+    [entry.notification, messages],
+  );
+  const remoteContextKey = `${entry.sessionId}:${entry.notification.id}:${entry.notification.messageId ?? ""}`;
+  const sourceContext =
+    localSourceContext ?? (remoteSourceContext?.key === remoteContextKey ? remoteSourceContext.value : null);
 
   const setQuestionAnswer = useCallback((key: string, value: string) => {
     setDeliveryError(null);
@@ -158,6 +175,22 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
   const jump = useCallback(() => {
     jumpToNotification(entry, sdkSessions);
   }, [entry, sdkSessions]);
+
+  useEffect(() => {
+    if (localSourceContext || !entry.notification.messageId) return;
+    let cancelled = false;
+    setRemoteSourceContext({ key: remoteContextKey, value: null });
+    api.fetchNotificationContext(entry.sessionId, entry.notification.id).then((context) => {
+      if (cancelled) return;
+      setRemoteSourceContext({
+        key: remoteContextKey,
+        value: normalizeNotificationSourceContext(context, entry.notification),
+      });
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [entry.notification, entry.sessionId, localSourceContext, remoteContextKey]);
 
   const sendResponse = useCallback(async () => {
     if (!canSubmitResponse) return;
@@ -195,32 +228,29 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
               {formatRelativeTime(entry.notification.timestamp)}
             </span>
           </div>
-          <button
-            type="button"
-            onClick={jump}
-            className="mt-0.5 block max-w-full truncate text-left text-[12px] text-cc-fg/95 hover:text-amber-100 cursor-pointer"
+          <NeedsInputSourceTarget
             title={summary}
-          >
-            {summary}
-          </button>
+            sourceContext={sourceContext}
+            onNavigate={jump}
+            testIdPrefix="global-needs-input"
+          />
         </div>
-        <button
-          type="button"
-          onClick={jump}
-          className="shrink-0 rounded border border-cc-border/60 px-2 py-0.5 text-[11px] text-cc-muted transition-colors hover:border-amber-400/40 hover:text-cc-fg cursor-pointer"
-        >
-          Jump
-        </button>
       </div>
 
       {questionViews.length > 0 && (
         <div className="mt-2 space-y-2 pl-3" data-testid="global-needs-input-answer-actions">
           {questionViews.map((question, index) => (
             <div key={question.key} className="space-y-1.5" data-testid="global-needs-input-question-block">
-              <div className="text-[11px] leading-snug text-cc-fg/80">
-                {questionViews.length > 1 && <span className="text-cc-muted">{index + 1}. </span>}
-                {question.prompt}
-              </div>
+              {shouldShowNeedsInputQuestionPrompt({
+                prompt: question.prompt,
+                title: summary,
+                questionCount: questionViews.length,
+              }) && (
+                <div className="text-[11px] leading-snug text-cc-fg/80">
+                  {questionViews.length > 1 && <span className="text-cc-muted">{index + 1}. </span>}
+                  {question.prompt}
+                </div>
+              )}
               {question.suggestedAnswers.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                   {question.suggestedAnswers.map((answer) => (

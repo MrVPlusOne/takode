@@ -13,12 +13,18 @@ import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-re
 import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
 import {
+  getNotificationSourceContext,
+  getNotificationTitle,
+  shouldShowNeedsInputQuestionPrompt,
+} from "../utils/notification-source-context.js";
+import {
   resolveNotificationOwnerThreadKey,
   runAfterNotificationOwnerThreadSelected,
 } from "../utils/notification-thread.js";
 import { useVisibleReviewNotificationAutoResolve } from "../hooks/useVisibleReviewNotificationAutoResolve.js";
 import { getActionableNotificationMessageId } from "../utils/notification-targets.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
+import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
 
 const EMPTY: SessionNotification[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
@@ -383,13 +389,14 @@ function NotificationItem({
     [answersByQuestion, canSendResponse, currentThreadKey, notif, onSelectThread, questionViews, sessionId],
   );
   const compactReviewSummary = notif.category === "review" ? getCompactReviewSummary(notif.summary) : null;
-  const label =
-    compactReviewSummary?.text ||
-    notif.summary ||
-    (isNeedsInput ? "Needs your input" : notif.category === "waiting" ? "Waiting" : "Ready for review");
+  const label = compactReviewSummary?.text || getNotificationTitle(notif);
   const questSummary = compactReviewSummary?.questSummary ?? null;
   const labelClassName = notif.done ? "text-cc-muted/60 line-through" : "text-cc-fg/90";
   const rowRef = useVisibleReviewNotificationAutoResolve<HTMLDivElement>({ sessionId, notification: notif });
+  const sourceContext = useMemo(
+    () => (isNeedsInput ? getNotificationSourceContext(notif, notificationTargetMessages, actionableMessageId) : null),
+    [actionableMessageId, isNeedsInput, notif, notificationTargetMessages],
+  );
 
   const renderLabel = () => {
     if (!questSummary) {
@@ -454,7 +461,17 @@ function NotificationItem({
               isNeedsInput ? "bg-amber-400" : notif.category === "review" ? "bg-emerald-400" : "bg-cc-muted/65"
             }`}
           />
-          {jumpTargetMessageId ? (
+          {isNeedsInput ? (
+            <div className="min-w-0 flex-1">
+              <NeedsInputSourceTarget
+                title={label}
+                sourceContext={sourceContext}
+                onNavigate={jumpTargetMessageId ? jumpToMessage : undefined}
+                titleClassName={labelClassName}
+                testIdPrefix="notification"
+              />
+            </div>
+          ) : jumpTargetMessageId ? (
             <div
               role="button"
               tabIndex={0}
@@ -473,10 +490,16 @@ function NotificationItem({
           <div className="mt-2 space-y-2 pl-3" data-testid="notification-answer-actions">
             {questionViews.map((question, index) => (
               <div key={question.key} className="space-y-1.5" data-testid="notification-question-block">
-                <div className="text-[11px] leading-snug text-cc-fg/80">
-                  {questionViews.length > 1 && <span className="text-cc-muted">{index + 1}. </span>}
-                  {question.prompt}
-                </div>
+                {shouldShowNeedsInputQuestionPrompt({
+                  prompt: question.prompt,
+                  title: label,
+                  questionCount: questionViews.length,
+                }) && (
+                  <div className="text-[11px] leading-snug text-cc-fg/80">
+                    {questionViews.length > 1 && <span className="text-cc-muted">{index + 1}. </span>}
+                    {question.prompt}
+                  </div>
+                )}
                 {question.suggestedAnswers.length > 0 && (
                   <div className="flex flex-wrap gap-1">
                     {question.suggestedAnswers.map((answer) => (
