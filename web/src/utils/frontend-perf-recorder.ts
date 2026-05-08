@@ -73,6 +73,22 @@ export type FrontendPerfEntry =
       suggestionCount?: number;
     }
   | {
+      kind: "voice_transcription_progress";
+      timestamp: number;
+      sessionId: string;
+      requestId: string;
+      phase: string;
+      source: "client" | "sse" | "websocket";
+      elapsedMs: number;
+      mode?: string;
+      audioSizeBytes?: number;
+      audioMimeType?: string | null;
+      audioFileName?: string | null;
+      uploadDurationMs?: number;
+      sttDurationMs?: number;
+      enhancementDurationMs?: number;
+    }
+  | {
       kind: "message_history_apply";
       timestamp: number;
       sessionId: string;

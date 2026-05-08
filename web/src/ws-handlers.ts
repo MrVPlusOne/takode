@@ -29,6 +29,7 @@ import { FEED_WINDOW_SYNC_VERSION } from "../shared/feed-window-sync.js";
 import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
+import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -1160,6 +1161,18 @@ function handleParsedMessage(
         toolName: data.tool_name,
         elapsedSeconds: data.elapsed_time_seconds,
         outputDelta: typeof data.output_delta === "string" ? data.output_delta : undefined,
+      });
+      break;
+    }
+
+    case "transcription_progress": {
+      handleTranscriptionProgressMessage({
+        requestId: data.requestId,
+        phase: data.phase,
+        mode: data.mode,
+        timestamp: data.timestamp,
+        timing: data.timing,
+        error: data.error,
       });
       break;
     }

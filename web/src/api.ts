@@ -14,6 +14,21 @@ import type {
 import { encodeLogQuery, type LogQuery, type LogQueryResponse } from "../shared/logging.js";
 import type { HerdSessionsResponse } from "../shared/herd-types.js";
 import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-normalization.js";
+import { subscribeTranscriptionProgress } from "./transcription-progress.js";
+import type {
+  VoiceTranscriptionMode,
+  VoiceTranscriptionPhase,
+  VoiceTranscriptionProgressEvent,
+  VoiceTranscriptionTiming,
+} from "./transcription-progress.js";
+
+export type {
+  VoiceTranscriptionMode,
+  VoiceTranscriptionPhase,
+  VoiceTranscriptionProgressEvent,
+  VoiceTranscriptionProgressPhase,
+  VoiceTranscriptionTiming,
+} from "./transcription-progress.js";
 
 const BASE = "/api";
 const TRANSCRIPTION_REQUEST_BASE_TIMEOUT_MS = 45_000;
@@ -753,9 +768,6 @@ export interface TranscriptionLogEntry extends TranscriptionLogIndexEntry {
   } | null;
 }
 
-export type VoiceTranscriptionMode = "dictation" | "edit" | "append";
-export type VoiceTranscriptionPhase = "preparing" | "transcribing" | "enhancing" | "editing" | "appending";
-
 export interface VoiceTranscriptionResult {
   mode?: VoiceTranscriptionMode;
   text: string;
@@ -763,6 +775,15 @@ export interface VoiceTranscriptionResult {
   instructionText?: string;
   backend: string;
   enhanced: boolean;
+  timing?: VoiceTranscriptionTiming;
+}
+
+function createTranscriptionRequestId(): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `tx-${Date.now()}-${random}`;
 }
 
 export interface NamerLogIndexEntry {
@@ -1387,16 +1408,38 @@ export const api = {
       composerText?: string;
       /** Called when transcription phase changes (e.g. first stream ack -> "transcribing"). */
       onPhase?: (phase: VoiceTranscriptionPhase) => void;
+      /** Stable request id for correlating WebSocket progress with this HTTP request. */
+      requestId?: string;
+      /** Detailed progress/timing hook used by validation and mobile Safari diagnostics. */
+      onProgress?: (event: VoiceTranscriptionProgressEvent) => void;
     },
   ): Promise<VoiceTranscriptionResult> => {
     const mode = options?.mode ?? "dictation";
+    const requestId = options?.requestId ?? createTranscriptionRequestId();
     const audioFileName = resolveAudioUploadFilename(audio.type);
     const canUseRawAudioTransport = mode === "dictation" && options?.composerText === undefined;
+    const emitProgress = (event: Omit<VoiceTranscriptionProgressEvent, "requestId" | "timestamp">) => {
+      options?.onProgress?.({
+        requestId,
+        timestamp: Date.now(),
+        ...event,
+      });
+    };
+    const applyProgressPhase = (event: VoiceTranscriptionProgressEvent) => {
+      options?.onProgress?.(event);
+      if (event.phase === "complete" || event.phase === "error") return;
+      options?.onPhase?.(event.phase);
+    };
+    const unsubscribeProgress =
+      options?.sessionId && options?.requestId
+        ? subscribeTranscriptionProgress(requestId, applyProgressPhase)
+        : () => {};
     const query = new URLSearchParams();
     if (options?.backend) query.set("backend", options.backend);
     if (mode) query.set("mode", mode);
     if (options?.sessionId) query.set("sessionId", options.sessionId);
     if (options?.threadKey) query.set("threadKey", options.threadKey);
+    if (options?.requestId) query.set("requestId", requestId);
     const path = `${BASE}/transcribe${query.size > 0 ? `?${query.toString()}` : ""}`;
     const headers = new Headers();
     let body: BodyInit;
@@ -1412,6 +1455,7 @@ export const api = {
       if (options?.sessionId) form.append("sessionId", options.sessionId);
       if (options?.threadKey) form.append("threadKey", options.threadKey);
       if (options?.composerText !== undefined) form.append("composerText", options.composerText);
+      if (options?.requestId) form.append("requestId", requestId);
       body = form;
     }
     // This timeout only covers the pre-SSE phase (audio upload/body read +
@@ -1422,10 +1466,21 @@ export const api = {
     const timeout = setTimeout(() => controller.abort(), timeoutMs);
     let res: Response;
     options?.onPhase?.("preparing");
+    emitProgress({
+      source: "client",
+      phase: "preparing",
+      mode,
+      timing: {
+        audioSizeBytes: audio.size,
+        audioMimeType: audio.type || null,
+        audioFileName,
+      },
+    });
     try {
       res = await fetch(path, { method: "POST", body, headers, signal: controller.signal });
     } catch (err) {
       clearTimeout(timeout);
+      unsubscribeProgress();
       if (err instanceof DOMException && err.name === "AbortError") {
         throw new Error(
           `Transcription timed out after ${Math.round(timeoutMs / 1000)}s — sending audio or starting transcription took too long.`,
@@ -1435,60 +1490,74 @@ export const api = {
     }
     clearTimeout(timeout);
     if (!res.ok) {
+      unsubscribeProgress();
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error((err as { error?: string }).error || res.statusText);
     }
 
     // Parse SSE stream for phase-aware progress
-    if (!res.body) throw new Error("No response body");
+    if (!res.body) {
+      unsubscribeProgress();
+      throw new Error("No response body");
+    }
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
     let result: VoiceTranscriptionResult | null = null;
     let phaseAcked = false;
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      const chunks = buffer.split("\n\n");
-      buffer = chunks.pop() || "";
+        const chunks = buffer.split("\n\n");
+        buffer = chunks.pop() || "";
 
-      for (const chunk of chunks) {
-        if (!chunk.trim()) continue;
-        let eventType = "";
-        let data = "";
-        for (const line of chunk.split("\n")) {
-          if (line.startsWith("event:")) eventType = line.slice(6).trim();
-          else if (line.startsWith("data:")) data = line.slice(5).trim();
-        }
-        if (!data) continue;
-        if (!phaseAcked && eventType !== "phase") {
-          options?.onPhase?.("transcribing");
-          phaseAcked = true;
-        }
-
-        const parsed = JSON.parse(data);
-        if (eventType === "phase") {
-          const nextPhase = parsed.phase as VoiceTranscriptionPhase | null | undefined;
-          if (nextPhase) {
-            options?.onPhase?.(nextPhase);
+        for (const chunk of chunks) {
+          if (!chunk.trim()) continue;
+          let eventType = "";
+          let data = "";
+          for (const line of chunk.split("\n")) {
+            if (line.startsWith("event:")) eventType = line.slice(6).trim();
+            else if (line.startsWith("data:")) data = line.slice(5).trim();
+          }
+          if (!data) continue;
+          if (!phaseAcked && eventType !== "phase") {
+            options?.onPhase?.("transcribing");
+            emitProgress({ source: "sse", phase: "transcribing", mode });
             phaseAcked = true;
           }
-        } else if (eventType === "stt_complete") {
-          const nextPhase = parsed.nextPhase as VoiceTranscriptionPhase | null | undefined;
-          if (nextPhase) {
-            options?.onPhase?.(nextPhase);
-          } else if (parsed.willEnhance) {
-            options?.onPhase?.("enhancing");
+
+          const parsed = JSON.parse(data);
+          if (eventType === "phase") {
+            const nextPhase = parsed.phase as VoiceTranscriptionPhase | null | undefined;
+            if (nextPhase) {
+              options?.onPhase?.(nextPhase);
+              emitProgress({ source: "sse", phase: nextPhase, mode, timing: parsed.timing });
+              phaseAcked = true;
+            }
+          } else if (eventType === "stt_complete") {
+            const nextPhase = parsed.nextPhase as VoiceTranscriptionPhase | null | undefined;
+            if (nextPhase) {
+              options?.onPhase?.(nextPhase);
+              emitProgress({ source: "sse", phase: nextPhase, mode, timing: parsed.timing });
+            } else if (parsed.willEnhance) {
+              options?.onPhase?.("enhancing");
+              emitProgress({ source: "sse", phase: "enhancing", mode, timing: parsed.timing });
+            }
+          } else if (eventType === "result") {
+            result = parsed;
+            emitProgress({ source: "sse", phase: "complete", mode, timing: result?.timing });
+          } else if (eventType === "error") {
+            emitProgress({ source: "sse", phase: "error", mode, error: parsed.error || "Transcription failed" });
+            throw new Error(parsed.error || "Transcription failed");
           }
-        } else if (eventType === "result") {
-          result = parsed;
-        } else if (eventType === "error") {
-          throw new Error(parsed.error || "Transcription failed");
         }
       }
+    } finally {
+      unsubscribeProgress();
     }
 
     if (!result) throw new Error("Stream ended without transcription result");

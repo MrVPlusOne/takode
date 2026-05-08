@@ -756,6 +756,22 @@ export type BrowserIncomingMessageBase =
       /** Codex-only: incremental terminal output chunk from commandExecution/outputDelta. */
       output_delta?: string;
     }
+  | {
+      type: "transcription_progress";
+      requestId: string;
+      phase: "transcribing" | "enhancing" | "editing" | "appending" | "complete" | "error";
+      mode?: "dictation" | "edit" | "append";
+      timestamp: number;
+      timing?: {
+        uploadDurationMs?: number;
+        sttDurationMs?: number;
+        enhancementDurationMs?: number;
+        audioSizeBytes?: number;
+        audioMimeType?: string | null;
+        audioFileName?: string | null;
+      };
+      error?: string;
+    }
   | { type: "tool_use_summary"; summary: string; tool_use_ids: string[] }
   | {
       type: "status_change";

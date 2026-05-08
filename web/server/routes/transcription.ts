@@ -23,6 +23,17 @@ import { buildThreadWindowSync } from "../../shared/thread-window.js";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 
 const TRANSCRIPTION_THREAD_CONTEXT_TURNS = 12;
+type TranscriptionMode = "dictation" | "edit" | "append";
+type TranscriptionProgressPhase = "transcribing" | "enhancing" | "editing" | "appending" | "complete" | "error";
+
+interface TranscriptionServerTiming {
+  uploadDurationMs?: number;
+  sttDurationMs?: number;
+  enhancementDurationMs?: number;
+  audioSizeBytes?: number;
+  audioMimeType?: string | null;
+  audioFileName?: string | null;
+}
 
 export function createTranscriptionRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -86,6 +97,33 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       sessionName: sessionNames.getName(sessionId),
       activeSessionNames: activeSessionNames.length > 0 ? activeSessionNames : undefined,
     };
+  }
+
+  function emitTranscriptionProgress({
+    sessionId,
+    requestId,
+    phase,
+    mode,
+    timing,
+    error,
+  }: {
+    sessionId: string | undefined;
+    requestId: string | undefined;
+    phase: TranscriptionProgressPhase;
+    mode?: TranscriptionMode;
+    timing?: TranscriptionServerTiming;
+    error?: string;
+  }): void {
+    if (!sessionId || !requestId) return;
+    wsBridge.broadcastToSession(sessionId, {
+      type: "transcription_progress",
+      requestId,
+      phase,
+      mode,
+      timestamp: Date.now(),
+      ...(timing ? { timing } : {}),
+      ...(error ? { error } : {}),
+    });
   }
 
   // ─── Enhancement tester (debug tool) ───────────────────────────────
@@ -172,6 +210,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     let composerText: string | undefined;
     let requestedBackend: string | undefined;
     let rawThreadKey: string | undefined;
+    let transcriptionRequestId: string | undefined;
 
     if (contentType.toLowerCase().startsWith("multipart/form-data")) {
       const body = await c.req.parseBody();
@@ -187,6 +226,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       composerText = typeof body["composerText"] === "string" ? body["composerText"] : undefined;
       requestedBackend = typeof body["backend"] === "string" ? body["backend"] : undefined;
       rawThreadKey = typeof body["threadKey"] === "string" ? body["threadKey"] : undefined;
+      transcriptionRequestId = typeof body["requestId"] === "string" ? body["requestId"] : undefined;
     } else {
       buf = Buffer.from(await c.req.arrayBuffer());
       if (buf.length === 0) {
@@ -199,6 +239,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       composerText = c.req.query("composerText") || undefined;
       requestedBackend = c.req.query("backend") || undefined;
       rawThreadKey = c.req.query("threadKey") || undefined;
+      transcriptionRequestId = c.req.query("requestId") || undefined;
     }
 
     const uploadDurationMs = Date.now() - requestStart;
@@ -206,6 +247,12 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     const threadKey = normalizeTranscriptionThreadKey(rawThreadKey);
     const { default: defaultBackend } = getAvailableBackends();
     const backend = requestedBackend || defaultBackend;
+    const uploadTiming = {
+      uploadDurationMs,
+      audioSizeBytes: buf.length,
+      audioMimeType: audioMimeType ?? null,
+      audioFileName: audioFileName ?? null,
+    };
 
     if (!backend) {
       return c.json(
@@ -236,6 +283,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     }
 
     const uploadFormat = resolveAudioUploadFormat(buf, audioMimeType, audioFileName);
+    emitTranscriptionProgress({
+      sessionId,
+      requestId: transcriptionRequestId,
+      phase: "transcribing",
+      mode,
+      timing: uploadTiming,
+    });
 
     // The browser must finish sending the request body before we can open the SSE
     // response. The raw-audio dictation path skips multipart parsing overhead,
@@ -339,6 +393,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
         });
 
         if (willRunVoiceEdit) {
+          const enhancementStart = Date.now();
+          emitTranscriptionProgress({
+            sessionId,
+            requestId: transcriptionRequestId,
+            phase: "editing",
+            mode,
+            timing: { ...uploadTiming, sttDurationMs },
+          });
           const result = await applyVoiceEdit(
             rawText,
             composerText!,
@@ -354,6 +416,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
             },
           );
+          const enhancementDurationMs = Date.now() - enhancementStart;
 
           addTranscriptionLogEntry({
             sessionId: sessionId ?? null,
@@ -376,6 +439,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               skipReason: result._debug.skipReason,
             },
           });
+          emitTranscriptionProgress({
+            sessionId,
+            requestId: transcriptionRequestId,
+            phase: "complete",
+            mode,
+            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
+          });
 
           await stream.writeSSE({
             event: "result",
@@ -386,6 +456,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               instructionText: rawText,
               backend: usedBackend,
               enhanced: true,
+              timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
             }),
           });
           return;
@@ -393,6 +464,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
         // Voice append: clean transcribed speech for insertion at cursor position
         if (willRunVoiceAppend) {
+          const enhancementStart = Date.now();
+          emitTranscriptionProgress({
+            sessionId,
+            requestId: transcriptionRequestId,
+            phase: "appending",
+            mode,
+            timing: { ...uploadTiming, sttDurationMs },
+          });
           const result = await applyVoiceAppend(
             rawText,
             composerText!,
@@ -408,6 +487,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
             },
           );
+          const enhancementDurationMs = Date.now() - enhancementStart;
 
           addTranscriptionLogEntry({
             sessionId: sessionId ?? null,
@@ -430,6 +510,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               skipReason: result._debug.skipReason,
             },
           });
+          emitTranscriptionProgress({
+            sessionId,
+            requestId: transcriptionRequestId,
+            phase: "complete",
+            mode,
+            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
+          });
 
           await stream.writeSSE({
             event: "result",
@@ -439,6 +526,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               rawText,
               backend: usedBackend,
               enhanced: true,
+              timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
             }),
           });
           return;
@@ -446,6 +534,14 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
 
         // Tier 2: Context-aware enhancement (OpenAI backend only)
         if (willEnhanceDictation) {
+          const enhancementStart = Date.now();
+          emitTranscriptionProgress({
+            sessionId,
+            requestId: transcriptionRequestId,
+            phase: "enhancing",
+            mode,
+            timing: { ...uploadTiming, sttDurationMs },
+          });
           const result = await enhanceTranscript(
             rawText,
             sessionContext.messageHistory,
@@ -459,6 +555,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               customVocabulary: settings.transcriptionConfig.customVocabulary || undefined,
             },
           );
+          const enhancementDurationMs = Date.now() - enhancementStart;
 
           // Log for debug panel
           addTranscriptionLogEntry({
@@ -484,6 +581,13 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
                 }
               : null,
           });
+          emitTranscriptionProgress({
+            sessionId,
+            requestId: transcriptionRequestId,
+            phase: "complete",
+            mode,
+            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
+          });
 
           await stream.writeSSE({
             event: "result",
@@ -493,6 +597,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               rawText: result.rawText,
               backend: usedBackend,
               enhanced: result.enhanced,
+              timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
             }),
           });
           return;
@@ -513,14 +618,35 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           audioBytes: Buffer.from(buf),
           enhancement: null,
         });
+        emitTranscriptionProgress({
+          sessionId,
+          requestId: transcriptionRequestId,
+          phase: "complete",
+          mode,
+          timing: { ...uploadTiming, sttDurationMs },
+        });
 
         await stream.writeSSE({
           event: "result",
-          data: JSON.stringify({ mode, text: rawText, backend: usedBackend, enhanced: false }),
+          data: JSON.stringify({
+            mode,
+            text: rawText,
+            backend: usedBackend,
+            enhanced: false,
+            timing: { ...uploadTiming, sttDurationMs },
+          }),
         });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);
         console.error(`[transcription] ${backend} failed:`, msg);
+        emitTranscriptionProgress({
+          sessionId,
+          requestId: transcriptionRequestId,
+          phase: "error",
+          mode,
+          timing: uploadTiming,
+          error: msg,
+        });
         await stream.writeSSE({ event: "error", data: JSON.stringify({ error: `Transcription failed: ${msg}` }) });
       }
     });

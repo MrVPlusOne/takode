@@ -39,7 +39,8 @@ import { collectPlainTakodeReferences, parseCodexModeSlashCommand } from "./comp
 import { useComposerAutocomplete } from "./use-composer-autocomplete.js";
 import type { FailedTranscription, VoiceEditProposal } from "./composer-voice-types.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
-import { api } from "../api.js";
+import { api, type VoiceTranscriptionPhase, type VoiceTranscriptionProgressEvent } from "../api.js";
+import { recordFrontendPerfEntry } from "../utils/frontend-perf-recorder.js";
 import {
   buildVsCodeSelectionPrompt,
   formatVsCodeSelectionAttachmentLabel,
@@ -71,6 +72,18 @@ const EMPTY_SKILL_REFERENCES: CodexSkillReference[] = [];
 const EMPTY_APP_REFERENCES: CodexAppReference[] = [];
 const EMPTY_PENDING_USER_UPLOADS: PendingUserUpload[] = [];
 const EMPTY_COMPOSER_IMAGES: ComposerDraftImage[] = [];
+
+function nowMs(): number {
+  return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
+}
+
+function createVoiceTranscriptionRequestId(): string {
+  const random =
+    typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `voice-${Date.now()}-${random}`;
+}
 
 export function Composer({
   sessionId,
@@ -309,6 +322,37 @@ export function Composer({
     cursorContext: { before: string; after: string },
     contextThreadKey?: string,
   ) {
+    const requestId = createVoiceTranscriptionRequestId();
+    const startedAt = nowMs();
+    const recordProgress = (progress: VoiceTranscriptionProgressEvent) => {
+      recordFrontendPerfEntry({
+        kind: "voice_transcription_progress",
+        timestamp: progress.timestamp,
+        sessionId,
+        requestId: progress.requestId,
+        phase: progress.phase,
+        source: progress.source,
+        elapsedMs: Math.max(0, nowMs() - startedAt),
+        ...(progress.mode ? { mode: progress.mode } : {}),
+        ...(progress.timing?.audioSizeBytes !== undefined ? { audioSizeBytes: progress.timing.audioSizeBytes } : {}),
+        ...(progress.timing?.audioMimeType !== undefined ? { audioMimeType: progress.timing.audioMimeType } : {}),
+        ...(progress.timing?.audioFileName !== undefined ? { audioFileName: progress.timing.audioFileName } : {}),
+        ...(progress.timing?.uploadDurationMs !== undefined
+          ? { uploadDurationMs: progress.timing.uploadDurationMs }
+          : {}),
+        ...(progress.timing?.sttDurationMs !== undefined ? { sttDurationMs: progress.timing.sttDurationMs } : {}),
+        ...(progress.timing?.enhancementDurationMs !== undefined
+          ? { enhancementDurationMs: progress.timing.enhancementDurationMs }
+          : {}),
+      });
+    };
+    const transcriptionOptions = {
+      sessionId,
+      threadKey: contextThreadKey,
+      requestId,
+      onPhase: (phase: VoiceTranscriptionPhase) => setTranscriptionPhase(phase),
+      onProgress: recordProgress,
+    };
     setIsTranscribing(true);
     setTranscriptionPhase("preparing");
     try {
@@ -318,11 +362,9 @@ export function Composer({
           instructionText,
           rawText,
         } = await api.transcribe(blob, {
+          ...transcriptionOptions,
           mode: "edit",
-          sessionId,
-          threadKey: contextThreadKey,
           composerText,
-          onPhase: (phase) => setTranscriptionPhase(phase),
         });
         setVoiceEditProposal({
           originalText: composerText,
@@ -331,11 +373,9 @@ export function Composer({
         });
       } else if (mode === "append") {
         const { text: appendText } = await api.transcribe(blob, {
+          ...transcriptionOptions,
           mode: "append",
-          sessionId,
-          threadKey: contextThreadKey,
           composerText,
-          onPhase: (phase) => setTranscriptionPhase(phase),
         });
         const { before, after } = cursorContext;
         const needsSpace = before.length > 0 && !/\s$/.test(before);
@@ -344,10 +384,8 @@ export function Composer({
         setVoiceEditProposal(null);
       } else {
         const { text: transcript } = await api.transcribe(blob, {
+          ...transcriptionOptions,
           mode: "dictation",
-          sessionId,
-          threadKey: contextThreadKey,
-          onPhase: (phase) => setTranscriptionPhase(phase),
         });
         setText(transcript);
         setVoiceEditProposal(null);

@@ -1,6 +1,10 @@
 // @vitest-environment jsdom
 import { ApiError, api, getTranscriptionRequestTimeoutMs, resolveAudioUploadFilename } from "./api.js";
 import type { VoiceTranscriptionResult } from "./api.js";
+import {
+  _clearTranscriptionProgressHandlersForTest,
+  handleTranscriptionProgressMessage,
+} from "./transcription-progress.js";
 
 const mockFetch = vi.fn();
 vi.stubGlobal("fetch", mockFetch);
@@ -16,6 +20,7 @@ function mockResponse(data: unknown, status = 200) {
 
 beforeEach(() => {
   mockFetch.mockReset();
+  _clearTranscriptionProgressHandlersForTest();
 });
 
 // ===========================================================================
@@ -540,6 +545,74 @@ describe("transcribe", () => {
 
     await pending;
     expect(onPhase.mock.calls).toEqual([["preparing"], ["transcribing"]]);
+  });
+
+  it("accepts request-scoped WebSocket progress before mobile fetch streams the SSE response", async () => {
+    const encoder = new TextEncoder();
+    let resolveResponse: ((value: Response | PromiseLike<Response>) => void) | undefined;
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    mockFetch.mockImplementationOnce(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolveResponse = resolve;
+        }),
+    );
+
+    const onPhase = vi.fn();
+    const onProgress = vi.fn();
+    const pending = api.transcribe(new Blob([new Uint8Array([1, 2, 3])], { type: "audio/mp4" }), {
+      sessionId: "session-1",
+      requestId: "voice-request-1",
+      onPhase,
+      onProgress,
+    });
+
+    expect(onPhase.mock.calls).toEqual([["preparing"]]);
+    handleTranscriptionProgressMessage({
+      requestId: "voice-request-1",
+      phase: "transcribing",
+      mode: "dictation",
+      timestamp: 123,
+      timing: { uploadDurationMs: 987, audioSizeBytes: 3 },
+    });
+    expect(onPhase.mock.calls).toEqual([["preparing"], ["transcribing"]]);
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        requestId: "voice-request-1",
+        phase: "transcribing",
+        source: "websocket",
+        timing: expect.objectContaining({ uploadDurationMs: 987 }),
+      }),
+    );
+
+    if (!resolveResponse) throw new Error("transcription response resolver was not initialized");
+    resolveResponse(
+      new Response(
+        new ReadableStream({
+          start(controller) {
+            streamController = controller;
+          },
+        }),
+        { status: 200, headers: { "Content-Type": "text/event-stream" } },
+      ),
+    );
+    await Promise.resolve();
+
+    if (!streamController) throw new Error("stream controller was not initialized");
+    streamController.enqueue(
+      encoder.encode(
+        `event: result\ndata: ${JSON.stringify({
+          text: "hello",
+          backend: "openai",
+          enhanced: false,
+        } satisfies VoiceTranscriptionResult)}\n\n`,
+      ),
+    );
+    streamController.close();
+
+    await pending;
+    const [url] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/transcribe?mode=dictation&sessionId=session-1&requestId=voice-request-1");
   });
 
   it("uses raw audio transport for empty-draft dictation and parses the SSE result", async () => {
