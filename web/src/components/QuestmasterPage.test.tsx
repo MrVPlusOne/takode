@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { act, createEvent, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import { multiWordMatch, normalizeForSearch } from "../../shared/search-utils.js";
+import { compareSearchRanks, rankSearchFields } from "../../shared/search-utils.js";
 import type { QuestmasterTask } from "../types.js";
 
 const mockCreateQuest = vi.fn();
@@ -110,7 +110,7 @@ type MockQuestPageOptions = {
   sortDirection?: "asc" | "desc";
 };
 
-type MockSearchRank = [number, number, number, number];
+type MockSearchRank = NonNullable<ReturnType<typeof rankSearchFields>>;
 
 function buildVerificationQuest(input: {
   id: string;
@@ -287,45 +287,23 @@ function getMockSearchRank(quest: QuestmasterTask, query: string): MockSearchRan
   const fields = [
     { rank: 0, text: quest.questId },
     { rank: 1, text: quest.title },
-    { rank: 2, text: quest.tldr },
-    { rank: 3, text: "description" in quest ? quest.description : undefined },
-    { rank: 4, text: quest.status === "done" && quest.cancelled !== true ? quest.debriefTldr : undefined },
-    { rank: 5, text: quest.status === "done" && quest.cancelled !== true ? quest.debrief : undefined },
+    { rank: 2, text: (quest.tags ?? []).join(" ") },
+    { rank: 3, text: quest.tldr },
+    { rank: 4, text: "description" in quest ? quest.description : undefined },
+    { rank: 5, text: quest.status === "done" && quest.cancelled !== true ? quest.debriefTldr : undefined },
+    { rank: 6, text: quest.status === "done" && quest.cancelled !== true ? quest.debrief : undefined },
     ...("feedback" in quest
       ? (quest.feedback ?? []).flatMap((entry) => [
-          { rank: 6, text: entry.tldr },
-          { rank: 7, text: entry.text },
+          { rank: 7, text: entry.tldr },
+          { rank: 8, text: entry.text },
         ])
       : []),
   ];
-  let best: MockSearchRank | null = null;
-  for (const field of fields) {
-    const rank = getMockFieldSearchRank(field.text, field.rank, query);
-    if (!rank) continue;
-    if (!best || compareMockRank(rank, best) < 0) best = rank;
-  }
-  return best;
-}
-
-function getMockFieldSearchRank(
-  fieldText: string | undefined,
-  fieldRank: number,
-  query: string,
-): MockSearchRank | null {
-  if (!fieldText || !multiWordMatch(fieldText, query)) return null;
-  const normalized = normalizeForSearch(fieldText);
-  const normalizedQuery = normalizeForSearch(query);
-  const words = normalizedQuery.split(/\s+/).filter(Boolean);
-  const positions = words.map((word) => normalized.indexOf(word)).filter((index) => index >= 0);
-  return [fieldRank, normalized.indexOf(normalizedQuery), Math.min(...positions), normalized.length];
+  return rankSearchFields(fields, query);
 }
 
 function compareMockRank(left: MockSearchRank, right: MockSearchRank) {
-  for (let index = 0; index < left.length; index += 1) {
-    const diff = left[index] - right[index];
-    if (diff !== 0) return diff;
-  }
-  return 0;
+  return compareSearchRanks(left, right);
 }
 
 function compareMockQuestIds(left: QuestmasterTask, right: QuestmasterTask) {
@@ -1055,7 +1033,7 @@ describe("QuestmasterPage status display", () => {
 
   it("keeps compact column sorting when search is empty, then ranks non-empty searches by relevance", async () => {
     // Empty search should honor the selected compact sort, but typing a query
-    // should lift the direct title match above weaker description matches.
+    // should let exact word matches beat title-only prefix matches.
     mockGetSettings.mockResolvedValueOnce({
       questmasterViewMode: "compact",
       questmasterCompactSort: { column: "title", direction: "asc" },
@@ -1068,7 +1046,7 @@ describe("QuestmasterPage status display", () => {
           title: "Position newly created quest tabs after Main",
         }),
         status: "done",
-        description: "Direct title match should win once search is active.",
+        description: "Title has prefix-token relevance once search is active.",
         updatedAt: 1_000,
       } as QuestmasterTask,
       {
@@ -1094,7 +1072,7 @@ describe("QuestmasterPage status display", () => {
 
     await enterBackendSearch(screen.getByPlaceholderText("Search or #tag..."), "new tab");
 
-    expect(compactRowQuestIds()).toEqual(["q-70", "q-71"]);
+    expect(compactRowQuestIds()).toEqual(["q-71", "q-70"]);
   });
 
   it("toggles compact table headers, persists the choice, and updates row order", async () => {
@@ -1196,8 +1174,8 @@ describe("QuestmasterPage status display", () => {
   });
 
   it("globally ranks card search results instead of preserving status section order", async () => {
-    // Search should put the best match first across all statuses, so an older
-    // done title match beats a newer in-progress description-only match.
+    // Search should put the best match first across all statuses, so an exact
+    // description match beats a title-only prefix match.
     mockGetSettings.mockResolvedValueOnce({
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
@@ -1210,7 +1188,7 @@ describe("QuestmasterPage status display", () => {
           title: "Position newly created quest tabs after Main",
         }),
         status: "done",
-        description: "Older card with direct title relevance.",
+        description: "Older card with title prefix relevance.",
         updatedAt: 1_000,
       } as QuestmasterTask,
       {
@@ -1232,7 +1210,7 @@ describe("QuestmasterPage status display", () => {
 
     expect(
       Array.from(document.querySelectorAll<HTMLElement>("[data-quest-id]")).map((el) => el.dataset.questId),
-    ).toEqual(["q-80", "q-81"]);
+    ).toEqual(["q-81", "q-80"]);
   });
 
   it("applies the existing status dropdown filter to the flat compact table", async () => {

@@ -1,5 +1,11 @@
 import { describe, it, expect } from "vitest";
-import { expandCamelCase, normalizeForSearch, multiWordMatch } from "./search-utils.js";
+import {
+  expandCamelCase,
+  normalizeForSearch,
+  multiWordMatch,
+  rankSearchFields,
+  tokenizeForSearch,
+} from "./search-utils.js";
 
 describe("expandCamelCase", () => {
   it("splits basic CamelCase", () => {
@@ -52,6 +58,10 @@ describe("normalizeForSearch", () => {
     expect(normalizeForSearch("HTMLParser")).toBe("html parser");
   });
 
+  it("splits divided words", () => {
+    expect(normalizeForSearch("memory-ui_setting")).toBe("memory ui setting");
+  });
+
   it("trims whitespace", () => {
     expect(normalizeForSearch("  hello  ")).toBe("hello");
   });
@@ -95,5 +105,33 @@ describe("multiWordMatch", () => {
   it("handles CamelCase expansion", () => {
     // "plan mode" should match "ExitPlanMode" via CamelCase expansion
     expect(multiWordMatch("ExitPlanMode", "plan mode")).toBe(true);
+  });
+
+  it("matches word prefixes but not arbitrary mid-word substrings", () => {
+    expect(multiWordMatch("Questmaster user interface polish", "inter pol")).toBe(true);
+    expect(multiWordMatch("Remove remaining memory recall guidance", "memory ui")).toBe(false);
+    expect(multiWordMatch("Use required renameable server slugs", "ui")).toBe(false);
+  });
+
+  it("matches camelCase, PascalCase, and divided word tokens", () => {
+    expect(multiWordMatch("renderSearchHighlightText", "search high")).toBe(true);
+    expect(multiWordMatch("QuestmasterSearchPanel", "quest search")).toBe(true);
+    expect(multiWordMatch("memory-ui_setting", "memory ui setting")).toBe(true);
+  });
+});
+
+describe("tokenizeForSearch", () => {
+  it("returns searchable word tokens for divided and CamelCase input", () => {
+    expect(tokenizeForSearch("abc-def_ghi ExitPlanMode")).toEqual(["abc", "def", "ghi", "exit", "plan", "mode"]);
+  });
+});
+
+describe("rankSearchFields", () => {
+  it("prefers exact word matches over word-prefix matches", () => {
+    const exact = rankSearchFields([{ rank: 4, text: "build ui controls" }], "ui");
+    const prefix = rankSearchFields([{ rank: 1, text: "build uikit controls" }], "ui");
+    expect(exact).not.toBeNull();
+    expect(prefix).not.toBeNull();
+    expect(exact![0]).toBeLessThan(prefix![0]);
   });
 });

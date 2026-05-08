@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { applyQuestListFilters } from "./quest-list-filters.js";
+import { applyQuestListFilters, getQuestListPage } from "./quest-list-filters.js";
 import type { QuestDone, QuestmasterTask } from "./quest-types.js";
 
 function makeQuest(
@@ -78,6 +78,43 @@ describe("applyQuestListFilters", () => {
     // Text search should be case-insensitive and include quest id/title/description.
     const result = applyQuestListFilters(quests, { text: "cli" });
     expect(result.map((q) => q.questId)).toEqual(["q-2"]);
+  });
+
+  it("does not count arbitrary mid-word substrings as text matches", () => {
+    // The `memory ui` report showed bad matches where `ui` came from words
+    // like `guidance` or `required`; those should no longer keep a quest.
+    const bad = makeQuest({ questId: "q-20", title: "Fix memory defaults", status: "done", tags: ["memory"] });
+    bad.description = "Remove remaining memory recall guidance and required renameable slugs.";
+    const good = makeQuest({
+      questId: "q-21",
+      title: "Support memory settings",
+      status: "done",
+      tags: ["memory", "ui"],
+    });
+
+    expect(applyQuestListFilters([bad, good], { text: "memory ui" }).map((q) => q.questId)).toEqual(["q-21"]);
+  });
+
+  it("matches word prefixes, CamelCase, and divided word tokens", () => {
+    // Prefix matching should be token-aware across common code and title forms.
+    const camel = makeQuest({ questId: "q-22", title: "Fix QuestmasterSearchPanel", status: "idea" });
+    const divided = makeQuest({ questId: "q-23", title: "Tune memory-ui_setting flow", status: "idea" });
+
+    expect(applyQuestListFilters([camel], { text: "quest search" }).map((q) => q.questId)).toEqual(["q-22"]);
+    expect(applyQuestListFilters([divided], { text: "memory ui sett" }).map((q) => q.questId)).toEqual(["q-23"]);
+  });
+
+  it("ranks exact word matches before prefixes and tag matches before body matches", () => {
+    // Search ranking should keep q-1020 relevance ordering while tightening
+    // match quality: exact words first, then field weighting, then prefixes.
+    const tagMatch = makeQuest({ questId: "q-24", title: "Memory controls", status: "done", tags: ["ui"] });
+    const bodyMatch = makeQuest({ questId: "q-25", title: "Memory controls", status: "done" });
+    bodyMatch.description = "Body copy documents ui behavior.";
+    const prefixMatch = makeQuest({ questId: "q-26", title: "Memory uikit controls", status: "done" });
+
+    const result = getQuestListPage([prefixMatch, bodyMatch, tagMatch], { text: "memory ui" });
+
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-24", "q-25", "q-26"]);
   });
 
   it("filters by TLDR and still searches full feedback text when a feedback TLDR exists", () => {

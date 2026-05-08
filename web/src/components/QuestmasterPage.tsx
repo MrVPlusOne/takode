@@ -188,7 +188,7 @@ function questMatchesCurrentPageCorpus(
   const feedbackText =
     "feedback" in quest ? (quest.feedback ?? []).flatMap((entry) => [entry.tldr ?? "", entry.text]) : [];
   return multiWordMatch(
-    `${quest.questId}\n${quest.title}\n${quest.tldr ?? ""}\n${"description" in quest ? quest.description || "" : ""}\n${doneText}\n${feedbackText.join("\n")}`,
+    `${quest.questId}\n${quest.title}\n${(quest.tags ?? []).join("\n")}\n${quest.tldr ?? ""}\n${"description" in quest ? quest.description || "" : ""}\n${doneText}\n${feedbackText.join("\n")}`,
     query,
   );
 }

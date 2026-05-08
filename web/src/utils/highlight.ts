@@ -1,41 +1,58 @@
+import { tokenizeSearchText } from "../../shared/search-utils.js";
+
 export type HighlightPart = {
   text: string;
   matched: boolean;
 };
 
-function escapeRegExp(value: string): string {
-  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 /**
  * Split text into highlighted/unhighlighted parts for a search query.
- * Tries exact substring first, then falls back to per-word matching
- * (handles CamelCase queries like "plan mode" matching "ExitPlanMode").
+ * Highlights exact word and word-prefix matches so Questmaster search does not
+ * mark arbitrary mid-word substrings like `ui` inside `guidance`.
  */
 export function getHighlightParts(text: string, query: string): HighlightPart[] {
   if (!text) return [];
-  const trimmed = query.trim();
-  if (!trimmed) return [{ text, matched: false }];
+  const ranges = getHighlightRanges(text, query);
+  if (ranges.length === 0) return [{ text, matched: false }];
+  return splitHighlightParts(text, ranges);
+}
 
-  // Try exact substring match first
-  const exactPattern = new RegExp(`(${escapeRegExp(trimmed)})`, "ig");
-  const exactPieces = text.split(exactPattern).filter((p) => p.length > 0);
-  if (exactPieces.some((p) => p.toLowerCase() === trimmed.toLowerCase())) {
-    return exactPieces.map((piece) => ({
-      text: piece,
-      matched: piece.toLowerCase() === trimmed.toLowerCase(),
-    }));
+function getHighlightRanges(text: string, query: string): Array<{ start: number; end: number }> {
+  const words = tokenizeSearchText(query);
+  if (words.length === 0) return [];
+  const ranges: Array<{ start: number; end: number }> = [];
+  for (const token of tokenizeSearchText(text)) {
+    const match = words.find((word) => token.value === word.value || token.value.startsWith(word.value));
+    if (!match) continue;
+    ranges.push({ start: token.start, end: Math.min(token.end, token.start + match.value.length) });
   }
+  return mergeHighlightRanges(ranges);
+}
 
-  // Fallback: match each word independently (handles CamelCase matches)
-  const words = trimmed.split(/\s+/).filter(Boolean);
-  if (words.length <= 1) return [{ text, matched: false }];
+function mergeHighlightRanges(ranges: Array<{ start: number; end: number }>): Array<{ start: number; end: number }> {
+  const sorted = ranges
+    .filter((range) => range.end > range.start)
+    .sort((left, right) => left.start - right.start || left.end - right.end);
+  const merged: Array<{ start: number; end: number }> = [];
+  for (const range of sorted) {
+    const previous = merged.at(-1);
+    if (!previous || range.start >= previous.end) {
+      merged.push({ ...range });
+      continue;
+    }
+    previous.end = Math.max(previous.end, range.end);
+  }
+  return merged;
+}
 
-  const wordPattern = new RegExp(`(${words.map(escapeRegExp).join("|")})`, "ig");
-  const pieces = text.split(wordPattern).filter((p) => p.length > 0);
-  const wordSet = new Set(words.map((w) => w.toLowerCase()));
-  return pieces.map((piece) => ({
-    text: piece,
-    matched: wordSet.has(piece.toLowerCase()),
-  }));
+function splitHighlightParts(text: string, ranges: Array<{ start: number; end: number }>): HighlightPart[] {
+  const parts: HighlightPart[] = [];
+  let cursor = 0;
+  for (const range of ranges) {
+    if (cursor < range.start) parts.push({ text: text.slice(cursor, range.start), matched: false });
+    parts.push({ text: text.slice(range.start, range.end), matched: true });
+    cursor = range.end;
+  }
+  if (cursor < text.length) parts.push({ text: text.slice(cursor), matched: false });
+  return parts;
 }

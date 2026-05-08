@@ -23,11 +23,37 @@ describe("getHighlightParts", () => {
     ]);
   });
 
-  it("treats regex metacharacters as plain text", () => {
+  it("highlights divided word tokens independently", () => {
     expect(getHighlightParts("a+b a+b", "a+b")).toEqual([
-      { text: "a+b", matched: true },
+      { text: "a", matched: true },
+      { text: "+", matched: false },
+      { text: "b", matched: true },
       { text: " ", matched: false },
-      { text: "a+b", matched: true },
+      { text: "a", matched: true },
+      { text: "+", matched: false },
+      { text: "b", matched: true },
+    ]);
+  });
+
+  it("does not highlight arbitrary mid-word substrings", () => {
+    expect(getHighlightParts("memory recall guidance required", "memory ui")).toEqual([
+      { text: "memory", matched: true },
+      { text: " recall guidance required", matched: false },
+    ]);
+  });
+
+  it("highlights word prefixes and CamelCase tokens", () => {
+    expect(getHighlightParts("renderSearchHighlightText", "search high")).toEqual([
+      { text: "render", matched: false },
+      { text: "Search", matched: true },
+      { text: "High", matched: true },
+      { text: "lightText", matched: false },
+    ]);
+    expect(getHighlightParts("memory interface", "mem inter")).toEqual([
+      { text: "mem", matched: true },
+      { text: "ory ", matched: false },
+      { text: "inter", matched: true },
+      { text: "face", matched: false },
     ]);
   });
 });
