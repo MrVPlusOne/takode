@@ -109,6 +109,8 @@ export interface PersistedSession {
   completedBoard?: BoardRow[];
   /** Per-session notification inbox entries */
   notifications?: SessionNotification[];
+  /** History length after the latest leader-thread outcome validation pass. */
+  leaderThreadOutcomeValidatedHistoryLength?: number;
   /** Server-authoritative attention records for Main ledger rows and top chips */
   attentionRecords?: SessionAttentionRecord[];
   /** Monotonic status version for ordering notification summary updates. */

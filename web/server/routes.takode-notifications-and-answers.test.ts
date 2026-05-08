@@ -634,6 +634,27 @@ describe("Takode server-authoritative auth", () => {
     ]);
   });
 
+  it("accepts waiting notifications as non-question status markers", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "waiting", summary: "Waiting on reviewer" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      ok: true,
+      category: "waiting",
+      notificationId: 1,
+      rawNotificationId: "n-1",
+    });
+    expect(bridge._sessions["orch-1"].notifications).toMatchObject([
+      { category: "waiting", summary: "Waiting on reviewer", done: false },
+    ]);
+  });
+
   it("stores normalized suggested answers for needs-input notifications", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].messageHistory.push({
@@ -757,6 +778,27 @@ describe("Takode server-authoritative auth", () => {
     expect(bridge._sessions["orch-1"].notifications).toEqual([]);
   });
 
+  it("rejects suggested answers and questions for waiting notifications", async () => {
+    setupTakodeSessions();
+
+    const suggested = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "waiting", summary: "Waiting", suggestedAnswers: ["ok"] }),
+    });
+    const questioned = await app.request("/api/sessions/orch-1/notify", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ category: "waiting", summary: "Waiting", questions: [{ prompt: "Ship?" }] }),
+    });
+
+    expect(suggested.status).toBe(400);
+    expect((await suggested.json()).error).toBe("suggestedAnswers are only supported for needs-input notifications");
+    expect(questioned.status).toBe(400);
+    expect((await questioned.json()).error).toBe("questions are only supported for needs-input notifications");
+    expect(bridge._sessions["orch-1"].notifications).toEqual([]);
+  });
+
   it("rejects mixed legacy and per-question suggestions", async () => {
     setupTakodeSessions();
 
@@ -831,6 +873,7 @@ describe("Takode server-authoritative auth", () => {
     });
 
     expect(res.status).toBe(400);
+    expect((await res.json()).error).toBe('category must be "needs-input", "waiting", or "review"');
   });
 
   it("rejects cross-session notify calls", async () => {

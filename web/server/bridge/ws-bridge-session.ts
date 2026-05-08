@@ -242,6 +242,8 @@ export interface Session {
   boardDispatchStates: Map<string, { signature: string; warnedAt: number | null; notificationId?: string | null }>;
   /** Per-session notification inbox entries from `takode notify`. */
   notifications: SessionNotification[];
+  /** History length after the latest leader-thread outcome validation pass. */
+  leaderThreadOutcomeValidatedHistoryLength?: number;
   /** Server-authoritative attention records for Main ledger rows and top chips. */
   attentionRecords: SessionAttentionRecord[];
   /** Monotonic counter for notification IDs (survives deletion without collisions). */

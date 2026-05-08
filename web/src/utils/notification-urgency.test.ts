@@ -13,6 +13,11 @@ describe("getHighestNotificationUrgency", () => {
     expect(getHighestNotificationUrgency([{ category: "review" } as any])).toBe("review");
   });
 
+  it("does not treat waiting as an attention urgency", () => {
+    // Waiting is visible status only; it must not create amber or review urgency.
+    expect(getHighestNotificationUrgency([{ category: "waiting" } as any])).toBeNull();
+  });
+
   it("gives needs-input precedence over review", () => {
     // needs-input must win whenever it appears alongside active reviews.
     expect(getHighestNotificationUrgency([{ category: "review" } as any, { category: "needs-input" } as any])).toBe(

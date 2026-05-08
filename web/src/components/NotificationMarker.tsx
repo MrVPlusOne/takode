@@ -28,7 +28,7 @@ export function NotificationMarker({
   currentThreadKey,
   onSelectThread,
 }: {
-  category: "needs-input" | "review";
+  category: SessionNotification["category"];
   summary?: string;
   sessionId?: string;
   messageId?: string;
@@ -40,7 +40,8 @@ export function NotificationMarker({
   onSelectThread?: (threadKey: string) => void;
 }) {
   const isAction = category === "needs-input";
-  const label = summary || (isAction ? "Needs input" : "Ready for review");
+  const isReview = category === "review";
+  const label = summary || (isAction ? "Needs input" : isReview ? "Ready for review" : "Waiting");
 
   // Find the matching notification in the store to enable interactive controls
   const notif = useStore((s) => {
@@ -55,7 +56,7 @@ export function NotificationMarker({
   const canToggleDone = !!onToggleDone || (!!sessionId && (!!messageId || !!notificationId));
   const isDone = doneOverride ?? notif?.done ?? false;
   const isToggleReady = !!onToggleDone || !!notif;
-  const showReplyButton = !!showReplyAction && !!notif && !!sessionId && (!isAction || !isDone);
+  const showReplyButton = !!showReplyAction && !!notif && !!sessionId && (isAction ? !isDone : isReview);
   const questionViews = useMemo(
     () => (isAction && !isDone && notif ? getNeedsInputQuestionViews(notif) : []),
     [isAction, isDone, notif],
@@ -68,14 +69,13 @@ export function NotificationMarker({
   useEffect(() => {
     setAnswersByQuestion({});
   }, [notif?.id, isDone]);
-  const toggleLabel =
-    category === "review"
-      ? isDone
-        ? "Mark as not reviewed"
-        : "Mark as reviewed"
-      : isDone
-        ? "Mark unhandled"
-        : "Mark handled";
+  const toggleLabel = isReview
+    ? isDone
+      ? "Mark as not reviewed"
+      : "Mark as reviewed"
+    : isDone
+      ? "Mark unhandled"
+      : "Mark handled";
 
   const toggleDone = useCallback(
     (e: MouseEvent) => {
@@ -212,7 +212,9 @@ export function NotificationMarker({
           ? "border-cc-border bg-cc-hover/30 text-cc-muted opacity-60"
           : isAction
             ? "border-amber-500/20 bg-amber-500/5 text-amber-400"
-            : "border-emerald-500/20 bg-emerald-500/5 text-cc-muted"
+            : isReview
+              ? "border-emerald-500/20 bg-emerald-500/5 text-cc-muted"
+              : "border-cc-border/60 bg-cc-hover/20 text-cc-muted"
       }`}
       data-notification-id={notif?.id ?? notificationId ?? ""}
       data-notification-category={category}
@@ -325,7 +327,7 @@ function findNotification({
   sessionId: string;
   notificationId?: string;
   messageId?: string;
-  category: "needs-input" | "review";
+  category: SessionNotification["category"];
 }): SessionNotification | null {
   const notifications = useStore.getState().sessionNotifications.get(sessionId);
   if (!notifications) return null;

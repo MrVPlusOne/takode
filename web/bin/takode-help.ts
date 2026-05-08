@@ -186,6 +186,7 @@ const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--suggest <answe
 
 Categories:
   needs-input  User decision or information required
+  waiting      Non-attention waiting or WIP status
   review       Ready for user review
 
 Options:

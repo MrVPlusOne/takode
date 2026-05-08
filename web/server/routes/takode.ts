@@ -506,7 +506,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
   const normalizeSuggestedAnswers = (
     value: unknown,
-    category: "needs-input" | "review",
+    category: "needs-input" | "review" | "waiting",
   ): { ok: true; answers: string[] } | { ok: false; error: string } => {
     const result = normalizeSuggestedAnswerSet(value, "suggestedAnswers");
     if (!result.ok) return result;
@@ -518,7 +518,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
   const normalizeNeedsInputQuestions = (
     value: unknown,
-    category: "needs-input" | "review",
+    category: "needs-input" | "review" | "waiting",
   ): { ok: true; questions: NeedsInputNotificationQuestion[] } | { ok: false; error: string } => {
     if (value === undefined || value === null) return { ok: true, questions: [] };
     if (!Array.isArray(value)) return { ok: false, error: "questions must be an array" };
@@ -1781,8 +1781,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     const body = await c.req.json().catch(() => ({}));
     const category = body.category;
-    if (category !== "needs-input" && category !== "review") {
-      return c.json({ error: 'category must be "needs-input" or "review"' }, 400);
+    if (category !== "needs-input" && category !== "review" && category !== "waiting") {
+      return c.json({ error: 'category must be "needs-input", "waiting", or "review"' }, 400);
     }
     const rawSummary = typeof body.summary === "string" ? body.summary.trim() : "";
     if (!rawSummary) {

@@ -111,28 +111,30 @@ function formatRelativeTime(ts: number): string {
 function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotification, "category">>) {
   let needsInput = 0;
   let review = 0;
+  let waiting = 0;
   for (const notification of notifications) {
     if (notification.category === "needs-input") needsInput += 1;
     else if (notification.category === "review") review += 1;
+    else if (notification.category === "waiting") waiting += 1;
   }
-  return { needsInput, review };
+  return { needsInput, review, waiting };
 }
 
 function getSummaryBreakdown(summary: NotificationStatusSnapshot) {
   const count = summary.activeNotificationCount ?? 0;
-  if (count <= 0) return { needsInput: 0, review: 0 };
-  if (summary.notificationUrgency === "needs-input") return { needsInput: count, review: 0 };
-  if (summary.notificationUrgency === "review") return { needsInput: 0, review: count };
-  return { needsInput: 0, review: 0 };
+  if (count <= 0) return { needsInput: 0, review: 0, waiting: 0 };
+  if (summary.notificationUrgency === "needs-input") return { needsInput: count, review: 0, waiting: 0 };
+  if (summary.notificationUrgency === "review") return { needsInput: 0, review: count, waiting: 0 };
+  return { needsInput: 0, review: 0, waiting: count };
 }
 
 function getEffectiveNotificationBreakdown(
   notifications: ReadonlyArray<Pick<SessionNotification, "category">>,
   summary: NotificationStatusSnapshot,
 ) {
-  if (isClearedNotificationStatus(summary)) return { needsInput: 0, review: 0 };
+  if (isClearedNotificationStatus(summary)) return { needsInput: 0, review: 0, waiting: 0 };
   const live = getNotificationBreakdown(notifications);
-  const liveTotal = live.needsInput + live.review;
+  const liveTotal = live.needsInput + live.review + live.waiting;
   const summaryCount = summary.activeNotificationCount ?? 0;
   const hasFreshSummary =
     summary.notificationStatusVersion !== undefined || summary.notificationStatusUpdatedAt !== undefined;
@@ -144,21 +146,33 @@ function getEffectiveNotificationBreakdown(
       (summaryUrgency === "review" && (live.needsInput > 0 || live.review === 0));
     if (liveDisagreesWithSummary) return getSummaryBreakdown(summary);
   }
+  if (hasFreshSummary && summaryCount > 0 && summaryUrgency === null && liveTotal !== summaryCount) {
+    return getSummaryBreakdown(summary);
+  }
   return live;
 }
 
-function formatChipAriaLabel({ needsInput, review }: { needsInput: number; review: number }): string {
+function formatChipAriaLabel({
+  needsInput,
+  review,
+  waiting,
+}: {
+  needsInput: number;
+  review: number;
+  waiting: number;
+}): string {
   const parts: string[] = [];
   if (needsInput > 0)
     parts.push(`${needsInput} ${needsInput === 1 ? "needs-input notification" : "needs-input notifications"}`);
   if (review > 0) parts.push(`${review} ${review === 1 ? "review notification" : "review notifications"}`);
+  if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? "waiting status" : "waiting statuses"}`);
   return `Notification inbox: ${parts.join(", ")}`;
 }
 
 function NotificationCountInline({ category, count }: { category: NotificationCategory; count: number }) {
-  const isNeedsInput = category === "needs-input";
-  const iconClassName = isNeedsInput ? "text-amber-400" : "text-blue-500";
-  const label = isNeedsInput ? "Needs input" : "Review";
+  const iconClassName =
+    category === "needs-input" ? "text-amber-400" : category === "review" ? "text-blue-500" : "text-cc-muted/85";
+  const label = category === "needs-input" ? "Needs input" : category === "review" ? "Review" : "Waiting";
 
   return (
     <span
@@ -176,8 +190,17 @@ function NotificationCountInline({ category, count }: { category: NotificationCa
         strokeWidth="1.5"
         strokeLinecap="round"
       >
-        <path d="M8 1.5a4.5 4.5 0 0 0-4.5 4.5c0 2.5-1.5 4-1.5 4h12s-1.5-1.5-1.5-4A4.5 4.5 0 0 0 8 1.5z" />
-        <path d="M6 12a2 2 0 0 0 4 0" />
+        {category === "waiting" ? (
+          <>
+            <path d="M8 2.25a5.75 5.75 0 1 1 0 11.5 5.75 5.75 0 0 1 0-11.5z" />
+            <path d="M8 5.25V8l1.75 1.1" />
+          </>
+        ) : (
+          <>
+            <path d="M8 1.5a4.5 4.5 0 0 0-4.5 4.5c0 2.5-1.5 4-1.5 4h12s-1.5-1.5-1.5-4A4.5 4.5 0 0 0 8 1.5z" />
+            <path d="M6 12a2 2 0 0 0 4 0" />
+          </>
+        )}
       </svg>
     </span>
   );
@@ -353,8 +376,11 @@ function NotificationItem({
     },
     [answersByQuestion, canSendResponse, currentThreadKey, notif, onSelectThread, questionViews, sessionId],
   );
-  const compactReviewSummary = !isNeedsInput ? getCompactReviewSummary(notif.summary) : null;
-  const label = compactReviewSummary?.text || notif.summary || (isNeedsInput ? "Needs your input" : "Ready for review");
+  const compactReviewSummary = notif.category === "review" ? getCompactReviewSummary(notif.summary) : null;
+  const label =
+    compactReviewSummary?.text ||
+    notif.summary ||
+    (isNeedsInput ? "Needs your input" : notif.category === "waiting" ? "Waiting" : "Ready for review");
   const questSummary = compactReviewSummary?.questSummary ?? null;
   const labelClassName = notif.done ? "text-cc-muted/60 line-through" : "text-cc-fg/90";
   const rowRef = useVisibleReviewNotificationAutoResolve<HTMLDivElement>({ sessionId, notification: notif });
@@ -418,7 +444,9 @@ function NotificationItem({
       <div className="min-w-0 flex-1">
         <div className="flex items-center gap-1.5">
           <span
-            className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${isNeedsInput ? "bg-amber-400" : "bg-emerald-400"}`}
+            className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
+              isNeedsInput ? "bg-amber-400" : notif.category === "review" ? "bg-emerald-400" : "bg-cc-muted/65"
+            }`}
           />
           {jumpTargetMessageId ? (
             <div
@@ -665,21 +693,25 @@ export function NotificationChip({
   const summary = useNotificationSummary(sessionId);
   const [open, setOpen] = useState(false);
   const chipRef = useRef<HTMLButtonElement>(null);
-  const { needsInput, review } = useMemo(() => getEffectiveNotificationBreakdown(active, summary), [active, summary]);
-  const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review }), [needsInput, review]);
+  const { needsInput, review, waiting } = useMemo(
+    () => getEffectiveNotificationBreakdown(active, summary),
+    [active, summary],
+  );
+  const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review, waiting }), [needsInput, review, waiting]);
   const visibleSegments = useMemo(
     () =>
       [
         review > 0 ? { category: "review" as const, count: review } : null,
         needsInput > 0 ? { category: "needs-input" as const, count: needsInput } : null,
+        waiting > 0 ? { category: "waiting" as const, count: waiting } : null,
       ].filter((segment): segment is { category: NotificationCategory; count: number } => segment !== null),
-    [needsInput, review],
+    [needsInput, review, waiting],
   );
 
   const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
 
-  if (needsInput + review === 0) return null;
+  if (needsInput + review + waiting === 0) return null;
 
   return (
     <>
@@ -697,7 +729,7 @@ export function NotificationChip({
               <NotificationCountInline category={segment.category} count={segment.count} />
             </span>
           ))}
-          <span className="text-cc-muted/85">unreads</span>
+          <span className="text-cc-muted/85">{needsInput + review > 0 ? "unreads" : "status"}</span>
         </span>
       </button>
 

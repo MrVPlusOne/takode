@@ -91,6 +91,7 @@ type SessionRuntimeOptions = {
   board?: Map<any, any>;
   completedBoard?: Map<any, any>;
   notifications?: SessionNotification[];
+  leaderThreadOutcomeValidatedHistoryLength?: number;
   attentionRecords?: SessionAttentionRecord[];
   notificationCounter?: number;
   notificationStatusVersion?: number;
@@ -183,6 +184,7 @@ function createSessionRuntime(
     boardStallStates: new Map(),
     boardDispatchStates: new Map(),
     notifications,
+    leaderThreadOutcomeValidatedHistoryLength: options.leaderThreadOutcomeValidatedHistoryLength,
     attentionRecords: options.attentionRecords ?? [],
     notificationCounter: options.notificationCounter ?? 0,
     notificationStatusVersion,
@@ -485,8 +487,7 @@ export async function restorePersistedSessions(
         ),
         notifications: Array.isArray(p.notifications) ? p.notifications : [],
         attentionRecords: Array.isArray(p.attentionRecords) ? p.attentionRecords : [],
-        notificationStatusVersion:
-          typeof p.notificationStatusVersion === "number" ? p.notificationStatusVersion : undefined,
+        notificationStatusVersion: normalizeStatusNumber(p.notificationStatusVersion, 0),
         notificationStatusUpdatedAt:
           typeof p.notificationStatusUpdatedAt === "number" ? p.notificationStatusUpdatedAt : undefined,
         notificationCounter: Array.isArray(p.notifications)
@@ -552,9 +553,9 @@ export async function restorePersistedSessions(
         Array.isArray(p.completedBoard) ? p.completedBoard.map((row: any) => [row.questId, row]) : [],
       ),
       notifications: Array.isArray(p.notifications) ? p.notifications : [],
+      leaderThreadOutcomeValidatedHistoryLength: normalizeStatusNumber(p.leaderThreadOutcomeValidatedHistoryLength, 0),
       attentionRecords: Array.isArray(p.attentionRecords) ? p.attentionRecords : [],
-      notificationStatusVersion:
-        typeof p.notificationStatusVersion === "number" ? p.notificationStatusVersion : undefined,
+      notificationStatusVersion: normalizeStatusNumber(p.notificationStatusVersion, 0),
       notificationStatusUpdatedAt:
         typeof p.notificationStatusUpdatedAt === "number" ? p.notificationStatusUpdatedAt : undefined,
       notificationCounter: Array.isArray(p.notifications)
@@ -680,6 +681,7 @@ export function buildPersistedSessionPayload(session: SessionLike): PersistedSes
     board: Array.from(session.board.values()),
     completedBoard: Array.from(session.completedBoard.values()),
     notifications: session.notifications,
+    leaderThreadOutcomeValidatedHistoryLength: session.leaderThreadOutcomeValidatedHistoryLength,
     attentionRecords: session.attentionRecords,
     notificationStatusVersion: session.notificationStatusVersion,
     notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
@@ -1017,7 +1019,7 @@ function broadcastNotificationStatus(
 
 export function notifyUser(
   session: SessionLike,
-  category: "needs-input" | "review",
+  category: SessionNotification["category"],
   summary: string,
   deps: Pick<
     SessionRegistryDeps,
@@ -1114,13 +1116,17 @@ export function notifyUser(
 
   deps.broadcastToBrowsers?.(session, buildNotificationUpdateMessage(session));
 
-  const reason = category === "needs-input" ? "action" : "review";
-  setAttention(session, reason, deps);
+  if (category === "needs-input" || category === "review") {
+    const reason = category === "needs-input" ? "action" : "review";
+    setAttention(session, reason, deps);
+  }
   broadcastNotificationStatus(session, deps);
 
-  deps.scheduleNotification?.(session.id, category === "needs-input" ? "question" : "completed", summary, {
-    skipReadCheck: true,
-  });
+  if (category === "needs-input" || category === "review") {
+    deps.scheduleNotification?.(session.id, category === "needs-input" ? "question" : "completed", summary, {
+      skipReadCheck: true,
+    });
+  }
 
   if (anchor) {
     deps.broadcastToBrowsers?.(session, {
@@ -1137,7 +1143,7 @@ export function notifyUser(
 export function notifyUserBySessionId(
   sessions: Map<string, SessionLike>,
   sessionId: string,
-  category: "needs-input" | "review",
+  category: SessionNotification["category"],
   summary: string,
   deps: Pick<
     SessionRegistryDeps,

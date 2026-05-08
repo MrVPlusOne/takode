@@ -1360,9 +1360,10 @@ function handleParsedMessage(
       ) {
         lastNotificationSoundAt = now;
         const hasNeedsInput = added.some((n: { category: string }) => n.category === "needs-input");
+        const hasReview = added.some((n: { category: string }) => n.category === "review");
         if (hasNeedsInput) {
           playNeedsInputSound();
-        } else {
+        } else if (hasReview) {
           playReviewSound();
         }
       }

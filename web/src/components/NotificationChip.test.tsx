@@ -224,6 +224,25 @@ describe("NotificationChip", () => {
     expect(badge.className).not.toContain("rounded-full");
   });
 
+  it("renders waiting as quiet status without needs-input answer controls", () => {
+    // Waiting items should be visible in the inbox while staying out of the
+    // amber needs-input reply flow.
+    setNotifications("s1", [
+      { id: "waiting-1", category: "waiting", summary: "Waiting on reviewer", timestamp: Date.now(), done: false },
+    ]);
+    render(<NotificationChip sessionId="s1" />);
+
+    const chip = screen.getByRole("button", { name: "Notification inbox: 1 waiting status" });
+    const waitingBadge = within(chip).getByTestId("notification-chip-waiting");
+    const waitingIcon = waitingBadge.querySelector("svg");
+    expect(chip).toHaveTextContent("1status");
+    expect(waitingIcon?.className.baseVal ?? waitingIcon?.getAttribute("class")).toContain("text-cc-muted/85");
+
+    fireEvent.click(chip);
+    expect(screen.getByText("Waiting on reviewer")).toBeInTheDocument();
+    expect(screen.queryByTestId("notification-answer-actions")).toBeNull();
+  });
+
   it("renders a compact per-type breakdown when needs-input and review are both active", () => {
     // Mixed inboxes should stay single-height by using inline comma-separated
     // count + bell segments and ending with "unreads".

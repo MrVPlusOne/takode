@@ -159,6 +159,18 @@ describe("takode notify self-resolution workflow", () => {
     expect(requestBodies[0]).toEqual({ category: "needs-input", summary: "Need approval" });
   });
 
+  it("passes waiting notifications without needs-input options", async () => {
+    const result = await runTakode(["notify", "waiting", "Waiting", "on", "reviewer", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "worker-7",
+      COMPANION_AUTH_TOKEN: "auth-7",
+    });
+
+    expect(result.status).toBe(0);
+    expect(result.stdout).toContain("Notification sent (waiting, id 7)");
+    expect(requestBodies[0]).toEqual({ category: "waiting", summary: "Waiting on reviewer" });
+  });
+
   it("passes repeated suggested answers for needs-input notifications", async () => {
     const result = await runTakode(
       ["notify", "needs-input", "Need", "approval", "--suggest", "yes", "--suggest", "no", "--port", String(port)],

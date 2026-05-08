@@ -54,7 +54,7 @@ export interface LeaderContextResumeInput {
 
 export interface LeaderContextResumeNotificationObservation {
   notificationId: string;
-  category: "needs-input" | "review";
+  category: SessionNotification["category"];
   summary: string;
   timestamp: number;
   source?: LeaderContextResumeMessageSource;

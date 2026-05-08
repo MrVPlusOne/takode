@@ -39,6 +39,14 @@ function seedNotificationData() {
           },
           {
             id: "n-3",
+            category: "waiting" as const,
+            summary: "Waiting on reviewer handoff",
+            timestamp: now - 300_000,
+            messageId: "mock-msg-31",
+            done: false,
+          },
+          {
+            id: "n-4",
             category: "review" as const,
             summary: "Port to main repo completed successfully",
             timestamp: now - 3_600_000,

@@ -47,6 +47,11 @@ const NOTIFY_HELP = `Usage: takode notify <category> <summary> [--suggest <answe
        takode notify needs-input <summary> --question <prompt> [--suggest <answer>]... [--question <prompt> ...] [--json]
        takode notify list [--json]
        takode notify resolve <notification-id> [--json]
+
+Categories:
+  needs-input  User decision or information required
+  waiting      Non-attention waiting or WIP status
+  review       Ready for user review
 `;
 
 const WORKER_STREAM_HELP = `Usage: takode worker-stream [--json]
@@ -1450,13 +1455,13 @@ export async function handleNotify(base: string, args: string[]): Promise<void> 
   }
 
   const category = subcommand;
-  if (!category || (category !== "needs-input" && category !== "review")) {
+  if (!category || (category !== "needs-input" && category !== "review" && category !== "waiting")) {
     err(`${NOTIFY_HELP.trim()}\n`);
   }
   const parsed = parseNotifyCreateArgs(args.slice(1));
   const summary = parsed.summary;
   if (!summary) {
-    err("Usage: takode notify <category> <summary>\nSummary is required -- describe what needs attention.");
+    err("Usage: takode notify <category> <summary>\nSummary is required -- describe the status or action.");
   }
   const payload: Record<string, unknown> = { category };
   if (summary) payload.summary = summary;

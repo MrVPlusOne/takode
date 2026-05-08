@@ -225,7 +225,7 @@ export interface ChatMessage {
   /** Notification anchored to this message (set by takode notify). */
   notification?: {
     id?: string;
-    category: "needs-input" | "review";
+    category: SessionNotification["category"];
     timestamp: number;
     summary?: string;
     suggestedAnswers?: string[];

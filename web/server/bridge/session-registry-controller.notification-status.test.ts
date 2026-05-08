@@ -96,6 +96,17 @@ describe("session notification status metadata", () => {
     );
   });
 
+  it("records waiting notifications without setting user attention or scheduling a push", () => {
+    const session = makeSession();
+    const deps = makeDeps();
+
+    notifyUser(session, "waiting", "Waiting on reviewer", deps);
+
+    expect(session.notifications).toMatchObject([{ category: "waiting", summary: "Waiting on reviewer", done: false }]);
+    expect(session.attentionReason).toBeNull();
+    expect(deps.scheduleNotification).not.toHaveBeenCalled();
+  });
+
   it("applies inferred thread route metadata to fallback needs-input anchor messages", () => {
     const session = makeSession({
       messageHistory: [

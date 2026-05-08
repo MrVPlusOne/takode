@@ -244,6 +244,7 @@ import {
   type UserDispatchTurnTarget,
   trackUserMessageForTurn as trackUserMessageForTurnLifecycle,
 } from "./bridge/generation-lifecycle.js";
+import { validateLeaderThreadOutcomes } from "./bridge/leader-thread-outcome-validator.js";
 import {
   computeDiffStatsAsync as computeDiffStatsAsyncController,
   makeDefaultState,
@@ -1366,10 +1367,22 @@ export function getGenerationLifecycleDeps(host: any) {
       host.recomputeAndBroadcastHistoryBytes(session);
     },
     onOrchestratorTurnEnd: (sessionId: string, reason?: string) => {
-      if (!host.herdEventDispatcher) return;
       const info = host.launcher?.getSession(sessionId);
       if (info?.isOrchestrator) {
-        host.herdEventDispatcher.onOrchestratorTurnEnd(sessionId, reason);
+        const session = host.sessions.get(sessionId);
+        if (session) {
+          validateLeaderThreadOutcomes(session, {
+            isLeaderSession: () => true,
+            injectUserMessage: (
+              targetSessionId: string,
+              content: string,
+              agentSource: { sessionId: string; sessionLabel?: string },
+              threadRoute?: { threadKey: string; questId?: string; threadRefs?: ThreadRef[] },
+            ) => host.injectUserMessage(targetSessionId, content, agentSource, undefined, threadRoute),
+            persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
+          });
+        }
+        host.herdEventDispatcher?.onOrchestratorTurnEnd(sessionId, reason);
       }
     },
     getCurrentTurnTriggerSource: (session: Session) =>

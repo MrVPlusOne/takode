@@ -690,9 +690,11 @@ export interface SessionTaskEntry {
   questId?: string;
 }
 
+export type NotificationCategory = "needs-input" | "review" | "waiting";
+
 export interface TakodeNotificationPayload {
   id?: string;
-  category: "needs-input" | "review";
+  category: NotificationCategory;
   summary?: string;
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
@@ -1201,7 +1203,7 @@ export interface SessionAttentionRecord {
 /** A notification collected when `takode notify` fires. Persisted per session. */
 export interface SessionNotification {
   id: string;
-  category: "needs-input" | "review";
+  category: NotificationCategory;
   summary?: string;
   suggestedAnswers?: string[];
   questions?: NeedsInputNotificationQuestion[];
