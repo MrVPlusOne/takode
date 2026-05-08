@@ -372,84 +372,85 @@ function MemoryFileDetail({
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="grid grid-cols-1 gap-4 xl:grid-cols-[minmax(0,1fr)_minmax(220px,300px)]">
-          <div className="min-w-0 space-y-4">
-            <section className="space-y-3 rounded-md border border-cc-border bg-cc-bg/30 p-3">
-              <Field label="Description">{file.description || "missing"}</Field>
-              <Field label="Path">
-                <div className="break-all font-mono text-[11px] leading-relaxed text-cc-muted">{file.absolutePath}</div>
-              </Field>
-              <Field label="Current content">
-                <div className="mt-2 max-w-[72ch] rounded-md border border-cc-border bg-cc-bg/50 p-4">
-                  {file.body ? (
-                    <MarkdownContent text={file.body} size="sm" variant="conservative" wrapLongContent />
-                  ) : (
-                    <div className="text-xs text-cc-muted">No body content.</div>
-                  )}
+        <div className="min-w-0 space-y-4" data-testid="memory-detail-body">
+          <section
+            className="rounded-md border border-cc-border bg-cc-bg/30 p-3"
+            data-testid="memory-record-description"
+          >
+            <Field label="Description">{file.description || "missing"}</Field>
+          </section>
+
+          <section
+            className="rounded-md border border-cc-border bg-cc-bg/30 p-3"
+            data-testid="memory-record-current-content"
+          >
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Current content</h3>
+            <div className="mt-3 w-full max-w-none rounded-md border border-cc-border bg-cc-bg/50 p-4">
+              {file.body ? (
+                <MarkdownContent text={file.body} size="sm" variant="conservative" wrapLongContent />
+              ) : (
+                <div className="text-xs text-cc-muted">No body content.</div>
+              )}
+            </div>
+          </section>
+
+          <section className="space-y-3 rounded-md border border-cc-border bg-cc-bg/30 p-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Record metadata</h3>
+            <Field label="Path">
+              <div className="break-all font-mono text-[11px] leading-relaxed text-cc-muted">{file.absolutePath}</div>
+            </Field>
+            <Field label="Kind">
+              <span className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[11px] text-cc-muted">
+                {file.kind}
+              </span>
+            </Field>
+            <Field label="Sources">
+              {file.source.length ? (
+                <div className="flex flex-wrap gap-1.5">
+                  {file.source.map((source) => (
+                    <span key={source} className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5">
+                      {sourceLabel(source)}
+                    </span>
+                  ))}
                 </div>
-              </Field>
-            </section>
-          </div>
-
-          <aside className="min-w-0 space-y-4">
-            <section className="rounded-md border border-cc-border bg-cc-bg/30 p-3">
-              <div className="grid grid-cols-1 gap-3">
-                <Field label="Kind">
-                  <span className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5 text-[11px] text-cc-muted">
-                    {file.kind}
-                  </span>
-                </Field>
-                <Field label="Sources">
-                  {file.source.length ? (
-                    <div className="flex flex-wrap gap-1.5">
-                      {file.source.map((source) => (
-                        <span key={source} className="rounded border border-cc-border bg-cc-hover px-1.5 py-0.5">
-                          {sourceLabel(source)}
-                        </span>
-                      ))}
-                    </div>
-                  ) : (
-                    "none"
-                  )}
-                </Field>
-              </div>
-            </section>
-
+              ) : (
+                "none"
+              )}
+            </Field>
             {facetEntries.length ? (
-              <section className="rounded-md border border-cc-border bg-cc-bg/30 p-3">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Facets</h3>
-                <div className="mt-2 flex flex-wrap gap-1.5 text-[11px]">
+              <Field label="Facets">
+                <div className="flex flex-wrap gap-1.5 text-[11px]">
                   {facetEntries.map(([key, value]) => (
                     <span key={`${key}-${value}`} className="rounded bg-cc-hover px-1.5 py-0.5 text-cc-muted">
                       {key}: {value}
                     </span>
                   ))}
                 </div>
-              </section>
+              </Field>
             ) : null}
+          </section>
 
-            <section className="rounded-md border border-cc-border bg-cc-bg/30 p-3">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Health</h3>
-              <div className="mt-2 space-y-2">
-                {issues.length ? (
-                  issues.map((issue, index) => (
-                    <div
-                      key={`${issue.message}-${index}`}
-                      className={`rounded-md border p-2 text-xs ${issueTone(issue)}`}
-                    >
-                      <span className="font-semibold">{issue.severity}</span>: {issue.message}
-                    </div>
-                  ))
-                ) : (
-                  <div className="rounded-md border border-emerald-500/25 bg-emerald-500/10 p-2 text-xs text-emerald-200">
-                    Lint clean for this record.
+          <section className="rounded-md border border-cc-border bg-cc-bg/30 p-3">
+            <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Health</h3>
+            <div className="mt-2 space-y-2">
+              {issues.length ? (
+                issues.map((issue, index) => (
+                  <div
+                    key={`${issue.message}-${index}`}
+                    className={`rounded-md border p-2 text-xs ${issueTone(issue)}`}
+                  >
+                    <span className="font-semibold">{issue.severity}</span>: {issue.message}
                   </div>
-                )}
-              </div>
-            </section>
+                ))
+              ) : (
+                <div className="rounded-md border border-emerald-500/25 bg-emerald-500/10 p-2 text-xs text-emerald-200">
+                  Lint clean for this record.
+                </div>
+              )}
+            </div>
+          </section>
 
-            <RecordHistory history={history} />
-          </aside>
+          <RecordHistory history={history} />
         </div>
       </div>
     </article>
@@ -871,7 +872,10 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
         </header>
 
         <main className="min-h-0 flex-1 overflow-hidden p-3">
-          <div className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[minmax(320px,460px)_minmax(0,1fr)] lg:overflow-hidden">
+          <div
+            className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)] lg:overflow-hidden"
+            data-testid="memory-page-layout"
+          >
             <section className="min-h-0 space-y-3 lg:flex lg:flex-col lg:overflow-hidden">
               <div className="shrink-0 space-y-2">
                 <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
