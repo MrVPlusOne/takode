@@ -210,11 +210,46 @@ export function createQuestRoutes(ctx: RouteContext) {
     return candidates;
   };
 
+  const boardAssignsQuestToWorker = (quest: QuestmasterTask, workerSessionId: string): boolean =>
+    boardRowCandidatesForQuest(quest).some((candidate) => candidate.row.worker === workerSessionId);
+
+  const leaderCanReassignToWorker = (leaderSessionId: string, workerSessionId: string, questId: string): boolean => {
+    const worker = launcher.getSession(workerSessionId);
+    if (worker?.herdedBy === leaderSessionId) return true;
+    const leaderSession = wsBridge.getSession(leaderSessionId);
+    return leaderSession?.board?.get(questId)?.worker === workerSessionId;
+  };
+
+  const ownershipReason = (value: unknown): string => (typeof value === "string" ? value.trim() : "");
+
+  const activeOwnerSessionId = (quest: QuestmasterTask | null): string | null =>
+    quest && "sessionId" in quest && typeof quest.sessionId === "string" ? quest.sessionId : null;
+
   const persistSessionTaskHistory = (sessionId: string) => {
     const session = wsBridge.getSession(sessionId);
     if (!session) return;
     wsBridge.broadcastToSession(sessionId, { type: "session_task_history", tasks: session.taskHistory } as any);
     wsBridge.persistSessionById(sessionId);
+  };
+
+  const addQuestTaskEntry = (sessionId: string, quest: QuestmasterTask, triggerMsgId: string) => {
+    const trackedSession = wsBridge.getSession(sessionId);
+    if (!trackedSession) return;
+    addTaskEntryController(
+      trackedSession,
+      {
+        title: quest.title,
+        action: "new",
+        timestamp: Date.now(),
+        triggerMessageId: triggerMsgId,
+        source: "quest",
+        questId: quest.questId,
+      },
+      {
+        broadcastTaskHistory: () => persistSessionTaskHistory(sessionId),
+        persistSession: () => wsBridge.persistSessionById(sessionId),
+      },
+    );
   };
 
   // ─── Questmaster (~/.companion/questmaster/) ──────────────────────
@@ -547,13 +582,55 @@ export function createQuestRoutes(ctx: RouteContext) {
     }
     const leaderSessionId = resolveClaimLeaderSessionId(launcher, knownSession);
     try {
+      const questId = c.req.param("questId");
+      const force = body.force === true;
+      const reason = ownershipReason(body.reason);
+      let current: QuestmasterTask | null = null;
+      let previousOwnerSessionId: string | null = null;
+      if (force) {
+        if (!authSessionId) return c.json({ error: "Force claim requires Companion session auth" }, 403);
+        current = await questStore.getQuest(questId);
+        if (!current) return c.json({ error: "Quest not found" }, 404);
+        previousOwnerSessionId = activeOwnerSessionId(current);
+        if (!previousOwnerSessionId || previousOwnerSessionId === sessionId) {
+          return c.json({ error: "Force claim requires a quest owned by another session" }, 400);
+        }
+        if (!reason) return c.json({ error: "Force claim reason is required" }, 400);
+        const previousOwnerArchived = !!launcher.getSession(previousOwnerSessionId)?.archived;
+        if (!previousOwnerArchived && !boardAssignsQuestToWorker(current, sessionId)) {
+          return c.json(
+            {
+              error:
+                "Force claim requires the previous owner to be archived or an active board row assigning this quest to this worker",
+            },
+            403,
+          );
+        }
+      }
       const quest = await questStore.claimQuest(c.req.param("questId"), sessionId, {
         allowArchivedOwnerTakeover: true,
         isSessionArchived: (sid: string) => !!launcher.getSession(sid)?.archived,
+        ...(force ? { force: true } : {}),
         ...(leaderSessionId ? { leaderSessionId } : {}),
+        ...(force && previousOwnerSessionId
+          ? {
+              ownershipEvent: {
+                operation: "force_claim",
+                actorSessionId: authSessionId,
+                previousOwnerSessionId,
+                newOwnerSessionId: sessionId,
+                reason,
+                ...(current?.leaderSessionId ? { previousLeaderSessionId: current.leaderSessionId } : {}),
+                ...(leaderSessionId ? { newLeaderSessionId: leaderSessionId } : {}),
+              },
+            }
+          : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);
+      if (previousOwnerSessionId && previousOwnerSessionId !== sessionId) {
+        setClaimedQuest(previousOwnerSessionId, null);
+      }
       // setSessionClaimedQuest broadcasts session_quest_claimed + session_name_update
       // source:quest, cancels in-flight namers, and persists the name via callback.
       setClaimedQuest(sessionId, claimedQuestEvent(quest));
@@ -571,24 +648,68 @@ export function createQuestRoutes(ctx: RouteContext) {
           }
         }
       }
-      const trackedSession = wsBridge.getSession(sessionId);
-      if (trackedSession) {
-        addTaskEntryController(
-          trackedSession,
-          {
-            title: quest.title,
-            action: "new",
-            timestamp: Date.now(),
-            triggerMessageId: triggerMsgId,
-            source: "quest",
-            questId: quest.questId,
-          },
-          {
-            broadcastTaskHistory: () => persistSessionTaskHistory(sessionId),
-            persistSession: () => wsBridge.persistSessionById(sessionId),
-          },
-        );
-      }
+      addQuestTaskEntry(sessionId, quest, triggerMsgId);
+      return c.json(quest);
+    } catch (e: unknown) {
+      return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
+  });
+
+  api.post("/quests/:questId/reassign", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
+    if (!auth) return c.json({ error: "Reassign requires Companion session auth" }, 403);
+    if (!auth.caller.isOrchestrator) {
+      return c.json({ error: "Only leader sessions can reassign quest ownership" }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const bodySession = resolveSubmittedSessionId(body.sessionId, resolveId);
+    if (bodySession.raw && !bodySession.sessionId) {
+      return c.json({ error: `Unknown sessionId: ${bodySession.raw}` }, 400);
+    }
+    const targetSessionId = bodySession.sessionId;
+    if (!targetSessionId) return c.json({ error: "sessionId is required" }, 400);
+    const targetSession = launcher.getSession(targetSessionId);
+    if (!targetSession) return c.json({ error: `Unknown sessionId: ${targetSessionId}` }, 400);
+    if (targetSession.isOrchestrator) return c.json({ error: "Leaders cannot be assigned quest ownership" }, 403);
+    if (targetSession.archived) return c.json({ error: "Cannot reassign quest ownership to an archived session" }, 400);
+    const reason = ownershipReason(body.reason);
+    if (!reason) return c.json({ error: "Reassign reason is required" }, 400);
+
+    const questId = c.req.param("questId");
+    const current = await questStore.getQuest(questId);
+    if (!current) return c.json({ error: "Quest not found" }, 404);
+    const previousOwnerSessionId = activeOwnerSessionId(current);
+    if (!previousOwnerSessionId) return c.json({ error: "Only in-progress quests can be reassigned" }, 400);
+    if (previousOwnerSessionId === targetSessionId) {
+      return c.json({ error: "Quest is already owned by the target session" }, 400);
+    }
+    if (!leaderCanReassignToWorker(auth.callerId, targetSessionId, questId)) {
+      return c.json(
+        { error: "Leader can only reassign to a herded worker or the worker assigned on this leader's board row" },
+        403,
+      );
+    }
+
+    try {
+      const quest = await questStore.claimQuest(questId, targetSessionId, {
+        force: true,
+        leaderSessionId: auth.callerId,
+        ownershipEvent: {
+          operation: "reassign",
+          actorSessionId: auth.callerId,
+          previousOwnerSessionId,
+          newOwnerSessionId: targetSessionId,
+          reason,
+          ...(current.leaderSessionId ? { previousLeaderSessionId: current.leaderSessionId } : {}),
+          newLeaderSessionId: auth.callerId,
+        },
+      });
+      if (!quest) return c.json({ error: "Quest not found" }, 404);
+      broadcastQuestUpdate(wsBridge);
+      setClaimedQuest(previousOwnerSessionId, null);
+      setClaimedQuest(targetSessionId, claimedQuestEvent(quest));
+      addQuestTaskEntry(targetSessionId, quest, "quest-" + quest.questId);
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);

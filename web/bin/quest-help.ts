@@ -14,7 +14,10 @@ Commands:
   tags   [--json]                                        List all existing tags with counts
   create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json]
                                                          Create a quest
-  claim  <id> [--session <sid>] [--json]                 Claim for session
+  claim  <id> [--session <sid>] [--force --reason <text>] [--json]
+                                                         Claim for session; --force is audited and server-auth only
+  reassign <id> --session <worker> --reason <text> [--json]
+                                                         Leader-only audited ownership reassignment
   complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>] [--commit <sha>] [--commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]
                                                          Mark done and submit for review
   done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--json]
@@ -68,6 +71,8 @@ Safer rich-text input:
   quest create "Follow-up" --follow-up-of q-1
   quest edit q-2 --follow-up-of "q-1,q-3"
   quest edit q-2 --clear-follow-up-of
+  quest claim q-1 --force --reason "board assigned this phase to me"
+  quest reassign q-1 --session 42 --reason "stale previous worker"
   quest feedback q-1 --text-file note.md --tldr-file note-tldr.md
   quest feedback latest q-1 --author human --unaddressed --full
   quest feedback show q-1 0

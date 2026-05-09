@@ -25,6 +25,7 @@
  *   check      Toggle a verification checkbox
  *   feedback   Add a feedback entry to a quest's thread
  *   address    Toggle feedback addressed status
+ *   reassign   Reassign quest ownership from a leader session
  *   delete     Delete a quest
  *   resize-image  Resize an image to fit within a max pixel dimension
  *   optimize-image  Write an optimized .takode-agent sibling image
@@ -35,7 +36,6 @@ import {
   getQuest,
   getQuestHistoryView,
   createQuest,
-  claimQuest,
   completeQuest,
   markDone,
   cancelQuest,
@@ -81,6 +81,7 @@ import { runOptimizeImageCommand, runResizeImageCommand } from "./quest-image.js
 import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runTagsCommand } from "./quest-tags-command.js";
+import { runClaimCommand, runReassignCommand } from "./quest-ownership-command.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
@@ -1079,77 +1080,6 @@ async function cmdCreate(): Promise<void> {
   }
 }
 
-async function cmdClaim(): Promise<void> {
-  validateFlags(["session", "json"]);
-  // Hard enforcement: leader sessions cannot claim quests (q-87)
-  if (process.env.TAKODE_ROLE === "orchestrator") {
-    die("Leader sessions cannot claim quests. Dispatch to a worker instead.");
-  }
-  const id = positional(0);
-  if (!id) die("Usage: quest claim <questId> [--session <sid>]");
-
-  const sessionId = option("session") || currentSessionId;
-  if (!sessionId && !companionPort) {
-    die("No session identity. Pass --session <id> or run from a Companion session.");
-  }
-
-  // Prefer HTTP endpoint when server is available — it handles session name
-  // override, session_quest_claimed broadcast, and task entry addition.
-  if (companionPort) {
-    try {
-      const res = await fetch(`http://localhost:${companionPort}/api/quests/${encodeURIComponent(id)}/claim`, {
-        method: "POST",
-        headers: companionAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify(sessionId ? { sessionId } : {}),
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        die((err as { error: string }).error || res.statusText);
-      }
-      const quest = (await res.json()) as QuestmasterTask;
-      if (jsonOutput) {
-        out(quest);
-      } else {
-        const owner = "sessionId" in quest && typeof quest.sessionId === "string" ? quest.sessionId : sessionId;
-        console.log(
-          `Claimed ${quest.questId} "${quest.title}" for session ${formatSessionLabel(owner || "unknown", undefined, {
-            currentSessionId,
-            getSessionName: getName,
-          })}`,
-        );
-        printHumanFeedbackWarning(quest);
-      }
-      return;
-    } catch (e) {
-      die(`Failed to claim via Companion server: ${(e as Error).message}`);
-    }
-  }
-
-  // Fallback: direct filesystem claim (no session name integration)
-  if (!sessionId) {
-    die("No session identity. Pass --session <id> or run from a Companion session.");
-  }
-  try {
-    const quest = await claimQuest(id, sessionId);
-    if (!quest) die(`Quest ${id} not found`);
-    await notifyServer();
-    if (jsonOutput) {
-      out(quest);
-    } else {
-      console.log(
-        `Claimed ${quest.questId} "${quest.title}" for session ${formatSessionLabel(sessionId, undefined, {
-          currentSessionId,
-          getSessionName: getName,
-        })}`,
-      );
-      printHumanFeedbackWarning(quest);
-    }
-  } catch (e) {
-    die((e as Error).message);
-  }
-}
-
 async function cmdComplete(): Promise<void> {
   validateFlags([
     "items",
@@ -1929,6 +1859,23 @@ async function cmdDelete(): Promise<void> {
   }
 }
 
+function ownershipCommandDeps() {
+  return {
+    validateFlags,
+    positional,
+    option,
+    flag,
+    currentSessionId,
+    companionPort,
+    companionAuthHeaders,
+    notifyServer,
+    printHumanFeedbackWarning,
+    jsonOutput,
+    out,
+    die,
+  };
+}
+
 // ─── Main ───────────────────────────────────────────────────────────────────
 
 async function main(): Promise<void> {
@@ -1950,7 +1897,9 @@ async function main(): Promise<void> {
     case "create":
       return cmdCreate();
     case "claim":
-      return cmdClaim();
+      return runClaimCommand(ownershipCommandDeps());
+    case "reassign":
+      return runReassignCommand(ownershipCommandDeps());
     case "complete":
       return cmdComplete();
     case "done":

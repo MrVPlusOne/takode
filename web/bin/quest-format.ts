@@ -1,4 +1,4 @@
-import type { QuestmasterTask } from "../server/quest-types.js";
+import type { QuestmasterTask, QuestOwnershipEvent } from "../server/quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "../server/quest-types.js";
 import type { SessionMetadata } from "./quest-session-metadata.js";
 import { normalizeTldr } from "../server/quest-tldr.js";
@@ -55,6 +55,18 @@ function compactPreview(text: string, maxLen = 180): string {
   const singleLine = text.trim().replace(/\s+/g, " ");
   if (singleLine.length <= maxLen) return singleLine;
   return `${singleLine.slice(0, Math.max(0, maxLen - 3)).trimEnd()}...`;
+}
+
+function formatOwnershipEvent(
+  event: QuestOwnershipEvent,
+  sessionMetadata: Map<string, SessionMetadata> | undefined,
+  options: FormatQuestOptions | undefined,
+): string {
+  const labelOptions = { ...options, preferSessionNum: true };
+  const previous = formatSessionLabel(event.previousOwnerSessionId, sessionMetadata, labelOptions);
+  const next = formatSessionLabel(event.newOwnerSessionId, sessionMetadata, labelOptions);
+  const actor = formatSessionLabel(event.actorSessionId, sessionMetadata, labelOptions);
+  return `${event.operation} ${timeAgo(event.ts)}: ${previous} -> ${next} by ${actor}; reason: ${event.reason}`;
 }
 
 export function formatSessionLabel(
@@ -155,6 +167,13 @@ export function formatQuestDetail(
         .map((sid) => formatSessionLabel(sid, sessionMetadata, { ...options, preferSessionNum: true }))
         .join(", ")}`,
     );
+  }
+  const ownershipEvents = (q as { ownershipEvents?: QuestOwnershipEvent[] }).ownershipEvents;
+  if (ownershipEvents?.length) {
+    lines.push(`Ownership:   ${ownershipEvents.length} event(s)`);
+    for (const event of ownershipEvents.slice(-5)) {
+      lines.push(`  - ${formatOwnershipEvent(event, sessionMetadata, options)}`);
+    }
   }
   if ("claimedAt" in q) {
     lines.push(`Claimed:     ${timeAgo((q as { claimedAt: number }).claimedAt)}`);

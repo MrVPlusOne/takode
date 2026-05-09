@@ -15,6 +15,7 @@ import type {
   QuestInProgress,
   QuestDone,
   QuestHistoryView,
+  QuestOwnershipEventDraft,
   QuestStoreMigrationReport,
 } from "./quest-types.js";
 import { hasQuestReviewMetadata } from "./quest-types.js";
@@ -40,6 +41,7 @@ import {
   withQuestRelationshipSummaries,
 } from "./quest-relationships.js";
 import { applyQuestPatch } from "./quest-store-patch.js";
+import { appendOwnershipEvent, archivedOwnerTakeoverEvent } from "./quest-ownership.js";
 
 // ─── Paths ───────────────────────────────────────────────────────────────────
 
@@ -1305,7 +1307,8 @@ function buildTransitionedQuest(
     input.debriefTldr === undefined &&
     !input.cancelled &&
     !(targetStatus === "done" && hasQuestReviewMetadata(current)) &&
-    input.tldr === undefined
+    input.tldr === undefined &&
+    input.ownershipEvent === undefined
   ) {
     return current;
   }
@@ -1317,6 +1320,7 @@ function buildTransitionedQuest(
   const currentJourneyRuns = current.journeyRuns;
   const currentActiveSessionId = getActiveSessionId(current);
   const currentPreviousOwners = getPreviousOwnerSessionIds(current);
+  const ownershipEvents = appendOwnershipEvent(current.ownershipEvents, input.ownershipEvent, now);
   const leaderSessionId = input.leaderSessionId?.trim() || getLeaderSessionId(current);
   const relationships =
     input.relationships !== undefined
@@ -1338,6 +1342,7 @@ function buildTransitionedQuest(
     ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
     ...(relationships ? { relationships } : {}),
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
+    ...(ownershipEvents?.length ? { ownershipEvents } : {}),
     ...(currentJourneyRuns?.length ? { journeyRuns: currentJourneyRuns } : {}),
     ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
   };
@@ -1470,6 +1475,7 @@ function buildCancelledQuest(current: QuestmasterTask, notes: string | undefined
   const currentActiveSessionId = getActiveSessionId(current);
   const previousOwners = getPreviousOwnerSessionIds(current);
   const leaderSessionId = getLeaderSessionId(current);
+  const ownershipEvents = appendOwnershipEvent(current.ownershipEvents, undefined, now);
   if (currentActiveSessionId && !previousOwners.includes(currentActiveSessionId)) {
     previousOwners.push(currentActiveSessionId);
   }
@@ -1496,6 +1502,7 @@ function buildCancelledQuest(current: QuestmasterTask, notes: string | undefined
     ...(current.images?.length ? { images: current.images } : {}),
     ...(leaderSessionId ? { leaderSessionId } : {}),
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
+    ...(ownershipEvents?.length ? { ownershipEvents } : {}),
     ...(normalizeQuestRelationships(current.relationships, current.questId)
       ? { relationships: normalizeQuestRelationships(current.relationships, current.questId) }
       : {}),
@@ -1686,8 +1693,10 @@ export async function claimQuest(
   sessionId: string,
   options?: {
     allowArchivedOwnerTakeover?: boolean;
+    force?: boolean;
     isSessionArchived?: (sessionId: string) => boolean;
     leaderSessionId?: string;
+    ownershipEvent?: QuestOwnershipEventDraft;
   },
 ): Promise<QuestmasterTask | null> {
   const current = await getQuest(questId);
@@ -1710,7 +1719,9 @@ export async function claimQuest(
     return current;
   }
 
-  // Claimed by a different session — error
+  let ownershipEvent: QuestOwnershipEventDraft | undefined;
+
+  // Claimed by a different session — error unless an explicit takeover policy applies.
   if (
     current.status === "in_progress" &&
     "sessionId" in current &&
@@ -1719,7 +1730,19 @@ export async function claimQuest(
     const existingSessionId = (current as QuestInProgress).sessionId;
     const ownerArchived = !!options?.isSessionArchived?.(existingSessionId);
     if (options?.allowArchivedOwnerTakeover && ownerArchived) {
-      // Archived active owner can be taken over by a live session.
+      ownershipEvent =
+        options.ownershipEvent ??
+        archivedOwnerTakeoverEvent({
+          actorSessionId: sessionId,
+          previousOwnerSessionId: existingSessionId,
+          previousLeaderSessionId: getLeaderSessionId(current),
+          newLeaderSessionId: leaderSessionId,
+        });
+    } else if (options?.force) {
+      if (!options.ownershipEvent) {
+        throw new Error("Ownership takeover audit event is required");
+      }
+      ownershipEvent = options.ownershipEvent;
     } else {
       const ownerName = getName(existingSessionId);
       const ownerLabel = ownerName ? `"${ownerName}" (${existingSessionId.slice(0, 8)})` : existingSessionId;
@@ -1741,6 +1764,7 @@ export async function claimQuest(
     status: "in_progress",
     sessionId,
     ...(leaderSessionId ? { leaderSessionId } : {}),
+    ...(ownershipEvent ? { ownershipEvent } : {}),
   });
 }
 

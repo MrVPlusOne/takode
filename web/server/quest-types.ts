@@ -127,6 +127,21 @@ export interface QuestImage {
   path: string;
 }
 
+export type QuestOwnershipOperation = "force_claim" | "reassign" | "archived_owner_takeover";
+
+export interface QuestOwnershipEvent {
+  operation: QuestOwnershipOperation;
+  actorSessionId: string;
+  previousOwnerSessionId: string;
+  newOwnerSessionId: string;
+  ts: number;
+  reason: string;
+  previousLeaderSessionId?: string;
+  newLeaderSessionId?: string;
+}
+
+export type QuestOwnershipEventDraft = Omit<QuestOwnershipEvent, "ts">;
+
 // ─── Base fields shared by all stages ────────────────────────────────────────
 
 interface QuestBase {
@@ -155,6 +170,8 @@ interface QuestBase {
   images?: QuestImage[];
   /** Past owners in chronological order. Excludes the current active owner. */
   previousOwnerSessionIds?: string[];
+  /** Append-only audit trail for explicit or compatibility ownership takeovers. */
+  ownershipEvents?: QuestOwnershipEvent[];
   /** Current/relevant orchestrating leader session for feedback routing, when known. */
   leaderSessionId?: string;
   /** Ordered synced commit SHAs associated with this quest's verification handoff. */
@@ -300,6 +317,8 @@ export interface QuestTransitionInput {
   sessionId?: string;
   /** Optional orchestrating leader session to preserve for feedback routing. */
   leaderSessionId?: string;
+  /** Optional ownership audit event to append when the active owner changes. */
+  ownershipEvent?: QuestOwnershipEventDraft;
   /** Human-review checklist. Accepts strings (normalized to {text, checked:false}) or full objects. */
   verificationItems?: (QuestVerificationItem | string)[];
   /** Ordered synced commit SHAs to attach at verification handoff. */

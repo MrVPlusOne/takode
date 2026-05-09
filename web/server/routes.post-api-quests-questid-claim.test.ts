@@ -28,7 +28,11 @@ vi.mock("node:child_process", () => {
       if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
     }
   });
-  return { execSync: execSyncMock, exec: execMock };
+  const execFileMock = vi.fn((...args: any[]) => {
+    const callback = args.find((arg) => typeof arg === "function");
+    if (callback) callback(null, { stdout: "", stderr: "" });
+  });
+  return { execSync: execSyncMock, exec: execMock, execFile: execFileMock };
 });
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
@@ -693,6 +697,96 @@ describe("POST /api/quests/:questId/claim", () => {
     expect(opts.isSessionArchived("session-2")).toBe(false);
   });
 
+  it("allows authenticated board-assigned worker force-claim with audit data", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "session-1",
+      leaderSessionId: "leader-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    vi.spyOn(questStore, "claimQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "session-2",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    launcher.getSession.mockImplementation((sid: string) => {
+      if (sid === "session-1") return { sessionId: sid, state: "running", cwd: "/test", archived: false };
+      if (sid === "session-2") return { sessionId: sid, state: "running", cwd: "/test", archived: false };
+      if (sid === "leader-1")
+        return { sessionId: sid, state: "running", cwd: "/test", archived: false, isOrchestrator: true };
+      return undefined;
+    });
+    bridge._sessions["leader-1"] = {
+      id: "leader-1",
+      board: new Map([["q-1", { questId: "q-1", worker: "session-2", createdAt: 1, updatedAt: 1 }]]),
+      messageHistory: [],
+      taskHistory: [],
+      browserSockets: new Set(),
+      state: {},
+    };
+
+    const res = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: companionAuthHeaders("session-2", "tok-2"),
+      body: JSON.stringify({ force: true, reason: "board assigned this worker" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(questStore.claimQuest).toHaveBeenCalledWith(
+      "q-1",
+      "session-2",
+      expect.objectContaining({
+        force: true,
+        ownershipEvent: expect.objectContaining({
+          operation: "force_claim",
+          actorSessionId: "session-2",
+          previousOwnerSessionId: "session-1",
+          newOwnerSessionId: "session-2",
+          previousLeaderSessionId: "leader-1",
+          reason: "board assigned this worker",
+        }),
+      }),
+    );
+  });
+
+  it("rejects live-owner force-claim without archive or board assignment evidence", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "session-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    const claimSpy = vi.spyOn(questStore, "claimQuest");
+    launcher.getSession.mockImplementation((sid: string) =>
+      sid === "session-1" || sid === "session-2"
+        ? { sessionId: sid, state: "running", cwd: "/test", archived: false }
+        : undefined,
+    );
+
+    const res = await app.request("/api/quests/q-1/claim", {
+      method: "POST",
+      headers: companionAuthHeaders("session-2", "tok-2"),
+      body: JSON.stringify({ force: true, reason: "take over" }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(claimSpy).not.toHaveBeenCalled();
+  });
+
   it("passes the current orchestrating leader when a herded worker claims a quest", async () => {
     vi.spyOn(questStore, "claimQuest").mockResolvedValueOnce({
       id: "q-1-v3",
@@ -875,6 +969,94 @@ describe("POST /api/quests/:questId/claim", () => {
           msg.tasks.length === 1,
       ),
     ).toHaveLength(1);
+  });
+});
+
+describe("POST /api/quests/:questId/reassign", () => {
+  function companionAuthHeaders(sessionId: string, token: string): Record<string, string> {
+    return {
+      "x-companion-session-id": sessionId,
+      "x-companion-auth-token": token,
+      "Content-Type": "application/json",
+    };
+  }
+
+  it("allows an authenticated leader to reassign to a herded worker with audit data", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "old-worker",
+      leaderSessionId: "old-leader",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    vi.spyOn(questStore, "claimQuest").mockResolvedValueOnce({
+      id: "q-1",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "new-worker",
+      leaderSessionId: "leader-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
+    launcher.getSession.mockImplementation((sid: string) => {
+      if (sid === "leader-1")
+        return { sessionId: sid, state: "running", cwd: "/test", archived: false, isOrchestrator: true };
+      if (sid === "new-worker")
+        return { sessionId: sid, state: "running", cwd: "/test", archived: false, herdedBy: "leader-1" };
+      if (sid === "old-worker") return { sessionId: sid, state: "running", cwd: "/test", archived: false };
+      return undefined;
+    });
+
+    const res = await app.request("/api/quests/q-1/reassign", {
+      method: "POST",
+      headers: companionAuthHeaders("leader-1", "leader-token"),
+      body: JSON.stringify({ sessionId: "new-worker", reason: "stale previous phase owner" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(questStore.claimQuest).toHaveBeenCalledWith(
+      "q-1",
+      "new-worker",
+      expect.objectContaining({
+        force: true,
+        leaderSessionId: "leader-1",
+        ownershipEvent: expect.objectContaining({
+          operation: "reassign",
+          actorSessionId: "leader-1",
+          previousOwnerSessionId: "old-worker",
+          newOwnerSessionId: "new-worker",
+          previousLeaderSessionId: "old-leader",
+          newLeaderSessionId: "leader-1",
+          reason: "stale previous phase owner",
+        }),
+      }),
+    );
+  });
+
+  it("rejects reassignment from non-leader callers", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "worker-1",
+      state: "running",
+      cwd: "/test",
+      archived: false,
+      isOrchestrator: false,
+    } as any);
+    const claimSpy = vi.spyOn(questStore, "claimQuest");
+
+    const res = await app.request("/api/quests/q-1/reassign", {
+      method: "POST",
+      headers: companionAuthHeaders("worker-1", "tok"),
+      body: JSON.stringify({ sessionId: "worker-2", reason: "stale" }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(claimSpy).not.toHaveBeenCalled();
   });
 });
 

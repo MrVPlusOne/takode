@@ -6,6 +6,7 @@ import type {
   QuestVerificationItem,
 } from "./quest-types.js";
 import { hasQuestReviewMetadata } from "./quest-types.js";
+import { normalizeOwnershipEvents } from "./quest-ownership.js";
 
 /** Normalize verification items: accept strings or {text,checked} objects.
  *  Rejects items with empty text. */
@@ -121,6 +122,7 @@ export function normalizeQuestOwnership(quest: QuestmasterTask): QuestmasterTask
     leaderSessionId?: string;
   };
   const previous = getPreviousOwnerSessionIds(normalized);
+  const ownershipEvents = normalizeOwnershipEvents((normalized as { ownershipEvents?: unknown }).ownershipEvents);
   const active = getActiveSessionId(normalized);
   const leader = getLeaderSessionId(normalized);
 
@@ -140,6 +142,11 @@ export function normalizeQuestOwnership(quest: QuestmasterTask): QuestmasterTask
     normalized.previousOwnerSessionIds = previous;
   } else {
     delete normalized.previousOwnerSessionIds;
+  }
+  if (ownershipEvents.length > 0) {
+    normalized.ownershipEvents = ownershipEvents;
+  } else {
+    delete normalized.ownershipEvents;
   }
   if (leader) {
     normalized.leaderSessionId = leader;

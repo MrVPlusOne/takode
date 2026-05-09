@@ -77,7 +77,8 @@ quest status <id> [--json]                                    Show compact actio
 quest history <id> [--json]                                   Show quest history (legacy backup after cutover)
 quest tags   [--json]                                         List all existing tags with counts
 quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
-quest claim  <id> [--session <sid>] [--json]                  Claim for your session
+quest claim  <id> [--session <sid>] [--force --reason <text>] [--json]  Claim for your session; force is explicit, audited, and server-auth only
+quest reassign <id> --session <worker> --reason <text> [--json]         Leader-only audited quest ownership reassignment
 quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--session <sid>] [--commit <sha>] [--commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]  Mark done and submit for review
 quest done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--json]      Mark as done/cancelled
 quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--json]                Cancel from any status
@@ -217,7 +218,18 @@ Use `quest grep` when you need to search **inside** quest titles, descriptions, 
 | Flag | Description |
 |------|-------------|
 | `--session <id>` | Session ID to claim for (required if COMPANION_SESSION_ID not set) |
+| `--force` | Explicitly take over from another owner. Requires Companion server auth and only works for the authenticated worker when the previous owner is archived or an active board row assigns the quest to that worker. |
+| `--reason <text>` | Required with `--force`; recorded in the ownership audit trail. |
 | `--json` | Output JSON |
+
+### quest reassign <id> [flags]
+| Flag | Description |
+|------|-------------|
+| `--session <id>` | Target worker session. Must be a valid, non-archived, non-leader session. |
+| `--reason <text>` | Required; recorded in the ownership audit trail. |
+| `--json` | Output JSON |
+
+`quest reassign` is leader-only and requires Companion server auth. It lets an orchestrator reassign a stale quest owner to a worker herded by that leader or assigned on that leader's board row. Leaders still cannot claim worker quests as themselves. Normal HTTP `quest claim` keeps the existing archived-owner takeover compatibility path, but that compatibility takeover is now recorded as an `archived_owner_takeover` ownership event.
 
 **Shell quoting safety:** if quest titles or descriptions may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content, prefer `--title-file` / `--desc-file` instead of inline shell quoting:
 
