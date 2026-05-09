@@ -1,8 +1,8 @@
 import { Hono } from "hono";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
-import { resolve, join, dirname, extname, relative } from "node:path";
+import { resolve, join, dirname, extname, relative, basename } from "node:path";
 import { homedir } from "node:os";
-import { exec as execCb } from "node:child_process";
+import { exec as execCb, execFile as execFileCb } from "node:child_process";
 import { promisify } from "node:util";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { expandTilde } from "../path-resolver.js";
@@ -10,8 +10,10 @@ import { getRipgrepPath } from "../ripgrep.js";
 import { SERVER_GIT_CMD } from "../constants.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import type { RouteContext } from "./context.js";
+import { requireSharp, isSharpUnavailableError } from "../image-optimizer.js";
 
 const execPromise = promisify(execCb);
+const execFilePromise = promisify(execFileCb);
 
 /** 10 MB — generous maxBuffer for git diff commands that may produce large output. */
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
@@ -20,6 +22,49 @@ const MAX_DIFF_BYTES = 512 * 1024;
 /** Cap file list returned by diff-files to avoid overwhelming the frontend. */
 const MAX_DIFF_FILES = 500;
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
+const FILE_LINK_PREVIEW_COMPRESSION_THRESHOLD_BYTES = 1024 * 1024;
+const FILE_LINK_PREVIEW_MAX_DIM = 1920;
+const FILE_LINK_PREVIEW_JPEG_QUALITY = 82;
+const IMAGE_MIME_BY_EXT: Record<string, string> = {
+  ".png": "image/png",
+  ".jpg": "image/jpeg",
+  ".jpeg": "image/jpeg",
+  ".gif": "image/gif",
+  ".webp": "image/webp",
+  ".svg": "image/svg+xml",
+  ".bmp": "image/bmp",
+  ".ico": "image/x-icon",
+  ".avif": "image/avif",
+  ".tif": "image/tiff",
+  ".tiff": "image/tiff",
+  ".heic": "image/heic",
+  ".heif": "image/heif",
+};
+
+interface FileLinkResolveRequest {
+  path: string;
+  isRelative?: boolean;
+  sessionId?: string;
+}
+
+interface FileLinkBaseContext {
+  cwd: string | null;
+  repoRoot: string | null;
+  isWorktree: boolean;
+}
+
+interface ResolvedFileLinkPath {
+  absolutePath: string;
+  requestedPath: string;
+  exists: boolean;
+  isFile: boolean;
+  isDirectory: boolean;
+  isImage: boolean;
+  mimeType?: string;
+  size?: number;
+  canRevealInFinder: boolean;
+  platform: NodeJS.Platform;
+}
 
 function resolveWorktreeDiffAnchor(
   wsBridge: RouteContext["wsBridge"],
@@ -32,6 +77,187 @@ function resolveWorktreeDiffAnchor(
   if (!state?.is_worktree) return requestedBase;
   if (GIT_SHA_REF_RE.test(requestedBase.trim())) return requestedBase;
   return state.diff_base_start_sha?.trim() || requestedBase;
+}
+
+function getFileLinkBaseContext(
+  wsBridge: RouteContext["wsBridge"],
+  sessionId: string | undefined,
+): FileLinkBaseContext {
+  const session = sessionId ? wsBridge.getSession(sessionId) : null;
+  const state = session?.state as
+    | {
+        cwd?: string;
+        repo_root?: string;
+        repoRoot?: string;
+        is_worktree?: boolean;
+        isWorktree?: boolean;
+      }
+    | undefined;
+  return {
+    cwd: state?.cwd ?? null,
+    repoRoot: state?.repo_root ?? state?.repoRoot ?? null,
+    isWorktree: Boolean(state?.is_worktree ?? state?.isWorktree),
+  };
+}
+
+function getFileLinkRoot(base: FileLinkBaseContext): string | null {
+  if (base.isWorktree && base.cwd) return base.cwd;
+  return base.repoRoot || base.cwd;
+}
+
+function normalizeRelativeFileLinkPath(path: string): string | null {
+  const normalized = path.replace(/\\/g, "/").replace(/^\.\//, "");
+  const safeParts: string[] = [];
+  for (const part of normalized.split("/")) {
+    if (!part || part === ".") continue;
+    if (part === "..") return null;
+    safeParts.push(part);
+  }
+  return safeParts.length > 0 ? safeParts.join("/") : null;
+}
+
+function parseStaleWorktreePath(targetPath: string): { staleRepoName: string; relativeWithinRepo: string } | null {
+  const normalizedTarget = targetPath.replace(/\\/g, "/");
+  const match = normalizedTarget.match(/^(.+\/\.companion\/worktrees\/([^/]+)\/[^/]+)(\/.+)$/);
+  if (!match) return null;
+  return { staleRepoName: match[2], relativeWithinRepo: match[3] };
+}
+
+function remapStaleWorktreePath(
+  targetPath: string,
+  root: string | null,
+  expectedRepoName: string | null,
+): string | null {
+  if (!root || !expectedRepoName) return null;
+  const parsed = parseStaleWorktreePath(targetPath);
+  if (!parsed || parsed.staleRepoName !== expectedRepoName) return null;
+  return `${root.replace(/[\\/]+$/, "")}${parsed.relativeWithinRepo}`;
+}
+
+async function statIfExists(path: string) {
+  try {
+    return await stat(path);
+  } catch {
+    return null;
+  }
+}
+
+async function chooseExistingFileLinkPath(candidates: string[]): Promise<string> {
+  for (const candidate of candidates) {
+    if (await statIfExists(candidate)) return candidate;
+  }
+  return candidates[0] ?? "";
+}
+
+async function resolveFileLinkPath(
+  request: FileLinkResolveRequest,
+  wsBridge: RouteContext["wsBridge"],
+): Promise<ResolvedFileLinkPath> {
+  const requestedPath = request.path.trim();
+  if (!requestedPath) {
+    throw new Error("path is required");
+  }
+
+  const base = getFileLinkBaseContext(wsBridge, request.sessionId);
+  let absolutePath: string;
+  if (request.isRelative) {
+    const root = getFileLinkRoot(base);
+    const normalizedRelative = normalizeRelativeFileLinkPath(requestedPath);
+    if (!root) {
+      throw new Error("Cannot resolve relative file link without a session filesystem root");
+    }
+    if (!normalizedRelative) {
+      throw new Error("Relative file link escapes the session filesystem root");
+    }
+    absolutePath = resolve(root, normalizedRelative);
+    const rootRelative = relative(resolve(root), absolutePath);
+    if (rootRelative === "" || rootRelative === ".." || rootRelative.startsWith(`..${"/"}`)) {
+      throw new Error("Relative file link escapes the session filesystem root");
+    }
+  } else {
+    const currentRoot = getFileLinkRoot(base);
+    const repoName = basename(base.repoRoot || base.cwd || "");
+    const currentWorktreePath = remapStaleWorktreePath(requestedPath, currentRoot, repoName);
+    const repoRootFallback = remapStaleWorktreePath(requestedPath, base.repoRoot, basename(base.repoRoot || ""));
+    absolutePath = await chooseExistingFileLinkPath(
+      [currentWorktreePath, requestedPath, repoRootFallback].filter((path): path is string => Boolean(path)),
+    );
+    absolutePath = resolve(absolutePath);
+  }
+
+  const info = await statIfExists(absolutePath);
+  const mimeType = IMAGE_MIME_BY_EXT[extname(absolutePath).toLowerCase()];
+  const isFile = Boolean(info?.isFile());
+  const isDirectory = Boolean(info?.isDirectory());
+  return {
+    absolutePath,
+    requestedPath,
+    exists: Boolean(info),
+    isFile,
+    isDirectory,
+    isImage: Boolean(isFile && mimeType),
+    ...(mimeType ? { mimeType } : {}),
+    ...(info ? { size: info.size } : {}),
+    canRevealInFinder: process.platform === "darwin" && Boolean(info),
+    platform: process.platform,
+  };
+}
+
+function fileLinkRequestFromBody(body: unknown): FileLinkResolveRequest | null {
+  const record = body && typeof body === "object" ? (body as Record<string, unknown>) : null;
+  if (!record || typeof record.path !== "string") return null;
+  return {
+    path: record.path,
+    isRelative: record.isRelative === true,
+    ...(typeof record.sessionId === "string" && record.sessionId.trim() ? { sessionId: record.sessionId } : {}),
+  };
+}
+
+function fileLinkRequestFromQuery(
+  path: string | undefined,
+  isRelative: string | undefined,
+  sessionId: string | undefined,
+) {
+  if (!path) return null;
+  return {
+    path,
+    isRelative: isRelative === "1" || isRelative === "true",
+    ...(sessionId ? { sessionId } : {}),
+  };
+}
+
+async function buildFileLinkPreviewResponse(target: ResolvedFileLinkPath): Promise<{
+  data: Buffer;
+  contentType: string;
+  compressed: boolean;
+}> {
+  if (!target.isImage || !target.mimeType) {
+    throw new Error("file is not a supported image type");
+  }
+  const original = (await readFile(target.absolutePath)) as Buffer;
+  if (original.byteLength <= FILE_LINK_PREVIEW_COMPRESSION_THRESHOLD_BYTES || target.mimeType === "image/svg+xml") {
+    return { data: original, contentType: target.mimeType, compressed: false };
+  }
+
+  try {
+    const sharp = await requireSharp("file link image previews");
+    const data = await sharp(original)
+      .rotate()
+      .resize({
+        width: FILE_LINK_PREVIEW_MAX_DIM,
+        height: FILE_LINK_PREVIEW_MAX_DIM,
+        fit: "inside",
+        withoutEnlargement: true,
+      })
+      .jpeg({ quality: FILE_LINK_PREVIEW_JPEG_QUALITY })
+      .toBuffer();
+    return { data, contentType: "image/jpeg", compressed: true };
+  } catch (error) {
+    if (!isSharpUnavailableError(error)) {
+      console.warn("[filesystem] Failed to compress file-link image preview:", error);
+    }
+    return { data: original, contentType: target.mimeType, compressed: false };
+  }
 }
 
 export function createFilesystemRoutes(ctx: RouteContext) {
@@ -147,23 +373,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     const path = c.req.query("path");
     if (!path) return c.json({ error: "path required" }, 400);
     const absPath = resolve(path);
-    const ext = extname(absPath).toLowerCase();
-    const mimeByExt: Record<string, string> = {
-      ".png": "image/png",
-      ".jpg": "image/jpeg",
-      ".jpeg": "image/jpeg",
-      ".gif": "image/gif",
-      ".webp": "image/webp",
-      ".svg": "image/svg+xml",
-      ".bmp": "image/bmp",
-      ".ico": "image/x-icon",
-      ".avif": "image/avif",
-      ".tif": "image/tiff",
-      ".tiff": "image/tiff",
-      ".heic": "image/heic",
-      ".heif": "image/heif",
-    };
-    const contentType = mimeByExt[ext];
+    const contentType = IMAGE_MIME_BY_EXT[extname(absPath).toLowerCase()];
     if (!contentType) {
       return c.json({ error: "file is not a supported image type" }, 400);
     }
@@ -175,6 +385,55 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       });
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : "Cannot read image file" }, 404);
+    }
+  });
+
+  api.post("/fs/file-link/resolve", async (c) => {
+    const request = fileLinkRequestFromBody(await c.req.json().catch(() => null));
+    if (!request) return c.json({ error: "Invalid file-link resolve payload" }, 400);
+    try {
+      return c.json(await resolveFileLinkPath(request, wsBridge));
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Cannot resolve file link" }, 400);
+    }
+  });
+
+  api.post("/fs/file-link/reveal", async (c) => {
+    if (process.platform !== "darwin") {
+      return c.json({ error: "Open in Finder is only available on macOS servers" }, 501);
+    }
+    const request = fileLinkRequestFromBody(await c.req.json().catch(() => null));
+    if (!request) return c.json({ error: "Invalid file-link reveal payload" }, 400);
+    try {
+      const target = await resolveFileLinkPath(request, wsBridge);
+      if (!target.exists) return c.json({ error: "File not found", absolutePath: target.absolutePath }, 404);
+      await execFilePromise("open", ["-R", target.absolutePath]);
+      return c.json({ ok: true, absolutePath: target.absolutePath });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Cannot reveal file link" }, 400);
+    }
+  });
+
+  api.get("/fs/file-link/preview", async (c) => {
+    const request = fileLinkRequestFromQuery(c.req.query("path"), c.req.query("isRelative"), c.req.query("sessionId"));
+    if (!request) return c.json({ error: "path required" }, 400);
+    try {
+      const target = await resolveFileLinkPath(request, wsBridge);
+      if (!target.exists) return c.json({ error: "File not found", absolutePath: target.absolutePath }, 404);
+      const preview = await buildFileLinkPreviewResponse(target);
+      const body = preview.data.buffer.slice(
+        preview.data.byteOffset,
+        preview.data.byteOffset + preview.data.byteLength,
+      ) as ArrayBuffer;
+      return c.body(body, 200, {
+        "Content-Type": preview.contentType,
+        "Cache-Control": "private, max-age=30",
+        "X-Takode-Preview-Compressed": preview.compressed ? "1" : "0",
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Cannot preview file link";
+      const status = message.includes("supported image") ? 400 : 404;
+      return c.json({ error: message }, status as 400 | 404);
     }
   });
 

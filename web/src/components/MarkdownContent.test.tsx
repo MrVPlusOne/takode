@@ -1,11 +1,13 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
+import { act, render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import { useStore } from "../store.js";
 
 const mockGetSettings = vi.fn();
 const mockOpenVsCodeRemoteFile = vi.fn();
 const mockReadFile = vi.fn();
 const mockFetchMessagePreview = vi.fn();
+const mockResolveFileLinkAction = vi.fn();
+const mockRevealFileLinkInFinder = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
@@ -15,6 +17,15 @@ vi.mock("../api.js", () => ({
     fetchMessagePreview: (...args: unknown[]) => mockFetchMessagePreview(...args),
   },
 }));
+
+vi.mock("../api/file-link-actions.js", async () => {
+  const actual = await vi.importActual<typeof import("../api/file-link-actions.js")>("../api/file-link-actions.js");
+  return {
+    ...actual,
+    resolveFileLinkAction: (...args: unknown[]) => mockResolveFileLinkAction(...args),
+    revealFileLinkInFinder: (...args: unknown[]) => mockRevealFileLinkInFinder(...args),
+  };
+});
 
 import { MarkdownContent } from "./MarkdownContent.js";
 
@@ -166,8 +177,20 @@ describe("MarkdownContent quest links", () => {
     mockOpenVsCodeRemoteFile.mockReset();
     mockReadFile.mockReset();
     mockFetchMessagePreview.mockReset();
+    mockResolveFileLinkAction.mockReset();
+    mockRevealFileLinkInFinder.mockReset();
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
     mockReadFile.mockResolvedValue({ path: "/tmp/file", content: "" });
+    mockResolveFileLinkAction.mockResolvedValue({
+      absolutePath: "/tmp/project/app.ts",
+      requestedPath: "/tmp/project/app.ts",
+      exists: true,
+      isFile: true,
+      isDirectory: false,
+      isImage: false,
+      canRevealInFinder: false,
+      platform: "linux",
+    });
   });
 
   function setRepoSession({ isWorktree = false }: { isWorktree?: boolean } = {}) {
@@ -1130,6 +1153,134 @@ describe("MarkdownContent quest links", () => {
     expect(mockGetSettings).not.toHaveBeenCalled();
     expect(screen.getByRole("link", { name: "external" }).getAttribute("href")).toBe("https://example.com/file.ts");
     expect(screen.getByRole("link", { name: "unsafe" }).getAttribute("href")).toBe("../outside.ts");
+  });
+
+  it("opens a backend-resolved context menu for image file links", async () => {
+    mockResolveFileLinkAction.mockResolvedValue({
+      absolutePath: "/repo/artifacts/preview.png",
+      requestedPath: "artifacts/preview.png",
+      exists: true,
+      isFile: true,
+      isDirectory: false,
+      isImage: true,
+      mimeType: "image/png",
+      canRevealInFinder: true,
+      platform: "darwin",
+    });
+    setRepoSession();
+
+    render(<MarkdownContent text="[preview](file:artifacts/preview.png)" />);
+    fireEvent.contextMenu(screen.getByRole("link", { name: "preview" }), { clientX: 24, clientY: 40 });
+
+    expect(await screen.findByText("Open in Editor")).toBeTruthy();
+    expect(screen.getByText("Copy File Path")).toBeTruthy();
+    expect(await screen.findByText("Open in Finder")).toBeTruthy();
+    fireEvent.click(screen.getByText("Preview in Takode"));
+
+    const image = await screen.findByTestId("lightbox-image");
+    expect(image.getAttribute("src")).toContain("/api/fs/file-link/preview?");
+    expect(image.getAttribute("src")).toContain("path=artifacts%2Fpreview.png");
+    expect(image.getAttribute("src")).toContain("sessionId=s1");
+  });
+
+  it("copies the backend-resolved absolute file path from the context menu", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const clipboardNavigator = { ...window.navigator, clipboard: { writeText } };
+    Object.defineProperty(window, "navigator", {
+      value: clipboardNavigator,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      value: clipboardNavigator,
+      configurable: true,
+    });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    mockResolveFileLinkAction.mockResolvedValue({
+      absolutePath: "/repo/web/src/app.ts",
+      requestedPath: "web/src/app.ts",
+      exists: true,
+      isFile: true,
+      isDirectory: false,
+      isImage: false,
+      canRevealInFinder: false,
+      platform: "linux",
+    });
+    setRepoSession();
+
+    render(<MarkdownContent text="[app](file:web/src/app.ts)" />);
+    fireEvent.contextMenu(screen.getByRole("link", { name: "app" }), { clientX: 10, clientY: 12 });
+    fireEvent.click(await screen.findByText("Copy File Path"));
+
+    await waitFor(() => {
+      expect(mockResolveFileLinkAction).toHaveBeenCalled();
+      if (alertSpy.mock.calls.length) {
+        throw new Error(String(alertSpy.mock.calls[0]?.[0]));
+      }
+      expect(writeText).toHaveBeenCalledWith("/repo/web/src/app.ts");
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+    expect(screen.queryByText("Open in Finder")).toBeNull();
+    expect(screen.queryByText("Preview in Takode")).toBeNull();
+  });
+
+  it("copies a backend-resolved path even when the file is missing", async () => {
+    // Missing targets should still expose the absolute path because copy is a
+    // path action, not a file-open action.
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    const clipboardNavigator = { ...window.navigator, clipboard: { writeText } };
+    Object.defineProperty(window, "navigator", {
+      value: clipboardNavigator,
+      configurable: true,
+    });
+    Object.defineProperty(globalThis, "navigator", {
+      value: clipboardNavigator,
+      configurable: true,
+    });
+    const alertSpy = vi.spyOn(window, "alert").mockImplementation(() => {});
+    mockResolveFileLinkAction.mockResolvedValue({
+      absolutePath: "/repo/missing.ts",
+      requestedPath: "missing.ts",
+      exists: false,
+      isFile: false,
+      isDirectory: false,
+      isImage: false,
+      canRevealInFinder: false,
+      platform: "linux",
+    });
+    setRepoSession();
+
+    render(<MarkdownContent text="[missing](file:missing.ts)" />);
+    fireEvent.contextMenu(screen.getByRole("link", { name: "missing" }), { clientX: 10, clientY: 12 });
+    await screen.findByText("File unavailable");
+    fireEvent.click(await screen.findByText("Copy File Path"));
+
+    await waitFor(() => {
+      expect(writeText).toHaveBeenCalledWith("/repo/missing.ts");
+    });
+    expect(alertSpy).not.toHaveBeenCalled();
+    alertSpy.mockRestore();
+  });
+
+  it("opens the file-link menu from a mobile long press without launching the editor", async () => {
+    vi.useFakeTimers();
+    try {
+      setRepoSession();
+      render(<MarkdownContent text="[mobile](file:web/src/mobile.ts)" />);
+
+      fireEvent.touchStart(screen.getByRole("link", { name: "mobile" }), {
+        touches: [{ clientX: 32, clientY: 48 }],
+      });
+      act(() => {
+        vi.advanceTimersByTime(550);
+      });
+
+      expect(screen.getByText("Open in Editor")).toBeTruthy();
+      fireEvent.click(screen.getByRole("link", { name: "mobile" }));
+      expect(mockGetSettings).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("shows the remote VSCode error when the server reports no running VSCode window", async () => {

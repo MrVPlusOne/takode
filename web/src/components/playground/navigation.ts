@@ -62,6 +62,7 @@ export const PLAYGROUND_NAV_GROUPS: PlaygroundNavGroup[] = [
     "AskUserQuestion",
     "Messages",
     "Copy Features",
+    "File Link Context Menu",
     "Image Lightbox",
     "Markdown Tables",
     "Tool Blocks",

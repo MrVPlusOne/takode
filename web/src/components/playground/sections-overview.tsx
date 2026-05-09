@@ -818,6 +818,22 @@ export function PlaygroundOverviewSections() {
         </div>
       </Section>
 
+      <Section
+        title="File Link Context Menu"
+        description="Takode file links keep normal editor clicks and expose file actions from the shared Markdown renderer."
+      >
+        <div className="space-y-4 max-w-3xl">
+          <Card label="Chat markdown with repo-relative and image file links">
+            <MarkdownContent
+              sessionId={MOCK_SESSION_ID}
+              text={
+                "Implementation notes reference [MarkdownContent.tsx:1](file:web/src/components/MarkdownContent.tsx:1) and an image target [preview.png](file:artifacts/file-link-preview.png)."
+              }
+            />
+          </Card>
+        </div>
+      </Section>
+
       {/* ─── Image Lightbox ──────────────────────────────── */}
       <Section
         title="Image Lightbox"

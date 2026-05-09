@@ -7,6 +7,7 @@ import {
   Children,
   type ComponentProps,
   type MouseEvent,
+  type TouchEvent,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -19,9 +20,19 @@ import { QuestInlineLink } from "./QuestInlineLink.js";
 import { CodeCopyButton } from "./CodeCopyButton.js";
 import { highlightCode } from "../utils/syntax-highlighting.js";
 import { openFileWithEditorPreference, showEditorOpenError } from "../utils/vscode-bridge.js";
+import { writeClipboardText } from "../utils/copy-utils.js";
 import { HighlightedText } from "./HighlightedText.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { splitPlainTakodeReferences } from "./composer-reference-utils.js";
+import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
+import { Lightbox } from "./Lightbox.js";
+import {
+  buildFileLinkPreviewUrl,
+  resolveFileLinkAction,
+  revealFileLinkInFinder,
+  type FileLinkActionTarget,
+  type FileLinkResolveResponse,
+} from "../api/file-link-actions.js";
 
 interface MarkdownAstNode {
   type: string;
@@ -829,23 +840,73 @@ function FileMarkdownLink({
   const currentSessionId = useStore((s) => s.currentSessionId);
   const sessions = useStore((s) => s.sessions);
   const sdkSessions = useStore((s) => s.sdkSessions);
+  const activeSessionId = sessionId ?? currentSessionId ?? undefined;
+  const [menuPosition, setMenuPosition] = useState<{ x: number; y: number } | null>(null);
+  const [fileInfo, setFileInfo] = useState<FileLinkResolveResponse | null>(null);
+  const [fileInfoError, setFileInfoError] = useState<string | null>(null);
+  const [previewUrl, setPreviewUrl] = useState<string | null>(null);
+  const longPressTimerRef = useRef<number | null>(null);
+  const longPressTriggeredRef = useRef(false);
   const basePath = useMemo(
     () => getFileLinkBasePath(sessionId, currentSessionId, sessions, sdkSessions),
     [currentSessionId, sdkSessions, sessionId, sessions],
   );
   const resolvedTarget = useMemo(() => resolveFileLinkTarget(target, basePath), [basePath, target]);
+  const actionTarget = useMemo<FileLinkActionTarget>(
+    () => ({
+      path: target.path,
+      isRelative: target.isRelative,
+      ...(activeSessionId ? { sessionId: activeSessionId } : {}),
+    }),
+    [activeSessionId, target.isRelative, target.path],
+  );
+
+  useEffect(() => {
+    if (!menuPosition) return;
+    let cancelled = false;
+    setFileInfo(null);
+    setFileInfoError(null);
+    resolveFileLinkAction(actionTarget)
+      .then((info) => {
+        if (!cancelled) setFileInfo(info);
+      })
+      .catch((error) => {
+        if (!cancelled) setFileInfoError(error instanceof Error ? error.message : String(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [actionTarget, menuPosition]);
+
+  const openEditorTarget = useCallback(async (openTarget: ResolvedFileLinkTarget) => {
+    let settings;
+    try {
+      settings = await api.getSettings();
+    } catch {
+      return;
+    }
+    const { absolutePath, line, column, endLine } = openTarget;
+    await openFileWithEditorPreference(
+      {
+        absolutePath,
+        line,
+        column,
+        ...(Number.isFinite(endLine) ? { endLine } : {}),
+      },
+      settings.editorConfig?.editor ?? "none",
+    );
+  }, []);
 
   const onClick = useCallback(
     async (e: MouseEvent<HTMLAnchorElement>) => {
+      if (longPressTriggeredRef.current) {
+        longPressTriggeredRef.current = false;
+        e.preventDefault();
+        return;
+      }
       e.preventDefault();
       if (!resolvedTarget) return;
       let openTarget = resolvedTarget;
-      let settings;
-      try {
-        settings = await api.getSettings();
-      } catch {
-        return;
-      }
       if (resolvedTarget.fallbackAbsolutePath) {
         try {
           await api.readFile(resolvedTarget.absolutePath);
@@ -857,21 +918,12 @@ function FileMarkdownLink({
         }
       }
       try {
-        const { absolutePath, line, column, endLine } = openTarget;
-        await openFileWithEditorPreference(
-          {
-            absolutePath,
-            line,
-            column,
-            ...(Number.isFinite(endLine) ? { endLine } : {}),
-          },
-          settings.editorConfig?.editor ?? "none",
-        );
+        await openEditorTarget(openTarget);
       } catch (error) {
         showEditorOpenError(error instanceof Error ? error.message : String(error));
       }
     },
-    [resolvedTarget],
+    [openEditorTarget, resolvedTarget],
   );
 
   const locationSuffix = formatFileLinkLocation(target);
@@ -879,20 +931,116 @@ function FileMarkdownLink({
   const title = resolvedTarget
     ? `${target.path}${locationSuffix}`
     : `${target.path}${locationSuffix} (unable to resolve repo-relative path)`;
+  const clearLongPressTimer = useCallback(() => {
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+  }, []);
+  const openMenuAt = useCallback((x: number, y: number) => {
+    setMenuPosition({ x, y });
+  }, []);
+  const openBackendResolvedEditor = useCallback(async () => {
+    try {
+      const info = await resolveFileLinkAction(actionTarget);
+      if (!info.exists) throw new Error("File not found");
+      await openEditorTarget({
+        absolutePath: info.absolutePath,
+        line: target.line,
+        column: target.column,
+        ...(Number.isFinite(target.endLine) ? { endLine: Number(target.endLine) } : {}),
+      });
+    } catch (error) {
+      showEditorOpenError(error instanceof Error ? error.message : String(error));
+    }
+  }, [actionTarget, openEditorTarget, target.column, target.endLine, target.line]);
+  const copyBackendResolvedPath = useCallback(async () => {
+    try {
+      const info = await resolveFileLinkAction(actionTarget);
+      await writeClipboardText(info.absolutePath);
+    } catch (error) {
+      showEditorOpenError(error instanceof Error ? error.message : String(error));
+    }
+  }, [actionTarget]);
+  const revealBackendResolvedPath = useCallback(async () => {
+    try {
+      await revealFileLinkInFinder(actionTarget);
+    } catch (error) {
+      showEditorOpenError(error instanceof Error ? error.message : String(error));
+    }
+  }, [actionTarget]);
+  const previewBackendResolvedImage = useCallback(() => {
+    setPreviewUrl(buildFileLinkPreviewUrl(actionTarget));
+  }, [actionTarget]);
+  const menuItems = useMemo<ContextMenuItem[]>(() => {
+    const items: ContextMenuItem[] = [
+      { label: "Open in Editor", onClick: () => void openBackendResolvedEditor() },
+      { label: "Copy File Path", onClick: () => void copyBackendResolvedPath() },
+    ];
+    if (!fileInfo && !fileInfoError) {
+      items.push({ label: "Checking file...", onClick: () => {}, disabled: true });
+      return items;
+    }
+    if (fileInfo?.canRevealInFinder) {
+      items.push({ label: "Open in Finder", onClick: () => void revealBackendResolvedPath() });
+    }
+    if (fileInfo?.isImage) {
+      items.push({ label: "Preview in Takode", onClick: previewBackendResolvedImage });
+    }
+    if (fileInfo && !fileInfo.exists) {
+      items.push({ label: "File unavailable", onClick: () => {}, disabled: true });
+    } else if (fileInfo && !fileInfo.isImage) {
+      items.push({ label: "No image preview", onClick: () => {}, disabled: true });
+    } else if (fileInfoError) {
+      items.push({ label: fileInfoError, onClick: () => {}, disabled: true });
+    }
+    return items;
+  }, [
+    copyBackendResolvedPath,
+    fileInfo,
+    fileInfoError,
+    openBackendResolvedEditor,
+    previewBackendResolvedImage,
+    revealBackendResolvedPath,
+  ]);
 
   return (
-    <a
-      href={href}
-      onClick={(e) => {
-        void onClick(e);
-      }}
-      className={`${resolvedTarget ? "text-cc-primary hover:underline" : "text-cc-muted"} ${
-        wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""
-      }`}
-      title={title}
-    >
-      {children}
-    </a>
+    <>
+      <a
+        href={href}
+        onClick={(e) => {
+          void onClick(e);
+        }}
+        onContextMenu={(e) => {
+          e.preventDefault();
+          openMenuAt(e.clientX, e.clientY);
+        }}
+        onTouchStart={(e: TouchEvent<HTMLAnchorElement>) => {
+          clearLongPressTimer();
+          const touch = e.touches[0];
+          if (!touch) return;
+          longPressTimerRef.current = window.setTimeout(() => {
+            longPressTriggeredRef.current = true;
+            openMenuAt(touch.clientX, touch.clientY);
+          }, 550);
+        }}
+        onTouchMove={clearLongPressTimer}
+        onTouchEnd={clearLongPressTimer}
+        onTouchCancel={clearLongPressTimer}
+        className={`${resolvedTarget ? "text-cc-primary hover:underline" : "text-cc-muted"} ${
+          wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""
+        }`}
+        title={title}
+      >
+        {children}
+      </a>
+      {menuPosition && (
+        <ContextMenu x={menuPosition.x} y={menuPosition.y} items={menuItems} onClose={() => setMenuPosition(null)} />
+      )}
+      {previewUrl && (
+        <Lightbox src={previewUrl} alt={`Preview of ${target.path}`} onClose={() => setPreviewUrl(null)} />
+      )}
+    </>
   );
 }
 

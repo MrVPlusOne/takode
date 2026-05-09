@@ -69,8 +69,9 @@ function stripMarkdown(md: string): string {
  * to a temporary textarea + execCommand("copy").
  */
 export function writeClipboardText(text: string): Promise<void> {
-  if (navigator.clipboard?.writeText) {
-    return navigator.clipboard.writeText(text);
+  const clipboard = typeof window !== "undefined" ? window.navigator.clipboard : globalThis.navigator?.clipboard;
+  if (clipboard?.writeText) {
+    return clipboard.writeText(text);
   }
   // Legacy fallback: create a temporary textarea, select, and copy
   const ta = document.createElement("textarea");
