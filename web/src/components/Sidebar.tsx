@@ -1008,7 +1008,7 @@ export function Sidebar() {
       {/* Header */}
       <div className="p-4 pb-3">
         <div className="flex items-center gap-2 mb-4">
-          <img src={logoSrc} alt="" className="w-7 h-7 rounded-lg object-contain" />
+          <img src={logoSrc} alt="" className="h-12 w-12 shrink-0 rounded-xl object-contain" />
           {editingServerName ? (
             <input
               ref={serverNameInputRef}
