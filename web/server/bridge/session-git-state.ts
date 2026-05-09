@@ -586,6 +586,7 @@ export async function computeDiffStatsAsync(
       return true;
     }
 
+    let worktreeDirtyEntries: number | null = null;
     if (session.state.is_worktree) {
       const divergence = (session.state.git_ahead || 0) + (session.state.git_behind || 0);
       if (divergence > DIFF_STATS_COMMIT_DIVERGENCE_LIMIT) {
@@ -594,15 +595,17 @@ export async function computeDiffStatsAsync(
         return true;
       }
 
-      const dirtyEntries = await countTrackedDirtyEntries(cwd);
-      if (dirtyEntries > DIFF_STATS_TRACKED_DIRTY_LIMIT) {
-        setSkippedDiffStats(session, cacheKey, `${dirtyEntries} dirty tracked paths exceeds budget`);
+      worktreeDirtyEntries = await countTrackedDirtyEntries(cwd);
+      if (worktreeDirtyEntries > DIFF_STATS_TRACKED_DIRTY_LIMIT) {
+        setSkippedDiffStats(session, cacheKey, `${worktreeDirtyEntries} dirty tracked paths exceeds budget`, {
+          cache: false,
+        });
         session.worktreeStateFingerprint = worktreeFingerprint;
         return true;
       }
 
       if (
-        dirtyEntries === 0 &&
+        worktreeDirtyEntries === 0 &&
         options.allowCachedResult !== false &&
         session.diffStatsCacheKey === cacheKey &&
         session.diffStatsCacheResult
@@ -612,7 +615,7 @@ export async function computeDiffStatsAsync(
         return true;
       }
 
-      if (dirtyEntries === 0 && !worktreeBaseIsExplicitCommit && (session.state.git_ahead || 0) <= 0) {
+      if (worktreeDirtyEntries === 0 && !worktreeBaseIsExplicitCommit && (session.state.git_ahead || 0) <= 0) {
         session.state.total_lines_added = 0;
         session.state.total_lines_removed = 0;
         session.state.diff_stats_skipped_reason = null;
@@ -642,11 +645,13 @@ export async function computeDiffStatsAsync(
       totalLinesRemoved: removed,
       skippedReason: null,
     });
-    cacheDiffStatsResult(session, cacheKey, {
-      totalLinesAdded: added,
-      totalLinesRemoved: removed,
-      skippedReason: null,
-    });
+    if (!session.state.is_worktree || worktreeDirtyEntries === 0) {
+      cacheDiffStatsResult(session, cacheKey, {
+        totalLinesAdded: added,
+        totalLinesRemoved: removed,
+        skippedReason: null,
+      });
+    }
     if (session.state.is_worktree) {
       session.worktreeStateFingerprint = worktreeFingerprint;
     }
