@@ -4,15 +4,18 @@ import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
 
 const mockListQuestPage = vi.fn();
+const mockSearchSessionMessages = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
     listQuestPage: (...args: unknown[]) => mockListQuestPage(...args),
+    searchSessionMessages: (...args: unknown[]) => mockSearchSessionMessages(...args),
   },
 }));
 
 import { UniversalSearchOverlay } from "./UniversalSearchOverlay.js";
 import { useStore } from "../store.js";
+import type { MessageSearchResponse, MessageSearchResult } from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
 
 const now = 1778274000000;
@@ -113,6 +116,44 @@ const threadScopedMessages: ChatMessage[] = [
   },
 ];
 
+function messageResult(overrides: Partial<MessageSearchResult>): MessageSearchResult {
+  const messageId = overrides.messageId ?? "message-1";
+  return {
+    id: `s-new:0:${messageId}`,
+    sessionId: "s-new",
+    sessionNum: 11,
+    messageId,
+    historyIndex: 0,
+    role: "user",
+    category: "user",
+    timestamp: now - 10_000,
+    snippet: "Recent user request about universal search",
+    routeThreadKey: "main",
+    sourceThreadKey: "main",
+    sourceLabel: "Main",
+    ...overrides,
+  };
+}
+
+function messageSearchResponse(
+  results: MessageSearchResult[],
+  overrides: Partial<MessageSearchResponse> = {},
+): MessageSearchResponse {
+  return {
+    sessionId: "s-new",
+    sessionNum: 11,
+    query: "",
+    scope: { kind: "current_thread", threadKey: "main", label: "Searching in #11 Main" },
+    filters: { user: true, assistant: false, event: false },
+    totalMatches: results.length,
+    results,
+    nextOffset: null,
+    hasMore: false,
+    tookMs: 1,
+    ...overrides,
+  };
+}
+
 function quest(overrides: Partial<QuestmasterTask> & Pick<QuestmasterTask, "questId" | "title">): QuestmasterTask {
   return {
     status: "in_progress",
@@ -158,6 +199,7 @@ describe("UniversalSearchOverlay", () => {
   beforeEach(() => {
     localStorage.clear();
     mockListQuestPage.mockClear();
+    mockSearchSessionMessages.mockClear();
     useStore.getState().setQuests([]);
     useStore.getState().setSdkSessions(sessions);
     mockListQuestPage.mockResolvedValue({
@@ -171,6 +213,16 @@ describe("UniversalSearchOverlay", () => {
       counts: { all: 0, idea: 0, refined: 0, in_progress: 0, done: 0 },
       allTags: [],
     });
+    mockSearchSessionMessages.mockResolvedValue(
+      messageSearchResponse([
+        messageResult({ messageId: "user-new", timestamp: now - 10_000 }),
+        messageResult({
+          messageId: "user-old",
+          timestamp: now - 30_000,
+          snippet: "Older user request about search controls",
+        }),
+      ]),
+    );
   });
 
   afterEach(() => {
@@ -185,56 +237,106 @@ describe("UniversalSearchOverlay", () => {
     expect(await screen.findByText("Recent user request about universal search")).toBeInTheDocument();
     expect(screen.getByText("Older user request about search controls")).toBeInTheDocument();
     expect(screen.queryByText("Assistant note about the search overlay")).not.toBeInTheDocument();
+    await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalled());
+    expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+      "s-new",
+      expect.objectContaining({
+        query: "",
+        scope: "session",
+        threadKey: undefined,
+        filters: { user: true, assistant: false, event: false },
+        limit: 20,
+      }),
+    );
     expect(mockListQuestPage).not.toHaveBeenCalled();
   });
 
-  it("removes Session mode and falls back to Quest mode when there is no current session context", async () => {
+  it("keeps Message mode disabled and falls back to Quest mode when there is no current session context", async () => {
     renderOverlay({ currentSessionId: null, messages: [] });
 
     expect(screen.queryByRole("button", { name: "Sessions" })).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Messages" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
     await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
+    expect(mockSearchSessionMessages).not.toHaveBeenCalled();
   });
 
-  it("keeps Message mode disabled when there is no current thread context", async () => {
-    renderOverlay({ currentThreadKey: null });
+  it("falls back from a persisted legacy Session mode to an available mode", async () => {
+    localStorage.setItem("cc-universal-search-mode", "sessions");
+    renderOverlay({ currentSessionId: null, currentThreadKey: null, messages: [] });
 
     expect(screen.queryByRole("button", { name: "Sessions" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Messages" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
     await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
   });
 
-  it("uses Main feed projection for empty-query Message recents and typed Message search", async () => {
-    renderOverlay({ currentThreadKey: "main", messages: threadScopedMessages });
+  it("searches whole-session Message mode for normal sessions without a thread route", async () => {
+    renderOverlay({ currentThreadKey: null });
 
-    expect(await screen.findByText("Visible main request about apples")).toBeInTheDocument();
-    expect(screen.queryByText("Hidden quest dragonfruit request")).not.toBeInTheDocument();
-    expect(screen.queryByText("Hidden quest reference with banana")).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "dragonfruit" } });
-    await advanceSearchDebounce();
-
-    expect(screen.queryByText("Hidden quest dragonfruit request")).not.toBeInTheDocument();
-    expect(await screen.findByText("No results")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Messages" })).toBeEnabled();
+    await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalled());
+    expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+      "s-new",
+      expect.objectContaining({ scope: "session", threadKey: undefined }),
+    );
   });
 
-  it("uses quest-thread projection for empty-query Message recents and typed Message search", async () => {
-    renderOverlay({ currentThreadKey: "q-1272", messages: threadScopedMessages });
+  it("uses backend Message search for thread scope and renders matched snippets with highlighting", async () => {
+    const questResponse = messageSearchResponse(
+      [
+        messageResult({
+          messageId: "quest-visible",
+          snippet: "Quest thread-specific request about pears",
+          sourceThreadKey: "q-1272",
+          sourceLabel: "Thread q-1272",
+          routeThreadKey: "q-1272",
+        }),
+      ],
+      { scope: { kind: "current_thread", threadKey: "q-1272", label: "Searching in #11 thread q-1272" } },
+    );
+    mockSearchSessionMessages.mockResolvedValueOnce(questResponse).mockResolvedValueOnce(questResponse);
+    renderOverlay({
+      currentThreadKey: "q-1272",
+      messages: threadScopedMessages,
+      sessions: [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!],
+    });
 
-    expect(await screen.findByText("Quest thread-specific request about pears")).toBeInTheDocument();
-    expect(screen.getByText("Hidden quest dragonfruit request")).toBeInTheDocument();
-    expect(screen.getByText("Hidden quest reference with banana")).toBeInTheDocument();
-    expect(screen.queryByText("Visible main request about apples")).not.toBeInTheDocument();
-    expect(screen.queryByText("Other quest thread-specific request about pears")).not.toBeInTheDocument();
-
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "thread-specific" } });
+    expect(await screen.findByText("Searching in #11 thread q-1272")).toBeInTheDocument();
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "thread specific" } });
     await advanceSearchDebounce();
 
-    expect(await screen.findByText("Quest thread-specific request about pears")).toBeInTheDocument();
-    expect(screen.queryByText("Other quest thread-specific request about pears")).not.toBeInTheDocument();
-    expect(screen.queryByText("Visible main request about apples")).not.toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+        "s-new",
+        expect.objectContaining({ query: "thread specific", scope: "current_thread", threadKey: "q-1272" }),
+      ),
+    );
+    expect(await screen.findByText("Thread q-1272")).toBeInTheDocument();
+    expect(screen.getAllByText("thread").some((element) => element.tagName === "MARK")).toBe(true);
+  });
+
+  it("persists Message-mode filters and leader scope settings", async () => {
+    const leaderSessions: SdkSessionInfo[] = [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!];
+    renderOverlay({ sessions: leaderSessions });
+
+    expect(await screen.findByText("Searching in #11 Main")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Across tabs" }));
+    fireEvent.click(screen.getByRole("button", { name: "Assistant" }));
+    await waitFor(() =>
+      expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+        "s-new",
+        expect.objectContaining({
+          scope: "leader_all_tabs",
+          filters: { user: true, assistant: true, event: false },
+        }),
+      ),
+    );
+
+    const stored = JSON.parse(localStorage.getItem("cc-universal-search-message-settings") || "{}");
+    expect(stored).toEqual({
+      scope: "leader_all_tabs",
+      filters: { user: true, assistant: true, event: false },
+    });
   });
 
   it("runs only the selected mode adapter and uses newest-updated quest sorting for empty queries", async () => {
@@ -401,13 +503,49 @@ describe("UniversalSearchOverlay", () => {
     expect(callbacks.onClose).toHaveBeenCalledTimes(2);
   });
 
-  it("falls back from a persisted legacy Session mode to an available mode", async () => {
-    localStorage.setItem("cc-universal-search-mode", "sessions");
-    renderOverlay({ currentSessionId: null, currentThreadKey: null, messages: [] });
+  it("ignores stale Message search responses after the query changes", async () => {
+    let resolveOld!: (value: MessageSearchResponse) => void;
+    let resolveNew!: (value: MessageSearchResponse) => void;
+    mockSearchSessionMessages
+      .mockResolvedValueOnce(messageSearchResponse([]))
+      .mockImplementationOnce(
+        () =>
+          new Promise<MessageSearchResponse>((resolve) => {
+            resolveOld = resolve;
+          }),
+      )
+      .mockImplementationOnce(
+        () =>
+          new Promise<MessageSearchResponse>((resolve) => {
+            resolveNew = resolve;
+          }),
+      );
 
-    expect(screen.queryByRole("button", { name: "Sessions" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
+    renderOverlay();
+
+    await waitFor(() => expect(mockSearchSessionMessages).toHaveBeenCalledTimes(1));
+    const input = screen.getByRole("searchbox");
+    fireEvent.change(input, { target: { value: "old" } });
+    await advanceSearchDebounce();
+    fireEvent.change(input, { target: { value: "new" } });
+    await advanceSearchDebounce();
+
+    resolveNew(
+      messageSearchResponse(
+        [messageResult({ messageId: "new-message", snippet: "New message search result", timestamp: now - 1_000 })],
+        { query: "new" },
+      ),
+    );
+    await screen.findByText("New");
+    expect(screen.getByText("message search result")).toBeInTheDocument();
+
+    resolveOld(
+      messageSearchResponse(
+        [messageResult({ messageId: "old-message", snippet: "Old message search result", timestamp: now - 2_000 })],
+        { query: "old" },
+      ),
+    );
+    await waitFor(() => expect(screen.queryByText("Old")).not.toBeInTheDocument());
   });
 
   it("supports Tab mode cycling, arrow selection, Enter opening, and Escape closing", async () => {

@@ -420,6 +420,52 @@ export interface SessionSearchResponse {
   results: SessionSearchResult[];
 }
 
+export type MessageSearchScopeKind = "session" | "current_thread" | "leader_all_tabs";
+export type MessageSearchCategory = "user" | "assistant" | "event";
+
+export interface MessageSearchFilters {
+  user: boolean;
+  assistant: boolean;
+  event: boolean;
+}
+
+export type MessageSearchScope =
+  | { kind: "session"; label: string }
+  | { kind: "current_thread"; threadKey: string; label: string }
+  | { kind: "leader_all_tabs"; label: string };
+
+export interface MessageSearchResult {
+  id: string;
+  sessionId: string;
+  sessionNum: number | null;
+  messageId: string;
+  historyIndex: number;
+  role: "user" | "assistant" | "system";
+  category: MessageSearchCategory;
+  timestamp: number;
+  snippet: string;
+  fullText?: string;
+  matchRanges?: Array<{ start: number; end: number }>;
+  matchedText?: string;
+  routeThreadKey?: string;
+  sourceThreadKey?: string;
+  sourceLabel?: string;
+  questId?: string;
+}
+
+export interface MessageSearchResponse {
+  sessionId: string;
+  sessionNum: number | null;
+  query: string;
+  scope: MessageSearchScope;
+  filters: MessageSearchFilters;
+  totalMatches: number;
+  results: MessageSearchResult[];
+  nextOffset: number | null;
+  hasMore: boolean;
+  tookMs: number;
+}
+
 export interface BackendInfo {
   id: string;
   name: string;
@@ -1003,6 +1049,38 @@ export const api = {
       throw new Error(err.error || res.statusText);
     }
     return res.json() as Promise<SessionSearchResponse>;
+  },
+
+  searchSessionMessages: async (
+    sessionId: string,
+    options?: {
+      query?: string;
+      scope?: MessageSearchScopeKind;
+      threadKey?: string | null;
+      filters?: Partial<MessageSearchFilters>;
+      limit?: number;
+      offset?: number;
+      signal?: AbortSignal;
+    },
+  ) => {
+    const params = new URLSearchParams();
+    if (options?.query) params.set("q", options.query);
+    if (options?.scope) params.set("scope", options.scope);
+    if (options?.threadKey) params.set("threadKey", options.threadKey);
+    if (typeof options?.limit === "number") params.set("limit", String(options.limit));
+    if (typeof options?.offset === "number") params.set("offset", String(options.offset));
+    if (typeof options?.filters?.user === "boolean") params.set("includeUser", options.filters.user ? "true" : "false");
+    if (typeof options?.filters?.assistant === "boolean") {
+      params.set("includeAssistant", options.filters.assistant ? "true" : "false");
+    }
+    if (typeof options?.filters?.event === "boolean") {
+      params.set("includeEvents", options.filters.event ? "true" : "false");
+    }
+    const query = params.toString();
+    return get<MessageSearchResponse>(
+      `/sessions/${encodeURIComponent(sessionId)}/message-search${query ? `?${query}` : ""}`,
+      options?.signal,
+    );
   },
 
   killSession: (sessionId: string) => post(`/sessions/${encodeURIComponent(sessionId)}/kill`),

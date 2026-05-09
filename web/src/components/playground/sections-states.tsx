@@ -15,6 +15,7 @@ import {
 import { HighlightedText } from "../HighlightedText.js";
 import { PawTrailAvatar } from "../PawTrail.js";
 import { UniversalSearchOverlay } from "../UniversalSearchOverlay.js";
+import type { MessageSearchResponse } from "../../api.js";
 import type { ChatMessage, CreationProgressEvent, SdkSessionInfo } from "../../types.js";
 import { MOCK_SUBAGENT_TOOL_ITEMS, MOCK_TOOL_GROUP_ITEMS } from "./fixtures.js";
 import {
@@ -39,6 +40,8 @@ const PLAYGROUND_UNIVERSAL_SESSIONS: SdkSessionInfo[] = [
     name: "Universal search implementation",
     backendType: "codex",
     gitBranch: "feature/universal-search",
+    sessionNum: 1277,
+    isOrchestrator: true,
   },
   {
     sessionId: "playground-review",
@@ -50,6 +53,48 @@ const PLAYGROUND_UNIVERSAL_SESSIONS: SdkSessionInfo[] = [
     backendType: "claude",
   },
 ];
+
+const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
+  sessionId: "playground-universal",
+  sessionNum: 1277,
+  query: "search",
+  scope: { kind: "current_thread", threadKey: "main", label: "Searching in #1277 Main" },
+  filters: { user: true, assistant: false, event: false },
+  totalMatches: 2,
+  nextOffset: null,
+  hasMore: false,
+  tookMs: 2,
+  results: [
+    {
+      id: "playground-universal:0:universal-user-new",
+      sessionId: "playground-universal",
+      sessionNum: 1277,
+      messageId: "universal-user-new",
+      historyIndex: 0,
+      role: "user",
+      category: "user",
+      timestamp: Date.now() - 2 * 60_000,
+      snippet: "Can you make the universal search overlay keyboard efficient and mode scoped?",
+      routeThreadKey: "main",
+      sourceThreadKey: "main",
+      sourceLabel: "Main",
+    },
+    {
+      id: "playground-universal:3:universal-user-old",
+      sessionId: "playground-universal",
+      sessionNum: 1277,
+      messageId: "universal-user-old",
+      historyIndex: 3,
+      role: "user",
+      category: "user",
+      timestamp: Date.now() - 30 * 60_000,
+      snippet: "Default message mode should show recent user messages when the query is empty.",
+      routeThreadKey: "main",
+      sourceThreadKey: "main",
+      sourceLabel: "Main",
+    },
+  ],
+};
 
 const PLAYGROUND_UNIVERSAL_MESSAGES: ChatMessage[] = [
   {
@@ -1887,6 +1932,7 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
               sessions={PLAYGROUND_UNIVERSAL_SESSIONS}
               messages={PLAYGROUND_UNIVERSAL_MESSAGES}
               leaderSessionId="playground-universal"
+              messageSearchPreviewResponse={PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE}
               onClose={() => {}}
               onOpenQuest={() => {}}
               onOpenMessage={() => {}}

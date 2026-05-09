@@ -1,24 +1,23 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { api } from "../api.js";
-import {
-  sessionSearchMessageMatchesCategory,
-  sessionSearchTextMatches,
-  type SessionSearchCategory,
-} from "../store-session-search.js";
+import { api, type MessageSearchResponse, type MessageSearchResult, type MessageSearchScopeKind } from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
 import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
+import { getHighlightParts } from "../utils/highlight.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
-import { filterMessagesForThread } from "../utils/thread-projection.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 
 export type UniversalSearchMode = "quests" | "messages";
 
-type MessageFilter = Exclude<SessionSearchCategory, "all">;
+type MessageFilter = "user" | "assistant" | "event";
+type MessageSearchSettings = {
+  scope: MessageSearchScopeKind;
+  filters: Record<MessageFilter, boolean>;
+};
 
 type UniversalSearchResult =
   | { kind: "quest"; id: string; quest: QuestmasterTask }
-  | { kind: "message"; id: string; message: ChatMessage };
+  | { kind: "message"; id: string; message: MessageSearchResult };
 
 export interface UniversalSearchOverlayProps {
   open: boolean;
@@ -27,6 +26,7 @@ export interface UniversalSearchOverlayProps {
   sessions: SdkSessionInfo[];
   messages: ChatMessage[];
   leaderSessionId?: string;
+  messageSearchPreviewResponse?: MessageSearchResponse;
   presentation?: "fixed" | "inline";
   onClose: () => void;
   onOpenQuest: (questId: string, query: string) => void;
@@ -36,6 +36,7 @@ export interface UniversalSearchOverlayProps {
 const PAGE_SIZE = 20;
 const DEBOUNCE_MS = 300;
 const LAST_MODE_STORAGE_KEY = "cc-universal-search-mode";
+const MESSAGE_SETTINGS_STORAGE_KEY = "cc-universal-search-message-settings";
 const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string }> = [
   { id: "quests", label: "Quests" },
   { id: "messages", label: "Messages" },
@@ -46,6 +47,15 @@ const MESSAGE_FILTERS: Array<{ id: MessageFilter; label: string }> = [
   { id: "assistant", label: "Assistant" },
   { id: "event", label: "Events" },
 ];
+
+const DEFAULT_MESSAGE_SEARCH_SETTINGS: MessageSearchSettings = {
+  scope: "current_thread",
+  filters: {
+    user: true,
+    assistant: false,
+    event: false,
+  },
+};
 
 function useDebouncedValue(value: string, delayMs: number): string {
   const [debounced, setDebounced] = useState(value);
@@ -73,10 +83,75 @@ function writeLastMode(mode: UniversalSearchMode): void {
   scopedSetItem(LAST_MODE_STORAGE_KEY, mode);
 }
 
+function readMessageSearchSettings(): MessageSearchSettings {
+  if (typeof window === "undefined") return DEFAULT_MESSAGE_SEARCH_SETTINGS;
+  const stored = scopedGetItem(MESSAGE_SETTINGS_STORAGE_KEY);
+  if (!stored) return DEFAULT_MESSAGE_SEARCH_SETTINGS;
+  try {
+    const parsed = JSON.parse(stored) as Partial<MessageSearchSettings>;
+    return normalizeStoredMessageSearchSettings(parsed);
+  } catch {
+    return DEFAULT_MESSAGE_SEARCH_SETTINGS;
+  }
+}
+
+function writeMessageSearchSettings(settings: MessageSearchSettings): void {
+  if (typeof window === "undefined") return;
+  scopedSetItem(MESSAGE_SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+}
+
+function normalizeStoredMessageSearchSettings(settings: Partial<MessageSearchSettings>): MessageSearchSettings {
+  const scope =
+    settings.scope === "session" || settings.scope === "current_thread" || settings.scope === "leader_all_tabs"
+      ? settings.scope
+      : DEFAULT_MESSAGE_SEARCH_SETTINGS.scope;
+  return {
+    scope,
+    filters: {
+      user:
+        typeof settings.filters?.user === "boolean"
+          ? settings.filters.user
+          : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.user,
+      assistant:
+        typeof settings.filters?.assistant === "boolean"
+          ? settings.filters.assistant
+          : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.assistant,
+      event:
+        typeof settings.filters?.event === "boolean"
+          ? settings.filters.event
+          : DEFAULT_MESSAGE_SEARCH_SETTINGS.filters.event,
+    },
+  };
+}
+
 function initialMode(currentSessionId: string | null, messageModeAvailable: boolean): UniversalSearchMode {
   const stored = readLastMode();
   if (stored && (stored !== "messages" || messageModeAvailable)) return stored;
   return currentSessionId && messageModeAvailable ? "messages" : "quests";
+}
+
+function normalizeMessageSearchScope(input: {
+  preferredScope: MessageSearchScopeKind;
+  isLeaderSession: boolean;
+  currentThreadKey?: string | null;
+}): MessageSearchScopeKind {
+  if (!input.isLeaderSession) return "session";
+  if (input.preferredScope === "leader_all_tabs") return "leader_all_tabs";
+  return input.currentThreadKey ? "current_thread" : "leader_all_tabs";
+}
+
+function localMessageScopeLabel(
+  sessionNum: number | null,
+  scope: MessageSearchScopeKind,
+  currentThreadKey?: string | null,
+): string {
+  const sessionLabel = typeof sessionNum === "number" ? `#${sessionNum}` : "current session";
+  if (scope === "session") {
+    return typeof sessionNum === "number" ? `Searching in session ${sessionLabel}` : "Searching in current session";
+  }
+  if (scope === "leader_all_tabs") return `Searching in ${sessionLabel} across tabs`;
+  const threadLabel = currentThreadKey && currentThreadKey !== "main" ? `thread ${currentThreadKey}` : "Main";
+  return `Searching in ${sessionLabel} ${threadLabel}`;
 }
 
 function questRecency(quest: QuestmasterTask): number {
@@ -93,48 +168,6 @@ function formatRelativeTime(ts: number | undefined): string {
   if (hours < 24) return `${hours}h ago`;
   const days = Math.floor(hours / 24);
   return `${days}d ago`;
-}
-
-function truncateText(text: string, limit = 150): string {
-  const collapsed = text.replace(/\s+/g, " ").trim();
-  if (collapsed.length <= limit) return collapsed;
-  return `${collapsed.slice(0, Math.max(0, limit - 1)).trimEnd()}...`;
-}
-
-function messageMatchesFilters(
-  message: ChatMessage,
-  filters: Record<MessageFilter, boolean>,
-  leaderSessionId?: string,
-): boolean {
-  return MESSAGE_FILTERS.some(
-    (filter) => filters[filter.id] && sessionSearchMessageMatchesCategory(message, filter.id, leaderSessionId),
-  );
-}
-
-function buildMessageResults({
-  messages,
-  currentThreadKey,
-  filters,
-  leaderSessionId,
-  query,
-  limit,
-}: {
-  messages: ChatMessage[];
-  currentThreadKey?: string | null;
-  filters: Record<MessageFilter, boolean>;
-  leaderSessionId?: string;
-  query: string;
-  limit: number;
-}): UniversalSearchResult[] {
-  const trimmedQuery = query.trim();
-  const projectedMessages = currentThreadKey ? filterMessagesForThread(messages, currentThreadKey) : [];
-  const matches = projectedMessages.filter((message) => {
-    if (!message.content) return false;
-    if (!messageMatchesFilters(message, filters, leaderSessionId)) return false;
-    return !trimmedQuery || sessionSearchTextMatches(message.content, trimmedQuery, "strict");
-  });
-  const ordered = trimmedQuery ? matches : [...matches].sort((left, right) => right.timestamp - left.timestamp);
-  return ordered.slice(0, limit).map((message) => ({ kind: "message", id: message.id, message }));
 }
 
 function getAvailableModes(messageModeAvailable: boolean): UniversalSearchMode[] {
@@ -157,35 +190,54 @@ export function UniversalSearchOverlay({
   currentSessionId,
   currentThreadKey,
   sessions,
-  messages,
-  leaderSessionId,
   presentation = "fixed",
   onClose,
   onOpenQuest,
   onOpenMessage,
+  messageSearchPreviewResponse,
 }: UniversalSearchOverlayProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const requestSeqRef = useRef(0);
+  const sessionByIdRef = useRef<Map<string, SdkSessionInfo>>(new Map());
   const searchKeyRef = useRef("");
-  const messageModeAvailable = Boolean(currentSessionId && currentThreadKey);
+  const messageModeAvailable = Boolean(currentSessionId);
 
   const [mode, setMode] = useState<UniversalSearchMode>(() => initialMode(currentSessionId, messageModeAvailable));
   const [query, setQuery] = useState("");
   const debouncedQuery = useDebouncedValue(query, DEBOUNCE_MS);
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [selectedIndex, setSelectedIndex] = useState(0);
-  const [messageFilters, setMessageFilters] = useState<Record<MessageFilter, boolean>>({
-    user: true,
-    assistant: false,
-    event: false,
-  });
+  const [messageSettings, setMessageSettings] = useState<MessageSearchSettings>(() => readMessageSearchSettings());
   const [remoteState, setRemoteState] = useState<{
-    mode: "quests" | null;
+    mode: "quests" | "messages" | null;
     status: "idle" | "loading" | "error";
     results: UniversalSearchResult[];
     total: number;
+    scopeLabel?: string;
   }>({ mode: null, status: "idle", results: [], total: 0 });
+
+  const sessionById = useMemo(
+    () => new Map(sessions.map((session) => [session.sessionId, session] as const)),
+    [sessions],
+  );
+  const currentSession = currentSessionId ? sessionById.get(currentSessionId) : undefined;
+  const isLeaderSession = currentSession?.isOrchestrator === true;
+  const effectiveMessageScope = normalizeMessageSearchScope({
+    preferredScope: messageSettings.scope,
+    isLeaderSession,
+    currentThreadKey,
+  });
+  const messageScopeLabel =
+    remoteState.mode === "messages" && remoteState.scopeLabel
+      ? remoteState.scopeLabel
+      : currentSessionId
+        ? localMessageScopeLabel(currentSession?.sessionNum ?? null, effectiveMessageScope, currentThreadKey)
+        : "Open a session to search messages";
+
+  useEffect(() => {
+    sessionByIdRef.current = sessionById;
+  }, [sessionById]);
 
   const setUserMode = useCallback((next: UniversalSearchMode) => {
     setMode(next);
@@ -195,6 +247,7 @@ export function UniversalSearchOverlay({
   useEffect(() => {
     if (!open) return;
     setMode(initialMode(currentSessionId, messageModeAvailable));
+    setMessageSettings(readMessageSearchSettings());
     setQuery("");
     setVisibleLimit(PAGE_SIZE);
     setSelectedIndex(0);
@@ -207,12 +260,23 @@ export function UniversalSearchOverlay({
   }, [messageModeAvailable, mode]);
 
   useEffect(() => {
+    writeMessageSearchSettings(messageSettings);
+  }, [messageSettings]);
+
+  useEffect(() => {
     setVisibleLimit(PAGE_SIZE);
     setSelectedIndex(0);
     listRef.current?.scrollTo({ top: 0 });
-  }, [debouncedQuery, messageFilters.assistant, messageFilters.event, messageFilters.user, mode]);
+  }, [
+    debouncedQuery,
+    effectiveMessageScope,
+    messageSettings.filters.assistant,
+    messageSettings.filters.event,
+    messageSettings.filters.user,
+    mode,
+  ]);
 
-  const searchKey = `${mode}:${debouncedQuery.trim()}:user=${messageFilters.user}:assistant=${messageFilters.assistant}:event=${messageFilters.event}`;
+  const searchKey = `${mode}:${debouncedQuery.trim()}:scope=${effectiveMessageScope}:thread=${currentThreadKey ?? ""}:user=${messageSettings.filters.user}:assistant=${messageSettings.filters.assistant}:event=${messageSettings.filters.event}`;
 
   useEffect(() => {
     if (!open) return;
@@ -249,41 +313,89 @@ export function UniversalSearchOverlay({
         });
       return;
     }
-  }, [debouncedQuery, mode, open, visibleLimit]);
 
-  const messageResults = useMemo(
-    () =>
-      currentSessionId && currentThreadKey
-        ? buildMessageResults({
-            messages,
-            currentThreadKey,
-            filters: messageFilters,
-            leaderSessionId,
-            query: debouncedQuery,
-            limit: visibleLimit,
-          })
-        : [],
-    [currentSessionId, currentThreadKey, debouncedQuery, leaderSessionId, messageFilters, messages, visibleLimit],
-  );
+    if (mode === "messages" && currentSessionId) {
+      if (messageSearchPreviewResponse) {
+        setRemoteState({
+          mode: "messages",
+          status: "idle",
+          total: messageSearchPreviewResponse.totalMatches,
+          scopeLabel: messageSearchPreviewResponse.scope.label,
+          results: messageSearchPreviewResponse.results.map((message) => ({
+            kind: "message",
+            id: message.id,
+            message,
+          })),
+        });
+        return;
+      }
+      const controller = new AbortController();
+      const nextScopeLabel = localMessageScopeLabel(
+        currentSession?.sessionNum ?? null,
+        effectiveMessageScope,
+        currentThreadKey,
+      );
+      setRemoteState((current) => ({
+        ...current,
+        mode: "messages",
+        status: "loading",
+        results: current.mode === "messages" ? current.results : [],
+        scopeLabel: nextScopeLabel,
+      }));
+      void api
+        .searchSessionMessages(currentSessionId, {
+          query: trimmedQuery,
+          scope: effectiveMessageScope,
+          threadKey: effectiveMessageScope === "current_thread" ? currentThreadKey || "main" : undefined,
+          filters: messageSettings.filters,
+          limit: visibleLimit,
+          signal: controller.signal,
+        })
+        .then((response) => {
+          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
+          setRemoteState({
+            mode: "messages",
+            status: "idle",
+            total: response.totalMatches,
+            scopeLabel: response.scope.label,
+            results: response.results.map((message) => ({ kind: "message", id: message.id, message })),
+          });
+        })
+        .catch((err) => {
+          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
+          console.warn("[universal-search] message search failed:", err);
+          setRemoteState({ mode: "messages", status: "error", total: 0, results: [], scopeLabel: nextScopeLabel });
+        });
+      return () => controller.abort();
+    }
+  }, [
+    currentSessionId,
+    currentSession?.sessionNum,
+    currentThreadKey,
+    debouncedQuery,
+    effectiveMessageScope,
+    messageSearchPreviewResponse,
+    messageSettings.filters,
+    mode,
+    open,
+    visibleLimit,
+  ]);
 
   const results = useMemo(() => {
     if (mode === "quests") return remoteState.mode === "quests" ? remoteState.results : [];
-    return messageResults;
-  }, [messageResults, mode, remoteState]);
+    return remoteState.mode === "messages" ? remoteState.results : [];
+  }, [mode, remoteState]);
 
   const totalResults = useMemo(() => {
     if (mode === "quests" && remoteState.mode === "quests") return remoteState.total;
-    if (!currentThreadKey) return 0;
-    return filterMessagesForThread(messages, currentThreadKey).filter(
-      (message) =>
-        message.content &&
-        messageMatchesFilters(message, messageFilters, leaderSessionId) &&
-        (!debouncedQuery.trim() || sessionSearchTextMatches(message.content, debouncedQuery.trim(), "strict")),
-    ).length;
-  }, [currentThreadKey, debouncedQuery, leaderSessionId, messageFilters, messages, mode, remoteState]);
+    if (mode === "messages" && remoteState.mode === "messages") return remoteState.total;
+    return 0;
+  }, [mode, remoteState]);
 
-  const loading = mode === "quests" && remoteState.mode === mode && remoteState.status === "loading";
-  const error = mode === "quests" && remoteState.mode === mode && remoteState.status === "error";
+  const loading =
+    (mode === "quests" || mode === "messages") && remoteState.mode === mode && remoteState.status === "loading";
+  const error =
+    (mode === "quests" || mode === "messages") && remoteState.mode === mode && remoteState.status === "error";
   const hasMore = results.length < totalResults;
 
   useEffect(() => {
@@ -301,12 +413,16 @@ export function UniversalSearchOverlay({
       if (!result) return;
       if (result.kind === "quest") {
         onOpenQuest(result.quest.questId, debouncedQuery.trim());
-      } else if (currentSessionId) {
-        onOpenMessage(currentSessionId, result.message.id, currentThreadKey);
+      } else {
+        onOpenMessage(
+          result.message.sessionId,
+          result.message.messageId,
+          result.message.routeThreadKey ?? currentThreadKey,
+        );
       }
       onClose();
     },
-    [currentSessionId, currentThreadKey, debouncedQuery, onClose, onOpenMessage, onOpenQuest],
+    [currentThreadKey, debouncedQuery, onClose, onOpenMessage, onOpenQuest],
   );
 
   const cycleMode = useCallback(
@@ -362,7 +478,7 @@ export function UniversalSearchOverlay({
     mode === "quests"
       ? "Search quests..."
       : messageModeAvailable
-        ? "Search current messages..."
+        ? "Search messages..."
         : "Open a session to search messages";
 
   const fixedPresentation = presentation === "fixed";
@@ -449,14 +565,51 @@ export function UniversalSearchOverlay({
           </div>
           {mode === "messages" && messageModeAvailable && (
             <div className="mt-2 flex flex-wrap items-center gap-1.5">
+              <span className="mr-1 text-[11px] text-cc-muted">{messageScopeLabel}</span>
+              {isLeaderSession && (
+                <div className="mr-1 flex items-center gap-1 rounded-lg border border-cc-border/70 bg-cc-bg/60 p-0.5">
+                  <button
+                    type="button"
+                    aria-pressed={effectiveMessageScope === "current_thread"}
+                    disabled={!currentThreadKey}
+                    onClick={() => setMessageSettings((current) => ({ ...current, scope: "current_thread" }))}
+                    className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                      effectiveMessageScope === "current_thread"
+                        ? "bg-cc-primary/18 text-cc-primary"
+                        : currentThreadKey
+                          ? "text-cc-muted hover:bg-cc-hover/70 hover:text-cc-fg"
+                          : "cursor-not-allowed text-cc-muted/45"
+                    }`}
+                  >
+                    Current tab
+                  </button>
+                  <button
+                    type="button"
+                    aria-pressed={effectiveMessageScope === "leader_all_tabs"}
+                    onClick={() => setMessageSettings((current) => ({ ...current, scope: "leader_all_tabs" }))}
+                    className={`rounded-md px-2 py-0.5 text-[11px] font-medium transition-colors ${
+                      effectiveMessageScope === "leader_all_tabs"
+                        ? "bg-cc-primary/18 text-cc-primary"
+                        : "text-cc-muted hover:bg-cc-hover/70 hover:text-cc-fg"
+                    }`}
+                  >
+                    Across tabs
+                  </button>
+                </div>
+              )}
               {MESSAGE_FILTERS.map((filter) => {
-                const active = messageFilters[filter.id];
+                const active = messageSettings.filters[filter.id];
                 return (
                   <button
                     key={filter.id}
                     type="button"
                     aria-pressed={active}
-                    onClick={() => setMessageFilters((current) => ({ ...current, [filter.id]: !current[filter.id] }))}
+                    onClick={() =>
+                      setMessageSettings((current) => ({
+                        ...current,
+                        filters: { ...current.filters, [filter.id]: !current.filters[filter.id] },
+                      }))
+                    }
                     className={`rounded-md border px-2 py-1 text-[11px] font-medium transition-colors ${
                       active
                         ? "border-cc-primary/30 bg-cc-primary/15 text-cc-primary"
@@ -489,6 +642,7 @@ export function UniversalSearchOverlay({
                 <ResultRow
                   key={`${result.kind}:${result.id}`}
                   result={result}
+                  query={debouncedQuery}
                   sessions={sessions}
                   selected={index === selectedIndex}
                   onPointerMove={() => setSelectedIndex(index)}
@@ -534,6 +688,7 @@ function EmptySearchState({ title, detail }: { title: string; detail: string }) 
 
 function ResultRow({
   result,
+  query,
   sessions,
   selected,
   onPointerMove,
@@ -541,6 +696,7 @@ function ResultRow({
   onInlineNavigate,
 }: {
   result: UniversalSearchResult;
+  query: string;
   sessions: SdkSessionInfo[];
   selected: boolean;
   onPointerMove: () => void;
@@ -560,7 +716,13 @@ function ResultRow({
     );
   }
   return (
-    <MessageResultRow message={result.message} selected={selected} onPointerMove={onPointerMove} onOpen={onOpen} />
+    <MessageResultRow
+      message={result.message}
+      query={query}
+      selected={selected}
+      onPointerMove={onPointerMove}
+      onOpen={onOpen}
+    />
   );
 }
 
@@ -667,15 +829,18 @@ function QuestResultRow({
 
 function MessageResultRow({
   message,
+  query,
   selected,
   onPointerMove,
   onOpen,
 }: {
-  message: ChatMessage;
+  message: MessageSearchResult;
+  query: string;
   selected: boolean;
   onPointerMove: () => void;
   onOpen: () => void;
 }) {
+  const parts = getHighlightParts(message.snippet, query);
   return (
     <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
       <div className="flex min-w-0 items-start justify-between gap-3">
@@ -684,9 +849,24 @@ function MessageResultRow({
             <span className="rounded-md bg-cc-hover px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cc-muted">
               {message.role}
             </span>
+            {message.sourceLabel && (
+              <span className="rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
+                {message.sourceLabel}
+              </span>
+            )}
             <span className="text-[11px] text-cc-muted">{formatRelativeTime(message.timestamp)}</span>
           </div>
-          <div className="mt-1 line-clamp-2 text-sm text-cc-fg">{truncateText(message.content, 180)}</div>
+          <div className="mt-1 line-clamp-2 text-sm text-cc-fg">
+            {parts.map((part, index) =>
+              part.matched ? (
+                <mark key={`${part.text}-${index}`} className="rounded-[2px] bg-amber-300/25 px-0.5 text-amber-100">
+                  {part.text}
+                </mark>
+              ) : (
+                <span key={`${part.text}-${index}`}>{part.text}</span>
+              ),
+            )}
+          </div>
         </div>
       </div>
     </ResultOption>

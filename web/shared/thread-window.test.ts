@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { BrowserIncomingMessage } from "../server/session-types.js";
-import { buildThreadWindowSync } from "./thread-window.js";
+import { buildProjectedThreadEntries, buildThreadWindowSync } from "./thread-window.js";
 
 function user(id: string, content: string, threadKey?: string): BrowserIncomingMessage {
   return {
@@ -144,6 +144,24 @@ function successfulResult(id: string): BrowserIncomingMessage {
 }
 
 describe("thread window hydration", () => {
+  it("exports full projected entries with the same Main filtering used by thread windows", () => {
+    const history = [
+      user("u1", "main visible"),
+      user("u2", "quest hidden", "q-1277"),
+      user("u3", "main visible later"),
+    ];
+
+    const mainIds = buildProjectedThreadEntries(history, "main").map((entry) =>
+      entry.message.type === "user_message" ? entry.message.id : entry.history_index,
+    );
+    const questIds = buildProjectedThreadEntries(history, "q-1277").map((entry) =>
+      entry.message.type === "user_message" ? entry.message.id : entry.history_index,
+    );
+
+    expect(mainIds).toEqual(["u1", "u3"]);
+    expect(questIds).toEqual(["u2"]);
+  });
+
   it("returns bounded selected quest feed items with tool closure context", () => {
     const history = [
       user("u1", "unrelated", "q-2"),

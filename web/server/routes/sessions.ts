@@ -49,6 +49,7 @@ import { deriveAttachmentPaths, formatAttachmentPathAnnotation } from "../attach
 import { cleanupWorktree, createArchivedWorktreeCleanupQueue } from "./worktree-cleanup.js";
 import { getImageUploadSourceName, isSharpUnavailableError, SHARP_UNAVAILABLE_MESSAGE } from "../image-store.js";
 import { buildEnrichedSessionsSnapshot } from "./session-list-snapshot.js";
+import { registerSessionMessageSearchRoute } from "./session-message-search-route.js";
 import { parseIncludeArchived, registerSessionSearchRoute } from "./session-search-route.js";
 import { registerSessionPermissionModeRoute, resolveCodexSandboxForPermissionMode } from "./session-permission-mode.js";
 import { registerSessionPauseRoutes } from "./session-pause-routes.js";
@@ -1137,6 +1138,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
     return c.json(enriched);
   });
   registerSessionSearchRoute(api, { launcher, wsBridge });
+  registerSessionMessageSearchRoute(api, { launcher, wsBridge, resolveId });
   api.get("/sessions/:id", (c) => {
     const id = resolveId(c.req.param("id"));
     if (!id) return c.json({ error: "Session not found" }, 404);

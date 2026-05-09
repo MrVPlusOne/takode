@@ -111,6 +111,23 @@ export function buildThreadWindowSync(input: BuildThreadWindowInput): {
   };
 }
 
+export function buildProjectedThreadEntries(
+  messageHistory: ReadonlyArray<BrowserIncomingMessage>,
+  threadKey: string,
+): ThreadWindowEntry[] {
+  const normalizedThreadKey = normalizeSelectedFeedThreadKey(threadKey);
+  const items = buildThreadConversationItems(messageHistory, normalizedThreadKey);
+  const ranges = buildConversationRanges(items);
+  return buildThreadWindowEntries({
+    messageHistory,
+    threadKey: normalizedThreadKey,
+    items,
+    ranges,
+    fromItem: 0,
+    endItem: ranges.length,
+  });
+}
+
 function fillSparseThreadWindowRange(input: {
   messageHistory: ReadonlyArray<BrowserIncomingMessage>;
   threadKey: string;
