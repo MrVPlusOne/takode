@@ -102,8 +102,7 @@ export function constrainThreadTabTransformToHorizontal(transform: Transform | n
   return { ...transform, y: 0 };
 }
 
-const COMPACT_MAIN_TAB_WIDTH = 100;
-const COMPACT_MOBILE_THREAD_TAB_WIDTH = 68;
+const COMPACT_MOBILE_THREAD_TAB_WIDTH = 76;
 const COMPACT_DESKTOP_THREAD_TAB_WIDTH = 160;
 const COMPACT_DESKTOP_PACKING_MIN_RAIL_WIDTH = 640;
 const COMPACT_MORE_TABS_WIDTH = 72;
@@ -186,7 +185,7 @@ function estimatedCompactRailWidth(
   const extraItemCount = visibleTabCount + (includesMoreTabs ? 1 : 0);
   const threadTabWidth = compactThreadTabWidthForRail(railWidth);
   return (
-    COMPACT_MAIN_TAB_WIDTH +
+    threadTabWidth +
     visibleTabCount * threadTabWidth +
     (includesMoreTabs ? COMPACT_MORE_TABS_WIDTH : 0) +
     extraItemCount * COMPACT_TAB_GAP
@@ -1133,7 +1132,7 @@ function ThreadTabRail({
                 ? `${mainState?.title ?? "Main Thread"} has review updates`
                 : (mainState?.title ?? "Main Thread")
           }
-          className={`relative inline-flex min-w-[6.25rem] max-w-[14rem] flex-[1_1_8.75rem] items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
+          className={`relative inline-flex min-w-[var(--thread-tab-width)] max-w-[14rem] flex-[1_1_var(--thread-tab-width)] items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
           data-testid="thread-main-tab"
           data-thread-key={MAIN_THREAD_KEY}
           data-needs-input={mainNeedsInput ? "true" : "false"}

@@ -871,11 +871,15 @@ describe("WorkBoardBar", () => {
     const tabStrip = getByTestId("thread-tab-strip");
     expect(tabStrip).toHaveAttribute("aria-label", "Thread tabs");
     expect(tabStrip).toHaveAttribute("data-overflow-mode", "more-tabs");
-    expect(tabStrip.getAttribute("style") ?? "").toContain("--thread-tab-width: 68px");
+    expect(tabStrip.getAttribute("style") ?? "").toContain("--thread-tab-width: 76px");
     expect(tabStrip).toHaveClass("overflow-visible");
     expect(tabStrip).not.toHaveClass("overflow-x-auto", "thread-tab-scroll");
     expect(getByTestId("thread-main-tab")).toHaveAttribute("data-min-label", "Main Thread");
-    expect(getByTestId("thread-main-tab")).toHaveClass("min-w-[6.25rem]", "max-w-[14rem]", "flex-[1_1_8.75rem]");
+    expect(getByTestId("thread-main-tab")).toHaveClass(
+      "min-w-[var(--thread-tab-width)]",
+      "max-w-[14rem]",
+      "flex-[1_1_var(--thread-tab-width)]",
+    );
     expect(getByTestId("thread-main-tab")).toHaveClass("focus-visible:ring-violet-100/70", "focus-visible:ring-inset");
 
     const tabs = getAllByTestId("thread-tab");

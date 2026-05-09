@@ -184,7 +184,7 @@ describe("Playground", () => {
     expect(within(rail).queryByText("Tabs")).not.toBeInTheDocument();
     const tabStrip = screen.getByTestId("thread-tab-strip");
     expect(tabStrip).toHaveAttribute("data-overflow-mode", "more-tabs");
-    expect(tabStrip.getAttribute("style") ?? "").toContain("--thread-tab-width: 68px");
+    expect(tabStrip.getAttribute("style") ?? "").toContain("--thread-tab-width: 76px");
     expect(tabStrip).toHaveClass("overflow-visible");
     const moreButton = screen.getByTestId("thread-tabs-more-button");
     expect(moreButton).toHaveAttribute("data-hidden-count", "2");
