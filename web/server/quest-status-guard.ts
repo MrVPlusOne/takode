@@ -12,15 +12,12 @@ export type QuestStatusMutationGuardInput = {
 export type QuestStatusMutationGuardResult = { ok: true; overrideReason?: string } | { ok: false; message: string };
 
 export function getQuestStatusOwnerSessionIds(quest: QuestmasterTask): string[] {
-  const ownerIds = new Set<string>();
   if ("sessionId" in quest && typeof quest.sessionId === "string" && quest.sessionId.trim()) {
-    ownerIds.add(quest.sessionId.trim());
+    return [quest.sessionId.trim()];
   }
 
   const previousOwner = quest.previousOwnerSessionIds?.at(-1)?.trim();
-  if (previousOwner) ownerIds.add(previousOwner);
-
-  return [...ownerIds];
+  return previousOwner ? [previousOwner] : [];
 }
 
 export function evaluateQuestStatusMutationGuard(

@@ -176,6 +176,7 @@ Reviewers should check documentation quality, not just whether a comment exists.
 | `--desc-file <path>` | Read the description from a file, or use `-` to read from stdin |
 | `--tldr "..."` | Optional human-readable TLDR metadata for long descriptions |
 | `--tldr-file <path>` | Read TLDR metadata from a file, or use `-` to read from stdin |
+| `--status idea|refined` | Initial quest status; defaults to `idea` |
 | `--tags "t1,t2"` | Comma-separated tags |
 | `--follow-up-of "q-1,q-2"` | Persist that the new quest is a true follow-up of earlier quest(s) |
 | `--image <path>` | Attach an image (can repeat: --image a.png --image b.png) |

@@ -667,8 +667,9 @@ describe("POST /api/quests/:questId/transition", () => {
       createdAt: Date.now(),
       claimedAt: Date.now(),
       description: "Ready",
-      sessionId: "worker-1",
+      sessionId: "worker-2",
       leaderSessionId: "leader-1",
+      previousOwnerSessionIds: ["worker-1"],
     } as any);
     vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
       id: "q-1-v3",
@@ -686,7 +687,7 @@ describe("POST /api/quests/:questId/transition", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "x-companion-session-id": "worker-2",
+        "x-companion-session-id": "worker-1",
         "x-companion-auth-token": "tok",
       },
       body: JSON.stringify({
@@ -739,6 +740,129 @@ describe("POST /api/quests/:questId/transition", () => {
         "x-companion-auth-token": "tok",
       },
       body: JSON.stringify({ status: "refined", description: "Ready" }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("rejects stale previous owner authority after an in-progress reassignment", async () => {
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: sessionId === "stale-leader",
+      herdedBy: sessionId === "worker-1" ? "stale-leader" : sessionId === "worker-2" ? "current-leader" : undefined,
+    }));
+    const reassignedQuest = {
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-2",
+      leaderSessionId: "recorded-leader",
+      previousOwnerSessionIds: ["worker-1"],
+    } as any;
+    const transitionSpy = vi.spyOn(questStore, "transitionQuest");
+
+    for (const callerSessionId of ["worker-1", "stale-leader"]) {
+      vi.spyOn(questStore, "getQuest").mockResolvedValueOnce(reassignedQuest);
+      const res = await app.request("/api/quests/q-1/transition", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-companion-session-id": callerSessionId,
+          "x-companion-auth-token": "tok",
+        },
+        body: JSON.stringify({ status: "done", debrief: "Final outcome.", debriefTldr: "Final TLDR." }),
+      });
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({
+        error: expect.stringContaining("neither the quest leader nor the current worker/owner"),
+      });
+    }
+
+    expect(transitionSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows current reassigned owner, recorded leader, and current owner leader", async () => {
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: sessionId === "recorded-leader" || sessionId === "current-leader",
+      herdedBy: sessionId === "worker-1" ? "stale-leader" : sessionId === "worker-2" ? "current-leader" : undefined,
+    }));
+    const reassignedQuest = {
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-2",
+      leaderSessionId: "recorded-leader",
+      previousOwnerSessionIds: ["worker-1"],
+    } as any;
+
+    for (const callerSessionId of ["worker-2", "recorded-leader", "current-leader"]) {
+      vi.spyOn(questStore, "getQuest").mockResolvedValueOnce(reassignedQuest);
+      vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+        ...reassignedQuest,
+        id: `q-1-${callerSessionId}`,
+        status: "refined",
+        sessionId: undefined,
+        previousOwnerSessionIds: ["worker-1", "worker-2"],
+      });
+
+      const res = await app.request("/api/quests/q-1/transition", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-companion-session-id": callerSessionId,
+          "x-companion-auth-token": "tok",
+        },
+        body: JSON.stringify({ status: "refined", description: "Ready" }),
+      });
+
+      expect(res.status).toBe(200);
+    }
+  });
+
+  it("preserves previous owner fallback when no active owner remains for review", async () => {
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: false,
+    }));
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      completedAt: Date.now(),
+      description: "Ready",
+      previousOwnerSessionIds: ["worker-1"],
+      verificationItems: [{ text: "verify", checked: false }],
+    } as any);
+    vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "refined",
+      createdAt: Date.now(),
+      description: "Ready",
+      previousOwnerSessionIds: ["worker-1"],
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-companion-session-id": "worker-1",
+        "x-companion-auth-token": "tok",
+      },
+      body: JSON.stringify({ status: "refined", description: "Needs rework" }),
     });
 
     expect(res.status).toBe(200);
