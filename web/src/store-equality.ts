@@ -246,6 +246,8 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.lastUserMessageAt === b.lastUserMessageAt &&
     a.contextUsedPercent === b.contextUsedPercent &&
     a.numTurns === b.numTurns &&
+    a.userTurnCount === b.userTurnCount &&
+    a.agentTurnCount === b.agentTurnCount &&
     a.messageHistoryBytes === b.messageHistoryBytes &&
     a.codexRetainedPayloadBytes === b.codexRetainedPayloadBytes &&
     a.codexLeaderRecycleThresholdTokens === b.codexLeaderRecycleThresholdTokens &&

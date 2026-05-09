@@ -10,7 +10,7 @@ import { getSettings, resolveCodexLeaderRecycleThresholdTokens } from "../settin
 import type { TimerManager } from "../timer-manager.js";
 import type { WsBridge } from "../ws-bridge.js";
 import * as sessionNames from "../session-names.js";
-import { getLastActualHumanUserMessageTimestamp } from "../user-message-classification.js";
+import { computeSessionTurnMetrics, getLastActualHumanUserMessageTimestamp } from "../user-message-classification.js";
 import { getLeaderProfilePortraitForSession } from "../leader-profile-assignments.js";
 
 type SessionListEntry = ReturnType<CliLauncher["listSessions"]>[number];
@@ -95,6 +95,14 @@ export async function buildEnrichedSessionsSnapshot(
         }
         const currentBridgeSession = wsBridge.getSession(s.sessionId) ?? bridgeSession;
         const bridge = currentBridgeSession?.state;
+        const turnMetrics = currentBridgeSession
+          ? computeSessionTurnMetrics(currentBridgeSession.messageHistory)
+          : null;
+        if (bridge && turnMetrics) {
+          bridge.user_turn_count = turnMetrics.userTurnCount;
+          bridge.agent_turn_count = turnMetrics.agentTurnCount;
+          bridge.num_turns = turnMetrics.userTurnCount;
+        }
         const lastUserMessageAt = currentBridgeSession
           ? getLastActualHumanUserMessageTimestamp(currentBridgeSession.messageHistory)
           : safeSession.lastUserMessageAt;
@@ -142,7 +150,9 @@ export async function buildEnrichedSessionsSnapshot(
           totalLinesRemoved: bridge?.total_lines_removed || 0,
           gitStatusRefreshedAt: bridge?.git_status_refreshed_at,
           gitStatusRefreshError: bridge?.git_status_refresh_error ?? null,
-          numTurns: bridge?.num_turns || 0,
+          userTurnCount: turnMetrics?.userTurnCount ?? bridge?.user_turn_count ?? bridge?.num_turns ?? 0,
+          agentTurnCount: turnMetrics?.agentTurnCount ?? bridge?.agent_turn_count ?? 0,
+          numTurns: turnMetrics?.userTurnCount ?? bridge?.user_turn_count ?? bridge?.num_turns ?? 0,
           contextUsedPercent: bridge?.context_used_percent || 0,
           messageHistoryBytes: bridge?.message_history_bytes || 0,
           codexRetainedPayloadBytes: bridge?.codex_retained_payload_bytes || 0,

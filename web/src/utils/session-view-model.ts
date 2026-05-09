@@ -18,6 +18,8 @@ export interface SessionViewModel {
   totalLinesAdded?: number;
   totalLinesRemoved?: number;
   numTurns?: number;
+  userTurnCount?: number;
+  agentTurnCount?: number;
   totalCostUsd?: number;
   contextUsedPercent?: number;
   modelContextWindow?: number;
@@ -61,7 +63,9 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       gitBehind: session.git_behind,
       totalLinesAdded: session.total_lines_added,
       totalLinesRemoved: session.total_lines_removed,
-      numTurns: session.num_turns,
+      userTurnCount: session.user_turn_count,
+      agentTurnCount: session.agent_turn_count,
+      numTurns: session.user_turn_count ?? session.num_turns,
       totalCostUsd: session.total_cost_usd,
       contextUsedPercent: session.context_used_percent,
       modelContextWindow:
@@ -95,7 +99,9 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     totalLinesAdded: session.totalLinesAdded,
     totalLinesRemoved: session.totalLinesRemoved,
     contextUsedPercent: session.contextUsedPercent,
-    numTurns: session.numTurns,
+    userTurnCount: session.userTurnCount,
+    agentTurnCount: session.agentTurnCount,
+    numTurns: session.userTurnCount ?? session.numTurns,
     modelContextWindow: session.codexTokenDetails?.modelContextWindow ?? session.claudeTokenDetails?.modelContextWindow,
     codexLeaderRecycleThresholdTokens: session.codexLeaderRecycleThresholdTokens,
     contextTokensUsed: session.codexTokenDetails?.contextTokensUsed,
@@ -139,8 +145,15 @@ export function coalesceSessionViewModel(
       }
     }
   }
+  const userTurnCount = primaryVm?.userTurnCount ?? fallbackVm?.userTurnCount;
+  const agentTurnCount = primaryVm?.agentTurnCount ?? fallbackVm?.agentTurnCount;
+  const numTurns = userTurnCount ?? primaryVm?.numTurns ?? fallbackVm?.numTurns;
+
   return {
     ...(merged as SessionViewModel),
+    userTurnCount,
+    agentTurnCount,
+    numTurns,
     sessionId: primaryVm?.sessionId || fallbackVm?.sessionId || "",
   };
 }

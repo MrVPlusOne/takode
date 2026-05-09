@@ -103,7 +103,12 @@ export function SessionHoverCard({
   );
 
   // Stats from sessionState
-  const turns = sessionState?.num_turns ?? sdkSessionMeta?.numTurns ?? 0;
+  const turns =
+    sessionState?.user_turn_count ??
+    sdkSessionMeta?.userTurnCount ??
+    sessionState?.num_turns ??
+    sdkSessionMeta?.numTurns ??
+    0;
   const contextPercent = sessionState?.context_used_percent ?? sdkSessionMeta?.contextUsedPercent ?? 0;
   const contextWindow =
     sessionState?.codex_token_details?.modelContextWindow ??

@@ -32,6 +32,7 @@ import {
   resolveResultContextWindow,
   type TokenUsage,
 } from "./context-usage.js";
+import { computeSessionTurnMetrics } from "../user-message-classification.js";
 import {
   recordCompactionBoundary,
   recordCompactionFinished,
@@ -235,7 +236,14 @@ export interface ResultMessageSessionLike {
   questThreadRemindersThisTurn?: import("./quest-thread-reminder.js").QuestThreadReminderInjection[];
   state: Pick<
     SessionState,
-    "model" | "total_cost_usd" | "num_turns" | "context_used_percent" | "claude_token_details" | "leaderThreadStatuses"
+    | "model"
+    | "total_cost_usd"
+    | "user_turn_count"
+    | "agent_turn_count"
+    | "num_turns"
+    | "context_used_percent"
+    | "claude_token_details"
+    | "leaderThreadStatuses"
   >;
   notifications?: SessionNotification[];
   leaderThreadOutcomeValidatedHistoryLength?: number;
@@ -699,9 +707,6 @@ export function handleResultMessage(
     return;
   }
 
-  session.state.total_cost_usd = msg.total_cost_usd;
-  session.state.num_turns = msg.num_turns;
-
   const lastAssistant = session.messageHistory.findLast(
     (entry) =>
       entry.type === "assistant" && (entry as { parent_tool_use_id?: string | null }).parent_tool_use_id == null,
@@ -714,18 +719,6 @@ export function handleResultMessage(
   if (nextClaudeTokenDetails) {
     session.state.claude_token_details = nextClaudeTokenDetails;
   }
-
-  session.diffStatsDirty = true;
-  deps.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
-  deps.broadcastToBrowsers(session, {
-    type: "session_update",
-    session: {
-      total_cost_usd: session.state.total_cost_usd,
-      num_turns: session.state.num_turns,
-      context_used_percent: session.state.context_used_percent,
-      ...(nextClaudeTokenDetails ? { claude_token_details: nextClaudeTokenDetails } : {}),
-    },
-  });
 
   const turnDurationMs =
     typeof session.generationStartedAt === "number" ? Math.max(0, Date.now() - session.generationStartedAt) : undefined;
@@ -774,10 +767,34 @@ export function handleResultMessage(
     deps.onSessionActivityStateChanged(session.id, "result_cleared_permissions");
   }
 
-  const resultBrowserMsg: BrowserIncomingMessage = {
+  const provisionalResultBrowserMsg: BrowserIncomingMessage = {
     type: "result",
     data: msg,
     ...(turnWasInterrupted ? { interrupted: true } : {}),
+  };
+  const turnMetrics = computeSessionTurnMetrics([...session.messageHistory, provisionalResultBrowserMsg]);
+  session.state.total_cost_usd = msg.total_cost_usd;
+  session.state.user_turn_count = turnMetrics.userTurnCount;
+  session.state.agent_turn_count = turnMetrics.agentTurnCount;
+  session.state.num_turns = turnMetrics.userTurnCount;
+
+  session.diffStatsDirty = true;
+  deps.refreshGitInfoThenRecomputeDiff(session, { broadcastUpdate: true, notifyPoller: true });
+  deps.broadcastToBrowsers(session, {
+    type: "session_update",
+    session: {
+      total_cost_usd: session.state.total_cost_usd,
+      user_turn_count: session.state.user_turn_count,
+      agent_turn_count: session.state.agent_turn_count,
+      num_turns: session.state.num_turns,
+      context_used_percent: session.state.context_used_percent,
+      ...(nextClaudeTokenDetails ? { claude_token_details: nextClaudeTokenDetails } : {}),
+    },
+  });
+
+  const resultBrowserMsg: BrowserIncomingMessage = {
+    ...provisionalResultBrowserMsg,
+    data: { ...msg, num_turns: turnMetrics.userTurnCount },
   };
   session.messageHistory.push(resultBrowserMsg);
   deps.freezeHistoryThroughCurrentTail(session);

@@ -1088,6 +1088,11 @@ export interface SessionState {
   /** Codex app metadata used for `$` mention insertion. */
   apps?: CodexAppReference[];
   total_cost_usd: number;
+  /** Backend-owned count of real human/operator user turns. */
+  user_turn_count?: number;
+  /** Backend-owned count of completed result-backed assistant turns. */
+  agent_turn_count?: number;
+  /** Legacy visible turn count; mirrors user_turn_count when backend history is available. */
   num_turns: number;
   context_used_percent: number;
   /** Approximate JSON byte size of the server-side message history. */

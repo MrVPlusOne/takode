@@ -4,6 +4,34 @@ import "@testing-library/jest-dom";
 import type { SessionState } from "../types.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 
+if (typeof globalThis.DOMRect === "undefined") {
+  globalThis.DOMRect = class DOMRect {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+    top: number;
+    right: number;
+    bottom: number;
+    left: number;
+
+    constructor(x = 0, y = 0, width = 0, height = 0) {
+      this.x = x;
+      this.y = y;
+      this.width = width;
+      this.height = height;
+      this.top = y;
+      this.right = x + width;
+      this.bottom = y + height;
+      this.left = x;
+    }
+
+    toJSON() {
+      return { x: this.x, y: this.y, width: this.width, height: this.height };
+    }
+  } as typeof DOMRect;
+}
+
 const mockStoreState = {
   zoomLevel: 1,
   sdkSessions: [] as Array<{
@@ -15,6 +43,9 @@ const mockStoreState = {
     herdedBy?: string;
     archived?: boolean;
     contextUsedPercent?: number;
+    numTurns?: number;
+    userTurnCount?: number;
+    agentTurnCount?: number;
     messageHistoryBytes?: number;
     codexRetainedPayloadBytes?: number;
     codexTokenDetails?: { modelContextWindow?: number };
@@ -168,6 +199,55 @@ describe("SessionHoverCard", () => {
     } finally {
       mockStoreState.sdkSessions = [];
     }
+  });
+
+  it("uses the backend-owned user turn count for the visible turns label", () => {
+    // The hover metric must prefer server-computed real user turns over the
+    // legacy CLI num_turns value, which may be per-result for Codex.
+    const sessionState = {
+      session_id: "s1",
+      backend_type: "codex",
+      model: "gpt-5.4",
+      cwd: "/repo",
+      tools: [],
+      permissionMode: "default",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      user_turn_count: 12,
+      agent_turn_count: 9,
+      num_turns: 1,
+      context_used_percent: 0,
+      git_branch: "jiayi",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/repo",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+      is_compacting: false,
+    } as SessionState;
+
+    render(
+      <SessionHoverCard
+        session={makeSession()}
+        sessionName="Backend Turn Count"
+        sessionPreview={undefined}
+        taskHistory={undefined}
+        sessionState={sessionState}
+        cliSessionId="cli-1"
+        anchorRect={new DOMRect(120, 80, 200, 40)}
+        onMouseEnter={() => {}}
+        onMouseLeave={() => {}}
+      />,
+    );
+
+    expect(screen.getByText("12 turns")).toBeInTheDocument();
+    expect(screen.queryByText("1 turn")).toBeNull();
   });
 
   it("prefers live session message-history bytes over sdk fallback metadata", () => {

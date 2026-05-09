@@ -198,6 +198,40 @@ describe("buildEnrichedSessionsSnapshot", () => {
     expect(snapshot[0].lastUserMessageAt).toBeUndefined();
   });
 
+  it("exposes backend-owned real user turn counts instead of bridge CLI num_turns", async () => {
+    // Sidebar and hover metadata must use server history because Codex may keep
+    // bridge state at num_turns: 1 even after many completed turns.
+    const launcherSession = makeLauncherSession({ backendType: "codex" });
+    const bridgeSession = makeBridgeSession([
+      { type: "user_message", timestamp: 100, content: "First human request" },
+      { type: "assistant", parent_tool_use_id: null, message: { content: [] } },
+      { type: "result", data: { num_turns: 1 } },
+      {
+        type: "user_message",
+        timestamp: 200,
+        content: "Timer injection",
+        agentSource: { sessionId: "timer", sessionLabel: "Timer" },
+      },
+      { type: "user_message", timestamp: 300, content: "Second human request" },
+      { type: "assistant", parent_tool_use_id: null, message: { content: [] } },
+      { type: "result", data: { num_turns: 1 } },
+    ]);
+    bridgeSession.state = { num_turns: 1 };
+
+    const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, bridgeSession));
+
+    expect(snapshot[0]).toMatchObject({
+      numTurns: 2,
+      userTurnCount: 2,
+      agentTurnCount: 2,
+    });
+    expect(bridgeSession.state).toMatchObject({
+      num_turns: 2,
+      user_turn_count: 2,
+      agent_turn_count: 2,
+    });
+  });
+
   it("exposes the resolved Codex leader recycle threshold for session info display", async () => {
     updateSettings({
       codexLeaderRecycleThresholdTokens: 260_000,

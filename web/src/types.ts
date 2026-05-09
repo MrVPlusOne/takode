@@ -380,6 +380,10 @@ export interface SdkSessionInfo {
   contextUsedPercent?: number;
   /** Number of completed turns in this session. */
   numTurns?: number;
+  /** Backend-owned count of real human/operator user turns. */
+  userTurnCount?: number;
+  /** Backend-owned count of completed result-backed assistant turns. */
+  agentTurnCount?: number;
   /** Approximate JSON byte size of the server-side message history. */
   messageHistoryBytes?: number;
   /** Codex-only retained payload estimate, including hidden full tool results. */

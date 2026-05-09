@@ -57,6 +57,7 @@ import { registerTakodeBoardRoutes } from "./takode-board.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
 import { scheduleWorktreeGitStateRefreshForSnapshot } from "./session-list-snapshot.js";
+import { computeSessionTurnMetrics } from "../user-message-classification.js";
 
 const THREAD_ATTACHMENT_HISTORY_BROADCAST_DELAY_MS = 100;
 const THREAD_ATTACHMENT_UPDATE_VERSION = 1;
@@ -685,11 +686,12 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const names = sessionNames.getAllNames();
     const { sessionAuthToken: _token, ...safeSession } = session;
 
-    // Compute actual turn count from message history (bridge?.num_turns is the CLI's
-    // internal counter which resets on compaction and doesn't reflect true turn count)
+    // Compute real user turns from backend history. CLI num_turns can be per-result
+    // or reset around compaction, and injected/system user-shaped messages are not
+    // human turns.
     const infoHistory = currentBridgeSession?.messageHistory ?? null;
-    const actualNumTurns =
-      infoHistory && infoHistory.length > 0 ? findTurnBoundaries(infoHistory).length : bridge?.num_turns || 0;
+    const turnMetrics = infoHistory ? computeSessionTurnMetrics(infoHistory) : null;
+    const actualNumTurns = turnMetrics?.userTurnCount ?? bridge?.user_turn_count ?? bridge?.num_turns ?? 0;
     const attention = currentBridgeSession
       ? {
           lastReadAt: currentBridgeSession.lastReadAt,
@@ -717,6 +719,8 @@ export function createTakodeRoutes(ctx: RouteContext) {
       gitStatusRefreshError: bridge?.git_status_refresh_error ?? null,
       totalCostUsd: bridge?.total_cost_usd || 0,
       numTurns: actualNumTurns,
+      userTurnCount: actualNumTurns,
+      agentTurnCount: turnMetrics?.agentTurnCount ?? bridge?.agent_turn_count ?? 0,
       contextUsedPercent: bridge?.context_used_percent || 0,
       isCompacting: bridge?.is_compacting || false,
       permissionMode: resolveReportedPermissionMode(session.permissionMode, bridge?.permissionMode),

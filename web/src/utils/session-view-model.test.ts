@@ -135,4 +135,47 @@ describe("coalesceSessionViewModel", () => {
     expect(vm?.state).toBe("running");
     expect(vm?.sessionNum).toBe(42);
   });
+
+  it("prefers backend-owned user turn counts over legacy live num_turns", () => {
+    // A live session state can briefly carry legacy CLI num_turns while the
+    // session-list snapshot already has the backend-owned real user count.
+    const primary = {
+      session_id: "s3",
+      backend_type: "codex",
+      model: "gpt-5",
+      cwd: "/repo",
+      tools: [],
+      permissionMode: "plan",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      num_turns: 1,
+      context_used_percent: 11,
+      is_compacting: false,
+      git_branch: "feature",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/repo",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+    } as SessionState;
+
+    const fallback = {
+      sessionId: "s3",
+      userTurnCount: 12,
+      agentTurnCount: 9,
+      numTurns: 1,
+    } as SdkSessionInfo;
+
+    const vm = coalesceSessionViewModel(primary, fallback);
+
+    expect(vm?.numTurns).toBe(12);
+    expect(vm?.userTurnCount).toBe(12);
+    expect(vm?.agentTurnCount).toBe(9);
+  });
 });

@@ -11,6 +11,8 @@ function makeState(): ResultMessageSessionLike["state"] {
   return {
     model: "claude-sonnet-4-5-20250929",
     total_cost_usd: 0,
+    user_turn_count: 0,
+    agent_turn_count: 0,
     num_turns: 0,
     context_used_percent: 0,
     claude_token_details: undefined,
@@ -55,6 +57,23 @@ function makeResult(overrides: Partial<CLIResultMessage> = {}): CLIResultMessage
     uuid: "result-1",
     session_id: "s1",
     ...overrides,
+  };
+}
+
+function makeAssistant(id: string): BrowserIncomingMessage {
+  return {
+    type: "assistant",
+    message: {
+      id,
+      type: "message",
+      role: "assistant",
+      model: "gpt-5.5",
+      content: [{ type: "text", text: "done" }],
+      stop_reason: "end_turn",
+      usage: { input_tokens: 1, output_tokens: 1, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+    },
+    parent_tool_use_id: null,
+    timestamp: Date.now(),
   };
 }
 
@@ -138,6 +157,53 @@ describe("result-message-controller", () => {
     expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "user");
     expect(deps.onResultAttentionAndNotifications).toHaveBeenCalled();
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
+  });
+
+  it("normalizes result turn counts from backend history instead of CLI num_turns", () => {
+    // Protects both Codex per-result counts and Claude compaction-reset counts:
+    // browser-visible result/session_update turn metrics come from history.
+    const session = makeSession();
+    session.backendType = "codex";
+    session.messageHistory.push(
+      { type: "user_message", id: "u1", content: "first", timestamp: 1 } as BrowserIncomingMessage,
+      {
+        type: "user_message",
+        id: "event-1",
+        content: "timer",
+        timestamp: 2,
+        agentSource: { sessionId: "timer", sessionLabel: "Timer" },
+      } as BrowserIncomingMessage,
+      makeAssistant("a1"),
+      { type: "result", data: makeResult({ num_turns: 1 }) } as BrowserIncomingMessage,
+      { type: "user_message", id: "u2", content: "second", timestamp: 3 } as BrowserIncomingMessage,
+      makeAssistant("a2"),
+    );
+    const deps = makeDeps();
+
+    handleResultMessage(session, makeResult({ num_turns: 1, uuid: "current-result" }), deps);
+
+    expect(session.state).toMatchObject({
+      user_turn_count: 2,
+      agent_turn_count: 2,
+      num_turns: 2,
+    });
+    expect(session.messageHistory.at(-1)).toEqual(
+      expect.objectContaining({
+        type: "result",
+        data: expect.objectContaining({ num_turns: 2, uuid: "current-result" }),
+      }),
+    );
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({
+          user_turn_count: 2,
+          agent_turn_count: 2,
+          num_turns: 2,
+        }),
+      }),
+    );
   });
 
   it("marks Claude user-control diagnostics as interrupted so they do not trigger error handling", () => {
