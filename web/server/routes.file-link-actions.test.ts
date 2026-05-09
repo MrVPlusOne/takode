@@ -9,6 +9,12 @@ const mockRequireSharp = vi.hoisted(() => vi.fn());
 vi.mock("./image-optimizer.js", () => ({
   requireSharp: mockRequireSharp,
   isSharpUnavailableError: vi.fn(() => false),
+  createImageThumbnailBuffer: vi.fn(),
+  fileExists: vi.fn(async () => false),
+  optimizeImageBufferForStore: vi.fn(),
+  AGENT_QUALITY: 85,
+  MIME_TO_EXT: { "image/jpeg": "jpeg", "image/png": "png" },
+  SHARP_UNAVAILABLE_MESSAGE: "sharp unavailable",
 }));
 
 import { createFilesystemRoutes } from "./routes/filesystem.js";

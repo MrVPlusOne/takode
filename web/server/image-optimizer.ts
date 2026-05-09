@@ -157,6 +157,21 @@ export async function optimizeImageBufferForStore(
   }
 }
 
+export async function createImageThumbnailBuffer(
+  data: Buffer,
+  _mimeType: string,
+  options: OptimizeOptions = {},
+): Promise<Buffer> {
+  const sharp = await requireSharp("create image thumbnails");
+  const maxDim = options.maxDim ?? 300;
+  const jpegQuality = options.jpegQuality ?? 80;
+  return sharp(data)
+    .rotate()
+    .resize({ width: maxDim, height: maxDim, fit: "inside", withoutEnlargement: true })
+    .jpeg({ quality: jpegQuality })
+    .toBuffer();
+}
+
 export async function optimizeAgentImageFile(
   inputPath: string,
   options: OptimizeFileOptions = {},

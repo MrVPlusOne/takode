@@ -37,6 +37,8 @@ import { createComposerDraftImage } from "./composer-image-utils.js";
 import { NotificationMarker } from "./NotificationMarker.js";
 import { formatThreadMarker } from "../../shared/thread-routing.js";
 import { isAllThreadsKey, normalizeThreadKey } from "../utils/thread-projection.js";
+import { ImagePreviewGroup } from "./ImagePreviewGroup.js";
+import { buildAssistantImagePreviewItems } from "./image-preview-utils.js";
 
 export { NotificationMarker } from "./NotificationMarker.js";
 
@@ -46,7 +48,12 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
  *  Used to skip rendering empty bubbles that would show only a timestamp. */
 export function isEmptyAssistantMessage(msg: ChatMessage): boolean {
   return (
-    msg.role === "assistant" && !msg.content?.trim() && (msg.contentBlocks || []).length === 0 && !msg.notification
+    msg.role === "assistant" &&
+    !msg.content?.trim() &&
+    (msg.contentBlocks || []).length === 0 &&
+    (msg.images || []).length === 0 &&
+    (msg.localImages || []).length === 0 &&
+    !msg.notification
   );
 }
 
@@ -1378,11 +1385,20 @@ function AssistantMessage({
   const resolvedNotification = message.notification ?? inboxAnchoredNotification;
   const suppressToolNotificationMarker = !!resolvedNotification;
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
+  const assistantImagePreviewItems = useMemo(
+    () => buildAssistantImagePreviewItems(message, sessionId),
+    [message, sessionId],
+  );
 
   // Only show copy-message button when there's actual text content to copy
   const hasTextContent = message.content || blocks.some((b) => b.type === "text" || b.type === "thinking");
 
-  if (blocks.length === 0 && !message.content.trim() && !resolvedNotification) {
+  if (
+    blocks.length === 0 &&
+    !message.content.trim() &&
+    !resolvedNotification &&
+    assistantImagePreviewItems.length === 0
+  ) {
     return null;
   }
 
@@ -1398,6 +1414,7 @@ function AssistantMessage({
             searchHighlight={searchHighlight}
             enableChatSelectionMenu
           />
+          <ImagePreviewGroup images={assistantImagePreviewItems} testId="assistant-image-preview-group" />
           {resolvedNotification && (
             <NotificationMarker
               category={resolvedNotification.category}
@@ -1474,6 +1491,7 @@ function AssistantMessage({
             />
           );
         })}
+        <ImagePreviewGroup images={assistantImagePreviewItems} testId="assistant-image-preview-group" />
         {resolvedNotification && (
           <NotificationMarker
             category={resolvedNotification.category}

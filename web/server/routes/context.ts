@@ -29,6 +29,7 @@ export interface RouteContext {
   recorder?: import("../recorder.js").RecorderManager;
   cronScheduler?: import("../cron-scheduler.js").CronScheduler;
   imageStore?: import("../image-store.js").ImageStore;
+  localImageVariantStore?: import("../local-image-variant-store.js").LocalImageVariantStore;
   pushoverNotifier?: import("../pushover.js").PushoverNotifier;
   sleepInhibitor?: import("../sleep-inhibitor.js").SleepInhibitor;
   timerManager?: import("../timer-manager.js").TimerManager;

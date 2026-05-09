@@ -7,7 +7,6 @@ import { timeAgo } from "../utils/quest-helpers.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestPhaseNoteImages } from "./QuestPhaseNoteImages.js";
 import { SessionNumChip } from "./SessionNumChip.js";
-import { useState } from "react";
 
 interface QuestPhaseDocumentationTimelineProps {
   summary: QuestPhaseDocumentationSummary;
@@ -132,7 +131,6 @@ function PhaseDocumentationEntry({
   searchHighlight?: string | null;
   sessionId?: string;
 }) {
-  const [detailOpen, setDetailOpen] = useState(false);
   const highlight = searchHighlight ? { query: searchHighlight, mode: "fuzzy" as const, isCurrent: false } : null;
 
   return (
@@ -156,13 +154,9 @@ function PhaseDocumentationEntry({
       <div className="min-w-0 max-w-full overflow-hidden text-xs text-cc-fg">
         <MarkdownContent text={preview} size="sm" sessionId={sessionId} searchHighlight={highlight} wrapLongContent />
       </div>
-      <details
-        className="mt-1 min-w-0 max-w-full overflow-hidden text-xs text-cc-muted"
-        onToggle={(event) => setDetailOpen(event.currentTarget.open)}
-      >
-        <summary className="cursor-pointer select-none" onClick={() => setDetailOpen((open) => !open)}>
-          Full phase detail
-        </summary>
+      <QuestPhaseNoteImages text={entry.text} sessionId={sessionId} />
+      <details className="mt-1 min-w-0 max-w-full overflow-hidden text-xs text-cc-muted">
+        <summary className="cursor-pointer select-none">Full phase detail</summary>
         <div className="mt-1 min-w-0 max-w-full overflow-hidden text-cc-fg">
           <MarkdownContent
             text={entry.text}
@@ -171,7 +165,6 @@ function PhaseDocumentationEntry({
             searchHighlight={highlight}
             wrapLongContent
           />
-          {detailOpen && <QuestPhaseNoteImages text={entry.text} />}
         </div>
       </details>
     </div>

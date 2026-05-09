@@ -6,9 +6,9 @@ import { randomBytes } from "node:crypto";
 import {
   AGENT_QUALITY,
   buildStoredImageFilename,
+  createImageThumbnailBuffer,
   MIME_TO_EXT,
   optimizeImageBufferForStore,
-  requireSharp,
   resetSharpLoaderForTest,
   resizeImageBufferForStore,
   setSharpLoaderForTest,
@@ -78,7 +78,6 @@ export class ImageStore {
    * differ from the input when lossless-to-JPEG conversion succeeds.
    */
   async store(sessionId: string, base64Data: string, mediaType: string, sourceName?: string): Promise<ImageRef> {
-    const sharp = await requireSharp("store session images");
     const dir = this.sessionDir(sessionId);
     await mkdir(dir, { recursive: true });
 
@@ -102,11 +101,11 @@ export class ImageStore {
 
     // Thumbnails are for browser previews only, so generate them off the
     // critical user-send path. Backend delivery only needs the original file.
-    void sharp(buffer)
-      .rotate()
-      .resize({ width: THUMB_MAX_DIM, height: THUMB_MAX_DIM, fit: "inside" })
-      .jpeg({ quality: THUMB_QUALITY })
-      .toFile(thumbPath)
+    void createImageThumbnailBuffer(buffer, actualMediaType, {
+      maxDim: THUMB_MAX_DIM,
+      jpegQuality: THUMB_QUALITY,
+    })
+      .then((thumbnail) => writeFile(thumbPath, thumbnail))
       .catch((err: unknown) => {
         console.warn(`[image-store] Failed to generate thumbnail for ${imageId}:`, err);
       });

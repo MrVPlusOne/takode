@@ -744,9 +744,9 @@ describe("QuestDetailPanel", () => {
     expect(await screen.findByText("Full second implementation detail.")).toBeVisible();
   });
 
-  it("shows phase-note image thumbnails only inside expanded phase details", () => {
-    // This verifies q-1056 scope: phase-note image previews belong to expanded
-    // Journey detail notes, not collapsed summaries or unrelated feedback.
+  it("shows phase-level image thumbnails while phase details are collapsed", () => {
+    // Journey image previews are now the scan surface for phase evidence, so
+    // collapsed phase entries still expose successfully resolved thumbnails.
     const quest = makeVerificationQuest({
       tldr: "Short quest summary.",
       journeyRuns: [
@@ -794,14 +794,15 @@ describe("QuestDetailPanel", () => {
       "duration unavailable",
     );
     expect(within(timeline).queryByTestId("phase-note-image-thumbnails")).toBeNull();
+    const preloadImages = screen.getAllByTestId("image-preview-preload");
+    fireEvent.load(preloadImages[0]!);
+    fireEvent.load(preloadImages[1]!);
 
-    fireEvent.click(within(timeline).getByText("Full phase detail"));
     const thumbnailStrip = within(timeline).getByTestId("phase-note-image-thumbnails");
-    fireEvent.load(screen.getByAltText("desktop.png"));
-    fireEvent.load(screen.getByAltText("mobile.jpeg"));
 
     expect(within(thumbnailStrip).getByRole("button", { name: "Open image desktop.png" })).toBeVisible();
     expect(within(thumbnailStrip).getByRole("button", { name: "Open image mobile.jpeg" })).toBeVisible();
+    expect(screen.getByText(/Screenshot artifacts:/)).not.toBeVisible();
   });
 
   it("does not keep the final phase duration running when a finished Journey has a stale active occurrence", () => {

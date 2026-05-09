@@ -44,6 +44,16 @@ export function buildFileLinkPreviewUrl(target: FileLinkActionTarget): string {
   return `${BASE}/fs/file-link/preview?${params.toString()}`;
 }
 
+export function buildFileLinkImageVariantUrl(target: FileLinkActionTarget, variant: "thumbnail" | "full"): string {
+  const params = new URLSearchParams({
+    path: target.path,
+    isRelative: target.isRelative ? "1" : "0",
+    variant,
+  });
+  if (target.sessionId) params.set("sessionId", target.sessionId);
+  return `${BASE}/fs/file-link/image?${params.toString()}`;
+}
+
 async function requestJson<T>(path: string, init: RequestInit): Promise<T> {
   const response = await fetch(`${BASE}${path}`, {
     ...init,

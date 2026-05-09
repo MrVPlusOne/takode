@@ -643,6 +643,21 @@ export const MSG_ASSISTANT: ChatMessage = {
   timestamp: Date.now() - 50000,
 };
 
+export const MSG_ASSISTANT_IMAGE_PREVIEW: ChatMessage = {
+  id: "msg-assistant-image-preview",
+  role: "assistant",
+  content: "Captured the latest UI state. The missing local artifact path is /tmp/takode-playground/missing.png.",
+  localImages: [
+    {
+      name: "desktop-preview.svg",
+      mediaType: "image/svg+xml",
+      base64:
+        "PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIyNDAiIGhlaWdodD0iMTYwIiB2aWV3Qm94PSIwIDAgMjQwIDE2MCI+PHJlY3Qgd2lkdGg9IjI0MCIgaGVpZ2h0PSIxNjAiIGZpbGw9IiMxODE4MTgiLz48cmVjdCB4PSIyNCIgeT0iMjQiIHdpZHRoPSIxOTIiIGhlaWdodD0iMTEyIiByeD0iOCIgZmlsbD0iIzJkMmQyZCIgc3Ryb2tlPSIjYWU1NjMwIiBzdHJva2Utd2lkdGg9IjMiLz48Y2lyY2xlIGN4PSI1NiIgY3k9IjYwIiByPSIxNCIgZmlsbD0iI2FlNTYzMCIvPjxwYXRoIGQ9Ik04MCAxMDVoODBMMTMwIDc1bC0yMCAyNC0xNi0xOHoiIGZpbGw9IiM4NTg1ODUiLz48L3N2Zz4=",
+    },
+  ],
+  timestamp: Date.now() - 49000,
+};
+
 export const MSG_ASSISTANT_LEADER_USER: ChatMessage = {
   id: "msg-leader-user",
   role: "assistant",

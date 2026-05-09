@@ -30,6 +30,7 @@ import {
   MSG_APPROVED_AUTO_SHORT,
   MSG_APPROVED_PLAN,
   MSG_ASSISTANT,
+  MSG_ASSISTANT_IMAGE_PREVIEW,
   MSG_ASSISTANT_LEADER_USER,
   MSG_ASSISTANT_THINKING,
   MSG_ASSISTANT_THINKING_CODEX,
@@ -712,6 +713,9 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Assistant message (markdown)">
             <MessageBubble message={MSG_ASSISTANT} />
+          </Card>
+          <Card label="Assistant message (image preview group)">
+            <MessageBubble message={MSG_ASSISTANT_IMAGE_PREVIEW} sessionId="playground" />
           </Card>
           <Card label="Assistant message (explicit leader user-message)">
             <MessageBubble message={MSG_ASSISTANT_LEADER_USER} />

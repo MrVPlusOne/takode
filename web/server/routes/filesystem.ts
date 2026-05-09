@@ -11,6 +11,7 @@ import { SERVER_GIT_CMD } from "../constants.js";
 import { normalizeForSearch } from "../../shared/search-utils.js";
 import type { RouteContext } from "./context.js";
 import { requireSharp, isSharpUnavailableError } from "../image-optimizer.js";
+import { LocalImageVariantStore, type LocalImageVariantKind } from "../local-image-variant-store.js";
 
 const execPromise = promisify(execCb);
 const execFilePromise = promisify(execFileCb);
@@ -217,7 +218,7 @@ function fileLinkRequestFromQuery(
   path: string | undefined,
   isRelative: string | undefined,
   sessionId: string | undefined,
-) {
+): FileLinkResolveRequest | null {
   if (!path) return null;
   return {
     path,
@@ -260,9 +261,23 @@ async function buildFileLinkPreviewResponse(target: ResolvedFileLinkPath): Promi
   }
 }
 
+function parseImageVariantKind(raw: string | undefined): LocalImageVariantKind | null {
+  if (raw === "thumbnail" || raw === "full") return raw;
+  return null;
+}
+
+function localImageVariantHeaders(variant: { contentType: string; cacheHit: boolean }): Record<string, string> {
+  return {
+    "Content-Type": variant.contentType,
+    "Cache-Control": "public, max-age=31536000, immutable",
+    "X-Takode-Image-Variant-Cache": variant.cacheHit ? "hit" : "miss",
+  };
+}
+
 export function createFilesystemRoutes(ctx: RouteContext) {
   const api = new Hono();
   const { wsBridge, execAsync, execCaptureStdoutAsync } = ctx;
+  const localImageVariantStore = ctx.localImageVariantStore ?? new LocalImageVariantStore();
 
   // ─── Filesystem browsing ─────────────────────────────────────
 
@@ -378,6 +393,13 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       return c.json({ error: "file is not a supported image type" }, 400);
     }
     try {
+      const variantKind = parseImageVariantKind(c.req.query("variant"));
+      if (variantKind) {
+        const variant = await localImageVariantStore.getVariant(absPath, contentType, variantKind);
+        return new Response(Bun.file(variant.path), {
+          headers: localImageVariantHeaders(variant),
+        });
+      }
       const content = await readFile(absPath);
       return c.body(content, 200, {
         "Content-Type": contentType,
@@ -385,6 +407,26 @@ export function createFilesystemRoutes(ctx: RouteContext) {
       });
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : "Cannot read image file" }, 404);
+    }
+  });
+
+  api.get("/fs/file-link/image", async (c) => {
+    const request = fileLinkRequestFromQuery(c.req.query("path"), c.req.query("isRelative"), c.req.query("sessionId"));
+    const variantKind = parseImageVariantKind(c.req.query("variant"));
+    if (!request || !variantKind) {
+      return c.json({ error: "path and variant are required" }, 400);
+    }
+    try {
+      const target = await resolveFileLinkPath(request, wsBridge);
+      if (!target.isImage || !target.mimeType) {
+        return c.json({ error: "file is not a supported image type" }, 400);
+      }
+      const variant = await localImageVariantStore.getVariant(target.absolutePath, target.mimeType, variantKind);
+      return new Response(Bun.file(variant.path), {
+        headers: localImageVariantHeaders(variant),
+      });
+    } catch (error) {
+      return c.json({ error: error instanceof Error ? error.message : "Cannot read image file" }, 404);
     }
   });
 

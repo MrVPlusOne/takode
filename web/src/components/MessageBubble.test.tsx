@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import type { ReactNode } from "react";
-import { render, screen, fireEvent, waitFor } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import {
   THREAD_OUTCOME_REMINDER_SOURCE_ID,
@@ -21,6 +21,11 @@ vi.mock("../api.js", () => ({
   api: {
     revertToMessage: revertToMessageMock,
     markNotificationDone: markNotificationDoneMock,
+    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
+      const params = new URLSearchParams({ path });
+      if (variant) params.set("variant", variant);
+      return `/api/fs/image?${params.toString()}`;
+    },
   },
 }));
 
@@ -293,6 +298,31 @@ describe("MessageBubble - user messages", () => {
     // Close with Escape
     fireEvent.keyDown(document, { key: "Escape" });
     expect(screen.queryByTestId("lightbox-backdrop")).toBeNull();
+  });
+
+  it("renders assistant-mentioned local images as a thumbnail-only preview group", () => {
+    const msg = makeMessage({
+      role: "assistant",
+      content: "",
+      contentBlocks: [{ type: "text", text: "Evidence is in /tmp/desktop.png and /tmp/missing.webp." }],
+    });
+    render(<MessageBubble message={msg} sessionId="test-session" />);
+
+    expect(screen.queryByTestId("assistant-image-preview-group")).toBeNull();
+    const preloadImages = screen.getAllByTestId("image-preview-preload");
+    fireEvent.load(preloadImages[0]!);
+    fireEvent.error(preloadImages[1]!);
+
+    const previewGroup = screen.getByTestId("assistant-image-preview-group");
+    expect(within(previewGroup).getByRole("button", { name: "Open image desktop.png" })).toBeTruthy();
+    expect(within(previewGroup).queryByRole("button", { name: "Open image missing.webp" })).toBeNull();
+    expect(within(previewGroup).queryByText("desktop.png")).toBeNull();
+
+    fireEvent.click(within(previewGroup).getByRole("button", { name: "Open image desktop.png" }));
+    expect(screen.getByRole("dialog", { name: "Image preview: desktop.png" })).toBeTruthy();
+    expect(screen.getByTestId("image-preview-modal-image").getAttribute("src")).toBe(
+      "/api/fs/image?path=%2Ftmp%2Fdesktop.png&variant=full",
+    );
   });
 
   it("shows 'Revert to here' in the user message menu for Codex sessions", () => {
