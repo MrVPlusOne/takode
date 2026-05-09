@@ -1,8 +1,19 @@
-import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+  type ReactNode,
+} from "react";
 import { api, type MessageSearchResponse, type MessageSearchResult, type MessageSearchScopeKind } from "../api.js";
 import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
 import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { getHighlightParts } from "../utils/highlight.js";
+import { writeClipboardText } from "../utils/copy-utils.js";
+import { navigateToSession } from "../utils/routing.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
@@ -18,6 +29,8 @@ type MessageSearchSettings = {
 type UniversalSearchResult =
   | { kind: "quest"; id: string; quest: QuestmasterTask }
   | { kind: "message"; id: string; message: MessageSearchResult };
+
+type QuestResultAction = { id: "copy"; label: string } | { id: "leader" | "worker"; label: string; sessionId: string };
 
 export interface UniversalSearchOverlayProps {
   open: boolean;
@@ -185,6 +198,30 @@ function sessionNumForId(sessions: SdkSessionInfo[], sessionId: string | null): 
   return sessions.find((session) => session.sessionId === sessionId)?.sessionNum ?? null;
 }
 
+function getQuestResultActions(quest: QuestmasterTask, sessions: SdkSessionInfo[]): QuestResultAction[] {
+  const leaderSessionId = getQuestLeaderSessionId(quest);
+  const workerSessionId = getQuestOwnerSessionId(quest);
+  const leaderSessionNum = sessionNumForId(sessions, leaderSessionId);
+  const workerSessionNum = sessionNumForId(sessions, workerSessionId);
+  const actions: QuestResultAction[] = [{ id: "copy", label: "Copy quest number" }];
+
+  if (leaderSessionId) {
+    actions.push({
+      id: "leader",
+      label: `Go to leader session${leaderSessionNum != null ? ` #${leaderSessionNum}` : ""}`,
+      sessionId: leaderSessionId,
+    });
+  }
+  if (workerSessionId) {
+    actions.push({
+      id: "worker",
+      label: `Go to worker session${workerSessionNum != null ? ` #${workerSessionNum}` : ""}`,
+      sessionId: workerSessionId,
+    });
+  }
+  return actions;
+}
+
 export function UniversalSearchOverlay({
   open,
   currentSessionId,
@@ -201,6 +238,7 @@ export function UniversalSearchOverlay({
   const requestSeqRef = useRef(0);
   const sessionByIdRef = useRef<Map<string, SdkSessionInfo>>(new Map());
   const searchKeyRef = useRef("");
+  const copiedResetTimerRef = useRef<number | null>(null);
   const messageModeAvailable = Boolean(currentSessionId);
 
   const [mode, setMode] = useState<UniversalSearchMode>(() => initialMode(currentSessionId, messageModeAvailable));
@@ -209,6 +247,10 @@ export function UniversalSearchOverlay({
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [selectedIndex, setSelectedIndex] = useState(0);
   const [messageSettings, setMessageSettings] = useState<MessageSearchSettings>(() => readMessageSearchSettings());
+  const [copiedQuestId, setCopiedQuestId] = useState<string | null>(null);
+  const [questActionMenu, setQuestActionMenu] = useState<{ resultId: string; selectedActionIndex: number } | null>(
+    null,
+  );
   const [remoteState, setRemoteState] = useState<{
     mode: "quests" | "messages" | null;
     status: "idle" | "loading" | "error";
@@ -239,6 +281,13 @@ export function UniversalSearchOverlay({
     sessionByIdRef.current = sessionById;
   }, [sessionById]);
 
+  useEffect(
+    () => () => {
+      if (copiedResetTimerRef.current != null) window.clearTimeout(copiedResetTimerRef.current);
+    },
+    [],
+  );
+
   const setUserMode = useCallback((next: UniversalSearchMode) => {
     setMode(next);
     writeLastMode(next);
@@ -251,6 +300,7 @@ export function UniversalSearchOverlay({
     setQuery("");
     setVisibleLimit(PAGE_SIZE);
     setSelectedIndex(0);
+    setQuestActionMenu(null);
     const frame = window.requestAnimationFrame(() => inputRef.current?.focus());
     return () => window.cancelAnimationFrame(frame);
   }, [currentSessionId, messageModeAvailable, open]);
@@ -266,6 +316,7 @@ export function UniversalSearchOverlay({
   useEffect(() => {
     setVisibleLimit(PAGE_SIZE);
     setSelectedIndex(0);
+    setQuestActionMenu(null);
     listRef.current?.scrollTo({ top: 0 });
   }, [
     debouncedQuery,
@@ -397,6 +448,7 @@ export function UniversalSearchOverlay({
   const error =
     (mode === "quests" || mode === "messages") && remoteState.mode === mode && remoteState.status === "error";
   const hasMore = results.length < totalResults;
+  const selectedResultIndex = results.length === 0 ? -1 : Math.min(Math.max(selectedIndex, 0), results.length - 1);
 
   useEffect(() => {
     setSelectedIndex((current) => {
@@ -407,6 +459,22 @@ export function UniversalSearchOverlay({
     });
     searchKeyRef.current = searchKey;
   }, [results.length, searchKey]);
+
+  useEffect(() => {
+    if (!questActionMenu) return;
+    const result = results.find(
+      (item): item is Extract<UniversalSearchResult, { kind: "quest" }> =>
+        item.kind === "quest" && item.id === questActionMenu.resultId,
+    );
+    if (!result) {
+      setQuestActionMenu(null);
+      return;
+    }
+    const actionCount = getQuestResultActions(result.quest, sessions).length;
+    if (questActionMenu.selectedActionIndex >= actionCount) {
+      setQuestActionMenu({ resultId: questActionMenu.resultId, selectedActionIndex: Math.max(0, actionCount - 1) });
+    }
+  }, [questActionMenu, results, sessions]);
 
   const openResult = useCallback(
     (result: UniversalSearchResult | undefined) => {
@@ -425,6 +493,30 @@ export function UniversalSearchOverlay({
     [currentThreadKey, debouncedQuery, onClose, onOpenMessage, onOpenQuest],
   );
 
+  const copyQuestId = useCallback((questId: string) => {
+    void writeClipboardText(questId)
+      .then(() => {
+        setCopiedQuestId(questId);
+        if (copiedResetTimerRef.current != null) window.clearTimeout(copiedResetTimerRef.current);
+        copiedResetTimerRef.current = window.setTimeout(() => setCopiedQuestId(null), 1200);
+      })
+      .catch((error) => console.error("Failed to copy quest ID:", error));
+  }, []);
+
+  const activateQuestResultAction = useCallback(
+    (quest: QuestmasterTask, action: QuestResultAction) => {
+      if (action.id === "copy") {
+        copyQuestId(quest.questId);
+        setQuestActionMenu(null);
+        return;
+      }
+      navigateToSession(action.sessionId);
+      setQuestActionMenu(null);
+      onClose();
+    },
+    [copyQuestId, onClose],
+  );
+
   const cycleMode = useCallback(
     (direction: 1 | -1) =>
       setMode((current) => {
@@ -436,6 +528,43 @@ export function UniversalSearchOverlay({
   );
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (questActionMenu) {
+      const menuResult = results.find(
+        (result): result is Extract<UniversalSearchResult, { kind: "quest" }> =>
+          result.kind === "quest" && result.id === questActionMenu.resultId,
+      );
+      const actions = menuResult ? getQuestResultActions(menuResult.quest, sessions) : [];
+      const selectedActionIndex =
+        actions.length > 0 ? Math.min(questActionMenu.selectedActionIndex, actions.length - 1) : 0;
+
+      if (!menuResult || actions.length === 0) {
+        setQuestActionMenu(null);
+      } else if (event.key === "Escape" || event.key === "ArrowLeft") {
+        setQuestActionMenu(null);
+        event.preventDefault();
+        event.stopPropagation();
+        return;
+      } else if (event.key === "ArrowDown") {
+        setQuestActionMenu({
+          resultId: questActionMenu.resultId,
+          selectedActionIndex: (selectedActionIndex + 1) % actions.length,
+        });
+        event.preventDefault();
+        return;
+      } else if (event.key === "ArrowUp") {
+        setQuestActionMenu({
+          resultId: questActionMenu.resultId,
+          selectedActionIndex: (selectedActionIndex - 1 + actions.length) % actions.length,
+        });
+        event.preventDefault();
+        return;
+      } else if (event.key === "Enter") {
+        activateQuestResultAction(menuResult.quest, actions[selectedActionIndex]!);
+        event.preventDefault();
+        return;
+      }
+    }
+
     if (event.key === "Escape") {
       onClose();
       event.preventDefault();
@@ -457,8 +586,16 @@ export function UniversalSearchOverlay({
       event.preventDefault();
       return;
     }
+    if (event.key === "ArrowRight") {
+      const result = results[selectedResultIndex];
+      if (result?.kind === "quest") {
+        setQuestActionMenu({ resultId: result.id, selectedActionIndex: 0 });
+        event.preventDefault();
+      }
+      return;
+    }
     if (event.key === "Enter") {
-      openResult(results[selectedIndex]);
+      openResult(results[selectedResultIndex]);
       event.preventDefault();
     }
   }
@@ -644,9 +781,22 @@ export function UniversalSearchOverlay({
                   result={result}
                   query={debouncedQuery}
                   sessions={sessions}
-                  selected={index === selectedIndex}
-                  onPointerMove={() => setSelectedIndex(index)}
+                  selected={index === selectedResultIndex}
+                  copiedQuestId={copiedQuestId}
+                  questActionMenu={
+                    result.kind === "quest" && questActionMenu?.resultId === result.id ? questActionMenu : null
+                  }
+                  onPointerMove={() => {
+                    setSelectedIndex(index);
+                    if (questActionMenu && questActionMenu.resultId !== result.id) setQuestActionMenu(null);
+                  }}
                   onOpen={() => openResult(result)}
+                  onCopyQuestId={copyQuestId}
+                  onOpenQuestActionMenu={() => setQuestActionMenu({ resultId: result.id, selectedActionIndex: 0 })}
+                  onSelectQuestAction={(selectedActionIndex) =>
+                    setQuestActionMenu({ resultId: result.id, selectedActionIndex })
+                  }
+                  onActivateQuestAction={(quest, action) => activateQuestResultAction(quest, action)}
                   onInlineNavigate={onClose}
                 />
               ))}
@@ -691,16 +841,28 @@ function ResultRow({
   query,
   sessions,
   selected,
+  copiedQuestId,
+  questActionMenu,
   onPointerMove,
   onOpen,
+  onCopyQuestId,
+  onOpenQuestActionMenu,
+  onSelectQuestAction,
+  onActivateQuestAction,
   onInlineNavigate,
 }: {
   result: UniversalSearchResult;
   query: string;
   sessions: SdkSessionInfo[];
   selected: boolean;
+  copiedQuestId: string | null;
+  questActionMenu: { resultId: string; selectedActionIndex: number } | null;
   onPointerMove: () => void;
   onOpen: () => void;
+  onCopyQuestId: (questId: string) => void;
+  onOpenQuestActionMenu: () => void;
+  onSelectQuestAction: (selectedActionIndex: number) => void;
+  onActivateQuestAction: (quest: QuestmasterTask, action: QuestResultAction) => void;
   onInlineNavigate: () => void;
 }) {
   if (result.kind === "quest") {
@@ -709,8 +871,14 @@ function ResultRow({
         quest={result.quest}
         sessions={sessions}
         selected={selected}
+        copied={copiedQuestId === result.quest.questId}
+        actionMenu={questActionMenu}
         onPointerMove={onPointerMove}
         onOpen={onOpen}
+        onCopyQuestId={onCopyQuestId}
+        onOpenActionMenu={onOpenQuestActionMenu}
+        onSelectAction={onSelectQuestAction}
+        onActivateAction={onActivateQuestAction}
         onInlineNavigate={onInlineNavigate}
       />
     );
@@ -758,24 +926,51 @@ function QuestResultRow({
   quest,
   sessions,
   selected,
+  copied,
+  actionMenu,
   onPointerMove,
   onOpen,
+  onCopyQuestId,
+  onOpenActionMenu,
+  onSelectAction,
+  onActivateAction,
   onInlineNavigate,
 }: {
   quest: QuestmasterTask;
   sessions: SdkSessionInfo[];
   selected: boolean;
+  copied: boolean;
+  actionMenu: { resultId: string; selectedActionIndex: number } | null;
   onPointerMove: () => void;
   onOpen: () => void;
+  onCopyQuestId: (questId: string) => void;
+  onOpenActionMenu: () => void;
+  onSelectAction: (selectedActionIndex: number) => void;
+  onActivateAction: (quest: QuestmasterTask, action: QuestResultAction) => void;
   onInlineNavigate: () => void;
 }) {
   const leaderSessionId = getQuestLeaderSessionId(quest);
   const workerSessionId = getQuestOwnerSessionId(quest);
   const leaderSessionNum = sessionNumForId(sessions, leaderSessionId);
   const workerSessionNum = sessionNumForId(sessions, workerSessionId);
+  const actions = getQuestResultActions(quest, sessions);
+  const selectedActionIndex = Math.min(actionMenu?.selectedActionIndex ?? 0, actions.length - 1);
+  function handleInteractiveKeyDown(event: KeyboardEvent<HTMLElement>) {
+    if (event.key === "Enter" || event.key === " ") event.stopPropagation();
+  }
+  function handleCopyClick(event: ReactMouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    onCopyQuestId(quest.questId);
+  }
+  function handleOpenActionMenu(event: ReactMouseEvent<HTMLButtonElement>) {
+    event.preventDefault();
+    event.stopPropagation();
+    onOpenActionMenu();
+  }
   return (
     <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
-      <div className="flex min-w-0 items-start justify-between gap-3">
+      <div className="relative flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex min-w-0 items-center gap-2">
             <QuestInlineLink
@@ -785,6 +980,21 @@ function QuestResultRow({
               onNavigate={onInlineNavigate}
               className="shrink-0 font-mono-code text-[11px] text-cc-primary hover:underline"
             />
+            <button
+              type="button"
+              className={`inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border border-transparent text-cc-muted transition-colors hover:border-cc-border hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
+                copied ? "text-emerald-300" : ""
+              }`}
+              aria-label={`Copy quest ID ${quest.questId}`}
+              title={copied ? `Copied ${quest.questId}` : `Copy ${quest.questId}`}
+              onKeyDown={handleInteractiveKeyDown}
+              onClick={handleCopyClick}
+            >
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3.5 w-3.5">
+                <rect x="5" y="3" width="8" height="10" rx="1.5" />
+                <path d="M3 11V5.5A2.5 2.5 0 015.5 3H9" />
+              </svg>
+            </button>
             <span className="truncate text-sm font-medium text-cc-fg">{quest.title}</span>
           </div>
           <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-cc-muted">
@@ -821,7 +1031,54 @@ function QuestResultRow({
             )}
           </div>
         </div>
-        <span className="shrink-0 text-[11px] text-cc-muted">{formatRelativeTime(questRecency(quest))}</span>
+        <div className="flex shrink-0 items-center gap-1 text-[11px] text-cc-muted">
+          <span>{formatRelativeTime(questRecency(quest))}</span>
+          <button
+            type="button"
+            className={`inline-flex h-6 w-6 items-center justify-center rounded-md transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 ${
+              selected || actionMenu ? "text-cc-fg" : "text-cc-muted/75"
+            }`}
+            aria-label={`More options for ${quest.questId}`}
+            title="More options (Right Arrow)"
+            onKeyDown={handleInteractiveKeyDown}
+            onClick={handleOpenActionMenu}
+          >
+            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.8" className="h-3.5 w-3.5">
+              <path d="M6 4l4 4-4 4" strokeLinecap="round" strokeLinejoin="round" />
+            </svg>
+          </button>
+        </div>
+        {actionMenu && (
+          <div
+            role="menu"
+            aria-label={`Actions for ${quest.questId}`}
+            className="absolute right-0 top-8 z-[90] min-w-44 rounded-lg border border-cc-border bg-cc-card py-1 shadow-xl"
+            onClick={(event) => event.stopPropagation()}
+          >
+            {actions.map((action, index) => {
+              const actionSelected = index === selectedActionIndex;
+              return (
+                <button
+                  key={action.id}
+                  type="button"
+                  role="menuitem"
+                  className={`flex w-full items-center justify-between gap-3 px-2.5 py-1.5 text-left text-[11px] transition-colors ${
+                    actionSelected ? "bg-cc-primary/15 text-cc-primary" : "text-cc-fg hover:bg-cc-hover"
+                  }`}
+                  onMouseEnter={() => onSelectAction(index)}
+                  onKeyDown={handleInteractiveKeyDown}
+                  onClick={(event) => {
+                    event.preventDefault();
+                    event.stopPropagation();
+                    onActivateAction(quest, action);
+                  }}
+                >
+                  <span>{action.label}</span>
+                </button>
+              );
+            })}
+          </div>
+        )}
       </div>
     </ResultOption>
   );

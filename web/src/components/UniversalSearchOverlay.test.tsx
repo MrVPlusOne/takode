@@ -1,10 +1,11 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ComponentProps } from "react";
 
 const mockListQuestPage = vi.fn();
 const mockSearchSessionMessages = vi.fn();
+const mockClipboardWriteText = vi.fn();
 
 vi.mock("../api.js", () => ({
   api: {
@@ -164,6 +165,26 @@ function quest(overrides: Partial<QuestmasterTask> & Pick<QuestmasterTask, "ques
   } as QuestmasterTask;
 }
 
+function mockQuestResults(quests: QuestmasterTask[]) {
+  mockListQuestPage.mockResolvedValueOnce({
+    quests,
+    total: quests.length,
+    offset: 0,
+    limit: 20,
+    hasMore: false,
+    nextOffset: null,
+    previousOffset: null,
+    counts: {
+      all: quests.length,
+      idea: quests.filter((item) => item.status === "idea").length,
+      refined: quests.filter((item) => item.status === "refined").length,
+      in_progress: quests.filter((item) => item.status === "in_progress").length,
+      done: quests.filter((item) => item.status === "done").length,
+    },
+    allTags: [],
+  });
+}
+
 function renderOverlay(
   props: Partial<ComponentProps<typeof UniversalSearchOverlay>> = {},
   callbacks: {
@@ -198,8 +219,15 @@ async function advanceSearchDebounce() {
 describe("UniversalSearchOverlay", () => {
   beforeEach(() => {
     localStorage.clear();
+    window.location.hash = "";
     mockListQuestPage.mockClear();
     mockSearchSessionMessages.mockClear();
+    mockClipboardWriteText.mockReset();
+    mockClipboardWriteText.mockResolvedValue(undefined);
+    Object.defineProperty(window.navigator, "clipboard", {
+      value: { writeText: mockClipboardWriteText },
+      configurable: true,
+    });
     useStore.getState().setQuests([]);
     useStore.getState().setSdkSessions(sessions);
     mockListQuestPage.mockResolvedValue({
@@ -508,6 +536,170 @@ describe("UniversalSearchOverlay", () => {
     expect(screen.getByTestId("session-hover-card")).toHaveClass("z-[90]");
     fireEvent.click(leaderLink);
     expect(callbacks.onClose).toHaveBeenCalledTimes(2);
+  });
+
+  it("copies the full quest ID from the Quest result copy button without opening the row", async () => {
+    const resultQuest = quest({
+      questId: "q-1290",
+      title: "Add Quest result actions",
+      updatedAt: now - 1_000,
+    });
+    mockQuestResults([resultQuest]);
+
+    const callbacks = renderOverlay();
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+
+    expect(await screen.findByRole("link", { name: "q-1290" })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Copy quest ID q-1290" }));
+
+    await waitFor(() => expect(mockClipboardWriteText).toHaveBeenCalledWith("q-1290"));
+    expect(callbacks.onOpenQuest).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByText("Add Quest result actions"));
+    expect(callbacks.onOpenQuest).toHaveBeenCalledWith("q-1290", "");
+  });
+
+  it("opens a Quest result action submenu from Right with available actions in order", async () => {
+    const resultQuest = quest({
+      questId: "q-404",
+      title: "Quest with sessions",
+      updatedAt: now - 1_000,
+      leaderSessionId: "s-new",
+      sessionId: "s-old",
+    });
+    mockQuestResults([resultQuest]);
+
+    renderOverlay();
+    const dialog = screen.getByRole("dialog", { name: "Universal Search" });
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+
+    expect(await screen.findByText("Quest with sessions")).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "ArrowRight" });
+
+    const menu = screen.getByRole("menu", { name: "Actions for q-404" });
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Copy quest number", "Go to leader session #11", "Go to worker session #12"]);
+  });
+
+  it("omits unavailable session actions and exposes the chevron options hint", async () => {
+    const resultQuest = quest({
+      questId: "q-405",
+      title: "Quest without sessions",
+      updatedAt: now - 1_000,
+    });
+    mockQuestResults([resultQuest]);
+
+    renderOverlay();
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+
+    expect(await screen.findByText("Quest without sessions")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "More options for q-405" }));
+
+    const menu = screen.getByRole("menu", { name: "Actions for q-405" });
+    expect(
+      within(menu)
+        .getAllByRole("menuitem")
+        .map((item) => item.textContent),
+    ).toEqual(["Copy quest number"]);
+    expect(within(menu).queryByText(/Go to leader session/)).not.toBeInTheDocument();
+    expect(within(menu).queryByText(/Go to worker session/)).not.toBeInTheDocument();
+  });
+
+  it("dismisses the Quest action submenu with Left and navigates selected submenu actions", async () => {
+    const resultQuest = quest({
+      questId: "q-406",
+      title: "Quest navigation actions",
+      updatedAt: now - 1_000,
+      leaderSessionId: "s-new",
+      sessionId: "s-old",
+    });
+    mockQuestResults([resultQuest]);
+
+    const callbacks = renderOverlay();
+    const dialog = screen.getByRole("dialog", { name: "Universal Search" });
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+
+    expect(await screen.findByText("Quest navigation actions")).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "ArrowRight" });
+    expect(screen.getByRole("menu", { name: "Actions for q-406" })).toBeInTheDocument();
+
+    fireEvent.keyDown(dialog, { key: "ArrowLeft" });
+    expect(screen.queryByRole("menu", { name: "Actions for q-406" })).not.toBeInTheDocument();
+    expect(callbacks.onClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(dialog, { key: "ArrowRight" });
+    fireEvent.keyDown(dialog, { key: "ArrowDown" });
+    fireEvent.keyDown(dialog, { key: "Enter" });
+
+    expect(window.location.hash).toBe("#/session/s-new");
+    expect(callbacks.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("navigates the worker submenu action when selected with keyboard arrows", async () => {
+    const resultQuest = quest({
+      questId: "q-409",
+      title: "Quest worker navigation action",
+      updatedAt: now - 1_000,
+      leaderSessionId: "s-new",
+      sessionId: "s-old",
+    });
+    mockQuestResults([resultQuest]);
+
+    const callbacks = renderOverlay();
+    const dialog = screen.getByRole("dialog", { name: "Universal Search" });
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+
+    expect(await screen.findByText("Quest worker navigation action")).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "ArrowRight" });
+    fireEvent.keyDown(dialog, { key: "ArrowDown" });
+    fireEvent.keyDown(dialog, { key: "ArrowDown" });
+    fireEvent.keyDown(dialog, { key: "Enter" });
+
+    expect(window.location.hash).toBe("#/session/s-old");
+    expect(callbacks.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("activates the Quest action submenu copy item without closing the overlay", async () => {
+    const resultQuest = quest({
+      questId: "q-407",
+      title: "Quest copy action",
+      updatedAt: now - 1_000,
+    });
+    mockQuestResults([resultQuest]);
+
+    const callbacks = renderOverlay();
+    const dialog = screen.getByRole("dialog", { name: "Universal Search" });
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+
+    expect(await screen.findByText("Quest copy action")).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "ArrowRight" });
+    fireEvent.keyDown(dialog, { key: "Enter" });
+
+    await waitFor(() => expect(mockClipboardWriteText).toHaveBeenCalledWith("q-407"));
+    expect(callbacks.onClose).not.toHaveBeenCalled();
+    expect(screen.queryByRole("menu", { name: "Actions for q-407" })).not.toBeInTheDocument();
+  });
+
+  it("preserves Quest result Enter opening when the action submenu is closed", async () => {
+    const resultQuest = quest({
+      questId: "q-408",
+      title: "Quest enter open",
+      updatedAt: now - 1_000,
+    });
+    mockQuestResults([resultQuest]);
+
+    const callbacks = renderOverlay();
+    const dialog = screen.getByRole("dialog", { name: "Universal Search" });
+    fireEvent.click(screen.getByRole("button", { name: "Quests" }));
+
+    expect(await screen.findByText("Quest enter open")).toBeInTheDocument();
+    fireEvent.keyDown(dialog, { key: "Enter" });
+
+    expect(callbacks.onOpenQuest).toHaveBeenCalledWith("q-408", "");
+    expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 
   it("ignores stale Message search responses after the query changes", async () => {
