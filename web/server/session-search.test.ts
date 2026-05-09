@@ -175,6 +175,47 @@ describe("searchSessionDocuments", () => {
     expect(withReviewers.results.map((r) => r.sessionId)).toEqual(["reviewer", "worker"]);
   });
 
+  it("filters to leader sessions when requested and returns lightweight session summaries", () => {
+    const docs: SessionSearchDocument[] = [
+      {
+        sessionId: "leader",
+        sessionNum: 7,
+        state: "connected",
+        backendType: "codex",
+        archived: false,
+        isOrchestrator: true,
+        createdAt: 1,
+        lastActivityAt: 3,
+        name: "Needle leader",
+        gitBranch: "main",
+        cwd: "/repo/leader",
+      },
+      {
+        sessionId: "worker",
+        sessionNum: 8,
+        state: "running",
+        archived: false,
+        isOrchestrator: false,
+        createdAt: 2,
+        name: "Needle worker",
+        cwd: "/repo/worker",
+      },
+    ];
+
+    const out = searchSessionDocuments(docs, { query: "needle", leaderOnly: true });
+    expect(out.results.map((r) => r.sessionId)).toEqual(["leader"]);
+    expect(out.results[0].session).toMatchObject({
+      sessionId: "leader",
+      sessionNum: 7,
+      state: "connected",
+      backendType: "codex",
+      isOrchestrator: true,
+      name: "Needle leader",
+      gitBranch: "main",
+      cwd: "/repo/leader",
+    });
+  });
+
   it("applies exact session-number ranking after reviewer filtering", () => {
     const docs: SessionSearchDocument[] = [
       {

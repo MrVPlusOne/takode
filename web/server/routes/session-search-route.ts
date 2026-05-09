@@ -29,6 +29,7 @@ export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDe
     const messageLimitPerSession = Number.isFinite(msgLimitParam) ? Math.max(50, Math.min(msgLimitParam, 2000)) : 400;
     const includeArchived = parseIncludeArchived(c.req.query("includeArchived"));
     const includeReviewers = parseAffirmativeBoolean(c.req.query("includeReviewers"));
+    const leaderOnly = parseAffirmativeBoolean(c.req.query("leaderOnly"));
 
     const startedAt = Date.now();
     const sessions = launcher.listSessions();
@@ -39,10 +40,16 @@ export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDe
       return {
         sessionId: s.sessionId,
         sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
+        state: s.state,
+        model: bridge?.model || s.model,
+        backendType: s.backendType,
         archived: !!s.archived,
+        archivedAt: s.archivedAt,
+        isOrchestrator: s.isOrchestrator === true || bridge?.isOrchestrator === true,
         reviewerOf: s.reviewerOf,
         createdAt: s.createdAt || 0,
         lastActivityAt: s.lastActivityAt,
+        lastUserMessageAt: s.lastUserMessageAt,
         name: names[s.sessionId] ?? s.name ?? "",
         taskHistory: bridgeSession?.taskHistory ?? [],
         keywords: bridgeSession?.keywords ?? [],
@@ -59,6 +66,7 @@ export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDe
       limit,
       includeArchived,
       includeReviewers,
+      leaderOnly,
       messageLimitPerSession,
     });
 

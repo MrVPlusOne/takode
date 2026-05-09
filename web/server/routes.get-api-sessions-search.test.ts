@@ -672,6 +672,54 @@ describe("GET /api/sessions/search", () => {
     expect(includeJson.results.map((r: any) => r.sessionId)).toEqual(["s-reviewer", "s-worker"]);
   });
 
+  it("filters to leader sessions and includes a lightweight render summary", async () => {
+    launcher.listSessions.mockReturnValue([
+      {
+        sessionId: "s-leader",
+        state: "connected",
+        cwd: "/leader",
+        createdAt: 1,
+        archived: false,
+        isOrchestrator: true,
+        backendType: "codex",
+      },
+      {
+        sessionId: "s-worker",
+        state: "running",
+        cwd: "/worker",
+        createdAt: 2,
+        archived: false,
+        isOrchestrator: false,
+        backendType: "claude",
+      },
+    ]);
+    vi.mocked(sessionNames.getAllNames).mockReturnValue({
+      "s-leader": "Needle leader",
+      "s-worker": "Needle worker",
+    });
+    bridge.getAllSessions.mockReturnValue([
+      { session_id: "s-leader", cwd: "/leader", repo_root: "/repo/leader", git_branch: "main" },
+      { session_id: "s-worker", cwd: "/worker", repo_root: "/repo/worker", git_branch: "main" },
+    ]);
+    launcher.getSessionNum.mockImplementation((sessionId: string) => (sessionId === "s-leader" ? 14 : 15));
+    bridge.getMessageHistory.mockReturnValue([]);
+
+    const res = await app.request("/api/sessions/search?q=needle&leaderOnly=true", { method: "GET" });
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.results.map((r: any) => r.sessionId)).toEqual(["s-leader"]);
+    expect(json.results[0].session).toMatchObject({
+      sessionId: "s-leader",
+      sessionNum: 14,
+      state: "connected",
+      backendType: "codex",
+      isOrchestrator: true,
+      name: "Needle leader",
+      cwd: "/leader",
+      repoRoot: "/repo/leader",
+    });
+  });
+
   it("boosts exact session-number queries while preserving existing filters", async () => {
     launcher.listSessions.mockReturnValue([
       { sessionId: "s-num", state: "running", cwd: "/num", createdAt: 1, archived: false, sessionNum: 12 },

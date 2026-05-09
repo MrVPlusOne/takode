@@ -387,6 +387,25 @@ export interface SessionSearchResult {
   matchedField: SessionSearchMatchedField;
   matchContext: string | null;
   matchedAt: number;
+  session?: Pick<
+    SdkSessionInfo,
+    | "sessionId"
+    | "sessionNum"
+    | "state"
+    | "model"
+    | "backendType"
+    | "archived"
+    | "archivedAt"
+    | "isOrchestrator"
+    | "reviewerOf"
+    | "createdAt"
+    | "lastActivityAt"
+    | "lastUserMessageAt"
+    | "name"
+    | "gitBranch"
+    | "cwd"
+    | "repoRoot"
+  >;
   messageMatch?: {
     id?: string;
     timestamp: number;
@@ -953,6 +972,7 @@ export const api = {
       limit?: number;
       includeArchived?: boolean;
       includeReviewers?: boolean;
+      leaderOnly?: boolean;
       messageLimitPerSession?: number;
       signal?: AbortSignal;
     },
@@ -967,6 +987,9 @@ export const api = {
     }
     if (typeof options?.includeReviewers === "boolean") {
       params.set("includeReviewers", options.includeReviewers ? "true" : "false");
+    }
+    if (typeof options?.leaderOnly === "boolean") {
+      params.set("leaderOnly", options.leaderOnly ? "true" : "false");
     }
     if (typeof options?.messageLimitPerSession === "number") {
       params.set("messageLimitPerSession", String(options.messageLimitPerSession));

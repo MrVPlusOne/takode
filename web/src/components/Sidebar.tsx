@@ -39,6 +39,7 @@ import { buildReviewerByParent } from "../utils/reviewer-by-parent.js";
 import { isDesktopShellLayout } from "../utils/layout.js";
 import { requestThreadViewportSnapshot } from "../utils/thread-viewport.js";
 import { requestAutoSessionGitStatusRefreshes } from "../utils/session-git-status-auto-refresh.js";
+import type { SidebarSessionItem } from "../utils/sidebar-session-item.js";
 import {
   buildHerdGroupBadgeThemes,
   getHerdGroupLeaderId,
@@ -100,6 +101,36 @@ function SortableTreeGroup({
   return <>{children({ setNodeRef, style, listeners, attributes, isDragging })}</>;
 }
 
+function buildSidebarItemFromSearchResult(result: SessionSearchResult): SidebarSessionItem | null {
+  const session = result.session;
+  if (!session) return null;
+  return {
+    id: session.sessionId,
+    model: session.model ?? "",
+    cwd: session.cwd ?? "",
+    gitBranch: session.gitBranch ?? "",
+    isContainerized: false,
+    gitAhead: 0,
+    gitBehind: 0,
+    linesAdded: 0,
+    linesRemoved: 0,
+    isConnected: false,
+    status: null,
+    sdkState: session.state ?? "exited",
+    createdAt: session.createdAt,
+    archived: session.archived ?? false,
+    archivedAt: session.archivedAt,
+    backendType: session.backendType ?? "claude",
+    repoRoot: session.repoRoot ?? "",
+    permCount: 0,
+    lastActivityAt: session.lastActivityAt,
+    lastUserMessageAt: session.lastUserMessageAt,
+    isOrchestrator: session.isOrchestrator ?? false,
+    sessionNum: session.sessionNum ?? null,
+    reviewerOf: session.reviewerOf,
+  };
+}
+
 export function Sidebar() {
   const [editingSessionId, setEditingSessionId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState("");
@@ -153,6 +184,8 @@ export function Sidebar() {
   const [searchFocused, setSearchFocused] = useState(false);
   const [searchResults, setSearchResults] = useState<SessionSearchResult[] | null>(null);
   const [isSearching, setIsSearching] = useState(false);
+  const [searchIncludeArchived, setSearchIncludeArchived] = useState(false);
+  const [searchLeaderOnly, setSearchLeaderOnly] = useState(false);
   const [activeSearchResultIndex, setActiveSearchResultIndex] = useState(0);
   const [bulkSelectionGroupId, setBulkSelectionGroupId] = useState<string | null>(null);
   const [bulkSelectedSessionIds, setBulkSelectedSessionIds] = useState<Set<string>>(new Set());
@@ -832,8 +865,9 @@ export function Sidebar() {
     const timer = setTimeout(async () => {
       try {
         const resp = await api.searchSessions(q, {
-          includeArchived: false,
+          includeArchived: searchIncludeArchived,
           includeReviewers: false,
+          leaderOnly: searchLeaderOnly,
           signal: controller.signal,
         });
         if (controller.signal.aborted) return;
@@ -853,7 +887,7 @@ export function Sidebar() {
       clearTimeout(timer);
       controller.abort();
     };
-  }, [searchQuery]);
+  }, [searchIncludeArchived, searchLeaderOnly, searchQuery]);
 
   useEffect(() => {
     if (searchQuery.trim()) {
@@ -868,15 +902,20 @@ export function Sidebar() {
 
     const sessionsById = new Map(allSessionList.map((s) => [s.id, s]));
     const results: Array<{
-      session: (typeof allSessionList)[number];
+      session: SidebarSessionItem;
+      sessionName?: string;
+      sessionPreview?: string;
       matchContext: string | null;
       matchedField: SessionSearchResult["matchedField"];
     }> = [];
     for (const match of searchResults) {
-      const session = sessionsById.get(match.sessionId);
+      const localSession = sessionsById.get(match.sessionId);
+      const session = localSession ?? buildSidebarItemFromSearchResult(match);
       if (!session) continue;
       results.push({
         session,
+        sessionName: localSession ? undefined : match.session?.name,
+        sessionPreview: localSession ? undefined : match.messageMatch?.snippet,
         matchContext: match.matchContext,
         matchedField: match.matchedField,
       });
@@ -1169,6 +1208,41 @@ export function Sidebar() {
           </div>
         )}
 
+        {searchQuery.trim() && (
+          <div className="px-2 pb-1.5 flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              aria-pressed={searchIncludeArchived}
+              onClick={() => {
+                setActiveSearchResultIndex(0);
+                setSearchIncludeArchived((current) => !current);
+              }}
+              className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                searchIncludeArchived
+                  ? "border-cc-primary/30 bg-cc-primary/15 text-cc-primary"
+                  : "border-cc-border/70 bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
+              }`}
+            >
+              Include archived
+            </button>
+            <button
+              type="button"
+              aria-pressed={searchLeaderOnly}
+              onClick={() => {
+                setActiveSearchResultIndex(0);
+                setSearchLeaderOnly((current) => !current);
+              }}
+              className={`rounded-md border px-2 py-1 text-[10px] font-medium transition-colors ${
+                searchLeaderOnly
+                  ? "border-cc-primary/30 bg-cc-primary/15 text-cc-primary"
+                  : "border-cc-border/70 bg-cc-bg/60 text-cc-muted hover:text-cc-fg"
+              }`}
+            >
+              Leaders only
+            </button>
+          </div>
+        )}
+
         {bulkSourceMenuOpen && !bulkDisabledBySearch && bulkSourceGroups.length > 0 && (
           <div className="mx-2 mb-1.5 rounded-md border border-cc-border/70 bg-cc-card/70 p-1.5 shadow-sm">
             <div className="px-1 pb-1 text-[10px] font-medium text-cc-muted">Choose source Session Space</div>
@@ -1205,15 +1279,15 @@ export function Sidebar() {
             </p>
           ) : (
             <div className="space-y-2 sm:space-y-0.5">
-              {filteredSessions.map(({ session: s, matchContext, matchedField }) => (
+              {filteredSessions.map(({ session: s, sessionName, sessionPreview, matchContext, matchedField }) => (
                 <SessionItem
                   key={s.id}
                   session={s}
                   isActive={currentSessionId === s.id}
                   isSearchSelected={filteredSessions[activeSearchResultIndex]?.session.id === s.id}
                   isArchived={s.archived}
-                  sessionName={sessionNames.get(s.id)}
-                  sessionPreview={sessionPreviews.get(s.id)}
+                  sessionName={sessionName ?? sessionNames.get(s.id)}
+                  sessionPreview={sessionPreview ?? sessionPreviews.get(s.id)}
                   permCount={countUserPermissions(pendingPermissions.get(s.id))}
                   isRecentlyRenamed={recentlyRenamed.has(s.id)}
                   herdGroupBadgeTheme={herdGroupBadgeThemes.get(s.id)}

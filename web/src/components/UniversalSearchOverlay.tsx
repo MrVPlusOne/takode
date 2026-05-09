@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent, type ReactNode } from "react";
-import { api, type SessionSearchResult } from "../api.js";
+import { api } from "../api.js";
 import {
   sessionSearchMessageMatchesCategory,
   sessionSearchTextMatches,
@@ -12,13 +12,12 @@ import { filterMessagesForThread } from "../utils/thread-projection.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 
-export type UniversalSearchMode = "quests" | "sessions" | "messages";
+export type UniversalSearchMode = "quests" | "messages";
 
 type MessageFilter = Exclude<SessionSearchCategory, "all">;
 
 type UniversalSearchResult =
   | { kind: "quest"; id: string; quest: QuestmasterTask }
-  | { kind: "session"; id: string; session?: SdkSessionInfo; searchResult?: SessionSearchResult }
   | { kind: "message"; id: string; message: ChatMessage };
 
 export interface UniversalSearchOverlayProps {
@@ -31,7 +30,6 @@ export interface UniversalSearchOverlayProps {
   presentation?: "fixed" | "inline";
   onClose: () => void;
   onOpenQuest: (questId: string, query: string) => void;
-  onOpenSession: (sessionId: string, messageId?: string) => void;
   onOpenMessage: (sessionId: string, messageId: string, threadKey?: string | null) => void;
 }
 
@@ -40,7 +38,6 @@ const DEBOUNCE_MS = 300;
 const LAST_MODE_STORAGE_KEY = "cc-universal-search-mode";
 const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string }> = [
   { id: "quests", label: "Quests" },
-  { id: "sessions", label: "Sessions" },
   { id: "messages", label: "Messages" },
 ];
 
@@ -62,7 +59,7 @@ function useDebouncedValue(value: string, delayMs: number): string {
 }
 
 function isUniversalSearchMode(value: string | null): value is UniversalSearchMode {
-  return value === "quests" || value === "sessions" || value === "messages";
+  return value === "quests" || value === "messages";
 }
 
 function readLastMode(): UniversalSearchMode | null {
@@ -79,33 +76,7 @@ function writeLastMode(mode: UniversalSearchMode): void {
 function initialMode(currentSessionId: string | null, messageModeAvailable: boolean): UniversalSearchMode {
   const stored = readLastMode();
   if (stored && (stored !== "messages" || messageModeAvailable)) return stored;
-  return currentSessionId && messageModeAvailable ? "messages" : "sessions";
-}
-
-function sessionRecency(session: SdkSessionInfo): number {
-  return session.lastActivityAt ?? session.lastUserMessageAt ?? session.createdAt ?? 0;
-}
-
-function formatSessionLabel(session: SdkSessionInfo | undefined, sessionId: string): string {
-  if (!session) return sessionId.slice(0, 8);
-  const numberLabel = typeof session.sessionNum === "number" ? `#${session.sessionNum}` : sessionId.slice(0, 8);
-  return session.name ? `${numberLabel} ${session.name}` : numberLabel;
-}
-
-function formatSessionMeta(session: SdkSessionInfo | undefined): string {
-  if (!session) return "Session";
-  const parts = [
-    session.backendType ?? "session",
-    session.gitBranch ? `branch ${session.gitBranch}` : null,
-    session.cwd ? compactPath(session.cwd) : null,
-  ].filter(Boolean);
-  return parts.join(" / ");
-}
-
-function compactPath(path: string): string {
-  const parts = path.split("/").filter(Boolean);
-  if (parts.length <= 2) return path;
-  return `.../${parts.slice(-2).join("/")}`;
+  return currentSessionId && messageModeAvailable ? "messages" : "quests";
 }
 
 function questRecency(quest: QuestmasterTask): number {
@@ -140,14 +111,6 @@ function messageMatchesFilters(
   );
 }
 
-function buildLocalSessionResults(sessions: SdkSessionInfo[], limit: number): UniversalSearchResult[] {
-  return [...sessions]
-    .filter((session) => !session.archived && !session.cronJobId)
-    .sort((left, right) => sessionRecency(right) - sessionRecency(left) || right.createdAt - left.createdAt)
-    .slice(0, limit)
-    .map((session) => ({ kind: "session", id: session.sessionId, session }));
-}
-
 function buildMessageResults({
   messages,
   currentThreadKey,
@@ -175,7 +138,7 @@ function buildMessageResults({
 }
 
 function getAvailableModes(messageModeAvailable: boolean): UniversalSearchMode[] {
-  return messageModeAvailable ? ["quests", "sessions", "messages"] : ["quests", "sessions"];
+  return messageModeAvailable ? ["quests", "messages"] : ["quests"];
 }
 
 function nextMode(current: UniversalSearchMode, direction: 1 | -1, messageModeAvailable: boolean): UniversalSearchMode {
@@ -199,13 +162,11 @@ export function UniversalSearchOverlay({
   presentation = "fixed",
   onClose,
   onOpenQuest,
-  onOpenSession,
   onOpenMessage,
 }: UniversalSearchOverlayProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const listRef = useRef<HTMLDivElement>(null);
   const requestSeqRef = useRef(0);
-  const sessionByIdRef = useRef<Map<string, SdkSessionInfo>>(new Map());
   const searchKeyRef = useRef("");
   const messageModeAvailable = Boolean(currentSessionId && currentThreadKey);
 
@@ -220,20 +181,11 @@ export function UniversalSearchOverlay({
     event: false,
   });
   const [remoteState, setRemoteState] = useState<{
-    mode: "quests" | "sessions" | null;
+    mode: "quests" | null;
     status: "idle" | "loading" | "error";
     results: UniversalSearchResult[];
     total: number;
   }>({ mode: null, status: "idle", results: [], total: 0 });
-
-  const sessionById = useMemo(
-    () => new Map(sessions.map((session) => [session.sessionId, session] as const)),
-    [sessions],
-  );
-
-  useEffect(() => {
-    sessionByIdRef.current = sessionById;
-  }, [sessionById]);
 
   const setUserMode = useCallback((next: UniversalSearchMode) => {
     setMode(next);
@@ -251,7 +203,7 @@ export function UniversalSearchOverlay({
   }, [currentSessionId, messageModeAvailable, open]);
 
   useEffect(() => {
-    if (mode === "messages" && !messageModeAvailable) setMode("sessions");
+    if (mode === "messages" && !messageModeAvailable) setMode("quests");
   }, [messageModeAvailable, mode]);
 
   useEffect(() => {
@@ -297,46 +249,7 @@ export function UniversalSearchOverlay({
         });
       return;
     }
-
-    if (mode === "sessions" && trimmedQuery) {
-      const controller = new AbortController();
-      setRemoteState((current) => ({
-        ...current,
-        mode: "sessions",
-        status: "loading",
-        results: current.mode === "sessions" ? current.results : [],
-      }));
-      void api
-        .searchSessions(trimmedQuery, {
-          limit: visibleLimit,
-          includeArchived: false,
-          includeReviewers: false,
-          signal: controller.signal,
-        })
-        .then((response) => {
-          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
-          setRemoteState({
-            mode: "sessions",
-            status: "idle",
-            total: response.totalMatches,
-            results: response.results.map((result) => ({
-              kind: "session",
-              id: result.sessionId,
-              session: sessionByIdRef.current.get(result.sessionId),
-              searchResult: result,
-            })),
-          });
-        })
-        .catch((err) => {
-          if (controller.signal.aborted || requestSeq !== requestSeqRef.current) return;
-          console.warn("[universal-search] session search failed:", err);
-          setRemoteState({ mode: "sessions", status: "error", total: 0, results: [] });
-        });
-      return () => controller.abort();
-    }
   }, [debouncedQuery, mode, open, visibleLimit]);
-
-  const localSessionResults = useMemo(() => buildLocalSessionResults(sessions, visibleLimit), [sessions, visibleLimit]);
 
   const messageResults = useMemo(
     () =>
@@ -355,18 +268,11 @@ export function UniversalSearchOverlay({
 
   const results = useMemo(() => {
     if (mode === "quests") return remoteState.mode === "quests" ? remoteState.results : [];
-    if (mode === "sessions") {
-      return debouncedQuery.trim() ? (remoteState.mode === "sessions" ? remoteState.results : []) : localSessionResults;
-    }
     return messageResults;
-  }, [debouncedQuery, localSessionResults, messageResults, mode, remoteState]);
+  }, [messageResults, mode, remoteState]);
 
   const totalResults = useMemo(() => {
     if (mode === "quests" && remoteState.mode === "quests") return remoteState.total;
-    if (mode === "sessions") {
-      if (debouncedQuery.trim() && remoteState.mode === "sessions") return remoteState.total;
-      return sessions.filter((session) => !session.archived && !session.cronJobId).length;
-    }
     if (!currentThreadKey) return 0;
     return filterMessagesForThread(messages, currentThreadKey).filter(
       (message) =>
@@ -374,14 +280,10 @@ export function UniversalSearchOverlay({
         messageMatchesFilters(message, messageFilters, leaderSessionId) &&
         (!debouncedQuery.trim() || sessionSearchTextMatches(message.content, debouncedQuery.trim(), "strict")),
     ).length;
-  }, [currentThreadKey, debouncedQuery, leaderSessionId, messageFilters, messages, mode, remoteState, sessions]);
+  }, [currentThreadKey, debouncedQuery, leaderSessionId, messageFilters, messages, mode, remoteState]);
 
-  const loading =
-    (mode === "quests" || (mode === "sessions" && debouncedQuery.trim())) &&
-    remoteState.mode === mode &&
-    remoteState.status === "loading";
-  const error =
-    (mode === "quests" || mode === "sessions") && remoteState.mode === mode && remoteState.status === "error";
+  const loading = mode === "quests" && remoteState.mode === mode && remoteState.status === "loading";
+  const error = mode === "quests" && remoteState.mode === mode && remoteState.status === "error";
   const hasMore = results.length < totalResults;
 
   useEffect(() => {
@@ -399,14 +301,12 @@ export function UniversalSearchOverlay({
       if (!result) return;
       if (result.kind === "quest") {
         onOpenQuest(result.quest.questId, debouncedQuery.trim());
-      } else if (result.kind === "session") {
-        onOpenSession(result.id, result.searchResult?.messageMatch?.id);
       } else if (currentSessionId) {
         onOpenMessage(currentSessionId, result.message.id, currentThreadKey);
       }
       onClose();
     },
-    [currentSessionId, currentThreadKey, debouncedQuery, onClose, onOpenMessage, onOpenQuest, onOpenSession],
+    [currentSessionId, currentThreadKey, debouncedQuery, onClose, onOpenMessage, onOpenQuest],
   );
 
   const cycleMode = useCallback(
@@ -461,11 +361,9 @@ export function UniversalSearchOverlay({
   const placeholder =
     mode === "quests"
       ? "Search quests..."
-      : mode === "sessions"
-        ? "Search sessions..."
-        : messageModeAvailable
-          ? "Search current messages..."
-          : "Open a session to search messages";
+      : messageModeAvailable
+        ? "Search current messages..."
+        : "Open a session to search messages";
 
   const fixedPresentation = presentation === "fixed";
 
@@ -575,7 +473,7 @@ export function UniversalSearchOverlay({
 
         <div ref={listRef} onScroll={handleScroll} className="max-h-[58vh] overflow-y-auto p-2 sm:max-h-[62vh]">
           {mode === "messages" && !messageModeAvailable ? (
-            <EmptySearchState title="Current session required" detail="Quest and session search are still available." />
+            <EmptySearchState title="Current session required" detail="Quest search is still available." />
           ) : error ? (
             <EmptySearchState title="Search failed" detail="Try again or switch modes." />
           ) : results.length === 0 && loading ? (
@@ -591,7 +489,6 @@ export function UniversalSearchOverlay({
                 <ResultRow
                   key={`${result.kind}:${result.id}`}
                   result={result}
-                  query={debouncedQuery}
                   sessions={sessions}
                   selected={index === selectedIndex}
                   onPointerMove={() => setSelectedIndex(index)}
@@ -637,7 +534,6 @@ function EmptySearchState({ title, detail }: { title: string; detail: string }) 
 
 function ResultRow({
   result,
-  query,
   sessions,
   selected,
   onPointerMove,
@@ -645,7 +541,6 @@ function ResultRow({
   onInlineNavigate,
 }: {
   result: UniversalSearchResult;
-  query: string;
   sessions: SdkSessionInfo[];
   selected: boolean;
   onPointerMove: () => void;
@@ -661,19 +556,6 @@ function ResultRow({
         onPointerMove={onPointerMove}
         onOpen={onOpen}
         onInlineNavigate={onInlineNavigate}
-      />
-    );
-  }
-  if (result.kind === "session") {
-    return (
-      <SessionResultRow
-        session={result.session}
-        result={result.searchResult}
-        sessionId={result.id}
-        query={query}
-        selected={selected}
-        onPointerMove={onPointerMove}
-        onOpen={onOpen}
       />
     );
   }
@@ -778,50 +660,6 @@ function QuestResultRow({
           </div>
         </div>
         <span className="shrink-0 text-[11px] text-cc-muted">{formatRelativeTime(questRecency(quest))}</span>
-      </div>
-    </ResultOption>
-  );
-}
-
-function SessionResultRow({
-  session,
-  result,
-  sessionId,
-  query,
-  selected,
-  onPointerMove,
-  onOpen,
-}: {
-  session: SdkSessionInfo | undefined;
-  result: SessionSearchResult | undefined;
-  sessionId: string;
-  query: string;
-  selected: boolean;
-  onPointerMove: () => void;
-  onOpen: () => void;
-}) {
-  const matchLabel = result ? result.matchedField.replace(/_/g, " ") : null;
-  const context = result?.messageMatch?.snippet ?? result?.matchContext;
-
-  return (
-    <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
-      <div className="flex min-w-0 items-start justify-between gap-3">
-        <div className="min-w-0">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="truncate text-sm font-medium text-cc-fg">{formatSessionLabel(session, sessionId)}</span>
-            {matchLabel && (
-              <span className="shrink-0 rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
-                {matchLabel}
-              </span>
-            )}
-          </div>
-          <div className="mt-1 truncate text-[11px] text-cc-muted">
-            {context ? truncateText(context) : formatSessionMeta(session)}
-          </div>
-        </div>
-        <span className="shrink-0 text-[11px] text-cc-muted">
-          {query.trim() ? "match" : session ? formatRelativeTime(sessionRecency(session)) : ""}
-        </span>
       </div>
     </ResultOption>
   );

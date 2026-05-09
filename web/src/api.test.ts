@@ -253,6 +253,7 @@ describe("searchSessions", () => {
     await api.searchSessions("review", {
       includeArchived: true,
       includeReviewers: true,
+      leaderOnly: true,
       messageLimitPerSession: 75,
       limit: 25,
     });
@@ -262,6 +263,7 @@ describe("searchSessions", () => {
     expect(url).toContain("q=review");
     expect(url).toContain("includeArchived=true");
     expect(url).toContain("includeReviewers=true");
+    expect(url).toContain("leaderOnly=true");
     expect(url).toContain("messageLimitPerSession=75");
     expect(url).toContain("limit=25");
   });

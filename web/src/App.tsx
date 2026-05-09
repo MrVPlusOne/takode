@@ -176,14 +176,6 @@ export default function App() {
   const handleOpenUniversalQuest = useCallback((questId: string, query: string) => {
     useStore.getState().openQuestOverlay(questId, query || undefined);
   }, []);
-  const handleOpenUniversalSession = useCallback((sessionId: string, messageId?: string) => {
-    useStore.getState().setSearchPreviewSessionId(null);
-    if (messageId) {
-      navigateToSessionMessageId(sessionId, messageId);
-      return;
-    }
-    navigateToSession(sessionId);
-  }, []);
   const handleOpenUniversalMessage = useCallback((sessionId: string, messageId: string, threadKey?: string | null) => {
     navigateToSessionMessageId(sessionId, messageId, { threadKey: threadKey ?? undefined });
   }, []);
@@ -637,7 +629,6 @@ export default function App() {
         leaderSessionId={currentSessionId ?? undefined}
         onClose={closeUniversalSearch}
         onOpenQuest={handleOpenUniversalQuest}
-        onOpenSession={handleOpenUniversalSession}
         onOpenMessage={handleOpenUniversalMessage}
       />
 

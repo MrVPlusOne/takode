@@ -17,10 +17,16 @@ export type SessionSearchMatchedField =
 export interface SessionSearchDocument {
   sessionId: string;
   sessionNum?: number | null;
+  state?: "starting" | "connected" | "running" | "exited";
+  model?: string;
+  backendType?: "claude" | "codex" | "claude-sdk";
   archived: boolean;
+  archivedAt?: number;
+  isOrchestrator?: boolean;
   reviewerOf?: number;
   createdAt: number;
   lastActivityAt?: number;
+  lastUserMessageAt?: number;
   name?: string;
   taskHistory?: SessionTaskEntry[];
   keywords?: string[];
@@ -32,12 +38,32 @@ export interface SessionSearchDocument {
   searchExcerpts?: SearchExcerpt[];
 }
 
+export interface SessionSearchSessionSummary {
+  sessionId: string;
+  sessionNum: number | null;
+  state: "starting" | "connected" | "running" | "exited";
+  model?: string;
+  backendType?: "claude" | "codex" | "claude-sdk";
+  archived: boolean;
+  archivedAt?: number;
+  isOrchestrator: boolean;
+  reviewerOf?: number;
+  createdAt: number;
+  lastActivityAt?: number;
+  lastUserMessageAt?: number;
+  name?: string;
+  gitBranch?: string;
+  cwd: string;
+  repoRoot?: string;
+}
+
 export interface SessionSearchResult {
   sessionId: string;
   score: number;
   matchedField: SessionSearchMatchedField;
   matchContext: string | null;
   matchedAt: number;
+  session?: SessionSearchSessionSummary;
   messageMatch?: {
     id?: string;
     timestamp: number;
@@ -50,6 +76,7 @@ export interface SearchSessionDocumentsOptions {
   limit?: number;
   includeArchived?: boolean;
   includeReviewers?: boolean;
+  leaderOnly?: boolean;
   messageLimitPerSession?: number;
 }
 
@@ -102,6 +129,27 @@ function compareCandidates(a: SessionSearchResult, b: SessionSearchResult): numb
 function pushIfBetter(current: SessionSearchResult | null, next: SessionSearchResult): SessionSearchResult {
   if (!current) return next;
   return compareCandidates(current, next) <= 0 ? current : next;
+}
+
+function buildSessionSummary(doc: SessionSearchDocument): SessionSearchSessionSummary {
+  return {
+    sessionId: doc.sessionId,
+    sessionNum: doc.sessionNum ?? null,
+    state: doc.state ?? "exited",
+    model: doc.model,
+    backendType: doc.backendType,
+    archived: doc.archived,
+    archivedAt: doc.archivedAt,
+    isOrchestrator: doc.isOrchestrator === true,
+    reviewerOf: doc.reviewerOf,
+    createdAt: doc.createdAt,
+    lastActivityAt: doc.lastActivityAt,
+    lastUserMessageAt: doc.lastUserMessageAt,
+    name: doc.name,
+    gitBranch: doc.gitBranch,
+    cwd: doc.cwd ?? "",
+    repoRoot: doc.repoRoot,
+  };
 }
 
 function extractAssistantText(msg: BrowserIncomingMessage): string {
@@ -232,6 +280,7 @@ export function searchSessionDocuments(
 
   const includeArchived = options.includeArchived !== false;
   const includeReviewers = options.includeReviewers === true;
+  const leaderOnly = options.leaderOnly === true;
   const limit = clampInt(Math.floor(options.limit ?? 50), 1, 200);
   const messageLimitPerSession = clampInt(Math.floor(options.messageLimitPerSession ?? 400), 50, 2000);
 
@@ -240,6 +289,7 @@ export function searchSessionDocuments(
   for (const doc of docs) {
     if (!includeArchived && doc.archived) continue;
     if (!includeReviewers && doc.reviewerOf !== undefined) continue;
+    if (leaderOnly && doc.isOrchestrator !== true) continue;
 
     const recencyTs = doc.lastActivityAt ?? doc.createdAt ?? 0;
     let best: SessionSearchResult | null = null;
@@ -325,7 +375,7 @@ export function searchSessionDocuments(
       best = pushIfBetter(best, msgCandidate);
     }
 
-    if (best) matches.push(best);
+    if (best) matches.push({ ...best, session: buildSessionSummary(doc) });
   }
 
   matches.sort(compareCandidates);

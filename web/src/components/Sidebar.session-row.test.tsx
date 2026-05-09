@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { render, screen, fireEvent } from "@testing-library/react";
+import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionNotification, SessionState, SdkSessionInfo } from "../types.js";
 
@@ -378,6 +378,97 @@ describe("Sidebar session rows", { timeout: 10000 }, () => {
 
     expect(screen.queryByTitle("Tree view (herd groups)")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Linear view (project groups)")).not.toBeInTheDocument();
+  });
+
+  it("passes non-empty search filter controls to backend session search", async () => {
+    const leaderSession = makeSession("leader-1", { cwd: "/repo/leader" });
+    const leaderSdk = makeSdkSession("leader-1", {
+      archived: true,
+      createdAt: 1000,
+      isOrchestrator: true,
+      sessionNum: 41,
+    });
+    mockState = createMockState({
+      sessions: new Map([["leader-1", leaderSession]]),
+      sdkSessions: [leaderSdk],
+      sessionNames: new Map([["leader-1", "Archived leader"]]),
+    });
+    mockApi.searchSessions.mockResolvedValue({
+      query: "leader",
+      tookMs: 3,
+      totalMatches: 1,
+      results: [
+        {
+          sessionId: "leader-1",
+          score: 500,
+          matchedField: "name",
+          matchContext: "name: Archived leader",
+          matchedAt: 12345,
+        },
+      ],
+    });
+
+    render(<Sidebar />);
+    fireEvent.change(screen.getByPlaceholderText("Search..."), { target: { value: "leader" } });
+    fireEvent.click(await screen.findByRole("button", { name: "Include archived" }));
+    fireEvent.click(screen.getByRole("button", { name: "Leaders only" }));
+
+    await waitFor(() => {
+      expect(mockApi.searchSessions).toHaveBeenLastCalledWith(
+        "leader",
+        expect.objectContaining({
+          includeArchived: true,
+          includeReviewers: false,
+          leaderOnly: true,
+          signal: expect.any(AbortSignal),
+        }),
+      );
+    });
+  });
+
+  it("renders backend-only search result summaries without requiring local session metadata", async () => {
+    mockState = createMockState({
+      sessions: new Map(),
+      sdkSessions: [makeSdkSession("visible", { createdAt: 1000 })],
+    });
+    mockApi.searchSessions.mockResolvedValueOnce({
+      query: "archived",
+      tookMs: 3,
+      totalMatches: 1,
+      results: [
+        {
+          sessionId: "archived-result",
+          score: 500,
+          matchedField: "user_message",
+          matchContext: "message: archived backend-only result",
+          matchedAt: 12345,
+          messageMatch: {
+            id: "msg-1",
+            timestamp: 12345,
+            snippet: "archived backend-only result",
+          },
+          session: {
+            sessionId: "archived-result",
+            sessionNum: 55,
+            state: "exited",
+            backendType: "codex",
+            archived: true,
+            isOrchestrator: true,
+            createdAt: 900,
+            name: "Archived leader result",
+            cwd: "/repo/archived",
+            gitBranch: "archive/search",
+          },
+        },
+      ],
+    });
+
+    render(<Sidebar />);
+    fireEvent.change(screen.getByPlaceholderText("Search..."), { target: { value: "archived" } });
+
+    expect(await screen.findByText("Archived leader result")).toBeInTheDocument();
+    expect(screen.getByText("message:")).toBeInTheDocument();
+    expect(screen.getByText(/backend-only/)).toBeInTheDocument();
   });
 
   it("double-clicking a session enters edit mode", async () => {

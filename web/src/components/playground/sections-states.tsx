@@ -1875,7 +1875,7 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
 
       <Section
         title="Universal Search"
-        description="App-level command palette for mode-scoped quest, session, and current-session message search."
+        description="App-level command palette for mode-scoped quest and current-session message search."
       >
         <div className="space-y-4">
           <Card label="Overlay with current-session message mode">
@@ -1889,7 +1889,6 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
               leaderSessionId="playground-universal"
               onClose={() => {}}
               onOpenQuest={() => {}}
-              onOpenSession={() => {}}
               onOpenMessage={() => {}}
             />
           </Card>
@@ -1903,7 +1902,6 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
               messages={[]}
               onClose={() => {}}
               onOpenQuest={() => {}}
-              onOpenSession={() => {}}
               onOpenMessage={() => {}}
             />
           </Card>

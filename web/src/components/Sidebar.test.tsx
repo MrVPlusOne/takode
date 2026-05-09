@@ -637,8 +637,8 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const input = screen.getByPlaceholderText("Search...");
     fireEvent.change(input, { target: { value: "a" } });
 
-    const alphaRow = await screen.findByText("Alpha");
-    const betaRow = await screen.findByText("Beta");
+    const alphaRow = (await screen.findAllByText("Alpha"))[0]!;
+    const betaRow = (await screen.findAllByText("Beta"))[0]!;
     expect(alphaRow.closest("button")).toHaveAttribute("data-search-selected", "true");
     expect(betaRow.closest("button")).not.toHaveAttribute("data-search-selected", "true");
     expect(mockState.setSearchPreviewSessionId).toHaveBeenCalledWith("s1");
@@ -688,7 +688,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     render(<Sidebar />);
     const input = screen.getByPlaceholderText("Search...");
     fireEvent.change(input, { target: { value: "a" } });
-    await screen.findByText("Alpha");
+    await screen.findAllByText("Alpha");
 
     fireEvent.keyDown(input, { key: "ArrowDown" });
     fireEvent.keyDown(input, { key: "Enter" });
@@ -729,7 +729,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
     const input = screen.getByPlaceholderText("Search...");
     fireEvent.change(input, { target: { value: "a" } });
 
-    fireEvent.click((await screen.findByText("Beta")).closest("button")!);
+    fireEvent.click((await screen.findAllByText("Beta"))[0]!.closest("button")!);
 
     expect(window.location.hash).toBe("#/session/s2");
     expect(input).toHaveValue("");
