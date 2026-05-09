@@ -1,14 +1,6 @@
 import type { QuestmasterTask } from "./quest-types.js";
 import { hasQuestReviewMetadata, isQuestReviewInboxUnread } from "./quest-types.js";
-import {
-  compareSearchRanks,
-  prepareSearchQuery,
-  rankTokenizedSearchFields,
-  tokenizeSearchRankFields,
-  type PreparedSearchQuery,
-  type SearchRank,
-  type SearchRankField,
-} from "../shared/search-utils.js";
+import { prepareSearchQuery, type PreparedSearchQuery, tokenizeSearchText } from "../shared/search-utils.js";
 import { questRelationshipSearchText } from "./quest-relationships.js";
 
 export interface QuestListFilterOptions {
@@ -53,12 +45,23 @@ export interface QuestListPageResult {
 }
 
 type QuestStatusOrAll = QuestmasterTask["status"] | "all";
-type QuestListEntry = { quest: QuestmasterTask; rank?: SearchRank };
+type QuestListEntry = { quest: QuestmasterTask; searchDocument?: QuestSearchDocument; matchesText?: boolean };
+type QuestSearchDocument = {
+  termFrequency: Map<string, number>;
+  tokenCount: number;
+  recencyTs: number;
+};
+type RankedQuestSearchEntry = {
+  quest: QuestmasterTask;
+  textScore: number;
+  finalScore: number;
+};
 
 type QuestListFilterResult = {
   beforeStatusFilter: QuestmasterTask[];
   filtered: QuestmasterTask[];
   filteredEntries: QuestListEntry[];
+  searchCorpusEntries: QuestListEntry[];
 };
 
 type ParsedQuestListFilters = {
@@ -87,6 +90,11 @@ const STATUS_SORT_RANK: Record<QuestmasterTask["status"], number> = {
 };
 const MAX_PAGE_LIMIT = 150;
 const TEXT_SEARCH_YIELD_INTERVAL = 25;
+const PRIMARY_FIELD_DUPLICATION = 2;
+const BODY_FIELD_DUPLICATION = 1;
+const BM25_K1 = 1.2;
+const BM25_B = 0.75;
+const QUEST_SEARCH_RECENCY_SHARE = 0.2;
 
 function parseCsv(value: string | undefined): string[] {
   if (!value) return [];
@@ -101,8 +109,14 @@ export function applyQuestListFilters(quests: QuestmasterTask[], filters: QuestL
 }
 
 export function getQuestListPage(quests: QuestmasterTask[], options: QuestListPageOptions): QuestListPageResult {
-  const { beforeStatusFilter, filteredEntries } = filterQuestList(quests, options);
-  return buildQuestListPage(quests, options, beforeStatusFilter, filteredEntries);
+  const result = filterQuestList(quests, options);
+  return buildQuestListPage(
+    quests,
+    options,
+    result.beforeStatusFilter,
+    result.filteredEntries,
+    result.searchCorpusEntries,
+  );
 }
 
 export async function getQuestListPageAsync(
@@ -111,8 +125,14 @@ export async function getQuestListPageAsync(
 ): Promise<QuestListPageResult> {
   const hasTextQuery = (options.text ?? "").trim().length > 0;
   if (!hasTextQuery) return getQuestListPage(quests, options);
-  const { beforeStatusFilter, filteredEntries } = await filterQuestListAsync(quests, options);
-  return buildQuestListPage(quests, options, beforeStatusFilter, filteredEntries);
+  const result = await filterQuestListAsync(quests, options);
+  return buildQuestListPage(
+    quests,
+    options,
+    result.beforeStatusFilter,
+    result.filteredEntries,
+    result.searchCorpusEntries,
+  );
 }
 
 function buildQuestListPage(
@@ -120,8 +140,9 @@ function buildQuestListPage(
   options: QuestListPageOptions,
   beforeStatusFilter: QuestmasterTask[],
   filteredEntries: QuestListEntry[],
+  searchCorpusEntries: QuestListEntry[],
 ): QuestListPageResult {
-  const sorted = sortQuestList(filteredEntries, options);
+  const sorted = sortQuestList(filteredEntries, options, searchCorpusEntries);
   const limit = normalizeLimit(options.limit);
   const offset = normalizeOffset(options.offset, sorted.length);
   const pageQuests = sorted.slice(offset, offset + limit);
@@ -202,26 +223,32 @@ function buildQuestListEntry(quest: QuestmasterTask, filters: ParsedQuestListFil
 
   if (!filters.hasTextQuery) return { quest };
   if (!filters.preparedSearchQuery) return null;
-  const rank = getQuestSearchRank(quest, filters.preparedSearchQuery);
-  return rank ? { quest, rank } : null;
+  const searchDocument = buildQuestSearchDocument(quest);
+  return { quest, searchDocument, matchesText: matchesAllQueryTokens(searchDocument, filters.preparedSearchQuery) };
 }
 
 function finishQuestListFilter(
   filters: ParsedQuestListFilters,
   beforeStatusEntries: QuestListEntry[],
 ): QuestListFilterResult {
+  const textFilteredEntries = filters.hasTextQuery
+    ? beforeStatusEntries.filter((entry) => entry.matchesText === true)
+    : beforeStatusEntries;
+  const matchesStatus = (entry: QuestListEntry) =>
+    filters.statuses.has(entry.quest.status) || (filters.wantsReviewStatusAlias && hasQuestReviewMetadata(entry.quest));
   const filteredEntries =
     filters.statuses.size > 0 || filters.wantsReviewStatusAlias
-      ? beforeStatusEntries.filter(
-          (entry) =>
-            filters.statuses.has(entry.quest.status) ||
-            (filters.wantsReviewStatusAlias && hasQuestReviewMetadata(entry.quest)),
-        )
+      ? textFilteredEntries.filter(matchesStatus)
+      : textFilteredEntries;
+  const searchCorpusEntries =
+    filters.hasTextQuery && (filters.statuses.size > 0 || filters.wantsReviewStatusAlias)
+      ? beforeStatusEntries.filter(matchesStatus)
       : beforeStatusEntries;
   return {
-    beforeStatusFilter: beforeStatusEntries.map((entry) => entry.quest),
+    beforeStatusFilter: textFilteredEntries.map((entry) => entry.quest),
     filtered: filteredEntries.map((entry) => entry.quest),
     filteredEntries,
+    searchCorpusEntries,
   };
 }
 
@@ -278,13 +305,16 @@ function yieldToEventLoop(): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, 0));
 }
 
-function sortQuestList(entries: QuestListEntry[], options: QuestListPageOptions): QuestmasterTask[] {
+function sortQuestList(
+  entries: QuestListEntry[],
+  options: QuestListPageOptions,
+  searchCorpusEntries: QuestListEntry[],
+): QuestmasterTask[] {
   const textQuery = (options.text ?? "").trim();
   if (textQuery) {
-    return entries
-      .filter((entry): entry is { quest: QuestmasterTask; rank: SearchRank } => entry.rank !== undefined)
-      .sort((left, right) => compareSearchRank(left.rank, right.rank) || compareQuestIds(left.quest, right.quest))
-      .map((entry) => entry.quest);
+    const query = prepareSearchQuery(textQuery);
+    if (!query) return [];
+    return rankQuestSearchEntries(entries, searchCorpusEntries, query).map((entry) => entry.quest);
   }
 
   const column = options.sortColumn ?? "cards";
@@ -350,31 +380,145 @@ function listAllTags(quests: QuestmasterTask[]): string[] {
   return Array.from(tags).sort((a, b) => a.localeCompare(b));
 }
 
-function getQuestSearchRank(quest: QuestmasterTask, query: PreparedSearchQuery): SearchRank | null {
-  return rankTokenizedSearchFields(tokenizeSearchRankFields(getQuestSearchFields(quest)), query);
+function rankQuestSearchEntries(
+  entries: QuestListEntry[],
+  searchCorpusEntries: QuestListEntry[],
+  query: PreparedSearchQuery,
+): RankedQuestSearchEntry[] {
+  const searchEntries = entries.filter(
+    (entry): entry is { quest: QuestmasterTask; searchDocument: QuestSearchDocument } =>
+      entry.searchDocument !== undefined,
+  );
+  if (searchEntries.length === 0) return [];
+
+  const corpusEntries = searchCorpusEntries.filter(
+    (entry): entry is { quest: QuestmasterTask; searchDocument: QuestSearchDocument } =>
+      entry.searchDocument !== undefined,
+  );
+  const scoringCorpus = corpusEntries.length > 0 ? corpusEntries : searchEntries;
+  const documentCount = scoringCorpus.length;
+  const averageDocumentLength =
+    scoringCorpus.reduce((sum, entry) => sum + entry.searchDocument.tokenCount, 0) / documentCount || 1;
+  const queryStats = query.map((word) => ({
+    word,
+    idf: bm25InverseDocumentFrequency(
+      documentCount,
+      scoringCorpus.filter((entry) => matchingTermFrequency(entry.searchDocument, word) > 0).length,
+    ),
+  }));
+
+  const textRanked = searchEntries.map((entry) => ({
+    quest: entry.quest,
+    searchDocument: entry.searchDocument,
+    textScore: bm25DocumentScore(entry.searchDocument, queryStats, averageDocumentLength),
+  }));
+  const maxTextScore = Math.max(...textRanked.map((entry) => entry.textScore), 0);
+  const now = Date.now();
+  const recencies = textRanked.map((entry) => normalizedRecencyTs(entry.searchDocument, now));
+  const minRecency = Math.min(...recencies);
+  const maxRecency = Math.max(...recencies);
+
+  return textRanked
+    .map((entry) => {
+      const freshness = freshnessScore(normalizedRecencyTs(entry.searchDocument, now), minRecency, maxRecency);
+      return {
+        quest: entry.quest,
+        textScore: entry.textScore,
+        finalScore: entry.textScore + QUEST_SEARCH_RECENCY_SHARE * maxTextScore * freshness,
+      };
+    })
+    .sort(compareRankedQuestSearchEntries);
 }
 
-function getQuestSearchFields(quest: QuestmasterTask): SearchRankField[] {
+function buildQuestSearchDocument(quest: QuestmasterTask): QuestSearchDocument {
+  const tokens = [
+    ...questSearchTokens(getQuestPrimarySearchFields(quest), PRIMARY_FIELD_DUPLICATION),
+    ...questSearchTokens(getQuestBodySearchFields(quest), BODY_FIELD_DUPLICATION),
+  ];
+  const termFrequency = new Map<string, number>();
+  for (const token of tokens) termFrequency.set(token, (termFrequency.get(token) ?? 0) + 1);
+  return {
+    termFrequency,
+    tokenCount: Math.max(1, tokens.length),
+    recencyTs: questRecencyTs(quest),
+  };
+}
+
+function getQuestPrimarySearchFields(quest: QuestmasterTask): Array<string | undefined> {
+  return [quest.questId, quest.title, (quest.tags ?? []).join(" ")];
+}
+
+function getQuestBodySearchFields(quest: QuestmasterTask): Array<string | undefined> {
   return [
-    { rank: 0, text: quest.questId },
-    { rank: 1, text: quest.title },
-    { rank: 2, text: (quest.tags ?? []).join(" ") },
-    { rank: 3, text: quest.tldr },
-    { rank: 4, text: "description" in quest ? quest.description : undefined },
-    { rank: 4, text: questRelationshipSearchText(quest) },
-    { rank: 5, text: quest.status === "done" && quest.cancelled !== true ? quest.debriefTldr : undefined },
-    { rank: 6, text: quest.status === "done" && quest.cancelled !== true ? quest.debrief : undefined },
-    ...("feedback" in quest
-      ? (quest.feedback ?? []).flatMap((entry) => [
-          { rank: 7, text: entry.tldr },
-          { rank: 8, text: entry.text },
-        ])
-      : []),
+    quest.tldr,
+    "description" in quest ? quest.description : undefined,
+    questRelationshipSearchText(quest),
+    quest.status === "done" && quest.cancelled !== true ? quest.debriefTldr : undefined,
+    quest.status === "done" && quest.cancelled !== true ? quest.debrief : undefined,
+    ...("feedback" in quest ? (quest.feedback ?? []).flatMap((entry) => [entry.tldr, entry.text]) : []),
   ];
 }
 
-function compareSearchRank(left: SearchRank, right: SearchRank): number {
-  return compareSearchRanks(left, right);
+function questSearchTokens(fields: Array<string | undefined>, duplication: number): string[] {
+  const tokens: string[] = [];
+  for (const field of fields) {
+    if (!field) continue;
+    const fieldTokens = tokenizeSearchText(field).map((token) => token.value);
+    for (let count = 0; count < duplication; count += 1) tokens.push(...fieldTokens);
+  }
+  return tokens;
+}
+
+function matchesAllQueryTokens(document: QuestSearchDocument, query: PreparedSearchQuery): boolean {
+  return query.every((word) => matchingTermFrequency(document, word) > 0);
+}
+
+function bm25InverseDocumentFrequency(documentCount: number, documentFrequency: number): number {
+  return Math.log(1 + (documentCount - documentFrequency + 0.5) / (documentFrequency + 0.5));
+}
+
+function bm25DocumentScore(
+  document: QuestSearchDocument,
+  queryStats: Array<{ word: string; idf: number }>,
+  averageDocumentLength: number,
+): number {
+  return queryStats.reduce((score, query) => {
+    const frequency = matchingTermFrequency(document, query.word);
+    if (frequency <= 0) return score;
+    const lengthRatio = document.tokenCount / averageDocumentLength;
+    const denominator = frequency + BM25_K1 * (1 - BM25_B + BM25_B * lengthRatio);
+    return score + query.idf * ((frequency * (BM25_K1 + 1)) / denominator);
+  }, 0);
+}
+
+function matchingTermFrequency(document: QuestSearchDocument, word: string): number {
+  const exactFrequency = document.termFrequency.get(word);
+  if (exactFrequency !== undefined) return exactFrequency;
+
+  let bestPrefixFrequency = 0;
+  for (const [term, frequency] of document.termFrequency) {
+    if (term.startsWith(word)) bestPrefixFrequency = Math.max(bestPrefixFrequency, frequency);
+  }
+  return bestPrefixFrequency;
+}
+
+function normalizedRecencyTs(document: QuestSearchDocument, now: number): number {
+  return Math.min(document.recencyTs, now);
+}
+
+function freshnessScore(recencyTs: number, minRecency: number, maxRecency: number): number {
+  const range = maxRecency - minRecency;
+  if (range <= 0) return 0;
+  return (recencyTs - minRecency) / range;
+}
+
+function compareRankedQuestSearchEntries(left: RankedQuestSearchEntry, right: RankedQuestSearchEntry): number {
+  return (
+    right.finalScore - left.finalScore ||
+    right.textScore - left.textScore ||
+    questRecencyTs(right.quest) - questRecencyTs(left.quest) ||
+    compareQuestIds(left.quest, right.quest)
+  );
 }
 
 function compareQuestIds(left: QuestmasterTask, right: QuestmasterTask): number {

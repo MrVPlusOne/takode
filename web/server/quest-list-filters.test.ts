@@ -10,9 +10,12 @@ function makeQuest(
     questId: input.questId,
     version: 1,
     title: input.title,
-    createdAt: 1,
+    createdAt: input.createdAt ?? 1,
+    updatedAt: input.updatedAt,
+    statusChangedAt: input.statusChangedAt,
     status: input.status,
-    description: "desc",
+    description: input.description ?? "desc",
+    tldr: input.tldr,
     ...(input.tags ? { tags: input.tags } : {}),
     ...("verificationInboxUnread" in input
       ? {
@@ -117,9 +120,9 @@ describe("applyQuestListFilters", () => {
     expect(applyQuestListFilters([divided], { text: "memory ui sett" }).map((q) => q.questId)).toEqual(["q-23"]);
   });
 
-  it("ranks exact word matches before prefixes and tag matches before body matches", () => {
-    // Search ranking should keep q-1020 relevance ordering while tightening
-    // match quality: exact words first, then field weighting, then prefixes.
+  it("ranks primary quest fields ahead of body-only matches", () => {
+    // The BM25 quest document indexes quest ID/title/tags twice and body text
+    // once, so primary-field matches remain stronger than body-only matches.
     const tagMatch = makeQuest({ questId: "q-24", title: "Memory controls", status: "done", tags: ["ui"] });
     const bodyMatch = makeQuest({ questId: "q-25", title: "Memory controls", status: "done" });
     bodyMatch.description = "Body copy documents ui behavior.";
@@ -127,7 +130,119 @@ describe("applyQuestListFilters", () => {
 
     const result = getQuestListPage([prefixMatch, bodyMatch, tagMatch], { text: "memory ui" });
 
-    expect(result.quests.map((q) => q.questId)).toEqual(["q-24", "q-25", "q-26"]);
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-24", "q-26", "q-25"]);
+  });
+
+  it("uses direct freshness to rank newer comparable title matches first", () => {
+    // Comparable exact title matches should no longer fall back to shorter
+    // titles or lower quest IDs before recency.
+    const oldMatch = makeQuest({ questId: "q-36", title: "Audit logging", status: "idea", createdAt: 10 });
+    const newMatch = makeQuest({ questId: "q-37", title: "Audit logging", status: "idea", createdAt: 30 });
+
+    const result = getQuestListPage([oldMatch, newMatch], { text: "audit" });
+
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-37", "q-36"]);
+  });
+
+  it("keeps strong primary text matches ahead of weak recent body-only matches", () => {
+    // Recency can move close text matches, but its boost is capped so a clear
+    // title/tag match remains ahead of a weak body-only result.
+    const strongTitle = makeQuest({
+      questId: "q-38",
+      title: "Audit replay workflow",
+      status: "idea",
+      createdAt: 10,
+    });
+    const weakRecentBody = makeQuest({
+      questId: "q-39",
+      title: "Recent notes",
+      status: "idea",
+      createdAt: 1_000,
+      description: "Body-only audit replay mention.",
+    });
+
+    const result = getQuestListPage([weakRecentBody, strongTitle], { text: "audit replay" });
+
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-38", "q-39"]);
+  });
+
+  it("does not let long feedback repetition dominate concise primary matches", () => {
+    // BM25 term-frequency saturation should prevent repeated body terms from
+    // swamping a concise title that matches all query terms.
+    const titleMatch = makeQuest({
+      questId: "q-40",
+      title: "Audit controls",
+      status: "done",
+      createdAt: 10,
+    });
+    const bodySpam = makeQuest({
+      questId: "q-41",
+      title: "Feedback archive",
+      status: "done",
+      createdAt: 1_000,
+    });
+    bodySpam.feedback = [{ author: "agent", ts: 1, text: `${"audit ".repeat(300)}controls`, addressed: false }];
+
+    const result = getQuestListPage([bodySpam, titleMatch], { text: "audit controls" });
+
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-40", "q-41"]);
+  });
+
+  it("requires every query token to match", () => {
+    const partial = makeQuest({ questId: "q-42", title: "Audit logging", status: "idea" });
+    const full = makeQuest({ questId: "q-43", title: "Audit logging replay", status: "idea" });
+
+    const result = getQuestListPage([partial, full], { text: "audit replay" });
+
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-43"]);
+  });
+
+  it("uses created, updated, and status-changed timestamps for freshness", () => {
+    // Recency falls back through the approved quest activity fields.
+    const createdOnly = makeQuest({
+      questId: "q-44",
+      title: "Audit freshness",
+      status: "idea",
+      createdAt: 100,
+    });
+    const updated = makeQuest({
+      questId: "q-45",
+      title: "Audit freshness",
+      status: "idea",
+      createdAt: 10,
+      updatedAt: 300,
+    });
+    const statusChanged = makeQuest({
+      questId: "q-46",
+      title: "Audit freshness",
+      status: "idea",
+      createdAt: 10,
+      statusChangedAt: 500,
+    });
+
+    const result = getQuestListPage([createdOnly, updated, statusChanged], { text: "audit" });
+
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-46", "q-45", "q-44"]);
+  });
+
+  it("keeps empty-query updated sorting unchanged", () => {
+    // Empty Universal Search Quest mode requests updated-desc sorting instead
+    // of text ranking; that path should continue to use quest activity recency.
+    const oldQuest = makeQuest({ questId: "q-47", title: "Old quest", status: "idea", createdAt: 100 });
+    const updatedQuest = makeQuest({
+      questId: "q-48",
+      title: "Updated quest",
+      status: "idea",
+      createdAt: 10,
+      updatedAt: 300,
+    });
+
+    const result = getQuestListPage([oldQuest, updatedQuest], {
+      sortColumn: "updated",
+      sortDirection: "desc",
+    });
+
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-48", "q-47"]);
   });
 
   it("keeps search-filtered counts before applying the status filter", () => {
@@ -155,6 +270,7 @@ describe("applyQuestListFilters", () => {
     const sync = getQuestListPage([prefixMatch, bodyMatch, tagMatch], options);
     const asyncPage = await getQuestListPageAsync([prefixMatch, bodyMatch, tagMatch], options);
 
+    expect(sync.quests.map((quest) => quest.questId)).toEqual(["q-33", "q-35"]);
     expect(asyncPage).toEqual(sync);
   });
 
