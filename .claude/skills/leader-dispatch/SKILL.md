@@ -30,7 +30,7 @@ This skill covers leader discipline and the step-by-step dispatch process. Invok
 - **Added details need confirmation.** If you want to add specifics to make instructions more actionable (e.g. suggesting an approach, naming specific files, or scoping the fix), confirm with the user first. An over-specified instruction based on wrong assumptions wastes more time than a brief clarifying question.
 - **Classify same-thread feedback before mutating scope.** Most user messages in a quest thread belong to that quest, but a user may occasionally post new-quest or unrelated feature feedback in the wrong thread. Before recording feedback, interrupting workers, resetting a board row, or expanding scope, do a quick relevance check; if the message appears unrelated, cross-cutting, or cleaner as its own unit of work, propose a new quest/Journey and attach the relevant discussion/images there instead of changing the current quest. If unclear, ask a short clarifying question and pause only the affected quest.
 - **Persist true follow-up relationships.** When a new or refined quest is a true follow-up to earlier work, record that relationship with `quest create ... --follow-up-of q-N` or `quest edit q-M --follow-up-of q-N` after approval. Use this for true follow-ups, bug fixes, successors, redesigns, and user-approved next quests from prior findings. Leave incidental mentions and loose background context to auto-detected backlinks.
-- **Use `/quest-design` before quest creation/refinement.** Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction. When the user clearly wants a quest created and dispatched, combine quest-design with this dispatch approval: describe the proposed quest draft plus Journey/scheduling plan naturally in prose so one confirmation can approve quest text, Journey, and dispatch plan. Routine feedback, claims, completion, verification checks, board updates, and already-approved phase transitions do not need a separate confirmation round.
+- **Use `/quest-design` before quest creation/refinement.** Before creating a quest or refining an `idea` quest into worker-ready scope, invoke `/quest-design` and wait for user confirmation or correction. When the user clearly wants a quest created and dispatched, combine quest-design with this dispatch approval: use the compact proposal shape below so one confirmation can approve quest text, Journey, and dispatch plan. Routine feedback, claims, completion, verification checks, board updates, and already-approved phase transitions do not need a separate confirmation round.
 - **`/leader-dispatch` owns the initial Journey proposal.** Before dispatching a fresh or newly refined quest, get approval for the quest and Journey/scheduling plan, then write that approved Journey to the board before or with dispatch. A separate `takode board present` ceremony is optional, not required.
 - **Standard tracked-code phases are defaults, not mandates.** `alignment -> implement -> code-review -> port` is the recommended normal path for tracked-code work, but user overrides win. If the user asks to skip `code-review`, `port`, or another standard phase, follow that instruction or briefly confirm the tradeoff; do not refuse because the phase is "mandatory."
 - **Make extra phases earn their keep.** When adding a non-standard phase, ask what that phase contributes over merging the work into a later phase. `implement` already includes normal investigation, root-cause analysis, code/design reading, and test planning for approved fixes, docs changes, config changes, prompt changes, and artifact changes.
@@ -41,15 +41,50 @@ This skill covers leader discipline and the step-by-step dispatch process. Invok
 
 ## Pre-Dispatch Approval Contract
 
-If the user clearly asked for a quest to be created and dispatched, optimize for a single combined confirmation round. The first leader response should include:
-- the proposed quest draft: title, Goal / Scope, optional assumptions/open decisions, non-goals, and tags when useful
-- the proposed Journey/scheduling draft: planned phases, any concise non-standard phase reasons, worker choice or fresh-spawn intent, and dispatch/queueing plan
+If the user clearly asked for a quest to be created and dispatched, optimize for a single combined confirmation round. Use this compact shape:
+
+### Proposed Quest
+
+- Title: ...
+- Tags: ... when useful
+- Relationship: follow-up of [q-N](quest:q-N), when relevant
+
+### Goal / Acceptance
+
+- One source of truth for the requested work and acceptance checks.
+- Use clean bullets when the request has multiple parts.
+- Do not repeat the same scope again as a separate quest description, `Scope` paragraph, `The worker should` list, or default `Expected Output / Acceptance` section.
+
+### Context / Evidence
+
+- Optional. Include only prior quests, source examples, screenshots, logs, user reports, or artifact paths that materially affect scope or verification.
+
+### Out Of Scope
+
+- Optional. Include only exclusions that prevent likely misunderstanding.
+
+### Open Questions
+
+- Optional. Omit the section entirely when there are no meaningful questions.
+
+### Journey
+
+- Planned phases.
+- Concise notes only for non-standard phases or unusual phase-specific work.
+
+### Scheduling
+
+- Worker choice or fresh-spawn intent.
+- Immediate dispatch vs queueing plan.
+- Capacity replacement/archive plan when worker-slot capacity is tight.
 
 If meaningful clarification is needed, ask those questions with the quest framing. After the user clarifies and no major ambiguity remains, the next response should include both the drafted quest and the drafted Journey/scheduling plan. Avoid a separate round that only restates understanding after clarification when there are no new questions and no quest/Journey draft yet. More than two confirmation rounds should happen only when genuine additional clarification is needed.
 
-Use one source of truth for the requested work. Prefer a single `Goal / Scope` section that serves as both your understanding and the proposed quest scope. If you already wrote a concise understanding, either make that text the `Goal / Scope` or replace it with one expanded `Goal / Scope`; do not restate the same work again as a separate quest description, `Scope` paragraph, and `The worker should` list.
+Use one source of truth for the requested work. Prefer a single `Goal / Acceptance` section that serves as both your understanding and the proposed quest's acceptance criteria. If you already wrote a concise understanding, either make that text the `Goal / Acceptance` section or replace it with one expanded `Goal / Acceptance`; do not restate the same work again elsewhere.
 
-Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Evidence / Context` links or paths, `Boundaries / Non-goals`, `Assumptions / Open decisions`, `Invariants / Must preserve`, `Expected output / Acceptance`, `Journey`, non-standard phase notes, and `Scheduling`. `Assumptions` is optional and should only list assumptions that are not already implied by `Goal / Scope` or the user's stated facts.
+Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Open questions and assumptions are optional and should only cover decisions not already implied by `Goal / Acceptance` or the user's stated facts.
+
+For quest-design-only requests, use the same compact spirit but omit `Journey` and `Scheduling`: `Proposed Quest`, `Goal / Acceptance`, and only the optional sections that add new approval value. For dispatch-only requests where the quest already exists, reference the quest instead of re-describing its accepted scope, then present `Journey` and `Scheduling` with any narrow `Context / Evidence` or `Open Questions` needed for dispatch.
 
 Before you dispatch a quest, or intentionally leave it `QUEUED` for a later dispatch, get user approval for the quest and Journey/scheduling plan in prose. After approval and before sending the first worker, write that exact approved Journey to the board with `takode board set ... --phases ...` or by promoting an existing proposed row. Do not rely on the chat transcript as the only durable record of the Journey.
 
@@ -74,9 +109,9 @@ The scheduling/orchestration plan must state at least:
 Do not present only the phase list and silently decide the worker or queueing mechanics later. The user is approving both the phase plan and the intended dispatch/queueing approach.
 
 Examples:
-- **Simple immediate dispatch:** "Initial Journey: alignment -> implement -> code-review -> port. Scheduling: spawn a fresh worker and dispatch immediately if approved."
-- **Queued for context:** "Initial Journey: alignment -> explore -> implement -> code-review -> port. Scheduling: keep it queued with `--wait-for #12` because that worker's active context is materially useful; if that context stops mattering, revise to a fresh spawn."
-- **Capacity-tight immediate dispatch:** "Initial Journey: alignment -> implement -> code-review -> port. Scheduling: dispatch immediately if approved; if worker slots are still `5/5` only because completed workers are reclaimable, replace one completed worktree worker with `takode spawn --replace-worktree-worker <session> ...` when the replacement belongs in the same repo/base-branch worktree; if replacement is ineligible, archive one completed worker and spawn fresh."
+- **Simple immediate dispatch:** `Journey`: alignment -> implement -> code-review -> port. `Scheduling`: spawn a fresh worker and dispatch immediately if approved.
+- **Queued for context:** `Journey`: alignment -> explore -> implement -> code-review -> port. `Scheduling`: keep it queued with `--wait-for #12` because that worker's active context is materially useful; if that context stops mattering, revise to a fresh spawn.
+- **Capacity-tight immediate dispatch:** `Journey`: alignment -> implement -> code-review -> port. `Scheduling`: dispatch immediately if approved; if worker slots are still `5/5` only because completed workers are reclaimable, replace one completed worktree worker with `takode spawn --replace-worktree-worker <session> ...` when the replacement belongs in the same repo/base-branch worktree; if replacement is ineligible, archive one completed worker and spawn fresh.
 
 ## Dispatch Steps
 
@@ -204,7 +239,7 @@ This is the `/leader-dispatch` contract:
 - When the user asked for quest creation plus dispatch and the scope is clear, combine those into one approval surface instead of running a quest-text confirmation and a separate Journey confirmation.
 
 The proposal should:
-- use a single `Goal / Scope` section as both understanding and quest scope; avoid repeating it under `Scope` or `The worker should` unless the later text adds acceptance criteria or phase-specific handoff detail
+- use a single `Goal / Acceptance` section as both understanding and acceptance criteria; avoid repeating it under `Scope`, `The worker should`, or a separate default `Expected Output / Acceptance` section
 - name the built-in phases you intend to put on the board first
 - explain non-standard phases concisely: why each is needed and what evidence, scenario, outcome, or durable state it covers
 - avoid routine `explore -> implement` for normal bug-fix, docs-change, config-change, prompt-change, or artifact-change work; `implement` includes the investigation, root-cause analysis, code/design reading, and test planning needed to complete those changes

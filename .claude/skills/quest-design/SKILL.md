@@ -8,7 +8,7 @@ description: "Confirm quest intent before creating a new quest or refining an id
 Use this skill before creating a quest or refining an `idea` quest into a worker-ready quest.
 
 The goal is to give the user one concise chance to correct the agent's understanding before quest text is written.
-When the user clearly wants a quest created and dispatched, combine this with `/leader-dispatch`: describe the proposed quest draft and the proposed Quest Journey/scheduling plan together in natural prose so one confirmation can approve quest text, Journey, and dispatch plan. After approval, the leader must write the approved Journey to the board before or with dispatch.
+When the user clearly wants a quest created and dispatched, combine this with `/leader-dispatch`: use the compact proposal shape below so one confirmation can approve quest text, Journey, and dispatch plan. After approval, the leader must write the approved Journey to the board before or with dispatch.
 After successful quest creation or refinement, include a lightweight non-blocking thread reminder when prior discussion may belong to the new quest thread: Thread reminder: attach any prior messages that clearly belong to this quest to [q-N](quest:q-N) with `takode thread attach`.
 
 Before proposing quest text, explicitly check whether the new or refined quest is a true follow-up to earlier work. Use explicit follow-up relationships for true follow-ups, bug fixes, successors, redesigns, or user-approved next quests that came from prior findings. Leave incidental mentions, loose background context, copied examples, and broad references to auto-detected backlinks instead.
@@ -37,15 +37,24 @@ Do not use `/quest-design` for routine quest operations:
 Do not write the quest yet. First respond with the narrowest confirmation surface that can safely move the request forward.
 
 Best case: if the user clearly wants quest creation plus immediate dispatch and the request is already understood, include both:
-- the proposed quest draft: title, Goal / Scope, tags when useful, optional assumptions/open decisions, and non-goals
+- the proposed quest draft: title, `Goal / Acceptance`, tags when useful, and only optional sections that add non-overlapping approval value
 - the proposed explicit relationship, when relevant: `Relationship: follow-up of [q-N](quest:q-N)`
 - the proposed Quest Journey/scheduling draft from `/leader-dispatch`: phase sequence, concise non-standard phase reasons when useful, worker choice or fresh-spawn intent, and dispatch/queueing plan
 
 One user confirmation can approve both the quest draft and the Journey/scheduling plan. Do not add a separate confirmation round just to restate understanding, and do not require a separate board-presentation approval ceremony.
 
-Use one source of truth for the requested work. Prefer a single `Goal / Scope` section that serves as both your understanding and the proposed quest scope. If you already wrote a concise understanding, either make that text the `Goal / Scope` or replace it with one expanded `Goal / Scope`; do not restate the same work again as a separate quest description, `Scope` paragraph, and `The worker should` list.
+Use one source of truth for the requested work. Prefer a single `Goal / Acceptance` section that serves as both your understanding and the proposed quest's acceptance criteria. If you already wrote a concise understanding, either make that text the `Goal / Acceptance` section or replace it with one expanded `Goal / Acceptance`; do not restate the same work again as a separate quest description, `Scope` paragraph, `The worker should` list, or default `Expected Output / Acceptance` section.
 
-Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Evidence / Context` links or paths, `Boundaries / Non-goals`, `Assumptions / Open decisions`, `Invariants / Must preserve`, `Expected output / Acceptance`, `Journey`, non-standard phase notes, and `Scheduling`. `Assumptions` is optional and should only list assumptions that are not already implied by `Goal / Scope` or the user's stated facts.
+Use the compact proposal shape when it fits:
+- `Proposed Quest`
+- `Goal / Acceptance`
+- optional `Context / Evidence`
+- optional `Out Of Scope`
+- optional `Open Questions`
+- `Journey`, only when dispatch or Journey approval is in scope
+- `Scheduling`, only when dispatch or queueing is in scope
+
+Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Open questions and assumptions are optional and should only cover decisions not already implied by `Goal / Acceptance` or the user's stated facts. Omit optional sections entirely when they add no new approval value.
 
 For Journey notes, omit standard tracked-code phase notes by default: `alignment`, `implement`, `code-review`, and `port` only need notes for unusual phase-specific work. Explain non-standard phases concisely: why the phase is needed and what evidence, scenario, outcome, or durable state it covers.
 
@@ -53,18 +62,31 @@ When a proposal includes multiple non-standard phase notes, format them as bulle
 
 Clarification-needed case: ask the material questions using the quest framing below. After the user clarifies and no major ambiguity remains, the next response should include both the proposed quest draft and proposed Journey/scheduling draft together. More than two confirmation rounds should happen only when new, genuine ambiguity remains.
 
-When you only need quest text approval and dispatch is not in scope, use:
+When you only need quest text approval and dispatch is not in scope, use the same compact spirit and omit `Journey` and `Scheduling`:
 
-### Understanding
+### Proposed Quest
 
-- Intended goal and scope for the quest.
-- Major assumptions or open decisions that could affect the quest text, only when they are not already implied by the intended goal/scope.
-- Relevant non-goals, when excluding them prevents misunderstanding.
+- Title, when ready.
+- Tags, when useful.
+- Relationship, when relevant.
 
-### Clarification Questions
+### Goal / Acceptance
+
+- Intended goal and acceptance checks for the quest.
+- Clean bullets when the request has multiple parts.
+
+### Context / Evidence
+
+- Optional. Include only material prior quests, source examples, screenshots, logs, user reports, or artifact paths.
+
+### Out Of Scope
+
+- Optional. Include only exclusions that prevent likely misunderstanding.
+
+### Open Questions
 
 - Ask only the highest-leverage questions that could materially change the quest.
-- If nothing remains unclear and dispatch is not in scope, say `- None. Please confirm the understanding above.`
+- Omit this section entirely when nothing remains unclear.
 
 End with:
 

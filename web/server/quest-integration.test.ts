@@ -136,20 +136,24 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Use `/quest-design` before:");
     expect(skill).toContain("`quest create`");
     expect(skill).toContain("`quest edit` or `quest transition --status refined` when refining an `idea` quest");
-    expect(skill).toContain("Goal / Scope");
-    expect(skill).toContain("one source of truth for what the quest or update will ask for");
+    expect(skill).toContain("Proposed Quest");
+    expect(skill).toContain("Goal / Acceptance");
+    expect(skill).toContain(
+      "one source of truth for what the quest or update will ask for and how acceptance should be judged",
+    );
     expect(skill).toContain("Relationship");
     expect(skill).toContain("Relationship: follow-up of [q-N](quest:q-N)");
-    expect(skill).toContain("Major assumptions");
-    expect(skill).toContain("only when they are not already implied by `Goal / Scope`");
-    expect(skill).toContain("Non-goals");
-    expect(skill).toContain("Highest-leverage clarification questions");
+    expect(skill).toContain("Context / Evidence");
+    expect(skill).toContain("Out Of Scope");
+    expect(skill).toContain("Open Questions");
+    expect(skill).toContain("omit this section entirely when nothing meaningful is unclear");
     expect(skill).toContain("combine the `/quest-design` and `/leader-dispatch` approval surfaces");
     expect(skill).toContain("one user confirmation can approve quest text, Journey, and dispatch plan together");
     expect(skill).toContain("do not restate the same work again as a separate quest description");
-    expect(skill).toContain("`Evidence / Context` links or paths");
-    expect(skill).toContain("`Invariants / Must preserve`");
-    expect(skill).toContain("`Expected output / Acceptance`");
+    expect(skill).toContain("default `Expected Output / Acceptance` section");
+    expect(skill).toContain("`Invariants / Must Preserve`");
+    expect(skill).toContain("quest-design-only requests");
+    expect(skill).toContain("dispatch-only requests where a quest already exists");
     expect(skill).toContain("write the approved Journey to the board before or with dispatch");
     expect(skill).toContain("standard tracked-code phases are self-explanatory by default");
     expect(skill).toContain("`user-checkpoint`");
