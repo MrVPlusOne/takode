@@ -101,6 +101,28 @@ Do not reset, prune, or clean shared persistent validation state unless the task
 
 Run `agent-browser skills get core --full`, `agent-browser --help`, or a subcommand help page if exact syntax is uncertain; the installed wrapper also optimizes screenshot output by default.
 
+If `agent-browser` fails before help or navigation, check local setup before debugging the app:
+
+```bash
+command -v agent-browser
+agent-browser --version
+agent-browser doctor
+```
+
+Takode installs a stable wrapper at `~/.companion/bin/agent-browser`; that wrapper expects a real `agent-browser` delegate elsewhere on `PATH`, such as `~/.bun/bin/agent-browser`. If the wrapper reports `real agent-browser binary not found outside ~/.companion/bin`, install the delegate:
+
+```bash
+bun add -g agent-browser@0.27.0
+```
+
+If `doctor` reports no Chrome binary, populate the cache used by Agent Browser:
+
+```bash
+agent-browser install
+```
+
+The expected Chrome for Testing cache is `~/.agent-browser/browsers`, for example `~/.agent-browser/browsers/chrome-148.0.7778.97/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing` after installing Agent Browser `0.27.0` on macOS arm64.
+
 Typical flow:
 
 ```bash
