@@ -188,6 +188,85 @@ describe("GlobalNeedsInputMenu", () => {
     expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-context");
   });
 
+  it("uses an explicit Main thread route when opening a Main-owned notification", () => {
+    window.location.hash = "#/session/current?thread=q-1287";
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-main",
+              category: "needs-input",
+              summary: "approve Main-thread checkpoint",
+              timestamp: Date.now(),
+              messageId: "msg-main",
+              threadKey: "main",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 31, name: "Leader", createdAt: 1 }],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+    fireEvent.click(screen.getByRole("button", { name: "Open source message for approve Main-thread checkpoint" }));
+
+    expect(window.location.hash).toBe("#/session/31/msg/msg-main?thread=main");
+    expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-main");
+  });
+
+  it("removes the broad native tooltip and shows Markdown preview only from the preview affordance", async () => {
+    window.location.hash = "#/session/current";
+    mockFetchNotificationContext.mockResolvedValueOnce(
+      "Proposed quest and dispatch plan:\n\n**Goal / Scope**\nPersist the query.\n\n- Keep current mode.",
+    );
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-preview",
+              category: "needs-input",
+              summary: "approve Universal Search query persistence quest",
+              timestamp: Date.now(),
+              messageId: "msg-preview",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 1476, name: "Misc Leader 5", createdAt: 1 }],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+
+    await screen.findByTestId("global-needs-input-source-context");
+    const sourceTarget = screen.getByRole("button", {
+      name: "Open source message for approve Universal Search query persistence quest",
+    });
+    expect(sourceTarget).not.toHaveAttribute("title");
+
+    fireEvent.mouseEnter(sourceTarget);
+    expect(screen.queryByTestId("global-needs-input-source-preview")).not.toBeInTheDocument();
+
+    const previewTrigger = screen.getByRole("button", { name: "Preview source message" });
+    expect(previewTrigger).not.toHaveAttribute("title");
+    fireEvent.mouseEnter(previewTrigger);
+
+    const preview = await screen.findByTestId("global-needs-input-source-preview");
+    expect(preview.querySelector("strong")).toHaveTextContent("Goal / Scope");
+    expect(within(preview).getByText("Keep current mode.")).toBeInTheDocument();
+
+    fireEvent.click(previewTrigger);
+    expect(window.location.hash).toBe("#/session/current");
+    expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
+  });
+
   it("omits source context when the source is only a duplicate fallback prompt", async () => {
     mockFetchNotificationContext.mockResolvedValueOnce("Needs input: Confirm scope");
     resetStore({

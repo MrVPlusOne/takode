@@ -131,9 +131,13 @@ export function threadRouteFromHash(hash: string): { hasThreadParam: boolean; th
  * Main is the canonical default and is represented by removing the param.
  */
 export function withThreadKeyInHash(hash: string, threadKey: string): string {
+  return withThreadKeyInHashOptions(hash, threadKey);
+}
+
+function withThreadKeyInHashOptions(hash: string, threadKey: string, options: { preserveMain?: boolean } = {}): string {
   const { path, params } = splitHash(hash);
   const normalized = normalizeRouteThreadKey(threadKey);
-  if (!normalized || normalized === MAIN_THREAD_KEY) {
+  if (!normalized || (normalized === MAIN_THREAD_KEY && !options.preserveMain)) {
     params.delete(THREAD_QUERY_PARAM);
   } else {
     params.set(THREAD_QUERY_PARAM, normalized);
@@ -229,13 +233,16 @@ export function navigateToSessionThread(
   threadKey: string,
   replace = false,
   routeSessionId: string | number = sessionId,
+  options: { preserveMainThreadRoute?: boolean } = {},
 ): void {
   const currentRoute = parseHash(window.location.hash);
   const currentHash =
     currentRoute.page === "session" && routeTargetsSession(currentRoute.sessionId, sessionId)
       ? window.location.hash
       : sessionHash(routeSessionId);
-  const newHash = withThreadKeyInHash(currentHash, threadKey);
+  const newHash = withThreadKeyInHashOptions(currentHash, threadKey, {
+    preserveMain: options.preserveMainThreadRoute,
+  });
   if (newHash === window.location.hash) return;
 
   if (replace) {
@@ -281,11 +288,18 @@ export function navigateToSessionMessage(sessionId: string, messageIndex: number
 export function navigateToSessionMessageId(
   sessionId: string,
   messageId: string,
-  options: { replace?: boolean; routeSessionId?: string | number; threadKey?: string } = {},
+  options: {
+    replace?: boolean;
+    routeSessionId?: string | number;
+    threadKey?: string;
+    preserveMainThreadRoute?: boolean;
+  } = {},
 ): void {
-  const { replace = false, routeSessionId = sessionId, threadKey } = options;
+  const { replace = false, routeSessionId = sessionId, threadKey, preserveMainThreadRoute = false } = options;
   const messageHash = `${sessionHash(routeSessionId)}/msg/${encodeURIComponent(messageId)}`;
-  const newHash = threadKey ? withThreadKeyInHash(messageHash, threadKey) : messageHash;
+  const newHash = threadKey
+    ? withThreadKeyInHashOptions(messageHash, threadKey, { preserveMain: preserveMainThreadRoute })
+    : messageHash;
   if (replace) {
     history.replaceState(null, "", newHash);
     window.dispatchEvent(new HashChangeEvent("hashchange"));

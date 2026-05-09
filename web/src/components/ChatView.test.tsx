@@ -384,7 +384,7 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
 }));
 
 import { ChatView } from "./ChatView.js";
-import { SAVE_THREAD_VIEWPORT_EVENT } from "../utils/thread-viewport.js";
+import { persistLeaderSelectedThreadKey, SAVE_THREAD_VIEWPORT_EVENT } from "../utils/thread-viewport.js";
 
 beforeEach(() => {
   resetStore();
@@ -981,6 +981,40 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "q-941");
     expect(window.location.hash).toBe("#/session/s1?thread=q-941");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
+  });
+
+  it("honors an explicit Main leader route instead of restoring the previous quest thread", async () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([
+        [
+          "s1",
+          [
+            { id: "msg-main", role: "assistant", content: "Main notification source", timestamp: 1 },
+            {
+              id: "m-q941",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 2,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      quests: [{ questId: "q-941", title: "Quest thread MVP", status: "in_progress" }],
+    });
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    window.location.hash = "#/session/s1/msg/msg-main?thread=main";
+
+    const view = render(<ChatView sessionId="s1" routeThreadKey="main" hasThreadRoute={true} />);
+    const scope = within(view.container);
+
+    await waitFor(() => {
+      expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
+    });
+    expect(window.location.hash).toBe("#/session/s1/msg/msg-main");
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "main");
   });
 
   it("replaces an unavailable leader thread URL with Main after thread sources are loaded", async () => {

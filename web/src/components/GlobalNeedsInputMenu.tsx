@@ -112,11 +112,15 @@ function jumpToNotification(entry: GlobalNeedsInputEntry, sdkSessions: SdkSessio
   const messageId = entry.notification.messageId ?? fallbackMessageId;
 
   if (messageId) {
-    navigateToSessionMessageId(entry.sessionId, messageId, { routeSessionId, threadKey });
+    navigateToSessionMessageId(entry.sessionId, messageId, {
+      routeSessionId,
+      threadKey,
+      preserveMainThreadRoute: true,
+    });
     return;
   }
 
-  navigateToSessionThread(entry.sessionId, threadKey);
+  navigateToSessionThread(entry.sessionId, threadKey, false, routeSessionId, { preserveMainThreadRoute: true });
 }
 
 function markLocalNotificationDone(sessionId: string, notificationId: string) {
