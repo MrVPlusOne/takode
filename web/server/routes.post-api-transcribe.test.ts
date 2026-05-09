@@ -28,7 +28,11 @@ vi.mock("node:child_process", () => {
       if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
     }
   });
-  return { execSync: execSyncMock, exec: execMock };
+  const execFileMock = vi.fn((...args: any[]) => {
+    const callback = typeof args[args.length - 1] === "function" ? args[args.length - 1] : undefined;
+    if (callback) callback(null, { stdout: "", stderr: "" });
+  });
+  return { execSync: execSyncMock, exec: execMock, execFile: execFileMock };
 });
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
@@ -1149,7 +1153,7 @@ describe("POST /api/transcribe", () => {
   });
 
   it("uses selected quest-thread conversation context for STT and dictation enhancement", async () => {
-    mockVoiceSettings();
+    mockVoiceSettings({ customVocabulary: "Takode, WsBridge, SelectedCustomTerm" });
     vi.mocked(sessionNames.getName).mockReturnValue("Leader voice session");
     ensureBridgeSession(bridge, "session-1", {
       taskHistory: [{ title: "Route voice context" }],
@@ -1168,8 +1172,10 @@ describe("POST /api/transcribe", () => {
           threadRefs: [{ threadKey: "q-1210", questId: "q-1210", source: "explicit" }],
         },
         {
-          type: "assistant",
-          message: { content: [{ type: "text", text: "SelectedThreadOnly assistant context." }] },
+          type: "leader_user_message",
+          id: "leader-visible-q-1210",
+          content: "SelectedThreadOnly user-visible leader context.",
+          timestamp: Date.now(),
           threadKey: "q-1210",
           questId: "q-1210",
           threadRefs: [{ threadKey: "q-1210", questId: "q-1210", source: "explicit" }],
@@ -1214,16 +1220,22 @@ describe("POST /api/transcribe", () => {
 
     const [, sttInit] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
     const sttPrompt = String((sttInit.body as FormData).get("prompt"));
-    expect(sttPrompt).toContain("SelectedThreadOnly");
     expect(sttPrompt).toContain("Current thread: q-1210: Use active leader thread tab as voice transcription context");
+    expect(sttPrompt).toContain("Custom vocabulary: Takode, WsBridge, SelectedCustomTerm");
+    expect(sttPrompt).toContain("<VOCABULARY_REFERENCE>");
+    expect(sttPrompt).toContain("Selected quest tab is about SelectedThreadOnly.");
+    expect(sttPrompt).toContain("SelectedThreadOnly user-visible leader context.");
     expect(sttPrompt).not.toContain("AlphaMainOnly");
+    expect(sttPrompt.indexOf("Custom vocabulary:")).toBeLessThan(sttPrompt.indexOf("<VOCABULARY_REFERENCE>"));
 
     const [, enhanceInit] = vi.mocked(fetch).mock.calls[1] as [string, RequestInit];
     const enhanceBody = JSON.parse(String(enhanceInit.body));
-    expect(enhanceBody.messages[1].content).toContain("SelectedThreadOnly");
     expect(enhanceBody.messages[1].content).toContain(
       "Current thread: q-1210: Use active leader thread tab as voice transcription context",
     );
+    expect(enhanceBody.messages[1].content).toContain("Important Vocabulary: Takode, WsBridge, SelectedCustomTerm");
+    expect(enhanceBody.messages[1].content).toContain("Selected quest tab is about SelectedThreadOnly.");
+    expect(enhanceBody.messages[1].content).toContain("SelectedThreadOnly user-visible leader context.");
     expect(enhanceBody.messages[1].content).not.toContain("AlphaMainOnly");
   });
 

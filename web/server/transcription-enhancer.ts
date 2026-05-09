@@ -282,6 +282,20 @@ interface Turn {
   assistantText: string;
 }
 
+function extractAssistantContextText(msg: BrowserIncomingMessage): string {
+  if (msg.type === "leader_user_message") {
+    return typeof msg.content === "string" ? msg.content.trim() : "";
+  }
+  if (msg.type !== "assistant") return "";
+
+  const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id;
+  if (parentId) return "";
+
+  const content = (msg as { message?: { content?: ContentBlock[] } }).message?.content;
+  if (!Array.isArray(content)) return "";
+  return extractAssistantText(content).trim();
+}
+
 /**
  * Build conversation context from message history for the enhancement LLM.
  * Extracts the last N turns as User/Assistant pairs with recency-weighted truncation.
@@ -311,18 +325,12 @@ export function buildTranscriptionContext(history: BrowserIncomingMessage[]): st
         userContent: formatReplyContentForContext(content, (msg as { replyContext?: ReplyContext }).replyContext),
         assistantText: "",
       };
-    } else if (msg.type === "assistant" && currentTurn) {
-      // Skip subagent messages
-      const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id;
-      if (parentId) continue;
-
-      const content = (msg as { message?: { content?: ContentBlock[] } }).message?.content;
-      if (Array.isArray(content)) {
-        const text = extractAssistantText(content);
-        if (text) {
-          // Keep updating — the last text content is the final response
-          currentTurn.assistantText = text;
-        }
+    } else if (msg.type === "assistant" || msg.type === "leader_user_message") {
+      const text = extractAssistantContextText(msg);
+      if (text) {
+        if (!currentTurn) currentTurn = { userContent: "", assistantText: "" };
+        // Keep updating — the last user-visible response is the final response.
+        currentTurn.assistantText = text;
       }
     } else if (msg.type === "compact_marker") {
       // Include compact summary as context and stop scanning further back
@@ -685,13 +693,11 @@ export function buildSttPrompt(input: SttPromptInput): string {
           userText: formatReplyContentForContext(content, (msg as { replyContext?: ReplyContext }).replyContext),
           assistantText: "",
         };
-      } else if (msg.type === "assistant" && currentTurn) {
-        const parentId = (msg as { parent_tool_use_id?: string | null }).parent_tool_use_id;
-        if (parentId) continue;
-        const blocks = (msg as { message?: { content?: ContentBlock[] } }).message?.content;
-        if (Array.isArray(blocks)) {
-          const text = extractAssistantText(blocks);
-          if (text) currentTurn.assistantText = text; // keep overwriting → last wins
+      } else if (msg.type === "assistant" || msg.type === "leader_user_message") {
+        const text = extractAssistantContextText(msg);
+        if (text) {
+          if (!currentTurn) currentTurn = { userText: "", assistantText: "" };
+          currentTurn.assistantText = text; // keep overwriting → last wins
         }
       }
     }

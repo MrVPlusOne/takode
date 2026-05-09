@@ -43,6 +43,15 @@ function assistantMsg(text: string): BrowserIncomingMessage {
   } as unknown as BrowserIncomingMessage;
 }
 
+function leaderMsg(content: string): BrowserIncomingMessage {
+  return {
+    type: "leader_user_message",
+    id: `leader-${Date.now()}-${content.length}`,
+    content,
+    timestamp: Date.now(),
+  } as BrowserIncomingMessage;
+}
+
 function assistantToolUse(toolName: string): BrowserIncomingMessage {
   return {
     type: "assistant",
@@ -158,6 +167,19 @@ describe("buildTranscriptionContext", () => {
     expect(ctx).toContain("Fix the auth bug");
     expect(ctx).toContain("[assistant]");
     expect(ctx).toContain("I found the issue in auth.ts");
+  });
+
+  it("includes user-visible leader messages as assistant context", () => {
+    const history = [
+      userMsg("Read in on the active quest"),
+      leaderMsg("LeaderVisibleOnly context should be available to voice transcription."),
+    ];
+    const ctx = buildTranscriptionContext(history);
+
+    expect(ctx).toContain("[user]");
+    expect(ctx).toContain("Read in on the active quest");
+    expect(ctx).toContain("[assistant]");
+    expect(ctx).toContain("LeaderVisibleOnly context");
   });
 
   it("builds context from multiple turns", () => {
@@ -741,6 +763,24 @@ describe("buildSttPrompt", () => {
     expect(prompt).toContain("Now add unit tests for WsBridge");
     // No pipe-separated format
     expect(prompt).not.toContain(" | ");
+  });
+
+  it("keeps selected leader visible messages when thread title and custom vocabulary are also present", () => {
+    const prompt = buildSttPrompt({
+      threadTitle: "q-1210: Use active leader thread tab as voice transcription context",
+      customVocabulary: "Takode, WsBridge, SelectedCustomTerm",
+      messageHistory: [
+        userMsg("Check the active leader tab prompt"),
+        leaderMsg("LeaderVisibleOnly conversation snippet must stay in the newest voice prompt."),
+      ],
+    });
+
+    expect(prompt).toContain("Current thread: q-1210: Use active leader thread tab as voice transcription context");
+    expect(prompt).toContain("Custom vocabulary: Takode, WsBridge, SelectedCustomTerm");
+    expect(prompt).toContain("<VOCABULARY_REFERENCE>");
+    expect(prompt).toContain("Check the active leader tab prompt");
+    expect(prompt).toContain("LeaderVisibleOnly conversation snippet");
+    expect(prompt.indexOf("Custom vocabulary:")).toBeLessThan(prompt.indexOf("<VOCABULARY_REFERENCE>"));
   });
 
   it("fills in priority order: tasks > session > current thread > sessions > conversation", () => {
