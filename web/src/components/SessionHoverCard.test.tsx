@@ -250,6 +250,67 @@ describe("SessionHoverCard", () => {
     expect(screen.queryByText("1 turn")).toBeNull();
   });
 
+  it("uses sdk snapshot turns when live session state has a stale zero user count", () => {
+    // A Codex reconnect can briefly deliver live zeroed metrics before history
+    // normalization reaches the client; the corrected session-list snapshot wins.
+    mockStoreState.sdkSessions = [
+      {
+        sessionId: "s1",
+        userTurnCount: 12,
+        agentTurnCount: 9,
+        numTurns: 12,
+      },
+    ];
+    const sessionState = {
+      session_id: "s1",
+      backend_type: "codex",
+      model: "gpt-5.4",
+      cwd: "/repo",
+      tools: [],
+      permissionMode: "default",
+      claude_code_version: "1.0.0",
+      mcp_servers: [],
+      agents: [],
+      slash_commands: [],
+      skills: [],
+      total_cost_usd: 0,
+      user_turn_count: 0,
+      agent_turn_count: 0,
+      num_turns: 0,
+      context_used_percent: 0,
+      git_branch: "jiayi",
+      is_worktree: false,
+      is_containerized: false,
+      repo_root: "/repo",
+      git_ahead: 0,
+      git_behind: 0,
+      total_lines_added: 0,
+      total_lines_removed: 0,
+      is_compacting: false,
+    } as SessionState;
+
+    try {
+      render(
+        <SessionHoverCard
+          session={makeSession()}
+          sessionName="Backend Turn Count"
+          sessionPreview={undefined}
+          taskHistory={undefined}
+          sessionState={sessionState}
+          cliSessionId="cli-1"
+          anchorRect={new DOMRect(120, 80, 200, 40)}
+          onMouseEnter={() => {}}
+          onMouseLeave={() => {}}
+        />,
+      );
+
+      expect(screen.getByText("12 turns")).toBeInTheDocument();
+      expect(screen.queryByText("0 turns")).toBeNull();
+    } finally {
+      mockStoreState.sdkSessions = [];
+    }
+  });
+
   it("prefers live session message-history bytes over sdk fallback metadata", () => {
     // q-291: when both sources exist, the live authoritative session state
     // must win over potentially stale sdkSessions fallback metadata for replay/retained metrics.

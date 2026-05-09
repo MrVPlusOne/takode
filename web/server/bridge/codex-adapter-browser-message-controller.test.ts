@@ -49,6 +49,25 @@ function makeAssistant(
   };
 }
 
+function makeResult(id: string, numTurns = 1): BrowserIncomingMessage {
+  return {
+    type: "result",
+    data: {
+      type: "result",
+      subtype: "success",
+      is_error: false,
+      duration_ms: 0,
+      duration_api_ms: 0,
+      num_turns: numTurns,
+      total_cost_usd: 0,
+      stop_reason: "end_turn",
+      usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      uuid: id,
+      session_id: "codex-leader",
+    },
+  };
+}
+
 function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMessageDeps {
   return {
     getCodexLeaderRecycleThresholdTokens: () => 0,
@@ -93,6 +112,61 @@ async function routeAssistantMessage(
 }
 
 describe("codex-adapter-browser-message-controller thread routing", () => {
+  it("preserves history-derived turn metrics across Codex session init reconnect patches", async () => {
+    // Codex init/reconnect sends zeroed session metrics; a long restored
+    // session must keep the backend-owned counts derived from messageHistory.
+    const session = makeSession();
+    session.messageHistory.push(
+      { type: "user_message", id: "u1", content: "first", timestamp: 1 } as BrowserIncomingMessage,
+      makeAssistant([{ type: "text", text: "done 1" }], "a1"),
+      makeResult("r1", 1),
+      {
+        type: "user_message",
+        id: "timer-1",
+        content: "timer",
+        timestamp: 2,
+        agentSource: { sessionId: "timer", sessionLabel: "Timer" },
+      } as BrowserIncomingMessage,
+      { type: "user_message", id: "u2", content: "second", timestamp: 3 } as BrowserIncomingMessage,
+      makeAssistant([{ type: "text", text: "done 2" }], "a2"),
+      makeResult("r2", 1),
+    );
+    const broadcasts: BrowserIncomingMessage[] = [];
+    const deps = makeDeps(broadcasts);
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      {
+        type: "session_init",
+        session: {
+          backend_type: "codex",
+          model: "gpt-5.5",
+          user_turn_count: 0,
+          agent_turn_count: 0,
+          num_turns: 0,
+        },
+      } as BrowserIncomingMessage,
+      deps,
+    );
+
+    expect(session.state).toMatchObject({
+      backend_type: "codex",
+      user_turn_count: 2,
+      agent_turn_count: 2,
+      num_turns: 2,
+    });
+    expect(broadcasts).toContainEqual(
+      expect.objectContaining({
+        type: "session_init",
+        session: expect.objectContaining({
+          user_turn_count: 2,
+          agent_turn_count: 2,
+          num_turns: 2,
+        }),
+      }),
+    );
+  });
+
   it("detects only the scoped Codex context-window exhaustion wording", () => {
     expect(
       isCodexContextWindowExhaustionMessage(

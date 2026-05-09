@@ -19,6 +19,7 @@ import {
   normalizeThreadRoute,
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
+import { computeSessionTurnMetrics } from "../user-message-classification.js";
 
 const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 
@@ -104,6 +105,43 @@ function withCodexLeaderRecycleThreshold(
   const thresholdTokens = deps.getCodexLeaderRecycleThresholdTokens(modelId);
   if (thresholdTokens < 1) return patch;
   return { ...patch, codex_leader_recycle_threshold_tokens: thresholdTokens };
+}
+
+function withHistoryTurnMetrics(
+  session: CodexBrowserMessageSessionLike,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const history = Array.isArray(session.messageHistory) ? session.messageHistory : [];
+  if (history.length === 0) {
+    return preserveExistingTurnMetrics(session, patch);
+  }
+  const turnMetrics = computeSessionTurnMetrics(history);
+  return {
+    ...patch,
+    user_turn_count: turnMetrics.userTurnCount,
+    agent_turn_count: turnMetrics.agentTurnCount,
+    num_turns: turnMetrics.userTurnCount,
+  };
+}
+
+function preserveExistingTurnMetrics(
+  session: CodexBrowserMessageSessionLike,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const existingUserTurns = session.state?.user_turn_count;
+  const existingAgentTurns = session.state?.agent_turn_count;
+  const existingNumTurns = session.state?.num_turns;
+  const next = { ...patch };
+  if (typeof existingUserTurns === "number" && existingUserTurns > 0 && next.user_turn_count === 0) {
+    next.user_turn_count = existingUserTurns;
+  }
+  if (typeof existingAgentTurns === "number" && existingAgentTurns > 0 && next.agent_turn_count === 0) {
+    next.agent_turn_count = existingAgentTurns;
+  }
+  if (typeof existingNumTurns === "number" && existingNumTurns > 0 && next.num_turns === 0) {
+    next.num_turns = existingNumTurns;
+  }
+  return next;
 }
 
 function getLatestThresholdRecycleWatermark(
@@ -264,7 +302,10 @@ export async function handleCodexAdapterBrowserMessage(
 
   if (msg.type === "session_init") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
-    const enriched = withCodexLeaderRecycleThreshold(session, { ...sanitized, backend_type: "codex" }, deps);
+    const enriched = withHistoryTurnMetrics(
+      session,
+      withCodexLeaderRecycleThreshold(session, { ...sanitized, backend_type: "codex" }, deps),
+    );
     session.state = { ...session.state, ...enriched };
     session.cliInitReceived = true;
     deps.refreshGitInfoThenRecomputeDiff(session, { notifyPoller: true });
@@ -272,7 +313,10 @@ export async function handleCodexAdapterBrowserMessage(
     outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;
   } else if (msg.type === "session_update") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
-    const enriched = withCodexLeaderRecycleThreshold(session, { ...sanitized, backend_type: "codex" }, deps);
+    const enriched = withHistoryTurnMetrics(
+      session,
+      withCodexLeaderRecycleThreshold(session, { ...sanitized, backend_type: "codex" }, deps),
+    );
     session.state = { ...session.state, ...enriched };
     outgoing = { ...msg, session: enriched as unknown as typeof msg.session } as BrowserIncomingMessage;
     deps.cacheSlashCommandState(session, enriched);

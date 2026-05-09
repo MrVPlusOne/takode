@@ -104,6 +104,8 @@ describe("coalesceSessionViewModel", () => {
       slash_commands: [],
       skills: [],
       total_cost_usd: 0,
+      user_turn_count: 0,
+      agent_turn_count: 0,
       num_turns: 1,
       context_used_percent: 11,
       codex_token_details: codexTokenDetails,

@@ -28,6 +28,11 @@ function formatModel(model: string): string {
   return model.replace(/-\d{8}$/, "");
 }
 
+function preferHistoryCount(live: number | undefined, fallback: number | undefined): number {
+  if (live === 0 && typeof fallback === "number" && fallback > 0) return fallback;
+  return live ?? fallback ?? 0;
+}
+
 export function SessionHoverCard({
   session: s,
   sessionName,
@@ -103,12 +108,10 @@ export function SessionHoverCard({
   );
 
   // Stats from sessionState
-  const turns =
-    sessionState?.user_turn_count ??
-    sdkSessionMeta?.userTurnCount ??
-    sessionState?.num_turns ??
-    sdkSessionMeta?.numTurns ??
-    0;
+  const turns = preferHistoryCount(
+    sessionState?.user_turn_count ?? sessionState?.num_turns,
+    sdkSessionMeta?.userTurnCount ?? sdkSessionMeta?.numTurns,
+  );
   const contextPercent = sessionState?.context_used_percent ?? sdkSessionMeta?.contextUsedPercent ?? 0;
   const contextWindow =
     sessionState?.codex_token_details?.modelContextWindow ??

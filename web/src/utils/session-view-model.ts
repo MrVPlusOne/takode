@@ -122,6 +122,11 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
   };
 }
 
+function preferHistoryCount(live: number | undefined, fallback: number | undefined): number | undefined {
+  if (live === 0 && typeof fallback === "number" && fallback > 0) return fallback;
+  return live ?? fallback;
+}
+
 export function coalesceSessionViewModel(
   primary: SessionState | SdkSessionInfo | null | undefined,
   fallback?: SessionState | SdkSessionInfo | null,
@@ -145,9 +150,9 @@ export function coalesceSessionViewModel(
       }
     }
   }
-  const userTurnCount = primaryVm?.userTurnCount ?? fallbackVm?.userTurnCount;
-  const agentTurnCount = primaryVm?.agentTurnCount ?? fallbackVm?.agentTurnCount;
-  const numTurns = userTurnCount ?? primaryVm?.numTurns ?? fallbackVm?.numTurns;
+  const userTurnCount = preferHistoryCount(primaryVm?.userTurnCount, fallbackVm?.userTurnCount);
+  const agentTurnCount = preferHistoryCount(primaryVm?.agentTurnCount, fallbackVm?.agentTurnCount);
+  const numTurns = userTurnCount ?? preferHistoryCount(primaryVm?.numTurns, fallbackVm?.numTurns);
 
   return {
     ...(merged as SessionViewModel),
