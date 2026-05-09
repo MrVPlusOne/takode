@@ -53,8 +53,13 @@ type QuestSearchDocument = {
 };
 type RankedQuestSearchEntry = {
   quest: QuestmasterTask;
+  matchQuality: QuestSearchMatchQuality;
   textScore: number;
   finalScore: number;
+};
+type QuestSearchMatchQuality = {
+  worstQuality: number;
+  prefixCount: number;
 };
 
 type QuestListFilterResult = {
@@ -410,6 +415,7 @@ function rankQuestSearchEntries(
   const textRanked = searchEntries.map((entry) => ({
     quest: entry.quest,
     searchDocument: entry.searchDocument,
+    matchQuality: questSearchMatchQuality(entry.searchDocument, query),
     textScore: bm25DocumentScore(entry.searchDocument, queryStats, averageDocumentLength),
   }));
   const maxTextScore = Math.max(...textRanked.map((entry) => entry.textScore), 0);
@@ -423,6 +429,7 @@ function rankQuestSearchEntries(
       const freshness = freshnessScore(normalizedRecencyTs(entry.searchDocument, now), minRecency, maxRecency);
       return {
         quest: entry.quest,
+        matchQuality: entry.matchQuality,
         textScore: entry.textScore,
         finalScore: entry.textScore + QUEST_SEARCH_RECENCY_SHARE * maxTextScore * freshness,
       };
@@ -502,6 +509,14 @@ function matchingTermFrequency(document: QuestSearchDocument, word: string): num
   return bestPrefixFrequency;
 }
 
+function questSearchMatchQuality(document: QuestSearchDocument, query: PreparedSearchQuery): QuestSearchMatchQuality {
+  const qualities = query.map((word) => (document.termFrequency.has(word) ? 0 : 1));
+  return {
+    worstQuality: Math.max(...qualities),
+    prefixCount: qualities.filter((quality) => quality > 0).length,
+  };
+}
+
 function normalizedRecencyTs(document: QuestSearchDocument, now: number): number {
   return Math.min(document.recencyTs, now);
 }
@@ -514,6 +529,8 @@ function freshnessScore(recencyTs: number, minRecency: number, maxRecency: numbe
 
 function compareRankedQuestSearchEntries(left: RankedQuestSearchEntry, right: RankedQuestSearchEntry): number {
   return (
+    left.matchQuality.worstQuality - right.matchQuality.worstQuality ||
+    left.matchQuality.prefixCount - right.matchQuality.prefixCount ||
     right.finalScore - left.finalScore ||
     right.textScore - left.textScore ||
     questRecencyTs(right.quest) - questRecencyTs(left.quest) ||

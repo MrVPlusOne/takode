@@ -120,9 +120,9 @@ describe("applyQuestListFilters", () => {
     expect(applyQuestListFilters([divided], { text: "memory ui sett" }).map((q) => q.questId)).toEqual(["q-23"]);
   });
 
-  it("ranks primary quest fields ahead of body-only matches", () => {
+  it("ranks exact primary quest fields ahead of body-only and prefix matches", () => {
     // The BM25 quest document indexes quest ID/title/tags twice and body text
-    // once, so primary-field matches remain stronger than body-only matches.
+    // once, while exact-token matches still outrank prefix-only matches.
     const tagMatch = makeQuest({ questId: "q-24", title: "Memory controls", status: "done", tags: ["ui"] });
     const bodyMatch = makeQuest({ questId: "q-25", title: "Memory controls", status: "done" });
     bodyMatch.description = "Body copy documents ui behavior.";
@@ -130,7 +130,23 @@ describe("applyQuestListFilters", () => {
 
     const result = getQuestListPage([prefixMatch, bodyMatch, tagMatch], { text: "memory ui" });
 
-    expect(result.quests.map((q) => q.questId)).toEqual(["q-24", "q-26", "q-25"]);
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-24", "q-25", "q-26"]);
+  });
+
+  it("ranks exact title token matches ahead of newer prefix title token matches", () => {
+    // q-1247 exact-before-prefix semantics still apply before freshness can
+    // reorder comparable BM25 matches.
+    const exactTitle = makeQuest({ questId: "q-49", title: "Audit logging", status: "idea", createdAt: 10 });
+    const newerPrefixTitle = makeQuest({
+      questId: "q-50",
+      title: "Auditor logging",
+      status: "idea",
+      createdAt: 1_000,
+    });
+
+    const result = getQuestListPage([newerPrefixTitle, exactTitle], { text: "audit" });
+
+    expect(result.quests.map((q) => q.questId)).toEqual(["q-49", "q-50"]);
   });
 
   it("uses direct freshness to rank newer comparable title matches first", () => {
@@ -270,7 +286,7 @@ describe("applyQuestListFilters", () => {
     const sync = getQuestListPage([prefixMatch, bodyMatch, tagMatch], options);
     const asyncPage = await getQuestListPageAsync([prefixMatch, bodyMatch, tagMatch], options);
 
-    expect(sync.quests.map((quest) => quest.questId)).toEqual(["q-33", "q-35"]);
+    expect(sync.quests.map((quest) => quest.questId)).toEqual(["q-33", "q-34"]);
     expect(asyncPage).toEqual(sync);
   });
 
