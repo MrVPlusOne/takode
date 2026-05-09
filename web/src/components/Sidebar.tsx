@@ -780,7 +780,7 @@ export function Sidebar() {
   // Includes archived reviewers so historical review trajectories stay inspectable
   // from their parent without becoming standalone sidebar clutter.
   const reviewerByParent = useMemo(() => buildReviewerByParent(allSessionList), [allSessionList]);
-  const logoSrc = "/logo.svg";
+  const logoSrc = "/app-logo.png";
   const [showCronSessions, setShowCronSessions] = useState(true);
   const treeGroupIds = useMemo(() => treeViewGroups.map((g) => g.id), [treeViewGroups]);
   const groupPointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
