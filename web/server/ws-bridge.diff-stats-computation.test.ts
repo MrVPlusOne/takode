@@ -1434,6 +1434,58 @@ describe("Diff stats computation", () => {
     expect(s2.state.total_lines_removed).toBe(7);
   });
 
+  it("does not coalesce dirty worktree numstat results with only matching dirty counts", async () => {
+    // Dirty worktree numstat results are content-sensitive. Two refreshes can
+    // both see one dirty path while the dirty content changes between their
+    // status prechecks, so they must not share one in-flight numstat result.
+    const diffCallbacks: Array<(err: Error | null, result: { stdout: string; stderr: string }) => void> = [];
+    const commands: string[] = [];
+    mockExec.mockImplementation((cmd: string, opts: any, cb?: Function) => {
+      commands.push(cmd);
+      const callback = typeof opts === "function" ? opts : cb;
+      if (cmd.includes("status --porcelain")) {
+        callback?.(null, { stdout: " M src/app.ts\n", stderr: "" });
+        return;
+      }
+      if (cmd.includes("diff --numstat base-sha")) {
+        if (callback) diffCallbacks.push(callback);
+        return;
+      }
+      callback?.(null, { stdout: "", stderr: "" });
+    });
+
+    const session = bridge.getOrCreateSession("s1");
+    session.state.cwd = "/repo-worktree";
+    session.state.is_worktree = true;
+    session.state.diff_base_branch = "main";
+    session.state.diff_base_start_sha = "base-sha";
+    session.state.git_head_sha = "head-sha";
+    session.state.git_ahead = 1;
+    session.state.git_behind = 0;
+    const makeDeps = () => ({
+      refreshGitInfo: vi.fn(async (targetSession: any) => {
+        targetSession.state.git_status_refreshed_at = Date.now();
+        targetSession.state.git_status_refresh_error = null;
+      }),
+      broadcastSessionUpdate: vi.fn(),
+      broadcastDiffTotals: vi.fn(),
+      persistSession: vi.fn(),
+    });
+
+    const first = refreshGitInfoPublicController(session as any, makeDeps(), { broadcastUpdate: true, force: true });
+    const second = refreshGitInfoPublicController(session as any, makeDeps(), { broadcastUpdate: true, force: true });
+
+    await vi.waitFor(() => expect(diffCallbacks).toHaveLength(2));
+    diffCallbacks[0]!(null, { stdout: "10\t3\tsrc/app.ts\n", stderr: "" });
+    diffCallbacks[1]!(null, { stdout: "12\t4\tsrc/app.ts\n", stderr: "" });
+    await Promise.all([first, second]);
+
+    expect(commands.filter((cmd) => cmd.includes("status --porcelain"))).toHaveLength(2);
+    expect(commands.filter((cmd) => cmd.includes("diff --numstat base-sha"))).toHaveLength(2);
+    expect(session.state.total_lines_added).toBe(12);
+    expect(session.state.total_lines_removed).toBe(4);
+  });
+
   it("snapshot refresh skips unopened worktree diff stats without launching numstat", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1\n";

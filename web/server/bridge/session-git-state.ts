@@ -441,12 +441,7 @@ function buildDiffStatsInFlightKey(
   cacheKey: string,
   worktreeDirtyEntries: number | null,
 ): string {
-  const dirtyState =
-    worktreeDirtyEntries === null
-      ? "repo"
-      : worktreeDirtyEntries === 0
-        ? "worktree-clean"
-        : `worktree-dirty:${worktreeDirtyEntries}`;
+  const dirtyState = worktreeDirtyEntries === null ? "repo" : "worktree-clean";
   return [cwd, diffRef, cacheKey, dirtyState].join("\0");
 }
 
@@ -475,6 +470,10 @@ function computeDiffStatsNumstat(
   cacheKey: string,
   worktreeDirtyEntries: number | null,
 ): Promise<DiffStatsNumstatResult> {
+  if (worktreeDirtyEntries !== null && worktreeDirtyEntries > 0) {
+    return readDiffStatsNumstat(cwd, diffRef);
+  }
+
   const inFlightKey = buildDiffStatsInFlightKey(cwd, diffRef, cacheKey, worktreeDirtyEntries);
   let computation = inFlightDiffStatsComputations.get(inFlightKey);
   if (!computation) {
