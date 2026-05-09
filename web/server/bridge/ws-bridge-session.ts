@@ -135,6 +135,13 @@ export interface Session {
   toolStartTimes: Map<string, number>;
   /** Cheap fingerprint of linked-worktree metadata used to skip unnecessary git refreshes. */
   worktreeStateFingerprint: string;
+  /** Last stable-input diff-stat cache entry for avoiding repeated expensive numstat work. */
+  diffStatsCacheKey?: string;
+  diffStatsCacheResult?: {
+    totalLinesAdded: number;
+    totalLinesRemoved: number;
+    skippedReason: string | null;
+  } | null;
   /** Codex-only watchdog timers for tool calls that started but never produced tool_result. */
   codexToolResultWatchdogs: Map<string, ReturnType<typeof setTimeout>>;
   /** Whether the CLI is actively generating a response (transient, not persisted) */
@@ -299,4 +306,5 @@ export type GitSessionKey =
   | "git_ahead"
   | "git_behind"
   | "total_lines_added"
-  | "total_lines_removed";
+  | "total_lines_removed"
+  | "diff_stats_skipped_reason";

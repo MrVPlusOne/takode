@@ -1119,6 +1119,8 @@ export interface SessionState {
   git_behind: number;
   total_lines_added: number;
   total_lines_removed: number;
+  /** Intentional diff-stat budget skip reason; distinct from refresh failures. */
+  diff_stats_skipped_reason?: string | null;
   /** Epoch ms for the last server git metadata refresh attempt. */
   git_status_refreshed_at?: number;
   /** Last git refresh error, surfaced so stale chips do not look authoritative. */

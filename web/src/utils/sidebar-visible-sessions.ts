@@ -79,6 +79,7 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
       const serverLinesRemoved = bridgeState?.total_lines_removed ?? sdkInfo?.totalLinesRemoved ?? 0;
       const gitStatusRefreshedAt = bridgeState?.git_status_refreshed_at ?? sdkInfo?.gitStatusRefreshedAt;
       const gitStatusRefreshError = bridgeState?.git_status_refresh_error ?? sdkInfo?.gitStatusRefreshError ?? null;
+      const diffStatsSkippedReason = bridgeState?.diff_stats_skipped_reason ?? sdkInfo?.diffStatsSkippedReason ?? null;
       const localLineStats = sumDiffFileStats(diffFileStats.get(id));
       const linesAdded =
         serverLinesAdded === 0 &&
@@ -105,6 +106,7 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
         gitBehind,
         linesAdded,
         linesRemoved,
+        diffStatsSkippedReason,
         gitStatusRefreshedAt,
         gitStatusRefreshError,
         isConnected: cliConnected.get(id) ?? sdkInfo?.cliConnected ?? false,

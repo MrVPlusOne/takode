@@ -125,6 +125,7 @@ export function SessionHoverCard({
     sessionState?.codex_retained_payload_bytes ?? sdkSessionMeta?.codexRetainedPayloadBytes ?? 0;
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
+  const hasSkippedDiffStats = !!s.diffStatsSkippedReason;
 
   // Position: right of sidebar, vertically aligned with the hovered item
   // The sidebar is 260px wide. Position card to the right of the anchor.
@@ -314,7 +315,7 @@ export function SessionHoverCard({
                 )}
               </div>
             )}
-            {(hasBranchDivergence || hasLineDiff) && (
+            {(hasBranchDivergence || hasLineDiff || hasSkippedDiffStats) && (
               <div className="flex items-center gap-2 mt-1 text-[11px] text-cc-muted">
                 {hasBranchDivergence && (
                   <span className="flex items-center gap-1">
@@ -328,6 +329,7 @@ export function SessionHoverCard({
                     <span className="text-red-400">-{s.linesRemoved}</span>
                   </span>
                 )}
+                {hasSkippedDiffStats && <span>{s.diffStatsSkippedReason}</span>}
               </div>
             )}
             {/* Worktree liveness status for archived worktree sessions */}

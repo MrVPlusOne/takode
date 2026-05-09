@@ -144,6 +144,8 @@ function createSessionRuntime(
     assistantAccumulator: new Map(),
     toolStartTimes: new Map(),
     worktreeStateFingerprint: "",
+    diffStatsCacheKey: undefined,
+    diffStatsCacheResult: null,
     codexToolResultWatchdogs: new Map(),
     isGenerating: false,
     generationStartedAt: null,

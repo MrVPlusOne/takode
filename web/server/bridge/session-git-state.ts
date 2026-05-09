@@ -10,6 +10,8 @@ import type { BackendType, SessionState } from "../session-types.js";
 const execPromise = promisify(execCb);
 const GIT_SHA_REF_RE = /^[0-9a-f]{7,40}$/i;
 const DIFF_STATS_REFRESH_FAILED_ERROR = "Unable to refresh diff stats";
+const DIFF_STATS_COMMIT_DIVERGENCE_LIMIT = 50;
+const DIFF_STATS_TRACKED_DIRTY_LIMIT = 500;
 
 interface AheadBehindCounts {
   ahead: number;
@@ -72,6 +74,7 @@ export function makeDefaultState(sessionId: string, backendType: BackendType = "
     git_behind: 0,
     total_lines_added: 0,
     total_lines_removed: 0,
+    diff_stats_skipped_reason: null,
     git_status_refreshed_at: undefined,
     git_status_refresh_error: null,
   };
@@ -260,6 +263,12 @@ export async function readWorktreeStateFingerprint(cwd: string): Promise<string 
 interface SessionDiffStateLike {
   state: SessionState;
   worktreeStateFingerprint: string;
+  diffStatsCacheKey?: string;
+  diffStatsCacheResult?: {
+    totalLinesAdded: number;
+    totalLinesRemoved: number;
+    skippedReason: string | null;
+  } | null;
 }
 
 interface SessionDiffRefreshLike extends SessionDiffStateLike {
@@ -322,6 +331,7 @@ interface RefreshGitInfoPublicDeps {
 export interface RefreshGitInfoPublicResult {
   ok: boolean;
   diffStatsRefreshed: boolean;
+  diffStatsSkippedReason?: string | null;
   error: string | null;
 }
 
@@ -376,6 +386,76 @@ export async function updateDiffBaseStartSha(session: SessionDiffStateLike, prev
 
 function shouldSkipNonWorktreeDefaultMainDiffStats(session: SessionDiffStateLike, diffBase: string): boolean {
   return !session.state.is_worktree && isDefaultMainComparisonRef(diffBase);
+}
+
+function getDiffStatsSkippedReasonForVisibility(session: SessionDiffStateLike): string | null {
+  if (!session.state.is_worktree) return null;
+  const refreshSession = session as Partial<SessionDiffRefreshLike>;
+  const hasBackend = !!refreshSession.backendSocket || !!refreshSession.codexAdapter;
+  const hasOpenBrowser = (refreshSession.browserSockets?.size ?? 0) > 0;
+  return hasBackend || hasOpenBrowser ? null : "worktree is not open";
+}
+
+function buildDiffStatsCacheKey(session: SessionDiffStateLike, diffRef: string, worktreeFingerprint: string): string {
+  return [
+    session.state.cwd || "",
+    session.state.is_worktree ? "worktree" : "repo",
+    session.state.git_head_sha || "HEAD",
+    session.state.diff_base_branch || "",
+    session.state.diff_base_start_sha || "",
+    diffRef,
+    String(session.state.git_ahead || 0),
+    String(session.state.git_behind || 0),
+    worktreeFingerprint,
+  ].join("\0");
+}
+
+function applyDiffStatsResult(
+  session: SessionDiffStateLike,
+  result: { totalLinesAdded: number; totalLinesRemoved: number; skippedReason: string | null },
+): void {
+  session.state.total_lines_added = result.totalLinesAdded;
+  session.state.total_lines_removed = result.totalLinesRemoved;
+  session.state.diff_stats_skipped_reason = result.skippedReason;
+}
+
+function cacheDiffStatsResult(
+  session: SessionDiffStateLike,
+  cacheKey: string,
+  result: { totalLinesAdded: number; totalLinesRemoved: number; skippedReason: string | null },
+): void {
+  session.diffStatsCacheKey = cacheKey;
+  session.diffStatsCacheResult = result;
+}
+
+async function countTrackedDirtyEntries(cwd: string): Promise<number> {
+  const { stdout } = await execPromise(
+    `${SERVER_GIT_CMD} status --porcelain=v1 --untracked-files=no --no-renames | awk 'NR <= 501 { print } NR > 501 { exit }'`,
+    {
+      cwd,
+      encoding: "utf-8",
+      timeout: GIT_CMD_TIMEOUT,
+    },
+  );
+  const raw = stdout.trim();
+  return raw ? raw.split("\n").filter((line) => line.trim()).length : 0;
+}
+
+function setSkippedDiffStats(
+  session: SessionDiffStateLike,
+  cacheKey: string,
+  reason: string,
+  options: { cache?: boolean } = {},
+): void {
+  const result = {
+    totalLinesAdded: 0,
+    totalLinesRemoved: 0,
+    skippedReason: `Diff stats skipped: ${reason}`,
+  };
+  applyDiffStatsResult(session, result);
+  if (options.cache !== false) {
+    cacheDiffStatsResult(session, cacheKey, result);
+  }
 }
 
 async function resolveAheadBehindForRefresh(
@@ -448,7 +528,10 @@ function broadcastSharedAheadBehindResult(
   }
 }
 
-export async function computeDiffStatsAsync(session: SessionDiffStateLike): Promise<boolean> {
+export async function computeDiffStatsAsync(
+  session: SessionDiffStateLike,
+  options: { skipIfWorktreeNotOpen?: boolean; allowCachedResult?: boolean } = {},
+): Promise<boolean> {
   const cwd = session.state.cwd;
   if (!cwd) return false;
 
@@ -474,16 +557,11 @@ export async function computeDiffStatsAsync(session: SessionDiffStateLike): Prom
     if (shouldSkipNonWorktreeDefaultMainDiffStats(session, diffBase)) {
       session.state.total_lines_added = 0;
       session.state.total_lines_removed = 0;
+      session.state.diff_stats_skipped_reason = null;
       return true;
     }
 
-    if (session.state.is_worktree && !worktreeBaseIsExplicitCommit && (session.state.git_ahead || 0) <= 0) {
-      session.state.total_lines_added = 0;
-      session.state.total_lines_removed = 0;
-      session.worktreeStateFingerprint = (await readWorktreeStateFingerprint(cwd)) || "";
-      return true;
-    }
-
+    const worktreeFingerprint = session.state.is_worktree ? (await readWorktreeStateFingerprint(cwd)) || "" : "";
     let diffRef = diffBase;
     if (!session.state.is_worktree) {
       try {
@@ -495,6 +573,48 @@ export async function computeDiffStatsAsync(session: SessionDiffStateLike): Prom
         if (mergeBase) diffRef = mergeBase;
       } catch {
         // Fall back to a direct diff when merge-base is unavailable.
+      }
+    }
+
+    const cacheKey = buildDiffStatsCacheKey(session, diffRef, worktreeFingerprint);
+    if (options.allowCachedResult !== false && session.diffStatsCacheKey === cacheKey && session.diffStatsCacheResult) {
+      applyDiffStatsResult(session, session.diffStatsCacheResult);
+      if (session.state.is_worktree) {
+        session.worktreeStateFingerprint = worktreeFingerprint;
+      }
+      return true;
+    }
+
+    const visibilitySkipReason = options.skipIfWorktreeNotOpen ? getDiffStatsSkippedReasonForVisibility(session) : null;
+    if (visibilitySkipReason) {
+      setSkippedDiffStats(session, cacheKey, visibilitySkipReason, { cache: false });
+      if (session.state.is_worktree) {
+        session.worktreeStateFingerprint = worktreeFingerprint;
+      }
+      return true;
+    }
+
+    if (session.state.is_worktree) {
+      const divergence = (session.state.git_ahead || 0) + (session.state.git_behind || 0);
+      if (divergence > DIFF_STATS_COMMIT_DIVERGENCE_LIMIT) {
+        setSkippedDiffStats(session, cacheKey, `branch is ${divergence} commits from base`);
+        session.worktreeStateFingerprint = worktreeFingerprint;
+        return true;
+      }
+
+      const dirtyEntries = await countTrackedDirtyEntries(cwd);
+      if (dirtyEntries > DIFF_STATS_TRACKED_DIRTY_LIMIT) {
+        setSkippedDiffStats(session, cacheKey, `${dirtyEntries} dirty tracked paths exceeds budget`);
+        session.worktreeStateFingerprint = worktreeFingerprint;
+        return true;
+      }
+
+      if (!worktreeBaseIsExplicitCommit && (session.state.git_ahead || 0) <= 0) {
+        session.state.total_lines_added = 0;
+        session.state.total_lines_removed = 0;
+        session.state.diff_stats_skipped_reason = null;
+        session.worktreeStateFingerprint = worktreeFingerprint;
+        return true;
       }
     }
 
@@ -514,10 +634,18 @@ export async function computeDiffStatsAsync(session: SessionDiffStateLike): Prom
       }
     }
 
-    session.state.total_lines_added = added;
-    session.state.total_lines_removed = removed;
+    applyDiffStatsResult(session, {
+      totalLinesAdded: added,
+      totalLinesRemoved: removed,
+      skippedReason: null,
+    });
+    cacheDiffStatsResult(session, cacheKey, {
+      totalLinesAdded: added,
+      totalLinesRemoved: removed,
+      skippedReason: null,
+    });
     if (session.state.is_worktree) {
-      session.worktreeStateFingerprint = (await readWorktreeStateFingerprint(cwd)) || "";
+      session.worktreeStateFingerprint = worktreeFingerprint;
     }
     return true;
   } catch {
@@ -534,7 +662,7 @@ export function recomputeDiffIfDirty(session: SessionDiffRefreshLike, deps: Reco
   ) {
     return;
   }
-  computeDiffStatsAsync(session)
+  computeDiffStatsAsync(session, { allowCachedResult: false })
     .then((didRun) => {
       if (!didRun) return;
       session.diffStatsDirty = false;
@@ -556,6 +684,7 @@ export function setDiffBaseBranch(session: SessionDiffRefreshLike, branch: strin
     deps.broadcastSessionUpdate(session, {
       total_lines_added: session.state.total_lines_added,
       total_lines_removed: session.state.total_lines_removed,
+      diff_stats_skipped_reason: session.state.diff_stats_skipped_reason ?? null,
     });
     deps.persistSession(session);
   });
@@ -571,12 +700,13 @@ export async function refreshGitInfoPublic(
   session.diffStatsDirty = true;
   const beforeAdded = session.state.total_lines_added;
   const beforeRemoved = session.state.total_lines_removed;
+  const beforeSkippedReason = session.state.diff_stats_skipped_reason ?? null;
   const previousRefreshedAt = session.state.git_status_refreshed_at;
   await deps.refreshGitInfo(session, options);
   const didRun = await computeDiffStatsAsync(session);
   let refreshError = session.state.git_status_refresh_error ?? null;
   if (didRun) {
-    session.diffStatsDirty = false;
+    session.diffStatsDirty = session.state.diff_stats_skipped_reason === "Diff stats skipped: worktree is not open";
   } else if (!refreshError) {
     refreshError = DIFF_STATS_REFRESH_FAILED_ERROR;
     session.state.git_status_refreshed_at = previousRefreshedAt;
@@ -589,7 +719,9 @@ export async function refreshGitInfoPublic(
     });
     if (
       didRun &&
-      (beforeAdded !== session.state.total_lines_added || beforeRemoved !== session.state.total_lines_removed)
+      (beforeAdded !== session.state.total_lines_added ||
+        beforeRemoved !== session.state.total_lines_removed ||
+        beforeSkippedReason !== (session.state.diff_stats_skipped_reason ?? null))
     ) {
       deps.broadcastDiffTotals(session);
     }
@@ -598,6 +730,7 @@ export async function refreshGitInfoPublic(
   return {
     ok: didRun && !refreshError,
     diffStatsRefreshed: didRun,
+    diffStatsSkippedReason: session.state.diff_stats_skipped_reason ?? null,
     error: refreshError,
   };
 }
@@ -710,6 +843,7 @@ async function runWorktreeGitStateRefreshForSnapshot(
 
   const beforeAdded = session.state.total_lines_added;
   const beforeRemoved = session.state.total_lines_removed;
+  const beforeSkippedReason = session.state.diff_stats_skipped_reason ?? null;
   const beforeAnchor = session.state.diff_base_start_sha;
   const beforeRefreshedAt = session.state.git_status_refreshed_at;
   const fingerprintChanged = !currentFingerprint || !previousFingerprint || currentFingerprint !== previousFingerprint;
@@ -727,9 +861,9 @@ async function runWorktreeGitStateRefreshForSnapshot(
     (session.state.is_worktree &&
       (session.state.git_ahead || 0) <= 0 &&
       (session.state.total_lines_added > 0 || session.state.total_lines_removed > 0));
-  const didRun = shouldRefreshDiff ? await computeDiffStatsAsync(session) : false;
+  const didRun = shouldRefreshDiff ? await computeDiffStatsAsync(session, { skipIfWorktreeNotOpen: true }) : false;
   if (didRun) {
-    session.diffStatsDirty = false;
+    session.diffStatsDirty = session.state.diff_stats_skipped_reason === "Diff stats skipped: worktree is not open";
   } else if (shouldRefreshDiff && !session.state.git_status_refresh_error) {
     session.diffStatsDirty = true;
     session.state.git_status_refreshed_at = beforeRefreshedAt;
@@ -738,7 +872,9 @@ async function runWorktreeGitStateRefreshForSnapshot(
   session.worktreeStateFingerprint = currentFingerprint || "";
 
   const totalsChanged =
-    beforeAdded !== session.state.total_lines_added || beforeRemoved !== session.state.total_lines_removed;
+    beforeAdded !== session.state.total_lines_added ||
+    beforeRemoved !== session.state.total_lines_removed ||
+    beforeSkippedReason !== (session.state.diff_stats_skipped_reason ?? null);
   if (totalsChanged && options.broadcastUpdate) {
     deps.broadcastDiffTotals(session);
   }

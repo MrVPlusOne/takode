@@ -201,6 +201,9 @@ function ScheduledTimerStatusIcon({ timerCount }: { timerCount: number }) {
 function buildGitStatusTitle(s: SessionItemType): string {
   const gitStatusAge = formatGitStatusAge(s.gitStatusRefreshedAt);
   const branch = s.gitBranch ? ` Branch: ${s.gitBranch}.` : "";
+  if (s.diffStatsSkippedReason) {
+    return `${s.diffStatsSkippedReason}. Last metadata refresh ${gitStatusAge}.${branch}`;
+  }
   if (s.gitStatusRefreshError) {
     return `${s.gitStatusRefreshError}. Last successful refresh ${gitStatusAge}.${branch}`;
   }
@@ -458,7 +461,8 @@ export function SessionItem({
   const backendAlt = s.backendType === "codex" ? "Codex" : s.backendType === "claude-sdk" ? "Claude SDK" : "Claude";
   const hasBranchDivergence = s.gitAhead > 0 || s.gitBehind > 0;
   const hasLineDiff = s.linesAdded > 0 || s.linesRemoved > 0;
-  const hasGitStatus = !!s.gitBranch || hasBranchDivergence || hasLineDiff || !!s.isWorktree;
+  const hasSkippedDiffStats = !!s.diffStatsSkippedReason;
+  const hasGitStatus = !!s.gitBranch || hasBranchDivergence || hasLineDiff || hasSkippedDiffStats || !!s.isWorktree;
   const gitStatusTitle = hasGitStatus ? buildGitStatusTitle(s) : undefined;
   const gitStatusStale = hasGitStatus ? isGitStatusStale(s.gitStatusRefreshedAt) : false;
   const showingSwipeBackdrop = canSwipeToArchive && Math.abs(swipeOffsetPx) > 0;
@@ -927,6 +931,16 @@ export function SessionItem({
                 >
                   <span className="text-green-500">+{s.linesAdded}</span>
                   <span className="text-red-400">-{s.linesRemoved}</span>
+                </span>
+              )}
+              {hasSkippedDiffStats && (
+                <span
+                  className="text-[10px] font-medium text-cc-muted shrink-0"
+                  title={gitStatusTitle}
+                  data-testid="session-git-diff-skipped"
+                  data-stale={gitStatusStale ? "true" : "false"}
+                >
+                  skip
                 </span>
               )}
               {hasGitStatus && !archived && s.gitStatusRefreshError && (

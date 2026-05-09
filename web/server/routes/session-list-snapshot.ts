@@ -148,6 +148,7 @@ export async function buildEnrichedSessionsSnapshot(
           gitBehind,
           totalLinesAdded: bridge?.total_lines_added || 0,
           totalLinesRemoved: bridge?.total_lines_removed || 0,
+          diffStatsSkippedReason: bridge?.diff_stats_skipped_reason ?? null,
           gitStatusRefreshedAt: bridge?.git_status_refreshed_at,
           gitStatusRefreshError: bridge?.git_status_refresh_error ?? null,
           userTurnCount: turnMetrics?.userTurnCount ?? bridge?.user_turn_count ?? bridge?.num_turns ?? 0,

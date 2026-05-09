@@ -12,6 +12,7 @@ export interface SidebarSessionItem {
   gitBehind: number;
   linesAdded: number;
   linesRemoved: number;
+  diffStatsSkippedReason?: string | null;
   gitStatusRefreshedAt?: number;
   gitStatusRefreshError?: string | null;
   isConnected: boolean;

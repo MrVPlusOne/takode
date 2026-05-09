@@ -757,6 +757,21 @@ describe("SessionItem git status refresh", () => {
     expect(error).toHaveTextContent("!");
     expect(error.getAttribute("title")).toContain("Unable to refresh diff stats");
   });
+
+  it("surfaces intentional diff-stat skips without treating them as refresh failures", () => {
+    renderSessionItem({
+      session: makeSession({
+        isWorktree: true,
+        diffStatsSkippedReason: "Diff stats skipped: branch is 83 commits from base",
+        gitStatusRefreshedAt: Date.now(),
+      }),
+    });
+
+    const skipped = screen.getByTestId("session-git-diff-skipped");
+    expect(skipped).toHaveTextContent("skip");
+    expect(skipped.getAttribute("title")).toContain("Diff stats skipped: branch is 83 commits from base");
+    expect(screen.queryByTestId("session-git-status-error")).toBeNull();
+  });
 });
 
 describe("SessionItem notification marker", () => {

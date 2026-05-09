@@ -465,6 +465,7 @@ export class WsBridge {
     "git_behind",
     "total_lines_added",
     "total_lines_removed",
+    "diff_stats_skipped_reason",
   ];
 
   private static localDateKey(ts: number): string {
@@ -859,7 +860,12 @@ export class WsBridge {
    * Codex adapter session updates.
    */
   private sanitizeCodexSessionPatch(patch: Partial<SessionState>): Partial<SessionState> {
-    const { total_lines_added: _ignoredAdded, total_lines_removed: _ignoredRemoved, ...rest } = patch;
+    const {
+      total_lines_added: _ignoredAdded,
+      total_lines_removed: _ignoredRemoved,
+      diff_stats_skipped_reason: _ignoredSkippedReason,
+      ...rest
+    } = patch;
     return rest;
   }
 

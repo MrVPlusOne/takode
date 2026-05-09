@@ -1357,6 +1357,7 @@ export const api = {
       gitBehind: number;
       totalLinesAdded: number;
       totalLinesRemoved: number;
+      diffStatsSkippedReason: string | null;
       gitStatusRefreshedAt: number | null;
       gitStatusRefreshError: string | null;
       error?: string | null;

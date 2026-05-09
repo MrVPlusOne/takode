@@ -59,6 +59,7 @@ export function SessionInfoPopover({
   const gitBehind = sessionVm?.gitBehind ?? 0;
   const linesAdded = sessionVm?.totalLinesAdded ?? 0;
   const linesRemoved = sessionVm?.totalLinesRemoved ?? 0;
+  const diffStatsSkippedReason = sessionVm?.diffStatsSkippedReason ?? null;
 
   // Close on click outside
   useEffect(() => {
@@ -442,7 +443,7 @@ export function SessionInfoPopover({
                   )}
                 </div>
               )}
-              {(gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0) && (
+              {(gitAhead > 0 || gitBehind > 0 || linesAdded > 0 || linesRemoved > 0 || diffStatsSkippedReason) && (
                 <div className="flex items-center gap-2 mt-1 text-[11px] text-cc-muted">
                   {(gitAhead > 0 || gitBehind > 0) && (
                     <span className="flex items-center gap-1">
@@ -456,6 +457,7 @@ export function SessionInfoPopover({
                       <span className="text-red-400">-{linesRemoved}</span>
                     </span>
                   )}
+                  {diffStatsSkippedReason && <span>{diffStatsSkippedReason}</span>}
                 </div>
               )}
             </div>

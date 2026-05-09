@@ -354,6 +354,7 @@ export function getSessionGitStateDeps(host: any) {
         repo_root: session.state.repo_root,
         git_ahead: session.state.git_ahead,
         git_behind: session.state.git_behind,
+        diff_stats_skipped_reason: session.state.diff_stats_skipped_reason ?? null,
       });
     },
     broadcastDiffTotals: (targetSession: unknown) => {
@@ -361,6 +362,7 @@ export function getSessionGitStateDeps(host: any) {
       broadcastSessionUpdate(session, {
         total_lines_added: session.state.total_lines_added,
         total_lines_removed: session.state.total_lines_removed,
+        diff_stats_skipped_reason: session.state.diff_stats_skipped_reason ?? null,
       });
     },
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),

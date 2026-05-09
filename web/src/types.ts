@@ -307,6 +307,7 @@ export interface SdkSessionInfo {
   gitBehind?: number;
   totalLinesAdded?: number;
   totalLinesRemoved?: number;
+  diffStatsSkippedReason?: string | null;
   gitStatusRefreshedAt?: number;
   gitStatusRefreshError?: string | null;
   /** If this session was spawned by a cron job */

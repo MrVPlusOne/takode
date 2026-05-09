@@ -991,6 +991,7 @@ describe("Diff stats computation", () => {
     bridge.markWorktree("s1", join(tempDir, "repo"), worktreeCwd, "jiayi");
     const session = bridge.getSession("s1")!;
     session.state.cwd = worktreeCwd;
+    session.browserSockets.add(makeBrowserSocket("s1"));
 
     await bridge.refreshWorktreeGitStateForSnapshot("s1");
     expect(session.state.total_lines_added).toBe(10);
@@ -1029,6 +1030,7 @@ describe("Diff stats computation", () => {
     bridge.markWorktree("s1", join(tempDir, "repo"), worktreeCwd, "jiayi");
     const session = bridge.getSession("s1")!;
     session.state.cwd = worktreeCwd;
+    session.browserSockets.add(makeBrowserSocket("s1"));
 
     await bridge.refreshWorktreeGitStateForSnapshot("s1");
     expect(session.state.git_ahead).toBe(1);
@@ -1166,6 +1168,149 @@ describe("Diff stats computation", () => {
     );
   });
 
+  it("skips worktree diff stats when branch divergence exceeds the budget", async () => {
+    // Large branch divergence is cheap to detect from ahead/behind counts and
+    // should avoid launching `git diff --numstat` entirely.
+    const commands: string[] = [];
+    mockExecSync.mockImplementation((cmd: string) => {
+      commands.push(cmd);
+      if (cmd.includes("diff --numstat")) throw new Error("diff should be budget-skipped");
+      if (cmd.includes("status --porcelain")) throw new Error("dirty precheck should not run after divergence skip");
+      return "";
+    });
+
+    const session = bridge.getOrCreateSession("s1");
+    session.state.cwd = "/repo-worktree";
+    session.state.is_worktree = true;
+    session.state.git_branch = "feature-wt";
+    session.state.diff_base_branch = "main";
+    session.state.diff_base_start_sha = "base-sha";
+    session.state.git_head_sha = "head-sha";
+    session.state.git_ahead = 83;
+    session.state.git_behind = 0;
+    session.state.total_lines_added = 99;
+    session.state.total_lines_removed = 12;
+
+    const result = await refreshGitInfoPublicController(
+      session as any,
+      {
+        refreshGitInfo: vi.fn(async (targetSession: any) => {
+          targetSession.state.git_status_refreshed_at = 5555;
+          targetSession.state.git_status_refresh_error = null;
+        }),
+        broadcastSessionUpdate: vi.fn(),
+        broadcastDiffTotals: vi.fn(),
+        persistSession: vi.fn(),
+      },
+      { broadcastUpdate: true, force: true },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(session.state.total_lines_added).toBe(0);
+    expect(session.state.total_lines_removed).toBe(0);
+    expect(session.state.diff_stats_skipped_reason).toBe("Diff stats skipped: branch is 83 commits from base");
+    expect(commands.some((cmd) => cmd.includes("diff --numstat"))).toBe(false);
+  });
+
+  it("skips worktree diff stats when tracked dirty entries exceed the budget", async () => {
+    // The tracked-status precheck is intentionally cheaper than numstat and
+    // stops pathological dirty worktrees before line stats are requested.
+    const statusLines = Array.from({ length: 501 }, (_, i) => ` M file-${i}.ts`).join("\n");
+    const commands: string[] = [];
+    mockExecSync.mockImplementation((cmd: string) => {
+      commands.push(cmd);
+      if (cmd.includes("status --porcelain")) return `${statusLines}\n`;
+      if (cmd.includes("diff --numstat")) throw new Error("diff should be dirty-budget-skipped");
+      return "";
+    });
+
+    const session = bridge.getOrCreateSession("s1");
+    session.state.cwd = "/repo-worktree";
+    session.state.is_worktree = true;
+    session.state.diff_base_branch = "main";
+    session.state.diff_base_start_sha = "base-sha";
+    session.state.git_head_sha = "head-sha";
+    session.state.git_ahead = 1;
+    session.state.git_behind = 0;
+
+    const result = await refreshGitInfoPublicController(
+      session as any,
+      {
+        refreshGitInfo: vi.fn(async (targetSession: any) => {
+          targetSession.state.git_status_refreshed_at = 6666;
+          targetSession.state.git_status_refresh_error = null;
+        }),
+        broadcastSessionUpdate: vi.fn(),
+        broadcastDiffTotals: vi.fn(),
+        persistSession: vi.fn(),
+      },
+      { broadcastUpdate: true, force: true },
+    );
+
+    expect(result.ok).toBe(true);
+    expect(session.state.diff_stats_skipped_reason).toBe("Diff stats skipped: 501 dirty tracked paths exceeds budget");
+    expect(commands.some((cmd) => cmd.includes("diff --numstat"))).toBe(false);
+  });
+
+  it("reuses cached diff stats when stable worktree inputs are unchanged", async () => {
+    const commands: string[] = [];
+    mockExecSync.mockImplementation((cmd: string) => {
+      commands.push(cmd);
+      if (cmd.includes("status --porcelain")) return "";
+      if (cmd.includes("diff --numstat base-sha")) return "10\t3\tfile.ts\n";
+      return "";
+    });
+
+    const session = bridge.getOrCreateSession("s1");
+    session.state.cwd = "/repo-worktree";
+    session.state.is_worktree = true;
+    session.state.diff_base_branch = "main";
+    session.state.diff_base_start_sha = "base-sha";
+    session.state.git_head_sha = "head-sha";
+    session.state.git_ahead = 1;
+    session.state.git_behind = 0;
+    const deps = {
+      refreshGitInfo: vi.fn(async (targetSession: any) => {
+        targetSession.state.git_status_refreshed_at = Date.now();
+        targetSession.state.git_status_refresh_error = null;
+      }),
+      broadcastSessionUpdate: vi.fn(),
+      broadcastDiffTotals: vi.fn(),
+      persistSession: vi.fn(),
+    };
+
+    await refreshGitInfoPublicController(session as any, deps, { broadcastUpdate: true, force: true });
+    await refreshGitInfoPublicController(session as any, deps, { broadcastUpdate: true, force: true });
+
+    expect(session.state.total_lines_added).toBe(10);
+    expect(session.state.total_lines_removed).toBe(3);
+    expect(commands.filter((cmd) => cmd.includes("diff --numstat"))).toHaveLength(1);
+    expect(commands.filter((cmd) => cmd.includes("status --porcelain"))).toHaveLength(1);
+  });
+
+  it("snapshot refresh skips unopened worktree diff stats without launching numstat", async () => {
+    mockExecSync.mockImplementation((cmd: string) => {
+      if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1\n";
+      if (cmd.includes("--git-dir")) return "/repo/.git/worktrees/jiayi-wt-1\n";
+      if (cmd.includes("--git-common-dir")) return "/repo/.git\n";
+      if (cmd.includes("rev-parse HEAD")) return "same-head-sha\n";
+      if (cmd.includes("--left-right --count")) return "0\t1\n";
+      if (cmd.includes("merge-base")) return "base-sha\n";
+      if (cmd.includes("diff --numstat")) throw new Error("diff should be skipped while worktree is not open");
+      return "";
+    });
+
+    bridge.markWorktree("s1", "/repo", "/tmp/wt", "jiayi");
+    const session = bridge.getSession("s1")!;
+    session.state.cwd = "/tmp/wt";
+
+    await bridge.refreshWorktreeGitStateForSnapshot("s1", { broadcastUpdate: true });
+
+    expect(session.state.diff_stats_skipped_reason).toBe("Diff stats skipped: worktree is not open");
+    expect(session.state.total_lines_added).toBe(0);
+    expect(session.diffStatsDirty).toBe(true);
+  });
+
   it("dedupes non-worktree ahead-behind refreshes and shares the result", async () => {
     // Equivalent non-worktree sessions in the same repo/base/HEAD context should
     // wait on one rev-list computation and all receive that shared count.
@@ -1268,6 +1413,7 @@ describe("Diff stats computation", () => {
     session.state.total_lines_added = 25;
     session.state.total_lines_removed = 4;
     session.diffStatsDirty = true;
+    session.browserSockets.add(makeBrowserSocket("s1"));
 
     await bridge.refreshWorktreeGitStateForSnapshot("s1", { broadcastUpdate: true });
 
@@ -1309,6 +1455,7 @@ describe("Diff stats computation", () => {
     bridge.markWorktree("s1", join(tempDir, "repo"), worktreeCwd, "jiayi");
     const session = bridge.getSession("s1")!;
     session.state.cwd = worktreeCwd;
+    session.browserSockets.add(makeBrowserSocket("s1"));
 
     const first = bridge.refreshWorktreeGitStateForSnapshot("s1");
     const second = bridge.refreshWorktreeGitStateForSnapshot("s1");

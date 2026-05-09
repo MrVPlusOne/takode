@@ -48,6 +48,7 @@ export function createSessionGitStatusRoutes(ctx: RouteContext) {
       gitBehind: state?.git_behind || 0,
       totalLinesAdded: state?.total_lines_added || 0,
       totalLinesRemoved: state?.total_lines_removed || 0,
+      diffStatsSkippedReason: state?.diff_stats_skipped_reason || null,
       gitStatusRefreshedAt: state?.git_status_refreshed_at || null,
       gitStatusRefreshError: state?.git_status_refresh_error || refreshResult.error,
     });

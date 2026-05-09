@@ -17,6 +17,7 @@ export interface SessionViewModel {
   gitBehind?: number;
   totalLinesAdded?: number;
   totalLinesRemoved?: number;
+  diffStatsSkippedReason?: string | null;
   numTurns?: number;
   userTurnCount?: number;
   agentTurnCount?: number;
@@ -63,6 +64,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
       gitBehind: session.git_behind,
       totalLinesAdded: session.total_lines_added,
       totalLinesRemoved: session.total_lines_removed,
+      diffStatsSkippedReason: session.diff_stats_skipped_reason ?? null,
       userTurnCount: session.user_turn_count,
       agentTurnCount: session.agent_turn_count,
       numTurns: session.user_turn_count ?? session.num_turns,
@@ -98,6 +100,7 @@ export function toSessionViewModel(session: SessionState | SdkSessionInfo): Sess
     gitBehind: session.gitBehind,
     totalLinesAdded: session.totalLinesAdded,
     totalLinesRemoved: session.totalLinesRemoved,
+    diffStatsSkippedReason: session.diffStatsSkippedReason ?? null,
     contextUsedPercent: session.contextUsedPercent,
     userTurnCount: session.userTurnCount,
     agentTurnCount: session.agentTurnCount,

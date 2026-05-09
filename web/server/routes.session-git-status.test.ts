@@ -76,6 +76,7 @@ describe("session git status routes", () => {
       error: "Unable to refresh diff stats",
       totalLinesAdded: 25,
       totalLinesRemoved: 4,
+      diffStatsSkippedReason: null,
       gitStatusRefreshedAt: 1234,
       gitStatusRefreshError: "Unable to refresh diff stats",
     });
@@ -144,7 +145,67 @@ describe("session git status routes", () => {
       ok: true,
       gitAhead: 1,
       totalLinesAdded: 12,
+      diffStatsSkippedReason: null,
       gitStatusRefreshedAt: 4321,
+      gitStatusRefreshError: null,
+    });
+  });
+
+  it("returns explicit skipped diff-stat reasons from manual refresh", async () => {
+    const session = {
+      id: "s1",
+      state: {
+        cwd: "/repo",
+        git_branch: "feature",
+        git_default_branch: "main",
+        diff_base_branch: "main",
+        diff_base_start_sha: "base-sha",
+        git_head_sha: "head-sha",
+        git_ahead: 60,
+        git_behind: 0,
+        is_worktree: true,
+        total_lines_added: 42,
+        total_lines_removed: 2,
+        diff_stats_skipped_reason: null,
+        git_status_refreshed_at: 1234,
+        git_status_refresh_error: null,
+      },
+      worktreeStateFingerprint: "",
+      backendSocket: null,
+      codexAdapter: null,
+      browserSockets: { size: 1 },
+      diffStatsDirty: false,
+    };
+    const deps = {
+      refreshGitInfo: vi.fn(async (targetSession: typeof session) => {
+        targetSession.state.git_status_refreshed_at = 9999;
+        targetSession.state.git_status_refresh_error = null;
+      }),
+      broadcastSessionUpdate: vi.fn(),
+      broadcastDiffTotals: vi.fn(),
+      persistSession: vi.fn(),
+    };
+    const app = new Hono();
+    app.route(
+      "/api",
+      createSessionGitStatusRoutes({
+        resolveId: (id: string) => id,
+        wsBridge: {
+          getSession: vi.fn(() => session),
+          getSessionGitStateDeps: vi.fn(() => deps),
+        },
+      } as any),
+    );
+
+    const res = await app.request("/api/sessions/s1/git-status/refresh", { method: "POST" });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(body).toMatchObject({
+      ok: true,
+      totalLinesAdded: 0,
+      totalLinesRemoved: 0,
+      diffStatsSkippedReason: "Diff stats skipped: branch is 60 commits from base",
       gitStatusRefreshError: null,
     });
   });

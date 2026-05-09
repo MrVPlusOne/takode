@@ -59,6 +59,8 @@ export interface SdkSessionInfo {
   totalLinesAdded?: number;
   /** Total lines removed (enriched by REST API) */
   totalLinesRemoved?: number;
+  /** Intentional diff-stat budget skip reason, distinct from refresh failures. */
+  diffStatsSkippedReason?: string | null;
   /** Epoch ms for the last server git metadata refresh attempt. */
   gitStatusRefreshedAt?: number;
   /** Last git refresh error, if any. */
