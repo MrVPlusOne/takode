@@ -1,4 +1,4 @@
-import { Hono } from "hono";
+import { Hono, type Context } from "hono";
 import * as questStore from "../quest-store.js";
 import type { QuestFeedbackEntry, QuestmasterTask } from "../quest-types.js";
 import { hasQuestReviewMetadata } from "../quest-types.js";
@@ -19,6 +19,7 @@ import {
   sameQuestFeedbackDocumentationScope,
   type QuestBoardRowCandidate,
 } from "../quest-phase-docs.js";
+import { evaluateQuestStatusMutationGuard, getQuestStatusOwnerSessionIds } from "../quest-status-guard.js";
 
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
@@ -225,6 +226,42 @@ export function createQuestRoutes(ctx: RouteContext) {
   const activeOwnerSessionId = (quest: QuestmasterTask | null): string | null =>
     quest && "sessionId" in quest && typeof quest.sessionId === "string" ? quest.sessionId : null;
 
+  const callerLeadsQuestOwner = (leaderSessionId: string, quest: QuestmasterTask): boolean => {
+    if (!leaderSessionId) return false;
+    for (const ownerSessionId of getQuestStatusOwnerSessionIds(quest)) {
+      const ownerSession = launcher.getSession(ownerSessionId);
+      if (ownerSession?.herdedBy === leaderSessionId) return true;
+      if (leaderCanReassignToWorker(leaderSessionId, ownerSessionId, quest.questId)) return true;
+    }
+    return false;
+  };
+
+  const guardStatusMutation = (
+    c: Context,
+    auth: OptionalAuthResult,
+    quest: QuestmasterTask,
+    body: { force?: unknown; reason?: unknown; sessionId?: unknown },
+  ): Response | null => {
+    if (auth && "response" in auth) return auth.response;
+    if (body.force === true && !auth) {
+      return c.json({ error: "Forced quest status changes require Companion session auth" }, 403);
+    }
+
+    const bodySession = resolveSubmittedSessionId(body.sessionId, resolveId);
+    if (bodySession.raw && !bodySession.sessionId) {
+      return c.json({ error: `Unknown sessionId: ${bodySession.raw}` }, 400);
+    }
+    const result = evaluateQuestStatusMutationGuard(quest, {
+      callerSessionId: auth?.callerId,
+      callerIsLeader: auth?.caller.isOrchestrator === true,
+      callerLeadsCurrentOwner: auth ? callerLeadsQuestOwner(auth.callerId, quest) : false,
+      force: body.force === true,
+      reason: typeof body.reason === "string" ? body.reason : undefined,
+      targetSessionId: bodySession.sessionId || undefined,
+    });
+    return result.ok ? null : c.json({ error: result.message }, 403);
+  };
+
   const persistSessionTaskHistory = (sessionId: string) => {
     const session = wsBridge.getSession(sessionId);
     if (!session) return;
@@ -296,8 +333,9 @@ export function createQuestRoutes(ctx: RouteContext) {
   const transitionQuestAndSync = async (
     questId: string,
     input: import("../quest-types.js").QuestTransitionInput,
+    currentOverride?: import("../quest-types.js").QuestmasterTask | null,
   ): Promise<import("../quest-types.js").QuestmasterTask | null> => {
-    const current = await questStore.getQuest(questId);
+    const current = currentOverride === undefined ? await questStore.getQuest(questId) : currentOverride;
     const currentSessionId =
       current && "sessionId" in current && typeof current.sessionId === "string" ? current.sessionId : null;
     const currentReviewOwnerSessionId =
@@ -518,7 +556,12 @@ export function createQuestRoutes(ctx: RouteContext) {
     const body = await c.req.json().catch(() => ({}));
     try {
       const questId = c.req.param("questId");
-      const quest = await transitionQuestAndSync(questId, body);
+      const current = await questStore.getQuest(questId);
+      if (!current) return c.json({ error: "Quest not found" }, 404);
+      const guardResponse = guardStatusMutation(c, auth, current, body);
+      if (guardResponse) return guardResponse;
+      const { force: _force, reason: _reason, ...transitionInput } = body;
+      const quest = await transitionQuestAndSync(questId, transitionInput, current);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       if (body.description !== undefined || body.tldr !== undefined) {
         const warningTldr =
@@ -736,16 +779,10 @@ export function createQuestRoutes(ctx: RouteContext) {
       return c.json({ error: "sessionId does not belong to a known companion session" }, 400);
     }
     try {
-      if (authSessionId && !targetSessionId) {
-        const currentQuest = await questStore.getQuest(c.req.param("questId"));
-        if (!currentQuest) return c.json({ error: "Quest not found" }, 404);
-        const currentOwnerSessionId =
-          "sessionId" in currentQuest && typeof currentQuest.sessionId === "string" ? currentQuest.sessionId : "";
-        if (currentOwnerSessionId && currentOwnerSessionId !== authSessionId && !authIsOrchestrator) {
-          return c.json({ error: "Only leader sessions can complete a quest owned by another session" }, 403);
-        }
-      }
       const currentQuest = await questStore.getQuest(c.req.param("questId"));
+      if (!currentQuest) return c.json({ error: "Quest not found" }, 404);
+      const guardResponse = guardStatusMutation(c, auth, currentQuest, body);
+      if (guardResponse) return guardResponse;
       const currentOwnerSessionId =
         currentQuest && "sessionId" in currentQuest && typeof currentQuest.sessionId === "string"
           ? currentQuest.sessionId
@@ -776,23 +813,35 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.post("/quests/:questId/done", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     try {
       const body = (await c.req.json().catch(() => ({}))) as {
         notes?: string;
         cancelled?: boolean;
         debrief?: string;
         debriefTldr?: string;
+        force?: boolean;
+        reason?: string;
       };
-      const quest = await transitionQuestAndSync(c.req.param("questId"), {
-        status: "done",
-        ...(body.notes ? { notes: body.notes } : {}),
-        ...(body.debrief !== undefined ? { debrief: body.debrief } : {}),
-        ...(body.debriefTldr !== undefined ? { debriefTldr: body.debriefTldr } : {}),
-        ...(body.cancelled ? { cancelled: true } : {}),
-      });
+      const current = await questStore.getQuest(c.req.param("questId"));
+      if (!current) return c.json({ error: "Quest not found" }, 404);
+      const guardResponse = guardStatusMutation(c, auth, current, body);
+      if (guardResponse) return guardResponse;
+      const quest = await transitionQuestAndSync(
+        c.req.param("questId"),
+        {
+          status: "done",
+          ...(body.notes ? { notes: body.notes } : {}),
+          ...(body.debrief !== undefined ? { debrief: body.debrief } : {}),
+          ...(body.debriefTldr !== undefined ? { debriefTldr: body.debriefTldr } : {}),
+          ...(body.cancelled ? { cancelled: true } : {}),
+        },
+        current,
+      );
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       c.header("X-Companion-Deprecated", 'Use /api/quests/:questId/transition with {status:"done"}');
-      setDebriefTldrWarningHeaderForAgentWrite(c, null, body.debrief, body.debriefTldr);
+      setDebriefTldrWarningHeaderForAgentWrite(c, auth, body.debrief, body.debriefTldr);
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);
@@ -800,9 +849,14 @@ export function createQuestRoutes(ctx: RouteContext) {
   });
 
   api.post("/quests/:questId/cancel", async (c) => {
+    const auth = authenticateCompanionCallerOptional(c);
+    if (auth && "response" in auth) return auth.response;
     try {
-      const body = (await c.req.json().catch(() => ({}))) as { notes?: string };
+      const body = (await c.req.json().catch(() => ({}))) as { notes?: string; force?: boolean; reason?: string };
       const current = await questStore.getQuest(c.req.param("questId"));
+      if (!current) return c.json({ error: "Quest not found" }, 404);
+      const guardResponse = guardStatusMutation(c, auth, current, body);
+      if (guardResponse) return guardResponse;
       const quest = await questStore.cancelQuest(c.req.param("questId"), body.notes);
       if (!quest) return c.json({ error: "Quest not found" }, 404);
       broadcastQuestUpdate(wsBridge);

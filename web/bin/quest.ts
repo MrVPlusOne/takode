@@ -82,6 +82,11 @@ import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runTagsCommand } from "./quest-tags-command.js";
 import { runClaimCommand, runReassignCommand } from "./quest-ownership-command.js";
+import {
+  guardLocalQuestStatusMutation,
+  parseQuestStatusMutationOverride,
+  postQuestStatusMutation,
+} from "./quest-status-mutation.js";
 import { readFile } from "node:fs/promises";
 import { readFileSync, readdirSync } from "node:fs";
 import { basename, extname, join, resolve } from "node:path";
@@ -999,6 +1004,7 @@ async function cmdCreate(): Promise<void> {
     "desc-file",
     "tldr",
     "tldr-file",
+    "status",
     "tags",
     "follow-up-of",
     "image",
@@ -1019,7 +1025,8 @@ async function cmdCreate(): Promise<void> {
     die(
       'Usage: quest create [<title> | --title "..." | --title-file <path>|-] ' +
         '[--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] ' +
-        '[--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"]',
+        '[--status idea|refined] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] ' +
+        '[--image <path>] [--images "p1,p2"]',
     );
   }
 
@@ -1034,6 +1041,10 @@ async function cmdCreate(): Promise<void> {
     label: "Quest TLDR",
   });
   const normalizedTldr = normalizeTldr(tldr);
+  const status = option("status");
+  if (status !== undefined && status !== "idea" && status !== "refined") {
+    die("--status for quest create must be one of: idea, refined");
+  }
   const tagsStr = option("tags");
   const tags = tagsStr
     ? tagsStr
@@ -1062,6 +1073,7 @@ async function cmdCreate(): Promise<void> {
     const quest = await createQuest({
       title: resolvedTitle,
       description,
+      ...(status ? { status: status as "idea" | "refined" } : {}),
       ...(normalizedTldr ? { tldr: normalizedTldr } : {}),
       tags,
       ...(relationships ? { relationships } : {}),
@@ -1073,6 +1085,7 @@ async function cmdCreate(): Promise<void> {
     } else {
       const imageNote = resolvedImages?.length ? `, ${resolvedImages.length} image(s)` : "";
       console.log(`Created ${quest.questId}: "${quest.title}" (${quest.status}${imageNote})`);
+      console.log(`Use this exact quest ID for follow-up commands: ${quest.questId}`);
     }
     warnAll(tldrWarningsForWrite("description", description, normalizedTldr));
   } catch (e) {
@@ -1092,6 +1105,8 @@ async function cmdComplete(): Promise<void> {
     "debrief-file",
     "debrief-tldr",
     "debrief-tldr-file",
+    "force",
+    "reason",
     "json",
   ]);
   const id = positional(0);
@@ -1124,6 +1139,7 @@ async function cmdComplete(): Promise<void> {
     die("--session requires a session id");
   }
   const debriefOptions = await readOptionalDebriefOptions();
+  const override = parseQuestStatusMutationOverride(statusMutationCommandDeps());
 
   let items: { text: string; checked: boolean }[] = [];
   if (itemsFile !== undefined) {
@@ -1147,45 +1163,29 @@ async function cmdComplete(): Promise<void> {
     warnAll(completionHygieneWarnings(currentQuest, items, commitShas));
   }
 
-  // Prefer HTTP endpoint when server is available — it broadcasts quest status
-  // change to browsers (triggers "Quest Submitted" chat message + review badge).
-  if (companionPort) {
-    try {
-      const res = await fetch(`http://localhost:${companionPort}/api/quests/${encodeURIComponent(id)}/complete`, {
-        method: "POST",
-        headers: companionAuthHeaders({ "Content-Type": "application/json" }),
-        body: JSON.stringify({
-          verificationItems: items,
-          ...(targetSessionId ? { sessionId: targetSessionId } : {}),
-          ...(commitShas.length > 0 ? { commitShas } : {}),
-          ...debriefOptions,
-        }),
-        signal: AbortSignal.timeout(5000),
-      });
-      if (!res.ok) {
-        const err = await res.json().catch(() => ({ error: res.statusText }));
-        die((err as { error: string }).error || res.statusText);
-      }
-      const quest = (await res.json()) as QuestmasterTask;
-      if (jsonOutput) {
-        out(quest);
-      } else {
-        console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} verification items`);
-        console.log(formatCompletionReminder(quest.questId, { noCode }));
-      }
-      warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
-      return;
-    } catch (e) {
-      if ((e as Error).name === "AbortError" || (e as Error).message?.includes("timeout")) {
-        // Server unreachable — fall through to direct filesystem
-      } else {
-        die((e as Error).message);
-      }
+  const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "complete", {
+    verificationItems: items,
+    ...(targetSessionId ? { sessionId: targetSessionId } : {}),
+    ...(commitShas.length > 0 ? { commitShas } : {}),
+    ...(override.force ? { force: true, reason: override.reason } : {}),
+    ...debriefOptions,
+  });
+  if (serverQuest) {
+    if (jsonOutput) {
+      out(serverQuest);
+    } else {
+      console.log(`Completed ${serverQuest.questId} "${serverQuest.title}" with ${items.length} verification items`);
+      console.log(formatCompletionReminder(serverQuest.questId, { noCode }));
     }
+    warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
+    return;
   }
 
   // Fallback: direct filesystem (no browser notification)
   try {
+    await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override, {
+      ...(targetSessionId ? { targetSessionId } : {}),
+    });
     const quest = await completeQuest(
       id,
       items,
@@ -1234,6 +1234,8 @@ async function cmdDone(): Promise<void> {
     "debrief-tldr",
     "debrief-tldr-file",
     "cancelled",
+    "force",
+    "reason",
     "json",
   ]);
   const id = positional(0);
@@ -1250,11 +1252,28 @@ async function cmdDone(): Promise<void> {
   });
   const debriefOptions = await readOptionalDebriefOptions();
   const cancelled = flag("cancelled");
+  const override = parseQuestStatusMutationOverride(statusMutationCommandDeps());
   if (cancelled && Object.keys(debriefOptions).length > 0) {
     die("Final debrief metadata is only supported for completed quests, not cancelled quests");
   }
 
   try {
+    const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "done", {
+      ...(notes ? { notes } : {}),
+      ...debriefOptions,
+      ...(cancelled ? { cancelled: true } : {}),
+      ...(override.force ? { force: true, reason: override.reason } : {}),
+    });
+    if (serverQuest) {
+      if (jsonOutput) out(serverQuest);
+      else {
+        const verb = cancelled ? "Cancelled" : "Marked done";
+        console.log(`${verb} ${serverQuest.questId} "${serverQuest.title}"`);
+      }
+      warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
+      return;
+    }
+    await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override);
     const quest = await markDone(id, { notes, cancelled, ...debriefOptions });
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
@@ -1271,7 +1290,7 @@ async function cmdDone(): Promise<void> {
 }
 
 async function cmdCancel(): Promise<void> {
-  validateFlags(["notes", "notes-file", "json"]);
+  validateFlags(["notes", "notes-file", "force", "reason", "json"]);
   const id = positional(0);
   if (!id) die('Usage: quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--json]');
 
@@ -1280,8 +1299,19 @@ async function cmdCancel(): Promise<void> {
     fileFlag: "notes-file",
     label: "Cancellation reason",
   });
+  const override = parseQuestStatusMutationOverride(statusMutationCommandDeps());
 
   try {
+    const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "cancel", {
+      ...(notes ? { notes } : {}),
+      ...(override.force ? { force: true, reason: override.reason } : {}),
+    });
+    if (serverQuest) {
+      if (jsonOutput) out(serverQuest);
+      else console.log(`Cancelled ${serverQuest.questId} "${serverQuest.title}"`);
+      return;
+    }
+    await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override);
     const quest = await cancelQuest(id, notes);
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
@@ -1309,6 +1339,8 @@ async function cmdTransition(): Promise<void> {
     "debrief-file",
     "debrief-tldr",
     "debrief-tldr-file",
+    "force",
+    "reason",
     "json",
   ]);
   const id = positional(0);
@@ -1341,6 +1373,7 @@ async function cmdTransition(): Promise<void> {
   const debriefOptions = await readOptionalDebriefOptions();
   const sessionId = option("session") || currentSessionId;
   const commitShas = parseCommitShasFromFlags();
+  const override = parseQuestStatusMutationOverride(statusMutationCommandDeps());
   if (commitShas.length > 0 && status !== "done") {
     die("--commit/--commits can only be used when completing a quest");
   }
@@ -1349,14 +1382,26 @@ async function cmdTransition(): Promise<void> {
   }
 
   try {
-    const quest = await transitionQuest(id, {
+    const transitionInput = {
       status: status as import("../server/quest-types.js").QuestStatus,
       ...(description !== undefined ? { description } : {}),
       ...(tldr !== undefined ? { tldr: normalizedTldr ?? "" } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(commitShas.length > 0 ? { commitShas } : {}),
       ...debriefOptions,
+    };
+    const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "transition", {
+      ...transitionInput,
+      ...(override.force ? { force: true, reason: override.reason } : {}),
     });
+    const quest =
+      serverQuest ??
+      (await (async () => {
+        await guardLocalQuestStatusMutation(statusMutationCommandDeps(), id, override, {
+          ...(sessionId ? { targetSessionId: sessionId } : {}),
+        });
+        return transitionQuest(id, transitionInput);
+      })());
     if (!quest) die(`Quest ${id} not found`);
     await notifyServer();
     if (jsonOutput) {
@@ -1874,6 +1919,10 @@ function ownershipCommandDeps() {
     out,
     die,
   };
+}
+
+function statusMutationCommandDeps() {
+  return { companionAuthHeaders, companionPort, currentSessionId, die, flag, option };
 }
 
 // ─── Main ───────────────────────────────────────────────────────────────────

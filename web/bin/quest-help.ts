@@ -12,19 +12,19 @@ Commands:
   status <id> [--json]                                   Show compact action-oriented quest status
   history <id> [--json]                                  Show quest history
   tags   [--json]                                        List all existing tags with counts
-  create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json]
+  create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json]
                                                          Create a quest
   claim  <id> [--session <sid>] [--force --reason <text>] [--json]
                                                          Claim for session; --force is audited and server-auth only
   reassign <id> --session <worker> --reason <text> [--json]
                                                          Leader-only audited ownership reassignment
-  complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>] [--commit <sha>] [--commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]
+  complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>] [--commit <sha>] [--commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]
                                                          Mark done and submit for review
-  done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--json]
+  done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--force --reason <text>] [--json]
                                                          Mark as done/cancelled
-  cancel <id> [--notes "reason" | --notes-file <path>|-] [--json]
+  cancel <id> [--notes "reason" | --notes-file <path>|-] [--force --reason <text>] [--json]
                                                          Cancel from any status
-  transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]
+  transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]
                                                          Change status
   later  <id> [--json]                                   Move review-pending quest out of inbox
   inbox  <id> [--json]                                   Move review-pending quest back to inbox
@@ -65,6 +65,7 @@ Search tips:
 
 Safer rich-text input:
   quest create --title-file title.txt --desc-file body.md
+  quest create --title-file title.txt --desc-file body.md --status refined
   quest create --title-file title.txt --desc-file body.md --tldr-file summary.txt
   printf '%s\\n' 'Copied \`$(snippet)\` stays literal' | quest create "Quest title" --desc-file -
   quest edit q-1 --desc-file body.md

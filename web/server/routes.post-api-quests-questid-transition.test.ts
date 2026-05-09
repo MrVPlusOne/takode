@@ -28,7 +28,11 @@ vi.mock("node:child_process", () => {
       if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
     }
   });
-  return { execSync: execSyncMock, exec: execMock };
+  const execFileMock = vi.fn((...args: any[]) => {
+    const callback = typeof args[args.length - 1] === "function" ? args[args.length - 1] : undefined;
+    if (callback) callback(null, { stdout: "", stderr: "" });
+  });
+  return { execSync: execSyncMock, exec: execMock, execFile: execFileMock };
 });
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
@@ -613,5 +617,188 @@ describe("POST /api/quests/:questId/transition", () => {
       claimedQuestTitle: "Quest",
       claimedQuestStatus: "in_progress",
     });
+  });
+
+  it("rejects authenticated status changes from sessions that are neither leader nor owner", async () => {
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: false,
+    }));
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-1",
+      leaderSessionId: "leader-1",
+    } as any);
+    const transitionSpy = vi.spyOn(questStore, "transitionQuest");
+
+    const res = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-companion-session-id": "worker-2",
+        "x-companion-auth-token": "tok",
+      },
+      body: JSON.stringify({ status: "done", debrief: "Final outcome.", debriefTldr: "Final TLDR." }),
+    });
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("neither the quest leader nor the current worker/owner"),
+    });
+    expect(transitionSpy).not.toHaveBeenCalled();
+  });
+
+  it("allows forced status changes with an explicit reason", async () => {
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: false,
+    }));
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-1",
+      leaderSessionId: "leader-1",
+    } as any);
+    vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      verificationItems: [],
+      completedAt: Date.now(),
+      previousOwnerSessionIds: ["worker-1"],
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-companion-session-id": "worker-2",
+        "x-companion-auth-token": "tok",
+      },
+      body: JSON.stringify({
+        status: "done",
+        debrief: "Final outcome.",
+        debriefTldr: "Final TLDR.",
+        force: true,
+        reason: "leader approved recovery",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(questStore.transitionQuest).toHaveBeenCalledWith(
+      "q-1",
+      expect.objectContaining({ status: "done", debrief: "Final outcome.", debriefTldr: "Final TLDR." }),
+    );
+  });
+
+  it("allows the recorded leader to change worker-owned quest status", async () => {
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: sessionId === "leader-1",
+    }));
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-1",
+      leaderSessionId: "leader-1",
+    } as any);
+    vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "refined",
+      createdAt: Date.now(),
+      description: "Ready",
+      previousOwnerSessionIds: ["worker-1"],
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-companion-session-id": "leader-1",
+        "x-companion-auth-token": "tok",
+      },
+      body: JSON.stringify({ status: "refined", description: "Ready" }),
+    });
+
+    expect(res.status).toBe(200);
+  });
+
+  it("applies the wrong-session guard to complete, done, and cancel status endpoints", async () => {
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: false,
+    }));
+    const ownedQuest = {
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-1",
+      leaderSessionId: "leader-1",
+    } as any;
+    const completeSpy = vi.spyOn(questStore, "completeQuest");
+    const transitionSpy = vi.spyOn(questStore, "transitionQuest");
+    const cancelSpy = vi.spyOn(questStore, "cancelQuest");
+
+    const cases = [
+      {
+        path: "/api/quests/q-1/complete",
+        body: { verificationItems: [{ text: "verify", checked: false }] },
+      },
+      {
+        path: "/api/quests/q-1/done",
+        body: { notes: "closing" },
+      },
+      {
+        path: "/api/quests/q-1/cancel",
+        body: { notes: "superseded" },
+      },
+    ];
+
+    for (const statusCase of cases) {
+      vi.spyOn(questStore, "getQuest").mockResolvedValueOnce(ownedQuest);
+      const res = await app.request(statusCase.path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "x-companion-session-id": "worker-2",
+          "x-companion-auth-token": "tok",
+        },
+        body: JSON.stringify(statusCase.body),
+      });
+
+      expect(res.status).toBe(403);
+      expect(await res.json()).toMatchObject({
+        error: expect.stringContaining("neither the quest leader nor the current worker/owner"),
+      });
+    }
+
+    expect(completeSpy).not.toHaveBeenCalled();
+    expect(transitionSpy).not.toHaveBeenCalled();
+    expect(cancelSpy).not.toHaveBeenCalled();
   });
 });

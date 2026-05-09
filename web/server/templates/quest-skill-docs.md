@@ -28,7 +28,7 @@ These are completely different systems. Do NOT confuse them.
 
 **NEVER guess or fabricate a quest ID.** Quest IDs (e.g. `q-42`) are auto-assigned by the system.
 
-- **Creating a new quest**: Always use `quest create <title>`. The CLI assigns a fresh, unique quest ID automatically. NEVER use `quest edit`, `quest transition`, or any other command with a made-up ID to "create" a quest — this will silently overwrite an existing quest.
+- **Creating a new quest**: Always use `quest create <title>`. The CLI assigns and prints a fresh, unique quest ID automatically. Read that command output and use the exact printed ID for every follow-up command. NEVER infer the new ID from surrounding IDs, and never use `quest edit`, `quest transition`, or any other command with a made-up ID to "create" a quest — this can silently modify an existing quest.
 - **Working on an existing quest**: Use the exact quest ID provided by the user or from `quest list`/`quest mine` output. Before running `quest edit q-N`, always run `quest show q-N` first to confirm the quest title matches what you expect. If the title doesn't match, STOP — you have the wrong quest ID.
 - **Do NOT assume sequential IDs.** If you see `q-3` in the list, the next quest is NOT necessarily `q-4` — IDs may have gaps. Always let `quest create` assign the ID.
 
@@ -77,13 +77,13 @@ quest show   <id> [--json]                                    Show quest detail
 quest status <id> [--json]                                    Show compact action-oriented status and next action
 quest history <id> [--json]                                   Show quest history (legacy backup after cutover)
 quest tags   [--json]                                         List all existing tags with counts
-quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
+quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
 quest claim  <id> [--session <sid>] [--force --reason <text>] [--json]  Claim for your session; force is explicit, audited, and server-auth only
 quest reassign <id> --session <worker> --reason <text> [--json]         Leader-only audited quest ownership reassignment
-quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--session <sid>] [--commit <sha>] [--commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]  Mark done and submit for review
-quest done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--json]      Mark as done/cancelled
-quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--json]                Cancel from any status
-quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--json]    Change status
+quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--session <sid>] [--commit <sha>] [--commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]  Mark done and submit for review
+quest done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--force --reason <text>] [--json]      Mark as done/cancelled
+quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--force --reason <text>] [--json]                Cancel from any status
+quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]    Change status
 quest later  <id> [--json]                                    Move review-pending quest out of inbox
 quest inbox  <id> [--json]                                    Move review-pending quest back to inbox
 quest edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--json]     Edit in place (NEVER use to create)
@@ -330,6 +330,8 @@ printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal t
 | `--debrief-file <path>` | Read final debrief text from a file, or use `-` to read from stdin |
 | `--debrief-tldr "..."` | Human-readable TLDR metadata for long final debriefs |
 | `--debrief-tldr-file <path>` | Read final debrief TLDR metadata from a file, or use `-` to read from stdin |
+| `--force` | Override the status-change ownership guard; requires `--reason` |
+| `--reason <text>` | Required with `--force`; explain why the caller is intentionally overriding the leader/owner guard |
 | `--json` | Output JSON |
 
 Every completed non-cancelled quest must have both final debrief metadata and debrief TLDR metadata. A completion handoff that cannot provide both is incomplete: the owner should draft them before `quest complete` / `quest done`, ask the leader to supply them, or route a focused Bookkeeping phase to reconstruct them from accepted evidence.
@@ -344,6 +346,8 @@ Every completed non-cancelled quest must have both final debrief metadata and de
 | `--debrief-tldr "..."` | Human-readable TLDR metadata for long final debriefs |
 | `--debrief-tldr-file <path>` | Read final debrief TLDR metadata from a file, or use `-` to read from stdin |
 | `--cancelled` | Mark as cancelled instead of done |
+| `--force` | Override the status-change ownership guard; requires `--reason` |
+| `--reason <text>` | Required with `--force`; explain why the caller is intentionally overriding the leader/owner guard |
 | `--json` | Output JSON |
 
 ### quest cancel <id> [flags]
@@ -351,6 +355,8 @@ Every completed non-cancelled quest must have both final debrief metadata and de
 |------|-------------|
 | `--notes "..."` | Cancellation reason |
 | `--notes-file <path>` | Read the cancellation reason from a file, or use `-` to read from stdin |
+| `--force` | Override the status-change ownership guard; requires `--reason` |
+| `--reason <text>` | Required with `--force`; explain why the caller is intentionally overriding the leader/owner guard |
 | `--json` | Output JSON |
 
 **Shell quoting safety:** if closure notes or cancellation reasons may contain backticks, `$(...)`, quotes, braces, copied CLI output, or other shell-sensitive content, prefer `--notes-file <path>` or `--notes-file -` instead of inline shell quoting:
@@ -380,6 +386,8 @@ printf '%s\n' 'Superseded by q-13 with copied `$(note)` text' | \
 | `--debrief-file <path>` | Read final debrief text from a file, or use `-` to read from stdin |
 | `--debrief-tldr "..."` | Human-readable TLDR metadata for long final debriefs; valid only with `--status done` |
 | `--debrief-tldr-file <path>` | Read final debrief TLDR metadata from a file, or use `-` to read from stdin |
+| `--force` | Override the status-change ownership guard; requires `--reason` |
+| `--reason <text>` | Required with `--force`; explain why the caller is intentionally overriding the leader/owner guard |
 | `--json` | Output JSON |
 
 ### quest show <id>, quest history <id>, quest check <id> <n>, quest address <id> <n>, quest later <id>, quest inbox <id>, quest delete <id>, quest mine, quest tags
@@ -393,6 +401,9 @@ quest create "Fix mobile sidebar" --desc "Sidebar overflows on screens <400px" -
 
 # Create a quest from files when the text includes shell-sensitive content
 quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --tldr-file /tmp/quest-tldr.md --tags "questmaster,cli"
+
+# Create a refined quest directly after approval; copy the exact printed quest ID for follow-up commands
+quest create --title-file /tmp/quest-title.txt --desc-file /tmp/quest-description.md --status refined
 
 # Create a true follow-up quest and persist the relationship
 quest create "Follow-up redesign" --desc-file /tmp/quest-description.md --follow-up-of q-1023
