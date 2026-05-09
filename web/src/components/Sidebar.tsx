@@ -179,6 +179,7 @@ export function Sidebar() {
   const setServerName = useStore((s) => s.setServerName);
   const setSearchPreviewSessionId = useStore((s) => s.setSearchPreviewSessionId);
   const zoomLevel = useStore((s) => s.zoomLevel ?? 1);
+  const darkMode = useStore((s) => s.darkMode);
   const shortcutSettings = useStore((s) => s.shortcutSettings);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchFocused, setSearchFocused] = useState(false);
@@ -780,7 +781,7 @@ export function Sidebar() {
   // Includes archived reviewers so historical review trajectories stay inspectable
   // from their parent without becoming standalone sidebar clutter.
   const reviewerByParent = useMemo(() => buildReviewerByParent(allSessionList), [allSessionList]);
-  const logoSrc = "/app-logo.png";
+  const logoSrc = darkMode ? "/app-logo.png" : "/app-logo-dark.png";
   const [showCronSessions, setShowCronSessions] = useState(true);
   const treeGroupIds = useMemo(() => treeViewGroups.map((g) => g.id), [treeViewGroups]);
   const groupPointerSensor = useSensor(PointerSensor, { activationConstraint: { distance: 8 } });
