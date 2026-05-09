@@ -344,6 +344,29 @@ describe("App hidden panels", () => {
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
   });
 
+  it("opens Universal Search from an editable composer target using the configured shortcut", async () => {
+    resetStore({
+      shortcutSettings: { enabled: true, preset: "standard", overrides: { search_session: "Ctrl+K" } },
+    });
+
+    render(<App />);
+    const composerInput = document.createElement("textarea");
+    document.body.appendChild(composerInput);
+    composerInput.focus();
+    const event = new KeyboardEvent("keydown", {
+      key: "k",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    fireEvent(composerInput, event);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(await screen.findByTestId("universal-search-overlay")).toBeInTheDocument();
+    expect(mockState.openSessionSearch).not.toHaveBeenCalled();
+    composerInput.remove();
+  });
+
   it("keeps Universal Search shortcut captured while the overlay input is focused", () => {
     resetStore({
       shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
@@ -719,17 +742,18 @@ describe("App hidden panels", () => {
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();
-    input.dispatchEvent(
-      new KeyboardEvent("keydown", {
-        key: "f",
-        ctrlKey: true,
-        bubbles: true,
-        cancelable: true,
-      }),
-    );
+    const event = new KeyboardEvent("keydown", {
+      key: "b",
+      ctrlKey: true,
+      bubbles: true,
+      cancelable: true,
+    });
+    input.dispatchEvent(event);
 
+    expect(event.defaultPrevented).toBe(false);
     expect(screen.queryByTestId("universal-search-overlay")).toBeNull();
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
+    expect(mockState.setSidebarOpen).not.toHaveBeenCalled();
     input.remove();
   });
 

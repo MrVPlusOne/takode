@@ -231,6 +231,13 @@ describe("UniversalSearchOverlay", () => {
     vi.restoreAllMocks();
   });
 
+  it("focuses the search input when opened", async () => {
+    renderOverlay();
+
+    const input = screen.getByRole("searchbox");
+    await waitFor(() => expect(input).toHaveFocus());
+  });
+
   it("defaults to current-session message mode and lists recent user messages for an empty query", async () => {
     renderOverlay();
 

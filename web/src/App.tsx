@@ -335,9 +335,9 @@ export default function App() {
     function runShortcutAction(actionId: ShortcutActionId, event: KeyboardEvent, target: EventTarget | null) {
       const state = useStore.getState();
       const editableTarget = isShortcutEventTargetEditable(target);
-      const searchShortcutWhileSearchOpen = actionId === "search_session" && universalSearchOpen;
-      if (editableTarget && !isAppGlobalShortcutAction(actionId) && !searchShortcutWhileSearchOpen) return false;
-      if (actionId === "search_session") {
+      const searchShortcut = actionId === "search_session";
+      if (editableTarget && !isAppGlobalShortcutAction(actionId) && !searchShortcut) return false;
+      if (searchShortcut) {
         event.preventDefault();
         event.stopPropagation();
       }
