@@ -577,14 +577,6 @@ export async function computeDiffStatsAsync(
     }
 
     const cacheKey = buildDiffStatsCacheKey(session, diffRef, worktreeFingerprint);
-    if (options.allowCachedResult !== false && session.diffStatsCacheKey === cacheKey && session.diffStatsCacheResult) {
-      applyDiffStatsResult(session, session.diffStatsCacheResult);
-      if (session.state.is_worktree) {
-        session.worktreeStateFingerprint = worktreeFingerprint;
-      }
-      return true;
-    }
-
     const visibilitySkipReason = options.skipIfWorktreeNotOpen ? getDiffStatsSkippedReasonForVisibility(session) : null;
     if (visibilitySkipReason) {
       setSkippedDiffStats(session, cacheKey, visibilitySkipReason, { cache: false });
@@ -609,7 +601,18 @@ export async function computeDiffStatsAsync(
         return true;
       }
 
-      if (!worktreeBaseIsExplicitCommit && (session.state.git_ahead || 0) <= 0) {
+      if (
+        dirtyEntries === 0 &&
+        options.allowCachedResult !== false &&
+        session.diffStatsCacheKey === cacheKey &&
+        session.diffStatsCacheResult
+      ) {
+        applyDiffStatsResult(session, session.diffStatsCacheResult);
+        session.worktreeStateFingerprint = worktreeFingerprint;
+        return true;
+      }
+
+      if (dirtyEntries === 0 && !worktreeBaseIsExplicitCommit && (session.state.git_ahead || 0) <= 0) {
         session.state.total_lines_added = 0;
         session.state.total_lines_removed = 0;
         session.state.diff_stats_skipped_reason = null;
