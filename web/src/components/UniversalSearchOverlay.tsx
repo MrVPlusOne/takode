@@ -49,6 +49,7 @@ export interface UniversalSearchOverlayProps {
 const PAGE_SIZE = 20;
 const DEBOUNCE_MS = 300;
 const LAST_MODE_STORAGE_KEY = "cc-universal-search-mode";
+const LAST_QUERY_STORAGE_KEY = "cc-universal-search-query";
 const MESSAGE_SETTINGS_STORAGE_KEY = "cc-universal-search-message-settings";
 const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string }> = [
   { id: "quests", label: "Quests" },
@@ -94,6 +95,16 @@ function readLastMode(): UniversalSearchMode | null {
 function writeLastMode(mode: UniversalSearchMode): void {
   if (typeof window === "undefined") return;
   scopedSetItem(LAST_MODE_STORAGE_KEY, mode);
+}
+
+function readLastQuery(): string {
+  if (typeof window === "undefined") return "";
+  return scopedGetItem(LAST_QUERY_STORAGE_KEY) ?? "";
+}
+
+function writeLastQuery(query: string): void {
+  if (typeof window === "undefined") return;
+  scopedSetItem(LAST_QUERY_STORAGE_KEY, query);
 }
 
 function readMessageSearchSettings(): MessageSearchSettings {
@@ -242,7 +253,7 @@ export function UniversalSearchOverlay({
   const messageModeAvailable = Boolean(currentSessionId);
 
   const [mode, setMode] = useState<UniversalSearchMode>(() => initialMode(currentSessionId, messageModeAvailable));
-  const [query, setQuery] = useState("");
+  const [query, setQuery] = useState(() => readLastQuery());
   const debouncedQuery = useDebouncedValue(query, DEBOUNCE_MS);
   const [visibleLimit, setVisibleLimit] = useState(PAGE_SIZE);
   const [selectedIndex, setSelectedIndex] = useState(0);
@@ -293,11 +304,16 @@ export function UniversalSearchOverlay({
     writeLastMode(next);
   }, []);
 
+  const setUserQuery = useCallback((next: string) => {
+    setQuery(next);
+    writeLastQuery(next);
+  }, []);
+
   useEffect(() => {
     if (!open) return;
     setMode(initialMode(currentSessionId, messageModeAvailable));
     setMessageSettings(readMessageSearchSettings());
-    setQuery("");
+    setQuery(readLastQuery());
     setVisibleLimit(PAGE_SIZE);
     setSelectedIndex(0);
     setQuestActionMenu(null);
@@ -648,7 +664,7 @@ export function UniversalSearchOverlay({
               ref={inputRef}
               type="search"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => setUserQuery(event.target.value)}
               placeholder={placeholder}
               className="min-w-0 flex-1 bg-transparent text-sm text-cc-fg outline-none placeholder:text-cc-muted"
             />

@@ -49,6 +49,7 @@ const SCOPED_KEYS = [
   "cc-questmaster-view",
   "cc-shortcuts",
   "cc-universal-search-mode",
+  "cc-universal-search-query",
   "cc-universal-search-message-settings",
   "cc-last-session-creation-context",
   "cc-collapsed-tree-groups",

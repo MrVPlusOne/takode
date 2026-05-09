@@ -266,6 +266,85 @@ describe("UniversalSearchOverlay", () => {
     await waitFor(() => expect(input).toHaveFocus());
   });
 
+  it("restores a persisted query when opened", () => {
+    // Query text is browser-owned UI state, so a fresh overlay mount should hydrate it from localStorage.
+    localStorage.setItem("cc-universal-search-query", "universal search state");
+
+    renderOverlay();
+
+    expect(screen.getByRole("searchbox")).toHaveValue("universal search state");
+  });
+
+  it("persists query updates and restores them across close/open cycles", () => {
+    // Closing the overlay should not discard the user's last typed query.
+    const { rerender, onClose, onOpenMessage, onOpenQuest } = renderOverlay();
+    const input = screen.getByRole("searchbox");
+
+    fireEvent.change(input, { target: { value: "persist me" } });
+
+    expect(localStorage.getItem("cc-universal-search-query")).toBe("persist me");
+
+    rerender(
+      <UniversalSearchOverlay
+        open={false}
+        currentSessionId="s-new"
+        currentThreadKey="main"
+        sessions={sessions}
+        messages={messages}
+        onClose={onClose}
+        onOpenQuest={onOpenQuest}
+        onOpenMessage={onOpenMessage}
+      />,
+    );
+    rerender(
+      <UniversalSearchOverlay
+        open
+        currentSessionId="s-new"
+        currentThreadKey="main"
+        sessions={sessions}
+        messages={messages}
+        onClose={onClose}
+        onOpenQuest={onOpenQuest}
+        onOpenMessage={onOpenMessage}
+      />,
+    );
+
+    expect(screen.getByRole("searchbox")).toHaveValue("persist me");
+  });
+
+  it("persists clearing the query as an empty value", () => {
+    // Clearing must update storage too; otherwise the next open would resurrect a stale query.
+    localStorage.setItem("cc-universal-search-query", "to clear");
+    renderOverlay();
+
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "" } });
+
+    expect(screen.getByRole("searchbox")).toHaveValue("");
+    expect(localStorage.getItem("cc-universal-search-query")).toBe("");
+  });
+
+  it("keeps persisted queries isolated by server id", () => {
+    // Universal Search query persistence is local UI state, but it still must respect server-scoped storage.
+    localStorage.setItem("cc-server-id", "server-a");
+    localStorage.setItem("server-a:cc-universal-search-query", "alpha");
+    localStorage.setItem("server-b:cc-universal-search-query", "beta");
+
+    const first = renderOverlay();
+
+    expect(screen.getByRole("searchbox")).toHaveValue("alpha");
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "alpha updated" } });
+    expect(localStorage.getItem("server-a:cc-universal-search-query")).toBe("alpha updated");
+    expect(localStorage.getItem("server-b:cc-universal-search-query")).toBe("beta");
+
+    first.unmount();
+    localStorage.setItem("cc-server-id", "server-b");
+
+    renderOverlay();
+
+    expect(screen.getByRole("searchbox")).toHaveValue("beta");
+    expect(localStorage.getItem("server-a:cc-universal-search-query")).toBe("alpha updated");
+  });
+
   it("defaults to current-session message mode and lists recent user messages for an empty query", async () => {
     renderOverlay();
 
