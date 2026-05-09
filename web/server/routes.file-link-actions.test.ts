@@ -19,7 +19,10 @@ vi.mock("./image-optimizer.js", () => ({
 
 import { createFilesystemRoutes } from "./routes/filesystem.js";
 
-function makeApp(root: string) {
+function makeApp(
+  root: string,
+  localImageVariantStore?: { getVariant: (path: string, mimeType: string, variant: string) => Promise<unknown> },
+) {
   const app = new Hono();
   app.route(
     "/api",
@@ -39,6 +42,7 @@ function makeApp(root: string) {
       },
       execAsync: vi.fn(),
       execCaptureStdoutAsync: vi.fn(),
+      ...(localImageVariantStore ? { localImageVariantStore } : {}),
     } as never),
   );
   return app;
@@ -124,5 +128,33 @@ describe("file-link filesystem actions", () => {
     expect(res.headers.get("Content-Type")).toBe("image/jpeg");
     expect(res.headers.get("X-Takode-Preview-Compressed")).toBe("1");
     expect(Buffer.from(await res.arrayBuffer()).toString("utf-8")).toBe("compressed-preview");
+  });
+
+  it("serves stable image variant URLs with revalidating cache headers", async () => {
+    const sourcePath = join(tempDir, "preview.png");
+    const variantPath = join(tempDir, "variant.jpeg");
+    await writeFile(sourcePath, Buffer.from("source"));
+    await writeFile(variantPath, Buffer.from("variant"));
+    const localImageVariantStore = {
+      getVariant: vi.fn(async () => ({
+        path: variantPath,
+        contentType: "image/jpeg",
+        cacheHit: true,
+      })),
+    };
+    const app = makeApp(tempDir, localImageVariantStore);
+
+    const fsImageRes = await app.request(`/api/fs/image?path=${encodeURIComponent(sourcePath)}&variant=thumbnail`);
+    const fileLinkRes = await app.request(
+      `/api/fs/file-link/image?path=${encodeURIComponent("preview.png")}&isRelative=1&sessionId=s1&variant=full`,
+    );
+
+    expect(fsImageRes.status).toBe(200);
+    expect(fileLinkRes.status).toBe(200);
+    for (const res of [fsImageRes, fileLinkRes]) {
+      expect(res.headers.get("Cache-Control")).toBe("private, max-age=0, must-revalidate");
+      expect(res.headers.get("Cache-Control")).not.toContain("immutable");
+      expect(res.headers.get("X-Takode-Image-Variant-Cache")).toBe("hit");
+    }
   });
 });

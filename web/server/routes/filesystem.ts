@@ -269,7 +269,7 @@ function parseImageVariantKind(raw: string | undefined): LocalImageVariantKind |
 function localImageVariantHeaders(variant: { contentType: string; cacheHit: boolean }): Record<string, string> {
   return {
     "Content-Type": variant.contentType,
-    "Cache-Control": "public, max-age=31536000, immutable",
+    "Cache-Control": "private, max-age=0, must-revalidate",
     "X-Takode-Image-Variant-Cache": variant.cacheHit ? "hit" : "miss",
   };
 }
