@@ -270,6 +270,45 @@ describe("searchSessions", () => {
 });
 
 // ===========================================================================
+// searchSessionMessages
+// ===========================================================================
+describe("searchSessionMessages", () => {
+  it("passes scoped message search parameters through the extracted API helper", async () => {
+    const response = {
+      sessionId: "session/1",
+      sessionNum: 41,
+      query: "dragon",
+      scope: { kind: "current_thread", threadKey: "q-1277", label: "Searching in #41 thread q-1277" },
+      filters: { user: true, assistant: false, event: true },
+      totalMatches: 0,
+      results: [],
+      nextOffset: null,
+      hasMore: false,
+      tookMs: 1,
+    };
+    const signal = new AbortController().signal;
+    mockFetch.mockResolvedValueOnce(mockResponse(response));
+
+    const result = await api.searchSessionMessages("session/1", {
+      query: "dragon",
+      scope: "current_thread",
+      threadKey: "q-1277",
+      filters: { user: true, assistant: false, event: true },
+      limit: 20,
+      offset: 40,
+      signal,
+    });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe(
+      "/api/sessions/session%2F1/message-search?q=dragon&scope=current_thread&threadKey=q-1277&limit=20&offset=40&includeUser=true&includeAssistant=false&includeEvents=true",
+    );
+    expect(opts.signal).toBe(signal);
+    expect(result).toEqual(response);
+  });
+});
+
+// ===========================================================================
 // herdSessions
 // ===========================================================================
 describe("herdSessions", () => {
