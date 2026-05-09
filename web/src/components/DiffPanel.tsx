@@ -6,6 +6,10 @@ import { YarnBallSpinner } from "./CatIcons.js";
 
 const LINE_NUMBERS_KEY = "cc-diff-line-numbers";
 const DIFF_REQUEST_TIMEOUT_MS = 15000;
+const DIFF_NATIVE_SELECT_CLASS =
+  "takode-native-select min-w-0 max-w-[150px] sm:max-w-[180px] text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors";
+const DIFF_NATIVE_COMMIT_SELECT_CLASS =
+  "takode-native-select min-w-0 max-w-[150px] sm:max-w-[200px] text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors";
 
 /** Estimated height (px) for a file diff placeholder before it enters the viewport. */
 const PLACEHOLDER_HEIGHT_PX = 120;
@@ -634,7 +638,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
               setSelectedBranch(next);
               handleBaseBranchChange(next);
             }}
-            className="min-w-0 max-w-[150px] sm:max-w-[180px] text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors"
+            className={DIFF_NATIVE_SELECT_CLASS}
             title="Base branch for diff comparison"
           >
             <option value="">
@@ -663,7 +667,7 @@ function DiffPanelInner({ sessionId }: { sessionId: string }) {
                   handleBaseBranchChange(restoredBranch);
                 }
               }}
-              className="min-w-0 max-w-[150px] sm:max-w-[200px] text-cc-muted text-[11px] bg-transparent border border-cc-border rounded px-1.5 py-0.5 cursor-pointer hover:text-cc-fg hover:border-cc-fg/30 transition-colors"
+              className={DIFF_NATIVE_COMMIT_SELECT_CLASS}
               title="Compare against a specific commit"
             >
               <option value="">commit...</option>

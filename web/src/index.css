@@ -422,6 +422,25 @@ select {
   touch-action: manipulation;
 }
 
+.takode-native-select {
+  color-scheme: light;
+}
+
+.dark .takode-native-select {
+  color-scheme: dark;
+}
+
+.takode-native-select option,
+.takode-native-select optgroup {
+  background-color: var(--color-cc-input-bg);
+  color: var(--color-cc-fg);
+}
+
+.takode-native-select option:checked {
+  background-color: var(--color-cc-active);
+  color: var(--color-cc-fg);
+}
+
 /* ─── DiffViewer ──────────────────────────────────────────────────────────── */
 .diff-viewer {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace;

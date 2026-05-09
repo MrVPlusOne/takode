@@ -105,6 +105,25 @@ describe("DiffPanel", () => {
     expect(screen.queryByTestId("diff-header-mobile-break")).toBeNull();
   });
 
+  it("marks diff comparison selects for native popup contrast styling", async () => {
+    // The branch and commit selectors remain native controls for keyboard and
+    // screen-reader behavior, but need a styling hook so their opened option
+    // popups do not inherit low-contrast dark-theme text on browser-default white.
+    mockApi.getRecentCommits.mockResolvedValue({
+      commits: [{ sha: "abcdef1234567890", shortSha: "abcdef1", message: "Recent commit", timestamp: Date.now() }],
+    });
+
+    render(<DiffPanel sessionId="s1" />);
+
+    await waitFor(() => {
+      expect(screen.getAllByRole("combobox")).toHaveLength(2);
+    });
+
+    const [branchSelect, commitSelect] = screen.getAllByRole("combobox");
+    expect(branchSelect).toHaveClass("takode-native-select");
+    expect(commitSelect).toHaveClass("takode-native-select");
+  });
+
   it("displays changed files in file picker dropdown", () => {
     // Changed files should appear in the file picker dropdown and as DiffViewer sections in the feed.
     resetStore({
