@@ -127,6 +127,7 @@ vi.mock("../store.js", () => {
     getSessionSearchState: (state: Record<string, unknown>, _sessionId: string) => {
       return { query: "", isOpen: false, mode: "strict", category: "all", matches: [], currentMatchIndex: -1 };
     },
+    sessionSearchMessageMatchesCategory: () => true,
   };
 });
 
