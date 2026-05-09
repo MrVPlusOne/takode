@@ -3,11 +3,14 @@ import { describe, expect, it, vi } from "vitest";
 
 import {
   DEFAULT_SHORTCUT_SETTINGS,
+  createShortcutGestureRecorder,
   formatShortcut,
   getMatchingShortcutAction,
+  getMatchingShortcutTapAction,
   getShortcutHint,
   isAppGlobalShortcutAction,
   performShortcutAction,
+  recordShortcutBindingFromEvent,
   resolveShortcutNewSessionContext,
   shouldBlurVimEscape,
 } from "./shortcuts.js";
@@ -34,6 +37,79 @@ describe("shortcuts", () => {
 
     expect(action).toBe("open_terminal");
     expect(formatShortcut("Ctrl+`", "MacIntel")).toBe("Ctrl+`");
+  });
+
+  it("includes voice start and stop in preset shortcuts", () => {
+    const settings = { enabled: true, preset: "standard" as const, overrides: {} };
+
+    expect(getShortcutHint(settings, "voice_start", "MacIntel")).toBe("Double Shift");
+    expect(getShortcutHint(settings, "voice_stop", "MacIntel")).toBe("Shift");
+    expect(getMatchingShortcutTapAction(settings, "Shift", 2)).toBe("voice_start");
+    expect(getMatchingShortcutTapAction(settings, "Shift", 1)).toBe("voice_stop");
+    expect(
+      getMatchingShortcutTapAction(
+        { enabled: true, preset: "standard", overrides: { voice_stop: "Tap:Ctrl" } },
+        "Control",
+        1,
+      ),
+    ).toBe("voice_stop");
+  });
+
+  it("keeps tap gestures out of keydown chord matching", () => {
+    const settings = { enabled: true, preset: "standard" as const, overrides: {} };
+
+    expect(
+      getMatchingShortcutAction(settings, {
+        key: "Shift",
+        metaKey: false,
+        ctrlKey: false,
+        altKey: false,
+        shiftKey: true,
+      }),
+    ).toBeNull();
+  });
+
+  it("records modifier-only single taps distinctly from double taps", () => {
+    vi.useFakeTimers();
+    try {
+      const bindings: string[] = [];
+      const recorder = createShortcutGestureRecorder((binding) => bindings.push(binding));
+
+      recorder.keyDown({ key: "Shift", altKey: false, ctrlKey: false, metaKey: false, shiftKey: true, repeat: false });
+      recorder.keyUp({ key: "Shift" });
+      expect(bindings).toEqual([]);
+
+      vi.advanceTimersByTime(400);
+      expect(bindings).toEqual(["Tap:Shift"]);
+
+      recorder.keyDown({ key: "Shift", altKey: false, ctrlKey: false, metaKey: false, shiftKey: true, repeat: false });
+      recorder.keyUp({ key: "Shift" });
+      vi.advanceTimersByTime(200);
+      recorder.keyDown({ key: "Shift", altKey: false, ctrlKey: false, metaKey: false, shiftKey: true, repeat: false });
+      recorder.keyUp({ key: "Shift" });
+
+      expect(bindings).toEqual(["Tap:Shift", "DoubleTap:Shift"]);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("still records chord shortcuts immediately", () => {
+    expect(
+      recordShortcutBindingFromEvent({
+        key: "l",
+        metaKey: false,
+        ctrlKey: true,
+        altKey: false,
+        shiftKey: false,
+      }),
+    ).toBe("Ctrl+L");
+
+    const bindings: string[] = [];
+    const recorder = createShortcutGestureRecorder((binding) => bindings.push(binding));
+    recorder.keyDown({ key: "l", altKey: false, ctrlKey: true, metaKey: false, shiftKey: false, repeat: false });
+
+    expect(bindings).toEqual(["Ctrl+L"]);
   });
 
   it("opens terminal from a thread and returns to the thread from terminal", () => {

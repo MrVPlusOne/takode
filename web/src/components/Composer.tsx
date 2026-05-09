@@ -57,6 +57,13 @@ import {
 } from "../utils/vscode-context.js";
 import { isNarrowComposerLayout } from "../utils/layout.js";
 import { formatReplyContentForAssistant } from "../utils/reply-context.js";
+import {
+  SHORTCUT_DOUBLE_TAP_WINDOW_MS,
+  getMatchingShortcutAction,
+  getMatchingShortcutTapAction,
+  isModifierOnlyKey,
+  type ShortcutActionId,
+} from "../shortcuts.js";
 import type {
   CodexAppReference,
   CodexSkillReference,
@@ -77,6 +84,7 @@ const EMPTY_SKILL_REFERENCES: CodexSkillReference[] = [];
 const EMPTY_APP_REFERENCES: CodexAppReference[] = [];
 const EMPTY_PENDING_USER_UPLOADS: PendingUserUpload[] = [];
 const EMPTY_COMPOSER_IMAGES: ComposerDraftImage[] = [];
+const VOICE_SHORTCUT_ACTIONS: readonly ShortcutActionId[] = ["voice_start", "voice_stop"];
 
 function nowMs(): number {
   return typeof performance !== "undefined" && typeof performance.now === "function" ? performance.now() : Date.now();
@@ -88,6 +96,22 @@ function createVoiceTranscriptionRequestId(): string {
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2);
   return `voice-${Date.now()}-${random}`;
+}
+
+function eventKeyIsOnlyPressedModifier(
+  event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
+): boolean {
+  if (event.key === "Shift") return event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+  if (event.key === "Control") return event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
+  if (event.key === "Alt") return event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+  if (event.key === "Meta") return event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey;
+  return false;
+}
+
+function eventUsesComboModifier(
+  event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
+): boolean {
+  return (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) && !eventKeyIsOnlyPressedModifier(event);
 }
 
 function calculateVoiceTranscriptionPhaseDurations(
@@ -136,6 +160,7 @@ export function Composer({
   transcriptionThreadTitle?: string;
 }) {
   const draft = useStore((s) => s.composerDrafts.get(sessionId));
+  const shortcutSettings = useStore((s) => s.shortcutSettings);
   const pendingUserUploads = useStore((s) => s.pendingUserUploads.get(sessionId)) ?? EMPTY_PENDING_USER_UPLOADS;
   const replyContext = useStore((s) => s.replyContexts.get(sessionId));
   const text = draft?.text ?? "";
@@ -191,6 +216,9 @@ export function Composer({
   const persistedSettingsRequestRef = useRef<Promise<Awaited<ReturnType<typeof api.getSettings>> | null> | null>(null);
   const voiceStartPendingRef = useRef(false);
   const voiceStartPendingReleaseTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const voiceShortcutTapCandidateRef = useRef<string | null>(null);
+  const voiceShortcutLastTapRef = useRef<{ key: string; time: number } | null>(null);
+  const voiceShortcutTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [voiceCaptureMode, setVoiceCaptureMode] = useState<"dictation" | "edit" | "append">("dictation");
   const [failedTranscription, setFailedTranscription] = useState<FailedTranscription | null>(null);
   const preRecordingTextRef = useRef({ before: "", after: "" });
@@ -234,6 +262,15 @@ export function Composer({
       voiceStartPendingReleaseTimerRef.current = null;
     }
     voiceStartPendingRef.current = false;
+  }, []);
+
+  const clearVoiceShortcutTap = useCallback(() => {
+    if (voiceShortcutTapTimerRef.current) {
+      clearTimeout(voiceShortcutTapTimerRef.current);
+      voiceShortcutTapTimerRef.current = null;
+    }
+    voiceShortcutTapCandidateRef.current = null;
+    voiceShortcutLastTapRef.current = null;
   }, []);
 
   const deferPendingVoiceStartRelease = useCallback(() => {
@@ -605,6 +642,33 @@ export function Composer({
   );
 
   const isConnected = sessionView.isConnected;
+  const voiceShortcutIsAvailable = useCallback(
+    (actionId: ShortcutActionId) => {
+      if (actionId === "voice_start") {
+        return (
+          !isRecordingRef.current && !isPreparingRef.current && isConnected && !isTranscribing && !voiceEditProposal
+        );
+      }
+      if (actionId === "voice_stop") {
+        return isRecordingRef.current;
+      }
+      return false;
+    },
+    [isConnected, isTranscribing, voiceEditProposal],
+  );
+
+  const runVoiceShortcutAction = useCallback(
+    (actionId: ShortcutActionId) => {
+      if (!voiceShortcutIsAvailable(actionId)) return false;
+      if (actionId === "voice_start" || actionId === "voice_stop") {
+        void handleMicClick();
+        return true;
+      }
+      return false;
+    },
+    [handleMicClick, voiceShortcutIsAvailable],
+  );
+
   const currentMode = sessionView.permissionMode;
   const isCodex = sessionView.backendType === "codex";
   const diffLinesAdded = sessionView.totalLinesAdded ?? sdkDiffTotals.totalLinesAdded;
@@ -965,55 +1029,91 @@ export function Composer({
   }
 
   // Voice recording keyboard shortcuts:
-  // - Double-Shift (within 400ms): start recording
-  // - Single Shift tap (while recording): finish recording & transcribe
-  // - Escape (while recording): cancel recording & discard audio
+  // - Configured start action: starts recording
+  // - Configured stop action: finishes recording and transcribes
+  // - Escape: fixed cancel shortcut while recording/preparing
   useEffect(() => {
     if (!voiceSupported) return;
-    let lastShiftUp = 0;
-    let shiftGestureCandidate = false;
 
     const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Shift") {
-        // Start a fresh candidate only for a non-repeating standalone Shift press.
-        if (!e.repeat) shiftGestureCandidate = true;
-      } else if (shiftGestureCandidate) {
-        // Any non-Shift key while Shift is down means this was regular typing or a shortcut.
-        shiftGestureCandidate = false;
-        lastShiftUp = 0;
-      } else if (lastShiftUp !== 0) {
-        // Any intervening non-Shift typing between taps invalidates the armed first tap.
-        lastShiftUp = 0;
-      }
       if (e.key === "Escape" && (isRecording || isPreparing)) {
         e.preventDefault();
         cancelRecording();
-      }
-    };
-    const onKeyUp = (e: KeyboardEvent) => {
-      if (e.key !== "Shift") return;
-      if (!shiftGestureCandidate) {
-        lastShiftUp = 0;
+        clearVoiceShortcutTap();
         return;
       }
-      shiftGestureCandidate = false;
+
+      const comboAction = getMatchingShortcutAction(shortcutSettings, e, {
+        actionIds: VOICE_SHORTCUT_ACTIONS,
+        isActionAvailable: voiceShortcutIsAvailable,
+      });
+      if (comboAction) {
+        if (runVoiceShortcutAction(comboAction)) {
+          e.preventDefault();
+          e.stopPropagation();
+          clearVoiceShortcutTap();
+        }
+        return;
+      }
+
+      if (e.repeat) return;
+      if (voiceShortcutTapCandidateRef.current && voiceShortcutTapCandidateRef.current !== e.key) {
+        clearVoiceShortcutTap();
+        return;
+      }
+      if (eventUsesComboModifier(e) || (!isModifierOnlyKey(e.key) && e.key.length !== 1)) {
+        voiceShortcutTapCandidateRef.current = null;
+        voiceShortcutLastTapRef.current = null;
+        return;
+      }
+      voiceShortcutTapCandidateRef.current = e.key;
+    };
+
+    const onKeyUp = (e: KeyboardEvent) => {
+      if (voiceShortcutTapCandidateRef.current !== e.key) return;
+      voiceShortcutTapCandidateRef.current = null;
       const now = Date.now();
 
-      if (isRecording) {
-        // While recording, any clean Shift tap finishes recording
-        lastShiftUp = 0;
-        handleMicClick();
+      const doubleTapAction = getMatchingShortcutTapAction(shortcutSettings, e.key, 2, {
+        actionIds: VOICE_SHORTCUT_ACTIONS,
+        isActionAvailable: voiceShortcutIsAvailable,
+      });
+      const singleTapAction = getMatchingShortcutTapAction(shortcutSettings, e.key, 1, {
+        actionIds: VOICE_SHORTCUT_ACTIONS,
+        isActionAvailable: voiceShortcutIsAvailable,
+      });
+      const previousTap = voiceShortcutLastTapRef.current;
+      if (previousTap?.key === e.key && now - previousTap.time < SHORTCUT_DOUBLE_TAP_WINDOW_MS) {
+        clearVoiceShortcutTap();
+        if (doubleTapAction && runVoiceShortcutAction(doubleTapAction)) {
+          e.preventDefault();
+          e.stopPropagation();
+          return;
+        }
+      }
+
+      if (singleTapAction && !doubleTapAction) {
+        if (runVoiceShortcutAction(singleTapAction)) {
+          e.preventDefault();
+          e.stopPropagation();
+        }
         return;
       }
 
-      // Not recording: require double-tap to start
-      if (now - lastShiftUp < 400) {
-        lastShiftUp = 0;
-        if (!isConnected || isTranscribing || isPreparing || voiceEditProposal) return;
-        handleMicClick();
-      } else {
-        lastShiftUp = now;
-        warmMicrophone(); // Pre-warm mic on first tap so it's ready for the second
+      voiceShortcutLastTapRef.current = { key: e.key, time: now };
+      if (voiceShortcutTapTimerRef.current) clearTimeout(voiceShortcutTapTimerRef.current);
+      voiceShortcutTapTimerRef.current = setTimeout(() => {
+        voiceShortcutTapTimerRef.current = null;
+        const action = getMatchingShortcutTapAction(shortcutSettings, e.key, 1, {
+          actionIds: VOICE_SHORTCUT_ACTIONS,
+          isActionAvailable: voiceShortcutIsAvailable,
+        });
+        voiceShortcutLastTapRef.current = null;
+        if (action) void runVoiceShortcutAction(action);
+      }, SHORTCUT_DOUBLE_TAP_WINDOW_MS);
+
+      if (doubleTapAction === "voice_start") {
+        warmMicrophone();
       }
     };
 
@@ -1022,17 +1122,18 @@ export function Composer({
     return () => {
       document.removeEventListener("keydown", onKeyDown);
       document.removeEventListener("keyup", onKeyUp);
+      clearVoiceShortcutTap();
     };
   }, [
+    cancelRecording,
+    clearVoiceShortcutTap,
     voiceSupported,
     isRecording,
     isPreparing,
-    isConnected,
-    isTranscribing,
-    handleMicClick,
-    cancelRecording,
+    shortcutSettings,
+    runVoiceShortcutAction,
+    voiceShortcutIsAvailable,
     warmMicrophone,
-    voiceEditProposal,
   ]);
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {

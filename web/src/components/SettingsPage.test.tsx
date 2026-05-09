@@ -321,6 +321,33 @@ describe("SettingsPage", () => {
     expect(mockState.setShortcutOverride).toHaveBeenCalledWith("search_session", undefined);
   });
 
+  it("records double-tap shortcut overrides", async () => {
+    mockState = createMockState({
+      shortcutSettings: {
+        enabled: true,
+        preset: "standard",
+        overrides: {},
+      },
+    });
+
+    render(<SettingsPage />);
+
+    await waitForSettingsPage();
+    vi.useFakeTimers();
+    try {
+      fireEvent.click(screen.getAllByRole("button", { name: "Record shortcut" })[0]!);
+      fireEvent.keyDown(window, { key: "Shift", shiftKey: true });
+      fireEvent.keyUp(window, { key: "Shift" });
+      vi.advanceTimersByTime(200);
+      fireEvent.keyDown(window, { key: "Shift", shiftKey: true });
+      fireEvent.keyUp(window, { key: "Shift" });
+
+      expect(mockState.setShortcutOverride).toHaveBeenCalledWith("search_session", "DoubleTap:Shift");
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it("allows disabling an individual shortcut with Off", async () => {
     mockState = createMockState({
       shortcutSettings: {

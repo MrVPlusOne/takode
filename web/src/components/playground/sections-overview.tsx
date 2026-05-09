@@ -450,6 +450,30 @@ export function PlaygroundOverviewSections() {
           >
             Terminal
           </button>
+          <button
+            type="button"
+            title={getShortcutTitle(
+              "Start voice input",
+              { enabled: true, preset: "standard", overrides: {} },
+              "voice_start",
+              "MacIntel",
+            )}
+            className="px-3 py-2 rounded-lg bg-cc-hover text-sm text-cc-fg"
+          >
+            Voice Start
+          </button>
+          <button
+            type="button"
+            title={getShortcutTitle(
+              "Stop voice recording",
+              { enabled: true, preset: "standard", overrides: {} },
+              "voice_stop",
+              "MacIntel",
+            )}
+            className="px-3 py-2 rounded-lg bg-cc-hover text-sm text-cc-fg"
+          >
+            Voice Stop
+          </button>
         </div>
       </Section>
 

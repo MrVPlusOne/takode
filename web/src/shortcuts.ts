@@ -6,7 +6,9 @@ export type ShortcutActionId =
   | "open_terminal"
   | "previous_session"
   | "next_session"
-  | "new_session";
+  | "new_session"
+  | "voice_start"
+  | "voice_stop";
 
 export type ShortcutPresetId = "standard" | "vscode-light" | "vim-light";
 
@@ -72,6 +74,12 @@ export interface ShortcutRuntime {
 }
 
 type ShortcutBindingMap = Record<ShortcutActionId, ShortcutBinding | null>;
+type ShortcutGestureKind = "combo" | "tap" | "double_tap";
+
+export interface ShortcutActionFilter {
+  actionIds?: readonly ShortcutActionId[];
+  isActionAvailable?: (actionId: ShortcutActionId) => boolean;
+}
 
 const ACTION_ORDER: ShortcutActionId[] = [
   "search_session",
@@ -80,9 +88,14 @@ const ACTION_ORDER: ShortcutActionId[] = [
   "previous_session",
   "next_session",
   "new_session",
+  "voice_start",
+  "voice_stop",
 ];
 
 const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>(["open_terminal", "previous_session", "next_session"]);
+const TAP_BINDING_PREFIX = "Tap:";
+const DOUBLE_TAP_BINDING_PREFIX = "DoubleTap:";
+export const SHORTCUT_DOUBLE_TAP_WINDOW_MS = 400;
 
 export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
   enabled: false,
@@ -121,6 +134,16 @@ export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
     label: "New Session",
     description: "Open the new session modal.",
   },
+  {
+    id: "voice_start",
+    label: "Start Voice Input",
+    description: "Start recording voice input in the composer.",
+  },
+  {
+    id: "voice_stop",
+    label: "Stop Voice Recording",
+    description: "Finish the active voice recording and transcribe it.",
+  },
 ];
 
 export const SHORTCUT_PRESET_OPTIONS: ShortcutPresetOption[] = [
@@ -149,6 +172,8 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     previous_session: "Mod+Shift+[",
     next_session: "Mod+Shift+]",
     new_session: "Mod+N",
+    voice_start: "DoubleTap:Shift",
+    voice_stop: "Tap:Shift",
   },
   "vscode-light": {
     search_session: "Mod+F",
@@ -157,6 +182,8 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     previous_session: "Ctrl+PageUp",
     next_session: "Ctrl+PageDown",
     new_session: "Mod+N",
+    voice_start: "DoubleTap:Shift",
+    voice_stop: "Tap:Shift",
   },
   "vim-light": {
     search_session: "Alt+/",
@@ -165,11 +192,20 @@ const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
     previous_session: "Alt+H",
     next_session: "Alt+L",
     new_session: "Alt+N",
+    voice_start: "DoubleTap:Shift",
+    voice_stop: "Tap:Shift",
   },
 };
 
 function normalizeKeyToken(key: string): string {
   return key.toUpperCase();
+}
+
+function normalizeShortcutKey(key: string): string {
+  const normalized = normalizeKeyToken(key);
+  if (normalized === "CTRL") return "CONTROL";
+  if (normalized === "CMD") return "META";
+  return normalized;
 }
 
 function tokenizeBinding(binding: ShortcutBinding): string[] {
@@ -181,6 +217,7 @@ function tokenizeBinding(binding: ShortcutBinding): string[] {
 }
 
 function parseBinding(binding: ShortcutBinding): {
+  kind: ShortcutGestureKind;
   alt: boolean;
   ctrl: boolean;
   meta: boolean;
@@ -188,9 +225,23 @@ function parseBinding(binding: ShortcutBinding): {
   mod: boolean;
   key: string | null;
 } {
+  const tapKey = parseTapBindingKey(binding);
+  if (tapKey) {
+    return {
+      kind: binding.startsWith(DOUBLE_TAP_BINDING_PREFIX) ? "double_tap" : "tap",
+      alt: false,
+      ctrl: false,
+      meta: false,
+      shift: false,
+      mod: false,
+      key: tapKey,
+    };
+  }
+
   const tokens = tokenizeBinding(binding);
   let key: string | null = null;
   const parsed = {
+    kind: "combo" as ShortcutGestureKind,
     alt: false,
     ctrl: false,
     meta: false,
@@ -227,6 +278,16 @@ function parseBinding(binding: ShortcutBinding): {
   return parsed;
 }
 
+function parseTapBindingKey(binding: ShortcutBinding): string | null {
+  if (binding.startsWith(DOUBLE_TAP_BINDING_PREFIX)) {
+    return normalizeShortcutKey(binding.slice(DOUBLE_TAP_BINDING_PREFIX.length));
+  }
+  if (binding.startsWith(TAP_BINDING_PREFIX)) {
+    return normalizeShortcutKey(binding.slice(TAP_BINDING_PREFIX.length));
+  }
+  return null;
+}
+
 function keyFromKeyboardEvent(event: Pick<KeyboardEvent, "key">): string {
   const key = event.key;
   if (key === " ") return "SPACE";
@@ -237,19 +298,121 @@ export function isModifierOnlyKey(key: string): boolean {
   return ["SHIFT", "CONTROL", "CTRL", "ALT", "META", "CMD"].includes(key.toUpperCase());
 }
 
+function formatShortcutKey(key: string): string {
+  switch (normalizeShortcutKey(key)) {
+    case "CONTROL":
+      return "Ctrl";
+    case "META":
+      return "Meta";
+    case "SHIFT":
+      return "Shift";
+    case "ALT":
+      return "Alt";
+    case "SPACE":
+      return "Space";
+    default:
+      break;
+  }
+  return key.length === 1 ? key : key.charAt(0) + key.slice(1).toLowerCase();
+}
+
+function tapBindingForKey(key: string, tapCount: 1 | 2): ShortcutBinding {
+  return `${tapCount === 2 ? DOUBLE_TAP_BINDING_PREFIX : TAP_BINDING_PREFIX}${formatShortcutKey(key)}`;
+}
+
 export function recordShortcutBindingFromEvent(
   event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey">,
 ): ShortcutBinding | null {
   const key = keyFromKeyboardEvent(event);
-  if (isModifierOnlyKey(key)) return null;
+  if (isModifierOnlyKey(key)) return tapBindingForKey(key, 1);
 
   const tokens: string[] = [];
   if (event.metaKey) tokens.push("Cmd");
   if (event.ctrlKey) tokens.push("Ctrl");
   if (event.altKey) tokens.push("Alt");
   if (event.shiftKey) tokens.push("Shift");
-  tokens.push(key.length === 1 ? key : key.charAt(0) + key.slice(1).toLowerCase());
+  tokens.push(formatShortcutKey(key));
   return tokens.join("+");
+}
+
+export interface ShortcutGestureRecorder {
+  keyDown: (event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey" | "repeat">) => void;
+  keyUp: (event: Pick<KeyboardEvent, "key">) => void;
+  cancel: () => void;
+}
+
+export function createShortcutGestureRecorder(
+  onBinding: (binding: ShortcutBinding) => void,
+  {
+    doubleTapWindowMs = SHORTCUT_DOUBLE_TAP_WINDOW_MS,
+    now = Date.now,
+    setTimer = setTimeout,
+    clearTimer = clearTimeout,
+  }: {
+    doubleTapWindowMs?: number;
+    now?: () => number;
+    setTimer?: typeof setTimeout;
+    clearTimer?: typeof clearTimeout;
+  } = {},
+): ShortcutGestureRecorder {
+  let activeTapKey: string | null = null;
+  let pendingTapKey: string | null = null;
+  let pendingTapStartedAt = 0;
+  let pendingTapTimer: ReturnType<typeof setTimeout> | null = null;
+
+  function clearPendingTap() {
+    if (pendingTapTimer) {
+      clearTimer(pendingTapTimer);
+      pendingTapTimer = null;
+    }
+    pendingTapKey = null;
+    pendingTapStartedAt = 0;
+  }
+
+  function emit(binding: ShortcutBinding) {
+    clearPendingTap();
+    activeTapKey = null;
+    onBinding(binding);
+  }
+
+  function scheduleSingleTap(key: string) {
+    clearPendingTap();
+    pendingTapKey = key;
+    pendingTapStartedAt = now();
+    pendingTapTimer = setTimer(() => {
+      emit(tapBindingForKey(key, 1));
+    }, doubleTapWindowMs);
+  }
+
+  return {
+    keyDown(event) {
+      const key = keyFromKeyboardEvent(event);
+      if (event.repeat) return;
+      if (!isModifierOnlyKey(key)) {
+        emit(recordShortcutBindingFromEvent(event) ?? tapBindingForKey(key, 1));
+        return;
+      }
+      if (activeTapKey && activeTapKey !== key) {
+        activeTapKey = null;
+        return;
+      }
+      activeTapKey = key;
+    },
+    keyUp(event) {
+      const key = keyFromKeyboardEvent(event);
+      if (activeTapKey !== key) return;
+      activeTapKey = null;
+      if (pendingTapKey === key && now() - pendingTapStartedAt < doubleTapWindowMs) {
+        emit(tapBindingForKey(key, 2));
+        return;
+      }
+      scheduleSingleTap(key);
+    },
+    cancel() {
+      clearPendingTap();
+      activeTapKey = null;
+    },
+  };
 }
 
 function bindingMatchesEventKey(bindingKey: string, event: Pick<KeyboardEvent, "key"> & { code?: string }): boolean {
@@ -289,6 +452,11 @@ export function getEffectiveShortcutBinding(
 }
 
 export function formatShortcut(binding: ShortcutBinding, platform?: string): string {
+  const parsed = parseBinding(binding);
+  if (parsed.kind === "double_tap" && parsed.key) return `Double ${formatShortcutKey(parsed.key)}`;
+  if (parsed.kind === "tap" && parsed.key && isModifierOnlyKey(parsed.key)) return formatShortcutKey(parsed.key);
+  if (parsed.kind === "tap" && parsed.key) return `Tap ${formatShortcutKey(parsed.key)}`;
+
   const isMac = platformIsMac(platform);
   return tokenizeBinding(binding)
     .map((token) => {
@@ -415,11 +583,17 @@ export function isAppGlobalShortcutAction(actionId: ShortcutActionId): boolean {
   return APP_GLOBAL_SHORTCUT_ACTIONS.has(actionId);
 }
 
+function actionFilterAllows(actionId: ShortcutActionId, filter?: ShortcutActionFilter): boolean {
+  if (filter?.actionIds && !filter.actionIds.includes(actionId)) return false;
+  return filter?.isActionAvailable?.(actionId) ?? true;
+}
+
 export function matchesShortcutEvent(
   binding: ShortcutBinding,
   event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"> & { code?: string },
 ): boolean {
   const parsed = parseBinding(binding);
+  if (parsed.kind !== "combo") return false;
   if (!parsed.key || !bindingMatchesEventKey(parsed.key, event)) return false;
 
   const expectsCtrl =
@@ -438,12 +612,34 @@ export function matchesShortcutEvent(
 export function getMatchingShortcutAction(
   settings: ShortcutSettings | null | undefined,
   event: Pick<KeyboardEvent, "key" | "altKey" | "ctrlKey" | "metaKey" | "shiftKey"> & { code?: string },
+  filter?: ShortcutActionFilter,
 ): ShortcutActionId | null {
   const resolved = settings ?? DEFAULT_SHORTCUT_SETTINGS;
   if (!resolved.enabled) return null;
   for (const actionId of ACTION_ORDER) {
+    if (!actionFilterAllows(actionId, filter)) continue;
     const binding = getEffectiveShortcutBinding(resolved, actionId);
     if (binding && matchesShortcutEvent(binding, event)) return actionId;
+  }
+  return null;
+}
+
+export function getMatchingShortcutTapAction(
+  settings: ShortcutSettings | null | undefined,
+  key: string,
+  tapCount: 1 | 2,
+  filter?: ShortcutActionFilter,
+): ShortcutActionId | null {
+  const resolved = settings ?? DEFAULT_SHORTCUT_SETTINGS;
+  if (!resolved.enabled) return null;
+  const normalizedKey = normalizeShortcutKey(key);
+  const expectedKind: ShortcutGestureKind = tapCount === 2 ? "double_tap" : "tap";
+  for (const actionId of ACTION_ORDER) {
+    if (!actionFilterAllows(actionId, filter)) continue;
+    const binding = getEffectiveShortcutBinding(resolved, actionId);
+    if (!binding) continue;
+    const parsed = parseBinding(binding);
+    if (parsed.kind === expectedKind && parsed.key === normalizedKey) return actionId;
   }
   return null;
 }

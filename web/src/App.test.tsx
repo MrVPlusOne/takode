@@ -733,6 +733,21 @@ describe("App hidden panels", () => {
     input.remove();
   });
 
+  it("runs single-tap modifier shortcuts through the global matcher", () => {
+    resetStore({
+      shortcutSettings: { enabled: true, preset: "standard", overrides: { toggle_sidebar: "Tap:Shift" } },
+      currentSessionId: "s1",
+      sidebarOpen: false,
+    });
+    window.location.hash = "#/session/s1";
+    render(<App />);
+
+    fireEvent.keyDown(document, { key: "Shift", shiftKey: true });
+    fireEvent.keyUp(document, { key: "Shift" });
+
+    expect(mockState.setSidebarOpen).toHaveBeenCalledWith(true);
+  });
+
   it("skips sessions hidden by collapsed herd rows when switching sessions", () => {
     resetStore({
       shortcutSettings: { enabled: true, preset: "standard", overrides: {} },

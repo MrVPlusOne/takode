@@ -13,7 +13,7 @@ import {
   type InterruptRestartBlockersResponse,
 } from "../api.js";
 import { useStore, COLOR_THEMES } from "../store.js";
-import { recordShortcutBindingFromEvent, type ShortcutActionId } from "../shortcuts.js";
+import { createShortcutGestureRecorder, type ShortcutActionId } from "../shortcuts.js";
 import { NamerDebugPanel } from "./NamerDebugPanel.js";
 import { CollapsibleSection, isCollapsibleSectionCollapsed } from "./CollapsibleSection.js";
 import { SettingsAutoApprovalSection } from "./SettingsAutoApprovalSection.js";
@@ -784,23 +784,41 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
 
   useEffect(() => {
     if (!recordingShortcutActionId) return;
+    const recorder = createShortcutGestureRecorder((binding) => {
+      setShortcutOverride(recordingShortcutActionId, binding);
+      setRecordingShortcutActionId(null);
+    });
 
-    function handleShortcutRecord(event: KeyboardEvent) {
+    function cancelShortcutRecord() {
+      recorder.cancel();
+      setRecordingShortcutActionId(null);
+    }
+
+    function handleShortcutRecordKeyDown(event: KeyboardEvent) {
       event.preventDefault();
       event.stopPropagation();
       if (!recordingShortcutActionId) return;
       if (event.key === "Escape") {
-        setRecordingShortcutActionId(null);
+        cancelShortcutRecord();
         return;
       }
-      const binding = recordShortcutBindingFromEvent(event);
-      if (!binding) return;
-      setShortcutOverride(recordingShortcutActionId, binding);
-      setRecordingShortcutActionId(null);
+      recorder.keyDown(event);
     }
 
-    window.addEventListener("keydown", handleShortcutRecord, true);
-    return () => window.removeEventListener("keydown", handleShortcutRecord, true);
+    function handleShortcutRecordKeyUp(event: KeyboardEvent) {
+      event.preventDefault();
+      event.stopPropagation();
+      if (!recordingShortcutActionId || event.key === "Escape") return;
+      recorder.keyUp(event);
+    }
+
+    window.addEventListener("keydown", handleShortcutRecordKeyDown, true);
+    window.addEventListener("keyup", handleShortcutRecordKeyUp, true);
+    return () => {
+      window.removeEventListener("keydown", handleShortcutRecordKeyDown, true);
+      window.removeEventListener("keyup", handleShortcutRecordKeyUp, true);
+      recorder.cancel();
+    };
   }, [recordingShortcutActionId, setShortcutOverride]);
 
   return (

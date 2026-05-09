@@ -48,11 +48,15 @@ import {
 } from "./utils/vscode-context.js";
 import { ensureVsCodeEditorPreference } from "./utils/vscode-bridge.js";
 import {
+  SHORTCUT_DOUBLE_TAP_WINDOW_MS,
   getMatchingShortcutAction,
+  getMatchingShortcutTapAction,
   isAppGlobalShortcutAction,
+  isModifierOnlyKey,
   isShortcutEventTargetEditable,
   performShortcutAction,
   shouldBlurVimEscape,
+  type ShortcutActionId,
 } from "./shortcuts.js";
 
 type TakodeDebugWindow = Window &
@@ -169,6 +173,9 @@ export default function App() {
     isSessionView && activeTab === "chat" && !!displayedSessionId && !isPendingId(displayedSessionId);
   const showServerUnreachableBanner = !serverReachable && !chatSessionVisible;
   const [universalSearchOpen, setUniversalSearchOpen] = useState(false);
+  const shortcutTapCandidateRef = useRef<string | null>(null);
+  const shortcutLastTapRef = useRef<{ key: string; time: number; target: EventTarget | null } | null>(null);
+  const shortcutTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const openUniversalSearch = useCallback(() => setUniversalSearchOpen(true), []);
   const closeUniversalSearch = useCallback(() => setUniversalSearchOpen(false), []);
   const universalSearchThreadKey = route.page === "session" ? (threadRoute.threadKey ?? "main") : null;
@@ -303,19 +310,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    function handleKeyDown(event: KeyboardEvent) {
-      const state = useStore.getState();
-      const editableTarget = isShortcutEventTargetEditable(event.target);
-      if (shouldBlurVimEscape(state.shortcutSettings, event, event.target)) {
-        (event.target as HTMLElement | null)?.blur?.();
-        event.preventDefault();
-        event.stopPropagation();
-        return;
+    function shortcutCandidateIsAvailable(candidate: ShortcutActionId) {
+      return candidate !== "voice_start" && candidate !== "voice_stop";
+    }
+
+    function isStandaloneModifierEvent(event: KeyboardEvent) {
+      if (!isModifierOnlyKey(event.key)) return false;
+      if (event.key === "Shift") return event.shiftKey && !event.altKey && !event.ctrlKey && !event.metaKey;
+      if (event.key === "Control") return event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey;
+      if (event.key === "Alt") return event.altKey && !event.ctrlKey && !event.metaKey && !event.shiftKey;
+      if (event.key === "Meta") return event.metaKey && !event.altKey && !event.ctrlKey && !event.shiftKey;
+      return false;
+    }
+
+    function clearShortcutTap() {
+      if (shortcutTapTimerRef.current) {
+        clearTimeout(shortcutTapTimerRef.current);
+        shortcutTapTimerRef.current = null;
       }
-      const actionId = getMatchingShortcutAction(state.shortcutSettings, event);
-      if (!actionId) return;
+      shortcutTapCandidateRef.current = null;
+      shortcutLastTapRef.current = null;
+    }
+
+    function runShortcutAction(actionId: ShortcutActionId, event: KeyboardEvent, target: EventTarget | null) {
+      const state = useStore.getState();
+      const editableTarget = isShortcutEventTargetEditable(target);
       const searchShortcutWhileSearchOpen = actionId === "search_session" && universalSearchOpen;
-      if (editableTarget && !isAppGlobalShortcutAction(actionId) && !searchShortcutWhileSearchOpen) return;
+      if (editableTarget && !isAppGlobalShortcutAction(actionId) && !searchShortcutWhileSearchOpen) return false;
       if (actionId === "search_session") {
         event.preventDefault();
         event.stopPropagation();
@@ -346,15 +367,85 @@ export default function App() {
         navigateToSession,
         navigateToMostRecentSession: () => navigateToMostRecentSession(),
       });
-      if (!handled) return;
+      if (!handled) return false;
       if (actionId !== "search_session") {
         event.preventDefault();
         event.stopPropagation();
       }
+      return true;
+    }
+
+    function handleKeyDown(event: KeyboardEvent) {
+      const state = useStore.getState();
+      if (shouldBlurVimEscape(state.shortcutSettings, event, event.target)) {
+        (event.target as HTMLElement | null)?.blur?.();
+        event.preventDefault();
+        event.stopPropagation();
+        clearShortcutTap();
+        return;
+      }
+      const actionId = getMatchingShortcutAction(state.shortcutSettings, event, {
+        isActionAvailable: shortcutCandidateIsAvailable,
+      });
+      if (actionId) {
+        runShortcutAction(actionId, event, event.target);
+        clearShortcutTap();
+        return;
+      }
+
+      if (event.repeat) return;
+      if (!isStandaloneModifierEvent(event)) {
+        if (shortcutTapCandidateRef.current) clearShortcutTap();
+        return;
+      }
+      shortcutTapCandidateRef.current = event.key;
+    }
+
+    function handleKeyUp(event: KeyboardEvent) {
+      if (shortcutTapCandidateRef.current !== event.key) return;
+      shortcutTapCandidateRef.current = null;
+      const state = useStore.getState();
+      const doubleTapAction = getMatchingShortcutTapAction(state.shortcutSettings, event.key, 2, {
+        isActionAvailable: shortcutCandidateIsAvailable,
+      });
+      const singleTapAction = getMatchingShortcutTapAction(state.shortcutSettings, event.key, 1, {
+        isActionAvailable: shortcutCandidateIsAvailable,
+      });
+      const now = Date.now();
+      const previousTap = shortcutLastTapRef.current;
+
+      if (previousTap?.key === event.key && now - previousTap.time < SHORTCUT_DOUBLE_TAP_WINDOW_MS) {
+        clearShortcutTap();
+        if (doubleTapAction) runShortcutAction(doubleTapAction, event, previousTap.target);
+        return;
+      }
+
+      if (singleTapAction && !doubleTapAction) {
+        runShortcutAction(singleTapAction, event, event.target);
+        return;
+      }
+
+      shortcutLastTapRef.current = { key: event.key, time: now, target: event.target };
+      if (shortcutTapTimerRef.current) clearTimeout(shortcutTapTimerRef.current);
+      shortcutTapTimerRef.current = setTimeout(() => {
+        shortcutTapTimerRef.current = null;
+        const latestState = useStore.getState();
+        const action = getMatchingShortcutTapAction(latestState.shortcutSettings, event.key, 1, {
+          isActionAvailable: shortcutCandidateIsAvailable,
+        });
+        const target = shortcutLastTapRef.current?.target ?? null;
+        shortcutLastTapRef.current = null;
+        if (action) runShortcutAction(action, event, target);
+      }, SHORTCUT_DOUBLE_TAP_WINDOW_MS);
     }
 
     document.addEventListener("keydown", handleKeyDown, { capture: true });
-    return () => document.removeEventListener("keydown", handleKeyDown, { capture: true });
+    document.addEventListener("keyup", handleKeyUp, { capture: true });
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown, { capture: true });
+      document.removeEventListener("keyup", handleKeyUp, { capture: true });
+      clearShortcutTap();
+    };
   }, [closeUniversalSearch, openUniversalSearch, route, shortcutSettings, universalSearchOpen]);
 
   useEffect(() => {

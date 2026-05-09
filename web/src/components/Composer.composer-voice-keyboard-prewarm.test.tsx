@@ -35,6 +35,7 @@ const mockSendToSession = vi.fn().mockReturnValue(true);
 const mockTranscribe = vi
   .fn()
   .mockResolvedValue({ mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false });
+const mockReportTranscriptionFrontendTiming = vi.fn().mockResolvedValue({});
 const mockGetBackendModels = vi.fn().mockResolvedValue([]);
 const mockGetSettings = vi.fn().mockResolvedValue({ claudeDefaultModel: "" });
 const mockUpdateSettings = vi.fn().mockResolvedValue({});
@@ -59,6 +60,7 @@ vi.mock("../api.js", () => ({
     prepareUserMessageImages: (...args: unknown[]) => mockPrepareUserMessageImages(...args),
     deletePreparedUserMessageImage: (...args: unknown[]) => mockDeletePreparedUserMessageImage(...args),
     transcribe: (...args: unknown[]) => mockTranscribe(...args),
+    reportTranscriptionFrontendTiming: (...args: unknown[]) => mockReportTranscriptionFrontendTiming(...args),
   },
 }));
 
@@ -264,6 +266,11 @@ function setupMockStore(
     quests?: QuestmasterTask[];
     sessionNames?: Map<string, string>;
     messages?: ChatMessage[];
+    shortcutSettings?: {
+      enabled: boolean;
+      preset: "standard" | "vscode-light" | "vim-light";
+      overrides: Record<string, string | null>;
+    };
     vscodeSelectionContext?: {
       selection: {
         absolutePath: string;
@@ -290,6 +297,7 @@ function setupMockStore(
     quests = [],
     sessionNames = new Map(),
     messages = [],
+    shortcutSettings = { enabled: true, preset: "standard", overrides: {} },
     vscodeSelectionContext = null,
   } = overrides;
 
@@ -419,6 +427,7 @@ function setupMockStore(
     turnActivityOverrides: new Map(),
     collapseAllTurnActivity: vi.fn(),
     pendingPermissions: new Map(),
+    shortcutSettings,
     removePermission: vi.fn(),
     diffFileStats: new Map(),
     focusComposer: vi.fn(),
@@ -483,6 +492,8 @@ beforeEach(() => {
   mockVoiceState.toggleRecording.mockReset();
   mockVoiceState.cancelRecording.mockReset();
   mockTranscribe.mockResolvedValue({ mode: "dictation", text: "transcribed text", backend: "openai", enhanced: false });
+  mockReportTranscriptionFrontendTiming.mockReset();
+  mockReportTranscriptionFrontendTiming.mockResolvedValue({});
   mockGetBackendModels.mockResolvedValue([]);
   mockGetSettings.mockResolvedValue({ claudeDefaultModel: "" });
   mockUpdateSettings.mockResolvedValue({});
@@ -565,6 +576,47 @@ describe("Composer voice keyboard prewarm", () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("does not run voice shortcuts while shortcut settings are disabled", () => {
+    setupMockStore({ shortcutSettings: { enabled: false, preset: "standard", overrides: {} } });
+    vi.useFakeTimers();
+    try {
+      render(<Composer sessionId="s1" />);
+
+      fireEvent.keyDown(document, { key: "Shift" });
+      fireEvent.keyUp(document, { key: "Shift" });
+      vi.advanceTimersByTime(200);
+      fireEvent.keyDown(document, { key: "Shift" });
+      fireEvent.keyUp(document, { key: "Shift" });
+
+      expect(mockVoiceState.warmMicrophone).not.toHaveBeenCalled();
+      expect(mockVoiceState.toggleRecording).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("starts and stops recording from configured chord shortcuts", () => {
+    setupMockStore({
+      shortcutSettings: {
+        enabled: true,
+        preset: "standard",
+        overrides: { voice_start: "Ctrl+Y", voice_stop: "Ctrl+K" },
+      },
+    });
+    const view = render(<Composer sessionId="s1" />);
+
+    fireEvent.keyDown(document, { key: "y", ctrlKey: true });
+    expect(mockVoiceState.toggleRecording).toHaveBeenCalledTimes(1);
+
+    view.unmount();
+    mockVoiceState.toggleRecording.mockClear();
+    mockVoiceState.isRecordingOverride = true;
+
+    render(<Composer sessionId="s1" />);
+    fireEvent.keyDown(document, { key: "k", ctrlKey: true });
+    expect(mockVoiceState.toggleRecording).toHaveBeenCalledTimes(1);
   });
 
   it("invalidates the armed first Shift tap when non-Shift typing happens between taps", () => {
