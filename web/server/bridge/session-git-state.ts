@@ -279,6 +279,13 @@ interface SessionDiffRefreshLike extends SessionDiffStateLike {
   diffStatsDirty: boolean;
 }
 
+interface DiffStatsNumstatResult {
+  totalLinesAdded: number;
+  totalLinesRemoved: number;
+}
+
+const inFlightDiffStatsComputations = new Map<string, Promise<DiffStatsNumstatResult>>();
+
 interface RecomputeDiffIfDirtyDeps {
   broadcastDiffTotals: (session: SessionDiffRefreshLike) => void;
   persistSession: (session: SessionDiffRefreshLike) => void;
@@ -426,6 +433,59 @@ function cacheDiffStatsResult(
 ): void {
   session.diffStatsCacheKey = cacheKey;
   session.diffStatsCacheResult = result;
+}
+
+function buildDiffStatsInFlightKey(
+  cwd: string,
+  diffRef: string,
+  cacheKey: string,
+  worktreeDirtyEntries: number | null,
+): string {
+  const dirtyState =
+    worktreeDirtyEntries === null
+      ? "repo"
+      : worktreeDirtyEntries === 0
+        ? "worktree-clean"
+        : `worktree-dirty:${worktreeDirtyEntries}`;
+  return [cwd, diffRef, cacheKey, dirtyState].join("\0");
+}
+
+async function readDiffStatsNumstat(cwd: string, diffRef: string): Promise<DiffStatsNumstatResult> {
+  const { stdout } = await execPromise(`${SERVER_GIT_CMD} diff --numstat ${diffRef}`, {
+    cwd,
+    timeout: GIT_CMD_TIMEOUT,
+  });
+  let totalLinesAdded = 0;
+  let totalLinesRemoved = 0;
+  const raw = stdout.trim();
+  if (raw) {
+    for (const line of raw.split("\n")) {
+      if (!line.trim()) continue;
+      const [addStr, delStr] = line.split("\t");
+      if (addStr !== "-") totalLinesAdded += parseInt(addStr, 10) || 0;
+      if (delStr !== "-") totalLinesRemoved += parseInt(delStr, 10) || 0;
+    }
+  }
+  return { totalLinesAdded, totalLinesRemoved };
+}
+
+function computeDiffStatsNumstat(
+  cwd: string,
+  diffRef: string,
+  cacheKey: string,
+  worktreeDirtyEntries: number | null,
+): Promise<DiffStatsNumstatResult> {
+  const inFlightKey = buildDiffStatsInFlightKey(cwd, diffRef, cacheKey, worktreeDirtyEntries);
+  let computation = inFlightDiffStatsComputations.get(inFlightKey);
+  if (!computation) {
+    computation = readDiffStatsNumstat(cwd, diffRef).finally(() => {
+      if (inFlightDiffStatsComputations.get(inFlightKey) === computation) {
+        inFlightDiffStatsComputations.delete(inFlightKey);
+      }
+    });
+    inFlightDiffStatsComputations.set(inFlightKey, computation);
+  }
+  return computation;
 }
 
 async function countTrackedDirtyEntries(cwd: string): Promise<number> {
@@ -624,31 +684,22 @@ export async function computeDiffStatsAsync(
       }
     }
 
-    const { stdout } = await execPromise(`${SERVER_GIT_CMD} diff --numstat ${diffRef}`, {
+    const { totalLinesAdded, totalLinesRemoved } = await computeDiffStatsNumstat(
       cwd,
-      timeout: GIT_CMD_TIMEOUT,
-    });
-    let added = 0;
-    let removed = 0;
-    const raw = stdout.trim();
-    if (raw) {
-      for (const line of raw.split("\n")) {
-        if (!line.trim()) continue;
-        const [addStr, delStr] = line.split("\t");
-        if (addStr !== "-") added += parseInt(addStr, 10) || 0;
-        if (delStr !== "-") removed += parseInt(delStr, 10) || 0;
-      }
-    }
+      diffRef,
+      cacheKey,
+      worktreeDirtyEntries,
+    );
 
     applyDiffStatsResult(session, {
-      totalLinesAdded: added,
-      totalLinesRemoved: removed,
+      totalLinesAdded,
+      totalLinesRemoved,
       skippedReason: null,
     });
     if (!session.state.is_worktree || worktreeDirtyEntries === 0) {
       cacheDiffStatsResult(session, cacheKey, {
-        totalLinesAdded: added,
-        totalLinesRemoved: removed,
+        totalLinesAdded,
+        totalLinesRemoved,
         skippedReason: null,
       });
     }

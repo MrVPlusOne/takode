@@ -1382,6 +1382,58 @@ describe("Diff stats computation", () => {
     expect(commands.filter((cmd) => cmd.includes("diff --numstat"))).toHaveLength(2);
   });
 
+  it("coalesces concurrent identical diff-stat numstat computations", async () => {
+    // Live feedback #9 showed many identical high-CPU `git diff --numstat`
+    // children for the same repo/base. Equivalent concurrent refreshes should
+    // share the one in-flight numstat process and apply its totals everywhere.
+    const diffCallbacks: Array<(err: Error | null, result: { stdout: string; stderr: string }) => void> = [];
+    const commands: string[] = [];
+    mockExec.mockImplementation((cmd: string, opts: any, cb?: Function) => {
+      commands.push(cmd);
+      const callback = typeof opts === "function" ? opts : cb;
+      if (cmd.includes("diff --numstat base-sha")) {
+        if (callback) diffCallbacks.push(callback);
+        return;
+      }
+      if (cmd.includes("merge-base")) {
+        callback?.(null, { stdout: "base-sha\n", stderr: "" });
+        return;
+      }
+      callback?.(null, { stdout: "", stderr: "" });
+    });
+
+    const s1 = bridge.getOrCreateSession("s1");
+    const s2 = bridge.getOrCreateSession("s2");
+    for (const session of [s1, s2]) {
+      session.state.cwd = "/Users/yuege/code/openai";
+      session.state.is_worktree = false;
+      session.state.git_head_sha = "head-sha";
+      session.state.diff_base_branch = "3a60b84ae71902ae654d06b46def2d99a6218689";
+    }
+    const makeDeps = () => ({
+      refreshGitInfo: vi.fn(async (targetSession: any) => {
+        targetSession.state.git_status_refreshed_at = Date.now();
+        targetSession.state.git_status_refresh_error = null;
+      }),
+      broadcastSessionUpdate: vi.fn(),
+      broadcastDiffTotals: vi.fn(),
+      persistSession: vi.fn(),
+    });
+
+    const first = refreshGitInfoPublicController(s1 as any, makeDeps(), { broadcastUpdate: true, force: true });
+    const second = refreshGitInfoPublicController(s2 as any, makeDeps(), { broadcastUpdate: true, force: true });
+
+    await vi.waitFor(() => expect(diffCallbacks).toHaveLength(1));
+    diffCallbacks[0]!(null, { stdout: "42\t7\tservices/hermes.ts\n", stderr: "" });
+    await Promise.all([first, second]);
+
+    expect(commands.filter((cmd) => cmd.includes("diff --numstat base-sha"))).toHaveLength(1);
+    expect(s1.state.total_lines_added).toBe(42);
+    expect(s1.state.total_lines_removed).toBe(7);
+    expect(s2.state.total_lines_added).toBe(42);
+    expect(s2.state.total_lines_removed).toBe(7);
+  });
+
   it("snapshot refresh skips unopened worktree diff stats without launching numstat", async () => {
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1\n";
