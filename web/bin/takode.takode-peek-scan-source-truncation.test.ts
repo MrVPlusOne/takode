@@ -327,6 +327,40 @@ describe("takode peek/scan source-aware truncation", () => {
         return;
       }
 
+      if (method === "GET" && url === "/api/sessions/153/messages?threadKey=q-1298") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Thread Hint Worker",
+            status: "idle",
+            quest: null,
+            mode: "default",
+            totalTurns: 5,
+            totalMessages: 10,
+            collapsed: [
+              {
+                turn: 4,
+                si: 8,
+                ei: 9,
+                start: now - 10_000,
+                end: now - 8_000,
+                dur: 2_000,
+                stats: { tools: 0, messages: 2, subagents: 0 },
+                success: true,
+                user: "latest thread prompt",
+                result: "latest thread result",
+                threads: ["q-1298"],
+              },
+            ],
+            omitted: 4,
+            expanded: null,
+          }),
+        );
+        return;
+      }
+
       res.writeHead(404, { "content-type": "application/json" });
       res.end(JSON.stringify({ error: `unexpected ${method} ${url}` }));
     });
@@ -349,6 +383,7 @@ describe("takode peek/scan source-aware truncation", () => {
         ["peek", "153", "--from", "2", "--count", "2", "--thread", "q-1298", "--port", String(port)],
         env,
       );
+      const defaultPeekResult = await runTakode(["peek", "153", "--thread", "q-1298", "--port", String(port)], env);
 
       expect(scanResult.status).toBe(0);
       expect(scanResult.stdout).toContain("Older: takode scan 153 --until 2 --count 2 --thread q-1298");
@@ -359,6 +394,11 @@ describe("takode peek/scan source-aware truncation", () => {
       expect(peekResult.status).toBe(0);
       expect(peekResult.stdout).toContain("Prev: takode peek 153 --until 2 --count 2 --thread q-1298");
       expect(peekResult.stdout).toContain("Next: takode peek 153 --from 4 --count 2 --thread q-1298");
+
+      expect(defaultPeekResult.status).toBe(0);
+      expect(defaultPeekResult.stdout).toContain(
+        "... 4 earlier turns omitted (takode peek 153 --from 0 --thread q-1298 to browse)",
+      );
     } finally {
       server.close();
     }

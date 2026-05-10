@@ -511,7 +511,9 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string, threadKey?
         lastDate = firstDate;
       }
     }
-    console.log(`  ... ${d.omitted} earlier turns omitted (takode peek ${safeSessionRef} --from 0 to browse)`);
+    console.log(
+      `  ... ${d.omitted} earlier turns omitted (takode peek ${safeSessionRef} --from 0${threadSuffix} to browse)`,
+    );
     console.log("");
   }
 
