@@ -53,6 +53,186 @@ function makeWindowedContent(
 }
 
 describe("takode peek/scan source-aware truncation", () => {
+  it("renders compact thread context and sends --thread filters for scan, peek, read, and grep", async () => {
+    // CLI inspection should preserve thread context without requiring raw
+    // message dumps. The mocked server uses the same projection helpers as the
+    // real route so this exercises both compact metadata and plain rendering.
+    const now = Date.now();
+    const history = [
+      {
+        type: "user_message",
+        content: "quest prompt",
+        timestamp: now - 30_000,
+        threadKey: "q-1289",
+        questId: "q-1289",
+        threadRefs: [{ threadKey: "q-1289", questId: "q-1289", source: "explicit" }],
+      },
+      {
+        type: "assistant",
+        timestamp: now - 20_000,
+        threadKey: "q-1289",
+        questId: "q-1289",
+        threadRefs: [{ threadKey: "q-1289", questId: "q-1289", source: "explicit" }],
+        threadStatusMarkers: [
+          {
+            kind: "waiting",
+            label: "Thread Waiting",
+            threadKey: "q-1298",
+            questId: "q-1298",
+            summary: "waiting on explore",
+            messageId: "m-status",
+            timestamp: now - 20_000,
+            updatedAt: now - 20_000,
+          },
+        ],
+        message: { content: [{ type: "text", text: "mixed q-1289 reply with needle" }] },
+      },
+      {
+        type: "result",
+        timestamp: now - 10_000,
+        data: { duration_ms: 20_000, is_error: false, result: "mixed q-1289 reply with needle" },
+      },
+    ] as any[];
+
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-thread-cli", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?scan=turns&fromTurn=0&turnCount=3&threadKey=q-1298") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Thread Worker",
+            status: "idle",
+            quest: null,
+            ...buildPeekTurnScan(history, { fromTurn: 0, turnCount: 3, threadKey: "q-1298" }),
+          }),
+        );
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?count=3&from=0&threadKey=q-1298") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Thread Worker",
+            status: "idle",
+            quest: null,
+            ...buildPeekRange(history, { from: 0, count: 3, threadKey: "q-1298" }),
+          }),
+        );
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages/1?threadKey=q-1298") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            idx: 1,
+            type: "assistant",
+            ts: now - 20_000,
+            totalLines: 1,
+            offset: 0,
+            limit: 200,
+            content: "mixed q-1289 reply with needle",
+            threadKey: "q-1289",
+            questId: "q-1289",
+            threadRefs: [{ threadKey: "q-1289", questId: "q-1289", source: "explicit" }],
+            threadStatuses: [
+              { kind: "waiting", threadKey: "q-1298", questId: "q-1298", summary: "waiting on explore" },
+            ],
+          }),
+        );
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/grep?q=needle&limit=3&threadKey=q-1298") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "worker-153",
+            sessionNum: 153,
+            query: "needle",
+            threadKey: "q-1298",
+            totalMatches: 1,
+            matches: [
+              {
+                idx: 1,
+                type: "assistant",
+                ts: now - 20_000,
+                snippet: "mixed q-1289 reply with needle",
+                turn: 0,
+                threadKey: "q-1289",
+                questId: "q-1289",
+                threads: ["q-1289", "q-1298"],
+                threadStatuses: [
+                  { kind: "waiting", threadKey: "q-1298", questId: "q-1298", summary: "waiting on explore" },
+                ],
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: `unexpected ${method} ${url}` }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const env = {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-thread-cli",
+        COMPANION_AUTH_TOKEN: "auth-thread-cli",
+      };
+      const scanResult = await runTakode(
+        ["scan", "153", "--from", "0", "--count", "3", "--thread", "q-1298", "--port", String(port)],
+        env,
+      );
+      const peekResult = await runTakode(
+        ["peek", "153", "--from", "0", "--count", "3", "--thread", "q-1298", "--port", String(port)],
+        env,
+      );
+      const readResult = await runTakode(["read", "153", "1", "--thread", "q-1298", "--port", String(port)], env);
+      const grepResult = await runTakode(
+        ["grep", "153", "needle", "--count", "3", "--thread", "q-1298", "--port", String(port)],
+        env,
+      );
+
+      expect(scanResult.status).toBe(0);
+      expect(scanResult.stdout).toContain("threads: q-1289, q-1298");
+      expect(scanResult.stdout).toContain("status: q-1298 waiting: waiting on explore");
+      expect(scanResult.stdout).toContain("mixed q-1289 reply");
+
+      expect(peekResult.status).toBe(0);
+      expect(peekResult.stdout).toContain("[q-1289,q-1298]");
+
+      expect(readResult.status).toBe(0);
+      expect(readResult.stdout).toContain("threads: q-1289, q-1298");
+      expect(readResult.stdout).toContain("status: q-1298 waiting: waiting on explore");
+
+      expect(grepResult.status).toBe(0);
+      expect(grepResult.stdout).toContain("[q-1289,q-1298]");
+      expect(grepResult.stdout).toContain("mixed q-1289 reply with needle");
+    } finally {
+      server.close();
+    }
+  });
+
   it("summarizes injected compaction recovery prompts in compact scan and peek output only", async () => {
     // Regression coverage for compact views: injected recovery prompts should
     // collapse to a template summary, while other long system-sourced messages

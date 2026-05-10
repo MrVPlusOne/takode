@@ -13,6 +13,7 @@ import {
   buildPeekTurnScan,
   grepMessageHistory,
   exportSessionAsText,
+  threadMetadataParticipatesInThread,
 } from "../takode-messages.js";
 import { buildLeaderContextResume } from "../takode-leader-context-resume.js";
 import {
@@ -50,6 +51,7 @@ import {
   sameThreadRoute,
   threadRouteForTarget,
 } from "../thread-routing-metadata.js";
+import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 import { isSessionIdleRuntime } from "../herd-event-dispatcher.js";
 import type { RouteContext } from "./context.js";
 import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
@@ -881,12 +883,18 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const detail = c.req.query("detail") === "true";
     const turnParam = c.req.query("turn");
     const scanMode = c.req.query("scan");
+    const rawThreadKey = c.req.query("threadKey");
+    const threadTarget = rawThreadKey ? normalizeThreadTarget(rawThreadKey) : null;
+    if (rawThreadKey && !threadTarget) {
+      return c.json({ error: "threadKey must be main or q-N" }, 400);
+    }
+    const threadKey = threadTarget?.threadKey;
 
     // Turn scan mode: paginated collapsed turn summaries (used by `takode scan`)
     if (scanMode === "turns") {
       const fromTurn = parseInt(c.req.query("fromTurn") ?? "0", 10);
       const turnCount = parseInt(c.req.query("turnCount") ?? "50", 10);
-      return c.json({ ...base, ...buildPeekTurnScan(history, { fromTurn, turnCount }, sessionId) });
+      return c.json({ ...base, ...buildPeekTurnScan(history, { fromTurn, turnCount, threadKey }, sessionId) });
     }
 
     // Turn mode: resolve turn number to message range, then use range mode
@@ -907,7 +915,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const showTools = c.req.query("showTools") === "true";
       return c.json({
         ...base,
-        ...buildPeekRange(history, { from: turn.startIdx, until: endIdx, showTools }, sessionId),
+        ...buildPeekRange(history, { from: turn.startIdx, until: endIdx, showTools, threadKey }, sessionId),
       });
     }
 
@@ -918,7 +926,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const until = untilParam !== undefined ? parseInt(untilParam, 10) : undefined;
       const count = parseInt(c.req.query("count") ?? "60", 10);
       const showTools = c.req.query("showTools") === "true";
-      return c.json({ ...base, ...buildPeekRange(history, { from, until, count, showTools }, sessionId) });
+      return c.json({ ...base, ...buildPeekRange(history, { from, until, count, showTools, threadKey }, sessionId) });
     }
 
     if (detail) {
@@ -928,14 +936,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
       const full = c.req.query("full") === "true";
       return c.json({
         ...base,
-        ...{ mode: "detail" as const, turns: buildPeekResponse(history, { turns, since, full }, sessionId) },
+        ...{ mode: "detail" as const, turns: buildPeekResponse(history, { turns, since, full, threadKey }, sessionId) },
       });
     }
 
     // Default mode: smart overview (collapsed recent turns + expanded last turn)
     const collapsedCount = parseInt(c.req.query("collapsed") ?? "5", 10);
     const expandLimit = parseInt(c.req.query("expand") ?? "10", 10);
-    return c.json({ ...base, ...buildPeekDefault(history, { collapsedCount, expandLimit }, sessionId) });
+    return c.json({ ...base, ...buildPeekDefault(history, { collapsedCount, expandLimit, threadKey }, sessionId) });
   });
 
   api.get("/sessions/:id/messages/:idx", (c) => {
@@ -950,6 +958,11 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     const offset = parseInt(c.req.query("offset") ?? "0", 10);
     const limit = parseInt(c.req.query("limit") ?? "200", 10);
+    const rawThreadKey = c.req.query("threadKey");
+    const threadTarget = rawThreadKey ? normalizeThreadTarget(rawThreadKey) : null;
+    if (rawThreadKey && !threadTarget) {
+      return c.json({ error: "threadKey must be main or q-N" }, 400);
+    }
 
     const history = wsBridge.getSession(sessionId)?.messageHistory ?? null;
     if (!history) return c.json({ error: "Session not found in bridge" }, 404);
@@ -966,6 +979,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
     );
     if (!result) {
       return c.json({ error: `Message index ${idx} out of range (0-${history.length - 1})` }, 404);
+    }
+    if (threadTarget && !threadMetadataParticipatesInThread(result, threadTarget.threadKey)) {
+      return c.json({ error: `Message index ${idx} does not participate in thread ${threadTarget.threadKey}` }, 404);
     }
 
     return c.json(result);
@@ -988,9 +1004,20 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     const limit = parseInt(c.req.query("limit") ?? "50", 10);
     const type = c.req.query("type") || undefined;
-    const results = grepMessageHistory(history, query, { limit, type }, sessionId);
+    const rawThreadKey = c.req.query("threadKey");
+    const threadTarget = rawThreadKey ? normalizeThreadTarget(rawThreadKey) : null;
+    if (rawThreadKey && !threadTarget) {
+      return c.json({ error: "threadKey must be main or q-N" }, 400);
+    }
+    const results = grepMessageHistory(history, query, { limit, type, threadKey: threadTarget?.threadKey }, sessionId);
 
-    return c.json({ sessionId, sessionNum: launcher.getSessionNum(sessionId) ?? -1, query, ...results });
+    return c.json({
+      sessionId,
+      sessionNum: launcher.getSessionNum(sessionId) ?? -1,
+      query,
+      ...(threadTarget ? { threadKey: threadTarget.threadKey } : {}),
+      ...results,
+    });
   });
 
   // ─── Takode: Export (dump session to text) ───────────────────

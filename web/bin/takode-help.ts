@@ -69,7 +69,7 @@ const TIMERS_HELP = `Usage: takode timers <session> [--json]
 Show pending timers for a session.
 `;
 
-const SCAN_HELP = `Usage: takode scan <session> [--from N] [--until N] [--count N] [--json]
+const SCAN_HELP = `Usage: takode scan <session> [--from N] [--until N] [--count N] [--thread main|q-N] [--json]
 
 Scan session turns as collapsed summaries.
 
@@ -77,26 +77,28 @@ Options:
   --from <turn>   Start at turn N
   --until <turn>  Show turns ending before turn N
   --count <n>     Number of turns to show (default: 50)
+  --thread <key>  Show only turns participating in main or q-N
   --json          Output JSON
 `;
 
-const PEEK_HELP = `Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--show-tools] [--detail] [--turns N] [--json]
+const PEEK_HELP = `Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--thread main|q-N] [--show-tools] [--detail] [--turns N] [--json]
 
 View session activity with progressive detail.
 
 Examples:
   takode peek 1
   takode peek 1 --turn 5
+  takode peek 1 --thread q-123
   takode peek 1 --from 500 --count 50
   takode peek 1 --detail --turns 3
 `;
 
-const READ_HELP = `Usage: takode read <session> <msg-id> [--offset N] [--limit N] [--json]
+const READ_HELP = `Usage: takode read <session> <msg-id> [--offset N] [--limit N] [--thread main|q-N] [--json]
 
 Read one full message from a session.
 `;
 
-const GREP_HELP = `Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--json]
+const GREP_HELP = `Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--thread main|q-N] [--json]
 
 Search within a session's messages using JavaScript regex matching.
 `;

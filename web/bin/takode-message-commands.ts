@@ -47,6 +47,21 @@ type TakodeUserMessageSourceKind = "user" | "herd" | "agent";
 type TakodeUserContentSurface = "scan" | "peek" | "read";
 type TakodeInjectedTemplate = "compaction_recovery";
 
+type ThreadStatusSummary = {
+  kind: "waiting" | "ready";
+  threadKey: string;
+  questId?: string;
+  summary: string;
+};
+
+type ThreadMetadata = {
+  threadKey?: string;
+  questId?: string;
+  threadRefs?: Array<{ threadKey: string; questId?: string; source?: string }>;
+  threadStatuses?: ThreadStatusSummary[];
+  threads?: string[];
+};
+
 const TAKODE_COMPACTION_RECOVERY_SUMMARY_LIMIT = 140;
 
 const TAKODE_SCAN_USER_CONTENT_LIMITS: Record<TakodeUserMessageSourceKind, number> = {
@@ -79,6 +94,73 @@ function userSourceLabel(msg: TakodeMessageSourceLike): string {
   if (sourceKind === "herd") return "herd";
   const agentLabel = formatCompactAgentLabel(msg.agent?.sessionLabel);
   return `agent${agentLabel ? ` ${formatInlineText(agentLabel)}` : ""}`;
+}
+
+function parseThreadFilterFlag(value: string | boolean | undefined): string | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !value.trim()) err("--thread requires a thread key: main or q-N.");
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "main" || /^q-\d+$/.test(normalized)) return normalized;
+  err(`Invalid --thread "${formatInlineText(value)}". Must be main or q-N.`);
+}
+
+function appendThreadQueryParam(params: URLSearchParams, threadKey: string | undefined): void {
+  if (threadKey) params.set("threadKey", threadKey);
+}
+
+function compactThreadList(meta: ThreadMetadata): string[] {
+  const keys = new Set<string>();
+  const addKey = (key: string | undefined) => {
+    const normalized = key?.trim().toLowerCase();
+    if (!normalized) return;
+    if (normalized === "main" || /^q-\d+$/.test(normalized)) keys.add(normalized);
+  };
+  for (const key of meta.threads ?? []) addKey(key);
+  addKey(meta.threadKey);
+  addKey(meta.questId);
+  for (const ref of meta.threadRefs ?? []) {
+    addKey(ref.threadKey);
+    addKey(ref.questId);
+  }
+  for (const status of meta.threadStatuses ?? []) {
+    addKey(status.threadKey);
+    addKey(status.questId);
+  }
+  return [...keys].sort(compareThreadKeys);
+}
+
+function compareThreadKeys(a: string, b: string): number {
+  if (a === b) return 0;
+  if (a === "main") return -1;
+  if (b === "main") return 1;
+  return a.localeCompare(b, undefined, { numeric: true });
+}
+
+function formatThreadTag(meta: ThreadMetadata): string {
+  const threads = compactThreadList(meta);
+  if (threads.length === 0) return "";
+  if (threads.length === 1) return `[${formatInlineText(threads[0])}] `;
+  return `[${threads.map(formatInlineText).join(",")}] `;
+}
+
+function formatThreadLines(meta: ThreadMetadata): string[] {
+  const lines: string[] = [];
+  const threads = compactThreadList(meta);
+  if (threads.length > 0) {
+    lines.push(`  threads: ${threads.map(formatInlineText).join(", ")}`);
+  }
+  const statuses = meta.threadStatuses ?? [];
+  if (statuses.length > 0) {
+    lines.push(
+      `  status: ${statuses
+        .map((status) => {
+          const kind = status.kind === "ready" ? "ready" : "waiting";
+          return `${formatInlineText(status.threadKey)} ${kind}: ${formatInlineText(status.summary)}`;
+        })
+        .join("; ")}`,
+    );
+  }
+  return lines;
 }
 
 function takodeUserContentLimits(surface: TakodeUserContentSurface): Record<TakodeUserMessageSourceKind, number> {
@@ -190,7 +272,7 @@ function formatPeekToolLine(tool: PeekTool): string {
 
 // ─── Command handlers ───────────────────────────────────────────────────────
 
-type PeekMessage = {
+type PeekMessage = ThreadMetadata & {
   idx: number;
   type: string;
   content: string;
@@ -203,7 +285,7 @@ type PeekMessage = {
   injectedTemplate?: TakodeInjectedTemplate;
 };
 
-type CollapsedTurn = {
+type CollapsedTurn = ThreadMetadata & {
   turn: number;
   si: number;
   ei: number;
@@ -263,13 +345,15 @@ type PeekDetailResponse = {
   status: string;
   quest: { id: string; title: string; status: string } | null;
   pendingTimerCount?: number;
-  turns: Array<{
-    turn: number;
-    start: number;
-    end?: number;
-    dur?: number;
-    messages: PeekMessage[];
-  }>;
+  turns: Array<
+    ThreadMetadata & {
+      turn: number;
+      start: number;
+      end?: number;
+      dur?: number;
+      messages: PeekMessage[];
+    }
+  >;
 };
 
 // ─── Peek rendering helpers ──────────────────────────────────────────────────
@@ -296,13 +380,19 @@ function formatCollapsedTurn(turn: CollapsedTurn, surface: "scan" | "peek"): str
   const hasResult = !!turn.result;
 
   // Single-message turn or only one side exists: compact format
-  if (!hasUser && !hasResult) return header;
-  if (!hasUser) return `${header}\n  ${formatQuotedContent(turn.result, TAKODE_PEEK_CONTENT_LIMIT)}`;
-  if (!hasResult) return `${header}\n  ${sourceLabel}: ${formatTakodeUserContent(turn.user, turn, surface)}`;
+  const threadLines = formatThreadLines(turn);
+  if (!hasUser && !hasResult) return [header, ...threadLines].join("\n");
+  if (!hasUser)
+    return [header, ...threadLines, `  ${formatQuotedContent(turn.result, TAKODE_PEEK_CONTENT_LIMIT)}`].join("\n");
+  if (!hasResult)
+    return [header, ...threadLines, `  ${sourceLabel}: ${formatTakodeUserContent(turn.user, turn, surface)}`].join(
+      "\n",
+    );
 
   // Multi-message turn: show source prompt, ellipsis, and assistant response (no asst: tag)
   return [
     header,
+    ...threadLines,
     `  ${sourceLabel}: ${formatTakodeUserContent(turn.user, turn, surface)}`,
     `  ...`,
     `  ${formatQuotedContent(turn.result, TAKODE_PEEK_CONTENT_LIMIT)}`,
@@ -321,17 +411,19 @@ function printExpandedMessages(messages: PeekMessage[]): void {
     switch (msg.type) {
       case "user":
         console.log(
-          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatTakodeUserContent(msg.content, msg, "peek")}`,
+          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatThreadTag(msg)}${formatTakodeUserContent(msg.content, msg, "peek")}`,
         );
         break;
       case "assistant": {
         const text = msg.content.trim();
         const hasTools = msg.tools && msg.tools.length > 0;
         if (text) {
-          console.log(`  ${idx.padEnd(7)} ${time}  ${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}`);
+          console.log(
+            `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}`,
+          );
         } else if (hasTools) {
           // No text content -- print idx header so the msg ID is always visible
-          console.log(`  ${idx.padEnd(7)} ${time}  tool`);
+          console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}tool`);
         }
         if (hasTools) {
           // Collapse consecutive tool calls by name: Read×2, Grep×1
@@ -361,15 +453,17 @@ function printExpandedMessages(messages: PeekMessage[]): void {
         const resultText = msg.content.trim();
         if (resultText) {
           console.log(
-            `  ${idx.padEnd(7)} ${time}  ${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
+            `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
           );
         } else {
-          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} "done"`);
+          console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${icon} "done"`);
         }
         break;
       }
       case "system":
-        console.log(`  ${idx.padEnd(7)} ${time}  sys   ${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`);
+        console.log(
+          `  ${idx.padEnd(7)} ${time}  sys   ${formatThreadTag(msg)}${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`,
+        );
         break;
     }
   }
@@ -452,6 +546,7 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string): void {
     console.log(
       `Turn ${et.turn} (last, ${msgCount} messages) · ${formatTimeShort(et.start)}-${et.end ? formatTimeShort(et.end) : "running"}${durationPart}${statStr}${successIcon}`,
     );
+    for (const line of formatThreadLines(et)) console.log(line);
 
     // Omitted messages hint
     if (et.omittedMsgs > 0) {
@@ -504,7 +599,7 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
     switch (msg.type) {
       case "user":
         console.log(
-          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatTakodeUserContent(msg.content, msg, "peek")}`,
+          `  ${idx.padEnd(7)} ${time}  ${userSourceLabel(msg)}  ${formatThreadTag(msg)}${formatTakodeUserContent(msg.content, msg, "peek")}`,
         );
         break;
       case "assistant": {
@@ -513,9 +608,11 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
         if (hasExpandedTools) {
           // Expanded tool display (--show-tools)
           if (text) {
-            console.log(`  ${idx.padEnd(7)} ${time}  ${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}`);
+            console.log(
+              `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}`,
+            );
           } else {
-            console.log(`  ${idx.padEnd(7)} ${time}  tool`);
+            console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}tool`);
           }
           for (const tool of msg.tools) {
             console.log(`  ${idx.padEnd(7)}           → ${formatPeekToolLine(tool)}`);
@@ -531,10 +628,10 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
             : "";
           if (text) {
             console.log(
-              `  ${idx.padEnd(7)} ${time}  ${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}${toolStr}`,
+              `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${formatQuotedContent(text, TAKODE_PEEK_CONTENT_LIMIT)}${toolStr}`,
             );
           } else if (toolStr) {
-            console.log(`  ${idx.padEnd(7)} ${time}  tool ${toolStr}`);
+            console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}tool ${toolStr}`);
           }
         }
         break;
@@ -544,15 +641,17 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
         const resultText = msg.content.trim();
         if (resultText) {
           console.log(
-            `  ${idx.padEnd(7)} ${time}  ${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
+            `  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${icon} ${formatQuotedContent(resultText, TAKODE_PEEK_CONTENT_LIMIT)}`,
           );
         } else {
-          console.log(`  ${idx.padEnd(7)} ${time}  ${icon} "done"`);
+          console.log(`  ${idx.padEnd(7)} ${time}  ${formatThreadTag(msg)}${icon} "done"`);
         }
         break;
       }
       case "system":
-        console.log(`  ${idx.padEnd(7)} ${time}  sys   ${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`);
+        console.log(
+          `  ${idx.padEnd(7)} ${time}  sys   ${formatThreadTag(msg)}${formatQuotedContent(msg.content, TAKODE_PEEK_CONTENT_LIMIT)}`,
+        );
         break;
     }
   }
@@ -589,6 +688,7 @@ function printPeekDetail(d: PeekDetailResponse): void {
     const duration = turn.dur ? `${Math.round(turn.dur / 1000)}s` : "running";
     const ended = turn.end ? `, ended ${formatTime(turn.end)}` : "";
     console.log(`--- Turn ${turn.turn} (${duration}${ended}) ---`);
+    for (const line of formatThreadLines(turn)) console.log(line);
 
     printExpandedMessages(turn.messages);
     console.log("");
@@ -601,7 +701,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   if (!sessionRef)
     err(
-      "Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--show-tools] [--detail] [--turns N] [--json]",
+      "Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--thread main|q-N] [--show-tools] [--detail] [--turns N] [--json]",
     );
   const safeSessionRef = formatInlineText(sessionRef);
 
@@ -614,6 +714,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   const untilIdx = parseIntegerFlag(flags, "until", "message index");
   const count = parsePositiveIntegerFlag(flags, "count", "message count", 60);
   const detail = flags.detail === true;
+  const threadKey = parseThreadFilterFlag(flags.thread);
 
   if (fromIdx !== undefined && fromIdx < 0) err("--from must be a non-negative integer.");
   if (untilIdx !== undefined && untilIdx < 0) err("--until must be a non-negative integer.");
@@ -623,6 +724,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   if (turnNum !== undefined) {
     const params = new URLSearchParams({ turn: String(turnNum) });
     if (showTools) params.set("showTools", "true");
+    appendThreadQueryParam(params, threadKey);
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
     const data = await apiGet(base, path);
     if (jsonMode) {
@@ -643,6 +745,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
 
     const params = new URLSearchParams({ from: String(task.startIdx), count: String(count) });
     if (showTools) params.set("showTools", "true");
+    appendThreadQueryParam(params, threadKey);
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
     const data = await apiGet(base, path);
     if (jsonMode) {
@@ -662,6 +765,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     if (fromIdx !== undefined) params.set("from", String(fromIdx));
     if (untilIdx !== undefined) params.set("until", String(untilIdx));
     if (showTools) params.set("showTools", "true");
+    appendThreadQueryParam(params, threadKey);
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
 
     const data = await apiGet(base, path);
@@ -674,6 +778,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     // Detail mode (legacy behavior)
     const turns = Number(flags.turns) || 1;
     const params = new URLSearchParams({ detail: "true", turns: String(turns) });
+    appendThreadQueryParam(params, threadKey);
     path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
 
     const data = await apiGet(base, path);
@@ -684,7 +789,10 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
     printPeekDetail(data as PeekDetailResponse);
   } else {
     // Default mode (smart overview)
-    path = `/sessions/${encodeURIComponent(sessionRef)}/messages`;
+    const params = new URLSearchParams();
+    appendThreadQueryParam(params, threadKey);
+    const qs = params.toString();
+    path = `/sessions/${encodeURIComponent(sessionRef)}/messages${qs ? `?${qs}` : ""}`;
 
     const data = await apiGet(base, path);
     if (jsonMode) {
@@ -698,16 +806,19 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
 export async function handleRead(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   const msgIdx = args[1];
-  if (!sessionRef || !msgIdx) err("Usage: takode read <session> <msg-id> [--offset N] [--limit N] [--json]");
+  if (!sessionRef || !msgIdx)
+    err("Usage: takode read <session> <msg-id> [--offset N] [--limit N] [--thread main|q-N] [--json]");
 
   const flags = parseFlags(args.slice(2));
   const offset = Number(flags.offset) || 0;
   const limit = Number(flags.limit) || 200;
   const jsonMode = flags.json === true;
+  const threadKey = parseThreadFilterFlag(flags.thread);
 
   const params = new URLSearchParams();
   if (offset) params.set("offset", String(offset));
   if (limit !== 200) params.set("limit", String(limit));
+  appendThreadQueryParam(params, threadKey);
   const qs = params.toString() ? `?${params}` : "";
 
   const data = await apiGet(
@@ -729,6 +840,10 @@ export async function handleRead(base: string, args: string[]): Promise<void> {
     limit: number;
     content: string;
     contentBlocks?: { type: string }[];
+    threadKey?: string;
+    questId?: string;
+    threadRefs?: Array<{ threadKey: string; questId?: string; source?: string }>;
+    threadStatuses?: ThreadStatusSummary[];
     rawMessage?: {
       type?: string;
       agentSource?: { sessionId: string; sessionLabel?: string };
@@ -748,6 +863,7 @@ export async function handleRead(base: string, args: string[]): Promise<void> {
       ? "assistant (tools)"
       : d.type;
   console.log(`[msg ${d.idx}] ${formatInlineText(typeLabel)} -- ${time}${lineInfo}`);
+  for (const line of formatThreadLines(d)) console.log(line);
   console.log("\u2500".repeat(60));
 
   // Print with line numbers (like the Read tool)
@@ -786,7 +902,7 @@ type PeekTurnScanResponse = {
 
 export async function handleScan(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
-  if (!sessionRef) err("Usage: takode scan <session> [--from N] [--until N] [--count N] [--json]");
+  if (!sessionRef) err("Usage: takode scan <session> [--from N] [--until N] [--count N] [--thread main|q-N] [--json]");
   const safeSessionRef = formatInlineText(sessionRef);
 
   const flags = parseFlags(args.slice(1));
@@ -794,6 +910,7 @@ export async function handleScan(base: string, args: string[]): Promise<void> {
   const explicitFrom = parseIntegerFlag(flags, "from", "turn number");
   const explicitUntil = parseIntegerFlag(flags, "until", "turn number");
   const turnCount = parsePositiveIntegerFlag(flags, "count", "turn count", 50);
+  const threadKey = parseThreadFilterFlag(flags.thread);
 
   if (explicitFrom !== null && explicitFrom !== undefined && explicitFrom < 0)
     err("--from must be a non-negative integer.");
@@ -812,6 +929,7 @@ export async function handleScan(base: string, args: string[]): Promise<void> {
   } else {
     // Probe total turns to compute backward offset
     const probeParams = new URLSearchParams({ scan: "turns", fromTurn: "0", turnCount: "0" });
+    appendThreadQueryParam(probeParams, threadKey);
     const probe = (await apiGet(
       base,
       `/sessions/${encodeURIComponent(sessionRef)}/messages?${probeParams}`,
@@ -824,6 +942,7 @@ export async function handleScan(base: string, args: string[]): Promise<void> {
     fromTurn: String(fromTurn),
     turnCount: String(turnCount),
   });
+  appendThreadQueryParam(params, threadKey);
   const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
   const data = (await apiGet(base, path)) as PeekTurnScanResponse;
 
@@ -876,13 +995,17 @@ export async function handleScan(base: string, args: string[]): Promise<void> {
 
 export async function handleGrep(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
-  if (!sessionRef) err("Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--json]");
+  if (!sessionRef)
+    err(
+      "Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--thread main|q-N] [--json]",
+    );
   const safeSessionRef = formatInlineText(sessionRef);
 
   const flags = parseFlags(args.slice(1));
   const jsonMode = flags.json === true;
   const limit = parsePositiveIntegerFlag(flags, "count", "result count", 50);
   const typeFilter = typeof flags.type === "string" ? flags.type : undefined;
+  const threadKey = parseThreadFilterFlag(flags.thread);
 
   if (typeFilter && !["user", "assistant", "result"].includes(typeFilter)) {
     err(`Invalid --type "${typeFilter}". Must be one of: user, assistant, result`);
@@ -914,23 +1037,29 @@ export async function handleGrep(base: string, args: string[]): Promise<void> {
     .join(" ")
     .trim();
 
-  if (!query) err("Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--json]");
+  if (!query)
+    err(
+      "Usage: takode grep <session> <pattern> [--type user|assistant|result] [--count N] [--thread main|q-N] [--json]",
+    );
 
   const params = new URLSearchParams({ q: query, limit: String(limit) });
   if (typeFilter) params.set("type", typeFilter);
+  appendThreadQueryParam(params, threadKey);
   const data = (await apiGet(base, `/sessions/${encodeURIComponent(sessionRef)}/grep?${params}`)) as {
     sessionId: string;
     sessionNum: number;
     query: string;
     totalMatches: number;
     warning?: string;
-    matches: Array<{
-      idx: number;
-      type: string;
-      ts: number;
-      snippet: string;
-      turn: number | null;
-    }>;
+    matches: Array<
+      {
+        idx: number;
+        type: string;
+        ts: number;
+        snippet: string;
+        turn: number | null;
+      } & ThreadMetadata
+    >;
   };
 
   if (jsonMode) {
@@ -956,7 +1085,9 @@ export async function handleGrep(base: string, args: string[]): Promise<void> {
     const idx = `[${match.idx}]`;
     const turnLabel = match.turn !== null ? `T${match.turn}` : "  ";
     const typeLabel = match.type.padEnd(6);
-    console.log(`  ${idx.padEnd(7)} ${time}  ${typeLabel} ${turnLabel.padEnd(5)} ${match.snippet}`);
+    console.log(
+      `  ${idx.padEnd(7)} ${time}  ${typeLabel} ${turnLabel.padEnd(5)} ${formatThreadTag(match)}${match.snippet}`,
+    );
   }
 
   console.log("");

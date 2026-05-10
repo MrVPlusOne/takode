@@ -129,6 +129,36 @@ function permissionApproved(toolName: string, summary: string, ts: number): Brow
   } as BrowserIncomingMessage;
 }
 
+function withThread(
+  msg: BrowserIncomingMessage,
+  threadKey: string,
+  options: { statusThreadKey?: string; statusSummary?: string } = {},
+): BrowserIncomingMessage {
+  const questId = threadKey.startsWith("q-") ? threadKey : undefined;
+  return {
+    ...msg,
+    threadKey,
+    ...(questId ? { questId } : {}),
+    ...(questId ? { threadRefs: [{ threadKey, questId, source: "explicit" as const }] } : {}),
+    ...(options.statusThreadKey
+      ? {
+          threadStatusMarkers: [
+            {
+              kind: "waiting" as const,
+              label: "Thread Waiting" as const,
+              threadKey: options.statusThreadKey,
+              questId: options.statusThreadKey.startsWith("q-") ? options.statusThreadKey : undefined,
+              summary: options.statusSummary ?? "waiting on work",
+              messageId: `status-${threadKey}-${options.statusThreadKey}`,
+              timestamp: 1,
+              updatedAt: 1,
+            },
+          ],
+        }
+      : {}),
+  } as BrowserIncomingMessage;
+}
+
 // ─── escapeStringLiteral & formatQuotedContent ──────────────────────────────
 
 describe("escapeStringLiteral", () => {
@@ -600,6 +630,31 @@ describe("buildPeekRange", () => {
       }),
     ]);
   });
+
+  it("filters range output by thread participation while preserving the closing result", () => {
+    // Thread filtering must include status-marker participation, not only a
+    // message's primary route, because leader turns can update another thread.
+    const history: BrowserIncomingMessage[] = [
+      withThread(userMsg("main prompt", 1000), "main"),
+      assistantMsg("main reply", 1500),
+      resultMsg(200),
+      withThread(userMsg("quest prompt", 2000), "q-1289"),
+      withThread(assistantMsg("mixed reply", 2500), "q-1289", {
+        statusThreadKey: "q-1298",
+        statusSummary: "waiting on explore",
+      }),
+      resultMsg(300),
+    ];
+
+    const result = buildPeekRange(history, { from: 0, count: 10, threadKey: "q-1298" });
+
+    expect(result.messages.map((msg) => msg.idx)).toEqual([4, 5]);
+    expect(result.messages[0]).toMatchObject({
+      threadKey: "q-1289",
+      threadStatuses: [expect.objectContaining({ threadKey: "q-1298", summary: "waiting on explore" })],
+    });
+    expect(result.messages[1]).toMatchObject({ type: "result" });
+  });
 });
 
 describe("buildPeekTurnScan", () => {
@@ -653,6 +708,32 @@ describe("buildPeekTurnScan", () => {
     expect(result.turns).toHaveLength(1);
     expect(result.turns[0].user).toContain("USER_SCAN_KEEP");
     expect(result.turns[0].user.length).toBeGreaterThan(1500);
+  });
+
+  it("projects compact turn thread metadata and keeps full mixed turn summaries under --thread", () => {
+    const history: BrowserIncomingMessage[] = [
+      withThread(userMsg("main prompt", 1000), "main"),
+      assistantMsg("main reply", 1500),
+      resultMsg(200),
+      withThread(userMsg("quest prompt", 2000), "q-1289"),
+      withThread(assistantMsg("mixed q-1289 reply", 2500), "q-1289", {
+        statusThreadKey: "q-1298",
+        statusSummary: "waiting on explore",
+      }),
+      resultMsg(300),
+    ];
+
+    const result = buildPeekTurnScan(history, { fromTurn: 0, turnCount: 10, threadKey: "q-1298" });
+
+    expect(result.totalTurns).toBe(1);
+    expect(result.turns).toHaveLength(1);
+    expect(result.turns[0]).toMatchObject({
+      turn: 1,
+      user: "quest prompt",
+      result: "mixed q-1289 reply",
+      threads: ["q-1289", "q-1298"],
+      threadStatuses: [expect.objectContaining({ threadKey: "q-1298", summary: "waiting on explore" })],
+    });
   });
 });
 
@@ -729,6 +810,24 @@ describe("buildReadResponse", () => {
 
     const result = buildReadResponse(history, 0)!;
     expect(result.contentBlocks).toBeUndefined();
+  });
+
+  it("adds compact thread metadata without requiring raw-message inspection", () => {
+    const history: BrowserIncomingMessage[] = [
+      withThread(assistantMsg("threaded reply", 1000), "q-1300", {
+        statusThreadKey: "q-1300",
+        statusSummary: "waiting on review",
+      }),
+    ];
+
+    const result = buildReadResponse(history, 0)!;
+
+    expect(result).toMatchObject({
+      threadKey: "q-1300",
+      questId: "q-1300",
+      threadRefs: [expect.objectContaining({ threadKey: "q-1300", source: "explicit" })],
+      threadStatuses: [expect.objectContaining({ threadKey: "q-1300", summary: "waiting on review" })],
+    });
   });
 
   it("reads a compact_marker message", () => {
@@ -906,6 +1005,28 @@ describe("grepMessageHistory", () => {
     const result = grepMessageHistory(historyWithBracket, "array[0");
     expect(result.totalMatches).toBe(1);
     expect(result.warning).toBeUndefined();
+  });
+
+  it("filters matches by thread metadata and includes compact thread fields", () => {
+    const threadedHistory: BrowserIncomingMessage[] = [
+      withThread(userMsg("needle in main", 1000), "main"),
+      withThread(userMsg("needle in quest", 2000), "q-1300"),
+      withThread(assistantMsg("needle in mixed status", 3000), "q-1289", {
+        statusThreadKey: "q-1300",
+        statusSummary: "waiting on implementation",
+      }),
+    ];
+
+    const result = grepMessageHistory(threadedHistory, "needle", { threadKey: "q-1300" });
+
+    expect(result.totalMatches).toBe(2);
+    expect(result.matches.map((match) => match.idx)).toEqual([1, 2]);
+    expect(result.matches[0]).toMatchObject({ threadKey: "q-1300", threads: ["q-1300"] });
+    expect(result.matches[1]).toMatchObject({
+      threadKey: "q-1289",
+      threads: ["q-1289", "q-1300"],
+      threadStatuses: [expect.objectContaining({ threadKey: "q-1300" })],
+    });
   });
 
   it("respects the limit option", () => {
