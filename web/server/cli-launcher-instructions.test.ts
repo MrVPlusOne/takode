@@ -48,6 +48,9 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("~/.companion/memory/prod/Takode");
     expect(result).toContain("normal `memory` commands auto-create the repo and authored directories");
     expect(result).toContain("Use visible memory reads and explicit writes");
+    expect(result).toContain("Do not treat an official repo doc, skill, or quest note as automatic proof");
+    expect(result).toContain("capture a concise memory decision/pointer");
+    expect(result).toContain("defer memory writing to Bookkeeping/curation");
     expect(result).toContain("use `memory catalog show` as the triage map");
     expect(result).toContain("use `memory catalog diff` as a freshness check");
     expect(result).toContain("Do not run catalog diff constantly");
