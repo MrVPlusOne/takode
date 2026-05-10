@@ -60,7 +60,14 @@ vi.mock("./api.js", async (importOriginal) => {
 
 import { resetQuestRefreshStateForTests, reconcileQuestList, useStore } from "./store.js";
 import { setSdkSessionsWithNotificationFreshness } from "./notification-status.js";
-import type { SessionState, PermissionRequest, ChatMessage, TaskItem, SdkSessionInfo } from "./types.js";
+import type {
+  SessionState,
+  PermissionRequest,
+  ChatMessage,
+  TaskItem,
+  SdkSessionInfo,
+  ThreadWindowState,
+} from "./types.js";
 
 function makeSession(id: string): SessionState {
   return {
@@ -189,6 +196,15 @@ describe("Session management", () => {
 
   it("removeSession: cleans all maps and clears currentSessionId if removed was current", () => {
     const session = makeSession("s1");
+    const threadWindow: ThreadWindowState = {
+      thread_key: "main",
+      from_item: 0,
+      item_count: 1,
+      total_items: 1,
+      source_history_length: 1,
+      section_item_count: 50,
+      visible_item_count: 50,
+    };
     useStore.getState().addSession(session);
     useStore.getState().setCurrentSession("s1");
     useStore.getState().appendMessage("s1", makeMessage());
@@ -201,12 +217,24 @@ describe("Session management", () => {
     useStore.getState().setCliConnected("s1", true);
     useStore.getState().setSessionStatus("s1", "running");
     useStore.getState().setPreviousPermissionMode("s1", "default");
+    // Thread-window cleanup must remove both cached content and the revision
+    // bookkeeping added to keep stale-but-visible leader windows refreshing.
+    useStore.setState({
+      threadWindows: new Map([["s1", new Map([["main", threadWindow]])]]),
+      threadWindowMessages: new Map([["s1", new Map([["main", [makeMessage({ id: "thread-msg" })]]])]]),
+      threadWindowRefreshRevisions: new Map([["s1", 2]]),
+      threadWindowAppliedRevisions: new Map([["s1", new Map([["main", 2]])]]),
+    });
 
     useStore.getState().removeSession("s1");
     const state = useStore.getState();
 
     expect(state.sessions.has("s1")).toBe(false);
     expect(state.messages.has("s1")).toBe(false);
+    expect(state.threadWindows.has("s1")).toBe(false);
+    expect(state.threadWindowMessages.has("s1")).toBe(false);
+    expect(state.threadWindowRefreshRevisions.has("s1")).toBe(false);
+    expect(state.threadWindowAppliedRevisions.has("s1")).toBe(false);
     expect(state.streaming.has("s1")).toBe(false);
     expect(state.streamingStartedAt.has("s1")).toBe(false);
     expect(state.streamingOutputTokens.has("s1")).toBe(false);
