@@ -1451,7 +1451,7 @@ export function ChatView({
       )}
 
       {/* Session task outline — horizontal milestone chips */}
-      {!preview && <TaskOutlineBar sessionId={sessionId} />}
+      {!preview && !isLeaderSession && <TaskOutlineBar sessionId={sessionId} />}
 
       {/* Persistent work board for orchestrator sessions -- primary thread navigation above the feed */}
       {!preview && (

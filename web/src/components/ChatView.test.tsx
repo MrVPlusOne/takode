@@ -43,6 +43,7 @@ interface MockStoreState {
   sessionCompletedBoards: Map<string, unknown[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   leaderProjections: Map<string, import("../types.js").LeaderProjectionSnapshot>;
+  sessionTaskHistory: Map<string, Array<{ title: string; triggerMessageId: string }>>;
   messages: Map<string, unknown[]>;
   historyLoading: Map<string, boolean>;
   quests: Array<Record<string, unknown> & { questId: string; title: string; status: string }>;
@@ -73,6 +74,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionCompletedBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
     leaderProjections: new Map(),
+    sessionTaskHistory: new Map(),
     messages: new Map(),
     historyLoading: new Map(),
     quests: [],
@@ -183,7 +185,11 @@ vi.mock("./PermissionBanner.js", () => ({
 }));
 
 vi.mock("./TaskOutlineBar.js", () => ({
-  TaskOutlineBar: () => <div data-testid="task-outline-bar" />,
+  TaskOutlineBar: ({ sessionId }: { sessionId: string }) => {
+    const taskHistory = mockState.sessionTaskHistory.get(sessionId);
+    if (!taskHistory || taskHistory.length === 0) return null;
+    return <div data-testid="task-outline-bar">{taskHistory[0]?.title}</div>;
+  },
 }));
 
 vi.mock("./TodoStatusLine.js", () => ({
@@ -568,6 +574,37 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
     expect(scope.getByTestId("message-feed")).toHaveAttribute("data-project-thread-routes", "false");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-thread-key", "main");
+  });
+
+  it("hides the task history header row for leader sessions", () => {
+    // Leader sessions use the WorkBoardBar as their header navigator; the
+    // session task-history strip would duplicate stale/current task context.
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      sessionTaskHistory: new Map([["s1", [{ title: "Add reusable image preview group", triggerMessageId: "m1" }]]]),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    expect(scope.queryByTestId("task-outline-bar")).not.toBeInTheDocument();
+    expect(scope.getByTestId("work-board-bar")).toBeInTheDocument();
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "main");
+  });
+
+  it("keeps the task history header row for non-leader sessions with task history", () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: false }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: false }],
+      sessionTaskHistory: new Map([["s1", [{ title: "Inspect worktree", triggerMessageId: "m1" }]]]),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    expect(scope.getByTestId("task-outline-bar")).toHaveTextContent("Inspect worktree");
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main");
   });
 
   it("renders a read-only preview surface without live chat controls", () => {
