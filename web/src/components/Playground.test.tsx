@@ -40,6 +40,14 @@ function setMeasuredRailWidth(width: number) {
   );
 }
 
+function getWorkBoardBarSection() {
+  const section = document.querySelector<HTMLElement>('[data-playground-section-id="interactive-work-board-bar"]');
+  if (!section) {
+    throw new Error("Work Board Bar Playground section was not rendered");
+  }
+  return within(section);
+}
+
 // Mock markdown renderer used by MessageBubble/PermissionBanner
 vi.mock("react-markdown", () => ({
   default: ({ children }: { children: string }) => <div data-testid="markdown">{children}</div>,
@@ -183,43 +191,46 @@ describe("Playground", () => {
     setMeasuredRailWidth(392);
     render(<Playground />);
 
-    fireEvent.click(screen.getByText("Seed board data"));
+    const workBoardBar = getWorkBoardBarSection();
+    fireEvent.click(workBoardBar.getByText("Seed board data"));
 
-    const rail = screen.getByTestId("thread-tab-rail");
+    const rail = workBoardBar.getByTestId("thread-tab-rail");
     expect(rail).toHaveAttribute("data-overflow", "more-tabs-list");
     expect(within(rail).queryByText("Tabs")).not.toBeInTheDocument();
-    const tabStrip = screen.getByTestId("thread-tab-strip");
+    const tabStrip = workBoardBar.getByTestId("thread-tab-strip");
     expect(tabStrip).toHaveAttribute("data-overflow-mode", "more-tabs");
     expect(tabStrip.getAttribute("style") ?? "").toContain("--thread-tab-width: 76px");
     expect(tabStrip).toHaveClass("overflow-visible");
-    const moreButton = screen.getByTestId("thread-tabs-more-button");
+    const moreButton = workBoardBar.getByTestId("thread-tabs-more-button");
     expect(moreButton).toHaveAttribute("data-hidden-count", "2");
-    expect(screen.getByTestId("workboard-main-banner")).toBeTruthy();
+    expect(workBoardBar.getByTestId("workboard-main-banner")).toBeTruthy();
     expect(
-      rail.compareDocumentPosition(screen.getByTestId("workboard-main-banner")) & Node.DOCUMENT_POSITION_FOLLOWING,
+      rail.compareDocumentPosition(workBoardBar.getByTestId("workboard-main-banner")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByTestId("workboard-active-button")).toBeInTheDocument();
+    expect(workBoardBar.getByTestId("workboard-active-button")).toBeInTheDocument();
     expect(
-      screen
+      workBoardBar
         .getByTestId("workboard-active-button")
-        .compareDocumentPosition(screen.getByTestId("workboard-phase-summary")) & Node.DOCUMENT_POSITION_FOLLOWING,
+        .compareDocumentPosition(workBoardBar.getByTestId("workboard-phase-summary")) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.queryByTestId("workboard-current-thread")).toBeNull();
-    expect(screen.getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
-    expect(screen.getByTestId("thread-main-tab")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("thread-main-tab")).toHaveClass("border-violet-100/45", "border-b-transparent");
-    expect(screen.getByTestId("thread-main-tab")).not.toHaveClass("border-amber-400/60", "border-cc-primary/70");
-    expect(screen.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Code Review");
-    const mainTitle = within(screen.getByTestId("thread-main-tab")).getByTestId("thread-tab-title");
+    expect(workBoardBar.queryByTestId("workboard-current-thread")).toBeNull();
+    expect(workBoardBar.getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
+    expect(workBoardBar.getByTestId("thread-main-tab")).toHaveAttribute("aria-pressed", "true");
+    expect(workBoardBar.getByTestId("thread-main-tab")).toHaveClass("border-violet-100/45", "border-b-transparent");
+    expect(workBoardBar.getByTestId("thread-main-tab")).not.toHaveClass("border-amber-400/60", "border-cc-primary/70");
+    expect(workBoardBar.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Code Review");
+    const mainTitle = within(workBoardBar.getByTestId("thread-main-tab")).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "false");
     expect(
-      within(screen.getByTestId("thread-main-tab")).queryByTestId("thread-tab-active-output-indicator"),
+      within(workBoardBar.getByTestId("thread-main-tab")).queryByTestId("thread-tab-active-output-indicator"),
     ).toBeNull();
     expect(mainTitle.getAttribute("style") ?? "").not.toContain("animation");
     expect(mainTitle).not.toHaveClass("border");
     expect(mainTitle).not.toHaveClass("bg-sky-400/10");
 
-    const tabs = screen.getAllByTestId("thread-tab");
+    const tabs = workBoardBar.getAllByTestId("thread-tab");
     expect(tabs.map((tab) => tab.getAttribute("data-min-label"))).toEqual(["q-42", "q-55", "q-61"]);
     expect(within(rail).queryByText("Active")).not.toBeInTheDocument();
     expect(tabs[0]).toHaveClass(
@@ -230,7 +241,7 @@ describe("Playground", () => {
     expect(tabs[0]).toHaveAttribute("data-closable", "false");
     expect(within(tabs[0]).queryByTestId("thread-tab-close")).not.toBeInTheDocument();
     fireEvent.click(moreButton);
-    const moreRows = screen.getAllByTestId("thread-tabs-more-row");
+    const moreRows = workBoardBar.getAllByTestId("thread-tabs-more-row");
     expect(moreRows.map((row) => row.getAttribute("data-thread-key"))).toEqual(["q-77", "q-88"]);
     expect(moreRows.find((row) => row.getAttribute("data-thread-key") === "q-77")).toHaveAttribute(
       "data-hidden",
@@ -303,8 +314,8 @@ describe("Playground", () => {
     expect(within(hoverCard).getByRole("link", { name: "Worker #5 Clear Mesa" })).toBeTruthy();
     expect(within(hoverCard).getByRole("link", { name: "Reviewer #6 Review Lead" })).toBeTruthy();
 
-    fireEvent.click(screen.getByRole("button", { name: "Quest thread" }));
-    const selectedActiveQuestTab = screen
+    fireEvent.click(workBoardBar.getByRole("button", { name: "Quest thread" }));
+    const selectedActiveQuestTab = workBoardBar
       .getAllByTestId("thread-tab")
       .find((tab) => tab.getAttribute("data-thread-key") === "q-42")!;
     expect(within(selectedActiveQuestTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
@@ -312,32 +323,35 @@ describe("Playground", () => {
     expect(selectedActiveQuestTab).toHaveAttribute("data-active-output", "true");
     expect(within(selectedActiveQuestTab).getByTestId("thread-tab-active-output-indicator")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Simulate moved-message tab"));
-    const movedTabs = screen.getAllByTestId("thread-tab");
+    fireEvent.click(workBoardBar.getByText("Simulate moved-message tab"));
+    const movedTabs = workBoardBar.getAllByTestId("thread-tab");
     expect(movedTabs[0]).toHaveAttribute("data-thread-key", "q-99");
     expect(movedTabs[0]).toHaveAttribute("data-new-tab", "true");
-    expect(screen.queryByTestId("workboard-main-banner")).toBeNull();
-    expect(screen.getByTestId("thread-tab-rail")).toBeTruthy();
+    expect(workBoardBar.queryByTestId("workboard-main-banner")).toBeNull();
+    expect(workBoardBar.getByTestId("thread-tab-rail")).toBeTruthy();
 
-    fireEvent.click(screen.getByText("Main banner"));
-    expect(screen.getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "true");
-    expect(screen.getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "false");
-    expect(screen.getByTestId("workboard-other-button")).toHaveTextContent("2other");
-    expect(screen.queryByTestId("workboard-off-board-threads")).toBeNull();
-    fireEvent.click(screen.getByTestId("workboard-other-button"));
-    expect(screen.getByTestId("workboard-other-threads-content")).toHaveTextContent("Off-board routed discussion");
+    fireEvent.click(workBoardBar.getByText("Main banner"));
+    expect(workBoardBar.getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "true");
+    expect(workBoardBar.getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "false");
+    expect(workBoardBar.getByTestId("workboard-other-button")).toHaveTextContent("2other");
+    expect(workBoardBar.queryByTestId("workboard-off-board-threads")).toBeNull();
+    fireEvent.click(workBoardBar.getByTestId("workboard-other-button"));
+    expect(workBoardBar.getByTestId("workboard-other-threads-content")).toHaveTextContent(
+      "Off-board routed discussion",
+    );
   });
 
   it("documents the desktop Work Board Bar tab crowd overflowing into More before labels collapse", () => {
     setMeasuredRailWidth(1880);
     render(<Playground />);
 
-    fireEvent.click(screen.getByText("Seed board data"));
-    fireEvent.click(screen.getByText("Simulate desktop tab crowd"));
+    const workBoardBar = getWorkBoardBarSection();
+    fireEvent.click(workBoardBar.getByText("Seed board data"));
+    fireEvent.click(workBoardBar.getByText("Simulate desktop tab crowd"));
 
-    const rail = screen.getByTestId("thread-tab-rail");
+    const rail = workBoardBar.getByTestId("thread-tab-rail");
     expect(rail).toHaveAttribute("data-overflow", "more-tabs-list");
-    const tabs = screen.getAllByTestId("thread-tab");
+    const tabs = workBoardBar.getAllByTestId("thread-tab");
     expect(tabs.map((tab) => tab.getAttribute("data-thread-key"))).toEqual([
       "q-61",
       "q-42",
@@ -350,9 +364,11 @@ describe("Playground", () => {
       "q-1106",
       "q-1112",
     ]);
-    expect(screen.getByTestId("thread-tab-strip").getAttribute("style") ?? "").toContain("--thread-tab-width: 160px");
+    expect(workBoardBar.getByTestId("thread-tab-strip").getAttribute("style") ?? "").toContain(
+      "--thread-tab-width: 160px",
+    );
     expect(tabs[0]).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
-    expect(screen.getByTestId("thread-tabs-more-button")).toHaveAttribute("data-hidden-count", "6");
+    expect(workBoardBar.getByTestId("thread-tabs-more-button")).toHaveAttribute("data-hidden-count", "6");
   });
 
   it("documents compact quest-thread banners without chip note counts and with tap previews", () => {
