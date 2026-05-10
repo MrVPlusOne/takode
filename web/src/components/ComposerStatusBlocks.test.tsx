@@ -24,6 +24,7 @@ function renderStatusBlocks(overrides: Partial<Parameters<typeof ComposerStatusB
     isTranscribing: false,
     transcriptionPhase: null,
     volumeLevel: 0,
+    volumeHistory: [],
     voiceCaptureMode: "dictation",
     voiceUnsupportedInfoOpen: false,
     voiceUnsupportedMessage: null,
@@ -77,6 +78,28 @@ describe("ComposerStatusBlocks voice recording controls", () => {
 
     expect(props.onSetVoiceModeEdit).toHaveBeenCalledTimes(1);
     expect(props.onSetVoiceModeAppend).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders a fixed recent level history alongside the current live meter", () => {
+    // The recording row keeps the live bars but adds a fixed-width trace so a
+    // user can see whether speech was captured at the beginning of recording.
+    renderStatusBlocks({
+      isRecording: true,
+      volumeLevel: 0.7,
+      volumeHistory: [
+        { time: 0, level: 0.08 },
+        { time: 125, level: 0.35 },
+        { time: 250, level: 0.72 },
+      ],
+      vscodeSelectionLabel: null,
+      vscodeSelectionSummary: null,
+      vscodeSelectionTitle: null,
+    });
+
+    expect(screen.getByLabelText("Current input level")).toBeTruthy();
+    const history = screen.getByLabelText("Recent input level history");
+    expect(history.className).toContain("shrink-0");
+    expect(screen.getAllByTestId("voice-level-history-bar")).toHaveLength(40);
   });
 });
 

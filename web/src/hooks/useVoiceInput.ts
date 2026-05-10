@@ -1,4 +1,5 @@
 import { useState, useRef, useCallback, useEffect } from "react";
+import type { VoiceLevelSample } from "../components/composer-voice-types.js";
 
 export interface UseVoiceInputOptions {
   /** Called with the recorded audio blob when recording stops */
@@ -25,6 +26,8 @@ export interface UseVoiceInputReturn {
   error: string | null;
   /** Normalized volume level 0–1 while recording, 0 otherwise */
   volumeLevel: number;
+  /** Bounded rolling history of recent normalized volume levels while recording */
+  volumeHistory: VoiceLevelSample[];
   setIsTranscribing: (v: boolean) => void;
   setTranscriptionPhase: (phase: TranscriptionPhase) => void;
   setError: (e: string | null) => void;
@@ -133,6 +136,11 @@ const VOLUME_SENSITIVITY = 5.5;
 const VOLUME_CURVE = 0.55;
 const VOLUME_ATTACK = 0.42;
 const VOLUME_RELEASE = 0.14;
+export const VOICE_LEVEL_HISTORY_WINDOW_MS = 5_000;
+export const VOICE_LEVEL_HISTORY_SAMPLE_INTERVAL_MS = 125;
+export const VOICE_LEVEL_HISTORY_MAX_SAMPLES = Math.ceil(
+  VOICE_LEVEL_HISTORY_WINDOW_MS / VOICE_LEVEL_HISTORY_SAMPLE_INTERVAL_MS,
+);
 
 export function normalizeMeterLevel(rms: number, previousLevel: number): number {
   const gated = Math.max(0, rms - VOLUME_NOISE_FLOOR);
@@ -140,6 +148,23 @@ export function normalizeMeterLevel(rms: number, previousLevel: number): number 
   const smoothing = boosted > previousLevel ? VOLUME_ATTACK : VOLUME_RELEASE;
   const next = previousLevel + (boosted - previousLevel) * smoothing;
   return Math.max(0, Math.min(1, next));
+}
+
+export function appendVoiceLevelHistorySample(
+  history: VoiceLevelSample[],
+  sample: VoiceLevelSample,
+): VoiceLevelSample[] {
+  const clampedSample = {
+    time: sample.time,
+    level: Math.max(0, Math.min(1, sample.level)),
+  };
+  const oldestTime = clampedSample.time - VOICE_LEVEL_HISTORY_WINDOW_MS;
+  const trimmed = history.filter((item) => item.time >= oldestTime);
+  return [...trimmed, clampedSample].slice(-VOICE_LEVEL_HISTORY_MAX_SAMPLES);
+}
+
+function shouldStoreVoiceLevelHistorySample(timestamp: number, lastSampleTime: number | null): boolean {
+  return lastSampleTime === null || timestamp - lastSampleTime >= VOICE_LEVEL_HISTORY_SAMPLE_INTERVAL_MS;
 }
 
 /** How long to keep a pre-warmed mic stream before releasing it (stops OS mic indicator). */
@@ -153,6 +178,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const [transcriptionPhase, setTranscriptionPhase] = useState<TranscriptionPhase>(null);
   const [error, setError] = useState<string | null>(null);
   const [volumeLevel, setVolumeLevel] = useState(0);
+  const [volumeHistory, setVolumeHistory] = useState<VoiceLevelSample[]>([]);
   const recorderRef = useRef<MediaRecorder | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const streamRef = useRef<MediaStream | null>(null);
@@ -172,6 +198,12 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const analyserRef = useRef<AnalyserNode | null>(null);
   const animFrameRef = useRef<number>(0);
   const previousLevelRef = useRef(0);
+  const lastHistorySampleTimeRef = useRef<number | null>(null);
+
+  const resetVolumeHistory = useCallback(() => {
+    lastHistorySampleTimeRef.current = null;
+    setVolumeHistory([]);
+  }, []);
 
   /** Start polling AnalyserNode for volume level */
   const startVolumeMonitor = useCallback((stream: MediaStream) => {
@@ -190,7 +222,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       previousLevelRef.current = 0;
 
       const dataArray = new Uint8Array(analyser.fftSize);
-      const poll = () => {
+      const poll = (timestamp: number = performance.now()) => {
         analyser.getByteTimeDomainData(dataArray);
         let sumSquares = 0;
         for (let i = 0; i < dataArray.length; i++) {
@@ -201,6 +233,10 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         const level = normalizeMeterLevel(rms, previousLevelRef.current);
         previousLevelRef.current = level;
         setVolumeLevel(level);
+        if (shouldStoreVoiceLevelHistorySample(timestamp, lastHistorySampleTimeRef.current)) {
+          lastHistorySampleTimeRef.current = timestamp;
+          setVolumeHistory((history) => appendVoiceLevelHistorySample(history, { time: timestamp, level }));
+        }
         animFrameRef.current = requestAnimationFrame(poll);
       };
       animFrameRef.current = requestAnimationFrame(poll);
@@ -222,7 +258,8 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     analyserRef.current = null;
     previousLevelRef.current = 0;
     setVolumeLevel(0);
-  }, []);
+    resetVolumeHistory();
+  }, [resetVolumeHistory]);
 
   /** Release cached pre-warmed stream and clear idle timeout */
   const releaseCachedStream = useCallback(() => {
@@ -300,6 +337,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     setError(null);
     chunksRef.current = [];
     cancelledRef.current = false;
+    resetVolumeHistory();
     setIsPreparing(true);
 
     try {
@@ -422,6 +460,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
     transcriptionPhase,
     error,
     volumeLevel,
+    volumeHistory,
     setIsTranscribing,
     setTranscriptionPhase,
     setError,

@@ -12,3 +12,8 @@ export interface FailedTranscription {
   transcriptionThreadKey?: string;
   transcriptionThreadTitle?: string;
 }
+
+export interface VoiceLevelSample {
+  time: number;
+  level: number;
+}

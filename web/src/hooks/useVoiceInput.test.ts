@@ -1,11 +1,16 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it, vi, afterEach } from "vitest";
 import { renderHook, act } from "@testing-library/react";
+import type { VoiceLevelSample } from "../components/composer-voice-types.js";
 import {
+  appendVoiceLevelHistorySample,
   getVoiceInputSupport,
   normalizeMeterLevel,
   resolveRecordedMimeType,
   resolveVoiceRecorderOptions,
+  VOICE_LEVEL_HISTORY_MAX_SAMPLES,
+  VOICE_LEVEL_HISTORY_SAMPLE_INTERVAL_MS,
+  VOICE_LEVEL_HISTORY_WINDOW_MS,
   useVoiceInput,
 } from "./useVoiceInput.js";
 
@@ -70,6 +75,8 @@ class MockMediaRecorder {
 
 /** Stub AudioContext so volume metering setup doesn't throw */
 class MockAudioContext {
+  static sampleAmplitude = 0;
+
   state = "running";
   createMediaStreamSource() {
     return { connect: vi.fn() };
@@ -78,7 +85,11 @@ class MockAudioContext {
     return {
       fftSize: 1024,
       smoothingTimeConstant: 0,
-      getByteTimeDomainData: vi.fn(),
+      getByteTimeDomainData: vi.fn((array: Uint8Array) => {
+        for (let i = 0; i < array.length; i += 1) {
+          array[i] = 128 + (i % 2 === 0 ? MockAudioContext.sampleAmplitude : -MockAudioContext.sampleAmplitude);
+        }
+      }),
     };
   }
   resume() {
@@ -105,6 +116,7 @@ beforeEach(() => {
   vi.useFakeTimers();
 
   getUserMediaMock = vi.fn().mockResolvedValue(makeMockStream());
+  MockAudioContext.sampleAmplitude = 0;
   MockMediaRecorder.lastInstance = null;
   MockMediaRecorder.supportedMimeTypes = new Set([
     "audio/mp4;codecs=mp4a.40.2",
@@ -155,6 +167,25 @@ describe("normalizeMeterLevel", () => {
     expect(rising).toBeGreaterThan(0.25);
     expect(falling).toBeGreaterThan(0.2);
     expect(falling).toBeLessThan(rising);
+  });
+});
+
+describe("appendVoiceLevelHistorySample", () => {
+  it("keeps a bounded 5 second window and clamps levels for rendering", () => {
+    // The rolling trace should be small enough for the composer status row and
+    // should never grow with every animation frame over a long recording.
+    let history: VoiceLevelSample[] = [];
+
+    for (let i = 0; i <= VOICE_LEVEL_HISTORY_MAX_SAMPLES + 6; i += 1) {
+      history = appendVoiceLevelHistorySample(history, {
+        time: i * VOICE_LEVEL_HISTORY_SAMPLE_INTERVAL_MS,
+        level: i % 2 === 0 ? 1.4 : -0.2,
+      });
+    }
+
+    expect(history).toHaveLength(VOICE_LEVEL_HISTORY_MAX_SAMPLES);
+    expect(history[0].time).toBeGreaterThanOrEqual(history[history.length - 1].time - VOICE_LEVEL_HISTORY_WINDOW_MS);
+    expect(history.every((sample) => sample.level >= 0 && sample.level <= 1)).toBe(true);
   });
 });
 
@@ -531,16 +562,97 @@ describe("useVoiceInput — onAudioReady", () => {
   });
 });
 
+describe("useVoiceInput — volume history", () => {
+  function mockAnimationFrames() {
+    const callbacks: FrameRequestCallback[] = [];
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+    return {
+      runNextFrame: (timestamp: number) => {
+        const callback = callbacks.shift();
+        if (!callback) throw new Error("No queued animation frame");
+        callback(timestamp);
+      },
+    };
+  }
+
+  it("samples the live meter into a bounded rolling history without storing every frame", async () => {
+    const frames = mockAnimationFrames();
+    MockAudioContext.sampleAmplitude = 32;
+    const { result } = renderHook(() => useVoiceInput());
+
+    await act(async () => {
+      result.current.startRecording();
+    });
+
+    act(() => frames.runNextFrame(0));
+    expect(result.current.volumeHistory).toHaveLength(1);
+
+    act(() => frames.runNextFrame(VOICE_LEVEL_HISTORY_SAMPLE_INTERVAL_MS - 1));
+    expect(result.current.volumeHistory).toHaveLength(1);
+
+    act(() => frames.runNextFrame(VOICE_LEVEL_HISTORY_SAMPLE_INTERVAL_MS));
+    expect(result.current.volumeHistory).toHaveLength(2);
+    expect(result.current.volumeHistory[1].level).toBeGreaterThan(0);
+  });
+
+  it("clears rolling history when recording stops normally", async () => {
+    const frames = mockAnimationFrames();
+    MockAudioContext.sampleAmplitude = 32;
+    const { result } = renderHook(() => useVoiceInput());
+
+    await act(async () => {
+      result.current.startRecording();
+    });
+    act(() => frames.runNextFrame(0));
+    expect(result.current.volumeHistory).toHaveLength(1);
+
+    act(() => {
+      result.current.stopRecording();
+    });
+    expect(result.current.volumeHistory).toEqual([]);
+  });
+
+  it("clears rolling history when recording is cancelled", async () => {
+    const frames = mockAnimationFrames();
+    MockAudioContext.sampleAmplitude = 32;
+    const { result } = renderHook(() => useVoiceInput());
+
+    await act(async () => {
+      result.current.startRecording();
+    });
+    act(() => frames.runNextFrame(0));
+    expect(result.current.volumeHistory).toHaveLength(1);
+
+    act(() => {
+      result.current.cancelRecording();
+    });
+    expect(result.current.volumeHistory).toEqual([]);
+  });
+});
+
 // ── Hook tests: recorder error handling ────────────────────────────────────
 
 describe("useVoiceInput — recorder.onerror", () => {
   it("sets error and clears recording state when MediaRecorder errors mid-recording", async () => {
+    const callbacks: FrameRequestCallback[] = [];
+    vi.spyOn(globalThis, "requestAnimationFrame").mockImplementation((callback) => {
+      callbacks.push(callback);
+      return callbacks.length;
+    });
+    vi.spyOn(globalThis, "cancelAnimationFrame").mockImplementation(() => {});
+    MockAudioContext.sampleAmplitude = 32;
     const onAudioReady = vi.fn();
     const { result } = renderHook(() => useVoiceInput({ onAudioReady }));
 
     await act(async () => {
       result.current.startRecording();
     });
+    act(() => callbacks.shift()?.(0));
+    expect(result.current.volumeHistory).toHaveLength(1);
     expect(result.current.isRecording).toBe(true);
 
     // Simulate a recorder error via the mock's triggerError helper
@@ -551,6 +663,7 @@ describe("useVoiceInput — recorder.onerror", () => {
 
     expect(result.current.isRecording).toBe(false);
     expect(result.current.isPreparing).toBe(false);
+    expect(result.current.volumeHistory).toEqual([]);
     expect(result.current.error).toBe("Recording failed");
     expect(onAudioReady).not.toHaveBeenCalled();
   });

@@ -54,6 +54,22 @@ const PLAYGROUND_UNIVERSAL_SESSIONS: SdkSessionInfo[] = [
   },
 ];
 
+const PLAYGROUND_VOICE_HISTORY = [0.08, 0.18, 0.35, 0.68, 0.82, 0.44, 0.16, 0.1, 0.28, 0.58, 0.72, 0.24];
+
+function PlaygroundVoiceHistory() {
+  return (
+    <div className="flex h-4 w-[72px] sm:w-[112px] shrink-0 items-end gap-[1px] overflow-hidden rounded-[3px] border border-red-500/20 bg-red-500/5 px-[2px] py-[2px]">
+      {PLAYGROUND_VOICE_HISTORY.map((level, index) => (
+        <span
+          key={index}
+          className="min-w-0 flex-1 rounded-full bg-red-400"
+          style={{ height: `${Math.max(2, Math.round(level * 12))}px`, opacity: Math.max(0.25, 0.35 + level * 0.65) }}
+        />
+      ))}
+    </div>
+  );
+}
+
 const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
   sessionId: "playground-universal",
   sessionNum: 1277,
@@ -375,6 +391,7 @@ export function PlaygroundStateSections() {
                 <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
                   <span>Recording...</span>
+                  <PlaygroundVoiceHistory />
                 </div>
                 <textarea
                   readOnly
@@ -463,6 +480,7 @@ export function PlaygroundStateSections() {
                       />
                     ))}
                   </div>
+                  <PlaygroundVoiceHistory />
                 </div>
                 <textarea
                   readOnly
@@ -542,6 +560,7 @@ export function PlaygroundStateSections() {
                       />
                     ))}
                   </div>
+                  <PlaygroundVoiceHistory />
                 </div>
                 <textarea
                   readOnly

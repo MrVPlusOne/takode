@@ -2,6 +2,9 @@ import { useEffect, useRef, useState } from "react";
 import { DiffViewer } from "./DiffViewer.js";
 import { ReplyChip } from "./ReplyChip.js";
 import { useStore } from "../store.js";
+import type { VoiceLevelSample } from "./composer-voice-types.js";
+
+const VOICE_HISTORY_BAR_COUNT = 40;
 
 export function ComposerStatusBlocks({
   isPreparing,
@@ -9,6 +12,7 @@ export function ComposerStatusBlocks({
   isTranscribing,
   transcriptionPhase,
   volumeLevel,
+  volumeHistory = [],
   voiceCaptureMode,
   voiceUnsupportedInfoOpen,
   voiceUnsupportedMessage,
@@ -34,6 +38,7 @@ export function ComposerStatusBlocks({
   isTranscribing: boolean;
   transcriptionPhase: string | null;
   volumeLevel: number;
+  volumeHistory?: VoiceLevelSample[];
   voiceCaptureMode: "dictation" | "edit" | "append";
   voiceUnsupportedInfoOpen: boolean;
   voiceUnsupportedMessage: string | null;
@@ -121,7 +126,7 @@ export function ComposerStatusBlocks({
           )}
           <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
           <span className="shrink-0">Recording</span>
-          <div className="flex items-center gap-[2px] h-3">
+          <div className="flex items-center gap-[2px] h-3 shrink-0" aria-label="Current input level">
             {VOICE_BAR_THRESHOLDS.map((threshold, i) => (
               <div
                 key={i}
@@ -133,6 +138,7 @@ export function ComposerStatusBlocks({
               />
             ))}
           </div>
+          <VoiceLevelHistory samples={volumeHistory} />
         </div>
       )}
       {isTranscribing && !isRecording && (
@@ -314,5 +320,38 @@ export function ComposerStatusBlocks({
         </div>
       )}
     </>
+  );
+}
+
+function VoiceLevelHistory({ samples }: { samples: VoiceLevelSample[] }) {
+  const visibleSamples = samples.slice(-VOICE_HISTORY_BAR_COUNT);
+  const paddedSamples = [
+    ...Array.from({ length: Math.max(0, VOICE_HISTORY_BAR_COUNT - visibleSamples.length) }, () => null),
+    ...visibleSamples,
+  ];
+
+  return (
+    <div
+      data-testid="voice-level-history"
+      role="img"
+      aria-label="Recent input level history"
+      title="Recent input level history"
+      className="flex h-4 w-[72px] sm:w-[112px] shrink-0 items-end gap-[1px] overflow-hidden rounded-[3px] border border-red-500/20 bg-red-500/5 px-[2px] py-[2px]"
+    >
+      {paddedSamples.map((sample, index) => {
+        const level = sample?.level ?? 0;
+        return (
+          <span
+            key={`${sample?.time ?? "empty"}-${index}`}
+            data-testid="voice-level-history-bar"
+            className="min-w-0 flex-1 rounded-full bg-red-400"
+            style={{
+              height: `${Math.max(2, Math.round(level * 12))}px`,
+              opacity: sample ? Math.max(0.25, 0.35 + level * 0.65) : 0.12,
+            }}
+          />
+        );
+      })}
+    </div>
   );
 }
