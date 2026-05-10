@@ -37,9 +37,11 @@ describe("SettingsServerDiagnosticsSection", () => {
           mode: "restart",
           restartRequested: false,
           timedOut: true,
+          retryAttempts: [],
           interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
           skipped: [],
           failures: [],
+          fallbacks: [],
           protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
           unresolvedBlockers: [
             {
@@ -102,9 +104,11 @@ describe("SettingsServerDiagnosticsSection", () => {
           mode: "restart",
           restartRequested: false,
           timedOut: false,
+          retryAttempts: [],
           interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
           skipped: [],
           failures: [],
+          fallbacks: [],
           protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
           unresolvedBlockers: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
           herdDelivery: {
@@ -139,9 +143,11 @@ describe("SettingsServerDiagnosticsSection", () => {
           mode: "restart",
           restartRequested: false,
           timedOut: false,
+          retryAttempts: [],
           interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
           skipped: [],
           failures: [],
+          fallbacks: [],
           protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
           unresolvedBlockers: [],
           herdDelivery: { suppressed: 2, held: 1, trackingActive: false, countsFinal: true },
@@ -153,5 +159,64 @@ describe("SettingsServerDiagnosticsSection", () => {
 
     expect(screen.getByText(/Suppressed prep events: 2/)).toBeInTheDocument();
     expect(screen.getByText(/Held unrelated events: 1/)).toBeInTheDocument();
+  });
+
+  it("renders retry and Codex fallback diagnostics", () => {
+    render(
+      <SettingsServerDiagnosticsSection
+        logFile=""
+        {...serverSlugProps}
+        restartSupported
+        restartError=""
+        restartPrepResult={{
+          ok: true,
+          operationId: "prep-restart",
+          mode: "restart",
+          restartRequested: true,
+          timedOut: true,
+          retryAttempts: [
+            {
+              attempt: 1,
+              interrupted: [{ sessionId: "codex-1", label: "Codex stuck", reasons: ["running"] }],
+              skipped: [],
+              failures: [],
+              remainingBlockers: [{ sessionId: "codex-1", label: "Codex stuck", reasons: ["running"] }],
+              timedOut: true,
+            },
+            {
+              attempt: 2,
+              interrupted: [{ sessionId: "codex-1", label: "Codex stuck", reasons: ["running"] }],
+              skipped: [],
+              failures: [],
+              remainingBlockers: [],
+              timedOut: false,
+            },
+          ],
+          interrupted: [{ sessionId: "codex-1", label: "Codex stuck", reasons: ["running"] }],
+          skipped: [],
+          failures: [],
+          fallbacks: [
+            {
+              sessionId: "codex-1",
+              label: "Codex stuck",
+              reasons: ["running"],
+              detail:
+                "Codex recovery was requested after bounded restart-prep interrupts did not clear the running blocker.",
+              diagnostics: { backendState: "connected", pendingCodexTurns: 1 },
+            },
+          ],
+          protectedLeaders: [],
+          unresolvedBlockers: [],
+          herdDelivery: { suppressed: 0, held: 0, trackingActive: false, countsFinal: true },
+        }}
+        restarting={false}
+        onRestartServer={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText(/Retry attempts: 2/)).toBeInTheDocument();
+    expect(screen.getAllByText("Codex stuck")).toHaveLength(2);
+    expect(screen.getByText(/Codex recovery was requested/)).toBeInTheDocument();
+    expect(screen.getByText(/backendState=connected/)).toBeInTheDocument();
   });
 });

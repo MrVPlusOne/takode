@@ -43,6 +43,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
   const { launcher, wsBridge, sessionStore, options, pushoverNotifier } = ctx;
   const execPromise = promisify(execCb);
   const restartPrepTimeoutMs = Number(process.env.COMPANION_RESTART_PREP_TIMEOUT_MS || "8000");
+  const restartPrepMaxInterruptAttempts = readPositiveIntEnv("COMPANION_RESTART_PREP_MAX_INTERRUPT_ATTEMPTS", 3);
+  const restartPrepRetryDelayMs = readNonNegativeIntEnv("COMPANION_RESTART_PREP_RETRY_DELAY_MS", 100);
 
   interface RestartBlockingSession {
     sessionId: string;
@@ -58,9 +60,17 @@ export function createSettingsRoutes(ctx: RouteContext) {
     mode: "standalone" | "restart";
     restartRequested: boolean;
     timedOut: boolean;
+    retryAttempts: RestartPrepAttemptResult[];
     interrupted: Array<{ sessionId: string; label: string; reasons: string[] }>;
     skipped: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }>;
     failures: Array<{ sessionId: string; label: string; reasons: string[]; detail: string }>;
+    fallbacks: Array<{
+      sessionId: string;
+      label: string;
+      reasons: string[];
+      detail: string;
+      diagnostics?: Record<string, string | number | boolean | null>;
+    }>;
     protectedLeaders: RestartPrepSessionSummary[];
     unresolvedBlockers: Array<{ sessionId: string; label: string; reasons: string[]; detail?: string }>;
     herdDelivery: {
@@ -70,6 +80,15 @@ export function createSettingsRoutes(ctx: RouteContext) {
       countsFinal: boolean;
       detail?: string;
     };
+  }
+
+  interface RestartPrepAttemptResult {
+    attempt: number;
+    interrupted: RestartPrepResult["interrupted"];
+    skipped: RestartPrepResult["skipped"];
+    failures: RestartPrepResult["failures"];
+    remainingBlockers: RestartPrepResult["unresolvedBlockers"];
+    timedOut: boolean;
   }
 
   interface RestartPrepCoordinator {
@@ -303,10 +322,100 @@ export function createSettingsRoutes(ctx: RouteContext) {
     while (Date.now() < deadline) {
       const blockers = getRestartBlockingSessions();
       if (blockers.length === 0) return { timedOut: false, blockers: [] };
-      await new Promise((resolve) => setTimeout(resolve, 100));
+      await sleep(Math.min(100, Math.max(1, deadline - Date.now())));
     }
     const blockers = getRestartBlockingSessions();
     return { timedOut: blockers.length > 0, blockers };
+  }
+
+  async function runRestartPrepAttempts(
+    initialBlockers: RestartBlockingSession[],
+    operationId: string | null,
+    timeoutMs: number,
+  ): Promise<{
+    interrupted: RestartPrepResult["interrupted"];
+    skipped: RestartPrepResult["skipped"];
+    failures: RestartPrepResult["failures"];
+    retryAttempts: RestartPrepAttemptResult[];
+    timedOut: boolean;
+    blockers: RestartBlockingSession[];
+  }> {
+    let blockers = initialBlockers;
+    let timedOut = false;
+    const interrupted = new Map<string, RestartPrepResult["interrupted"][number]>();
+    const skipped = new Map<string, RestartPrepResult["skipped"][number]>();
+    let latestFailures: RestartPrepResult["failures"] = [];
+    const retryAttempts: RestartPrepAttemptResult[] = [];
+    const attemptWaitMs = Math.max(1, Math.floor(timeoutMs / restartPrepMaxInterruptAttempts));
+
+    for (let attempt = 1; attempt <= restartPrepMaxInterruptAttempts && blockers.length > 0; attempt++) {
+      const result = await interruptRestartBlockers(blockers, operationId);
+      for (const item of result.interrupted) interrupted.set(item.sessionId, item);
+      for (const item of result.skipped) skipped.set(`${item.sessionId}:${item.detail}`, item);
+      latestFailures = result.failures;
+
+      const readiness = await waitForRestartReadiness(attemptWaitMs);
+      timedOut ||= readiness.timedOut;
+      blockers = readiness.blockers;
+      retryAttempts.push({
+        attempt,
+        ...result,
+        remainingBlockers: blockers.map(blockerToResultItem),
+        timedOut: readiness.timedOut,
+      });
+
+      if (blockers.length === 0 || !blockers.some((blocker) => blocker.reasons.includes("running"))) break;
+      if (attempt < restartPrepMaxInterruptAttempts && restartPrepRetryDelayMs > 0) {
+        await sleep(restartPrepRetryDelayMs);
+      }
+    }
+
+    return {
+      interrupted: [...interrupted.values()],
+      skipped: [...skipped.values()],
+      failures: blockers.length > 0 ? latestFailures : [],
+      retryAttempts,
+      timedOut,
+      blockers,
+    };
+  }
+
+  async function applyCodexRestartPrepFallbacks(
+    blockers: RestartBlockingSession[],
+    operationId: string | null,
+  ): Promise<{ fallbacks: RestartPrepResult["fallbacks"]; failures: RestartPrepResult["failures"] }> {
+    const fallbacks: RestartPrepResult["fallbacks"] = [];
+    const failures: RestartPrepResult["failures"] = [];
+    const recover = (
+      wsBridge as unknown as {
+        recoverCodexRestartPrepBlocker?: (
+          sessionId: string,
+          options?: { restartPrepOperationId?: string | null },
+        ) => Promise<{
+          ok: boolean;
+          detail: string;
+          diagnostics?: Record<string, string | number | boolean | null>;
+        }>;
+      }
+    ).recoverCodexRestartPrepBlocker;
+    if (!recover) return { fallbacks, failures };
+
+    for (const blocker of sortInterruptSessionsByDependency(blockers)) {
+      if (!blocker.reasons.includes("running")) continue;
+      const session = wsBridge.getSession(blocker.sessionId);
+      if (session?.backendType !== "codex") continue;
+      const outcome = await recover.call(wsBridge, blocker.sessionId, { restartPrepOperationId: operationId });
+      const item = {
+        sessionId: blocker.sessionId,
+        label: blocker.label,
+        reasons: blocker.reasons,
+        detail: outcome.detail,
+        ...(outcome.diagnostics ? { diagnostics: outcome.diagnostics } : {}),
+      };
+      if (outcome.ok) fallbacks.push(item);
+      else failures.push(item);
+    }
+    return { fallbacks, failures };
   }
 
   function buildRestartPrepResult(options: {
@@ -317,6 +426,8 @@ export function createSettingsRoutes(ctx: RouteContext) {
     interrupted: RestartPrepResult["interrupted"];
     skipped: RestartPrepResult["skipped"];
     failures: RestartPrepResult["failures"];
+    fallbacks?: RestartPrepResult["fallbacks"];
+    retryAttempts?: RestartPrepAttemptResult[];
     protectedLeaders: RestartPrepSessionSummary[];
     unresolvedBlockers: RestartBlockingSession[];
   }): RestartPrepResult {
@@ -330,9 +441,11 @@ export function createSettingsRoutes(ctx: RouteContext) {
       mode: options.mode,
       restartRequested: options.restartRequested,
       timedOut: options.timedOut,
+      retryAttempts: options.retryAttempts ?? [],
       interrupted: options.interrupted,
       skipped: options.skipped,
       failures: options.failures,
+      fallbacks: options.fallbacks ?? [],
       protectedLeaders: options.protectedLeaders,
       unresolvedBlockers,
       herdDelivery: snapshotHerdDelivery(options.operationId),
@@ -342,11 +455,13 @@ export function createSettingsRoutes(ctx: RouteContext) {
   async function queueRestartContinuations(options: {
     operationId: string | null;
     interrupted: RestartPrepResult["interrupted"];
+    excludeSessionIds?: Set<string>;
   }): Promise<{ ok: true } | { ok: false; error: string }> {
     if (!options.operationId) return { ok: true };
 
     const sessions: RestartContinuationTarget[] = options.interrupted
       .filter((item) => item.reasons.includes("running"))
+      .filter((item) => !options.excludeSessionIds?.has(item.sessionId))
       .map((item) => ({ sessionId: item.sessionId, label: item.label }));
     if (sessions.length === 0) return { ok: true };
 
@@ -378,20 +493,23 @@ export function createSettingsRoutes(ctx: RouteContext) {
       const timeoutMs = restartPrepTimeoutMs;
       const operationId = beginRestartPrepOperation(busySessions, "restart", timeoutMs);
       const protectedLeaders = getProtectedLeaders(busySessions);
-      const { interrupted, skipped, failures } = await interruptRestartBlockers(busySessions, operationId);
+      const prep = await runRestartPrepAttempts(busySessions, operationId, timeoutMs);
+      const fallback = await applyCodexRestartPrepFallbacks(prep.blockers, operationId);
+      const fallbackSessionIds = new Set(fallback.fallbacks.map((item) => item.sessionId));
       const readiness =
-        failures.length === 0
-          ? await waitForRestartReadiness(timeoutMs)
-          : { timedOut: false, blockers: getRestartBlockingSessions() };
+        fallback.fallbacks.length > 0 ? await waitForRestartReadiness(1) : { timedOut: false, blockers: prep.blockers };
+      const failures = [...(readiness.blockers.length > 0 ? prep.failures : []), ...fallback.failures];
       if (readiness.blockers.length > 0 || failures.length > 0) {
         const result = buildRestartPrepResult({
           mode: "restart",
           operationId,
           restartRequested: false,
-          timedOut: readiness.timedOut,
-          interrupted,
-          skipped,
+          timedOut: prep.timedOut || readiness.timedOut,
+          retryAttempts: prep.retryAttempts,
+          interrupted: prep.interrupted,
+          skipped: prep.skipped,
           failures,
+          fallbacks: fallback.fallbacks,
           protectedLeaders,
           unresolvedBlockers: readiness.blockers,
         });
@@ -405,15 +523,21 @@ export function createSettingsRoutes(ctx: RouteContext) {
           409,
         );
       }
-      const continuation = await queueRestartContinuations({ operationId, interrupted });
+      const continuation = await queueRestartContinuations({
+        operationId,
+        interrupted: prep.interrupted,
+        excludeSessionIds: fallbackSessionIds,
+      });
       const result = buildRestartPrepResult({
         mode: "restart",
         operationId,
         restartRequested: continuation.ok,
-        timedOut: false,
-        interrupted,
-        skipped,
+        timedOut: prep.timedOut || readiness.timedOut,
+        retryAttempts: prep.retryAttempts,
+        interrupted: prep.interrupted,
+        skipped: prep.skipped,
         failures,
+        fallbacks: fallback.fallbacks,
         protectedLeaders,
         unresolvedBlockers: [],
       });
@@ -445,6 +569,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         interrupted,
         skipped,
         failures,
+        fallbacks: [],
         protectedLeaders,
         unresolvedBlockers,
       }),
@@ -1012,4 +1137,18 @@ export function createSettingsRoutes(ctx: RouteContext) {
   });
 
   return api;
+}
+
+function readPositiveIntEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name] ?? fallback);
+  return Number.isFinite(value) && value > 0 ? Math.floor(value) : fallback;
+}
+
+function readNonNegativeIntEnv(name: string, fallback: number): number {
+  const value = Number(process.env[name] ?? fallback);
+  return Number.isFinite(value) && value >= 0 ? Math.floor(value) : fallback;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

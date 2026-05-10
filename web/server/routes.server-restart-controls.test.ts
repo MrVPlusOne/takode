@@ -1,6 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { access, mkdtemp, readFile, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -69,6 +69,8 @@ describe("server restart controls", () => {
     cliSockets = {};
     requestRestart = vi.fn();
     process.env.COMPANION_RESTART_PREP_TIMEOUT_MS = "20";
+    process.env.COMPANION_RESTART_PREP_RETRY_DELAY_MS = "0";
+    process.env.COMPANION_RESTART_PREP_MAX_INTERRUPT_ATTEMPTS = "3";
     launcher = {
       listSessions: vi.fn(() => []),
       getSessionNum: vi.fn((sessionId: string) => ({ leader: 5, worker: 11, approval: 17 })[sessionId] ?? null),
@@ -100,6 +102,8 @@ describe("server restart controls", () => {
 
   afterEach(async () => {
     delete process.env.COMPANION_RESTART_PREP_TIMEOUT_MS;
+    delete process.env.COMPANION_RESTART_PREP_RETRY_DELAY_MS;
+    delete process.env.COMPANION_RESTART_PREP_MAX_INTERRUPT_ATTEMPTS;
     await rm(tempDir, { recursive: true, force: true });
   });
 
@@ -125,6 +129,57 @@ describe("server restart controls", () => {
     const socket = makeCliSocket(sessionId, sentOrder);
     session.backendSocket = socket as any;
     cliSockets[sessionId] = socket;
+  }
+
+  function attachBlockingCodexSession(sessionId: string): {
+    sentMessages: unknown[];
+    relaunchNeeded: ReturnType<typeof vi.fn>;
+  } {
+    const session = bridge.getOrCreateSession(sessionId, "codex");
+    session.isGenerating = true;
+    session.state.backend_state = "connected";
+    session.pendingCodexTurns = [
+      {
+        adapterMsg: { type: "interrupt" },
+        userMessageId: 1,
+        pendingInputIds: [1],
+        userContent: "stuck turn",
+        historyIndex: 0,
+        status: "backend_acknowledged",
+        dispatchCount: 1,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        acknowledgedAt: Date.now(),
+        turnTarget: null,
+        lastError: null,
+        turnId: "turn-1",
+        disconnectedAt: null,
+        resumeConfirmedAt: null,
+      } as any,
+    ];
+    const sentMessages: unknown[] = [];
+    session.codexAdapter = {
+      sendBrowserMessage: vi.fn((msg: unknown) => {
+        sentMessages.push(msg);
+        return true;
+      }),
+      onBrowserMessage: vi.fn(),
+      onSessionMeta: vi.fn(),
+      onDisconnect: vi.fn(),
+      onInitError: vi.fn(),
+      onTurnStarted: vi.fn(),
+      onTurnSteered: vi.fn(),
+      onTurnSteerFailed: vi.fn(),
+      onTurnStartFailed: vi.fn(),
+      isConnected: vi.fn(() => true),
+      disconnect: vi.fn(async () => {}),
+      getCurrentTurnId: vi.fn(() => "turn-1"),
+      getRateLimits: vi.fn(() => null),
+      rollbackTurns: vi.fn(async () => {}),
+    } as any;
+    const relaunchNeeded = vi.fn();
+    (bridge as any).onCLIRelaunchNeeded = relaunchNeeded;
+    return { sentMessages, relaunchNeeded };
   }
 
   it("blocks restart when a session only has pending permissions", async () => {
@@ -184,6 +239,7 @@ describe("server restart controls", () => {
       mode: "standalone",
       restartRequested: false,
       timedOut: false,
+      retryAttempts: [],
       interrupted: [
         { sessionId: "worker", label: "Worker session", reasons: ["running"] },
         { sessionId: "leader", label: "Leader session", reasons: ["running"] },
@@ -191,6 +247,7 @@ describe("server restart controls", () => {
       ],
       skipped: [],
       failures: [],
+      fallbacks: [],
       protectedLeaders: [{ sessionId: "leader", label: "Leader session" }],
       unresolvedBlockers: [
         { sessionId: "leader", label: "Leader session", reasons: ["running"] },
@@ -292,5 +349,69 @@ describe("server restart controls", () => {
       message: "Continue.",
       sessions: [{ sessionId: "worker", label: "Worker session" }],
     });
+  });
+
+  it("retries running blockers before restart gives up", async () => {
+    launcher.listSessions.mockReturnValue([{ sessionId: "worker", state: "connected", name: "Worker session" }]);
+    attachBlockingSession("worker", { isGenerating: true });
+
+    const originalInterruptSession = bridge.interruptSession.bind(bridge);
+    let interruptCount = 0;
+    vi.spyOn(bridge, "interruptSession").mockImplementation(async (...args) => {
+      const routed = await originalInterruptSession(...args);
+      interruptCount += 1;
+      if (interruptCount === 2) {
+        const session = bridge.getSession(args[0]);
+        if (session) session.isGenerating = false;
+      }
+      return routed;
+    });
+
+    const res = await app.request("/api/server/restart", { method: "POST" });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(requestRestart).toHaveBeenCalledTimes(1);
+    expect(sentOrder).toEqual(["worker", "worker"]);
+    expect(body.retryAttempts).toHaveLength(2);
+    expect(body.retryAttempts[0].remainingBlockers).toEqual([
+      { sessionId: "worker", label: "Worker session", reasons: ["running"] },
+    ]);
+    expect(body.retryAttempts[1].remainingBlockers).toEqual([]);
+    expect(body.fallbacks).toEqual([]);
+  });
+
+  it("moves stuck Codex running blockers into recovery after bounded restart-prep retries", async () => {
+    launcher.listSessions.mockReturnValue([{ sessionId: "codex", state: "connected", name: "Codex stuck" }]);
+    const { relaunchNeeded } = attachBlockingCodexSession("codex");
+
+    const res = await app.request("/api/server/restart", { method: "POST" });
+    const body = await res.json();
+
+    expect(res.status).toBe(200);
+    expect(requestRestart).toHaveBeenCalledTimes(1);
+    expect(relaunchNeeded).toHaveBeenCalledWith("codex");
+    expect(body.retryAttempts).toHaveLength(3);
+    expect(body.fallbacks).toEqual([
+      expect.objectContaining({
+        sessionId: "codex",
+        label: "Codex stuck",
+        reasons: ["running"],
+        detail: expect.stringContaining("Codex recovery was requested"),
+        diagnostics: expect.objectContaining({
+          backendState: "connected",
+          adapterConnected: true,
+          currentTurnId: "turn-1",
+          pendingCodexTurns: 1,
+        }),
+      }),
+    ]);
+    expect(body.unresolvedBlockers).toEqual([]);
+
+    const session = bridge.getSession("codex");
+    expect(session?.isGenerating).toBe(false);
+    expect(session?.state.backend_state).toBe("recovering");
+    expect(session?.pendingCodexTurns[0]?.lastError).toContain("Restart prep moved this Codex turn into recovery");
+    await expect(access(join(tempDir, "restart-continuations.json"))).rejects.toMatchObject({ code: "ENOENT" });
   });
 });

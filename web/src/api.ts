@@ -918,6 +918,16 @@ export interface ServerInterruptResultItem {
   label: string;
   reasons: string[];
   detail?: string;
+  diagnostics?: Record<string, string | number | boolean | null>;
+}
+
+export interface RestartPrepAttemptResult {
+  attempt: number;
+  interrupted: ServerInterruptResultItem[];
+  skipped: ServerInterruptResultItem[];
+  failures: ServerInterruptResultItem[];
+  remainingBlockers: ServerInterruptResultItem[];
+  timedOut: boolean;
 }
 
 export interface InterruptRestartBlockersResponse {
@@ -926,9 +936,11 @@ export interface InterruptRestartBlockersResponse {
   mode: "standalone" | "restart";
   restartRequested: boolean;
   timedOut: boolean;
+  retryAttempts: RestartPrepAttemptResult[];
   interrupted: ServerInterruptResultItem[];
   skipped: ServerInterruptResultItem[];
   failures: ServerInterruptResultItem[];
+  fallbacks: ServerInterruptResultItem[];
   protectedLeaders: Array<{ sessionId: string; label: string }>;
   unresolvedBlockers: ServerInterruptResultItem[];
   herdDelivery: {
@@ -953,9 +965,11 @@ export function isInterruptRestartBlockersResponse(value: unknown): value is Int
     (candidate.mode === "standalone" || candidate.mode === "restart") &&
     typeof candidate.restartRequested === "boolean" &&
     typeof candidate.timedOut === "boolean" &&
+    Array.isArray(candidate.retryAttempts) &&
     Array.isArray(candidate.interrupted) &&
     Array.isArray(candidate.skipped) &&
     Array.isArray(candidate.failures) &&
+    Array.isArray(candidate.fallbacks) &&
     Array.isArray(candidate.protectedLeaders) &&
     Array.isArray(candidate.unresolvedBlockers) &&
     herdDelivery !== null &&

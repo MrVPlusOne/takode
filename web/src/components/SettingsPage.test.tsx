@@ -230,9 +230,11 @@ describe("SettingsPage", () => {
       mode: "restart",
       restartRequested: false,
       timedOut: true,
+      retryAttempts: [],
       interrupted: [{ sessionId: "worker-1", label: "Worker session", reasons: ["running"] }],
       skipped: [],
       failures: [],
+      fallbacks: [],
       protectedLeaders: [{ sessionId: "leader-1", label: "Leader session" }],
       unresolvedBlockers: [{ sessionId: "approval-1", label: "Approval session", reasons: ["1 pending permission"] }],
       herdDelivery: {

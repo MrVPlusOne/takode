@@ -14,6 +14,14 @@ function ResultList({ items, emptyText }: { items: ServerInterruptResultItem[]; 
           <div className="font-medium">{item.label}</div>
           <div className="mt-0.5 text-cc-muted">{item.reasons.join(", ")}</div>
           {item.detail && <div className="mt-1 text-cc-muted">{item.detail}</div>}
+          {item.diagnostics && (
+            <div className="mt-1 font-mono text-[11px] text-cc-muted">
+              Diagnostics:{" "}
+              {Object.entries(item.diagnostics)
+                .map(([key, value]) => `${key}=${String(value)}`)
+                .join(", ")}
+            </div>
+          )}
         </li>
       ))}
     </ul>
@@ -80,6 +88,12 @@ function RestartPrepResultPanel({ result, title }: { result: InterruptRestartBlo
           Mode: {result.mode}. Restart requested: {result.restartRequested ? "yes" : "no"}.
           {result.timedOut ? " Blocker wait timed out." : ""}
         </p>
+        {result.retryAttempts.length > 0 && (
+          <p className="mt-1 text-xs text-cc-muted">
+            Retry attempts: {result.retryAttempts.length}. Final retry blockers:{" "}
+            {result.retryAttempts.at(-1)?.remainingBlockers.length ?? 0}.
+          </p>
+        )}
       </div>
 
       <div className="space-y-2">
@@ -90,6 +104,11 @@ function RestartPrepResultPanel({ result, title }: { result: InterruptRestartBlo
       <div className="space-y-2">
         <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Skipped</p>
         <ResultList items={result.skipped} emptyText="No sessions were skipped." />
+      </div>
+
+      <div className="space-y-2">
+        <p className="text-xs font-medium uppercase tracking-wide text-cc-muted">Fallbacks</p>
+        <ResultList items={result.fallbacks} emptyText="No Codex fallback was needed." />
       </div>
 
       <div className="space-y-2">

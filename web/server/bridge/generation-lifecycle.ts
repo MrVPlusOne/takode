@@ -7,6 +7,7 @@ import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
  *  that would process them is either dead, stuck, or was replaced by a new process. */
 export const RECOVERY_REASONS = new Set([
   "stuck_auto_recovery",
+  "restart_prep_codex_fallback",
   "system_init_reset",
   "cli_disconnect",
   "user_message_timeout",

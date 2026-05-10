@@ -243,6 +243,13 @@ import {
 // model think a row disappeared when only the preview was truncated.
 const TAKODE_BOARD_RESULT_PREVIEW_LIMIT = 12_000;
 import type { QuestLifecycleStatus } from "./bridge/quest-detector.js";
+
+export interface RestartPrepCodexFallbackOutcome {
+  ok: boolean;
+  action: "codex_recovery_requested" | "codex_disconnected" | "skipped" | "failed";
+  detail: string;
+  diagnostics?: Record<string, string | number | boolean | null>;
+}
 import {
   clearOptimisticRunningTimer as clearOptimisticRunningTimerLifecycle,
   getQueuedTurnLifecycleEntries as getQueuedTurnLifecycleEntriesLifecycle,
@@ -919,6 +926,83 @@ export class WsBridge {
     return true;
   }
 
+  async recoverCodexRestartPrepBlocker(
+    sessionId: string,
+    options?: { restartPrepOperationId?: string | null },
+  ): Promise<RestartPrepCodexFallbackOutcome> {
+    const session = this.sessions.get(sessionId);
+    if (!session) {
+      return { ok: false, action: "skipped", detail: "Session was no longer loaded." };
+    }
+    if (session.backendType !== "codex") {
+      return { ok: false, action: "skipped", detail: "Fallback is only available for Codex sessions." };
+    }
+    if (!session.isGenerating) {
+      return { ok: false, action: "skipped", detail: "Session is no longer running." };
+    }
+
+    const now = Date.now();
+    const pendingTurn = getCodexTurnInRecoveryState(session);
+    const adapter = session.codexAdapter;
+    const diagnostics = this.getCodexRestartPrepFallbackDiagnostics(session);
+    session.restartPrepInterruptOrigin = "restart_prep";
+    session.restartPrepInterruptOperationId = options?.restartPrepOperationId ?? null;
+    this.markTurnInterrupted(session, "user");
+    if (pendingTurn) {
+      pendingTurn.disconnectedAt = pendingTurn.disconnectedAt ?? now;
+      pendingTurn.resumeConfirmedAt = null;
+      pendingTurn.updatedAt = now;
+      pendingTurn.lastError = "Restart prep moved this Codex turn into recovery after bounded interrupt attempts.";
+    }
+    this.clearCodexDisconnectGraceTimer(session, "restart_prep_fallback");
+    setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, false, "restart_prep_codex_fallback");
+    session.toolStartTimes.clear();
+
+    const recoveryRequested = this.requestCodexAutoRecovery(
+      session,
+      `restart_prep:${options?.restartPrepOperationId ?? "unknown"}`,
+    );
+    if (!recoveryRequested) {
+      if (adapter) {
+        try {
+          await adapter.disconnect();
+        } catch (error) {
+          this.persistSession(session);
+          return {
+            ok: false,
+            action: "failed",
+            detail: error instanceof Error ? error.message : String(error),
+            diagnostics,
+          };
+        }
+        if (session.codexAdapter === adapter) session.codexAdapter = null;
+      }
+      this.setBackendState(session, "disconnected", null);
+      this.broadcastToBrowsers(session, { type: "backend_disconnected" });
+    }
+
+    this.recorder?.recordServerEvent(
+      session.id,
+      "restart_prep_codex_fallback",
+      {
+        operationId: options?.restartPrepOperationId ?? null,
+        recoveryRequested,
+        diagnostics,
+      },
+      "codex",
+      session.state.cwd,
+    );
+    this.persistSession(session);
+    return {
+      ok: true,
+      action: recoveryRequested ? "codex_recovery_requested" : "codex_disconnected",
+      detail: recoveryRequested
+        ? "Codex recovery was requested after bounded restart-prep interrupts did not clear the running blocker."
+        : "Codex backend was disconnected after bounded restart-prep interrupts did not clear the running blocker.",
+      diagnostics,
+    };
+  }
+
   prepareSessionForRevert(
     sessionId: string,
     truncateIdx: number,
@@ -1588,6 +1672,24 @@ export class WsBridge {
 
   private requestCodexAutoRecovery(session: Session, reason: string): boolean {
     return requestCodexAutoRecoveryOrchestratorController(session, reason, this.getSessionRegistryDeps());
+  }
+
+  private getCodexRestartPrepFallbackDiagnostics(session: Session): Record<string, string | number | boolean | null> {
+    const adapter = session.codexAdapter as
+      | (Session["codexAdapter"] & {
+          getLastDisconnectDiagnostics?: () => { closeId?: unknown } | null;
+        })
+      | null;
+    const lastDisconnect = adapter?.getLastDisconnectDiagnostics?.() ?? null;
+    return {
+      backendState: session.state.backend_state ?? null,
+      adapterConnected: adapter?.isConnected?.() ?? false,
+      currentTurnId: adapter?.getCurrentTurnId?.() ?? null,
+      pendingCodexTurns: session.pendingCodexTurns.length,
+      pendingCodexInputs: session.pendingCodexInputs.length,
+      pendingPermissions: session.pendingPermissions.size,
+      closeId: typeof lastDisconnect?.closeId === "string" ? lastDisconnect.closeId : null,
+    };
   }
 
   private getBrowserTransportDeps() {
