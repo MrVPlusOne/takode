@@ -138,7 +138,7 @@
 - **Journey readability** -- Long Journey timelines and hover previews are clamped, queued wait reasons are shown in quest hovers, and Journey lifecycle rows stay quieter until they matter
 - **Codex tool failure recovery** -- `write_stdin` router failures and stale pending delivery states are surfaced and recovered as scoped tool failures instead of turning into whole-session failures
 - **Thread viewport restoration** -- Leader threads restore saved positions more reliably after tab switches, feed remounts, and server-window updates
-- **Leader thread and board edge cases** -- Thread activity indicators, tab drag bounds, repeated active phase rows, and selected-thread window retries behave more reliably
+- **Leader thread and board edge cases** -- Thread activity indicators, repeated active phase rows, and selected-thread window retries behave more reliably
 
 ### Changed
 
