@@ -214,7 +214,7 @@ describe("ensureQuestmasterIntegration", () => {
       'quest complete q-N --items "..." --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md',
     );
     expect(skill).toContain("Synced SHAs: sha1,sha2");
-    expect(skill).toContain("summarize that the work was synced without listing routine SHAs");
+    expect(skill).toContain("Final Memory or the leader attaches those SHAs");
     expect(skill).toContain("Final debrief draft:");
     expect(skill).toContain("Debrief TLDR draft:");
     expect(skill).toContain("route final Memory");
