@@ -1,5 +1,128 @@
 # Takode Changelog
 
+## 2026-05-09
+
+### Added
+
+- **Shared image preview variants** -- Image attachments now have reusable preview variants and refreshed variant responses so chat and Questmaster previews load more consistently
+- **Universal search quest actions** -- Universal search can surface quest actions directly, and composer-launched searches keep the current query available
+- **Audited quest ownership reassignment** -- Quest ownership changes are tracked explicitly so leader handoffs and owner corrections are easier to audit
+- **Diff-stat budget guards** -- Git diff metadata refreshes are bounded for large or dirty worktrees, reducing UI stalls while preserving useful status signals
+- **Voice activity history** -- Voice input keeps a rolling level history for steadier recording feedback
+- **Quest feedback editing and progress TLDRs** -- Quest feedback can be edited, and quest preview progress now includes TLDR context for faster scanning
+
+### Fixed
+
+- **Quest search ranking** -- Fresh, exact quest matches are easier to find in Questmaster search results
+- **Needs-input navigation** -- Needs-input notifications include clearer source context and route to the right thread or tab more reliably
+- **Leader Work Board access** -- Work Board controls, title alignment, mounted quest panels, active phase chips, and route state stay consistent across leader navigation
+- **Thread status stability** -- Thread status chips, thread filters, close targets, shortcut routing, and scroll restoration survive history refreshes and tab switches more reliably
+- **Voice transcription and indicators** -- Voice context includes visible leader messages, SSE transcription results resolve correctly, and level meter styling is more consistent
+- **Session restart and Codex metadata recovery** -- Restart blockers recover cleanly, restart timeout success is clearer, and Codex metadata refreshes coordinate with active turns
+- **Reminder and image polish** -- System reminders render as standalone chips, quest detail image previews are tighter, native select popups respect dark mode, and mobile sidebar portraits are ready sooner
+
+### Changed
+
+- **Takode inspection output** -- CLI and thread inspection commands preserve thread context while keeping grep, peek, and default hints explicit and compact
+- **Codex session safety guidance** -- Codex metadata refresh and skill-change behavior are documented as a reusable project skill for future session-safety work
+
+## 2026-05-08
+
+### Added
+
+- **Universal message search** -- A mode-scoped universal search overlay can search sessions, threads, messages, and quests, with backend message search and composer entry points
+- **File-link actions** -- File links gain context-menu actions backed by a server-side resolver
+- **Backend logo badges** -- Backend badges and refreshed app logo assets make active backend and app branding more legible across themes
+- **Configurable voice shortcuts** -- Voice controls can be assigned through the shortcut system
+- **Paused-session composer bypass** -- The composer can send through selected paused sources when a user intentionally bypasses pause state
+
+### Fixed
+
+- **Mobile voice progress** -- Mobile transcription shows clearer progress, timing, and retry state while recording or uploading
+- **Notification source context** -- Needs-input notifications preserve source context in global menus, replies, and seeded Playground scenarios
+- **Thread and injected-event routing** -- Thread status markers no longer route whole messages, interrupted outcome reminders are skipped, and injected prompts render as searchable event messages
+- **Session and git refresh costs** -- New sessions avoid implicit git sync, session-list polling is decoupled from git refresh, and git metadata scans are bounded more consistently
+- **Archived worktree cleanup** -- Archived worktree removal can force cleanup when normal deletion paths leave stale state behind
+- **Quest and memory browsing responsiveness** -- Quest page search stalls are reduced, and memory record detail layouts are more balanced
+- **Session metric recovery** -- Turn metrics are derived from history and preserved across Codex init paths more reliably
+
+### Changed
+
+- **Memory browsing surface** -- The memory browser was redesigned around denser navigation, clearer record details, and better use of available space
+- **Search placement** -- Session search moved into the sidebar while universal search handles cross-mode discovery
+- **Validation guidance** -- UI validation guidance now distinguishes worktree code changes from the shared persistent validation state
+
+## 2026-05-07
+
+### Added
+
+- **Global needs-input menu** -- Pending needs-input prompts can be reviewed globally, answered in place, and delivered back to the owning thread more reliably
+- **Memory view** -- The old streams surface was replaced with a memory-focused browsing view
+- **Permission mode CLI commands** -- Permission mode can be inspected and changed from the Takode CLI with backend-native mode validation
+- **Leader portrait pools** -- Settings include built-in leader portrait pools with picker and row display support
+- **Worker replacement spawn** -- Leaders can reclaim capacity by spawning a replacement worktree worker when an existing worker slot is stuck or unavailable
+- **Thread and waiting status markers** -- Threads can show inline ready/waiting status markers, and waiting notifications can be transient when they no longer need attention
+- **Emergency pause mode** -- Sessions can enter an emergency pause mode that blocks normal delivery until intentionally bypassed or resumed
+
+### Fixed
+
+- **Codex recovery paths** -- Interrupted assistant-only turns, coalesced skill refreshes, silent command results, and disconnected refresh retries recover without leaving turns stuck
+- **Mobile chat viewport** -- Mobile keyboard sizing and root viewport behavior keep the composer and connection banners visible in more cases
+- **Notification targeting** -- Blue and amber nudges, hidden tab precedence, repeated outcome reminders, and visible-tab scoping behave more predictably
+- **Thread tabs** -- Active quest tabs survive completion, tab scroll targets are preserved, visible tab reordering is restored, and notification surfaces stay visually neutral
+- **Questmaster and search precision** -- Fuzzy quest ranking and Unicode search tokens produce more useful results
+- **Memory record access** -- Memory reads handle symlinks, sibling spaces, catalog freshness, scrollable space lists, and record detail readability more safely
+- **Sidebar and session polish** -- Leader portrait rows are larger, portrait rings show status, session creation labels are clearer, and Session Info controls moved into the title area
+
+### Changed
+
+- **Permission mode handling** -- Permission behavior now uses backend-native modes instead of translating everything through a narrower shared abstraction
+- **Takode CLI compactness** -- Session JSON output, injected recovery prompts, and inspection agent labels are more compact for cross-session debugging
+- **Reusable orchestration guidance** -- Orchestration and dispatch guidance now better document worker replacement, reusable phase guidance, and design-principle skills
+
+## 2026-05-06
+
+### Added
+
+- **File-based memory foundation** -- Memory repositories can be scoped by server/session space, use explicit lock and commit provenance, and support global CLI options
+- **Leader active chip jump** -- Leader active-phase chips can jump directly to the relevant work context
+- **Refreshed app icon** -- Takode gained updated app icon assets
+
+### Fixed
+
+- **Sparse thread windows** -- Thread windows fill sparse histories more reliably, and thread markers stay hidden inside collapsed turns
+- **Leader voice context** -- Voice transcription context is scoped to the active leader thread instead of leaking unrelated thread context
+- **Needs-input replies** -- Inline needs-input replies are decoupled from notification routing so answers arrive in the intended place
+- **Codex leader routing** -- Codex leader turns route to the active thread correctly and recycle leaders more safely when context is exhausted
+- **Thread tab layout** -- Desktop tabs have more room before overflowing, completed tab titles are muted, and quest completion markers persist in the sidebar
+- **Memory repository setup** -- Memory repos reject colliding slug renames and use simpler frontmatter and auto-init behavior
+
+### Changed
+
+- **Quest Journey phase delivery** -- Runtime Journey phase briefs replaced legacy phase skill aliases so phase guidance follows the active workspace
+- **Leader proposal guidance** -- Orchestration guidance now avoids duplicated quest proposal scope in common dispatch flows
+
+## 2026-05-05
+
+### Added
+
+- **Multi-question needs-input prompts** -- Needs-input notifications can carry multiple short questions in a single user decision surface
+- **Work Board overflow menu** -- Leader Work Board tabs gain an overflow menu when active work exceeds the visible tab rail
+- **Memory guardrail groundwork** -- Memory-related bookkeeping can surface cleanup candidates and active-run guardrail checks
+
+### Fixed
+
+- **Session names and status chips** -- Manual session renames are preserved across namers, and git status chips refresh after session switches and surface refresh failures
+- **Leader thread tabs** -- New leader tabs stay leftmost, stale board tabs remain in place, and tab dragging is constrained to the rail
+- **Leader feed paging** -- Large leader histories page in batches, and historical error banners anchor to the right feed position
+- **Codex and herd recovery** -- Queued Codex leader events, stale terminal live state, and incomplete resumed-turn recovery no longer block later work
+- **Search result routing** -- Grouped search results and threaded message routes stay connected to the correct destination
+- **Questmaster copy controls** -- Compact quest copy controls align more cleanly with the surrounding table UI
+
+### Changed
+
+- **Shared validation state guidance** -- UI validation guidance now defaults to the shared persistent E2E state when that state is appropriate
+
 ## 2026-05-02 to 2026-05-04
 
 ### Added
@@ -15,6 +138,7 @@
 - **Journey readability** -- Long Journey timelines and hover previews are clamped, queued wait reasons are shown in quest hovers, and Journey lifecycle rows stay quieter until they matter
 - **Codex tool failure recovery** -- `write_stdin` router failures and stale pending delivery states are surfaced and recovered as scoped tool failures instead of turning into whole-session failures
 - **Thread viewport restoration** -- Leader threads restore saved positions more reliably after tab switches, feed remounts, and server-window updates
+- **Leader thread and board edge cases** -- Thread activity indicators, tab drag bounds, repeated active phase rows, and selected-thread window retries behave more reliably
 
 ### Changed
 
