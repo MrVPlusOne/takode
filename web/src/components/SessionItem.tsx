@@ -10,7 +10,11 @@ import { getHighestNotificationUrgency, type NotificationUrgency } from "../util
 import { isClearedNotificationStatus } from "../notification-status.js";
 import { formatGitStatusAge, isGitStatusStale } from "../../shared/git-status-freshness.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
-import { activeBoardSummarySegments, type BoardSummarySegment } from "./leader-board-summary.js";
+import {
+  activeBoardSummarySegments,
+  boardSummarySegmentsFromActivePhaseSummary,
+  type BoardSummarySegment,
+} from "./leader-board-summary.js";
 
 const EMPTY_LEADER_BOARD_ROWS: never[] = [];
 
@@ -768,6 +772,7 @@ export function SessionItem({
                 {s.isOrchestrator ? (
                   <LeaderActivePhasePreviewRow
                     sessionId={s.id}
+                    activeSummary={s.leaderActivePhaseSummary}
                     className={usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : undefined}
                     data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
                   />
@@ -1203,15 +1208,23 @@ export function SessionItem({
 
 function LeaderActivePhasePreviewRow({
   sessionId,
+  activeSummary,
   className = "",
   "data-testid": testId,
 }: {
   sessionId: string;
+  activeSummary?: SessionItemType["leaderActivePhaseSummary"];
   className?: string;
   "data-testid"?: string;
 }) {
   const activeBoard = useStore((s) => s.sessionBoards?.get(sessionId) ?? EMPTY_LEADER_BOARD_ROWS);
-  const segments = activeBoardSummarySegments(activeBoard);
+  const storeActiveSummary = useStore(
+    (s) => s.sdkSessions.find((session) => session.sessionId === sessionId)?.leaderActivePhaseSummary,
+  );
+  const authoritativeSummary = activeSummary ?? storeActiveSummary;
+  const segments = authoritativeSummary
+    ? boardSummarySegmentsFromActivePhaseSummary(authoritativeSummary)
+    : activeBoardSummarySegments(activeBoard);
   if (segments.length === 0) return null;
 
   return (

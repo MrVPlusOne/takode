@@ -3,6 +3,7 @@ import type { CliLauncher } from "../cli-launcher.js";
 import * as sessionNames from "../session-names.js";
 import { searchSessionDocuments, type SessionSearchDocument } from "../session-search.js";
 import type { WsBridge } from "../ws-bridge.js";
+import { buildLeaderActivePhaseSummaryForSnapshot } from "./session-list-snapshot.js";
 
 export interface SessionSearchRouteDeps {
   launcher: CliLauncher;
@@ -56,6 +57,10 @@ export function registerSessionSearchRoute(api: Hono, deps: SessionSearchRouteDe
         gitBranch: bridge?.git_branch || "",
         cwd: bridge?.cwd || s.cwd || "",
         repoRoot: bridge?.repo_root || s.repoRoot || "",
+        leaderActivePhaseSummary: buildLeaderActivePhaseSummaryForSnapshot(
+          s.isOrchestrator === true || bridge?.isOrchestrator === true,
+          bridgeSession,
+        ),
         messageHistory: bridgeSession?.messageHistory || [],
         searchExcerpts: bridgeSession?.searchExcerpts ?? [],
       };

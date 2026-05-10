@@ -2,6 +2,7 @@ import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
+import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
 import type {
@@ -1011,6 +1012,7 @@ export function getWorkBoardStateDeps(host: any) {
         type: "board_updated",
         board,
         completedBoard,
+        leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
         rowSessionStatuses: host.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
       }),
     broadcastAttentionRecords: (targetSession: unknown, attentionRecords: SessionAttentionRecord[]) =>

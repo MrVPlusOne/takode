@@ -126,6 +126,7 @@ function buildSidebarItemFromSearchResult(result: SessionSearchResult): SidebarS
     lastActivityAt: session.lastActivityAt,
     lastUserMessageAt: session.lastUserMessageAt,
     isOrchestrator: session.isOrchestrator ?? false,
+    leaderActivePhaseSummary: session.leaderActivePhaseSummary,
     sessionNum: session.sessionNum ?? null,
     reviewerOf: session.reviewerOf,
   };

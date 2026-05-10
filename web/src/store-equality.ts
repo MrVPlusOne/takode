@@ -140,6 +140,28 @@ function leaderOpenThreadTabsEqual(
   return true;
 }
 
+function leaderActivePhaseSummaryEqual(
+  a: SdkSessionInfo["leaderActivePhaseSummary"] | undefined,
+  b: SdkSessionInfo["leaderActivePhaseSummary"] | undefined,
+): boolean {
+  if (a === b) return true;
+  if (!a || !b) return !a && !b;
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) {
+    const left = a[i]!;
+    const right = b[i]!;
+    if (
+      left.label !== right.label ||
+      left.count !== right.count ||
+      left.tone !== right.tone ||
+      left.color !== right.color
+    ) {
+      return false;
+    }
+  }
+  return true;
+}
+
 function contextSnapshotEqual(
   a: NonNullable<SdkSessionInfo["sessionLifecycleEvents"]>[number]["before"],
   b: NonNullable<SdkSessionInfo["sessionLifecycleEvents"]>[number]["before"],
@@ -232,6 +254,7 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.leaderProfilePortrait?.smallUrl === b.leaderProfilePortrait?.smallUrl &&
     a.leaderProfilePortrait?.largeUrl === b.leaderProfilePortrait?.largeUrl &&
     leaderOpenThreadTabsEqual(a.leaderOpenThreadTabs, b.leaderOpenThreadTabs) &&
+    leaderActivePhaseSummaryEqual(a.leaderActivePhaseSummary, b.leaderActivePhaseSummary) &&
     a.herdedBy === b.herdedBy &&
     a.sessionNum === b.sessionNum &&
     a.attentionReason === b.attentionReason &&

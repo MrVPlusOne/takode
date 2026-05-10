@@ -228,6 +228,45 @@ describe("handleMessage: session_activity_update", () => {
     ).toBe(1);
   });
 
+  it("updates and clears leader active phase summaries for inactive sidebar rows", () => {
+    wsModule.connectSession("leader");
+    fireMessage({ type: "session_init", session: makeSession("leader") });
+    useStore.getState().setCurrentSession("leader");
+    useStore
+      .getState()
+      .setSdkSessions([
+        { sessionId: "other-leader", state: "connected", cwd: "/home/user", createdAt: 2, archived: false },
+      ]);
+
+    fireMessage({
+      type: "session_activity_update",
+      session_id: "other-leader",
+      session: {
+        leaderActivePhaseSummary: [
+          { label: "Port", count: 1, tone: "phase", color: "#f59e0b" },
+          { label: "Queued", count: 1, tone: "status" },
+        ],
+      },
+    });
+
+    expect(
+      useStore.getState().sdkSessions.find((session) => session.sessionId === "other-leader")?.leaderActivePhaseSummary,
+    ).toEqual([
+      { label: "Port", count: 1, tone: "phase", color: "#f59e0b" },
+      { label: "Queued", count: 1, tone: "status" },
+    ]);
+
+    fireMessage({
+      type: "session_activity_update",
+      session_id: "other-leader",
+      session: { leaderActivePhaseSummary: [] },
+    });
+
+    expect(
+      useStore.getState().sdkSessions.find((session) => session.sessionId === "other-leader")?.leaderActivePhaseSummary,
+    ).toEqual([]);
+  });
+
   it("rejects older notification status updates for inactive sidebar rows", () => {
     // Notification status broadcasts and REST snapshots can cross in flight.
     // The sidebar must keep the newer clear instead of restoring an older amber marker.

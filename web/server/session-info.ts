@@ -4,6 +4,7 @@ import type {
   CodexLeaderRecycleTrigger,
   SessionPauseState,
 } from "./session-types.js";
+import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 
 export interface SdkSessionInfo {
   sessionId: string;
@@ -108,6 +109,8 @@ export interface SdkSessionInfo {
   isOrchestrator?: boolean;
   /** Stable built-in leader profile portrait assignment. */
   leaderProfilePortraitId?: string | null;
+  /** Server-owned active Quest Journey phase counts for leader sidebar chips. */
+  leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
   /** Session UUID of the leader that has herded this worker (single leader per session) */
   herdedBy?: string;
   /** Env profile slug used at creation, for re-resolving env vars on relaunch */

@@ -1,11 +1,9 @@
 import type { CSSProperties } from "react";
 import type { BoardRowData } from "./BoardTable.js";
-import { orderBoardRows } from "./BoardTable.js";
 import {
-  getQuestJourneyCurrentPhaseId,
-  getQuestJourneyPhase,
-  getQuestJourneyPresentation,
-} from "../../shared/quest-journey.js";
+  buildLeaderActivePhaseSummary,
+  type LeaderActivePhaseSummarySegment,
+} from "../../shared/leader-active-phase-summary.js";
 
 export interface BoardSummarySegment {
   text: string;
@@ -14,21 +12,16 @@ export interface BoardSummarySegment {
 }
 
 export function activeBoardSummarySegments(board: readonly BoardRowData[]): BoardSummarySegment[] {
-  const counts = new Map<string, { count: number; className: string; style?: CSSProperties }>();
-  for (const row of orderBoardRows([...board])) {
-    const currentPhase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
-    const presentation = getQuestJourneyPresentation(row.status);
-    const label = currentPhase?.label ?? presentation?.label ?? row.status ?? "unknown";
-    const className = currentPhase ? "text-cc-fg" : presentation ? "text-cc-muted" : "text-cc-fg/80";
-    const style = currentPhase ? { color: currentPhase.color.accent } : undefined;
-    const entry = counts.get(label);
-    if (entry) entry.count++;
-    else counts.set(label, { count: 1, className, style });
-  }
-  return [...counts.entries()].map(([label, { count, className, style }]) => ({
-    text: `${count} ${label}`,
-    className,
-    ...(style ? { style } : {}),
+  return boardSummarySegmentsFromActivePhaseSummary(buildLeaderActivePhaseSummary(board));
+}
+
+export function boardSummarySegmentsFromActivePhaseSummary(
+  summary: readonly LeaderActivePhaseSummarySegment[],
+): BoardSummarySegment[] {
+  return summary.map((segment) => ({
+    text: `${segment.count} ${segment.label}`,
+    className: segment.tone === "phase" ? "text-cc-fg" : segment.tone === "status" ? "text-cc-muted" : "text-cc-fg/80",
+    ...(segment.color ? { style: { color: segment.color } } : {}),
   }));
 }
 

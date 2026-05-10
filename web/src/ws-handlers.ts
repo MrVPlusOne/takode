@@ -706,6 +706,9 @@ function handleParsedMessage(
         ...(update.pendingPermissionSummary !== undefined
           ? { pendingPermissionSummary: update.pendingPermissionSummary }
           : {}),
+        ...(update.leaderActivePhaseSummary !== undefined
+          ? { leaderActivePhaseSummary: update.leaderActivePhaseSummary }
+          : {}),
       });
       applyNotificationStatusUpdate(targetSessionId, update);
       if (update.status !== undefined) {
@@ -1342,6 +1345,9 @@ function handleParsedMessage(
       // and any future live-updating inline boards stay current.
       store.setSessionBoard(sessionId, data.board ?? []);
       store.setSessionCompletedBoard(sessionId, data.completedBoard ?? []);
+      if (data.leaderActivePhaseSummary !== undefined) {
+        store.updateSdkSession(sessionId, { leaderActivePhaseSummary: data.leaderActivePhaseSummary });
+      }
       if (data.rowSessionStatuses) {
         store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);
       }
@@ -1464,6 +1470,9 @@ function handleParsedMessage(
       }
       if (data.completedBoard) {
         store.setSessionCompletedBoard(sessionId, data.completedBoard);
+      }
+      if (data.leaderActivePhaseSummary !== undefined) {
+        store.updateSdkSession(sessionId, { leaderActivePhaseSummary: data.leaderActivePhaseSummary });
       }
       if (data.rowSessionStatuses) {
         store.setSessionBoardRowStatuses(sessionId, data.rowSessionStatuses);

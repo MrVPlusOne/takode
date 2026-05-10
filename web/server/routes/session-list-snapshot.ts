@@ -12,6 +12,8 @@ import type { WsBridge } from "../ws-bridge.js";
 import * as sessionNames from "../session-names.js";
 import { computeSessionTurnMetrics, getLastActualHumanUserMessageTimestamp } from "../user-message-classification.js";
 import { getLeaderProfilePortraitForSession } from "../leader-profile-assignments.js";
+import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
+import { getBoard as getBoardController } from "../bridge/board-watchdog-controller.js";
 
 type SessionListEntry = ReturnType<CliLauncher["listSessions"]>[number];
 const scheduledWorktreeGitStateRefreshes = new Map<string, ReturnType<typeof setTimeout>>();
@@ -51,6 +53,21 @@ export function _resetScheduledWorktreeGitStateRefreshesForTest(): void {
     clearTimeout(timer);
   }
   scheduledWorktreeGitStateRefreshes.clear();
+}
+
+export function buildLeaderActivePhaseSummaryForSnapshot(isOrchestrator: boolean | undefined, bridgeSession: unknown) {
+  if (isOrchestrator !== true) return undefined;
+  return buildLeaderActivePhaseSummary(
+    hasBoardState(bridgeSession) ? getBoardController(bridgeSession as Parameters<typeof getBoardController>[0]) : [],
+  );
+}
+
+function hasBoardState(bridgeSession: unknown): boolean {
+  return (
+    bridgeSession !== null &&
+    typeof bridgeSession === "object" &&
+    (bridgeSession as { board?: unknown }).board instanceof Map
+  );
 }
 
 export async function buildEnrichedSessionsSnapshot(
@@ -130,6 +147,10 @@ export async function buildEnrichedSessionsSnapshot(
           leaderProfilePortrait && leaderProfilePortrait.poolId !== "fallback"
             ? leaderProfilePortrait.id
             : (safeSession.leaderProfilePortraitId ?? null);
+        const leaderActivePhaseSummary = buildLeaderActivePhaseSummaryForSnapshot(
+          safeSession.isOrchestrator,
+          currentBridgeSession,
+        );
         const gitAhead = bridge?.git_ahead || 0;
         const gitBehind = bridge?.git_behind || 0;
         return {
@@ -164,6 +185,7 @@ export async function buildEnrichedSessionsSnapshot(
           ...(bridge?.codex_token_details ? { codexTokenDetails: bridge.codex_token_details } : {}),
           ...(bridge?.claude_token_details ? { claudeTokenDetails: bridge.claude_token_details } : {}),
           ...(bridge?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridge.leaderOpenThreadTabs } : {}),
+          ...(leaderActivePhaseSummary !== undefined ? { leaderActivePhaseSummary } : {}),
           lastMessagePreview: currentBridgeSession?.lastUserMessage || "",
           cliConnected,
           taskHistory: currentBridgeSession?.taskHistory ?? [],

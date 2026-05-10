@@ -57,6 +57,7 @@ import {
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
+import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 
 function createMockSocket(data: SocketData) {
   return {
@@ -373,7 +374,12 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       });
     },
     broadcastBoard: (session: any, board: unknown[], completedBoard: unknown[]) =>
-      bridge.broadcastToSession(session.id, { type: "board_updated", board, completedBoard } as any),
+      bridge.broadcastToSession(session.id, {
+        type: "board_updated",
+        board,
+        completedBoard,
+        leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board as any),
+      } as any),
     persistSession: (session: any) => bridge.persistSessionById(session.id),
     notifyReview: (sessionId: string, summary: string) => {
       const session = bridge.getSession(sessionId);
@@ -609,6 +615,22 @@ describe("work board", () => {
     const msg = JSON.parse(sent![0] as string);
     expect(msg.board).toHaveLength(1);
     expect(msg.board[0].questId).toBe("q-42");
+    expect(msg.leaderActivePhaseSummary).toEqual([
+      expect.objectContaining({ label: "Implement", count: 1, tone: "phase" }),
+    ]);
+
+    const activity = browser.send.mock.calls
+      .map((call: any[]) => {
+        try {
+          return JSON.parse(call[0]);
+        } catch {
+          return null;
+        }
+      })
+      .find((sentMsg: any) => sentMsg?.type === "session_activity_update" && sentMsg.session_id === "s1");
+    expect(activity?.session.leaderActivePhaseSummary).toEqual([
+      expect.objectContaining({ label: "Implement", count: 1, tone: "phase" }),
+    ]);
   });
 
   it("upsertBoardRow merges with existing row", () => {
@@ -1772,6 +1794,7 @@ describe("work board", () => {
     const lastUpdate = boardUpdates[boardUpdates.length - 1];
     expect(lastUpdate.completedBoard).toHaveLength(1);
     expect(lastUpdate.completedBoard[0].questId).toBe("q-1");
+    expect(lastUpdate.leaderActivePhaseSummary).toEqual([]);
   });
 
   it("board_updated broadcast removes resolved quest waits from queued rows", () => {
@@ -1799,6 +1822,9 @@ describe("work board", () => {
         questId: "q-1",
         waitFor: ["#9"],
       }),
+    ]);
+    expect(lastUpdate.leaderActivePhaseSummary).toEqual([
+      expect.objectContaining({ label: "Queued", count: 1, tone: "status" }),
     ]);
     expect(lastUpdate.completedBoard).toEqual([expect.objectContaining({ questId: "q-2" })]);
   });

@@ -107,6 +107,11 @@ describe("session list hydration", () => {
       makeSdkSession("s1", {
         name: "Hydrated Name",
         lastMessagePreview: "latest user request",
+        isOrchestrator: true,
+        leaderActivePhaseSummary: [
+          { label: "Implement", count: 1, tone: "phase", color: "#34d399" },
+          { label: "Queued", count: 1, tone: "status" },
+        ],
         taskHistory: [{ title: "Task", action: "new", timestamp: 10, triggerMessageId: "m1" }],
         keywords: ["mobile", "reconnect"],
       }),
@@ -115,11 +120,33 @@ describe("session list hydration", () => {
     const state = useStore.getState();
     expect(state.sessionNames.get("s1")).toBe("Hydrated Name");
     expect(state.sessionPreviews.get("s1")).toBe("latest user request");
+    expect(state.sdkSessions[0]?.leaderActivePhaseSummary).toEqual([
+      { label: "Implement", count: 1, tone: "phase", color: "#34d399" },
+      { label: "Queued", count: 1, tone: "status" },
+    ]);
     expect(state.sessionTaskHistory.get("s1")).toEqual([
       { title: "Task", action: "new", timestamp: 10, triggerMessageId: "m1" },
     ]);
     expect(state.sessionKeywords.get("s1")).toEqual(["mobile", "reconnect"]);
     expect(state.sdkSessions[0]).not.toHaveProperty("taskHistory");
     expect(state.sdkSessions[0]).not.toHaveProperty("keywords");
+  });
+
+  it("clears stale leader phase summaries from authoritative session snapshots", () => {
+    hydrateSessionList([
+      makeSdkSession("leader", {
+        isOrchestrator: true,
+        leaderActivePhaseSummary: [{ label: "Execute", count: 1, tone: "phase", color: "#60a5fa" }],
+      }),
+    ]);
+
+    hydrateSessionList([
+      makeSdkSession("leader", {
+        isOrchestrator: true,
+        leaderActivePhaseSummary: [],
+      }),
+    ]);
+
+    expect(useStore.getState().sdkSessions[0]?.leaderActivePhaseSummary).toEqual([]);
   });
 });

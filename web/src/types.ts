@@ -43,6 +43,7 @@ import type {
   PausedInboundMessage,
   SessionPauseState,
 } from "../server/session-types.js";
+import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import { assertNever, isClaudeFamily } from "../server/session-types.js";
 import type { ImageRef } from "../server/image-store.js";
 import type { SessionTimer } from "../server/timer-types.js";
@@ -348,6 +349,8 @@ export interface SdkSessionInfo {
   leaderProfilePortrait?: LeaderProfilePortrait;
   /** Lightweight server-owned leader quest/thread tab state. */
   leaderOpenThreadTabs?: SessionState["leaderOpenThreadTabs"];
+  /** Server-owned active Quest Journey phase counts for leader sidebar chips. */
+  leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
   /** Session UUID of the leader that has herded this worker (single leader per session) */
   herdedBy?: string;
   /** Short integer session ID (e.g. #5), stable across restarts */

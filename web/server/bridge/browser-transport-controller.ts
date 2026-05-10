@@ -17,6 +17,7 @@ import {
 } from "../../shared/history-sync-hash.js";
 import { getHistoryWindowTurnCount } from "../../shared/history-window.js";
 import { buildLeaderProjectionSnapshot } from "../../shared/leader-projection.js";
+import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import { buildThreadWindowSync, getThreadWindowItemCount } from "../../shared/thread-window.js";
 import { deriveWindowAvailability } from "../../shared/window-availability.js";
 import { sessionTag } from "../session-tag.js";
@@ -866,8 +867,8 @@ export function sendStateSnapshot(
   ws: BrowserTransportSocketLike,
   deps: BrowserTransportDeps,
 ): void {
-  const board = deps.getBoard(session.id);
-  const completedBoard = deps.getCompletedBoard(session.id);
+  const board = deps.getBoard(session.id) as BoardRow[];
+  const completedBoard = deps.getCompletedBoard(session.id) as BoardRow[];
   sendToBrowser(ws, {
     type: "state_snapshot",
     sessionStatus: deriveSessionStatus(session, deps),
@@ -883,6 +884,7 @@ export function sendStateSnapshot(
     activeTurnRoute: deriveActiveTurnRoute(session),
     board,
     completedBoard,
+    leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
     rowSessionStatuses: deps.getBoardRowSessionStatuses(session.id, board, completedBoard),
     notifications: session.notifications,
     attentionRecords: session.attentionRecords,

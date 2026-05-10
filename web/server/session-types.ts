@@ -1,6 +1,7 @@
 import type { ReplyContext } from "../shared/reply-context.js";
 import type { FeedWindowSync } from "../shared/feed-window-sync.js";
 import type { LeaderOpenThreadTabsState, LeaderThreadTabUpdate } from "../shared/leader-open-thread-tabs.js";
+import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 import type { LeaderThreadStatus } from "../shared/thread-status-marker.js";
 
 // Types for the WebSocket bridge between Claude Code CLI and the browser
@@ -932,6 +933,7 @@ export type BrowserIncomingMessageBase =
       activeTurnRoute?: ActiveTurnRoute | null;
       board?: BoardRow[];
       completedBoard?: BoardRow[];
+      leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
       notifications?: SessionNotification[];
       attentionRecords?: SessionAttentionRecord[];
@@ -971,6 +973,7 @@ export type BrowserIncomingMessageBase =
       type: "board_updated";
       board: BoardRow[];
       completedBoard: BoardRow[];
+      leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
       rowSessionStatuses?: Record<string, BoardRowSessionStatus>;
     }
   | {
@@ -997,6 +1000,7 @@ export type BrowserIncomingMessageBase =
         activeNotificationCount?: number;
         notificationStatusVersion?: number;
         notificationStatusUpdatedAt?: number;
+        leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
       };
     }
   | {

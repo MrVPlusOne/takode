@@ -4,6 +4,7 @@ import * as questStore from "../quest-store.js";
 import * as sessionNames from "../session-names.js";
 import type { HerdSessionsResponse } from "../../shared/herd-types.js";
 import { isValidQuestId } from "../../shared/quest-journey.js";
+import { buildLeaderActivePhaseSummary } from "../../shared/leader-active-phase-summary.js";
 import {
   buildPeekResponse,
   buildPeekDefault,
@@ -60,6 +61,7 @@ import { loadQuestJourneyPhaseCatalog } from "../quest-journey-phases.js";
 import { registerTakodeBoardRoutes } from "./takode-board.js";
 import { registerTakodeNotificationResponseRoute } from "./takode-notification-response.js";
 import { getPauseState, isSessionPaused } from "../session-pause.js";
+import { buildLeaderActivePhaseSummaryForSnapshot as buildLeaderSummary } from "./session-list-snapshot.js";
 import { scheduleWorktreeGitStateRefreshForSnapshot } from "./session-list-snapshot.js";
 import { computeSessionTurnMetrics } from "../user-message-classification.js";
 
@@ -410,6 +412,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
             : null;
           const cliConnected = wsBridge.isBackendConnected(s.sessionId);
           const effectiveState = cliConnected && currentBridgeSession?.isGenerating ? "running" : safeSession.state;
+          const leaderActivePhaseSummary = buildLeaderSummary(safeSession.isOrchestrator, currentBridgeSession);
           return {
             ...safeSession,
             state: effectiveState,
@@ -433,6 +436,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
             claimedQuestId: bridge?.claimedQuestId ?? null,
             claimedQuestStatus: bridge?.claimedQuestStatus ?? null,
             claimedQuestVerificationInboxUnread: bridge?.claimedQuestVerificationInboxUnread,
+            ...(leaderActivePhaseSummary !== undefined ? { leaderActivePhaseSummary } : {}),
             ...(attention ?? {}),
             ...(s.isWorktree && s.archived
               ? await (async () => {
@@ -632,6 +636,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
       type: "board_updated",
       board,
       completedBoard,
+      leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
       rowSessionStatuses: buildBoardRowSessionStatusesController(
         [...board, ...completedBoard],
         getBoardStatusSessions(),
@@ -704,7 +709,6 @@ export function createTakodeRoutes(ctx: RouteContext) {
           pendingPermissionSummary: summarizePendingPermissions(currentBridgeSession),
         }
       : null;
-
     return c.json({
       ...safeSession,
       sessionNum: launcher.getSessionNum(sessionId) ?? null,

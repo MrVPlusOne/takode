@@ -466,6 +466,24 @@ describe("SessionItem leader profiles", () => {
     expect(screen.queryByText("stale leader user prompt")).not.toBeInTheDocument();
   });
 
+  it("renders leader phase counts from authoritative sidebar metadata before the board is opened", () => {
+    renderSessionItem({
+      session: makeSession({
+        isOrchestrator: true,
+        leaderProfilePortrait: TAKO_PORTRAIT,
+        leaderActivePhaseSummary: [
+          { label: "Code Review", count: 1, tone: "phase", color: "#a78bfa" },
+          { label: "Queued", count: 1, tone: "status" },
+        ],
+      }),
+      sessionPreview: "stale leader user prompt",
+    });
+
+    expect(screen.getByTestId("session-preview-row")).toHaveAttribute("data-leader-active-phase-summary", "true");
+    expect(screen.getByTestId("session-preview-row")).toHaveTextContent("1 Code Review, 1 Queued");
+    expect(screen.queryByText("stale leader user prompt")).not.toBeInTheDocument();
+  });
+
   it("does not render portraits for non-leader sessions", () => {
     renderSessionItem({
       session: makeSession({ isOrchestrator: false, leaderProfilePortrait: TAKO_PORTRAIT }),

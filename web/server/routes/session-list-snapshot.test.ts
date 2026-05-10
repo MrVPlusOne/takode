@@ -29,6 +29,8 @@ function makeBridgeSession(messageHistory: unknown[]) {
     id: "s1",
     state: {},
     messageHistory,
+    board: new Map(),
+    completedBoard: new Map(),
     pendingPermissions: new Map(),
     notifications: [],
     lastReadAt: 0,
@@ -350,5 +352,53 @@ describe("buildEnrichedSessionsSnapshot", () => {
       claimedQuestStatus: "done",
       claimedQuestVerificationInboxUnread: true,
     });
+  });
+
+  it("includes active Quest Journey phase summary metadata for leader sidebar rows", async () => {
+    const launcherSession = makeLauncherSession({ isOrchestrator: true });
+    const bridgeSession = {
+      ...makeBridgeSession([]),
+      board: new Map([
+        [
+          "q-1",
+          {
+            questId: "q-1",
+            title: "Implement metadata hydration",
+            status: "IMPLEMENTING",
+            createdAt: 1,
+            updatedAt: 10,
+            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+          },
+        ],
+        [
+          "q-2",
+          {
+            questId: "q-2",
+            title: "Wait for worker",
+            status: "QUEUED",
+            createdAt: 2,
+            updatedAt: 20,
+            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "alignment" },
+          },
+        ],
+      ]),
+    };
+
+    const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, bridgeSession));
+
+    expect(snapshot[0]).toMatchObject({
+      leaderActivePhaseSummary: [
+        { label: "Implement", count: 1, tone: "phase" },
+        { label: "Queued", count: 1, tone: "status" },
+      ],
+    });
+  });
+
+  it("returns an empty leader phase summary when active board rows clear", async () => {
+    const launcherSession = makeLauncherSession({ isOrchestrator: true });
+
+    const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, makeBridgeSession([])));
+
+    expect(snapshot[0]).toMatchObject({ leaderActivePhaseSummary: [] });
   });
 });

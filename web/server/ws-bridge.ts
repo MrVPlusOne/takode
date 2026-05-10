@@ -2,6 +2,7 @@ import type { ServerWebSocket } from "bun";
 import { randomUUID } from "node:crypto";
 import { computeSessionPayloadMetrics } from "./session-payload-metrics.js";
 import { getDefaultModelForBackend } from "../shared/backend-defaults.js";
+import { buildLeaderActivePhaseSummary } from "../shared/leader-active-phase-summary.js";
 import type { PushoverNotifier } from "./pushover.js";
 import type { TrafficStatsSnapshot } from "./traffic-stats.js";
 import type {
@@ -1143,6 +1144,7 @@ export class WsBridge {
           type: "board_updated",
           board,
           completedBoard,
+          leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
           rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
         }),
       persistSession: (targetSession) => this.persistSession(targetSession as Session),
@@ -1154,6 +1156,7 @@ export class WsBridge {
               type: "board_updated",
               board,
               completedBoard,
+              leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
               rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
             }),
           persistSession: (targetSession) => this.persistSession(targetSession as Session),
@@ -1951,6 +1954,7 @@ export class WsBridge {
       msg.type !== "permission_denied" &&
       msg.type !== "permission_cancelled" &&
       msg.type !== "permissions_cleared" &&
+      msg.type !== "board_updated" &&
       msg.type !== "status_change" &&
       !(msg.type === "session_update" && ("attentionReason" in msg.session || "lastReadAt" in msg.session))
     ) {
@@ -1963,6 +1967,9 @@ export class WsBridge {
       session: {
         ...getSessionActivitySnapshotController(session),
         ...(msg.type === "status_change" ? { status: msg.status } : {}),
+        ...(msg.type === "board_updated"
+          ? { leaderActivePhaseSummary: msg.leaderActivePhaseSummary ?? buildLeaderActivePhaseSummary(msg.board) }
+          : {}),
       },
     });
   }

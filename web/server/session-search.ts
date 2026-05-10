@@ -1,6 +1,7 @@
 import type { BrowserIncomingMessage, SessionTaskEntry } from "./session-types.js";
 import type { SearchExcerpt } from "./session-store.js";
 import { multiWordMatch, normalizeForSearch } from "../shared/search-utils.js";
+import type { LeaderActivePhaseSummarySegment } from "../shared/leader-active-phase-summary.js";
 
 export type SessionSearchMatchedField =
   | "session_number"
@@ -33,6 +34,7 @@ export interface SessionSearchDocument {
   gitBranch?: string;
   cwd?: string;
   repoRoot?: string;
+  leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
   messageHistory?: BrowserIncomingMessage[] | null;
   /** Lightweight search excerpts for search-data-only archived sessions. */
   searchExcerpts?: SearchExcerpt[];
@@ -55,6 +57,7 @@ export interface SessionSearchSessionSummary {
   gitBranch?: string;
   cwd: string;
   repoRoot?: string;
+  leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];
 }
 
 export interface SessionSearchResult {
@@ -149,6 +152,7 @@ function buildSessionSummary(doc: SessionSearchDocument): SessionSearchSessionSu
     gitBranch: doc.gitBranch,
     cwd: doc.cwd ?? "",
     repoRoot: doc.repoRoot,
+    leaderActivePhaseSummary: doc.leaderActivePhaseSummary,
   };
 }
 
