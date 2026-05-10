@@ -173,7 +173,7 @@ describe("SettingsServerDiagnosticsSection", () => {
           operationId: "prep-restart",
           mode: "restart",
           restartRequested: true,
-          timedOut: true,
+          timedOut: false,
           retryAttempts: [
             {
               attempt: 1,
@@ -218,5 +218,6 @@ describe("SettingsServerDiagnosticsSection", () => {
     expect(screen.getAllByText("Codex stuck")).toHaveLength(2);
     expect(screen.getByText(/Codex recovery was requested/)).toBeInTheDocument();
     expect(screen.getByText(/backendState=connected/)).toBeInTheDocument();
+    expect(screen.queryByText(/Blocker wait timed out/)).not.toBeInTheDocument();
   });
 });

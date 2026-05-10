@@ -373,10 +373,13 @@ describe("server restart controls", () => {
     expect(res.status).toBe(200);
     expect(requestRestart).toHaveBeenCalledTimes(1);
     expect(sentOrder).toEqual(["worker", "worker"]);
+    expect(body.timedOut).toBe(false);
     expect(body.retryAttempts).toHaveLength(2);
+    expect(body.retryAttempts[0].timedOut).toBe(true);
     expect(body.retryAttempts[0].remainingBlockers).toEqual([
       { sessionId: "worker", label: "Worker session", reasons: ["running"] },
     ]);
+    expect(body.retryAttempts[1].timedOut).toBe(false);
     expect(body.retryAttempts[1].remainingBlockers).toEqual([]);
     expect(body.fallbacks).toEqual([]);
   });
@@ -391,7 +394,9 @@ describe("server restart controls", () => {
     expect(res.status).toBe(200);
     expect(requestRestart).toHaveBeenCalledTimes(1);
     expect(relaunchNeeded).toHaveBeenCalledWith("codex");
+    expect(body.timedOut).toBe(false);
     expect(body.retryAttempts).toHaveLength(3);
+    expect(body.retryAttempts.every((attempt: { timedOut: boolean }) => attempt.timedOut)).toBe(true);
     expect(body.fallbacks).toEqual([
       expect.objectContaining({
         sessionId: "codex",

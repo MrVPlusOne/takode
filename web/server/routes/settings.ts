@@ -532,7 +532,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
         mode: "restart",
         operationId,
         restartRequested: continuation.ok,
-        timedOut: prep.timedOut || readiness.timedOut,
+        timedOut: false,
         retryAttempts: prep.retryAttempts,
         interrupted: prep.interrupted,
         skipped: prep.skipped,
