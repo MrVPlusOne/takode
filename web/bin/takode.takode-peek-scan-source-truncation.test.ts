@@ -5,7 +5,7 @@ import type { AddressInfo } from "node:net";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { getCompactionRecoveryPrompt } from "../server/compaction-recovery-prompts.ts";
-import { buildPeekRange, buildPeekTurnScan } from "../server/takode-messages.ts";
+import { buildPeekDefault, buildPeekRange, buildPeekTurnScan } from "../server/takode-messages.ts";
 
 async function runTakode(
   args: string[],
@@ -134,6 +134,21 @@ describe("takode peek/scan source-aware truncation", () => {
         return;
       }
 
+      if (method === "GET" && url === "/api/sessions/153/messages?threadKey=q-1298") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Thread Worker",
+            status: "idle",
+            quest: null,
+            ...buildPeekDefault(history, { collapsedCount: 0, threadKey: "q-1298" }),
+          }),
+        );
+        return;
+      }
+
       if (method === "GET" && url === "/api/sessions/153/messages/1?threadKey=q-1298") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
@@ -207,6 +222,7 @@ describe("takode peek/scan source-aware truncation", () => {
         ["peek", "153", "--from", "0", "--count", "3", "--thread", "q-1298", "--port", String(port)],
         env,
       );
+      const defaultPeekResult = await runTakode(["peek", "153", "--thread", "q-1298", "--port", String(port)], env);
       const readResult = await runTakode(["read", "153", "1", "--thread", "q-1298", "--port", String(port)], env);
       const grepResult = await runTakode(
         ["grep", "153", "needle", "--count", "3", "--thread", "q-1298", "--port", String(port)],
@@ -215,11 +231,15 @@ describe("takode peek/scan source-aware truncation", () => {
 
       expect(scanResult.status).toBe(0);
       expect(scanResult.stdout).toContain("threads: q-1289, q-1298");
-      expect(scanResult.stdout).toContain("status: q-1298 waiting: waiting on explore");
+      expect(scanResult.stdout).not.toContain("status:");
       expect(scanResult.stdout).toContain("mixed q-1289 reply");
 
       expect(peekResult.status).toBe(0);
       expect(peekResult.stdout).toContain("[q-1289,q-1298]");
+
+      expect(defaultPeekResult.status).toBe(0);
+      expect(defaultPeekResult.stdout).toContain("threads: q-1289, q-1298");
+      expect(defaultPeekResult.stdout).not.toContain("status:");
 
       expect(readResult.status).toBe(0);
       expect(readResult.stdout).toContain("threads: q-1289, q-1298");
@@ -227,7 +247,10 @@ describe("takode peek/scan source-aware truncation", () => {
 
       expect(grepResult.status).toBe(0);
       expect(grepResult.stdout).toContain("[q-1289,q-1298]");
+      expect(grepResult.stdout).toMatch(/\bassistant turn 0\s+\[q-1289,q-1298\]/);
       expect(grepResult.stdout).toContain("mixed q-1289 reply with needle");
+      expect(grepResult.stdout).toContain("takode read 153 <msg-id> --thread q-1298");
+      expect(grepResult.stdout).toContain("takode peek 153 --turn <N> --thread q-1298");
     } finally {
       server.close();
     }

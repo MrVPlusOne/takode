@@ -147,12 +147,13 @@ function formatThreadTag(meta: ThreadMetadata): string {
   return `[${threads.map(formatInlineText).join(",")}] `;
 }
 
-function formatThreadLines(meta: ThreadMetadata): string[] {
+function formatThreadLines(meta: ThreadMetadata, opts: { includeStatus?: boolean } = {}): string[] {
   const lines: string[] = [];
   const threads = compactThreadList(meta);
   if (threads.length > 0) {
     lines.push(`  threads: ${threads.map(formatInlineText).join(", ")}`);
   }
+  if (opts.includeStatus === false) return lines;
   const statuses = meta.threadStatuses ?? [];
   if (statuses.length > 0) {
     lines.push(
@@ -384,7 +385,7 @@ function formatCollapsedTurn(turn: CollapsedTurn, surface: "scan" | "peek"): str
   const hasResult = !!turn.result;
 
   // Single-message turn or only one side exists: compact format
-  const threadLines = formatThreadLines(turn);
+  const threadLines = formatThreadLines(turn, { includeStatus: false });
   if (!hasUser && !hasResult) return [header, ...threadLines].join("\n");
   if (!hasUser)
     return [header, ...threadLines, `  ${formatQuotedContent(turn.result, TAKODE_PEEK_CONTENT_LIMIT)}`].join("\n");
@@ -553,7 +554,7 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string, threadKey?
     console.log(
       `Turn ${et.turn} (last, ${msgCount} messages) · ${formatTimeShort(et.start)}-${et.end ? formatTimeShort(et.end) : "running"}${durationPart}${statStr}${successIcon}`,
     );
-    for (const line of formatThreadLines(et)) console.log(line);
+    for (const line of formatThreadLines(et, { includeStatus: false })) console.log(line);
 
     // Omitted messages hint
     if (et.omittedMsgs > 0) {
@@ -702,7 +703,7 @@ function printPeekDetail(d: PeekDetailResponse): void {
     const duration = turn.dur ? `${Math.round(turn.dur / 1000)}s` : "running";
     const ended = turn.end ? `, ended ${formatTime(turn.end)}` : "";
     console.log(`--- Turn ${turn.turn} (${duration}${ended}) ---`);
-    for (const line of formatThreadLines(turn)) console.log(line);
+    for (const line of formatThreadLines(turn, { includeStatus: false })) console.log(line);
 
     printExpandedMessages(turn.messages);
     console.log("");
@@ -1100,16 +1101,17 @@ export async function handleGrep(base: string, args: string[]): Promise<void> {
   for (const match of data.matches) {
     const time = formatTimeShort(match.ts);
     const idx = `[${match.idx}]`;
-    const turnLabel = match.turn !== null ? `T${match.turn}` : "  ";
+    const turnLabel = match.turn !== null ? `turn ${match.turn}` : "";
     const typeLabel = match.type.padEnd(6);
     console.log(
-      `  ${idx.padEnd(7)} ${time}  ${typeLabel} ${turnLabel.padEnd(5)} ${formatThreadTag(match)}${match.snippet}`,
+      `  ${idx.padEnd(7)} ${time}  ${typeLabel} ${turnLabel.padEnd(9)} ${formatThreadTag(match)}${match.snippet}`,
     );
   }
 
   console.log("");
+  const threadSuffix = formatThreadCommandSuffix(threadKey);
   console.log(
-    `Hint: takode read ${safeSessionRef} <msg-id> for full message | takode peek ${safeSessionRef} --turn <N> for turn context`,
+    `Hint: takode read ${safeSessionRef} <msg-id>${threadSuffix} for full message | takode peek ${safeSessionRef} --turn <N>${threadSuffix} for turn context`,
   );
 }
 
