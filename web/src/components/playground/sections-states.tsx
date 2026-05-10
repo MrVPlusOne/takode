@@ -57,15 +57,25 @@ const PLAYGROUND_UNIVERSAL_SESSIONS: SdkSessionInfo[] = [
 const PLAYGROUND_VOICE_HISTORY = [0.08, 0.18, 0.35, 0.68, 0.82, 0.44, 0.16, 0.1, 0.28, 0.58, 0.72, 0.24];
 
 function PlaygroundVoiceHistory() {
+  const waveformLevels = [...PLAYGROUND_VOICE_HISTORY, 0.64];
+
   return (
-    <div className="flex h-4 w-[72px] sm:w-[112px] shrink-0 items-end gap-[1px] overflow-hidden rounded-[3px] border border-red-500/20 bg-red-500/5 px-[2px] py-[2px]">
-      {PLAYGROUND_VOICE_HISTORY.map((level, index) => (
+    <div
+      aria-label="Current and recent input level"
+      className="relative flex h-4 w-[72px] sm:w-[112px] shrink-0 items-center gap-[1px] overflow-hidden rounded-[3px] border border-cc-primary/20 bg-cc-primary/5 px-[2px] py-[2px]"
+    >
+      {waveformLevels.map((level, index) => (
         <span
           key={index}
-          className="min-w-0 flex-1 rounded-full bg-red-400"
-          style={{ height: `${Math.max(2, Math.round(level * 12))}px`, opacity: Math.max(0.25, 0.35 + level * 0.65) }}
+          data-current-sample={index === waveformLevels.length - 1 ? "true" : undefined}
+          className="relative z-10 min-w-0 flex-1 rounded-full bg-cc-primary"
+          style={{
+            height: `${Math.max(2, Math.round(2 + level * 12))}px`,
+            opacity: Math.max(0.28, 0.38 + level * 0.62),
+          }}
         />
       ))}
+      <span className="pointer-events-none absolute left-[2px] right-[2px] top-1/2 h-px -translate-y-1/2 bg-cc-primary/20" />
     </div>
   );
 }
@@ -388,8 +398,8 @@ export function PlaygroundStateSections() {
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-hidden">
                 {/* Recording indicator */}
-                <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-cc-primary">
+                  <span className="w-2 h-2 rounded-full bg-cc-primary animate-pulse" />
                   <span>Recording...</span>
                   <PlaygroundVoiceHistory />
                 </div>
@@ -431,8 +441,8 @@ export function PlaygroundStateSections() {
                         <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
                       </svg>
                     </div>
-                    {/* Mic button — recording state (red) */}
-                    <div className="flex items-center justify-center w-8 h-8 rounded-lg text-red-500 bg-red-500/10">
+                    {/* Mic button — recording state */}
+                    <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-primary bg-cc-primary/10">
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 animate-pulse">
                         <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
                         <path d="M3.5 7a.5.5 0 0 1 .5.5v.5a4 4 0 0 0 8 0v-.5a.5.5 0 0 1 1 0v.5a5 5 0 0 1-4.5 4.975V14.5h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8v-.5a.5.5 0 0 1 .5-.5z" />
@@ -455,7 +465,7 @@ export function PlaygroundStateSections() {
                 {/* Recording indicator with mode toggle */}
                 <div
                   data-testid="playground-recording-mode-row-edit"
-                  className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500"
+                  className="flex items-center gap-2 px-4 pt-2 text-[11px] text-cc-primary"
                 >
                   <div
                     data-testid="playground-recording-mode-toggle-edit"
@@ -466,20 +476,8 @@ export function PlaygroundStateSections() {
                     </span>
                     <span className="px-2 py-0.5 rounded-full text-[10px] font-medium text-cc-muted">Append</span>
                   </div>
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                  <span className="w-2 h-2 rounded-full bg-cc-primary animate-pulse shrink-0" />
                   <span className="shrink-0">Recording</span>
-                  <div className="flex items-center gap-[2px] h-3">
-                    {[0, 0.15, 0.3, 0.45, 0.6].map((_, i) => (
-                      <div
-                        key={i}
-                        className="w-[3px] rounded-full"
-                        style={{
-                          height: `${4 + i * 2}px`,
-                          backgroundColor: i < 3 ? "rgb(239 68 68)" : "rgb(239 68 68 / 0.3)",
-                        }}
-                      />
-                    ))}
-                  </div>
                   <PlaygroundVoiceHistory />
                 </div>
                 <textarea
@@ -512,7 +510,7 @@ export function PlaygroundStateSections() {
                     <span>code</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-lg text-red-500 bg-red-500/10">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-primary bg-cc-primary/10">
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 animate-pulse">
                         <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
                         <path d="M3.5 7a.5.5 0 0 1 .5.5v.5a4 4 0 0 0 8 0v-.5a.5.5 0 0 1 1 0v.5a5 5 0 0 1-4.5 4.975V14.5h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8v-.5a.5.5 0 0 1 .5-.5z" />
@@ -535,7 +533,7 @@ export function PlaygroundStateSections() {
                 {/* Recording indicator with append mode active */}
                 <div
                   data-testid="playground-recording-mode-row-append"
-                  className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500"
+                  className="flex items-center gap-2 px-4 pt-2 text-[11px] text-cc-primary"
                 >
                   <div
                     data-testid="playground-recording-mode-toggle-append"
@@ -546,20 +544,8 @@ export function PlaygroundStateSections() {
                       Append
                     </span>
                   </div>
-                  <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+                  <span className="w-2 h-2 rounded-full bg-cc-primary animate-pulse shrink-0" />
                   <span className="shrink-0">Recording</span>
-                  <div className="flex items-center gap-[2px] h-3">
-                    {[0, 0.15, 0.3, 0.45, 0.6].map((_, i) => (
-                      <div
-                        key={i}
-                        className="w-[3px] rounded-full"
-                        style={{
-                          height: `${4 + i * 2}px`,
-                          backgroundColor: i < 4 ? "rgb(239 68 68)" : "rgb(239 68 68 / 0.3)",
-                        }}
-                      />
-                    ))}
-                  </div>
                   <PlaygroundVoiceHistory />
                 </div>
                 <textarea
@@ -592,7 +578,7 @@ export function PlaygroundStateSections() {
                     <span>code</span>
                   </div>
                   <div className="flex items-center gap-1">
-                    <div className="flex items-center justify-center w-8 h-8 rounded-lg text-red-500 bg-red-500/10">
+                    <div className="flex items-center justify-center w-8 h-8 rounded-lg text-cc-primary bg-cc-primary/10">
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4 animate-pulse">
                         <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
                         <path d="M3.5 7a.5.5 0 0 1 .5.5v.5a4 4 0 0 0 8 0v-.5a.5.5 0 0 1 1 0v.5a5 5 0 0 1-4.5 4.975V14.5h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8v-.5a.5.5 0 0 1 .5-.5z" />

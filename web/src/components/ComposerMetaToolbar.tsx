@@ -371,7 +371,7 @@ export function ComposerMetaToolbar({
               : isPreparing
                 ? "text-cc-warning bg-cc-warning/10 cursor-wait"
                 : isRecording
-                  ? "text-red-500 bg-red-500/10 hover:bg-red-500/20 cursor-pointer"
+                  ? "text-cc-primary bg-cc-primary/10 hover:bg-cc-primary/20 cursor-pointer"
                   : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
           }`}
           title={voiceButtonTitle}

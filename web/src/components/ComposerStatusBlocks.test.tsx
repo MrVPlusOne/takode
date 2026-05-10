@@ -80,9 +80,9 @@ describe("ComposerStatusBlocks voice recording controls", () => {
     expect(props.onSetVoiceModeAppend).toHaveBeenCalledTimes(1);
   });
 
-  it("renders a fixed recent level history alongside the current live meter", () => {
-    // The recording row keeps the live bars but adds a fixed-width trace so a
-    // user can see whether speech was captured at the beginning of recording.
+  it("renders one fixed waveform meter with the current level as the newest sample", () => {
+    // The recording row uses one centered waveform surface so the live level
+    // and recent history read as a single compact meter.
     renderStatusBlocks({
       isRecording: true,
       volumeLevel: 0.7,
@@ -96,10 +96,37 @@ describe("ComposerStatusBlocks voice recording controls", () => {
       vscodeSelectionTitle: null,
     });
 
-    expect(screen.getByLabelText("Current input level")).toBeTruthy();
-    const history = screen.getByLabelText("Recent input level history");
-    expect(history.className).toContain("shrink-0");
-    expect(screen.getAllByTestId("voice-level-history-bar")).toHaveLength(40);
+    expect(screen.queryByLabelText("Current input level")).toBeNull();
+    expect(screen.queryByLabelText("Recent input level history")).toBeNull();
+
+    const waveform = screen.getByLabelText("Current and recent input level");
+    expect(waveform.className).toContain("items-center");
+    expect(waveform.className).toContain("shrink-0");
+
+    const bars = screen.getAllByTestId("voice-level-waveform-bar");
+    expect(bars).toHaveLength(40);
+    expect(bars[bars.length - 1].getAttribute("data-current-sample")).toBe("true");
+    expect(bars[bars.length - 1].getAttribute("data-clipping")).toBeNull();
+  });
+
+  it("reserves red waveform bars for clipping-level input", () => {
+    // Healthy recording levels stay in the normal copper meter; only an
+    // overload-level current sample should trip the clipping marker.
+    renderStatusBlocks({
+      isRecording: true,
+      volumeLevel: 0.99,
+      volumeHistory: [
+        { time: 0, level: 0.2 },
+        { time: 125, level: 0.45 },
+      ],
+      vscodeSelectionLabel: null,
+      vscodeSelectionSummary: null,
+      vscodeSelectionTitle: null,
+    });
+
+    const bars = screen.getAllByTestId("voice-level-waveform-bar");
+    expect(bars[bars.length - 1].getAttribute("data-current-sample")).toBe("true");
+    expect(bars[bars.length - 1].getAttribute("data-clipping")).toBe("true");
   });
 });
 

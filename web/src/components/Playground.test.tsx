@@ -89,15 +89,21 @@ describe("Playground", () => {
   it("shows the voice mode selector before the recording label in Playground composer states", () => {
     render(<Playground />);
 
+    expect(screen.queryByLabelText("Current input level")).toBeNull();
+    expect(screen.queryByLabelText("Recent input level history")).toBeNull();
+    expect(screen.getAllByLabelText("Current and recent input level").length).toBeGreaterThanOrEqual(3);
+
     const editRow = screen.getByTestId("playground-recording-mode-row-edit");
     const editToggle = within(editRow).getByTestId("playground-recording-mode-toggle-edit");
     const editRecordingLabel = within(editRow).getByText("Recording");
     expect(editToggle.compareDocumentPosition(editRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(editRow).getByLabelText("Current and recent input level")).toBeTruthy();
 
     const appendRow = screen.getByTestId("playground-recording-mode-row-append");
     const appendToggle = within(appendRow).getByTestId("playground-recording-mode-toggle-append");
     const appendRecordingLabel = within(appendRow).getByText("Recording");
     expect(appendToggle.compareDocumentPosition(appendRecordingLabel) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(within(appendRow).getByLabelText("Current and recent input level")).toBeTruthy();
   });
 
   it("documents Composer backend-native permission selector states", () => {

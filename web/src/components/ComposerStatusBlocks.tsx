@@ -5,6 +5,7 @@ import { useStore } from "../store.js";
 import type { VoiceLevelSample } from "./composer-voice-types.js";
 
 const VOICE_HISTORY_BAR_COUNT = 40;
+const VOICE_LEVEL_CLIPPING_THRESHOLD = 0.95;
 
 export function ComposerStatusBlocks({
   isPreparing,
@@ -59,7 +60,6 @@ export function ComposerStatusBlocks({
   onSetVoiceModeEdit: () => void;
   onSetVoiceModeAppend: () => void;
 }) {
-  const VOICE_BAR_THRESHOLDS = [0.03, 0.08, 0.15, 0.24, 0.36] as const;
   const vscodeSelectionFullPath = useStore((state) => state.vscodeSelectionContext?.selection?.absolutePath ?? null);
   const vscodeSelectionPathRef = useRef<HTMLDivElement>(null);
   const [vscodeSelectionPathOpen, setVscodeSelectionPathOpen] = useState(false);
@@ -96,7 +96,7 @@ export function ComposerStatusBlocks({
         </div>
       )}
       {isRecording && (
-        <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-red-500">
+        <div className="flex items-center gap-2 px-4 pt-2 text-[11px] text-cc-primary">
           {voiceCaptureMode !== "dictation" && (
             <div
               data-testid="voice-capture-mode-toggle"
@@ -124,21 +124,9 @@ export function ComposerStatusBlocks({
               </button>
             </div>
           )}
-          <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse shrink-0" />
+          <span className="w-2 h-2 rounded-full bg-cc-primary animate-pulse shrink-0" />
           <span className="shrink-0">Recording</span>
-          <div className="flex items-center gap-[2px] h-3 shrink-0" aria-label="Current input level">
-            {VOICE_BAR_THRESHOLDS.map((threshold, i) => (
-              <div
-                key={i}
-                className="w-[3px] rounded-full transition-all duration-75"
-                style={{
-                  height: volumeLevel > threshold ? `${Math.min(12, 4 + (volumeLevel - threshold) * 20)}px` : "3px",
-                  backgroundColor: volumeLevel > threshold ? "rgb(239 68 68)" : "rgb(239 68 68 / 0.3)",
-                }}
-              />
-            ))}
-          </div>
-          <VoiceLevelHistory samples={volumeHistory} />
+          <VoiceLevelWaveform currentLevel={volumeLevel} samples={volumeHistory} />
         </div>
       )}
       {isTranscribing && !isRecording && (
@@ -323,35 +311,53 @@ export function ComposerStatusBlocks({
   );
 }
 
-function VoiceLevelHistory({ samples }: { samples: VoiceLevelSample[] }) {
-  const visibleSamples = samples.slice(-VOICE_HISTORY_BAR_COUNT);
+function VoiceLevelWaveform({ currentLevel, samples }: { currentLevel: number; samples: VoiceLevelSample[] }) {
+  const visibleSamples = samples.slice(-(VOICE_HISTORY_BAR_COUNT - 1));
   const paddedSamples = [
-    ...Array.from({ length: Math.max(0, VOICE_HISTORY_BAR_COUNT - visibleSamples.length) }, () => null),
-    ...visibleSamples,
+    ...Array.from({ length: Math.max(0, VOICE_HISTORY_BAR_COUNT - 1 - visibleSamples.length) }, () => ({
+      kind: "empty" as const,
+      level: 0,
+      key: "empty",
+    })),
+    ...visibleSamples.map((sample) => ({
+      kind: "history" as const,
+      level: clampVoiceLevel(sample.level),
+      key: sample.time,
+    })),
+    { kind: "current" as const, level: clampVoiceLevel(currentLevel), key: "current" },
   ];
 
   return (
     <div
-      data-testid="voice-level-history"
+      data-testid="voice-level-waveform"
       role="img"
-      aria-label="Recent input level history"
-      title="Recent input level history"
-      className="flex h-4 w-[72px] sm:w-[112px] shrink-0 items-end gap-[1px] overflow-hidden rounded-[3px] border border-red-500/20 bg-red-500/5 px-[2px] py-[2px]"
+      aria-label="Current and recent input level"
+      title="Current and recent input level"
+      className="relative flex h-4 w-[72px] sm:w-[112px] shrink-0 items-center gap-[1px] overflow-hidden rounded-[3px] border border-cc-primary/20 bg-cc-primary/5 px-[2px] py-[2px]"
     >
       {paddedSamples.map((sample, index) => {
-        const level = sample?.level ?? 0;
+        const level = sample.level;
+        const isClipping = level >= VOICE_LEVEL_CLIPPING_THRESHOLD;
         return (
           <span
-            key={`${sample?.time ?? "empty"}-${index}`}
-            data-testid="voice-level-history-bar"
-            className="min-w-0 flex-1 rounded-full bg-red-400"
+            key={`${sample.key}-${index}`}
+            data-current-sample={sample.kind === "current" ? "true" : undefined}
+            data-clipping={isClipping ? "true" : undefined}
+            data-testid="voice-level-waveform-bar"
+            className="relative z-10 min-w-0 flex-1 rounded-full transition-[height,opacity] duration-75"
             style={{
-              height: `${Math.max(2, Math.round(level * 12))}px`,
-              opacity: sample ? Math.max(0.25, 0.35 + level * 0.65) : 0.12,
+              height: `${Math.max(2, Math.round(2 + level * 12))}px`,
+              opacity: sample.kind === "empty" ? 0.12 : Math.max(0.28, 0.38 + level * 0.62),
+              backgroundColor: isClipping ? "rgb(252 129 129)" : "rgb(174 86 48)",
             }}
           />
         );
       })}
+      <span className="pointer-events-none absolute left-[2px] right-[2px] top-1/2 h-px -translate-y-1/2 bg-cc-primary/20" />
     </div>
   );
+}
+
+function clampVoiceLevel(level: number): number {
+  return Math.min(1, Math.max(0, level));
 }
