@@ -393,7 +393,7 @@ export function printCommandHelp(command: string, argv: string[]): boolean {
         console.log(BOARD_ADVANCE_HELP);
       } else if (sub === "advance-no-groom") {
         console.log(
-          "`takode board advance-no-groom` was removed. Use an explicit phase plan that omits `port`, then advance with `takode board advance`.",
+          "`takode board advance-no-groom` was removed. Use an explicit phase plan that omits `port` but still ends in `memory`, then advance with `takode board advance`.",
         );
       } else if (sub === "rm") {
         console.log(BOARD_RM_HELP);

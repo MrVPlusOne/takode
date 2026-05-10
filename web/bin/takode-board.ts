@@ -784,7 +784,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
     const activePhasePosition = parseIntegerFlag(flags, "active-phase-position", "active phase position");
     if (flags["no-code"] === true || flags["code-change"] === true) {
       err(
-        "Board no-code flags were removed. Model zero-tracked-change work with an explicit phase plan that omits `port`.",
+        "Board no-code flags were removed. Model zero-tracked-change work with an explicit phase plan that omits `port` but still ends in `memory`.",
       );
     }
 
@@ -1072,7 +1072,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
 
   if (sub === "advance-no-groom") {
     err(
-      "`takode board advance-no-groom` was removed. Use an explicit phase plan that omits `port`, then advance with `takode board advance`.",
+      "`takode board advance-no-groom` was removed. Use an explicit phase plan that omits `port` but still ends in `memory`, then advance with `takode board advance`.",
     );
   }
 

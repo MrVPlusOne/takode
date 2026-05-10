@@ -232,7 +232,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
       return c.json(
         {
           error:
-            "Board no-code markers were removed. Model zero-tracked-change work with explicit phases that omit `port` instead.",
+            "Board no-code markers were removed. Model zero-tracked-change work with explicit phases that omit `port` but still end in `memory`.",
         },
         400,
       );

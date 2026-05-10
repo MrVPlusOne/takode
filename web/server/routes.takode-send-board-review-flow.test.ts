@@ -1966,9 +1966,12 @@ describe("Takode server-authoritative auth", () => {
       }),
     });
 
+    const responseBody = await res.json();
+
     expect(res.status).toBe(400);
-    expect(await res.json()).toMatchObject({
+    expect(responseBody).toMatchObject({
       error: expect.stringContaining("Board no-code markers were removed"),
     });
+    expect(responseBody.error).toContain("still end in `memory`");
   });
 });

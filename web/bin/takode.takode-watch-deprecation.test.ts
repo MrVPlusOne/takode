@@ -151,6 +151,7 @@ describe("takode watch deprecation", () => {
     expect(result.status).toBe(0);
     expect(result.stdout).toContain("was removed");
     expect(result.stdout).toContain("omits `port`");
+    expect(result.stdout).toContain("still ends in `memory`");
   });
 
   it("keeps unknown commands with --help as an error", async () => {

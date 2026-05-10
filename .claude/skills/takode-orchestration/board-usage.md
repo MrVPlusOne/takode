@@ -95,13 +95,13 @@ Examples:
 - Promote that same proposal after approval:
   `takode board promote q-12 --worker 5`
 - Expensive or approval-gated run:
-  `takode board set q-12 --worker 5 --phases alignment,explore,execute,outcome-review --preset ops-investigation`
+  `takode board set q-12 --worker 5 --phases alignment,explore,execute,outcome-review,memory --preset ops-investigation`
 - Zero-tracked-change evidence review:
   `takode board set q-12 --worker 5 --phases alignment,explore,outcome-review,memory --preset investigation`
 - Scenario/design replay:
-  `takode board set q-12 --worker 5 --phases alignment,mental-simulation --preset design-validation`
+  `takode board set q-12 --worker 5 --phases alignment,mental-simulation,memory --preset design-validation`
 - Revise the remaining Journey:
-  `takode board set q-12 --phases alignment,implement,outcome-review,code-review,port --preset cli-rollout`
+  `takode board set q-12 --phases alignment,implement,outcome-review,code-review,port,memory --preset cli-rollout`
 - Queue a row on multiple blockers:
   `takode board set q-12 --status QUEUED --wait-for q-1143,#12,free-worker`
 - Add a note to the second `code-review` occurrence in a rework loop:

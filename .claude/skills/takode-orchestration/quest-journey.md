@@ -124,10 +124,10 @@ takode board set q-12 --worker 5 --phases alignment,implement,code-review,port,m
 Examples:
 
 - Straight tracked-code work: `alignment -> implement -> code-review -> port -> memory`
-- Expensive or approval-gated run: `alignment -> explore -> execute -> outcome-review`
-- Findings that require user steering: `alignment -> explore -> user-checkpoint -> implement -> code-review -> port`
-- Design or workflow validation: `alignment -> implement -> mental-simulation -> code-review -> port`
-- Cheap local evidence followed by acceptance review: `alignment -> implement -> outcome-review -> code-review -> port`
+- Expensive or approval-gated run: `alignment -> explore -> execute -> outcome-review -> memory`
+- Findings that require user steering: `alignment -> explore -> user-checkpoint -> implement -> code-review -> port -> memory`
+- Design or workflow validation: `alignment -> implement -> mental-simulation -> code-review -> port -> memory`
+- Cheap local evidence followed by acceptance review: `alignment -> implement -> outcome-review -> code-review -> port -> memory`
 
 ## Journey Revision
 
@@ -193,7 +193,7 @@ Do not default to a generic skeptic-review framing for new work. Legacy board ro
 
 Zero-tracked-change quests use the same phase-based Journey model as any other quest. Do not use a separate board flag or shortcut command.
 
-Choose explicit phases that match the evidence you need and simply omit `port` when nothing will be synced. Examples:
+Choose explicit phases that match the evidence you need, omitting `port` only when nothing will be synced and still ending in `memory`. Examples:
 
 - `alignment -> explore -> outcome-review -> memory`
 - `alignment -> explore -> memory`

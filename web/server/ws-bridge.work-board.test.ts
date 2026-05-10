@@ -1334,6 +1334,11 @@ describe("work board", () => {
         previousState: "CODE_REVIEWING",
       }),
     );
+    expect(result).toEqual(
+      expect.objectContaining({
+        error: expect.stringContaining("still ends in `memory`"),
+      }),
+    );
     expect(bridge.getBoard("s1")).toEqual([
       expect.objectContaining({
         questId: "q-1",

@@ -111,7 +111,7 @@ Do not present only the phase list and silently decide the worker or queueing me
 
 Examples:
 - **Simple immediate dispatch:** `Journey`: alignment -> implement -> code-review -> port -> memory. `Scheduling`: spawn a fresh worker and dispatch immediately if approved.
-- **Queued for context:** `Journey`: alignment -> explore -> implement -> code-review -> port. `Scheduling`: keep it queued with `--wait-for #12` because that worker's active context is materially useful; if that context stops mattering, revise to a fresh spawn.
+- **Queued for context:** `Journey`: alignment -> explore -> implement -> code-review -> port -> memory. `Scheduling`: keep it queued with `--wait-for #12` because that worker's active context is materially useful; if that context stops mattering, revise to a fresh spawn.
 - **Capacity-tight immediate dispatch:** `Journey`: alignment -> implement -> code-review -> port -> memory. `Scheduling`: dispatch immediately if approved; if worker slots are still `5/5` only because completed workers are reclaimable, replace one completed worktree worker with `takode spawn --replace-worktree-worker <session> ...` when the replacement belongs in the same repo/base-branch worktree; if replacement is ineligible, archive one completed worker and spawn fresh.
 
 ## Dispatch Steps

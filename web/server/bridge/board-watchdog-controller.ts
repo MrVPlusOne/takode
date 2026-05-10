@@ -869,7 +869,7 @@ export function advanceBoardRowNoGroom(
   const previousState = row.status;
   return {
     error:
-      "The no-code board shortcut was removed. Model zero-tracked-change work with an explicit Quest Journey that omits `port`, then use standard board advance.",
+      "The no-code board shortcut was removed. Model zero-tracked-change work with an explicit Quest Journey that omits `port` but still ends in `memory`, then use standard board advance.",
     previousState,
   };
 }

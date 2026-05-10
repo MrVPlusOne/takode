@@ -179,6 +179,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Board no-code flags were removed");
+    expect(result.stderr).toContain("still ends in `memory`");
     expect(capturedBodies).toHaveLength(0);
   });
 
@@ -191,6 +192,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Board no-code flags were removed");
+    expect(result.stderr).toContain("still ends in `memory`");
     expect(capturedBodies).toHaveLength(0);
   });
 
@@ -545,5 +547,6 @@ describe("takode board set --worker auto-clears waitFor", () => {
 
     expect(result.status).toBe(1);
     expect(result.stderr).toContain("Board no-code flags were removed");
+    expect(result.stderr).toContain("still ends in `memory`");
   });
 });
