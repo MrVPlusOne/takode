@@ -414,7 +414,14 @@ describe("SessionItem leader profiles", () => {
       session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
     });
 
-    expect(screen.getByRole("button", { name: /open tako 1\.1 profile/i })).toBeInTheDocument();
+    const portraitButton = screen.getByRole("button", { name: /open tako 1\.1 profile/i });
+    const portraitImage = portraitButton.querySelector("img");
+    expect(portraitButton).toBeInTheDocument();
+    expect(portraitImage).toHaveAttribute("src", TAKO_PORTRAIT.smallUrl);
+    expect(portraitImage).toHaveAttribute("width", String(TAKO_PORTRAIT.smallSize));
+    expect(portraitImage).toHaveAttribute("height", String(TAKO_PORTRAIT.smallSize));
+    expect(portraitImage).toHaveAttribute("loading", "eager");
+    expect(portraitImage).toHaveAttribute("decoding", "async");
   });
 
   it("lays out leader portraits across title and metadata rows while showing active Journey phase counts", () => {

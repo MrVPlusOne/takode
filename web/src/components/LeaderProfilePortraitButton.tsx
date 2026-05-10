@@ -124,7 +124,16 @@ export function LeaderProfilePortraitButton({
         data-status={statusRing?.status}
         style={statusRing?.style}
       >
-        <img src={portrait.smallUrl} alt="" className="h-full w-full rounded-full object-cover" draggable={false} />
+        <img
+          src={portrait.smallUrl}
+          alt=""
+          width={portrait.smallSize}
+          height={portrait.smallSize}
+          loading="eager"
+          decoding="async"
+          className="h-full w-full rounded-full object-cover"
+          draggable={false}
+        />
       </span>
       {open && panelStyle
         ? createPortal(
@@ -145,6 +154,10 @@ export function LeaderProfilePortraitButton({
                   <img
                     src={portrait.largeUrl}
                     alt={portrait.label}
+                    width={portrait.largeSize}
+                    height={portrait.largeSize}
+                    loading="eager"
+                    decoding="async"
                     className="h-20 w-20 rounded-full object-cover ring-1 ring-cc-border/80"
                   />
                   <div className="min-w-0 flex-1">
@@ -186,6 +199,10 @@ export function LeaderProfilePortraitButton({
                               <img
                                 src={option.smallUrl}
                                 alt={option.label}
+                                width={option.smallSize}
+                                height={option.smallSize}
+                                loading="lazy"
+                                decoding="async"
                                 className="h-9 w-9 rounded-full object-cover"
                               />
                             </button>

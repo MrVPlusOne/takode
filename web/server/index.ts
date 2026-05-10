@@ -49,6 +49,7 @@ import { createUnavailableOrchestratorRecoveryWake } from "./unavailable-orchest
 import { createLauncherHerdChangeHandler } from "./herd-change-handler.js";
 import { resumeRestartContinuations } from "./restart-continuation-store.js";
 import { runStartupRecovery } from "./startup-recovery.js";
+import { getStaticAssetCacheControl } from "./static-asset-cache.js";
 import { markCodexIntentionalRelaunch, markSessionRelaunchPending } from "./bridge/codex-recovery-orchestrator.js";
 import {
   addTaskEntry as addTaskEntryController,
@@ -750,7 +751,16 @@ app.route(
 // In production, serve built frontend using absolute path (works when installed as npm package)
 if (process.env.NODE_ENV === "production") {
   const distDir = resolve(packageRoot, "dist");
-  app.use("/*", serveStatic({ root: distDir }));
+  app.use(
+    "/*",
+    serveStatic({
+      root: distDir,
+      onFound: (path, c) => {
+        const cacheControl = getStaticAssetCacheControl(path);
+        if (cacheControl) c.header("Cache-Control", cacheControl);
+      },
+    }),
+  );
   app.get("/*", serveStatic({ path: resolve(distDir, "index.html") }));
 }
 

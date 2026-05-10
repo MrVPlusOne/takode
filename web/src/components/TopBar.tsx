@@ -286,6 +286,10 @@ export function TopBar({
                 <img
                   src={leaderProfilePortrait.smallUrl}
                   alt=""
+                  width={leaderProfilePortrait.smallSize}
+                  height={leaderProfilePortrait.smallSize}
+                  loading="eager"
+                  decoding="async"
                   data-testid="topbar-leader-profile-portrait"
                   className="h-7 w-7 shrink-0 rounded-full object-cover ring-1 ring-cc-border/70"
                   draggable={false}

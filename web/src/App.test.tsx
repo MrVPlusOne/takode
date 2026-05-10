@@ -85,6 +85,11 @@ interface MockStoreState {
 
 let mockState: MockStoreState;
 
+function setViewportWidth(width: number) {
+  Object.defineProperty(window, "innerWidth", { configurable: true, writable: true, value: width });
+  window.dispatchEvent(new Event("resize"));
+}
+
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
     colorTheme: "dark",
@@ -295,17 +300,51 @@ beforeEach(() => {
   resetSessionGitStatusAutoRefreshForTest();
   mockListSessions.mockResolvedValue([]);
   mockRefreshSessionGitStatus.mockResolvedValue({ ok: true });
+  setViewportWidth(1024);
   resetStore();
   window.location.hash = "#/session/s1";
 });
 
 describe("App hidden panels", () => {
-  it("does not mount the sidebar while it is closed", () => {
+  it("does not mount the desktop sidebar while it is closed", () => {
     resetStore({ sidebarOpen: false, taskPanelOpen: false });
 
     render(<App />);
 
     expect(screen.queryByTestId("sidebar")).toBeNull();
+    expect(screen.queryByTestId("task-panel")).toBeNull();
+  });
+
+  it("keeps the mobile sidebar mounted but inert while hidden", async () => {
+    setViewportWidth(430);
+    resetStore({ sidebarOpen: false, taskPanelOpen: false });
+
+    const view = render(<App />);
+    const sidebar = screen.getByTestId("sidebar");
+    let shell = screen.getByTestId("app-sidebar-shell");
+    expect(shell).toHaveAttribute("data-mobile-sidebar-state", "hidden");
+    expect(shell).toHaveAttribute("aria-hidden", "true");
+    expect(shell).toHaveClass("-translate-x-full", "pointer-events-none");
+    await waitFor(() => expect((shell as HTMLElement & { inert: boolean }).inert).toBe(true));
+
+    resetStore({ sidebarOpen: true, taskPanelOpen: false });
+    view.rerender(<App />);
+
+    shell = screen.getByTestId("app-sidebar-shell");
+    expect(screen.getByTestId("sidebar")).toBe(sidebar);
+    expect(shell).toHaveAttribute("data-mobile-sidebar-state", "open");
+    expect(shell).not.toHaveAttribute("aria-hidden");
+    await waitFor(() => expect((shell as HTMLElement & { inert: boolean }).inert).toBe(false));
+
+    resetStore({ sidebarOpen: false, taskPanelOpen: false });
+    view.rerender(<App />);
+
+    shell = screen.getByTestId("app-sidebar-shell");
+    expect(screen.getByTestId("sidebar")).toBe(sidebar);
+    expect(shell).toHaveAttribute("data-mobile-sidebar-state", "hidden");
+    expect(shell).toHaveAttribute("aria-hidden", "true");
+    expect(shell).toHaveClass("-translate-x-full", "pointer-events-none");
+    await waitFor(() => expect((shell as HTMLElement & { inert: boolean }).inert).toBe(true));
     expect(screen.queryByTestId("task-panel")).toBeNull();
   });
 

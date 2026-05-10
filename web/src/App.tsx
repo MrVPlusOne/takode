@@ -173,6 +173,7 @@ export default function App() {
     isSessionView && activeTab === "chat" && !!displayedSessionId && !isPendingId(displayedSessionId);
   const showServerUnreachableBanner = !serverReachable && !chatSessionVisible;
   const [universalSearchOpen, setUniversalSearchOpen] = useState(false);
+  const sidebarShellRef = useRef<HTMLDivElement | null>(null);
   const shortcutTapCandidateRef = useRef<string | null>(null);
   const shortcutLastTapRef = useRef<{ key: string; time: number; target: EventTarget | null } | null>(null);
   const shortcutTapTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -186,6 +187,18 @@ export default function App() {
   const handleOpenUniversalMessage = useCallback((sessionId: string, messageId: string, threadKey?: string | null) => {
     navigateToSessionMessageId(sessionId, messageId, { threadKey: threadKey ?? undefined });
   }, []);
+  const shouldKeepMobileSidebarMounted = !isDesktopShell;
+  const shouldRenderSidebar = sidebarOpen || shouldKeepMobileSidebarMounted;
+  const isMobileSidebarHidden = shouldKeepMobileSidebarMounted && !sidebarOpen;
+
+  useEffect(() => {
+    const shell = sidebarShellRef.current;
+    if (!shell) return;
+    shell.inert = isMobileSidebarHidden;
+    return () => {
+      shell.inert = false;
+    };
+  }, [isMobileSidebarHidden]);
 
   useEffect(() => {
     const el = document.documentElement;
@@ -596,11 +609,21 @@ export default function App() {
       )}
 
       {/* Sidebar — overlay on mobile, inline on desktop */}
-      {sidebarOpen && (
+      {shouldRenderSidebar && (
         <div
+          ref={sidebarShellRef}
+          aria-hidden={isMobileSidebarHidden ? "true" : undefined}
+          data-testid="app-sidebar-shell"
+          data-mobile-sidebar-state={shouldKeepMobileSidebarMounted ? (sidebarOpen ? "open" : "hidden") : undefined}
           className={`
-            ${isDesktopShell ? "relative z-auto w-[260px] translate-x-0" : "fixed inset-y-0 left-0 z-40 w-[80vw] translate-x-0"}
-            h-full shrink-0 transition-all duration-200 overflow-hidden
+            ${
+              isDesktopShell
+                ? "relative z-auto w-[260px] translate-x-0"
+                : `fixed inset-y-0 left-0 z-40 w-[80vw] transform-gpu ${
+                    sidebarOpen ? "translate-x-0" : "-translate-x-full pointer-events-none"
+                  }`
+            }
+            h-full shrink-0 overflow-hidden transition-transform duration-200 ease-out
           `}
           style={{
             touchAction: "pan-y",

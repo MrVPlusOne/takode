@@ -471,6 +471,10 @@ describe("TopBar", () => {
     render(<TopBar />);
     const portrait = screen.getByTestId("topbar-leader-profile-portrait");
     expect(portrait).toBeInTheDocument();
+    expect(portrait).toHaveAttribute("width", "96");
+    expect(portrait).toHaveAttribute("height", "96");
+    expect(portrait).toHaveAttribute("loading", "eager");
+    expect(portrait).toHaveAttribute("decoding", "async");
     expect(screen.getByText("Leader Session")).toBeInTheDocument();
 
     fireEvent.click(portrait);
