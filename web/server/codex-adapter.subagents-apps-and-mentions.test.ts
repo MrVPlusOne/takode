@@ -422,6 +422,107 @@ describe("CodexAdapter", () => {
     expect(init.session.slash_commands).toEqual([...CODEX_LOCAL_SLASH_COMMANDS]);
   });
 
+  it("refreshes skill and app metadata during initialization for relaunch pickup", async () => {
+    const messages: BrowserIncomingMessage[] = [];
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "o4-mini",
+      cwd: "/home/user/project",
+    });
+    adapter.onBrowserMessage((msg) => messages.push(msg));
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    const rateLimitsReq = parseWrittenJsonLines(stdin.chunks).find((line) => line.method === "account/rateLimits/read");
+    expect(rateLimitsReq).toBeDefined();
+    stdout.push(
+      JSON.stringify({ id: rateLimitsReq.id, result: { rateLimits: { primary: null, secondary: null } } }) + "\n",
+    );
+    await tick();
+
+    const skillsReq = parseWrittenJsonLines(stdin.chunks)
+      .filter((line) => line.method === "skills/list")
+      .at(-1);
+    expect(skillsReq).toBeDefined();
+    expect(skillsReq.params).toEqual({
+      cwds: ["/home/user/project"],
+      forceReload: true,
+    });
+    stdout.push(
+      JSON.stringify({
+        id: skillsReq.id,
+        result: {
+          data: [
+            {
+              cwd: "/home/user/project",
+              skills: [
+                {
+                  name: "review",
+                  path: "/skills/review/SKILL.md",
+                  description: "Review code",
+                  enabled: true,
+                },
+              ],
+              errors: [],
+            },
+          ],
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const appsReq = parseWrittenJsonLines(stdin.chunks)
+      .filter((line) => line.method === "app/list")
+      .at(-1);
+    expect(appsReq).toBeDefined();
+    expect(appsReq.params).toEqual({
+      threadId: "thr_123",
+      forceRefetch: true,
+    });
+    stdout.push(
+      JSON.stringify({
+        id: appsReq.id,
+        result: {
+          data: [
+            {
+              id: "connector_google_drive",
+              name: "Google Drive",
+              description: "Search and edit Drive files",
+              isAccessible: true,
+              isEnabled: true,
+            },
+          ],
+          nextCursor: null,
+        },
+      }) + "\n",
+    );
+    await tick();
+
+    const metadataUpdate = messages.find(
+      (msg): msg is Extract<BrowserIncomingMessage, { type: "session_update" }> =>
+        msg.type === "session_update" && Array.isArray(msg.session.skills),
+    );
+    expect(metadataUpdate?.session).toEqual(
+      expect.objectContaining({
+        skills: ["review"],
+        skill_metadata: [{ name: "review", path: "/skills/review/SKILL.md", description: "Review code" }],
+        apps: [
+          {
+            id: "connector_google_drive",
+            name: "Google Drive",
+            description: "Search and edit Drive files",
+          },
+        ],
+        skills_stale: false,
+        apps_stale: false,
+        skills_last_change_reason: null,
+      }),
+    );
+  });
+
   it("refreshSkills fetches enabled skills for the matching cwd and emits session_update", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", {
@@ -448,7 +549,7 @@ describe("CodexAdapter", () => {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
-    const skillsReq = lines.find((line) => line.method === "skills/list");
+    const skillsReq = lines.filter((line) => line.method === "skills/list").at(-1);
     expect(skillsReq).toBeDefined();
     expect(skillsReq.params).toEqual({
       cwds: ["/home/user/project"],
@@ -457,7 +558,7 @@ describe("CodexAdapter", () => {
 
     stdout.push(
       JSON.stringify({
-        id: 4,
+        id: skillsReq.id,
         result: {
           data: [
             {
@@ -502,7 +603,7 @@ describe("CodexAdapter", () => {
       .split("\n")
       .filter(Boolean)
       .map((line) => JSON.parse(line));
-    const appsReq = appLines.find((line) => line.method === "app/list");
+    const appsReq = appLines.filter((line) => line.method === "app/list").at(-1);
     expect(appsReq).toBeDefined();
     expect(appsReq.params).toEqual({
       threadId: "thr_123",
@@ -623,9 +724,13 @@ describe("CodexAdapter", () => {
 
     const refreshPromise = adapter.refreshSkills(true);
     await tick();
+    const skillsReq = parseWrittenJsonLines(stdin.chunks)
+      .filter((line) => line.method === "skills/list")
+      .at(-1);
+    expect(skillsReq).toBeDefined();
     stdout.push(
       JSON.stringify({
-        id: 4,
+        id: skillsReq.id,
         result: {
           data: [
             {
@@ -645,9 +750,13 @@ describe("CodexAdapter", () => {
       }) + "\n",
     );
     await tick();
+    const appsReq = parseWrittenJsonLines(stdin.chunks)
+      .filter((line) => line.method === "app/list")
+      .at(-1);
+    expect(appsReq).toBeDefined();
     stdout.push(
       JSON.stringify({
-        id: 5,
+        id: appsReq.id,
         result: { data: [], nextCursor: null },
       }) + "\n",
     );

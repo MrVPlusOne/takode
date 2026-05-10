@@ -51,6 +51,7 @@ import { CODEX_LOCAL_SLASH_COMMANDS } from "../shared/codex-slash-commands.js";
 
 const TURN_START_ACK_TIMEOUT_MS = 60_000;
 const STDERR_ROUTER_LINE_BUFFER_MAX = 64 * 1024;
+const INITIAL_SKILL_METADATA_REFRESH_TIMEOUT_MS = 5_000;
 
 type RouterFailureToolName = "write_stdin";
 type CodexSkillRefreshCause = "initialize" | "skills_changed" | "api" | "manual";
@@ -392,12 +393,20 @@ export class CodexAdapter
     return this._rateLimits;
   }
 
-  async refreshSkills(forceReload = false, cause: CodexSkillRefreshCause = "manual"): Promise<string[]> {
+  async refreshSkills(
+    forceReload = false,
+    cause: CodexSkillRefreshCause = "manual",
+    timeoutMs?: number,
+  ): Promise<string[]> {
     const cwds = this.options.cwd ? [this.options.cwd] : [];
-    const request = this.transport.request("skills/list", {
-      ...(cwds.length > 0 ? { cwds } : {}),
-      ...(forceReload ? { forceReload: true } : {}),
-    });
+    const request = this.transport.request(
+      "skills/list",
+      {
+        ...(cwds.length > 0 ? { cwds } : {}),
+        ...(forceReload ? { forceReload: true } : {}),
+      },
+      timeoutMs,
+    );
     const refresh = this.startSkillRefreshDiagnostics(cause, forceReload, cwds, request.id);
     let result: unknown;
     try {
@@ -416,7 +425,7 @@ export class CodexAdapter
       this.skillPathByName.set(skill.name.toLowerCase(), path);
     }
     const skills = skillMetadata.map((skill) => skill.name);
-    const apps = await this.refreshApps(forceReload);
+    const apps = await this.refreshApps(forceReload, timeoutMs);
     this._skillsStale = false;
     this._skillsStaleSince = null;
     this.emit({
@@ -436,18 +445,22 @@ export class CodexAdapter
     return skills;
   }
 
-  private async refreshApps(forceRefetch = false): Promise<CodexAppReference[]> {
+  private async refreshApps(forceRefetch = false, timeoutMs?: number): Promise<CodexAppReference[]> {
     if (!this.transport.isConnected()) return [];
     const apps: CodexAppReference[] = [];
     let cursor: string | null = null;
 
     try {
       do {
-        const result = await this.transport.call("app/list", {
-          ...(cursor ? { cursor } : {}),
-          ...(this.threadId ? { threadId: this.threadId } : {}),
-          ...(forceRefetch ? { forceRefetch: true } : {}),
-        });
+        const result = await this.transport.call(
+          "app/list",
+          {
+            ...(cursor ? { cursor } : {}),
+            ...(this.threadId ? { threadId: this.threadId } : {}),
+            ...(forceRefetch ? { forceRefetch: true } : {}),
+          },
+          timeoutMs,
+        );
         const page = extractCodexAppsPage(result);
         apps.push(...page.apps);
         cursor = page.nextCursor;
@@ -524,6 +537,16 @@ export class CodexAdapter
         skills_last_change_reason: this._skillsStale ? "skills_changed" : null,
         skills_change_count: this._skillsChangeCount,
       },
+    });
+  }
+
+  private scheduleInitialSkillMetadataRefresh(): void {
+    queueMicrotask(() => {
+      if (!this.connected || this.initFailed) return;
+      this.refreshSkills(true, "initialize", INITIAL_SKILL_METADATA_REFRESH_TIMEOUT_MS).catch((err) => {
+        if (!this.connected) return;
+        console.warn(`[codex-adapter] Initial skill/app metadata refresh failed for session ${this.sessionId}:`, err);
+      });
     });
   }
 
@@ -936,6 +959,8 @@ export class CodexAdapter
           this.dispatchOutgoing(msg);
         }
       }
+
+      this.scheduleInitialSkillMetadataRefresh();
     } catch (err) {
       const errorMsg = this.formatInitializationError(err);
       console.error(`[codex-adapter] ${errorMsg}`);

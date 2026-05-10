@@ -77,6 +77,7 @@ export type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta> &
     refreshSkills: (
       forceReload?: boolean,
       cause?: "initialize" | "skills_changed" | "api" | "manual",
+      timeoutMs?: number,
     ) => Promise<string[]>;
   }>;
 export type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta> & CompactRequestedAwareAdapter;
