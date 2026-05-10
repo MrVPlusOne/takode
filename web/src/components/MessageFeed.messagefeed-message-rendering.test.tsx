@@ -563,7 +563,7 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.queryByText(/\{\[\(Thread Waiting:/)).toBeNull();
   });
 
-  it("renders only the current thread status at its latest anchor", () => {
+  it("renders only the current thread status", () => {
     const sid = "test-thread-status-latest-anchor";
     const oldStatus = {
       kind: "waiting" as const,
@@ -611,6 +611,121 @@ describe("MessageFeed - message rendering", () => {
 
     expect(screen.queryByLabelText("Thread Waiting for thread:q-941: waiting on reviewer pass")).toBeNull();
     expect(screen.getByLabelText("Thread Ready for thread:q-941: review accepted")).toBeTruthy();
+  });
+
+  it("floats the current thread status chip below later visible feed entries", () => {
+    const sid = "test-thread-status-floats-to-bottom";
+    const base = 1_700_000_000_000;
+    const status = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "main",
+      summary: "q-1307 dispatched",
+      messageId: "status-main",
+      timestamp: base,
+      updatedAt: base,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { main: status } });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "status-main",
+        role: "assistant",
+        content: "Main is clear; the notification-bell bug is now tracked as q-1307.",
+        timestamp: base,
+        metadata: {
+          threadStatusMarkers: [status],
+        },
+      }),
+      makeMessage({
+        id: "route-q1306",
+        role: "system",
+        content: "",
+        timestamp: base + 1,
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "route-q1306",
+            timestamp: base + 1,
+            markerKey: "thread-transition:main->q-1306",
+            sourceThreadKey: "main",
+            threadKey: "q-1306",
+            questId: "q-1306",
+            transitionedAt: base + 1,
+            reason: "route_switch",
+          },
+        },
+      }),
+      makeMessage({
+        id: "later-result",
+        role: "assistant",
+        content: "Later visible turn-end item",
+        timestamp: base + 2,
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    const chip = screen.getByLabelText("Thread Ready for Main: q-1307 dispatched");
+    const routingMarker = screen.getByTestId("thread-transition-marker");
+    const laterItem = screen.getByText("Later visible turn-end item");
+
+    expect(screen.getByText("Main is clear; the notification-bell bug is now tracked as q-1307.")).toBeTruthy();
+    expect(routingMarker.textContent).toContain("Work continued from Main to thread:q-1306");
+    expect(routingMarker.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(laterItem.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows current status chips for all threads only in the All Threads scope", () => {
+    const sid = "test-thread-status-all-threads-scope";
+    const mainStatus = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "main",
+      summary: "main clear",
+      messageId: "main-status",
+      timestamp: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    };
+    const questStatus = {
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "q-1306",
+      questId: "q-1306",
+      summary: "waiting on reviewer",
+      messageId: "quest-status",
+      timestamp: 1_700_000_010_000,
+      updatedAt: 1_700_000_010_000,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { main: mainStatus, "q-1306": questStatus } });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "main-status",
+        role: "assistant",
+        content: "",
+        timestamp: mainStatus.timestamp,
+        metadata: { threadStatusMarkers: [mainStatus] },
+      }),
+      makeMessage({
+        id: "quest-status",
+        role: "assistant",
+        content: "",
+        timestamp: questStatus.timestamp,
+        metadata: {
+          threadStatusMarkers: [questStatus],
+          threadRefs: [{ threadKey: "q-1306", questId: "q-1306", source: "explicit" }],
+        },
+      }),
+      makeMessage({ id: "later-main", role: "assistant", content: "Latest main item", timestamp: 1_700_000_020_000 }),
+    ]);
+
+    const mainRender = render(<MessageFeed sessionId={sid} threadKey="main" />);
+    expect(screen.getByLabelText("Thread Ready for Main: main clear")).toBeTruthy();
+    expect(screen.queryByLabelText("Thread Waiting for thread:q-1306: waiting on reviewer")).toBeNull();
+    mainRender.unmount();
+
+    render(<MessageFeed sessionId={sid} threadKey="all" />);
+    expect(screen.getByLabelText("Thread Ready for Main: main clear")).toBeTruthy();
+    expect(screen.getByLabelText("Thread Waiting for thread:q-1306: waiting on reviewer")).toBeTruthy();
   });
 
   it("keeps Main needs-input UI on the source message while projecting cross-thread status only", () => {

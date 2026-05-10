@@ -252,26 +252,23 @@ function isThreadSystemMarkerMessage(message: ChatMessage): boolean {
   );
 }
 
-function visibleThreadStatusesForMessage(
-  message: ChatMessage,
+function visibleCurrentThreadStatuses(
   currentStatuses: Record<string, LeaderThreadStatus> | undefined,
   currentThreadKey: string | undefined,
 ): LeaderThreadStatus[] {
-  const markers = message.metadata?.threadStatusMarkers;
-  if (!markers?.length || !currentStatuses) return [];
+  if (!currentStatuses) return [];
   const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
   const allThreads = isAllThreadsKey(normalizedCurrentThread);
-  const visible: LeaderThreadStatus[] = [];
-  for (const marker of markers) {
-    const key = threadStatusKey(marker.threadKey);
-    if (!allThreads && key !== normalizedCurrentThread) continue;
-    const current = currentStatuses[key];
-    if (!current) continue;
-    if (current.messageId !== marker.messageId) continue;
-    if (current.kind !== marker.kind || current.summary !== marker.summary) continue;
-    visible.push(current);
-  }
-  return visible;
+  const visible = Object.entries(currentStatuses).flatMap(([entryKey, status]) => {
+    const key = threadStatusKey(status.threadKey || entryKey);
+    if (!allThreads && key !== normalizedCurrentThread) return [];
+    return [status];
+  });
+  return visible.sort(
+    (a, b) =>
+      (a.updatedAt || a.timestamp) - (b.updatedAt || b.timestamp) ||
+      threadStatusKey(a.threadKey).localeCompare(threadStatusKey(b.threadKey)),
+  );
 }
 
 function ThreadStatusChipRow({
@@ -327,6 +324,26 @@ function ThreadStatusChipRow({
         );
       })}
     </div>
+  );
+}
+
+export function CurrentThreadStatusChipRow({
+  sessionId,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const currentThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
+  const statuses = useMemo(
+    () => visibleCurrentThreadStatuses(currentThreadStatuses, currentThreadKey),
+    [currentThreadKey, currentThreadStatuses],
+  );
+
+  return (
+    <ThreadStatusChipRow statuses={statuses} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
   );
 }
 
@@ -816,7 +833,6 @@ export const FeedEntries = memo(function FeedEntries({
   onSelectThread?: (threadKey: string) => void;
   suppressThreadSystemMarkers?: boolean;
 }) {
-  const currentThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
   const rendered = useMemo(() => {
     const result: React.ReactNode[] = [];
     let i = 0;
@@ -921,8 +937,7 @@ export const FeedEntries = memo(function FeedEntries({
           />,
         );
       } else if (isTimedChatMessage(entry.msg)) {
-        const threadStatuses = visibleThreadStatusesForMessage(entry.msg, currentThreadStatuses, currentThreadKey);
-        if (isEmptyAssistantMessage(entry.msg) && threadStatuses.length === 0) {
+        if (isEmptyAssistantMessage(entry.msg)) {
           i++;
           continue;
         }
@@ -945,15 +960,13 @@ export const FeedEntries = memo(function FeedEntries({
                 onSelectThread={onSelectThread}
               />
             )}
-            <ThreadStatusChipRow
-              statuses={threadStatuses}
-              currentThreadKey={currentThreadKey}
-              onSelectThread={onSelectThread}
-            />
           </div>,
         );
       } else {
-        const threadStatuses = visibleThreadStatusesForMessage(entry.msg, currentThreadStatuses, currentThreadKey);
+        if (isEmptyAssistantMessage(entry.msg)) {
+          i++;
+          continue;
+        }
         result.push(
           <div
             key={entry.msg.id}
@@ -969,11 +982,6 @@ export const FeedEntries = memo(function FeedEntries({
                 onSelectThread={onSelectThread}
               />
             )}
-            <ThreadStatusChipRow
-              statuses={threadStatuses}
-              currentThreadKey={currentThreadKey}
-              onSelectThread={onSelectThread}
-            />
           </div>,
         );
       }
@@ -985,7 +993,6 @@ export const FeedEntries = memo(function FeedEntries({
     entries,
     isCodexSession,
     currentThreadKey,
-    currentThreadStatuses,
     minuteBoundaryLabels,
     onOpenCodexTerminal,
     onSelectThread,
