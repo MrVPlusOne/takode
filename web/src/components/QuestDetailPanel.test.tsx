@@ -197,6 +197,41 @@ describe("QuestDetailPanel", () => {
     expect(mockNavigateToSession).not.toHaveBeenCalled();
   });
 
+  it("labels both worker and leader header session chips", () => {
+    const quest = makeVerificationQuest({ sessionId: "worker-42", leaderSessionId: "leader-42" });
+    useStore.setState({
+      quests: [quest],
+      questOverlayId: "q-42",
+      sdkSessions: [
+        {
+          sessionId: "worker-42",
+          sessionNum: 123,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+        } as any,
+        {
+          sessionId: "leader-42",
+          sessionNum: 777,
+          state: "connected",
+          cwd: "/repo",
+          createdAt: 1,
+          isOrchestrator: true,
+        } as any,
+      ],
+    });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.getByText("Worker")).toBeInTheDocument();
+    expect(screen.getByText("Leader")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "#123" }));
+
+    expect(mockNavigateToSession).toHaveBeenCalledWith("worker-42");
+    expect(mockNavigateToSessionThread).not.toHaveBeenCalled();
+  });
+
   it("shows the vertical Journey detail with phase notes when the quest is active on the board", () => {
     const quest = makeVerificationQuest({ questId: "q-42", status: "in_progress" });
     useStore.setState({

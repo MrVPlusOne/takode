@@ -604,7 +604,10 @@ describe("UniversalSearchOverlay", () => {
     expect(screen.getByText("worker")).toBeInTheDocument();
     const leaderLink = screen.getByRole("link", { name: "#11" });
     expect(leaderLink).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "#12" })).toBeInTheDocument();
+    const workerLink = screen.getByRole("link", { name: "#12" });
+    expect(workerLink).toBeInTheDocument();
+    expect(leaderLink.getAttribute("href")).toBe("#/session/11?thread=q-303");
+    expect(workerLink.getAttribute("href")).toBe("#/session/12");
 
     fireEvent.mouseEnter(questLink);
     expect(screen.getByTestId("quest-hover-card")).toHaveClass("z-[90]");
@@ -614,6 +617,7 @@ describe("UniversalSearchOverlay", () => {
     fireEvent.mouseEnter(leaderLink);
     expect(screen.getByTestId("session-hover-card")).toHaveClass("z-[90]");
     fireEvent.click(leaderLink);
+    expect(window.location.hash).toBe("#/session/11?thread=q-303");
     expect(callbacks.onClose).toHaveBeenCalledTimes(2);
   });
 
@@ -713,7 +717,7 @@ describe("UniversalSearchOverlay", () => {
     fireEvent.keyDown(dialog, { key: "ArrowDown" });
     fireEvent.keyDown(dialog, { key: "Enter" });
 
-    expect(window.location.hash).toBe("#/session/s-new");
+    expect(window.location.hash).toBe("#/session/11?thread=q-406");
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 

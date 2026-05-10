@@ -821,7 +821,12 @@ export function QuestDetailPanel() {
               )}
             </div>
             <div className="flex flex-wrap items-center gap-2 mt-1">
-              {questSessionId && <SessionNumChip sessionId={questSessionId} />}
+              {questSessionId && (
+                <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
+                  <span>Worker</span>
+                  <SessionNumChip sessionId={questSessionId} />
+                </span>
+              )}
               {leaderSessionId && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
                   <span>Leader</span>

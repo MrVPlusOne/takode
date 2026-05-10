@@ -13,7 +13,7 @@ import type { ChatMessage, QuestmasterTask, SdkSessionInfo } from "../types.js";
 import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { getHighlightParts } from "../utils/highlight.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
-import { navigateToSession } from "../utils/routing.js";
+import { navigateToSession, navigateToSessionThread } from "../utils/routing.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
@@ -30,7 +30,9 @@ type UniversalSearchResult =
   | { kind: "quest"; id: string; quest: QuestmasterTask }
   | { kind: "message"; id: string; message: MessageSearchResult };
 
-type QuestResultAction = { id: "copy"; label: string } | { id: "leader" | "worker"; label: string; sessionId: string };
+type QuestResultAction =
+  | { id: "copy"; label: string }
+  | { id: "leader" | "worker"; label: string; sessionId: string; sessionNum: number | null };
 
 export interface UniversalSearchOverlayProps {
   open: boolean;
@@ -221,6 +223,7 @@ function getQuestResultActions(quest: QuestmasterTask, sessions: SdkSessionInfo[
       id: "leader",
       label: `Go to leader session${leaderSessionNum != null ? ` #${leaderSessionNum}` : ""}`,
       sessionId: leaderSessionId,
+      sessionNum: leaderSessionNum,
     });
   }
   if (workerSessionId) {
@@ -228,6 +231,7 @@ function getQuestResultActions(quest: QuestmasterTask, sessions: SdkSessionInfo[
       id: "worker",
       label: `Go to worker session${workerSessionNum != null ? ` #${workerSessionNum}` : ""}`,
       sessionId: workerSessionId,
+      sessionNum: workerSessionNum,
     });
   }
   return actions;
@@ -524,6 +528,12 @@ export function UniversalSearchOverlay({
       if (action.id === "copy") {
         copyQuestId(quest.questId);
         setQuestActionMenu(null);
+        return;
+      }
+      if (action.id === "leader") {
+        navigateToSessionThread(action.sessionId, quest.questId, false, action.sessionNum ?? action.sessionId);
+        setQuestActionMenu(null);
+        onClose();
         return;
       }
       navigateToSession(action.sessionId);
@@ -1021,6 +1031,7 @@ function QuestResultRow({
                 <SessionInlineLink
                   sessionId={leaderSessionId}
                   sessionNum={leaderSessionNum}
+                  threadKey={quest.questId}
                   stopPropagation
                   hoverCardZIndexClassName="z-[90]"
                   onNavigate={onInlineNavigate}

@@ -1881,6 +1881,8 @@ export function PlaygroundInteractiveSections() {
                           "The sidebar overflows on screens narrower than 375px. Need to add `overflow-hidden` and a scrollable wrapper.\n\n## Steps\n1. Add wrapper div\n2. Set max-height\n3. Test on iPhone SE",
                         createdAt: Date.now() - 86400000,
                         updatedAt: Date.now() - 3600000,
+                        sessionId: "playground-worker",
+                        leaderSessionId: "playground-leader",
                         previousOwnerSessionIds: ["abc-123"],
                         claimedAt: Date.now() - 43200000,
                         completedAt: Date.now() - 3600000,
@@ -1960,6 +1962,29 @@ export function PlaygroundInteractiveSections() {
                         ],
                       },
                     ],
+                    sdkSessions: [
+                      {
+                        sessionId: "playground-worker",
+                        sessionNum: 142,
+                        state: "connected",
+                        cwd: "/repo/takode",
+                        createdAt: Date.now() - 43200000,
+                        backendType: "codex",
+                      },
+                      {
+                        sessionId: "playground-leader",
+                        sessionNum: 141,
+                        state: "connected",
+                        cwd: "/repo/takode",
+                        createdAt: Date.now() - 7200000,
+                        backendType: "codex",
+                        isOrchestrator: true,
+                      },
+                    ],
+                    sessionNames: new Map([
+                      ["playground-worker", "Quest detail worker"],
+                      ["playground-leader", "Quest detail leader"],
+                    ]),
                   });
                   useStore.getState().openQuestOverlay("q-42");
                 }}
