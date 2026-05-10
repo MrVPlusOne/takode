@@ -511,7 +511,8 @@ export const useStore = create<AppState>((set, get) => ({
       return { shortcutSettings };
     }),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
-  setSessionInfoOpenSessionId: (sessionId) => set({ sessionInfoOpenSessionId: sessionId }),
+  setSessionInfoOpenSessionId: (sessionId) =>
+    set((s) => (s.sessionInfoOpenSessionId === sessionId ? {} : { sessionInfoOpenSessionId: sessionId })),
   setReorderMode: (v) => set({ reorderMode: v }),
   setSessionSortMode: (mode) => {
     localStorage.setItem("cc-session-sort-mode", mode);

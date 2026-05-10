@@ -12,9 +12,11 @@ import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 import { activeBoardSummarySegments } from "./leader-board-summary.js";
 import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboard-controls.js";
+import type { BoardRowData } from "./BoardTable.js";
 import type { LeaderWorkboardView } from "../store-types.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
+const EMPTY_LEADER_BOARD_ROWS: readonly BoardRowData[] = [];
 
 interface TopBarProps {
   universalSearchOpen?: boolean;
@@ -133,7 +135,9 @@ export function TopBar({
         !!s.currentSessionId &&
         (s.sessions.get(s.currentSessionId)?.isOrchestrator === true ||
           s.sdkSessions.some((session) => session.sessionId === s.currentSessionId && session.isOrchestrator === true)),
-      currentLeaderBoard: s.currentSessionId ? (s.sessionBoards.get(s.currentSessionId) ?? []) : [],
+      currentLeaderBoard: s.currentSessionId
+        ? (s.sessionBoards.get(s.currentSessionId) ?? EMPTY_LEADER_BOARD_ROWS)
+        : EMPTY_LEADER_BOARD_ROWS,
       currentLeaderCompletedCount: s.currentSessionId
         ? (s.sessionCompletedBoards.get(s.currentSessionId)?.length ?? 0)
         : 0,
