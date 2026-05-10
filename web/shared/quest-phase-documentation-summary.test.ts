@@ -1,5 +1,8 @@
 import { describe, expect, it } from "vitest";
-import { summarizeQuestPhaseDocumentation } from "./quest-phase-documentation-summary.js";
+import {
+  selectQuestPreviewProgressTldr,
+  summarizeQuestPhaseDocumentation,
+} from "./quest-phase-documentation-summary.js";
 import type { QuestJourneyRun, QuestmasterTask } from "../server/quest-types.js";
 
 const baseQuest = {
@@ -222,5 +225,138 @@ describe("summarizeQuestPhaseDocumentation", () => {
     expect(unmatchedGroups.map((group) => group.metaLabel)).toEqual(
       expect.arrayContaining(["scope unmatched", "phase 99 / scope unmatched"]),
     );
+  });
+});
+
+describe("selectQuestPreviewProgressTldr", () => {
+  it("uses the latest phase documentation TLDR according to existing phase summary ordering", () => {
+    const preview = selectQuestPreviewProgressTldr({
+      ...baseQuest,
+      status: "in_progress",
+      sessionId: "worker-1",
+      claimedAt: 30,
+      journeyRuns: [run()],
+      feedback: [
+        {
+          author: "agent",
+          text: "Alignment detail.",
+          tldr: "Alignment TLDR.",
+          ts: 40,
+          phaseOccurrenceId: "run-1:p1",
+          journeyRunId: "run-1",
+          phaseId: "alignment",
+          phasePosition: 1,
+        },
+        {
+          author: "agent",
+          text: "Second implementation detail.",
+          tldr: "Second implementation TLDR.",
+          ts: 50,
+          phaseOccurrenceId: "run-1:p4",
+          journeyRunId: "run-1",
+          phaseId: "implement",
+          phasePosition: 4,
+          phaseOccurrence: 2,
+        },
+      ],
+    });
+
+    expect(preview).toEqual({
+      kind: "phase",
+      label: "Latest Phase",
+      phaseLabel: "Implement #2",
+      metaLabel: "phase 4",
+      text: "Second implementation TLDR.",
+    });
+  });
+
+  it("requires explicit TLDR metadata for phase preview progress", () => {
+    const preview = selectQuestPreviewProgressTldr({
+      ...baseQuest,
+      status: "in_progress",
+      sessionId: "worker-1",
+      claimedAt: 30,
+      journeyRuns: [run()],
+      feedback: [
+        {
+          author: "agent",
+          text: "Earlier phase has a TLDR.",
+          tldr: "Earlier TLDR.",
+          ts: 40,
+          phaseOccurrenceId: "run-1:p1",
+          journeyRunId: "run-1",
+          phaseId: "alignment",
+          phasePosition: 1,
+        },
+        {
+          author: "agent",
+          text: "Latest phase detail without TLDR should not be copied into compact preview.",
+          ts: 50,
+          phaseOccurrenceId: "run-1:p4",
+          journeyRunId: "run-1",
+          phaseId: "implement",
+          phasePosition: 4,
+          phaseOccurrence: 2,
+        },
+      ],
+    });
+
+    expect(preview).toBeNull();
+  });
+
+  it("prefers final debrief TLDR for completed non-cancelled quests", () => {
+    const preview = selectQuestPreviewProgressTldr({
+      ...baseQuest,
+      status: "done",
+      completedAt: 80,
+      verificationItems: [],
+      debrief: "Final outcome detail.",
+      debriefTldr: "Final outcome TLDR.",
+      journeyRuns: [run()],
+      feedback: [
+        {
+          author: "agent",
+          text: "Implementation detail.",
+          tldr: "Implementation TLDR.",
+          ts: 50,
+          phaseOccurrenceId: "run-1:p4",
+          journeyRunId: "run-1",
+          phaseId: "implement",
+          phasePosition: 4,
+          phaseOccurrence: 2,
+        },
+      ],
+    });
+
+    expect(preview).toEqual({
+      kind: "debrief",
+      label: "Final Debrief",
+      text: "Final outcome TLDR.",
+    });
+  });
+
+  it("omits completed progress preview when a completed quest has no debrief TLDR", () => {
+    const preview = selectQuestPreviewProgressTldr({
+      ...baseQuest,
+      status: "done",
+      completedAt: 80,
+      verificationItems: [],
+      journeyRuns: [run()],
+      feedback: [
+        {
+          author: "agent",
+          text: "Implementation detail.",
+          tldr: "Implementation TLDR.",
+          ts: 50,
+          phaseOccurrenceId: "run-1:p4",
+          journeyRunId: "run-1",
+          phaseId: "implement",
+          phasePosition: 4,
+          phaseOccurrence: 2,
+        },
+      ],
+    });
+
+    expect(preview).toBeNull();
   });
 });

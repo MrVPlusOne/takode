@@ -39,6 +39,20 @@ export interface QuestPhaseDocumentationSummary {
   unscopedFeedback: IndexedQuestFeedbackEntry[];
 }
 
+export type QuestPreviewProgressTldr =
+  | {
+      kind: "debrief";
+      label: "Final Debrief";
+      text: string;
+    }
+  | {
+      kind: "phase";
+      label: "Latest Phase";
+      phaseLabel: string;
+      metaLabel: string;
+      text: string;
+    };
+
 interface OccurrenceRef {
   run: QuestJourneyRun;
   runOrdinal: number;
@@ -101,6 +115,28 @@ export function summarizeQuestPhaseDocumentation(quest: QuestmasterTask): QuestP
 
 export function phaseDocumentationPreview(entry: QuestFeedbackEntry): string {
   return normalizeTldr(entry.tldr) ?? entry.text;
+}
+
+export function selectQuestPreviewProgressTldr(quest: QuestmasterTask): QuestPreviewProgressTldr | null {
+  if (quest.status === "done" && quest.cancelled !== true) {
+    const debriefTldr = normalizeTldr(quest.debriefTldr);
+    if (debriefTldr) return { kind: "debrief", label: "Final Debrief", text: debriefTldr };
+    return null;
+  }
+
+  const summary = summarizeQuestPhaseDocumentation(quest);
+  const latestGroup = compactPhaseDocumentationGroups(summary, 1)[0];
+  const latestEntry = latestGroup?.entries.at(-1);
+  const text = normalizeTldr(latestEntry?.tldr);
+  if (!latestGroup || !text) return null;
+
+  return {
+    kind: "phase",
+    label: "Latest Phase",
+    phaseLabel: latestGroup.displayLabel,
+    metaLabel: latestGroup.metaLabel,
+    text,
+  };
 }
 
 export function compactPhaseDocumentationGroups(

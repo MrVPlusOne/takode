@@ -88,6 +88,147 @@ describe("QuestHoverCard", () => {
     expect(within(journey).getByText("Completed Journey")).toBeTruthy();
   });
 
+  it("shows the latest phase TLDR as a distinct progress section", () => {
+    const quest: QuestmasterTask = {
+      id: "q-78-v1",
+      questId: "q-78",
+      version: 1,
+      title: "Surface progress previews",
+      status: "in_progress",
+      description: "Hover cards need both description and progress scan text.",
+      tldr: "Description scan text.",
+      createdAt: 1,
+      sessionId: "worker-progress",
+      claimedAt: 2,
+      journeyRuns: [
+        {
+          runId: "run-1",
+          source: "board",
+          phaseIds: ["alignment", "implement"],
+          status: "active",
+          createdAt: 1,
+          updatedAt: 4,
+          phaseOccurrences: [
+            {
+              occurrenceId: "run-1:p1",
+              phaseId: "alignment",
+              phaseIndex: 0,
+              phasePosition: 1,
+              phaseOccurrence: 1,
+              status: "completed",
+            },
+            {
+              occurrenceId: "run-1:p2",
+              phaseId: "implement",
+              phaseIndex: 1,
+              phasePosition: 2,
+              phaseOccurrence: 1,
+              status: "active",
+            },
+          ],
+        },
+      ],
+      feedback: [
+        {
+          author: "agent",
+          kind: "phase_summary",
+          text: "Full alignment detail.",
+          tldr: "Alignment TLDR.",
+          ts: 3,
+          journeyRunId: "run-1",
+          phaseOccurrenceId: "run-1:p1",
+          phaseId: "alignment",
+          phasePosition: 1,
+        },
+        {
+          author: "agent",
+          kind: "phase_summary",
+          text: "Full implementation detail should stay out of the compact hover preview.",
+          tldr: "Implementation TLDR.",
+          ts: 4,
+          journeyRunId: "run-1",
+          phaseOccurrenceId: "run-1:p2",
+          phaseId: "implement",
+          phasePosition: 2,
+        },
+      ],
+    };
+
+    render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
+
+    const card = screen.getByTestId("quest-hover-card");
+    const summary = within(card).getByTestId("quest-hover-tldr");
+    const progress = within(card).getByTestId("quest-hover-progress-tldr");
+    const journey = within(card).getByTestId("quest-hover-journey");
+
+    expect(summary.textContent).toContain("Summary");
+    expect(summary.textContent).toContain("Description scan text.");
+    expect(progress.textContent).toContain("Latest Phase");
+    expect(progress.textContent).toContain("Implement / phase 2");
+    expect(progress.textContent).toContain("Implementation TLDR.");
+    expect(progress.textContent).not.toContain("Full implementation detail");
+    expect(summary.compareDocumentPosition(progress) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(progress.compareDocumentPosition(journey) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("shows final debrief TLDR instead of phase TLDR for completed quests", () => {
+    const quest: QuestmasterTask = {
+      id: "q-79-v1",
+      questId: "q-79",
+      version: 1,
+      title: "Finish preview progress",
+      status: "done",
+      description: "Completed quest with a final debrief.",
+      tldr: "Description scan text.",
+      createdAt: 1,
+      completedAt: 5,
+      verificationItems: [],
+      debrief: "Final debrief detail.",
+      debriefTldr: "Final debrief TLDR.",
+      journeyRuns: [
+        {
+          runId: "run-1",
+          source: "board",
+          phaseIds: ["implement"],
+          status: "completed",
+          createdAt: 1,
+          updatedAt: 4,
+          completedAt: 5,
+          phaseOccurrences: [
+            {
+              occurrenceId: "run-1:p1",
+              phaseId: "implement",
+              phaseIndex: 0,
+              phasePosition: 1,
+              phaseOccurrence: 1,
+              status: "completed",
+            },
+          ],
+        },
+      ],
+      feedback: [
+        {
+          author: "agent",
+          kind: "phase_summary",
+          text: "Implementation detail.",
+          tldr: "Implementation phase TLDR.",
+          ts: 4,
+          journeyRunId: "run-1",
+          phaseOccurrenceId: "run-1:p1",
+          phaseId: "implement",
+          phasePosition: 1,
+        },
+      ],
+    };
+
+    render(<QuestHoverCard quest={quest} anchorRect={anchorRect()} onMouseEnter={() => {}} onMouseLeave={() => {}} />);
+
+    const progress = within(screen.getByTestId("quest-hover-card")).getByTestId("quest-hover-progress-tldr");
+    expect(progress.textContent).toContain("Final Debrief");
+    expect(progress.textContent).toContain("Final debrief TLDR.");
+    expect(progress.textContent).not.toContain("Implementation phase TLDR.");
+  });
+
   it("clamps long Journey previews around the current phase with inline expansion", () => {
     const phaseIds = Array.from({ length: 38 }, (_, index) => PHASE_CYCLE[index % PHASE_CYCLE.length]);
     const quest: QuestmasterTask = {

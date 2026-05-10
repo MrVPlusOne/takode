@@ -10,6 +10,7 @@ import {
   getQuestJourneyPhaseForState,
   getQuestJourneyPresentation,
 } from "../../shared/quest-journey.js";
+import { selectQuestPreviewProgressTldr } from "../../shared/quest-phase-documentation-summary.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyPreviewCard } from "./QuestJourneyTimeline.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
@@ -91,6 +92,7 @@ export function QuestHoverCard({
   const queuedWaitForReason = formatQueuedWaitForReason(journeyBoardRow);
   const showOwnerSession = !!ownerSessionId && workerParticipant?.sessionId !== ownerSessionId;
   const completedAt = quest.status === "done" ? quest.completedAt : null;
+  const progressTldr = useMemo(() => selectQuestPreviewProgressTldr(quest), [quest]);
 
   useLayoutEffect(() => {
     if (!cardRef.current) return;
@@ -187,6 +189,26 @@ export function QuestHoverCard({
             <div className="text-[10px] uppercase tracking-wider text-cc-muted/60">Summary</div>
             <MarkdownContent
               text={quest.tldr}
+              size="sm"
+              variant="conservative"
+              wrapLongContent
+              className="mt-1 text-[11px] leading-snug text-cc-muted [&_p]:mb-1.5 [&_p:last-child]:mb-0 [&_p]:text-cc-muted [&_li]:text-cc-muted [&_ul]:mb-1.5 [&_ol]:mb-1.5"
+            />
+          </div>
+        )}
+        {progressTldr && (
+          <div data-testid="quest-hover-progress-tldr" className="mt-2 pt-2 border-t border-cc-border/50">
+            <div className="flex min-w-0 items-center gap-1.5">
+              <div className="shrink-0 text-[10px] uppercase tracking-wider text-cc-muted/60">{progressTldr.label}</div>
+              {progressTldr.kind === "phase" && (
+                <div className="min-w-0 truncate text-[10px] text-cc-muted/70">
+                  {progressTldr.phaseLabel}
+                  {progressTldr.metaLabel ? ` / ${progressTldr.metaLabel}` : ""}
+                </div>
+              )}
+            </div>
+            <MarkdownContent
+              text={progressTldr.text}
               size="sm"
               variant="conservative"
               wrapLongContent
