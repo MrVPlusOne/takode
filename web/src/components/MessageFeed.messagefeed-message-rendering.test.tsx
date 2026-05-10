@@ -140,6 +140,7 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
+import { getCurrentThreadStatusFeedBlockId, getMessageFeedBlockId } from "./message-feed-utils.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -480,6 +481,15 @@ function setElementClientSize(element: HTMLElement, width: number, height: numbe
   });
 }
 
+function setElementScrollHeight(element: HTMLElement, scrollHeight: number) {
+  Object.defineProperty(element, "scrollHeight", {
+    configurable: true,
+    get() {
+      return scrollHeight;
+    },
+  });
+}
+
 beforeEach(() => {
   resetStore();
   mockScrollIntoView.mockClear();
@@ -666,13 +676,177 @@ describe("MessageFeed - message rendering", () => {
     render(<MessageFeed sessionId={sid} threadKey="main" />);
 
     const chip = screen.getByLabelText("Thread Ready for Main: q-1307 dispatched");
+    const statusRow = chip.closest("[data-feed-block-id]") as HTMLElement | null;
     const routingMarker = screen.getByTestId("thread-transition-marker");
     const laterItem = screen.getByText("Later visible turn-end item");
+    const feedEndSlack = document.querySelector("[data-feed-end-slack]");
 
     expect(screen.getByText("Main is clear; the notification-bell bug is now tracked as q-1307.")).toBeTruthy();
     expect(routingMarker.textContent).toContain("Work continued from Main to thread:q-1306");
     expect(routingMarker.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(laterItem.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(statusRow?.dataset.feedBlockId).toBe(getCurrentThreadStatusFeedBlockId("main"));
+    expect(feedEndSlack).toBeTruthy();
+    expect(
+      (statusRow as HTMLElement).compareDocumentPosition(feedEndSlack as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("keeps the current thread status row as the latest real feed block after expanded footer content", () => {
+    const sid = "test-thread-status-bottom-footer-placement";
+    const base = 1_700_000_000_000;
+    const status = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "q-1320",
+      questId: "q-1320",
+      summary: "memory audit dispatched",
+      messageId: "status-q1320",
+      timestamp: base,
+      updatedAt: base,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1320": status } });
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Coordinate the memory audit", timestamp: base - 1 }),
+      makeMessage({
+        id: "status-q1320",
+        role: "assistant",
+        content: "The memory-audit follow-up is represented by q-1322, and q-1321 is blocked on its outcome.",
+        timestamp: base,
+        metadata: {
+          threadStatusMarkers: [status],
+          threadRefs: [{ threadKey: "q-1320", questId: "q-1320", source: "explicit" }],
+        },
+      }),
+      makeMessage({
+        id: "route-q1320",
+        role: "system",
+        content: "",
+        timestamp: base + 1,
+        metadata: {
+          threadTransitionMarker: {
+            type: "thread_transition_marker",
+            id: "route-q1320",
+            timestamp: base + 1,
+            markerKey: "thread-transition:main->q-1320",
+            sourceThreadKey: "main",
+            threadKey: "q-1320",
+            questId: "q-1320",
+            transitionedAt: base + 1,
+            reason: "route_switch",
+          },
+        },
+      }),
+      makeMessage({
+        id: "tool-before-final",
+        role: "assistant",
+        content: "",
+        timestamp: base + 2,
+        metadata: {
+          threadRefs: [{ threadKey: "q-1320", questId: "q-1320", source: "explicit" }],
+        },
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "tool-1",
+            name: "Bash",
+            input: { command: "quest create --title ..." },
+          },
+        ],
+      }),
+      makeMessage({
+        id: "final-response",
+        role: "assistant",
+        content: "Your memory-audit follow-up is now represented by q-1322.",
+        timestamp: base + 3,
+        metadata: {
+          threadRefs: [{ threadKey: "q-1320", questId: "q-1320", source: "explicit" }],
+        },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1320" />);
+
+    const chip = screen.getByLabelText("Thread Ready for thread:q-1320: memory audit dispatched");
+    const statusRow = chip.closest("[data-feed-block-id]") as HTMLElement | null;
+    const collapseFooter = screen.getAllByTitle("Collapse this turn").at(-1);
+    const feedEndSlack = document.querySelector("[data-feed-end-slack]");
+
+    expect(screen.getByText("Your memory-audit follow-up is now represented by q-1322.")).toBeTruthy();
+    expect(collapseFooter).toBeTruthy();
+    expect(
+      (collapseFooter as HTMLElement).compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(statusRow?.dataset.feedBlockId).toBe(getCurrentThreadStatusFeedBlockId("q-1320"));
+    expect(feedEndSlack).toBeTruthy();
+    expect(
+      (statusRow as HTMLElement).compareDocumentPosition(feedEndSlack as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  it("scrolls to the current thread status row instead of stopping at the previous feed block", () => {
+    const sid = "test-thread-status-scroll-bottom-target";
+    const base = 1_700_000_000_000;
+    const status = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "main",
+      summary: "q-1307 dispatched",
+      messageId: "status-main",
+      timestamp: base,
+      updatedAt: base,
+    };
+    let jumpToLatest: (() => void) | null = null;
+    setStoreSessionState(sid, { leaderThreadStatuses: { main: status } });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "status-main",
+        role: "assistant",
+        content: "Main is clear; the notification-bell bug is now tracked as q-1307.",
+        timestamp: base,
+        metadata: { threadStatusMarkers: [status] },
+      }),
+      makeMessage({
+        id: "later-result",
+        role: "assistant",
+        content: "Later visible turn-end item",
+        timestamp: base + 1,
+      }),
+    ]);
+
+    render(
+      <MessageFeed
+        sessionId={sid}
+        threadKey="main"
+        onJumpToLatestReady={(scrollToLatest) => {
+          jumpToLatest = scrollToLatest;
+        }}
+      />,
+    );
+
+    const container = screen.getByTestId("message-feed-scroll-container") as HTMLElement;
+    const latestBlock = document.querySelector(
+      `[data-feed-block-id="${getMessageFeedBlockId("later-result")}"]`,
+    ) as HTMLElement | null;
+    const statusRow = document.querySelector(
+      `[data-feed-block-id="${getCurrentThreadStatusFeedBlockId("main")}"]`,
+    ) as HTMLElement | null;
+    expect(latestBlock).toBeTruthy();
+    expect(statusRow).toBeTruthy();
+
+    setElementClientSize(container, 800, 500);
+    setElementScrollHeight(container, 1_000);
+    for (const block of document.querySelectorAll<HTMLElement>("[data-feed-block-id]")) {
+      setElementOffsetMetrics(block, 0, 1);
+    }
+    setElementOffsetMetrics(latestBlock as HTMLElement, 620, 40);
+    setElementOffsetMetrics(statusRow as HTMLElement, 700, 32);
+
+    act(() => {
+      jumpToLatest?.();
+    });
+
+    expect(mockScrollTo).toHaveBeenLastCalledWith({ top: 232, behavior: "smooth" });
   });
 
   it("shows current status chips for all threads only in the All Threads scope", () => {

@@ -26,6 +26,7 @@ import {
   formatElapsed,
   getApprovalBatchFeedBlockId,
   getFooterFeedBlockId,
+  getCurrentThreadStatusFeedBlockId,
   getMessageFeedBlockId,
   getSubagentFeedBlockId,
   getToolGroupFeedBlockId,
@@ -275,14 +276,20 @@ function ThreadStatusChipRow({
   statuses,
   currentThreadKey,
   onSelectThread,
+  feedBlockId,
 }: {
   statuses: LeaderThreadStatus[];
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
+  feedBlockId?: string;
 }) {
   if (statuses.length === 0) return null;
   return (
-    <div className="mt-2 flex flex-wrap gap-1.5 pl-9" aria-label="Thread status updates">
+    <div
+      className="flex flex-wrap gap-1.5 pl-9 pb-2"
+      aria-label="Thread status updates"
+      data-feed-block-id={feedBlockId}
+    >
       {statuses.map((status) => {
         const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
         const selectable =
@@ -341,9 +348,16 @@ export function CurrentThreadStatusChipRow({
     () => visibleCurrentThreadStatuses(currentThreadStatuses, currentThreadKey),
     [currentThreadKey, currentThreadStatuses],
   );
+  const normalizedCurrentThreadKey = normalizeThreadKey(currentThreadKey || "main");
+  const feedBlockId = getCurrentThreadStatusFeedBlockId(normalizedCurrentThreadKey);
 
   return (
-    <ThreadStatusChipRow statuses={statuses} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
+    <ThreadStatusChipRow
+      statuses={statuses}
+      currentThreadKey={currentThreadKey}
+      onSelectThread={onSelectThread}
+      feedBlockId={feedBlockId}
+    />
   );
 }
 
