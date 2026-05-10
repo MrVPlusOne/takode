@@ -513,9 +513,10 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("Workboard1 Implement");
+    expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("1 Implement");
+    expect(screen.getByTestId("topbar-workboard-shortcut")).not.toHaveTextContent("Workboard");
     expect(screen.getByTestId("topbar-workboard-phase-summary")).toHaveTextContent("1 Implement");
-    expect(screen.getByTestId("topbar-completed-shortcut")).toHaveTextContent("Completed1done");
+    expect(screen.getByTestId("topbar-completed-shortcut")).toHaveTextContent("1Completed");
   });
 
   it("places desktop leader shortcuts before the notification bell and search controls", () => {
@@ -562,6 +563,26 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
     expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "completed");
     expect(window.location.hash).toBe("#/session/s1?thread=q-1");
+  });
+
+  it("toggles desktop leader shortcuts closed when the selected shortcut is clicked again", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
+      sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
+      sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
+      leaderWorkboardViews: new Map([["s1", "active"]]),
+    });
+
+    const view = render(<TopBar />);
+
+    fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
+    expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", null);
+
+    storeState.leaderWorkboardViews.set("s1", "completed");
+    view.rerender(<TopBar />);
+
+    fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
+    expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", null);
   });
 
   it.each([

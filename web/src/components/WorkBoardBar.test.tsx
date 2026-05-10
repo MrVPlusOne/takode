@@ -1822,7 +1822,7 @@ describe("WorkBoardBar", () => {
     );
     const { getByTestId } = view;
 
-    expect(getByTestId("workboard-other-button")).toHaveTextContent("1other");
+    expect(getByTestId("workboard-other-button")).toHaveTextContent("1Other");
     expect(getByTestId("workboard-phase-summary")).toHaveTextContent("1 Implement, 1 Queued");
     expect(view.queryByTestId("workboard-off-board-threads")).not.toBeInTheDocument();
     fireEvent.click(getByTestId("workboard-other-button"));
@@ -1888,7 +1888,7 @@ describe("WorkBoardBar", () => {
     });
     const { queryByTestId, getByTestId } = render(<WorkBoardBar sessionId="s1" />);
     expect(queryByTestId("workboard-active-button")).not.toBeInTheDocument();
-    expect(getByTestId("workboard-completed-button")).toHaveTextContent("1done");
+    expect(getByTestId("workboard-completed-button")).toHaveTextContent("1Completed");
   });
 
   it("does not render the removed workboard search control", () => {

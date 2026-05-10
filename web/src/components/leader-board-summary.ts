@@ -28,6 +28,6 @@ export function boardSummarySegmentsFromActivePhaseSummary(
 export function boardSummary(board: readonly BoardRowData[], completedCount: number): BoardSummarySegment[] {
   if (board.length === 0 && completedCount === 0) return [{ text: "Empty", className: "text-cc-muted" }];
   const segments = activeBoardSummarySegments(board);
-  if (completedCount > 0) segments.push({ text: `${completedCount} done`, className: "text-cc-muted" });
+  if (completedCount > 0) segments.push({ text: `${completedCount} Completed`, className: "text-cc-muted" });
   return segments;
 }

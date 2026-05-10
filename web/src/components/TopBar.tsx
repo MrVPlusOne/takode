@@ -237,7 +237,8 @@ export function TopBar({
   const openLeaderWorkboardViewInPlace = useCallback(
     (view: LeaderWorkboardView) => {
       if (!currentSessionId) return;
-      setLeaderWorkboardView(currentSessionId, view);
+      const activeView = useStore.getState().leaderWorkboardViews.get(currentSessionId) ?? null;
+      setLeaderWorkboardView(currentSessionId, activeView === view ? null : view);
     },
     [currentSessionId, setLeaderWorkboardView],
   );
@@ -328,7 +329,6 @@ export function TopBar({
               title="Open active workboard"
               hideUntilWide
             >
-              <span>Workboard</span>
               <span className="min-w-0 truncate" data-testid="topbar-workboard-phase-summary">
                 <SummarySegments segments={currentLeaderActiveSummarySegments} />
               </span>
@@ -344,9 +344,8 @@ export function TopBar({
             title="Open completed quests"
             hideUntilWide
           >
-            <span>Completed</span>
             <span className="tabular-nums">{currentLeaderCompletedCount}</span>
-            <span>done</span>
+            <span>Completed</span>
           </LeaderWorkboardControlButton>
         )}
         <GlobalNeedsInputMenu />

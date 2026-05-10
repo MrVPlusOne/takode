@@ -244,15 +244,27 @@ it("keeps the explicit leader quest-thread route stable while title-bar shortcut
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
   expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("1 Implement");
+  expect(screen.getByTestId("topbar-workboard-shortcut")).not.toHaveTextContent("Workboard");
 
   fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
 
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 
+  fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
+
+  await waitFor(() => expect(screen.queryByTestId("workboard-panel")).not.toBeInTheDocument());
+  expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
+  expect(screen.getByTestId("topbar-completed-shortcut")).toHaveTextContent("1Completed");
+
   fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
 
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "completed"));
+  expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
+
+  fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
+
+  await waitFor(() => expect(screen.queryByTestId("workboard-panel")).not.toBeInTheDocument());
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
 });
 

@@ -1632,7 +1632,7 @@ export function WorkBoardBar({
               ariaLabel="Open completed quests"
             >
               <span className="tabular-nums">{completedCount}</span>
-              <span>done</span>
+              <span>Completed</span>
             </LeaderWorkboardControlButton>
           )}
           {offBoardThreads.length > 0 && (
@@ -1644,7 +1644,7 @@ export function WorkBoardBar({
               ariaLabel="Open other threads"
             >
               <span className="tabular-nums">{offBoardThreads.length}</span>
-              <span>other</span>
+              <span>Other</span>
             </LeaderWorkboardControlButton>
           )}
           {activeSummarySegments.length === 0 && completedCount === 0 && offBoardThreads.length === 0 && (

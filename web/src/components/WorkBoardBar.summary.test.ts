@@ -92,7 +92,7 @@ describe("boardSummary", () => {
         className: "text-cc-fg",
         style: { color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent },
       },
-      { text: "3 done", className: "text-cc-muted" },
+      { text: "3 Completed", className: "text-cc-muted" },
     ]);
   });
 
