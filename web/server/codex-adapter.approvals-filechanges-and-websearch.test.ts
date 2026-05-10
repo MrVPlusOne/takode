@@ -80,6 +80,38 @@ function parseWrittenJsonLines(chunks: string[]): any[] {
     .map((line) => JSON.parse(line));
 }
 
+function findLatestRequest(stdin: MockWritableStream, method: string): any {
+  const request = parseWrittenJsonLines(stdin.chunks)
+    .filter((line) => line.method === method)
+    .at(-1);
+  expect(request?.id).toEqual(expect.any(Number));
+  return request;
+}
+
+async function respondToLatestRequest(
+  stdout: MockReadableStream,
+  stdin: MockWritableStream,
+  method: string,
+  result: Record<string, unknown>,
+) {
+  const request = findLatestRequest(stdin, method);
+  stdout.push(JSON.stringify({ id: request.id, result }) + "\n");
+  await tick();
+}
+
+async function initializeAdapterForTurn(stdout: MockReadableStream, stdin: MockWritableStream) {
+  await initializeAdapter(stdout);
+  await respondToLatestRequest(stdout, stdin, "account/rateLimits/read", {
+    rateLimits: { primary: null, secondary: null },
+  });
+  await respondToLatestRequest(stdout, stdin, "skills/list", { data: [] });
+  await respondToLatestRequest(stdout, stdin, "app/list", { data: [], nextCursor: null });
+}
+
+async function respondToLatestTurnStart(stdout: MockReadableStream, stdin: MockWritableStream, turnId: string) {
+  await respondToLatestRequest(stdout, stdin, "turn/start", { turn: { id: turnId } });
+}
+
 function getToolResultBlocks(
   messages: BrowserIncomingMessage[],
   toolUseId?: string,
@@ -687,21 +719,13 @@ describe("CodexAdapter", () => {
 
     await tick();
 
-    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
-    await tick();
-    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
-    await tick();
-    // Respond to account/rateLimits/read (id: 3, fired after init)
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     // Send a user message first to establish a turn
     adapter.sendBrowserMessage({ type: "user_message", content: "Do something" });
     await tick();
 
-    // Simulate turn/start response (provides a turn ID — id bumped to 4 due to rateLimits/read)
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_1" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_1");
 
     stdin.chunks = [];
 
@@ -752,15 +776,12 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Apply a patch" });
     await tick();
 
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_router_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_router_error");
 
     stdout.push(
       JSON.stringify({
@@ -837,14 +858,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Poll a terminal" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_write_stdin_router_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_write_stdin_router_error");
 
     stdout.push(
       JSON.stringify({
@@ -937,14 +955,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Poll a terminal" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_write_stdin_then_real_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_write_stdin_then_real_error");
 
     stdout.push(
       JSON.stringify({
@@ -1032,14 +1047,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Run a terminal command" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_unmatched_write_stdin_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_unmatched_write_stdin_error");
 
     stdout.push(
       JSON.stringify({
@@ -1114,14 +1126,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Run and finish a terminal command" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_stale_write_stdin_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_stale_write_stdin_error");
 
     stdout.push(
       JSON.stringify({
@@ -1213,14 +1222,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Poll a closed stdin terminal" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_closed_stdin_stderr" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_closed_stdin_stderr");
 
     stdout.push(
       JSON.stringify({
@@ -1281,14 +1287,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Poll a closed stdin terminal" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_closed_stdin_split_before_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_closed_stdin_split_before_error");
     stdout.push(
       JSON.stringify({
         method: "item/started",
@@ -1321,14 +1324,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Poll a closed stdin terminal" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_closed_stdin_split_inside" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_closed_stdin_split_inside");
     stdout.push(
       JSON.stringify({
         method: "item/started",
@@ -1368,14 +1368,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Run overlapping tools" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_closed_stdin_multi_tool" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_closed_stdin_multi_tool");
 
     stdout.push(
       JSON.stringify({
@@ -1445,7 +1442,7 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
+    await initializeAdapterForTurn(stdout, stdin);
     adapter.handleProcessStderr("ERROR codex_core::tools::router: error=exec_command failed: process crashed\n");
     await tick();
 
@@ -1463,14 +1460,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Plan and patch" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_plan_then_router_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_plan_then_router_error");
 
     stdout.push(
       JSON.stringify({
@@ -1529,14 +1523,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Plan only" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_plan_only_router_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_plan_only_router_error");
 
     stdout.push(
       JSON.stringify({
@@ -1589,14 +1580,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Run a command" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_non_router_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_non_router_error");
 
     stdout.push(
       JSON.stringify({
@@ -1650,14 +1638,11 @@ describe("CodexAdapter", () => {
     adapter.onBrowserMessage((msg) => messages.push(msg));
 
     await tick();
-    await initializeAdapter(stdout);
-    stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
-    await tick();
+    await initializeAdapterForTurn(stdout, stdin);
 
     adapter.sendBrowserMessage({ type: "user_message", content: "Run two tools" });
     await tick();
-    stdout.push(JSON.stringify({ id: 4, result: { turn: { id: "turn_multi_tool_error" } } }) + "\n");
-    await tick();
+    await respondToLatestTurnStart(stdout, stdin, "turn_multi_tool_error");
 
     for (const [id, command] of [
       ["tool_first", ["sleep", "1"]],
