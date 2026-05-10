@@ -1087,6 +1087,13 @@ export interface SessionState {
   skill_metadata?: CodexSkillReference[];
   /** Codex app metadata used for `$` mention insertion. */
   apps?: CodexAppReference[];
+  /** Codex reported skill/app metadata may be stale after an automatic skills/changed event. */
+  skills_stale?: boolean;
+  apps_stale?: boolean;
+  skills_stale_since?: number | null;
+  skills_last_changed_at?: number | null;
+  skills_last_change_reason?: "skills_changed" | null;
+  skills_change_count?: number;
   total_cost_usd: number;
   /** Backend-owned count of real human/operator user turns. */
   user_turn_count?: number;

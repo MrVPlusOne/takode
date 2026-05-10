@@ -53,7 +53,6 @@ interface UseComposerAutocompleteArgs {
   sessionId: string;
   threadKey?: string;
   isCodex: boolean;
-  isConnected: boolean;
   sessionView: AutocompleteSessionView;
 }
 
@@ -108,7 +107,6 @@ export function useComposerAutocomplete({
   sessionId,
   threadKey = "main",
   isCodex,
-  isConnected,
   sessionView,
 }: UseComposerAutocompleteArgs) {
   const [slashMenuOpen, setSlashMenuOpen] = useState(false);
@@ -140,7 +138,6 @@ export function useComposerAutocomplete({
   const mentionRangeRef = useRef<ActiveAutocompleteRange | null>(null);
   const mentionAbortRef = useRef<AbortController | null>(null);
   const mentionDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const requestedCodexSkillRefreshSessionRef = useRef<string | null>(null);
   const quests = useStore((s) =>
     referenceMenuOpen && referenceKind === "quest" ? (s.quests ?? EMPTY_QUESTS) : EMPTY_QUESTS,
   );
@@ -244,14 +241,6 @@ export function useComposerAutocomplete({
     for (const app of sessionView.apps) pushApp(app);
     return cmds;
   }, [isCodex, sessionView.apps, sessionView.skillMetadata, sessionView.skills]);
-
-  useEffect(() => {
-    if (!isCodex || !isConnected) return;
-    if (sessionView.skillMetadata.length > 0 || sessionView.apps.length > 0) return;
-    if (requestedCodexSkillRefreshSessionRef.current === sessionId) return;
-    requestedCodexSkillRefreshSessionRef.current = sessionId;
-    api.refreshSessionSkills(sessionId).catch(() => {});
-  }, [isCodex, isConnected, sessionId, sessionView.apps, sessionView.skillMetadata]);
 
   const detectSlashQuery = useCallback(
     (inputText: string, cursorPos: number) => {

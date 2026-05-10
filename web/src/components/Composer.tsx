@@ -713,7 +713,6 @@ export function Composer({
     sessionId,
     threadKey,
     isCodex,
-    isConnected,
     sessionView,
   });
   const {

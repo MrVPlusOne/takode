@@ -193,11 +193,10 @@ describe("CodexAdapter", () => {
     expect(session.session_id).toBe("test-session");
   });
 
-  it("captures transport-close diagnostics for skills/changed refresh failures", async () => {
-    // With coalesced skill refresh, skills/changed marks skills stale and
-    // schedules a 500ms debounce timer. If the transport closes before the
-    // timer fires, the diagnostics capture the stale/deferred state rather
-    // than an in-flight skills/list RPC.
+  it("captures transport-close diagnostics for suppressed skills/changed refreshes", async () => {
+    // skills/changed marks skill/app metadata stale without scheduling
+    // skills/list or app/list. Disconnect diagnostics should retain the
+    // stale state and the cause-focused notification details Codex omitted.
     const recorder = {
       record: vi.fn(),
       recordServerEvent: vi.fn(),
@@ -243,11 +242,21 @@ describe("CodexAdapter", () => {
         sandbox: "danger-full-access",
       }),
     );
-    // Coalesced: skills/list hasn't been sent yet, so no in-flight refresh
     expect(diagnostics?.skillRefresh.inFlightCount).toBe(0);
-    // But the stale/stats fields reveal the deferred refresh
     expect(diagnostics?.skillRefresh.stale).toBe(true);
-    expect(diagnostics?.skillRefresh.stats.deferred).toBeGreaterThanOrEqual(0);
+    expect(diagnostics?.skillRefresh.staleSince).toEqual(expect.any(Number));
+    expect(diagnostics?.skillRefresh.stats.suppressed).toBe(1);
+    expect(diagnostics?.skillRefresh.stats.executed).toBe(0);
+    expect(diagnostics?.skillRefresh.lastChange).toEqual(
+      expect.objectContaining({
+        sessionId: "test-session",
+        cwd: "/my/project",
+        currentTurnId: null,
+        payloadKeys: [],
+        payloadHasCauseMetadata: false,
+        action: "marked_stale_without_auto_refresh",
+      }),
+    );
     expect(diagnostics?.transport?.recentIncoming.at(-1)).toEqual(
       expect.objectContaining({ method: "skills/changed" }),
     );

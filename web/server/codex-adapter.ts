@@ -55,6 +55,14 @@ const STDERR_ROUTER_LINE_BUFFER_MAX = 64 * 1024;
 type RouterFailureToolName = "write_stdin";
 type CodexSkillRefreshCause = "initialize" | "skills_changed" | "api" | "manual";
 
+interface CodexSkillRefreshStats {
+  coalesced: number;
+  deferred: number;
+  executed: number;
+  failed: number;
+  suppressed: number;
+}
+
 interface CodexSkillRefreshDiagnostics {
   refreshId: string;
   cause: CodexSkillRefreshCause;
@@ -66,6 +74,26 @@ interface CodexSkillRefreshDiagnostics {
   status: "in_flight" | "succeeded" | "failed";
   error: string | null;
   inFlightAtStart: number;
+}
+
+interface CodexSkillChangeDiagnostics {
+  changeId: string;
+  receivedAt: number;
+  sessionId: string;
+  cwd: string | null;
+  currentTurnId: string | null;
+  connected: boolean;
+  initialized: boolean;
+  payloadKeys: string[];
+  payloadHasCauseMetadata: boolean;
+  staleSince: number;
+  action: "marked_stale_without_auto_refresh";
+}
+
+function hasSkillChangeCauseMetadata(payload: Record<string, unknown>): boolean {
+  return ["cause", "source", "path", "paths", "root", "roots"].some((key) =>
+    Object.prototype.hasOwnProperty.call(payload, key),
+  );
 }
 
 export interface CodexAdapterDisconnectDiagnostics {
@@ -95,8 +123,10 @@ export interface CodexAdapterDisconnectDiagnostics {
     inFlightCount: number;
     inFlight: CodexSkillRefreshDiagnostics[];
     last: CodexSkillRefreshDiagnostics | null;
-    stats: { coalesced: number; deferred: number; executed: number; failed: number };
+    lastChange: CodexSkillChangeDiagnostics | null;
+    stats: CodexSkillRefreshStats;
     stale: boolean;
+    staleSince: number | null;
     retryCount: number;
   };
   stderrTail: string | null;
@@ -195,14 +225,16 @@ export class CodexAdapter
   private lastDisconnectDiagnostics: CodexAdapterDisconnectDiagnostics | null = null;
   private inFlightSkillRefreshes = new Map<string, CodexSkillRefreshDiagnostics>();
   private lastSkillRefreshDiagnostics: CodexSkillRefreshDiagnostics | null = null;
+  private lastSkillChangeDiagnostics: CodexSkillChangeDiagnostics | null = null;
 
-  // Coalesced skill refresh state
-  private _pendingSkillRefreshTimer: ReturnType<typeof setTimeout> | null = null;
+  // Automatic skills/changed notifications mark metadata stale but do not
+  // refresh live sessions. Manual refresh and relaunch remain the pickup paths.
   private _skillsStale = false;
+  private _skillsStaleSince: number | null = null;
+  private _lastSkillsChangedAt: number | null = null;
+  private _skillsChangeCount = 0;
   private _skillRefreshRetryCount = 0;
-  private static readonly SKILL_REFRESH_COALESCE_MS = 500;
-  private static readonly SKILL_REFRESH_MAX_BACKOFF_MS = 30_000;
-  skillRefreshStats = { coalesced: 0, deferred: 0, executed: 0, failed: 0 };
+  skillRefreshStats: CodexSkillRefreshStats = { coalesced: 0, deferred: 0, executed: 0, failed: 0, suppressed: 0 };
 
   private itemEventManager: CodexItemEventManager;
   private mcpManager: CodexMcpManager;
@@ -385,12 +417,20 @@ export class CodexAdapter
     }
     const skills = skillMetadata.map((skill) => skill.name);
     const apps = await this.refreshApps(forceReload);
+    this._skillsStale = false;
+    this._skillsStaleSince = null;
     this.emit({
       type: "session_update",
       session: {
         skills,
         skill_metadata: skillMetadata,
         apps,
+        skills_stale: false,
+        apps_stale: false,
+        skills_stale_since: null,
+        skills_last_changed_at: this._lastSkillsChangedAt,
+        skills_last_change_reason: null,
+        skills_change_count: this._skillsChangeCount,
       },
     });
     return skills;
@@ -421,61 +461,70 @@ export class CodexAdapter
     return [...deduped.values()].sort((a, b) => a.name.localeCompare(b.name));
   }
 
-  private _scheduleSkillRefresh(): void {
+  private _markSkillsChanged(params: unknown): void {
+    const payload =
+      params && typeof params === "object" && !Array.isArray(params) ? (params as Record<string, unknown>) : {};
+    const now = Date.now();
     this._skillsStale = true;
-    if (this.currentTurnId) {
-      this.skillRefreshStats.deferred++;
-      return;
-    }
-    if (this._pendingSkillRefreshTimer) {
-      clearTimeout(this._pendingSkillRefreshTimer);
-      this.skillRefreshStats.coalesced++;
-    }
-    this._pendingSkillRefreshTimer = setTimeout(
-      () => this._executeCoalescedRefresh(),
-      CodexAdapter.SKILL_REFRESH_COALESCE_MS,
-    );
-  }
+    this._skillsStaleSince ??= now;
+    this._lastSkillsChangedAt = now;
+    this._skillsChangeCount++;
+    this.skillRefreshStats.suppressed++;
 
-  private _executeCoalescedRefresh(): void {
-    this._pendingSkillRefreshTimer = null;
-    if (!this._skillsStale) return;
-    if (this.currentTurnId) {
-      this.skillRefreshStats.deferred++;
-      return;
-    }
-    if (!this.connected) return;
-    this._skillsStale = false;
-    this.skillRefreshStats.executed++;
+    const diagnostics: CodexSkillChangeDiagnostics = {
+      changeId: randomUUID(),
+      receivedAt: now,
+      sessionId: this.sessionId,
+      cwd: this.options.cwd ?? null,
+      currentTurnId: this.currentTurnId,
+      connected: this.connected,
+      initialized: this.initialized,
+      payloadKeys: Object.keys(payload).sort(),
+      payloadHasCauseMetadata: hasSkillChangeCauseMetadata(payload),
+      staleSince: this._skillsStaleSince,
+      action: "marked_stale_without_auto_refresh",
+    };
+    this.lastSkillChangeDiagnostics = diagnostics;
 
-    this.refreshSkills(true, "skills_changed").then(
-      () => {
-        this._skillRefreshRetryCount = 0;
-      },
-      (err) => {
-        if (!this.connected) return;
-        this.skillRefreshStats.failed++;
-        console.warn(`[codex-adapter] Coalesced skill refresh failed for session ${this.sessionId}:`, err);
-        this._skillsStale = true;
-        this._skillRefreshRetryCount++;
-        const backoffMs = Math.min(
-          CodexAdapter.SKILL_REFRESH_COALESCE_MS * 2 ** this._skillRefreshRetryCount,
-          CodexAdapter.SKILL_REFRESH_MAX_BACKOFF_MS,
-        );
-        this._pendingSkillRefreshTimer = setTimeout(() => this._executeCoalescedRefresh(), backoffMs);
-      },
+    console.warn(
+      `[codex-adapter] skills/changed received for session ${this.sessionId}; ` +
+        `marked skill/app metadata stale without automatic refresh ` +
+        `(payloadKeys=${diagnostics.payloadKeys.join(",") || "none"}, ` +
+        `payloadHasCauseMetadata=${diagnostics.payloadHasCauseMetadata}, ` +
+        `currentTurnId=${this.currentTurnId ?? "none"})`,
     );
+    this.options.recorder?.recordServerEvent(
+      this.sessionId,
+      "codex_skills_changed_marked_stale",
+      diagnostics as unknown as Record<string, unknown>,
+      "codex",
+      this.options.cwd || "",
+    );
+    this.emitSkillMetadataStaleState();
   }
 
   _drainStaleSkillRefresh(): void {
-    if (this._skillsStale) this._scheduleSkillRefresh();
+    // Automatic refresh is intentionally suppressed. The stale state remains
+    // visible until an explicit manual refresh or relaunch obtains fresh data.
   }
 
   _clearSkillRefreshTimer(): void {
-    if (this._pendingSkillRefreshTimer) {
-      clearTimeout(this._pendingSkillRefreshTimer);
-      this._pendingSkillRefreshTimer = null;
-    }
+    // Retained for disconnect cleanup/test compatibility after removing the
+    // coalesced automatic refresh timer.
+  }
+
+  private emitSkillMetadataStaleState(): void {
+    this.emit({
+      type: "session_update",
+      session: {
+        skills_stale: this._skillsStale,
+        apps_stale: this._skillsStale,
+        skills_stale_since: this._skillsStaleSince,
+        skills_last_changed_at: this._lastSkillsChangedAt,
+        skills_last_change_reason: this._skillsStale ? "skills_changed" : null,
+        skills_change_count: this._skillsChangeCount,
+      },
+    });
   }
 
   private startSkillRefreshDiagnostics(
@@ -547,8 +596,10 @@ export class CodexAdapter
         inFlightCount: this.inFlightSkillRefreshes.size,
         inFlight: [...this.inFlightSkillRefreshes.values()],
         last: this.lastSkillRefreshDiagnostics,
+        lastChange: this.lastSkillChangeDiagnostics,
         stats: { ...this.skillRefreshStats },
         stale: this._skillsStale,
+        staleSince: this._skillsStaleSince,
         retryCount: this._skillRefreshRetryCount,
       },
       stderrTail: this.options.failureContextProvider?.() || null,
@@ -842,6 +893,12 @@ export class CodexAdapter
         skills: [],
         skill_metadata: [],
         apps: [],
+        skills_stale: false,
+        apps_stale: false,
+        skills_stale_since: null,
+        skills_last_changed_at: null,
+        skills_last_change_reason: null,
+        skills_change_count: 0,
         total_cost_usd: 0,
         user_turn_count: 0,
         agent_turn_count: 0,
@@ -1324,7 +1381,7 @@ export class CodexAdapter
           this.updateRateLimits(params);
           break;
         case "skills/changed":
-          this._scheduleSkillRefresh();
+          this._markSkillsChanged(params);
           break;
         case "app/list/updated":
           this.emit({

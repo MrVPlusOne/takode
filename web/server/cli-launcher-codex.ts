@@ -790,8 +790,9 @@ async function mergeSkillDirectory(
     if (options.overwriteExisting) {
       await rm(entryDest, { recursive: true, force: true }).catch(() => {});
     }
-    await copySeedEntry(entrySrc, entryDest, sourceRoot, options.excludedRelativePaths);
-    copied = true;
+    if (await copySeedEntry(entrySrc, entryDest, sourceRoot, options.excludedRelativePaths)) {
+      copied = true;
+    }
   }
 
   return copied ? "created" : "unchanged";
@@ -810,11 +811,15 @@ async function copySeedEntry(
   entryDest: string,
   sourceRoot: string,
   excludedRelativePaths?: Set<string>,
-): Promise<void> {
+): Promise<boolean> {
   const entryStat = await lstat(entrySrc).catch(() => null);
+  if (entryStat?.isSymbolicLink() && !(await fileExists(entrySrc))) {
+    console.warn(`[cli-launcher] Skipping broken legacy Codex skill symlink: ${entrySrc}`);
+    return false;
+  }
   if (!entryStat || !entryStat.isDirectory() || entryStat.isSymbolicLink()) {
     await cp(entrySrc, entryDest, { recursive: true });
-    return;
+    return true;
   }
 
   await mkdir(entryDest, { recursive: true });
@@ -836,9 +841,15 @@ async function copySeedEntry(
         continue;
       }
 
+      if (child.isSymbolicLink() && !(await fileExists(childSrc))) {
+        console.warn(`[cli-launcher] Skipping broken legacy Codex skill symlink: ${childSrc}`);
+        continue;
+      }
+
       await cp(childSrc, childDest, { recursive: true });
     }
   }
+  return true;
 }
 
 async function migrateLegacyCodexSkillsToAgentsHome(

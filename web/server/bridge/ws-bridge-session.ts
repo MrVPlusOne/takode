@@ -74,7 +74,10 @@ export type CodexBridgeAdapter = BackendAdapter<CodexSessionMeta> &
   RateLimitsAwareAdapter & {
     rollbackTurns: (numTurns: number) => Promise<void>;
   } & Partial<{
-    refreshSkills: (forceReload?: boolean) => Promise<string[]>;
+    refreshSkills: (
+      forceReload?: boolean,
+      cause?: "initialize" | "skills_changed" | "api" | "manual",
+    ) => Promise<string[]>;
   }>;
 export type ClaudeSdkBridgeAdapter = BackendAdapter<ClaudeSdkSessionMeta> & CompactRequestedAwareAdapter;
 

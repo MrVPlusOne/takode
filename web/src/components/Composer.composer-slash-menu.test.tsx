@@ -584,7 +584,7 @@ describe("Composer slash menu", () => {
     expect(screen.queryByText("/help")).toBeNull();
   });
 
-  it("requests Codex skills when the connected session has none, then renders them after the server updates state", async () => {
+  it("does not passively request Codex skills, but renders them after the server updates state", async () => {
     setupMockStore({
       session: {
         backend_type: "codex",
@@ -594,9 +594,7 @@ describe("Composer slash menu", () => {
     });
     const { container } = render(<Composer sessionId="s1" />);
 
-    await waitFor(() => {
-      expect(mockRefreshSessionSkills).toHaveBeenCalledWith("s1");
-    });
+    expect(mockRefreshSessionSkills).not.toHaveBeenCalled();
 
     const sessions = mockStoreState.sessions as Map<string, SessionState>;
     sessions.set(

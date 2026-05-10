@@ -28,7 +28,11 @@ vi.mock("node:child_process", () => {
       if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
     }
   });
-  return { execSync: execSyncMock, exec: execMock };
+  const execFileMock = vi.fn((...args: any[]) => {
+    const callback = args.find((arg) => typeof arg === "function");
+    if (callback) callback(null, "", "");
+  });
+  return { execSync: execSyncMock, exec: execMock, execFile: execFileMock };
 });
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
@@ -543,7 +547,7 @@ describe("POST /api/sessions/:id/skills/refresh", () => {
 
     expect(res.status).toBe(200);
     await expect(res.json()).resolves.toEqual({ ok: true, skills: ["review", "fix"] });
-    expect(refreshSkills).toHaveBeenCalledWith(true);
+    expect(refreshSkills).toHaveBeenCalledWith(true, "api");
   });
 
   it("rejects skill refresh for non-codex sessions", async () => {

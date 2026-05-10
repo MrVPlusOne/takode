@@ -1796,7 +1796,7 @@ describe("launch", () => {
     const legacySkills = join(legacyHome, "skills");
     const brokenSkill = join(agentsSkills, "cron-scheduling");
 
-    mockExistingPaths(agentsSkills, legacyHome, legacySkills);
+    mockExistingPaths(agentsSkills, legacyHome, legacySkills, join(legacySkills, "cron-scheduling"));
     mockReaddir.mockImplementation(async (path: string, options?: { withFileTypes?: boolean }) => {
       if (path === legacySkills && options?.withFileTypes) {
         return [mockDirent("cron-scheduling", { symlink: true, directory: false })];
@@ -1820,6 +1820,37 @@ describe("launch", () => {
 
     expect(mockCp).toHaveBeenCalledWith(join(legacySkills, "cron-scheduling"), brokenSkill, { recursive: true });
     expect(mockUnlink).toHaveBeenCalledWith(brokenSkill);
+  });
+
+  it("skips broken legacy Codex skill symlinks during fallback migration", async () => {
+    mockResolveBinary.mockReturnValue("/opt/fake/codex");
+    mockSpawn.mockReturnValueOnce(createMockCodexProc());
+
+    const agentsSkills = join(homedir(), ".agents", "skills");
+    const legacyHome = join(homedir(), ".codex");
+    const legacySkills = join(legacyHome, "skills");
+    const brokenSource = join(legacySkills, "missing-skill");
+
+    mockExistingPaths(agentsSkills, legacyHome, legacySkills);
+    mockReaddir.mockImplementation(async (path: string, options?: { withFileTypes?: boolean }) => {
+      if (path === legacySkills && options?.withFileTypes) {
+        return [mockDirent("missing-skill", { symlink: true, directory: false })];
+      }
+      return [];
+    });
+    mockLstatSync.mockImplementation((path?: string) => {
+      if (path === brokenSource) {
+        return {
+          isSymbolicLink: () => true,
+          isDirectory: () => false,
+        };
+      }
+      throw Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+    });
+
+    await launchCodex();
+
+    expect(mockCp).not.toHaveBeenCalledWith(brokenSource, join(agentsSkills, "missing-skill"), { recursive: true });
   });
 
   it("removes deprecated session Codex skill directories on relaunch", async () => {

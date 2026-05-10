@@ -1616,7 +1616,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       return c.json({ error: "Codex adapter unavailable" }, 503);
     }
     try {
-      const skills = await session.codexAdapter.refreshSkills(true);
+      const skills = await session.codexAdapter.refreshSkills(true, "api");
       return c.json({ ok: true, skills });
     } catch (err) {
       return c.json({ error: err instanceof Error ? err.message : String(err) || "Failed to refresh skills" }, 503);

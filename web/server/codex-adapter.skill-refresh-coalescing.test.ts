@@ -102,7 +102,7 @@ function emitSkillsChanged(stdout: MockReadableStream) {
   );
 }
 
-describe("CodexAdapter skill refresh coalescing", () => {
+describe("CodexAdapter skill change suppression", () => {
   let proc: ReturnType<typeof createMockProcess>["proc"];
   let stdin: MockWritableStream;
   let stdout: MockReadableStream;
@@ -121,48 +121,71 @@ describe("CodexAdapter skill refresh coalescing", () => {
     await initializeAdapter(stdout);
   });
 
-  // The coalesce window is 500ms. Use real timers and wait slightly longer.
-  it("coalesces multiple skills/changed into a single refresh", async () => {
-    // Clear init chunks to isolate our test
+  it("marks skill and app metadata stale without sending an automatic refresh", async () => {
     stdin.chunks = [];
 
-    // Fire 5 skills/changed in quick succession
+    emitSkillsChanged(stdout);
+    await tick();
+
+    const written = parseWrittenJsonLines(stdin.chunks);
+    expect(written.filter((l) => l.method === "skills/list")).toHaveLength(0);
+    expect(written.filter((l) => l.method === "app/list")).toHaveLength(0);
+
+    const update = messages.find((msg) => msg.type === "session_update" && "skills_stale" in msg.session);
+    expect(update).toEqual(
+      expect.objectContaining({
+        session: expect.objectContaining({
+          skills_stale: true,
+          apps_stale: true,
+          skills_stale_since: expect.any(Number),
+          skills_last_changed_at: expect.any(Number),
+          skills_last_change_reason: "skills_changed",
+          skills_change_count: 1,
+        }),
+      }),
+    );
+    expect(adapter.skillRefreshStats.suppressed).toBe(1);
+    expect(adapter.skillRefreshStats.executed).toBe(0);
+  });
+
+  it("records repeated skills/changed notifications without coalescing them into refreshes", async () => {
+    stdin.chunks = [];
+
     for (let i = 0; i < 5; i++) {
       emitSkillsChanged(stdout);
       await tick();
     }
 
-    // No skills/list should have been sent yet (within debounce window)
-    const skillsListBefore = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(skillsListBefore.length).toBe(0);
+    const written = parseWrittenJsonLines(stdin.chunks);
+    expect(written.filter((l) => l.method === "skills/list")).toHaveLength(0);
+    expect(written.filter((l) => l.method === "app/list")).toHaveLength(0);
+    expect(adapter.skillRefreshStats.suppressed).toBe(5);
+    expect(adapter.skillRefreshStats.executed).toBe(0);
 
-    // Wait for the coalesce window to expire
-    await wait(700);
-
-    // Exactly one skills/list should have been sent
-    const skillsListAfter = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(skillsListAfter.length).toBe(1);
-    expect(skillsListAfter[0].params.forceReload).toBe(true);
-
-    expect(adapter.skillRefreshStats.coalesced).toBe(4);
-    expect(adapter.skillRefreshStats.executed).toBe(1);
+    const staleUpdates = messages.filter(
+      (msg): msg is Extract<BrowserIncomingMessage, { type: "session_update" }> =>
+        msg.type === "session_update" && "skills_change_count" in msg.session,
+    );
+    expect(staleUpdates.at(-1)?.session).toEqual(
+      expect.objectContaining({
+        skills_stale: true,
+        apps_stale: true,
+        skills_change_count: 5,
+      }),
+    );
   });
 
-  it("defers refresh during active turn and drains after completion", async () => {
+  it("does not drain an automatic refresh after an active turn completes", async () => {
     await startActiveTurn(adapter, stdin, stdout, "turn_1");
     stdin.chunks = [];
 
-    // Fire skills/changed during active turn
     emitSkillsChanged(stdout);
     await tick();
-    await wait(700);
 
-    // No skills/list should be sent while turn is active
     const skillsListDuringTurn = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(skillsListDuringTurn.length).toBe(0);
-    expect(adapter.skillRefreshStats.deferred).toBeGreaterThanOrEqual(1);
+    expect(skillsListDuringTurn).toHaveLength(0);
+    expect(adapter.skillRefreshStats.suppressed).toBe(1);
 
-    // Complete the turn
     stdin.chunks = [];
     stdout.push(
       JSON.stringify({
@@ -173,94 +196,71 @@ describe("CodexAdapter skill refresh coalescing", () => {
     );
     await tick();
 
-    // Wait for the coalesce window to expire after drain
-    await wait(700);
-
     const skillsListAfterDrain = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(skillsListAfterDrain.length).toBe(1);
+    expect(skillsListAfterDrain).toHaveLength(0);
   });
 
-  it("clears timer on transport disconnect", async () => {
+  it("clear refresh timer remains a no-op compatibility cleanup", async () => {
     stdin.chunks = [];
 
     emitSkillsChanged(stdout);
     await tick();
 
-    // Timer is pending; verify no skills/list yet
     const before = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(before.length).toBe(0);
+    expect(before).toHaveLength(0);
 
-    // Clear the timer (simulates disconnect cleanup)
     adapter._clearSkillRefreshTimer();
-
-    // Wait past coalesce window -- nothing should fire
-    await wait(700);
+    await wait(20);
 
     const after = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(after.length).toBe(0);
+    expect(after).toHaveLength(0);
   });
 
-  it("re-checks turn state when debounce fires and defers if a turn started", async () => {
-    // Regression: skills/changed arrives while idle, 500ms timer is scheduled,
-    // then a turn starts before the timer fires. The timer must not send
-    // skills/list mid-turn; it should defer until turn completion.
+  it("manual refresh still fetches skills and apps and clears stale metadata", async () => {
     stdin.chunks = [];
 
     emitSkillsChanged(stdout);
     await tick();
-
-    // Start a turn during the debounce window (before 500ms)
-    await startActiveTurn(adapter, stdin, stdout, "turn_race");
     stdin.chunks = [];
 
-    // Wait past debounce -- timer fires but should defer
-    await wait(700);
+    const refreshPromise = adapter.refreshSkills(true);
+    await tick();
 
-    const skillsListMidTurn = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(skillsListMidTurn.length).toBe(0);
+    const skillsReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "skills/list");
+    expect(skillsReq).toBeDefined();
+    expect(skillsReq.params).toEqual({ cwds: ["/tmp/test"], forceReload: true });
 
-    // Complete the turn -- drain should fire the deferred refresh
-    stdin.chunks = [];
     stdout.push(
       JSON.stringify({
-        jsonrpc: "2.0",
-        method: "turn/completed",
-        params: { turn: { id: "turn_race", status: "completed" }, thread: { id: "thr_123" } },
+        id: skillsReq.id,
+        result: {
+          data: [
+            {
+              cwd: "/tmp/test",
+              skills: [{ name: "review", path: "/skills/review/SKILL.md", enabled: true }],
+              errors: [],
+            },
+          ],
+        },
       }) + "\n",
     );
     await tick();
-    await wait(700);
+    const appReq = parseWrittenJsonLines(stdin.chunks).find((l) => l.method === "app/list");
+    expect(appReq).toBeDefined();
+    stdout.push(JSON.stringify({ id: appReq.id, result: { data: [], nextCursor: null } }) + "\n");
 
-    const skillsListAfterTurn = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(skillsListAfterTurn.length).toBe(1);
-  });
-
-  it("does not schedule retry after transport disconnect", async () => {
-    // Regression: an in-flight skills/list rejects because the transport closes.
-    // The rejection handler must not schedule a backoff retry timer against a
-    // dead adapter.
-    stdin.chunks = [];
-
-    emitSkillsChanged(stdout);
-    await tick();
-
-    // Let the debounce fire, sending skills/list
-    await wait(700);
-    const skillsList = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(skillsList.length).toBe(1);
-
-    // Close transport (rejects the pending skills/list RPC)
-    // Note: stdout.close() triggers transport close in the real adapter.
-    // The _clearSkillRefreshTimer() in the close handler + the connected
-    // check in the rejection handler prevent stale retry scheduling.
-    adapter._clearSkillRefreshTimer();
-    // Simulate the adapter marking itself disconnected (close callback)
-    // We can't easily trigger a full transport close in this harness, so
-    // verify the invariant: after clearing the timer, no retry fires.
-    await wait(1000);
-
-    const retrySkillsList = parseWrittenJsonLines(stdin.chunks).filter((l) => l.method === "skills/list");
-    expect(retrySkillsList.length).toBe(1); // still just the original one
+    await expect(refreshPromise).resolves.toEqual(["review"]);
+    const lastUpdate = messages.filter((msg) => msg.type === "session_update").at(-1);
+    expect(lastUpdate?.session).toEqual(
+      expect.objectContaining({
+        skills: ["review"],
+        skills_stale: false,
+        apps_stale: false,
+        skills_stale_since: null,
+        skills_last_change_reason: null,
+        skills_change_count: 1,
+      }),
+    );
   });
 });
 
