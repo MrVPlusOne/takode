@@ -6,7 +6,7 @@
  * like a compact Main-thread banner below the tabs. Once opened, it stays open
  * until the user explicitly collapses it.
  */
-import type { CSSProperties, MouseEvent as ReactMouseEvent, ReactNode } from "react";
+import type { CSSProperties, MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from "react";
 import { useMemo, useState, useEffect, useLayoutEffect, useRef } from "react";
 import {
   DndContext,
@@ -79,6 +79,9 @@ const COMPACT_DESKTOP_THREAD_TAB_WIDTH = 160;
 const COMPACT_DESKTOP_PACKING_MIN_RAIL_WIDTH = 640;
 const COMPACT_MORE_TABS_WIDTH = 72;
 const COMPACT_TAB_GAP = 4;
+const FLUID_THREAD_TAB_SIZE_CLASS = "min-w-[var(--thread-tab-width)] max-w-[14rem] flex-[1_1_var(--thread-tab-width)]";
+const FROZEN_THREAD_TAB_SIZE_CLASS =
+  "min-w-[var(--thread-tab-frozen-width)] w-[var(--thread-tab-frozen-width)] max-w-[var(--thread-tab-frozen-width)] flex-none";
 
 export interface CompactThreadTabPartition<T> {
   visibleTabs: T[];
@@ -772,6 +775,7 @@ function ThreadTabRail({
   const hideQuestHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const [railWidth, setRailWidth] = useState<number | null>(null);
+  const [frozenThreadTabWidth, setFrozenThreadTabWidth] = useState<number | null>(null);
   const [moreTabsOpen, setMoreTabsOpen] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
   const [draftReorderKeys, setDraftReorderKeys] = useState<string[]>([]);
@@ -852,9 +856,12 @@ function ThreadTabRail({
 
   useEffect(() => {
     if (hasOverflowTabs) return;
-    setMoreTabsOpen(false);
+    if (moreTabsOpen) {
+      setMoreTabsOpen(false);
+      releaseFrozenCloseTargetGeometry();
+    }
     setReorderMode(false);
-  }, [hasOverflowTabs]);
+  }, [hasOverflowTabs, moreTabsOpen]);
 
   useEffect(() => {
     if (!moreTabsOpen) return;
@@ -866,7 +873,7 @@ function ThreadTabRail({
     if (!moreTabsOpen) return;
     const handleKeyDown = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
-      setMoreTabsOpen(false);
+      closeMoreTabs();
       setReorderMode(false);
     };
     document.addEventListener("keydown", handleKeyDown);
@@ -887,12 +894,36 @@ function ThreadTabRail({
       onReorderThreadTabs?.(mergeHiddenReorderIntoOpenOrder());
     }
     setReorderMode(false);
-    setMoreTabsOpen(false);
+    closeMoreTabs();
   }
 
   function cancelMoreTabsReorder() {
     setDraftReorderKeys(moreTabsReorderKeys);
     setReorderMode(false);
+  }
+
+  function freezeCloseTargetGeometry(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "mouse") return;
+    const widthSource = tabStripRef.current?.querySelector<HTMLElement>("[data-thread-tab-width-source='true']");
+    if (!widthSource) return;
+
+    const width = Math.floor(widthSource.getBoundingClientRect().width);
+    if (width <= 0) return;
+    setFrozenThreadTabWidth((existing) => (existing === width ? existing : width));
+  }
+
+  function releaseFrozenCloseTargetGeometry() {
+    setFrozenThreadTabWidth(null);
+  }
+
+  function releaseCloseTargetGeometry(event: ReactPointerEvent<HTMLDivElement>) {
+    if (event.pointerType !== "mouse") return;
+    releaseFrozenCloseTargetGeometry();
+  }
+
+  function closeMoreTabs() {
+    setMoreTabsOpen(false);
+    releaseFrozenCloseTargetGeometry();
   }
 
   function moreTabsListOrder(): PrimaryThreadChip[] {
@@ -915,8 +946,10 @@ function ThreadTabRail({
   const needsInputHidden = hiddenTabs.some((tab) => tab.needsInput);
   const blueNudgeHidden = hiddenTabs.some((tab) => tab.blueNudge);
   const showBlueNudgeHidden = blueNudgeHidden && !needsInputHidden;
+  const threadTabSizeClass = frozenThreadTabWidth ? FROZEN_THREAD_TAB_SIZE_CLASS : FLUID_THREAD_TAB_SIZE_CLASS;
   const tabStripStyle = {
     "--thread-tab-width": `${compactThreadTabWidthForRail(railWidth)}px`,
+    ...(frozenThreadTabWidth ? { "--thread-tab-frozen-width": `${frozenThreadTabWidth}px` } : {}),
   } as CSSProperties;
 
   return (
@@ -935,6 +968,10 @@ function ThreadTabRail({
         className="relative flex min-w-0 items-end gap-1 overflow-visible"
         data-testid="thread-tab-strip"
         data-overflow-mode="more-tabs"
+        data-close-target-width-frozen={frozenThreadTabWidth ? "true" : "false"}
+        data-frozen-thread-tab-width={frozenThreadTabWidth ?? ""}
+        onPointerEnter={freezeCloseTargetGeometry}
+        onPointerLeave={releaseCloseTargetGeometry}
         aria-label="Thread tabs"
       >
         <button
@@ -947,9 +984,10 @@ function ThreadTabRail({
                 ? `${mainState?.title ?? "Main Thread"} has review updates`
                 : (mainState?.title ?? "Main Thread")
           }
-          className={`relative inline-flex min-w-[var(--thread-tab-width)] max-w-[14rem] flex-[1_1_var(--thread-tab-width)] items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
+          className={`relative inline-flex ${threadTabSizeClass} items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
           data-testid="thread-main-tab"
           data-thread-key={MAIN_THREAD_KEY}
+          data-thread-tab-width-source="true"
           data-needs-input={mainNeedsInput ? "true" : "false"}
           data-blue-notification={mainBlueNudge ? "true" : "false"}
           data-active-output={mainActiveOutput ? "true" : "false"}
@@ -980,7 +1018,7 @@ function ThreadTabRail({
               const title = hoverQuest
                 ? undefined
                 : `${displayQuestId ? `${displayQuestId}: ${displayTitle}` : displayTitle}${tab.needsInput ? " needs input" : showBlueNudge ? " has review updates" : ""}`;
-              const className = `group relative inline-flex min-w-[var(--thread-tab-width)] max-w-[14rem] flex-[1_1_var(--thread-tab-width)] items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${tone}`;
+              const className = `group relative inline-flex ${threadTabSizeClass} items-stretch overflow-hidden rounded-t-md border text-[11px] font-medium transition-colors ${newTab ? "thread-tab-pop" : ""} ${reorderable ? "cursor-grab active:cursor-grabbing" : ""} ${tone}`;
               const mouseEnter = (event: ReactMouseEvent<HTMLDivElement>) =>
                 showQuestHover(hoverQuest, event.currentTarget.getBoundingClientRect());
               const children = (dragSurfaceProps?: {
@@ -1056,6 +1094,7 @@ function ThreadTabRail({
                   className={className}
                   data-testid="thread-tab"
                   data-thread-key={tab.threadKey}
+                  data-thread-tab-width-source="true"
                   data-needs-input={tab.needsInput ? "true" : "false"}
                   data-blue-notification={tab.blueNudge ? "true" : "false"}
                   data-active-output={activeOutput ? "true" : "false"}
@@ -1075,7 +1114,10 @@ function ThreadTabRail({
           <div className="relative shrink-0" data-testid="thread-tabs-more-wrapper">
             <button
               type="button"
-              onClick={() => setMoreTabsOpen((open) => !open)}
+              onClick={() => {
+                if (moreTabsOpen) closeMoreTabs();
+                else setMoreTabsOpen(true);
+              }}
               className={`relative inline-flex h-full min-w-[4.25rem] items-center justify-center gap-1 rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${
                 moreTabsOpen || selectedHidden
                   ? "border-violet-100/45 bg-white/[0.055] text-white"
@@ -1201,7 +1243,7 @@ function ThreadTabRail({
                           disabled={reorderMode}
                           onClick={() => {
                             openThread(threadKey);
-                            setMoreTabsOpen(false);
+                            closeMoreTabs();
                           }}
                           className="flex min-w-0 flex-1 items-center gap-1.5 rounded-sm text-left focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 disabled:cursor-default"
                           data-testid="thread-tabs-more-row-select"
@@ -1238,7 +1280,7 @@ function ThreadTabRail({
                             onClick={(event) => {
                               event.stopPropagation();
                               onCloseThreadTab(threadKey);
-                              setMoreTabsOpen(false);
+                              closeMoreTabs();
                             }}
                             className="inline-flex h-6 w-6 shrink-0 items-center justify-center rounded text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
                             data-testid="thread-tabs-more-row-close"
