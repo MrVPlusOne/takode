@@ -709,6 +709,73 @@ describe("transcribe", () => {
     expect(headers.get("X-Companion-Audio-Filename")).toBe("recording.mp4");
   });
 
+  it("resolves as soon as the terminal SSE result arrives instead of waiting for stream close", async () => {
+    const encoder = new TextEncoder();
+    let streamController: ReadableStreamDefaultController<Uint8Array> | undefined;
+    const body = new ReadableStream({
+      start(controller) {
+        streamController = controller;
+      },
+    });
+    mockFetch.mockResolvedValueOnce(
+      new Response(body, {
+        status: 200,
+        headers: { "Content-Type": "text/event-stream" },
+      }),
+    );
+
+    const onPhase = vi.fn();
+    const onProgress = vi.fn();
+    const pending = api.transcribe(new Blob([new Uint8Array([1, 2, 3, 4])], { type: "audio/mp4" }), {
+      mode: "dictation",
+      sessionId: "session-1",
+      onPhase,
+      onProgress,
+    });
+
+    await Promise.resolve();
+    expect(onPhase.mock.calls).toEqual([["preparing"]]);
+
+    if (!streamController) throw new Error("stream controller was not initialized");
+    streamController.enqueue(
+      encoder.encode('event: stt_complete\ndata: {"rawText":"hello","nextPhase":"enhancing","mode":"dictation"}\n\n'),
+    );
+    streamController.enqueue(
+      encoder.encode(
+        `event: result\ndata: ${JSON.stringify({
+          text: "hello there",
+          rawText: "hello",
+          backend: "openai",
+          enhanced: true,
+          timing: { uploadDurationMs: 25, sttDurationMs: 300, enhancementDurationMs: 1200 },
+        } satisfies VoiceTranscriptionResult)}\n\n`,
+      ),
+    );
+
+    const timedOut = Symbol("timed out waiting for transcription result");
+    const settled = await Promise.race([
+      pending,
+      new Promise<typeof timedOut>((resolve) => setTimeout(() => resolve(timedOut), 50)),
+    ]);
+    if (settled === timedOut) streamController.close();
+
+    expect(settled).toEqual({
+      text: "hello there",
+      rawText: "hello",
+      backend: "openai",
+      enhanced: true,
+      timing: { uploadDurationMs: 25, sttDurationMs: 300, enhancementDurationMs: 1200 },
+    });
+    expect(onPhase.mock.calls).toEqual([["preparing"], ["transcribing"], ["enhancing"]]);
+    expect(onProgress).toHaveBeenCalledWith(
+      expect.objectContaining({
+        phase: "complete",
+        source: "sse",
+        timing: expect.objectContaining({ enhancementDurationMs: 1200 }),
+      }),
+    );
+  });
+
   it("adds selected thread context to raw dictation requests", async () => {
     const encoder = new TextEncoder();
     const body = new ReadableStream({

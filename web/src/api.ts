@@ -1577,13 +1577,16 @@ export const api = {
     const reader = res.body.getReader();
     const decoder = new TextDecoder();
     let buffer = "";
-    let result: VoiceTranscriptionResult | null = null;
     let phaseAcked = false;
+    let streamEnded = false;
 
     try {
       while (true) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) {
+          streamEnded = true;
+          break;
+        }
         buffer += decoder.decode(value, { stream: true });
 
         const chunks = buffer.split("\n\n");
@@ -1622,8 +1625,9 @@ export const api = {
               emitProgress({ source: "sse", phase: "enhancing", mode, timing: parsed.timing });
             }
           } else if (eventType === "result") {
-            result = parsed;
-            emitProgress({ source: "sse", phase: "complete", mode, timing: result?.timing });
+            const transcriptionResult = parsed as VoiceTranscriptionResult;
+            emitProgress({ source: "sse", phase: "complete", mode, timing: transcriptionResult.timing });
+            return transcriptionResult;
           } else if (eventType === "error") {
             emitProgress({ source: "sse", phase: "error", mode, error: parsed.error || "Transcription failed" });
             throw new Error(parsed.error || "Transcription failed");
@@ -1632,10 +1636,12 @@ export const api = {
       }
     } finally {
       unsubscribeProgress();
+      if (!streamEnded) {
+        void reader.cancel().catch(() => undefined);
+      }
     }
 
-    if (!result) throw new Error("Stream ended without transcription result");
-    return result;
+    throw new Error("Stream ended without transcription result");
   },
 
   getTranscriptionStatus: () =>
