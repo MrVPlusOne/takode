@@ -162,6 +162,39 @@ describe("handleMessage: message_history", () => {
     expect(useStore.getState().messages.get("s1")?.[0]?.content).toBe("fresh reconnect history");
   });
 
+  // message_history shares the authoritative replacement path used on reconnect;
+  // selected leader windows stay visible and are marked stale for a follow-up sync.
+  it("keeps selected leader thread windows visible while marking message_history refreshes stale", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
+    useStore.getState().setThreadWindow(
+      "s1",
+      "project-alpha",
+      {
+        thread_key: "project-alpha",
+        from_item: 10,
+        item_count: 2,
+        total_items: 20,
+        source_history_length: 3,
+        section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      },
+      [{ id: "visible-project-thread", role: "assistant", content: "Already visible leader thread", timestamp: 1000 }],
+    );
+    const appliedBefore = useStore.getState().threadWindowAppliedRevisions.get("s1")?.get("project-alpha") ?? 0;
+
+    fireMessage({
+      type: "message_history",
+      messages: [{ type: "user_message", content: "fresh reconnect history", timestamp: 2000 }],
+    });
+
+    expect(useStore.getState().threadWindowMessages.get("s1")?.get("project-alpha")?.[0]?.content).toBe(
+      "Already visible leader thread",
+    );
+    expect(useStore.getState().threadWindowRefreshRevisions.get("s1")).toBeGreaterThan(appliedBefore);
+    expect(useStore.getState().threadWindowAppliedRevisions.get("s1")?.get("project-alpha")).toBe(appliedBefore);
+  });
+
   it("reconstructs chat messages from history", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

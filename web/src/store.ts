@@ -179,6 +179,8 @@ export const useStore = create<AppState>((set, get) => ({
   historyWindows: new Map(),
   threadWindows: new Map(),
   threadWindowMessages: new Map(),
+  threadWindowRefreshRevisions: new Map(),
+  threadWindowAppliedRevisions: new Map(),
   feedWindowSyncs: new Map(),
   threadFeedWindowSyncs: new Map(),
   leaderProjections: new Map(),
@@ -717,23 +719,30 @@ export const useStore = create<AppState>((set, get) => ({
       const normalizedThreadKey = threadKey.trim().toLowerCase() || "main";
       const threadWindows = new Map(s.threadWindows);
       const threadWindowMessages = new Map(s.threadWindowMessages);
+      const threadWindowAppliedRevisions = new Map(s.threadWindowAppliedRevisions);
       const nextWindows = new Map(threadWindows.get(sessionId) ?? []);
       const nextMessages = new Map(threadWindowMessages.get(sessionId) ?? []);
+      const nextAppliedRevisions = new Map(threadWindowAppliedRevisions.get(sessionId) ?? []);
       if (window) {
         nextWindows.set(normalizedThreadKey, window);
         nextMessages.set(normalizedThreadKey, msgs);
+        nextAppliedRevisions.set(normalizedThreadKey, s.threadWindowRefreshRevisions.get(sessionId) ?? 0);
       } else {
         nextWindows.delete(normalizedThreadKey);
         nextMessages.delete(normalizedThreadKey);
+        nextAppliedRevisions.delete(normalizedThreadKey);
       }
       if (nextWindows.size > 0) threadWindows.set(sessionId, nextWindows);
       else threadWindows.delete(sessionId);
       if (nextMessages.size > 0) threadWindowMessages.set(sessionId, nextMessages);
       else threadWindowMessages.delete(sessionId);
-      if (window) return { threadWindows, threadWindowMessages };
+      if (nextAppliedRevisions.size > 0) threadWindowAppliedRevisions.set(sessionId, nextAppliedRevisions);
+      else threadWindowAppliedRevisions.delete(sessionId);
+      if (window) return { threadWindows, threadWindowMessages, threadWindowAppliedRevisions };
       return {
         threadWindows,
         threadWindowMessages,
+        threadWindowAppliedRevisions,
         ...clearThreadFeedWindowSyncState(s, sessionId, normalizedThreadKey),
       };
     }),
@@ -945,10 +954,8 @@ export const useStore = create<AppState>((set, get) => ({
       pendingCodexInputs.delete(sessionId);
       const historyWindows = new Map(s.historyWindows);
       historyWindows.delete(sessionId);
-      const threadWindows = new Map(s.threadWindows);
-      threadWindows.delete(sessionId);
-      const threadWindowMessages = new Map(s.threadWindowMessages);
-      threadWindowMessages.delete(sessionId);
+      const threadWindowRefreshRevisions = new Map(s.threadWindowRefreshRevisions);
+      threadWindowRefreshRevisions.set(sessionId, (threadWindowRefreshRevisions.get(sessionId) ?? 0) + 1);
       const feedWindowSyncPatch = clearFeedWindowSyncState(s, sessionId);
       const streaming = new Map(s.streaming);
       streaming.delete(sessionId);
@@ -1009,8 +1016,7 @@ export const useStore = create<AppState>((set, get) => ({
         sessionTaskPreview,
         pendingCodexInputs,
         historyWindows,
-        threadWindows,
-        threadWindowMessages,
+        threadWindowRefreshRevisions,
         ...feedWindowSyncPatch,
         streaming,
         streamingByParentToolUseId,
@@ -1907,6 +1913,8 @@ export const useStore = create<AppState>((set, get) => ({
       historyWindows: new Map(),
       threadWindows: new Map(),
       threadWindowMessages: new Map(),
+      threadWindowRefreshRevisions: new Map(),
+      threadWindowAppliedRevisions: new Map(),
       feedWindowSyncs: new Map(),
       threadFeedWindowSyncs: new Map(),
       streaming: new Map(),

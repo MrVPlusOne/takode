@@ -169,6 +169,44 @@ describe("handleMessage: history_sync", () => {
     expect(useStore.getState().messages.get("s1")?.at(-1)?.content).toBe("fresh hot tail");
   });
 
+  // history_sync is authoritative for raw session history, but selected leader
+  // thread windows are separately refreshed and should not be cleared first.
+  it("keeps selected leader thread windows visible while marking them for refresh", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: { ...makeSession("s1"), isOrchestrator: true } });
+    useStore.getState().setThreadWindow(
+      "s1",
+      "project-alpha",
+      {
+        thread_key: "project-alpha",
+        from_item: 10,
+        item_count: 2,
+        total_items: 20,
+        source_history_length: 3,
+        section_item_count: HISTORY_WINDOW_SECTION_TURN_COUNT,
+        visible_item_count: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      },
+      [{ id: "visible-project-thread", role: "assistant", content: "Already visible leader thread", timestamp: 1000 }],
+    );
+    const appliedBefore = useStore.getState().threadWindowAppliedRevisions.get("s1")?.get("project-alpha") ?? 0;
+
+    fireMessage({
+      type: "history_sync",
+      frozen_base_count: 0,
+      frozen_delta: [{ type: "user_message", id: "u-full", content: "full history", timestamp: 1000 }],
+      hot_messages: [],
+      frozen_count: 1,
+      expected_frozen_hash: "full-frozen",
+      expected_full_hash: "full-hash",
+    });
+
+    expect(useStore.getState().threadWindowMessages.get("s1")?.get("project-alpha")?.[0]?.content).toBe(
+      "Already visible leader thread",
+    );
+    expect(useStore.getState().threadWindowRefreshRevisions.get("s1")).toBeGreaterThan(appliedBefore);
+    expect(useStore.getState().threadWindowAppliedRevisions.get("s1")?.get("project-alpha")).toBe(appliedBefore);
+  });
+
   it("appends frozen delta and replaces the hot tail", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

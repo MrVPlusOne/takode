@@ -87,6 +87,8 @@ vi.mock("../store.js", () => {
       sdkSessions: mockStoreValues.sdkSessions ?? [],
       threadWindows: mockStoreValues.threadWindows ?? new Map(),
       threadWindowMessages: mockStoreValues.threadWindowMessages ?? new Map(),
+      threadWindowRefreshRevisions: mockStoreValues.threadWindowRefreshRevisions ?? new Map(),
+      threadWindowAppliedRevisions: mockStoreValues.threadWindowAppliedRevisions ?? new Map(),
       feedScrollPosition: mockStoreValues.feedScrollPosition ?? new Map(),
       turnActivityOverrides: mockStoreValues.turnActivityOverrides ?? new Map(),
       autoExpandedTurnIds: mockStoreValues.autoExpandedTurnIds ?? new Map(),
@@ -444,6 +446,8 @@ function resetStore() {
   mockStoreValues.sessions = new Map();
   mockStoreValues.threadWindows = new Map();
   mockStoreValues.threadWindowMessages = new Map();
+  mockStoreValues.threadWindowRefreshRevisions = new Map();
+  mockStoreValues.threadWindowAppliedRevisions = new Map();
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.toolResults = new Map();
   mockStoreValues.toolStartTimestamps = new Map();
@@ -520,6 +524,21 @@ function setStoreSelectedThreadWindow({
     ],
   ]);
   mockStoreValues.threadWindowMessages = new Map([[sessionId, new Map([[threadKey, messages]])]]);
+}
+
+function setStoreThreadWindowRevisions({
+  sessionId,
+  threadKey,
+  refreshRevision,
+  appliedRevision,
+}: {
+  sessionId: string;
+  threadKey: string;
+  refreshRevision: number;
+  appliedRevision: number;
+}) {
+  mockStoreValues.threadWindowRefreshRevisions = new Map([[sessionId, refreshRevision]]);
+  mockStoreValues.threadWindowAppliedRevisions = new Map([[sessionId, new Map([[threadKey, appliedRevision]])]]);
 }
 
 async function flushFeedObservers() {
@@ -847,6 +866,116 @@ describe("MessageFeed section windowing", () => {
 
     expect(screen.getByText("Persisted Main history tail")).toBeTruthy();
     expect(screen.queryByText("Start a conversation")).toBeNull();
+  });
+
+  // Authoritative session refreshes can invalidate selected leader windows, but
+  // already-visible cached content should stay rendered while the fresh window is requested.
+  it("keeps stale leader Main content visible while refreshing after history replacement", async () => {
+    const sid = "test-leader-main-stale-window-visible-during-refresh";
+    const refreshedHistoryTail = makeMessage({
+      id: "u-main-authoritative-tail",
+      role: "user",
+      content: "Authoritative raw history after session switch",
+      timestamp: 200,
+      historyIndex: 42,
+    });
+    const visibleWindowMessage = makeMessage({
+      id: "u-main-visible-window",
+      role: "user",
+      content: "Visible Main thread before refresh",
+      timestamp: 100,
+      historyIndex: 40,
+    });
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [refreshedHistoryTail]);
+    setStoreHistoryWindow(sid);
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey: "main",
+      fromItem: 7,
+      itemCount: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      totalItems: 37,
+      sectionItemCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visibleItemCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      messages: [visibleWindowMessage],
+    });
+    setStoreThreadWindowRevisions({
+      sessionId: sid,
+      threadKey: "main",
+      refreshRevision: 1,
+      appliedRevision: 0,
+    });
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    expect(screen.getByText("Visible Main thread before refresh")).toBeTruthy();
+    expect(screen.queryByText("Loading conversation...")).toBeNull();
+    expect(screen.queryByText("Start a conversation")).toBeNull();
+    await flushFeedObservers();
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        thread_key: "main",
+        from_item: -1,
+      }),
+    );
+  });
+
+  // Non-Main selected leader threads follow the same stale-but-visible path; the
+  // regression was a temporary loading/empty state before thread_window_sync arrived.
+  it("keeps stale leader quest-thread content visible while refreshing after history replacement", async () => {
+    const sid = "test-leader-quest-stale-window-visible-during-refresh";
+    const visibleWindowMessage = makeMessage({
+      id: "u-project-visible-window",
+      role: "user",
+      content: "Visible project thread before refresh",
+      timestamp: 100,
+      historyIndex: 40,
+      metadata: { threadRefs: [{ threadKey: "project-alpha", questId: "project-alpha", source: "explicit" }] },
+    });
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "u-main-authoritative-tail",
+        role: "user",
+        content: "Main raw history after session switch",
+        timestamp: 200,
+        historyIndex: 42,
+      }),
+    ]);
+    setStoreHistoryWindow(sid);
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey: "project-alpha",
+      fromItem: 7,
+      itemCount: HISTORY_WINDOW_SECTION_TURN_COUNT * HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      totalItems: 37,
+      sectionItemCount: HISTORY_WINDOW_SECTION_TURN_COUNT,
+      visibleItemCount: HISTORY_WINDOW_VISIBLE_SECTION_COUNT,
+      messages: [visibleWindowMessage],
+    });
+    setStoreThreadWindowRevisions({
+      sessionId: sid,
+      threadKey: "project-alpha",
+      refreshRevision: 1,
+      appliedRevision: 0,
+    });
+
+    render(<MessageFeed sessionId={sid} threadKey="project-alpha" />);
+
+    expect(screen.getByText("Visible project thread before refresh")).toBeTruthy();
+    expect(screen.queryByText("Loading conversation...")).toBeNull();
+    expect(screen.queryByText("Start a conversation")).toBeNull();
+    await flushFeedObservers();
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        thread_key: "project-alpha",
+        from_item: -1,
+      }),
+    );
   });
 
   it("retries the selected Main window request after the browser socket connects", async () => {

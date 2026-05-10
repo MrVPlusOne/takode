@@ -175,6 +175,14 @@ export function MessageFeed({
   const selectedFeedWindowMessages = useStore(
     (s) => s.threadWindowMessages?.get(sessionId)?.get(normalizedThreadKey) ?? EMPTY_MESSAGES,
   );
+  const threadWindowRefreshRevision = useStore((s) => s.threadWindowRefreshRevisions?.get(sessionId) ?? 0);
+  const selectedThreadWindowRevision = useStore(
+    (s) => s.threadWindowAppliedRevisions?.get(sessionId)?.get(normalizedThreadKey) ?? 0,
+  );
+  const selectedThreadWindowNeedsRefresh =
+    selectedFeedWindowEnabled &&
+    selectedFeedWindow !== null &&
+    selectedThreadWindowRevision < threadWindowRefreshRevision;
   const [pendingInitialThreadWindowKey, setPendingInitialThreadWindowKey] = useState<string | null>(null);
   const connectionStatus = useStore((s) => s.connectionStatus?.get(sessionId) ?? "disconnected");
   const sessionNotifications = useStore((s) => s.sessionNotifications?.get(sessionId));
@@ -644,7 +652,7 @@ export function MessageFeed({
 
   useEffect(() => {
     if (!selectedFeedWindowEnabled) return;
-    if (activeThreadWindow) return;
+    if (activeThreadWindow && !selectedThreadWindowNeedsRefresh) return;
     requestThreadWindow(-1);
   }, [
     activeThreadWindow,
@@ -652,6 +660,7 @@ export function MessageFeed({
     missingSelectedWindowHasContext,
     requestThreadWindow,
     selectedFeedWindowEnabled,
+    selectedThreadWindowNeedsRefresh,
   ]);
 
   useEffect(() => {

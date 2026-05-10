@@ -53,6 +53,8 @@ export interface AppState {
   historyWindows: Map<string, HistoryWindowState>;
   threadWindows: Map<string, Map<string, ThreadWindowState>>;
   threadWindowMessages: Map<string, Map<string, ChatMessage[]>>;
+  threadWindowRefreshRevisions: Map<string, number>;
+  threadWindowAppliedRevisions: Map<string, Map<string, number>>;
   feedWindowSyncs: Map<string, FeedWindowSync>;
   threadFeedWindowSyncs: Map<string, Map<string, FeedWindowSync>>;
   leaderProjections: Map<string, LeaderProjectionSnapshot>;
