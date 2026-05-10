@@ -1,0 +1,4 @@
+interface:
+  display_name: "Takode Codex Session Safety"
+  short_description: "Guard Codex metadata refresh, recovery, and image transport"
+  default_prompt: "Use $takode-codex-session-safety when changing Takode Codex metadata refresh, session recovery, or attachment transport behavior."

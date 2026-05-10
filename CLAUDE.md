@@ -29,6 +29,7 @@ If an implementation plan or user proposal conflicts with an existing design-pri
 | `takode-orchestration-design` | `.claude/skills/takode-orchestration-design/` | Placement rubric for Takode leader/worker/reviewer orchestration guidance and phase instruction design |
 | `takode-cli-design` | `.claude/skills/takode-cli-design/`, `.agents/skills/takode-cli-design/` | Progressive Takode CLI output design: compact defaults, explicit detail/include paths, and bulky-field guardrails |
 | `takode-injected-message-design` | `.claude/skills/takode-injected-message-design/`, `.agents/skills/takode-injected-message-design/` | Design guardrails for Takode injected messages and reminders, including interrupted-generation skip decisions |
+| `takode-codex-session-safety` | `.claude/skills/takode-codex-session-safety/`, `.agents/skills/takode-codex-session-safety/` | Guardrails for Codex `skills/changed`, skill/app metadata refresh, close-wave diagnostics, browser-open recovery triggers, and image attachment transport |
 | `leader-dispatch` | `.claude/skills/leader-dispatch/` | Leader dispatch workflow: worker selection, templates, discipline rules |
 | `confirm` | `.claude/skills/confirm/` | Confirmation workflow for instruction-scoped `/confirm` requests |
 | `quest-design` | `.claude/skills/quest-design/` | Confirmation workflow before creating or refining quests |
