@@ -30,6 +30,7 @@ import { recordFrontendPerfEntry } from "./utils/frontend-perf-recorder.js";
 import { applyThreadAttachmentUpdate } from "./thread-attachment-update-handler.js";
 import type { WsIncomingMessageContext } from "./ws-message-context.js";
 import { handleTranscriptionProgressMessage } from "./transcription-progress.js";
+import { requestThreadViewportSnapshot } from "./utils/thread-viewport.js";
 
 const taskCounters = new Map<string, number>();
 const pendingCliDisconnectTimers = new Map<string, ReturnType<typeof setTimeout>>();
@@ -538,6 +539,12 @@ function resetAuthoritativeHistoryState(
 ): void {
   const store = useStore.getState();
   store.resetSessionForAuthoritativeHistory(sessionId, options);
+}
+
+function snapshotThreadViewportBeforeHistoryReplacement(sessionId: string): void {
+  // Mobile reconnect can replace history while the feed stays mounted. Capture
+  // the live scroll position before the replacement clears window state.
+  requestThreadViewportSnapshot(sessionId);
 }
 
 /** Resolve a pending message-index scroll from deep link navigation (session:N:M). */
@@ -1746,6 +1753,7 @@ function handleParsedMessage(
 
     case "message_history": {
       const startedAt = perfNow();
+      snapshotThreadViewportBeforeHistoryReplacement(sessionId);
       resetAuthoritativeHistoryState(sessionId);
       const { chatMessages, frozenCount } = normalizeHistoryMessages(sessionId, data.messages);
       store.setMessages(sessionId, chatMessages, { frozenCount });
@@ -1780,6 +1788,7 @@ function handleParsedMessage(
       const reusableFrozenCount = Math.max(0, Math.min(existingFrozenCount, data.frozen_base_count));
       const frozenPrefix = reusableFrozenCount > 0 ? existingMessages.slice(0, reusableFrozenCount) : [];
       const preservedToolStateIds = collectRetainedToolUseIds(frozenPrefix);
+      snapshotThreadViewportBeforeHistoryReplacement(sessionId);
       resetAuthoritativeHistoryState(sessionId, { preserveToolStateIds: preservedToolStateIds });
       const { chatMessages: frozenDeltaMessages } = normalizeHistoryMessages(
         sessionId,

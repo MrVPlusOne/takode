@@ -3,6 +3,7 @@
 import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
+import { SAVE_THREAD_VIEWPORT_EVENT } from "./utils/thread-viewport.js";
 
 // Mock the names utility before any imports
 vi.mock("./utils/names.js", () => ({
@@ -126,6 +127,48 @@ function fireMessage(data: Record<string, unknown>) {
 // Connection
 // ===========================================================================
 describe("handleMessage: history_sync", () => {
+  it("snapshots the mounted thread viewport before replacing the hot tail", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore.getState().setMessages(
+      "s1",
+      [
+        { id: "frozen-1", role: "user", content: "old frozen", timestamp: 1000 },
+        { id: "visible-hot-before-sync", role: "assistant", content: "old hot", timestamp: 2000 },
+      ],
+      { frozenCount: 1 },
+    );
+
+    const snapshots: Array<{ sessionId: string | null; visibleMessageId: string | undefined }> = [];
+    const handleSnapshot = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
+      snapshots.push({
+        sessionId: detail?.sessionId ?? null,
+        visibleMessageId: useStore.getState().messages.get("s1")?.[1]?.id,
+      });
+    };
+    window.addEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
+
+    try {
+      fireMessage({
+        type: "history_sync",
+        frozen_base_count: 1,
+        frozen_delta: [],
+        frozen_count: 1,
+        hot_messages: [{ type: "user_message", content: "fresh hot tail", timestamp: 3000 }],
+        expected_frozen_hash: computeHistoryMessagesSyncHash([
+          { type: "user_message", content: "old frozen", timestamp: 1000 },
+        ]),
+      });
+    } finally {
+      window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
+    }
+
+    expect(snapshots).toEqual([{ sessionId: "s1", visibleMessageId: "visible-hot-before-sync" }]);
+    expect(useStore.getState().messages.get("s1")?.at(-1)?.content).toBe("fresh hot tail");
+  });
+
   it("appends frozen delta and replaces the hot tail", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });

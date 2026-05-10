@@ -117,10 +117,16 @@ vi.mock("../store.js", () => {
       matches: [],
       currentMatchIndex: -1,
     }),
+    sessionSearchMessageMatchesCategory: () => true,
   };
 });
 
-import { getFeedViewportKey, persistLeaderViewportPosition } from "../utils/thread-viewport.js";
+import {
+  getFeedViewportKey,
+  persistLeaderViewportPosition,
+  readLeaderViewportPosition,
+  requestThreadViewportSnapshot,
+} from "../utils/thread-viewport.js";
 import { MessageFeed } from "./MessageFeed.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
@@ -811,6 +817,75 @@ describe("MessageFeed thread viewport restoration", () => {
     } finally {
       if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
       else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
+      else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
+    }
+  });
+
+  it("uses a just-snapshotted leader thread viewport after reconnect history replacement", async () => {
+    const sid = "test-reconnect-history-uses-fresh-snapshot";
+    const firstMessage = makeMessage({
+      id: "a-q941-before",
+      role: "assistant",
+      content: "Quest update before reconnect",
+      metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+    });
+    const secondMessage = makeMessage({
+      id: "a-q941-after",
+      role: "assistant",
+      content: "Quest update after reconnect",
+      metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+    });
+    setStoreMessages(sid, [firstMessage]);
+    mockStoreValues.sessions = new Map([[sid, { isOrchestrator: true }]]);
+
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollHeight");
+    const originalClientHeight = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "clientHeight");
+    const originalScrollTop = Object.getOwnPropertyDescriptor(HTMLDivElement.prototype, "scrollTop");
+    let scrollHeightValue = 1200;
+    let scrollTopValue = 760;
+    Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollHeightValue : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "clientHeight", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? 400 : 0;
+      },
+    });
+    Object.defineProperty(HTMLDivElement.prototype, "scrollTop", {
+      configurable: true,
+      get() {
+        return this.classList.contains("overflow-y-auto") ? scrollTopValue : 0;
+      },
+      set(value) {
+        scrollTopValue = value as number;
+      },
+    });
+
+    try {
+      const { rerender } = render(<MessageFeed sessionId={sid} threadKey="q-941" />);
+      scrollTopValue = 760;
+      mockScrollTo.mockClear();
+
+      requestThreadViewportSnapshot(sid);
+      expect(readLeaderViewportPosition(sid, "q-941")?.isAtBottom).toBe(true);
+
+      scrollHeightValue = 1500;
+      scrollTopValue = 0;
+      setStoreMessages(sid, [firstMessage, secondMessage]);
+      rerender(<MessageFeed sessionId={sid} threadKey="q-941" />);
+
+      await waitFor(() => expect(mockScrollTo).toHaveBeenCalledWith({ top: 1088, behavior: "auto" }));
+      expect(screen.getByText("Quest update after reconnect")).toBeTruthy();
+    } finally {
+      if (originalScrollHeight) Object.defineProperty(HTMLDivElement.prototype, "scrollHeight", originalScrollHeight);
+      else delete (HTMLDivElement.prototype as { scrollHeight?: unknown }).scrollHeight;
+      if (originalClientHeight) Object.defineProperty(HTMLDivElement.prototype, "clientHeight", originalClientHeight);
+      else delete (HTMLDivElement.prototype as { clientHeight?: unknown }).clientHeight;
       if (originalScrollTop) Object.defineProperty(HTMLDivElement.prototype, "scrollTop", originalScrollTop);
       else delete (HTMLDivElement.prototype as { scrollTop?: unknown }).scrollTop;
     }

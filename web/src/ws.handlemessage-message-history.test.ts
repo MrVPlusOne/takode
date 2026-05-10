@@ -3,6 +3,7 @@
 import type { SessionState, PermissionRequest, ContentBlock, BrowserIncomingMessage } from "./types.js";
 import { computeHistoryMessagesSyncHash } from "../shared/history-sync-hash.js";
 import { HISTORY_WINDOW_SECTION_TURN_COUNT, HISTORY_WINDOW_VISIBLE_SECTION_COUNT } from "../shared/history-window.js";
+import { SAVE_THREAD_VIEWPORT_EVENT } from "./utils/thread-viewport.js";
 
 // Mock the names utility before any imports
 vi.mock("./utils/names.js", () => ({
@@ -126,6 +127,41 @@ function fireMessage(data: Record<string, unknown>) {
 // Connection
 // ===========================================================================
 describe("handleMessage: message_history", () => {
+  it("snapshots the mounted thread viewport before replacing reconnect history", () => {
+    wsModule.connectSession("s1");
+    fireMessage({ type: "session_init", session: makeSession("s1") });
+
+    useStore
+      .getState()
+      .setMessages(
+        "s1",
+        [{ id: "visible-before-reconnect", role: "assistant", content: "old visible thread", timestamp: 1000 }],
+        { frozenCount: 1 },
+      );
+
+    const snapshots: Array<{ sessionId: string | null; visibleMessageId: string | undefined }> = [];
+    const handleSnapshot = (event: Event) => {
+      const detail = (event as CustomEvent<{ sessionId?: string }>).detail;
+      snapshots.push({
+        sessionId: detail?.sessionId ?? null,
+        visibleMessageId: useStore.getState().messages.get("s1")?.[0]?.id,
+      });
+    };
+    window.addEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
+
+    try {
+      fireMessage({
+        type: "message_history",
+        messages: [{ type: "user_message", content: "fresh reconnect history", timestamp: 2000 }],
+      });
+    } finally {
+      window.removeEventListener(SAVE_THREAD_VIEWPORT_EVENT, handleSnapshot);
+    }
+
+    expect(snapshots).toEqual([{ sessionId: "s1", visibleMessageId: "visible-before-reconnect" }]);
+    expect(useStore.getState().messages.get("s1")?.[0]?.content).toBe("fresh reconnect history");
+  });
+
   it("reconstructs chat messages from history", () => {
     wsModule.connectSession("s1");
     fireMessage({ type: "session_init", session: makeSession("s1") });
