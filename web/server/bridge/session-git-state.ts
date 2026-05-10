@@ -104,21 +104,29 @@ function getSharedAheadBehindKey(state: SessionState): string | null {
   return [repoKey, ref, headKey].join("\0");
 }
 
-async function resolveMergeBaseRef(cwd: string, ref: string): Promise<string | null> {
-  const key = [cwd, ref].join("\0");
-  let computation = inFlightMergeBaseRefs.get(key);
-  if (!computation) {
-    computation = execPromise(`${SERVER_GIT_CMD} merge-base ${ref} HEAD`, {
+async function readMergeBaseRef(cwd: string, ref: string): Promise<string | null> {
+  try {
+    const { stdout } = await execPromise(`${SERVER_GIT_CMD} merge-base ${ref} HEAD`, {
       cwd,
       timeout: GIT_CMD_TIMEOUT,
-    })
-      .then(({ stdout }) => stdout.trim() || null)
-      .catch(() => null)
-      .finally(() => {
-        if (inFlightMergeBaseRefs.get(key) === computation) {
-          inFlightMergeBaseRefs.delete(key);
-        }
-      });
+    });
+    return stdout.trim() || null;
+  } catch {
+    return null;
+  }
+}
+
+async function resolveMergeBaseRef(cwd: string, ref: string, headIdentity: string | null): Promise<string | null> {
+  if (!headIdentity) return readMergeBaseRef(cwd, ref);
+
+  const key = [cwd, ref, headIdentity].join("\0");
+  let computation = inFlightMergeBaseRefs.get(key);
+  if (!computation) {
+    computation = readMergeBaseRef(cwd, ref).finally(() => {
+      if (inFlightMergeBaseRefs.get(key) === computation) {
+        inFlightMergeBaseRefs.delete(key);
+      }
+    });
     inFlightMergeBaseRefs.set(key, computation);
   }
   return computation;
@@ -393,7 +401,7 @@ export async function updateDiffBaseStartSha(session: SessionDiffStateLike, prev
 
   let nextAnchor = currentHeadSha;
   if (ref) {
-    const mergeBase = await resolveMergeBaseRef(cwd, ref);
+    const mergeBase = await resolveMergeBaseRef(cwd, ref, currentHeadSha);
     if (mergeBase) nextAnchor = mergeBase;
   }
 
@@ -636,7 +644,7 @@ export async function computeDiffStatsAsync(
     const worktreeFingerprint = session.state.is_worktree ? (await readWorktreeStateFingerprint(cwd)) || "" : "";
     let diffRef = diffBase;
     if (!session.state.is_worktree) {
-      const mergeBase = await resolveMergeBaseRef(cwd, diffBase);
+      const mergeBase = await resolveMergeBaseRef(cwd, diffBase, session.state.git_head_sha?.trim() || null);
       if (mergeBase) diffRef = mergeBase;
     }
 

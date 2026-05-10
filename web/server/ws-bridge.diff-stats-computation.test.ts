@@ -1678,6 +1678,64 @@ describe("Diff stats computation", () => {
     expect(s2.state.total_lines_added).toBe(42);
   });
 
+  it("does not coalesce same-base merge-base refreshes across different HEAD identities", async () => {
+    // `merge-base <ref> HEAD` depends on HEAD. Same cwd/ref refreshes with
+    // different known HEAD SHAs must not share one in-flight merge-base result.
+    const mergeBaseCallbacks: Array<(err: Error | null, result: { stdout: string; stderr: string }) => void> = [];
+    const commands: string[] = [];
+    mockExec.mockImplementation((cmd: string, opts: any, cb?: Function) => {
+      commands.push(cmd);
+      const callback = typeof opts === "function" ? opts : cb;
+      if (cmd.includes("merge-base shared-base HEAD")) {
+        if (callback) mergeBaseCallbacks.push(callback);
+        return;
+      }
+      if (cmd.includes("diff --numstat base-for-head-a")) {
+        callback?.(null, { stdout: "1\t0\ta.ts\n", stderr: "" });
+        return;
+      }
+      if (cmd.includes("diff --numstat base-for-head-b")) {
+        callback?.(null, { stdout: "2\t0\tb.ts\n", stderr: "" });
+        return;
+      }
+      callback?.(null, { stdout: "", stderr: "" });
+    });
+
+    const s1 = bridge.getOrCreateSession("s1");
+    const s2 = bridge.getOrCreateSession("s2");
+    s1.state.cwd = "/repo";
+    s2.state.cwd = "/repo";
+    s1.state.is_worktree = false;
+    s2.state.is_worktree = false;
+    s1.state.diff_base_branch = "shared-base";
+    s2.state.diff_base_branch = "shared-base";
+    s1.state.git_head_sha = "head-a";
+    s2.state.git_head_sha = "head-b";
+    const deps = {
+      refreshGitInfo: vi.fn(async (targetSession: any) => {
+        targetSession.state.git_status_refreshed_at = Date.now();
+        targetSession.state.git_status_refresh_error = null;
+      }),
+      broadcastSessionUpdate: vi.fn(),
+      broadcastDiffTotals: vi.fn(),
+      persistSession: vi.fn(),
+    };
+
+    const first = refreshGitInfoPublicController(s1 as any, deps, { broadcastUpdate: true, force: true });
+    const second = refreshGitInfoPublicController(s2 as any, deps, { broadcastUpdate: true, force: true });
+
+    await vi.waitFor(() => expect(mergeBaseCallbacks).toHaveLength(2));
+    mergeBaseCallbacks[0]!(null, { stdout: "base-for-head-a\n", stderr: "" });
+    mergeBaseCallbacks[1]!(null, { stdout: "base-for-head-b\n", stderr: "" });
+    await Promise.all([first, second]);
+
+    expect(commands.filter((cmd) => cmd.includes("merge-base shared-base HEAD"))).toHaveLength(2);
+    expect(commands.filter((cmd) => cmd.includes("diff --numstat base-for-head-a"))).toHaveLength(1);
+    expect(commands.filter((cmd) => cmd.includes("diff --numstat base-for-head-b"))).toHaveLength(1);
+    expect(s1.state.total_lines_added).toBe(1);
+    expect(s2.state.total_lines_added).toBe(2);
+  });
+
   it("refreshWorktreeGitStateForSnapshot preserves stale totals when required diff recompute fails", async () => {
     const worktreeCwd = join(tempDir, "wt");
     const worktreeGitDir = join(tempDir, "repo.git", "worktrees", "wt-1");
