@@ -541,12 +541,20 @@ export class CodexAdapter
   }
 
   private scheduleInitialSkillMetadataRefresh(): void {
-    queueMicrotask(() => {
+    this.enqueueOutgoingDispatch("initial_skill_metadata_refresh", async () => {
       if (!this.connected || this.initFailed) return;
-      this.refreshSkills(true, "initialize", INITIAL_SKILL_METADATA_REFRESH_TIMEOUT_MS).catch((err) => {
+      if (this.currentTurnId) {
+        console.log(
+          `[codex-adapter] Skipping initial skill/app metadata refresh for session ${this.sessionId}; turn ${this.currentTurnId} is active`,
+        );
+        return;
+      }
+      try {
+        await this.refreshSkills(true, "initialize", INITIAL_SKILL_METADATA_REFRESH_TIMEOUT_MS);
+      } catch (err) {
         if (!this.connected) return;
         console.warn(`[codex-adapter] Initial skill/app metadata refresh failed for session ${this.sessionId}:`, err);
-      });
+      }
     });
   }
 

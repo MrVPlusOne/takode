@@ -523,6 +523,44 @@ describe("CodexAdapter", () => {
     );
   });
 
+  it("does not start initialization metadata refresh while a queued user turn starts", async () => {
+    const adapter = new CodexAdapter(proc as never, "test-session", {
+      model: "o4-mini",
+      cwd: "/home/user/project",
+    });
+
+    const accepted = adapter.sendBrowserMessage({ type: "user_message", content: "queued during init" });
+    expect(accepted).toBe(true);
+
+    await tick();
+    stdout.push(JSON.stringify({ id: 1, result: { userAgent: "codex" } }) + "\n");
+    await tick();
+    stdout.push(JSON.stringify({ id: 2, result: { thread: { id: "thr_123" } } }) + "\n");
+    await tick();
+
+    const rateLimitsReq = parseWrittenJsonLines(stdin.chunks).find((line) => line.method === "account/rateLimits/read");
+    expect(rateLimitsReq).toBeDefined();
+    stdout.push(
+      JSON.stringify({ id: rateLimitsReq.id, result: { rateLimits: { primary: null, secondary: null } } }) + "\n",
+    );
+    await tick();
+
+    let lines = parseWrittenJsonLines(stdin.chunks);
+    const turnStart = lines.find((line) => line.method === "turn/start");
+    expect(turnStart).toBeDefined();
+    expect(turnStart.params.input).toEqual([{ type: "text", text: "queued during init", text_elements: [] }]);
+    expect(lines.filter((line) => line.method === "skills/list")).toHaveLength(0);
+    expect(lines.filter((line) => line.method === "app/list")).toHaveLength(0);
+
+    stdout.push(JSON.stringify({ id: turnStart.id, result: { turn: { id: "turn_queued" } } }) + "\n");
+    await tick();
+    await tick();
+
+    lines = parseWrittenJsonLines(stdin.chunks);
+    expect(lines.filter((line) => line.method === "skills/list")).toHaveLength(0);
+    expect(lines.filter((line) => line.method === "app/list")).toHaveLength(0);
+  });
+
   it("refreshSkills fetches enabled skills for the matching cwd and emits session_update", async () => {
     const messages: BrowserIncomingMessage[] = [];
     const adapter = new CodexAdapter(proc as never, "test-session", {
@@ -722,8 +760,6 @@ describe("CodexAdapter", () => {
     stdout.push(JSON.stringify({ id: 3, result: { rateLimits: { primary: null, secondary: null } } }) + "\n");
     await tick();
 
-    const refreshPromise = adapter.refreshSkills(true);
-    await tick();
     const skillsReq = parseWrittenJsonLines(stdin.chunks)
       .filter((line) => line.method === "skills/list")
       .at(-1);
@@ -760,7 +796,7 @@ describe("CodexAdapter", () => {
         result: { data: [], nextCursor: null },
       }) + "\n",
     );
-    await refreshPromise;
+    await tick();
 
     stdin.chunks = [];
     adapter.sendBrowserMessage({
