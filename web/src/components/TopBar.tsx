@@ -3,15 +3,16 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
-import { navigateToSessionThread, parseHash } from "../utils/routing.js";
+import { parseHash } from "../utils/routing.js";
 import { navigateTo } from "../utils/navigation.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
 import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
 import { questLabel } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
-import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
-import { persistLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
+import { activeBoardSummarySegments } from "./leader-board-summary.js";
+import { LeaderWorkboardControlButton, SummarySegments } from "./leader-workboard-controls.js";
+import type { LeaderWorkboardView } from "../store-types.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 
@@ -113,8 +114,9 @@ export function TopBar({
     activeQuestCount,
     refreshQuests,
     isCurrentLeaderSession,
-    currentLeaderActiveCount,
+    currentLeaderBoard,
     currentLeaderCompletedCount,
+    currentLeaderWorkboardView,
     setLeaderWorkboardView,
   } = useStore(
     useShallow((s) => ({
@@ -131,10 +133,11 @@ export function TopBar({
         !!s.currentSessionId &&
         (s.sessions.get(s.currentSessionId)?.isOrchestrator === true ||
           s.sdkSessions.some((session) => session.sessionId === s.currentSessionId && session.isOrchestrator === true)),
-      currentLeaderActiveCount: s.currentSessionId ? (s.sessionBoards.get(s.currentSessionId)?.length ?? 0) : 0,
+      currentLeaderBoard: s.currentSessionId ? (s.sessionBoards.get(s.currentSessionId) ?? []) : [],
       currentLeaderCompletedCount: s.currentSessionId
         ? (s.sessionCompletedBoards.get(s.currentSessionId)?.length ?? 0)
         : 0,
+      currentLeaderWorkboardView: s.currentSessionId ? (s.leaderWorkboardViews.get(s.currentSessionId) ?? null) : null,
       setLeaderWorkboardView: s.setLeaderWorkboardView,
     })),
   );
@@ -158,6 +161,10 @@ export function TopBar({
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
   const isPaused = !!pause?.pausedAt;
+  const currentLeaderActiveSummarySegments = useMemo(
+    () => activeBoardSummarySegments(currentLeaderBoard),
+    [currentLeaderBoard],
+  );
 
   useEffect(() => {
     const openSessionId = infoOpen && isSessionView ? currentSessionId : null;
@@ -223,12 +230,10 @@ export function TopBar({
       navigateTo("/questmaster");
     }
   }, [isQuestmasterPage]);
-  const openLeaderWorkboardView = useCallback(
-    (view: "active" | "completed") => {
+  const openLeaderWorkboardViewInPlace = useCallback(
+    (view: LeaderWorkboardView) => {
       if (!currentSessionId) return;
-      persistLeaderSelectedThreadKey(currentSessionId, MAIN_THREAD_KEY);
       setLeaderWorkboardView(currentSessionId, view);
-      navigateToSessionThread(currentSessionId, MAIN_THREAD_KEY);
     },
     [currentSessionId, setLeaderWorkboardView],
   );
@@ -302,6 +307,40 @@ export function TopBar({
 
       {/* Right side */}
       <div className="flex items-center gap-2 sm:gap-3 shrink-0 text-[12px] text-cc-muted">
+        {currentSessionId &&
+          isSessionView &&
+          isCurrentLeaderSession &&
+          currentLeaderActiveSummarySegments.length > 0 && (
+            <LeaderWorkboardControlButton
+              view="active"
+              activeView={currentLeaderWorkboardView}
+              onSelectView={openLeaderWorkboardViewInPlace}
+              testId="topbar-workboard-shortcut"
+              ariaLabel="Open active workboard"
+              title="Open active workboard"
+              hideUntilWide
+            >
+              <span>Workboard</span>
+              <span className="min-w-0 truncate" data-testid="topbar-workboard-phase-summary">
+                <SummarySegments segments={currentLeaderActiveSummarySegments} />
+              </span>
+            </LeaderWorkboardControlButton>
+          )}
+        {currentSessionId && isSessionView && isCurrentLeaderSession && currentLeaderCompletedCount > 0 && (
+          <LeaderWorkboardControlButton
+            view="completed"
+            activeView={currentLeaderWorkboardView}
+            onSelectView={openLeaderWorkboardViewInPlace}
+            testId="topbar-completed-shortcut"
+            ariaLabel="Open completed quests"
+            title="Open completed quests"
+            hideUntilWide
+          >
+            <span>Completed</span>
+            <span className="tabular-nums">{currentLeaderCompletedCount}</span>
+            <span>done</span>
+          </LeaderWorkboardControlButton>
+        )}
         <GlobalNeedsInputMenu />
         <SearchToggleButton
           isOpen={universalSearchOpen}
@@ -314,34 +353,6 @@ export function TopBar({
               <span className="text-cc-warning font-medium animate-pulse">Compacting...</span>
             )}
             {status === "reverting" && <span className="text-cc-warning font-medium animate-pulse">Reverting...</span>}
-            {isCurrentLeaderSession && currentLeaderActiveCount > 0 && (
-              <button
-                type="button"
-                onClick={() => openLeaderWorkboardView("active")}
-                className="hidden min-[1180px]:inline-flex h-7 items-center gap-1.5 rounded-lg border border-cc-border/70 px-2 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
-                data-testid="topbar-workboard-shortcut"
-                title="Open active workboard"
-              >
-                <span>Workboard</span>
-                <span className="rounded-sm bg-cc-hover/70 px-1 font-mono-code text-[10px] text-cc-fg">
-                  {currentLeaderActiveCount}
-                </span>
-              </button>
-            )}
-            {isCurrentLeaderSession && currentLeaderCompletedCount > 0 && (
-              <button
-                type="button"
-                onClick={() => openLeaderWorkboardView("completed")}
-                className="hidden min-[1180px]:inline-flex h-7 items-center gap-1.5 rounded-lg border border-cc-border/70 px-2 text-[11px] font-medium text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
-                data-testid="topbar-completed-shortcut"
-                title="Open completed quests"
-              >
-                <span>Completed</span>
-                <span className="rounded-sm bg-cc-hover/70 px-1 font-mono-code text-[10px] text-cc-fg">
-                  {currentLeaderCompletedCount}
-                </span>
-              </button>
-            )}
             {/* Diffs toggle */}
             <button
               onClick={() => setActiveTab(activeTab === "diff" ? "chat" : "diff")}

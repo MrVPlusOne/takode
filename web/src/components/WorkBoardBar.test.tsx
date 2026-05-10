@@ -1673,7 +1673,7 @@ describe("WorkBoardBar", () => {
     ).toBeTruthy();
   });
 
-  it("keeps the active workboard selected on repeated active-button clicks", () => {
+  it("toggles the active workboard closed on repeated active-button clicks", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
@@ -1681,10 +1681,11 @@ describe("WorkBoardBar", () => {
     const view = render(<WorkBoardBar sessionId="s1" />);
     const button = view.getByTestId("workboard-active-button");
     fireEvent.click(button);
-    fireEvent.click(button);
     view.rerender(<WorkBoardBar sessionId="s1" />);
-    expect(view.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active");
-    expect(view.getByTestId("board-table")).toBeInTheDocument();
+    fireEvent.click(view.getByTestId("workboard-active-button"));
+    view.rerender(<WorkBoardBar sessionId="s1" />);
+    expect(view.queryByTestId("workboard-panel")).not.toBeInTheDocument();
+    expect(view.queryByTestId("board-table")).not.toBeInTheDocument();
   });
 
   it("closes the selected banner view on Escape", () => {
@@ -1710,7 +1711,7 @@ describe("WorkBoardBar", () => {
     expect(getByText("1 item")).toBeInTheDocument();
   });
 
-  it("keeps selected workboard view per session while visiting a quest thread", () => {
+  it("keeps selected workboard view visible in place while visiting a quest thread", () => {
     resetStore({
       sdkSessions: [
         { sessionId: "s1", isOrchestrator: true },
@@ -1732,7 +1733,8 @@ describe("WorkBoardBar", () => {
 
     rerender(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" />);
     expect(queryByTestId("workboard-main-banner")).not.toBeInTheDocument();
-    expect(queryByTestId("board-table")).not.toBeInTheDocument();
+    expect(getByTestId("workboard-panel")).toHaveAttribute("data-view", "active");
+    expect(getByTestId("board-table")).toBeInTheDocument();
 
     rerender(<WorkBoardBar sessionId="s1" />);
     expect(getByTestId("workboard-panel")).toHaveAttribute("data-view", "active");
@@ -1833,6 +1835,24 @@ describe("WorkBoardBar", () => {
     );
     expect(getByTestId("workboard-panel")).toHaveAttribute("data-view", "other");
     expect(getByTestId("workboard-other-threads-content")).toHaveTextContent("Off-board thread");
+    fireEvent.click(getByTestId("workboard-other-button"));
+    view.rerender(
+      <WorkBoardBar
+        sessionId="s1"
+        onSelectThread={onSelectThread}
+        threadRows={[{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }]}
+      />,
+    );
+    expect(view.queryByTestId("workboard-panel")).not.toBeInTheDocument();
+
+    fireEvent.click(getByTestId("workboard-other-button"));
+    view.rerender(
+      <WorkBoardBar
+        sessionId="s1"
+        onSelectThread={onSelectThread}
+        threadRows={[{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }]}
+      />,
+    );
     fireEvent.click(getByTestId("workboard-off-board-thread"));
     expect(onSelectThread).toHaveBeenCalledWith("q-99");
   });
@@ -1852,6 +1872,10 @@ describe("WorkBoardBar", () => {
 
     expect(view.getByTestId("workboard-panel")).toHaveAttribute("data-view", "completed");
     expect(view.getByTestId("board-table")).toHaveAttribute("data-mode", "completed");
+
+    fireEvent.click(view.getByTestId("workboard-completed-button"));
+    view.rerender(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} />);
+    expect(view.queryByTestId("workboard-panel")).not.toBeInTheDocument();
   });
 
   it("hides the active work button when there are no active phase counts", () => {

@@ -216,7 +216,7 @@ vi.mock("./WorkBoardBar.js", () => ({
       data-open-thread-keys={openThreadKeys.join(",")}
       data-closed-thread-keys={closedThreadKeys.join(",")}
     >
-      {currentThreadKey === "main" && mockState.leaderWorkboardViews.get("s1") && (
+      {mockState.leaderWorkboardViews.get("s1") && (
         <div data-testid="workboard-panel" data-view={mockState.leaderWorkboardViews.get("s1") ?? undefined}>
           {mockState.leaderWorkboardViews.get("s1")}
         </div>
@@ -476,7 +476,7 @@ describe("ChatView leader open thread tabs", () => {
   it.each([
     ["topbar-workboard-shortcut", "active"],
     ["topbar-completed-shortcut", "completed"],
-  ] as const)("keeps the App route on Main when the %s is clicked from a quest thread", async (shortcutTestId, expectedView) => {
+  ] as const)("opens the %s panel in place from a quest thread", async (shortcutTestId, expectedView) => {
     persistLeaderSelectedThreadKey("s1", "q-42");
     resetStore({
       sessions: leaderSession(leaderTabs(["q-42"])),
@@ -497,12 +497,14 @@ describe("ChatView leader open thread tabs", () => {
     expect(scope.queryByTestId("workboard-panel")).not.toBeInTheDocument();
 
     fireEvent.click(scope.getByTestId(shortcutTestId));
+    view.rerender(<RouteAwareLeaderSession />);
 
-    await waitFor(() => expect(window.location.hash).toBe("#/session/s1"));
-    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
-    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "main");
+    await waitFor(() => expect(scope.getByTestId("workboard-panel")).toHaveAttribute("data-view", expectedView));
+    expect(window.location.hash).toBe("#/session/s1?thread=q-42");
+    expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42");
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "q-42");
     expect(scope.getByTestId("workboard-panel")).toHaveAttribute("data-view", expectedView);
-    expect(readLeaderSelectedThreadKey("s1")).toBe("main");
+    expect(readLeaderSelectedThreadKey("s1")).toBe("q-42");
   });
 
   it("renders server-owned tabs and applies remote close updates from another browser", () => {

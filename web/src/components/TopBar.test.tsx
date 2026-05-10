@@ -219,7 +219,6 @@ import { TopBar } from "./TopBar.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 import { getGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
 import { api } from "../api.js";
-import { readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -510,34 +509,61 @@ describe("TopBar", () => {
 
     render(<TopBar />);
 
-    expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("Workboard1");
-    expect(screen.getByTestId("topbar-completed-shortcut")).toHaveTextContent("Completed1");
+    expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("Workboard1 Implement");
+    expect(screen.getByTestId("topbar-workboard-phase-summary")).toHaveTextContent("1 Implement");
+    expect(screen.getByTestId("topbar-completed-shortcut")).toHaveTextContent("Completed1done");
   });
 
-  it("routes desktop leader shortcuts to main with the requested workboard view", () => {
+  it("places desktop leader shortcuts before the notification bell and search controls", () => {
+    resetStore({
+      sdkSessions: [
+        { sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" },
+        { sessionId: "s2", createdAt: 2, name: "Worker Session", sessionNum: 12 },
+      ],
+      sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
+      sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
+      sessionNotifications: new Map([
+        [
+          "s2",
+          [{ id: "n-1", category: "needs-input", summary: "Need scope", timestamp: 3, messageId: "m1", done: false }],
+        ],
+      ]),
+    });
+
+    render(<TopBar />);
+
+    const workboard = screen.getByTestId("topbar-workboard-shortcut");
+    const completed = screen.getByTestId("topbar-completed-shortcut");
+    const bell = screen.getByTitle("Needs-input notifications across sessions");
+    const search = screen.getByTitle("Universal Search");
+    expect(workboard.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(completed.compareDocumentPosition(bell) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(bell.compareDocumentPosition(search) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("opens desktop leader shortcuts in place without routing away from the current thread", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
       sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
       sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
     });
+    window.location.hash = "#/session/s1?thread=q-1";
 
     render(<TopBar />);
 
     fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
     expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "active");
-    expect(window.location.hash).toContain("/session/s1");
-    expect(readLeaderSelectedThreadKey("s1")).toBe("main");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-1");
 
     fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
     expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "completed");
-    expect(window.location.hash).toContain("/session/s1");
-    expect(readLeaderSelectedThreadKey("s1")).toBe("main");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-1");
   });
 
   it.each([
     ["topbar-workboard-shortcut", "active", "active"],
     ["topbar-completed-shortcut", "completed", "completed"],
-  ] as const)("opens the %s panel after routing from a quest thread back to main", (shortcutTestId, expectedView, expectedMode) => {
+  ] as const)("opens the %s panel in place from a quest thread", (shortcutTestId, expectedView, expectedMode) => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
       sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
@@ -556,13 +582,14 @@ describe("TopBar", () => {
 
     fireEvent.click(screen.getByTestId(shortcutTestId));
 
-    expect(window.location.hash).toBe("#/session/s1");
+    expect(window.location.hash).toBe("#/session/s1?thread=q-1");
     view.rerender(
       <>
         <TopBar />
-        <WorkBoardBar sessionId="s1" currentThreadKey="main" />
+        <WorkBoardBar sessionId="s1" currentThreadKey="q-1" />
       </>,
     );
+    expect(screen.queryByTestId("workboard-main-banner")).not.toBeInTheDocument();
     expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", expectedView);
     expect(screen.getByTestId("board-table")).toHaveAttribute("data-mode", expectedMode);
   });
