@@ -4,7 +4,7 @@
   "color": { "name": "blue", "accent": "#60a5fa" },
   "boardState": "PORTING",
   "assigneeRole": "worker",
-  "contract": "Sync accepted tracked changes back to the main repo.",
-  "nextLeaderAction": "read the port leader brief, then wait for sync confirmation and post-port verification before removing the row",
+  "contract": "Sync accepted tracked changes back to the main repo, verify the main repo after sync, and report synced SHAs and port risks.",
+  "nextLeaderAction": "read the port leader brief, then wait for sync confirmation and post-port verification before advancing to final Memory",
   "aliases": ["porting"]
 }

@@ -28,14 +28,15 @@ Use `takode phases` to list available phase metadata and exact brief paths. Lead
 |-------|-------------|--------------|----------------|----------|--------------------|
 | Alignment | `PLANNING` | `~/.companion/quest-journey-phases/alignment/leader.md` | `~/.companion/quest-journey-phases/alignment/assignee.md` | Do a lightweight read-in to confirm concrete understanding, ambiguities, clarification questions, and whether deeper exploration is needed before implementation or execution | read the alignment leader brief, send the alignment-only instruction, then review the worker read-in for leader approval, routing, or necessary user escalation |
 | Explore | `EXPLORING` | `~/.companion/quest-journey-phases/explore/leader.md` | `~/.companion/quest-journey-phases/explore/assignee.md` | Investigate when the investigation is the deliverable or when routing is genuinely unknown; do not use Explore as routine pre-implementation looking around for normal bug-fix, docs, or config work | read the explore leader brief, then wait for the findings summary and decide whether to revise the Journey, advance, add a user-checkpoint, or stop |
-| Implement | `IMPLEMENTING` | `~/.companion/quest-journey-phases/implement/leader.md` | `~/.companion/quest-journey-phases/implement/assignee.md` | Make approved code, docs, prompts, config, or artifact changes; this includes normal investigation, root-cause analysis, code/design reading, test planning, and cheap local evidence within the approved scope | read the implement leader brief, then wait for the worker report and choose the next review, execute, or bookkeeping phase |
+| Implement | `IMPLEMENTING` | `~/.companion/quest-journey-phases/implement/leader.md` | `~/.companion/quest-journey-phases/implement/assignee.md` | Make approved code, docs, prompts, config, or artifact changes; this includes normal investigation, root-cause analysis, code/design reading, test planning, and cheap local evidence within the approved scope | read the implement leader brief, then wait for the worker report and choose the next review, execute, port, or memory phase |
 | Code Review | `CODE_REVIEWING` | `~/.companion/quest-journey-phases/code-review/leader.md` | `~/.companion/quest-journey-phases/code-review/assignee.md` | Review tracked code or tracked artifacts for comprehensive landing risk: correctness, regressions, tests, maintainability, quest hygiene, implementation completeness, meaningful evidence, and security when relevant | read the code-review leader brief, then wait for the reviewer result and either send rework or advance |
 | Mental Simulation | `MENTAL_SIMULATING` | `~/.companion/quest-journey-phases/mental-simulation/leader.md` | `~/.companion/quest-journey-phases/mental-simulation/assignee.md` | Replay a design, workflow, or implementation against concrete scenarios | read the mental-simulation leader brief, then wait for the scenario review and decide whether the Journey needs revision |
 | Execute | `EXECUTING` | `~/.companion/quest-journey-phases/execute/leader.md` | `~/.companion/quest-journey-phases/execute/assignee.md` | Run approved expensive, risky, long-running, externally consequential, or approval-gated operations | read the execute leader brief, track monitor and stop conditions, then wait for the execution report and decide whether outcome review, more execute work, or a Journey revision is needed |
 | Outcome Review | `OUTCOME_REVIEWING` | `~/.companion/quest-journey-phases/outcome-review/leader.md` | `~/.companion/quest-journey-phases/outcome-review/assignee.md` | Reviewer-owned acceptance judgment over external or non-code outcomes such as metrics, logs, artifacts, prompt behavior, or UX trial notes | read the outcome-review leader brief, then wait for the reviewer judgment and route to implement, execute, alignment, or conclusion |
 | User Checkpoint | `USER_CHECKPOINTING` | `~/.companion/quest-journey-phases/user-checkpoint/leader.md` | `~/.companion/quest-journey-phases/user-checkpoint/assignee.md` | Present findings, options, tradeoffs, and a recommendation for a required user decision before the Journey continues; do not treat this as a terminal phase or a generic TBD bucket | read the user-checkpoint leader brief, publish the decision prompt, notify the user, wait for the answer, then revise the remaining Journey |
-| Bookkeeping | `BOOKKEEPING` | `~/.companion/quest-journey-phases/bookkeeping/leader.md` | `~/.companion/quest-journey-phases/bookkeeping/assignee.md` | Record durable shared external state such as quest updates, stream updates, artifact locations, handoff facts, and superseded facts | read the bookkeeping leader brief, record the durable shared state update, then advance when the facts and handoff state are current |
-| Port | `PORTING` | `~/.companion/quest-journey-phases/port/leader.md` | `~/.companion/quest-journey-phases/port/assignee.md` | Sync accepted tracked changes back to the main repo | read the port leader brief, then wait for sync confirmation and post-port verification before removing the row |
+| Port | `PORTING` | `~/.companion/quest-journey-phases/port/leader.md` | `~/.companion/quest-journey-phases/port/assignee.md` | Sync accepted tracked changes back to the main repo, verify the main repo after sync, and report synced SHAs and port risks | read the port leader brief, then wait for sync confirmation and post-port verification before advancing to final Memory |
+| Memory | `MEMORY` | `~/.companion/quest-journey-phases/memory/leader.md` | `~/.companion/quest-journey-phases/memory/assignee.md` | Finish non-project-tracked durable-state closure for a substantively accepted quest; do not edit tracked project files | read the memory leader brief, assign the final Memory owner, then complete the quest only after durable state, final debrief metadata, and the memory statement are settled |
+| Bookkeeping | `BOOKKEEPING` | `~/.companion/quest-journey-phases/bookkeeping/leader.md` | `~/.companion/quest-journey-phases/bookkeeping/assignee.md` | Compatibility phase for targeted durable shared external state that does not fit normal phase documentation or final Memory closure | read the bookkeeping leader brief, record the targeted durable shared-state update, then advance when the facts and handoff state are current |
 
 ## Phase Documentation Contract
 
@@ -66,16 +67,17 @@ Phase documentation should stay specific to the phase:
 - Execute: approved action, monitors, stop conditions, outcome, deviations, artifact or log locations, cleanup or retention decisions, residual risks, and follow-up needs. Keep raw logs out unless the excerpt is the evidence.
 - Outcome Review: evidence judged, ACCEPT or insufficiency rationale, bounded reruns, residual risks, and follow-up routing. Avoid turning it into a second Execute transcript.
 - User Checkpoint: findings, options, tradeoffs, recommendation, required user answer, actual user decision when known, and Journey-revision implications.
-- Bookkeeping: records updated, superseded facts, external locations, durable handoff facts, final metadata gaps, and memory updates or deferrals. Avoid replaying the whole quest when a targeted consolidation or memory pointer is enough.
-- Port: ordered synced SHAs, post-port verification categories, port anomalies, remaining sync risks, final debrief metadata status or draft, and memory statement. Omit branch command transcripts unless recovery depended on them.
+- Port: ordered synced SHAs, post-port verification categories, port anomalies, remaining sync risks, memory statement, and accepted-state context final Memory will need. Omit branch command transcripts unless recovery depended on them.
+- Memory: final debrief metadata status or drafts, quest hygiene changes, memory files inspected, memory update or deferral, external durable-state records, cleanup, follow-up routing, and residual risks.
+- Bookkeeping: records updated, superseded facts, external locations, durable handoff facts, and targeted memory updates or deferrals for legacy/intermediate flows. Avoid replaying the whole quest when a targeted consolidation or memory pointer is enough.
 
 Review phases must judge documentation quality, not just presence. Check phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the phase-scoped primitive is available.
 
 ## File-Based Memory In Journey Work
 
-Takode memory is a Git-tracked Markdown repo scoped to the current server/session space. Normal `memory` commands auto-create the repo at `~/.companion/memory/<serverSlug>/<sessionSpace>` when needed, such as `~/.companion/memory/prod/Takode`, so agents do not need a separate init step. It is a shared aid for durable state, not a hidden instruction channel. After compaction or low-confidence recovery, recover session and quest context first. If durable memory may affect the work, leaders and workers should use visible reads: run `memory catalog show`, treat the catalog as the triage map, inspect plausible catalog-listed Markdown files directly, and use targeted `rg` under `$(memory repo path)` only when catalog or known context makes a match plausible. Use `memory catalog diff` as a freshness check for memory-focused Bookkeeping, and for Port or Outcome Review when memory matters for final handoff, debrief accuracy, durable decisions, or memory-writing choices; do not run it constantly, and do not treat it as a replacement for direct file inspection. If the catalog shows no plausible relevant topic, type, or source, skip blind repo-wide memory search and continue from session, quest, code, or artifact evidence. Use `memory repo path` and `memory --help` to rediscover the repo and command surface.
+Takode memory is a Git-tracked Markdown repo scoped to the current server/session space. Normal `memory` commands auto-create the repo at `~/.companion/memory/<serverSlug>/<sessionSpace>` when needed, such as `~/.companion/memory/prod/Takode`, so agents do not need a separate init step. It is a shared aid for durable state, not a hidden instruction channel. After compaction or low-confidence recovery, recover session and quest context first. If durable memory may affect the work, leaders and workers should use visible reads: run `memory catalog show`, treat the catalog as the triage map, inspect plausible catalog-listed Markdown files directly, and use targeted `rg` under `$(memory repo path)` only when catalog or known context makes a match plausible. Use `memory catalog diff` as a freshness check for final Memory, and for Port or Outcome Review when memory matters for final handoff, debrief accuracy, durable decisions, or memory-writing choices; do not run it constantly, and do not treat it as a replacement for direct file inspection. If the catalog shows no plausible relevant topic, type, or source, skip blind repo-wide memory search and continue from session, quest, code, or artifact evidence. Use `memory repo path` and `memory --help` to rediscover the repo and command surface.
 
-Memory writes are explicit Journey responsibility. A phase actor may update memory when they learned durable shared facts, changed live coordination state, produced external artifacts, or accepted a decision/preference that should survive the quest. If the update is useful but not synchronous, route it through Bookkeeping or an approved curator instead of blocking the current phase.
+Memory writes are explicit Journey responsibility. A phase actor may update memory when they learned durable shared facts, changed live coordination state, produced external artifacts, or accepted a decision/preference that should survive the quest. Final Memory is the normal owner for end-of-quest memory closure; if the update is useful but not synchronous, route it through Memory or an approved curator instead of blocking the current phase.
 
 Memory authoring uses one repo-level lock and direct file edits:
 
@@ -97,18 +99,18 @@ Every relevant phase report, Port handoff, or final debrief should include exact
 
 The recommended built-in tracked-code Journey is:
 
-`alignment -> implement -> code-review -> port`
+`alignment -> implement -> code-review -> port -> memory`
 
 This preserves a small normal path for common repo work while allowing leaders to choose richer review or operations paths when the quest needs them. It is a default, not a mandate: user overrides win. If the user asks to skip `code-review`, `port`, or another standard phase, follow that instruction or briefly confirm the tradeoff instead of refusing because the phase is standard.
 
-Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, and `port` are self-explanatory unless the user or quest adds unusual phase-specific work. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase.
+Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` are self-explanatory unless the user or quest adds unusual phase-specific work. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or compatibility `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase.
 
 ## Approval and Board Workflow
 
 Use natural prose as the normal approval surface. Once the user approves, make the Journey durable on the board before or with dispatch:
 
 ```bash
-takode board set q-12 --worker 5 --phases alignment,implement,code-review,port --preset full-code
+takode board set q-12 --worker 5 --phases alignment,implement,code-review,port,memory --preset full-code
 ```
 
 - `takode board set --worker ... --phases ...` creates the active board row in one step after prose approval
@@ -121,7 +123,7 @@ takode board set q-12 --worker 5 --phases alignment,implement,code-review,port -
 
 Examples:
 
-- Straight tracked-code work: `alignment -> implement -> code-review -> port`
+- Straight tracked-code work: `alignment -> implement -> code-review -> port -> memory`
 - Expensive or approval-gated run: `alignment -> explore -> execute -> outcome-review`
 - Findings that require user steering: `alignment -> explore -> user-checkpoint -> implement -> code-review -> port`
 - Design or workflow validation: `alignment -> implement -> mental-simulation -> code-review -> port`
@@ -166,8 +168,8 @@ Rules:
 - **Alignment approval authorizes exactly one next phase.** For example: explore now, then stop and report back.
 - **Use `user-checkpoint` for explicit user participation.** Present findings, options, tradeoffs, and a recommendation; notify the user and wait; then revise the remaining Journey after the user answers. Do not use it as terminal closure, generic TBD, or optional leader-only indecision.
 - **Workers and reviewers document, report, then stop at phase boundaries.** They do not self-review, self-port, self-transition, or self-complete unless explicitly instructed.
-- **Porting requires an explicit instruction.** Port must also settle final debrief ownership: completion by the port worker should use `--debrief-file` and `--debrief-tldr-file`; leader-controlled completion needs a `Final debrief draft:` plus `Debrief TLDR draft:` or a focused Bookkeeping phase if Port cannot reliably produce them.
-- **Every completed non-cancelled quest needs final debrief metadata.** Completion without both a final debrief and debrief TLDR is incomplete. When Port is omitted, the leader owns this before completion: draft from accepted evidence, require the final phase actor to provide `Final debrief draft:` plus `Debrief TLDR draft:`, or route a focused Bookkeeping phase. After Outcome Review accepts a zero-tracked-change result, do not remove the row and complete the quest until that ownership is settled.
+- **Porting requires an explicit instruction.** Port syncs accepted tracked changes, verifies the main repo, reports synced SHAs and risks, then stops. After Port, advance to final Memory instead of completing the quest from Port.
+- **Every completed non-cancelled quest needs final Memory.** Completion without Memory closure, final debrief metadata, debrief TLDR metadata, and one memory statement is incomplete. A quest in `MEMORY` is downstream-unblocking because substantive work has been accepted and synced when applicable, but the row stays open until Memory finishes.
 
 ## Review Phases
 
@@ -193,13 +195,13 @@ Zero-tracked-change quests use the same phase-based Journey model as any other q
 
 Choose explicit phases that match the evidence you need and simply omit `port` when nothing will be synced. Examples:
 
-- `alignment -> explore -> outcome-review`
-- `alignment -> explore -> bookkeeping`
-- `alignment -> mental-simulation`
+- `alignment -> explore -> outcome-review -> memory`
+- `alignment -> explore -> memory`
+- `alignment -> mental-simulation -> memory`
 
 Advancing from the final planned phase removes the row from the board. Git-tracked docs, skills, prompts, templates, and other text-only edits still count as tracked-change work and should include `port`.
 
-Omitting `port` does not omit final debrief ownership. The leader must ensure the completed non-cancelled quest receives both final debrief metadata and debrief TLDR metadata through the final phase report, leader-authored completion metadata, or a focused Bookkeeping phase.
+Omitting `port` does not omit final Memory. The leader must ensure the completed non-cancelled quest receives final debrief metadata, debrief TLDR metadata, and one memory statement through final Memory or leader-authored completion metadata.
 
 ## Feedback Rework Loop
 

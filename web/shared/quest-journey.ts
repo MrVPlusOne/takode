@@ -7,6 +7,7 @@ import codeReviewPhase from "./quest-journey-phases/code-review/phase.json";
 import executePhase from "./quest-journey-phases/execute/phase.json";
 import explorePhase from "./quest-journey-phases/explore/phase.json";
 import implementPhase from "./quest-journey-phases/implement/phase.json";
+import memoryPhase from "./quest-journey-phases/memory/phase.json";
 import mentalSimulationPhase from "./quest-journey-phases/mental-simulation/phase.json";
 import outcomeReviewPhase from "./quest-journey-phases/outcome-review/phase.json";
 import alignmentPhase from "./quest-journey-phases/alignment/phase.json";
@@ -70,8 +71,9 @@ export const QUEST_JOURNEY_STATES = [
   "EXECUTING",
   "OUTCOME_REVIEWING",
   "USER_CHECKPOINTING",
-  "BOOKKEEPING",
   "PORTING",
+  "MEMORY",
+  "BOOKKEEPING",
 ] as const;
 
 export type QuestJourneyState = (typeof QUEST_JOURNEY_STATES)[number];
@@ -93,8 +95,9 @@ const QUEST_JOURNEY_PHASE_IDS = [
   "execute",
   "outcome-review",
   "user-checkpoint",
-  "bookkeeping",
   "port",
+  "memory",
+  "bookkeeping",
 ] as const;
 
 export type QuestJourneyPhaseId = (typeof QUEST_JOURNEY_PHASE_IDS)[number];
@@ -176,8 +179,9 @@ export const QUEST_JOURNEY_PHASES: readonly QuestJourneyPhase[] = [
   defineQuestJourneyPhase("execute", executePhase),
   defineQuestJourneyPhase("outcome-review", outcomeReviewPhase),
   defineQuestJourneyPhase("user-checkpoint", userCheckpointPhase),
-  defineQuestJourneyPhase("bookkeeping", bookkeepingPhase),
   defineQuestJourneyPhase("port", portPhase),
+  defineQuestJourneyPhase("memory", memoryPhase),
+  defineQuestJourneyPhase("bookkeeping", bookkeepingPhase),
 ];
 
 export const DEFAULT_QUEST_JOURNEY_PRESET_ID = "full-code";
@@ -186,6 +190,7 @@ export const DEFAULT_QUEST_JOURNEY_PHASE_IDS = [
   "implement",
   "code-review",
   "port",
+  "memory",
 ] as const satisfies readonly QuestJourneyPhaseId[];
 
 const QUEST_JOURNEY_PHASE_ALIAS_MAP: Record<string, QuestJourneyPhaseId> = Object.fromEntries(
@@ -327,6 +332,10 @@ export function getQuestJourneyPhase(phaseId?: string | null): QuestJourneyPhase
 export function getQuestJourneyPhaseForState(status?: string | null): QuestJourneyPhase | null {
   const canonical = canonicalizeQuestJourneyState(status);
   return canonical ? getQuestJourneyPhase(QUEST_JOURNEY_PHASE_ID_BY_STATE[canonical] ?? null) : null;
+}
+
+export function isQuestWaitForBlockingState(status?: string | null): boolean {
+  return canonicalizeQuestJourneyState(status) !== "MEMORY";
 }
 
 export function getQuestJourneyPhaseIndices(
@@ -722,8 +731,9 @@ export const QUEST_JOURNEY_PRESENTATION: Record<QuestJourneyState, QuestJourneyP
   EXECUTING: { label: "Execute" },
   OUTCOME_REVIEWING: { label: "Outcome Review" },
   USER_CHECKPOINTING: { label: "User Checkpoint" },
-  BOOKKEEPING: { label: "Bookkeeping" },
   PORTING: { label: "Port" },
+  MEMORY: { label: "Memory" },
+  BOOKKEEPING: { label: "Bookkeeping" },
 };
 
 /** Returns the UI presentation metadata for a known quest-journey state. */
@@ -735,7 +745,7 @@ export function getQuestJourneyPresentation(status?: string | null): QuestJourne
 /** Replace embedded quest-journey enum tokens in freeform text with human labels. */
 export function formatQuestJourneyText(text: string): string {
   return text.replace(
-    /\b(PROPOSED|QUEUED|PLANNING|EXPLORING|IMPLEMENTING|CODE_REVIEWING|MENTAL_SIMULATING|EXECUTING|OUTCOME_REVIEWING|USER_CHECKPOINTING|BOOKKEEPING|PORTING|SKEPTIC_REVIEWING|GROOM_REVIEWING)\b/g,
+    /\b(PROPOSED|QUEUED|PLANNING|EXPLORING|IMPLEMENTING|CODE_REVIEWING|MENTAL_SIMULATING|EXECUTING|OUTCOME_REVIEWING|USER_CHECKPOINTING|BOOKKEEPING|PORTING|MEMORY|SKEPTIC_REVIEWING|GROOM_REVIEWING)\b/g,
     (match) => getQuestJourneyPresentation(match)?.label ?? match,
   );
 }
@@ -752,8 +762,9 @@ export const QUEST_JOURNEY_HINTS: Record<string, string> = {
   EXECUTING: QUEST_JOURNEY_PHASE_BY_ID.execute.nextLeaderAction,
   OUTCOME_REVIEWING: QUEST_JOURNEY_PHASE_BY_ID["outcome-review"].nextLeaderAction,
   USER_CHECKPOINTING: QUEST_JOURNEY_PHASE_BY_ID["user-checkpoint"].nextLeaderAction,
-  BOOKKEEPING: QUEST_JOURNEY_PHASE_BY_ID.bookkeeping.nextLeaderAction,
   PORTING: QUEST_JOURNEY_PHASE_BY_ID.port.nextLeaderAction,
+  MEMORY: QUEST_JOURNEY_PHASE_BY_ID.memory.nextLeaderAction,
+  BOOKKEEPING: QUEST_JOURNEY_PHASE_BY_ID.bookkeeping.nextLeaderAction,
   SKEPTIC_REVIEWING: QUEST_JOURNEY_PHASE_BY_ID["code-review"].nextLeaderAction,
   GROOM_REVIEWING: QUEST_JOURNEY_PHASE_BY_ID["code-review"].nextLeaderAction,
 };

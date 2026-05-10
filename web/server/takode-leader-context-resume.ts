@@ -196,6 +196,7 @@ const PHASE_PATTERNS: Record<string, RegExp[]> = {
   "mental-simulation": [/\bmental[\s-]?simulation\b/i],
   execute: [/\bexecute\b/i, /\bexecuting\b/i, /\bexecution\b/i],
   "outcome-review": [/\boutcome[\s-]?review(?:ing)?\b/i],
+  memory: [/\bmemory\b/i, /\bfinal[\s-]?memory\b/i, /\bdurable[\s-]?closure\b/i],
   bookkeeping: [/\bbookkeeping\b/i, /\bstate[\s-]?update\b/i, /\bstream[\s-]?update\b/i],
   port: [/\bport\b/i, /\bporting\b/i],
 };

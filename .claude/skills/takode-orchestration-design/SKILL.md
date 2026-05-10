@@ -26,14 +26,14 @@ Reusable workflow behavior belongs in reusable instructions. Leader handoffs sho
 Reusable guidance:
 - Code reviewers should inspect the quest record, define relevant review aspects, cover landing risk, and judge phase documentation quality.
 - Execute assignees should follow approved scope, monitor and stop conditions, resource leases, cleanup, artifact retention, and phase documentation requirements.
-- Port assignees should use the approved port workflow, report synced SHAs, run post-port verification, handle final debrief ownership, and include the required memory statement when memory matters.
+- Port assignees should use the approved port workflow, report synced SHAs, run post-port verification, and preserve accepted-state context for final Memory.
 - Memory-focused phase instructions can standardize catalog-first reading, direct file inspection, and `memory catalog diff` as a freshness check when relevant.
 
 Leader-specific deltas:
 - The exact accepted commit range or artifact set to review.
 - A known stale live server, blocked resource lease, safety warning, or nonstandard validation plan.
 - The memory files or prior decisions the leader already inspected and found relevant.
-- Whether the assignee should complete the quest, draft final debrief metadata, or route focused Bookkeeping.
+- Whether the assignee should complete the quest, draft final debrief metadata, route final Memory, or use compatibility Bookkeeping for targeted intermediate durable state.
 
 ## Source-Of-Truth Check
 

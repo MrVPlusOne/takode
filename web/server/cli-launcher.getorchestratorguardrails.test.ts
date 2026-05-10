@@ -456,7 +456,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain(
       "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
     );
-    expect(guardrails).toContain("attach their synced SHAs with `quest complete ... --commit/--commits`");
+    expect(guardrails).toContain("attach their synced SHAs before final Memory");
     expect(guardrails).toContain("local CLI reminder switch");
     expect(guardrails).toContain("Leaders do not own worker quests");
     expect(guardrails).toContain("worker doing the job claims and completes the quest");
@@ -470,11 +470,13 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("file-by-file diff narration");
     expect(guardrails).toContain("Keep the memory boundary explicit");
     expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
-    expect(guardrails).toContain("Every completed non-cancelled quest needs final debrief metadata");
-    expect(guardrails).toContain("Completion without both a final debrief and debrief TLDR is incomplete");
-    expect(guardrails).toContain("leader-owned completion follows Outcome Review");
-    expect(guardrails).toContain("final debrief metadata after port when the port worker could not reliably create it");
-    expect(guardrails).toContain("Port handoff must also settle final debrief ownership");
+    expect(guardrails).toContain("Every completed non-cancelled quest ends in Memory");
+    expect(guardrails).toContain(
+      "Completion without final Memory closure, final debrief metadata, and debrief TLDR metadata is incomplete",
+    );
+    expect(guardrails).toContain("omits `port` but still ends in `memory`");
+    expect(guardrails).toContain("attach their synced SHAs before final Memory");
+    expect(guardrails).toContain("A quest in `MEMORY` is downstream-unblocking");
     expect(guardrails).toContain("perform exactly the approved next phase, document the current phase on the quest");
     expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");

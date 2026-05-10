@@ -14,6 +14,7 @@ Boundary:
 - Do not substitute a source-only review when the requested evidence is external behavior.
 - You may rerun only small bounded checks or repros needed to judge sufficiency; do not become the primary experiment owner, root-cause investigator, or repeated iteration loop.
 - If the evidence is insufficient, report the concrete gap and what kind of follow-up is needed.
+- If outcome evidence shows tracked docs, instructions, tests, fixtures, generated templates, changelog, or other tracked artifacts are missing or stale, report that as a routing gap. Do not edit tracked files in Outcome Review, and do not defer tracked fixes to final Memory.
 - Do not port or change quest status.
 
 Phase documentation:
@@ -28,7 +29,7 @@ Phase documentation:
 - When referencing repository files in quest feedback or phase documentation, prefer Takode file-link syntax such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`; standard Markdown file links are best-effort fallback only.
 - Document the evidence judged, ACCEPT or insufficiency rationale, bounded reruns if any, residual risks, and follow-up routing needs. Avoid turning the note into a second Execute transcript.
 - Review documentation quality, not just presence: it should be relevant to the phase, contain useful full detail, preserve major points in TLDR metadata when appropriate, and be correctly phase-associated when the phase-scoped primitive is available.
-- If the leader asked for final completion support because this is a no-Port or zero-tracked-change outcome, include `Final debrief draft:` and `Debrief TLDR draft:` in the report when you can draft them reliably from accepted evidence; otherwise state that a focused Bookkeeping phase is needed before quest completion.
+- If the leader asked for final completion support because this is a no-Port or zero-tracked-change outcome, include `Final debrief draft:` and `Debrief TLDR draft:` in the report when you can draft them reliably from accepted evidence; otherwise state that final Memory will need leader help to finish the metadata.
 
 Deliverable:
 - Return an evidence-backed acceptance judgment or concrete insufficiency report, then stop.

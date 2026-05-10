@@ -50,7 +50,7 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("Use visible memory reads and explicit writes");
     expect(result).toContain("Do not treat an official repo doc, skill, or quest note as automatic proof");
     expect(result).toContain("capture a concise memory decision/pointer");
-    expect(result).toContain("defer memory writing to Bookkeeping/curation");
+    expect(result).toContain("defer memory writing to Memory/curation");
     expect(result).toContain("use `memory catalog show` as the triage map");
     expect(result).toContain("use `memory catalog diff` as a freshness check");
     expect(result).toContain("Do not run catalog diff constantly");
@@ -253,14 +253,14 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("If the actor's context was compacted during the phase");
     expect(result).toContain("Provide only deltas the actor is unlikely to infer");
     expect(result).toContain("without spending scan space on incidental raw details");
-    expect(result).toContain("Bookkeeping is for extra durable state");
-    expect(result).toContain("Every completed non-cancelled quest needs final debrief metadata");
-    expect(result).toContain("Completion without both a final debrief and debrief TLDR is incomplete");
-    expect(result).toContain("when Port is omitted or leader-owned completion follows Outcome Review");
-    expect(result).toContain("final debrief metadata after port when the port worker could not reliably create it");
-    expect(result).toContain("Port handoff must also settle final debrief ownership");
-    expect(result).toContain("`Final debrief draft:`");
-    expect(result).toContain("`Debrief TLDR draft:`");
+    expect(result).toContain("Bookkeeping is compatibility-only for targeted intermediate durable state");
+    expect(result).toContain("Every completed non-cancelled quest ends in Memory");
+    expect(result).toContain(
+      "Completion without final Memory closure, final debrief metadata, and debrief TLDR metadata is incomplete",
+    );
+    expect(result).toContain("omits `port` but still ends in `memory`");
+    expect(result).toContain("attach their synced SHAs before final Memory");
+    expect(result).toContain("A quest in `MEMORY` is downstream-unblocking");
     expect(result).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
     expect(result).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
     expect(result).toContain("Reviewers should judge phase documentation quality, not just presence");

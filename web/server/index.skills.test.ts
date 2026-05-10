@@ -142,17 +142,17 @@ describe("index startup skill registration", () => {
     expect(source).toContain("for long multi-topic content");
   });
 
-  it("keeps worktree port guidance responsible for final debrief metadata", async () => {
+  it("keeps worktree port guidance responsible for final Memory handoff context", async () => {
     const source = await readFile(WORKTREE_RULES_SKILL_PATH, "utf-8");
 
-    // /port-changes is the worktree completion path. It should not depend on a
-    // leader remembering generic bookkeeping to create the final debrief.
+    // /port-changes owns sync evidence, but final Memory owns durable closure.
     expect(source).toContain("--debrief-file /tmp/final-debrief.md");
     expect(source).toContain("--debrief-tldr-file /tmp/final-debrief-tldr.md");
-    expect(source).toContain("Every completed non-cancelled quest needs both final debrief metadata");
+    expect(source).toContain("Port is not final quest closure");
+    expect(source).toContain("final Memory owns structured final debrief metadata");
     expect(source).toContain("Final debrief draft:");
     expect(source).toContain("Debrief TLDR draft:");
-    expect(source).toContain("focused Bookkeeping phase for final debrief metadata");
+    expect(source).toContain("accepted-state summary");
     expect(source).toContain("self-contained quest-journey understanding");
     expect(source).toContain("Keep routine commit hashes, branch names, command lists");
   });

@@ -59,12 +59,18 @@ describe("takode phase catalog route", () => {
       }),
     );
     expect(body.phases.map((phase) => phase.id)).toContain("port");
+    expect(body.phases.map((phase) => phase.id)).toContain("memory");
     expect(body.phases).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
           id: "user-checkpoint",
           boardState: "USER_CHECKPOINTING",
           assigneeBriefDisplayPath: "~/.companion/quest-journey-phases/user-checkpoint/assignee.md",
+        }),
+        expect.objectContaining({
+          id: "memory",
+          boardState: "MEMORY",
+          assigneeBriefDisplayPath: "~/.companion/quest-journey-phases/memory/assignee.md",
         }),
       ]),
     );

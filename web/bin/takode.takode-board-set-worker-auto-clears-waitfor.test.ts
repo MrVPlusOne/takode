@@ -231,7 +231,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
         "propose",
         "q-1",
         "--phases",
-        "alignment,implement,code-review,port",
+        "alignment,implement,code-review,port,memory",
         "--preset",
         "full-code",
         "--wait-for-input",
@@ -251,7 +251,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
       questId: "q-1",
       journeyMode: "proposed",
       status: "PROPOSED",
-      phases: ["alignment", "implement", "code-review", "port"],
+      phases: ["alignment", "implement", "code-review", "port", "memory"],
       presetId: "full-code",
       waitForInput: ["n-3"],
     });

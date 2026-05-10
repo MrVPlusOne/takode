@@ -15,6 +15,7 @@ import {
   getQuestJourneyProposalSignature,
   getQuestJourneyTotalElapsedMs,
   getWaitForRefKind,
+  isQuestWaitForBlockingState,
   isValidQuestId,
   isValidWaitForRef,
   normalizeQuestJourneyPhaseIds,
@@ -101,6 +102,7 @@ describe("phase alias compatibility", () => {
     expect(canonicalizeQuestJourneyPhaseId("user-decision")).toBe("user-checkpoint");
     expect(canonicalizeQuestJourneyPhaseId("state-update")).toBe("bookkeeping");
     expect(canonicalizeQuestJourneyPhaseId("stream-update")).toBe("bookkeeping");
+    expect(canonicalizeQuestJourneyPhaseId("final-memory")).toBe("memory");
     expect(canonicalizeQuestJourneyPhaseId("porting")).toBe("port");
   });
 
@@ -128,6 +130,7 @@ describe("QUEST_JOURNEY_HINTS", () => {
     expect(QUEST_JOURNEY_HINTS.PROPOSED).toContain("promote");
     expect(QUEST_JOURNEY_HINTS.CODE_REVIEWING).toContain("reviewer result");
     expect(QUEST_JOURNEY_HINTS.PORTING).toContain("sync confirmation");
+    expect(QUEST_JOURNEY_HINTS.MEMORY).toContain("final Memory owner");
   });
 });
 
@@ -146,7 +149,7 @@ describe("canonicalizeQuestJourneyLifecycleMode", () => {
 
 describe("Quest Journey phases", () => {
   it("represents the new durable phase library without human verification", () => {
-    expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual(["alignment", "implement", "code-review", "port"]);
+    expect(DEFAULT_QUEST_JOURNEY_PHASE_IDS).toEqual(["alignment", "implement", "code-review", "port", "memory"]);
     expect(QUEST_JOURNEY_PHASES.map((phase) => phase.id)).toEqual([
       "alignment",
       "explore",
@@ -156,8 +159,9 @@ describe("Quest Journey phases", () => {
       "execute",
       "outcome-review",
       "user-checkpoint",
-      "bookkeeping",
       "port",
+      "memory",
+      "bookkeeping",
     ]);
     expect(QUEST_JOURNEY_PHASES.map((phase) => phase.boardState)).toEqual([
       "PLANNING",
@@ -168,8 +172,9 @@ describe("Quest Journey phases", () => {
       "EXECUTING",
       "OUTCOME_REVIEWING",
       "USER_CHECKPOINTING",
-      "BOOKKEEPING",
       "PORTING",
+      "MEMORY",
+      "BOOKKEEPING",
     ]);
     expect(QUEST_JOURNEY_PHASES.find((phase) => phase.id === "code-review")?.aliases).toEqual([
       "skeptic-review",
@@ -185,17 +190,25 @@ describe("Quest Journey phases", () => {
     expect(getQuestJourneyPhaseForState("SKEPTIC_REVIEWING")?.id).toBe("code-review");
     expect(getQuestJourneyPhaseForState("USER_CHECKPOINTING")?.id).toBe("user-checkpoint");
     expect(getQuestJourneyPhase("bookkeeping")?.boardState).toBe("BOOKKEEPING");
+    expect(getQuestJourneyPhase("memory")?.boardState).toBe("MEMORY");
+    expect(getQuestJourneyPhaseForState("MEMORY")?.id).toBe("memory");
     expect(getQuestJourneyPhase("alignment")?.nextLeaderAction).toContain("leader approval");
     expect(getQuestJourneyPhase("alignment")?.nextLeaderAction).toContain("user escalation");
-    expect(normalizeQuestJourneyPlan(undefined, "PORTING")).toEqual(
+    expect(normalizeQuestJourneyPlan(undefined, "MEMORY")).toEqual(
       expect.objectContaining({
         mode: "active",
         phaseIds: DEFAULT_QUEST_JOURNEY_PHASE_IDS,
-        activePhaseIndex: 3,
-        currentPhaseId: "port",
-        nextLeaderAction: expect.stringContaining("sync confirmation"),
+        activePhaseIndex: 4,
+        currentPhaseId: "memory",
+        nextLeaderAction: expect.stringContaining("final Memory owner"),
       }),
     );
+  });
+
+  it("treats final Memory as downstream-unblocking while still active", () => {
+    expect(isQuestWaitForBlockingState("PORTING")).toBe(true);
+    expect(isQuestWaitForBlockingState("MEMORY")).toBe(false);
+    expect(isQuestWaitForBlockingState("BOOKKEEPING")).toBe(true);
   });
 
   it("encodes the implement, execute, and outcome-review responsibility split", () => {
@@ -204,7 +217,7 @@ describe("Quest Journey phases", () => {
         assigneeRole: "worker",
         color: { name: "green", accent: "#4ade80" },
         contract: expect.stringContaining("root-cause analysis"),
-        nextLeaderAction: expect.stringContaining("next review, execute, or bookkeeping phase"),
+        nextLeaderAction: expect.stringContaining("next review, execute, port, or memory phase"),
       }),
     );
     expect(getQuestJourneyPhase("execute")).toEqual(

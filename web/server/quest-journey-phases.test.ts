@@ -272,8 +272,9 @@ describe("Quest Journey phase directory loading", () => {
       ["execute", "monitor and stop conditions"],
       ["outcome-review", "evidence judged"],
       ["user-checkpoint", "required user answer"],
-      ["bookkeeping", "records updated"],
       ["port", "ordered synced SHAs"],
+      ["memory", "final debrief metadata status"],
+      ["bookkeeping", "records updated"],
     ]);
 
     for (const phase of phases) {
@@ -308,13 +309,8 @@ describe("Quest Journey phase directory loading", () => {
     const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
     const bookkeepingPhase = phases.find((phase) => phase.id === "bookkeeping");
 
-    expect(bookkeepingPhase?.leaderBrief).toContain("cross-phase or external durable state beyond normal phase notes");
-    expect(bookkeepingPhase?.leaderBrief).toContain(
-      "final debrief metadata after port when the port worker could not reliably create it",
-    );
-    expect(bookkeepingPhase?.leaderBrief).toContain("when Port is omitted");
-    expect(bookkeepingPhase?.leaderBrief).toContain("leader-owned completion after Outcome Review");
-    expect(bookkeepingPhase?.leaderBrief).toContain("both a final debrief and debrief TLDR");
+    expect(bookkeepingPhase?.leaderBrief).toContain("compatibility phase");
+    expect(bookkeepingPhase?.leaderBrief).toContain("not use Bookkeeping as a substitute for Memory closure");
     expect(bookkeepingPhase?.leaderBrief).toContain("file-based memory updates");
     expect(bookkeepingPhase?.leaderBrief).toContain("intended memory responsibility");
     expect(bookkeepingPhase?.leaderBrief).toContain("context-specific memory deltas");
@@ -325,7 +321,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(bookkeepingPhase?.leaderBrief).not.toContain("visible `memory catalog show`");
     expect(bookkeepingPhase?.leaderBrief).not.toContain("lint/doctor");
     expect(bookkeepingPhase?.assigneeBrief).toContain("Do not duplicate normal phase documentation");
-    expect(bookkeepingPhase?.assigneeBrief).toContain("Completion remains incomplete until both are present");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("Final non-project-tracked quest closure belongs in `Memory`");
     expect(bookkeepingPhase?.assigneeBrief).toContain("session-space memory repo");
     expect(bookkeepingPhase?.assigneeBrief).toContain("auto-create the repo for the current server/session space");
     expect(bookkeepingPhase?.assigneeBrief).toContain("do not run a separate init step");
@@ -349,37 +345,61 @@ describe("Quest Journey phase directory loading", () => {
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory update not needed: <reason>");
   });
 
-  it("seeds Port briefs with final debrief ownership guidance", async () => {
+  it("seeds Memory briefs as mandatory final durable-state closure", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const memoryPhase = phases.find((phase) => phase.id === "memory");
+
+    expect(memoryPhase?.boardState).toBe("MEMORY");
+    expect(memoryPhase?.contract).toContain("non-project-tracked durable-state closure");
+    expect(memoryPhase?.contract).toContain("must not edit tracked project files");
+    expect(memoryPhase?.leaderBrief).toContain("downstream-unblocking");
+    expect(memoryPhase?.leaderBrief).toContain("worker or Port worker for routine closure");
+    expect(memoryPhase?.leaderBrief).toContain(
+      "independent reviewer for policy, provenance, or memory-consistency risk",
+    );
+    expect(memoryPhase?.leaderBrief).toContain("leader or curator for dependency, timer, notification");
+    expect(memoryPhase?.leaderBrief).toContain("Do not ask Memory to edit tracked project files");
+    expect(memoryPhase?.assigneeBrief).toContain("Run `memory catalog show` first");
+    expect(memoryPhase?.assigneeBrief).toContain("memory catalog diff");
+    expect(memoryPhase?.assigneeBrief).toContain("memory lock acquire");
+    expect(memoryPhase?.assigneeBrief).toContain("memory updated: <commit>");
+    expect(memoryPhase?.assigneeBrief).toContain("memory update deferred: <reason or curator>");
+    expect(memoryPhase?.assigneeBrief).toContain("memory update not needed: <reason>");
+    expect(memoryPhase?.assigneeBrief).toContain("Do not edit tracked project files");
+    expect(memoryPhase?.assigneeBrief).toContain("final debrief metadata status");
+  });
+
+  it("seeds Port briefs with narrow sync guidance before final Memory", async () => {
     const companionHome = await makeCompanionHome();
     await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
 
     const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
     const portPhase = phases.find((phase) => phase.id === "port");
 
-    // Port is the normal worktree completion path, so it must either create final
-    // debrief metadata or hand back a draft without forcing generic Bookkeeping.
-    expect(portPhase?.leaderBrief).toContain("Require final debrief ownership");
-    expect(portPhase?.leaderBrief).toContain("every completed non-cancelled quest needs final debrief metadata");
-    expect(portPhase?.leaderBrief).toContain("`--debrief-file` and `--debrief-tldr-file`");
-    expect(portPhase?.leaderBrief).toContain("focused Bookkeeping phase");
+    // Port is intentionally narrow. Final durable-state closure belongs in Memory.
+    expect(portPhase?.leaderBrief).toContain("Treat Port as optional and narrow");
+    expect(portPhase?.leaderBrief).toContain("does not own final Memory closure");
+    expect(portPhase?.leaderBrief).toContain("advance to final Memory with the deferral context");
+    expect(portPhase?.leaderBrief).toContain("Every non-cancelled quest should finish in final Memory");
     expect(portPhase?.leaderBrief).toContain("context-specific memory deltas");
     expect(portPhase?.leaderBrief).toContain("memory files or decisions already inspected");
     expect(portPhase?.leaderBrief).toContain("assignee brief owns the standard catalog-first reading");
     expect(portPhase?.leaderBrief).toContain("memory-statement mechanics");
     expect(portPhase?.leaderBrief).toContain("Keep durable memory writing out of normal Port");
     expect(portPhase?.leaderBrief).toContain("explicitly assign it");
-    expect(portPhase?.leaderBrief).toContain("route focused Bookkeeping or a curator");
+    expect(portPhase?.leaderBrief).toContain("route a curator");
     expect(portPhase?.leaderBrief).not.toContain("Require `memory catalog show`");
-    expect(portPhase?.assigneeBrief).toContain("quest complete ... --debrief-file ... --debrief-tldr-file ...");
-    expect(portPhase?.assigneeBrief).toContain("every completed non-cancelled quest needs both fields");
-    expect(portPhase?.assigneeBrief).toContain("A Port handoff without submitted metadata or drafts is incomplete");
-    expect(portPhase?.assigneeBrief).toContain("final debrief draft and debrief TLDR draft");
-    expect(portPhase?.assigneeBrief).toContain("whether final debrief metadata was submitted or drafted");
+    expect(portPhase?.assigneeBrief).toContain("Do not treat Port as final quest closure");
+    expect(portPhase?.assigneeBrief).toContain("advance to final Memory after Port");
+    expect(portPhase?.assigneeBrief).toContain("accepted-state summary");
     expect(portPhase?.assigneeBrief).toContain("memory catalog show");
     expect(portPhase?.assigneeBrief).toContain("memory catalog diff");
     expect(portPhase?.assigneeBrief).toContain("inspect relevant memory files directly");
     expect(portPhase?.assigneeBrief).toContain("Port does not normally author durable memory");
-    expect(portPhase?.assigneeBrief).toContain("memory update deferred: <Bookkeeping/curator/reason>");
+    expect(portPhase?.assigneeBrief).toContain("memory update deferred: <Memory/curator/reason>");
     expect(portPhase?.assigneeBrief).toContain("memory update not needed: <reason>");
     expect(portPhase?.assigneeBrief).toContain("memory updated: <commit>");
     expect(portPhase?.assigneeBrief).toContain("only when memory writing was explicitly assigned to Port");
@@ -409,28 +429,29 @@ describe("Quest Journey phase directory loading", () => {
     }
   });
 
-  it("seeds Outcome Review briefs with no-Port final debrief ownership guidance", async () => {
+  it("seeds review phases with tracked documentation gate guidance", async () => {
     const companionHome = await makeCompanionHome();
     await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
 
     const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const codeReviewPhase = phases.find((phase) => phase.id === "code-review");
     const outcomeReviewPhase = phases.find((phase) => phase.id === "outcome-review");
 
-    // q-1085 exposed the no-Port path: a zero-tracked-change artifact was
-    // accepted in Outcome Review, then completed without final debrief metadata.
-    expect(outcomeReviewPhase?.leaderBrief).toContain("final planned phase before a zero-tracked-change");
-    expect(outcomeReviewPhase?.leaderBrief).toContain("no-Port completion");
-    expect(outcomeReviewPhase?.leaderBrief).toContain("final debrief metadata is leader-owned");
+    expect(codeReviewPhase?.leaderBrief).toContain("Missing tracked follow-up belongs back in Implement");
+    expect(codeReviewPhase?.assigneeBrief).toContain(
+      "Missing tracked docs or instruction work is a Code Review finding",
+    );
+    expect(codeReviewPhase?.assigneeBrief).toContain("do not defer it to final Memory");
+
+    expect(outcomeReviewPhase?.leaderBrief).toContain("tracked docs, instructions, tests, fixtures");
+    expect(outcomeReviewPhase?.leaderBrief).toContain("final Memory may route them but must not patch them");
     expect(outcomeReviewPhase?.leaderBrief).toContain("Final debrief draft:");
     expect(outcomeReviewPhase?.leaderBrief).toContain("Debrief TLDR draft:");
-    expect(outcomeReviewPhase?.leaderBrief).toContain("route a focused Bookkeeping phase");
-    expect(outcomeReviewPhase?.leaderBrief).toContain("Do not complete a non-cancelled quest without both");
-
-    expect(outcomeReviewPhase?.assigneeBrief).toContain("no-Port or zero-tracked-change outcome");
+    expect(outcomeReviewPhase?.assigneeBrief).toContain("tracked docs, instructions, tests, fixtures");
+    expect(outcomeReviewPhase?.assigneeBrief).toContain("do not defer tracked fixes to final Memory");
     expect(outcomeReviewPhase?.assigneeBrief).toContain("Final debrief draft:");
     expect(outcomeReviewPhase?.assigneeBrief).toContain("Debrief TLDR draft:");
-    expect(outcomeReviewPhase?.assigneeBrief).toContain("focused Bookkeeping phase is needed");
-    expect(outcomeReviewPhase?.assigneeBrief).toContain("before quest completion");
+    expect(outcomeReviewPhase?.assigneeBrief).toContain("final Memory will need leader help");
   });
 
   it("builds a read-only phase catalog with source metadata and exact display paths", async () => {
@@ -468,11 +489,13 @@ describe("Quest Journey phase directory loading", () => {
     expect(aliasesByPhase.implement).toContain("implementation");
     expect(aliasesByPhase["code-review"]).toEqual(expect.arrayContaining(["skeptic-review", "reviewer-groom"]));
     expect(aliasesByPhase.port).toContain("porting");
+    expect(aliasesByPhase.memory).toContain("final-memory");
     expect(canonicalizeQuestJourneyPhaseId("planning")).toBe("alignment");
     expect(canonicalizeQuestJourneyPhaseId("implementation")).toBe("implement");
     expect(canonicalizeQuestJourneyPhaseId("skeptic-review")).toBe("code-review");
     expect(canonicalizeQuestJourneyPhaseId("reviewer-groom")).toBe("code-review");
     expect(canonicalizeQuestJourneyPhaseId("porting")).toBe("port");
+    expect(canonicalizeQuestJourneyPhaseId("final-memory")).toBe("memory");
     expect(canonicalizeQuestJourneyState("SKEPTIC_REVIEWING")).toBe("CODE_REVIEWING");
     expect(canonicalizeQuestJourneyState("GROOM_REVIEWING")).toBe("CODE_REVIEWING");
   });

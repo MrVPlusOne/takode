@@ -22,6 +22,7 @@ import {
   advanceBoardRow as advanceBoardRowController,
   advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
   getBoard as getBoardController,
+  getBoardQueueWarningsForSession as getBoardQueueWarningsForSessionController,
   getCompletedBoard as getCompletedBoardController,
   removeBoardRows as removeBoardRowsController,
   upsertBoardRow as upsertBoardRowController,
@@ -386,8 +387,23 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
       if (session) notifyUserController(session, "review", summary, getNotificationTestDeps(bridge));
     },
   };
+  const boardWatchdogDeps = {
+    getLauncherSessionInfo: () => undefined,
+    getSession: (sessionId: string) => bridge.getSession(sessionId),
+    listSessions: () => [],
+    resolveSessionId: () => undefined,
+    timerCount: () => 0,
+    backendConnected: () => true,
+    getBoard: (sessionId: string) => anyBridge.getBoard(sessionId),
+    notifyUser: () => ({ ok: false, error: "not implemented" }),
+    emitTakodeEvent: () => undefined,
+    markNotificationDone: () => false,
+    isSessionIdle: () => false,
+  };
   anyBridge.getBoard = (sessionId: string) =>
     bridge.getSession(sessionId) ? getBoardController(bridge.getSession(sessionId)!) : [];
+  anyBridge.getBoardQueueWarnings = (sessionId: string) =>
+    getBoardQueueWarningsForSessionController(anyBridge.sessions, sessionId, boardWatchdogDeps as any);
   anyBridge.upsertBoardRow = (sessionId: string, row: any) =>
     bridge.getSession(sessionId)
       ? upsertBoardRowController(bridge.getSession(sessionId)!, row, workBoardStateDeps)
@@ -410,8 +426,9 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
             "MENTAL_SIMULATING",
             "EXECUTING",
             "OUTCOME_REVIEWING",
-            "BOOKKEEPING",
             "PORTING",
+            "MEMORY",
+            "BOOKKEEPING",
           ],
           workBoardStateDeps,
         )
@@ -1362,6 +1379,31 @@ describe("work board", () => {
     expect(bridge.getCompletedBoardCount("s1")).toBe(1);
   });
 
+  it("treats a quest in final Memory as downstream-unblocking for queued dependents", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", { questId: "q-500", title: "Upstream quest", status: "MEMORY" });
+    bridge.upsertBoardRow("s1", { questId: "q-501", title: "Dependent quest", status: "QUEUED", waitFor: ["q-500"] });
+
+    const board = bridge.getBoard("s1");
+    const dependent = board.find((row: any) => row.questId === "q-501");
+
+    expect(dependent).toEqual(
+      expect.objectContaining({
+        status: "QUEUED",
+        waitFor: ["q-500"],
+      }),
+    );
+    expect((bridge as any).getBoardQueueWarnings("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-501",
+        kind: "dispatchable",
+        summary: expect.stringContaining("wait-for resolved (q-500)"),
+      }),
+    ]);
+  });
+
   it("advanceBoardRow rejects proposed rows until they are promoted", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
@@ -1455,6 +1497,7 @@ describe("work board", () => {
       ["PLANNING", "IMPLEMENTING"],
       ["IMPLEMENTING", "CODE_REVIEWING"],
       ["CODE_REVIEWING", "PORTING"],
+      ["PORTING", "MEMORY"],
     ];
 
     for (const [from, to] of expectedTransitions) {
@@ -1467,7 +1510,7 @@ describe("work board", () => {
     // Final advance removes from board
     const final = bridge.advanceBoardRow("s1", "q-1");
     expect(final!.removed).toBe(true);
-    expect(final!.previousState).toBe("PORTING");
+    expect(final!.previousState).toBe("MEMORY");
     expect(final!.board).toHaveLength(0);
   });
 
@@ -1482,7 +1525,7 @@ describe("work board", () => {
         status: "PLANNING",
         journey: expect.objectContaining({
           presetId: "full-code",
-          phaseIds: ["alignment", "implement", "code-review", "port"],
+          phaseIds: ["alignment", "implement", "code-review", "port", "memory"],
           currentPhaseId: "alignment",
           nextLeaderAction: expect.stringContaining("alignment leader brief"),
         }),
@@ -1560,15 +1603,15 @@ describe("work board", () => {
     });
   });
 
-  it("advanceBoardRow removes row at final phase PORTING", () => {
+  it("advanceBoardRow advances from Port to final Memory in the default Journey", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
     bridge.upsertBoardRow("s1", { questId: "q-1", status: "PORTING" });
     const result = bridge.advanceBoardRow("s1", "q-1");
-    expect(result!.removed).toBe(true);
-    expect(result!.newState).toBeUndefined();
-    expect(result!.board).toHaveLength(0);
+    expect(result!.removed).toBe(false);
+    expect(result!.newState).toBe("MEMORY");
+    expect(result!.board[0].journey?.currentPhaseId).toBe("memory");
   });
 
   it("advanceBoardRow sends a review notification when completing the final phase", () => {
@@ -1584,7 +1627,7 @@ describe("work board", () => {
       timestamp: Date.now(),
     });
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", title: "Quest 1", status: "PORTING" });
+    bridge.upsertBoardRow("s1", { questId: "q-1", title: "Quest 1", status: "MEMORY" });
     browser.send.mockClear();
 
     const result = bridge.advanceBoardRow("s1", "q-1");
@@ -1622,7 +1665,7 @@ describe("work board", () => {
     bridge.upsertBoardRow("s1", {
       questId: "q-1",
       title: "Quest 1",
-      status: "PORTING",
+      status: "MEMORY",
       waitForInput: ["n-1", "n-2"],
     });
 
@@ -1680,12 +1723,12 @@ describe("work board", () => {
   });
 
   it("advanceBoardRow at final phase moves item to completedBoard", () => {
-    // Advancing past PORTING (final phase) should move the row to completed
+    // Advancing past MEMORY (final phase) should move the row to completed
     // history, not delete it.
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-1", title: "Done quest", status: "PORTING" });
+    bridge.upsertBoardRow("s1", { questId: "q-1", title: "Done quest", status: "MEMORY" });
     const result = bridge.advanceBoardRow("s1", "q-1");
 
     expect(result!.removed).toBe(true);
@@ -1833,7 +1876,7 @@ describe("work board", () => {
     const browser = makeBrowserSocket("s1");
     bridge.handleBrowserOpen(browser, "s1");
 
-    bridge.upsertBoardRow("s1", { questId: "q-42", title: "Fix sidebar", status: "PORTING" });
+    bridge.upsertBoardRow("s1", { questId: "q-42", title: "Fix sidebar", status: "MEMORY" });
     bridge.advanceBoardRow("s1", "q-42"); // moves to completed
 
     // Wait for debounced write

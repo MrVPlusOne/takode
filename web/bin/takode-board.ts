@@ -18,6 +18,7 @@ import {
   getInvalidQuestJourneyPhaseIds,
   getQuestJourneyCurrentPhaseIndex,
   getQuestJourneyPhase,
+  isQuestWaitForBlockingState,
   normalizeQuestJourneyPhaseIds,
   QUEST_JOURNEY_STATES,
   QUEST_JOURNEY_HINTS,
@@ -48,11 +49,11 @@ Examples:
   takode board show --full
   takode board detail q-12
   takode board set q-12 --status PLANNING
-  takode board set q-12 --phases planning,implement,code-review,port --preset full-code
-  takode board set q-12 --phases planning,explore,outcome-review --preset investigation
-  takode board set q-12 --phases planning,implement,outcome-review,code-review,port --preset cli-rollout
+  takode board set q-12 --phases planning,implement,code-review,port,memory --preset full-code
+  takode board set q-12 --phases planning,explore,outcome-review,memory --preset investigation
+  takode board set q-12 --phases planning,implement,outcome-review,code-review,port,memory --preset cli-rollout
   takode board set q-12 --status MENTAL_SIMULATING --active-phase-position 5
-  takode board propose q-12 --phases alignment,implement,code-review,port --preset full-code --wait-for-input 3
+  takode board propose q-12 --phases alignment,implement,code-review,port,memory --preset full-code --wait-for-input 3
   takode board promote q-12 --worker 5
   takode board note q-12 3 --text "Inspect only the follow-up diff"
   takode board set q-12 --status QUEUED --wait-for ${FREE_WORKER_WAIT_FOR_TOKEN}
@@ -74,13 +75,13 @@ export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <ses
 Add or update a board row for a quest.
 
 Quest Journey phases:
-  --phases planning,explore,implement,code-review,mental-simulation,execute,outcome-review,bookkeeping,port
+  --phases planning,explore,implement,code-review,mental-simulation,execute,outcome-review,port,memory,bookkeeping
   --preset <id> labels the planned phase sequence; use with --phases
   --active-phase-position <n> pins the active occurrence for repeated phases using a 1-based phase position
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
   --clear-wait-for-input removes any existing linked needs-input wait state
 
-Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` instead of using a special no-code board flag.
+Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` but still end in \`memory\` instead of using a special no-code board flag.
 `;
 
 export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
@@ -321,7 +322,7 @@ function formatBoardJourneyPathLine(row: BoardRow): string | null {
 }
 
 interface BoardRowDecisionContext {
-  activeQuestIds: Set<string>;
+  blockingQuestIds: Set<string>;
   dispatchableQuestIds: Set<string>;
   resolvedSessionDeps?: Set<string>;
   workerSlotUsage?: { used: number; limit: number };
@@ -341,7 +342,9 @@ function buildBoardRowDecisionContext(
   },
 ): BoardRowDecisionContext {
   return {
-    activeQuestIds: new Set((opts?.allBoardRows || board).map((row) => row.questId)),
+    blockingQuestIds: new Set(
+      (opts?.allBoardRows || board).filter((row) => isQuestWaitForBlockingState(row.status)).map((row) => row.questId),
+    ),
     dispatchableQuestIds: new Set(
       (opts?.queueWarnings ?? [])
         .filter((warning) => warning.kind === "dispatchable")
@@ -356,7 +359,7 @@ function getBoardRowBlockedDeps(row: BoardRow, context: BoardRowDecisionContext)
   return (row.waitFor || []).filter((waitForRef) => {
     const kind = getWaitForRefKind(waitForRef);
     if (kind === "session") return !context.resolvedSessionDeps?.has(waitForRef);
-    if (kind === "quest") return context.activeQuestIds.has(waitForRef);
+    if (kind === "quest") return context.blockingQuestIds.has(waitForRef);
     if (kind === "free-worker") {
       const usage = context.workerSlotUsage;
       return usage ? usage.used >= usage.limit : true;
@@ -829,7 +832,7 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       const invalid = getInvalidQuestJourneyPhaseIds(phases);
       if (invalid.length > 0) {
         err(
-          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- use planning, explore, implement, code-review, mental-simulation, execute, outcome-review, bookkeeping, or port`,
+          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- use planning, explore, implement, code-review, mental-simulation, execute, outcome-review, port, memory, or bookkeeping`,
         );
       }
       body.phases = normalizeQuestJourneyPhaseIds(phases);

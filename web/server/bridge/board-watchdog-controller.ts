@@ -6,6 +6,7 @@ import {
   getQuestJourneyPhaseIndices,
   getQuestJourneyPhaseForState,
   getWaitForRefKind,
+  isQuestWaitForBlockingState,
   normalizeQuestJourneyPlan,
   normalizeQuestJourneyPhaseIds,
   type BoardQueueWarning,
@@ -31,8 +32,9 @@ const WORKER_OWNED_BOARD_STAGES = new Set([
   "IMPLEMENTING",
   "EXECUTING",
   "USER_CHECKPOINTING",
-  "BOOKKEEPING",
   "PORTING",
+  "MEMORY",
+  "BOOKKEEPING",
 ]);
 
 type BoardStallStatus = "running" | "idle" | "disconnected" | "missing";
@@ -1152,7 +1154,6 @@ function formatFreeWorkerDispatchableAction(capacity: LeaderWorkerCapacity): str
 
 function getBlockedBoardDeps(session: SessionLike, row: BoardRow, deps: BoardWatchdogDeps): string[] {
   if (!isQueuedBoardRowStatus(row.status)) return [];
-  const activeQuestIds = new Set(session.board.keys());
   const blocked: string[] = [];
   const workerCapacity = getLeaderWorkerCapacity(session, deps);
   for (const dep of row.waitFor ?? []) {
@@ -1162,9 +1163,11 @@ function getBlockedBoardDeps(session: SessionLike, row: BoardRow, deps: BoardWat
         if (!sessionId || !deps.isSessionIdle(sessionId)) blocked.push(dep);
         break;
       }
-      case "quest":
-        if (activeQuestIds.has(dep)) blocked.push(dep);
+      case "quest": {
+        const dependencyRow = session.board.get(dep);
+        if (dependencyRow && isQuestWaitForBlockingState(dependencyRow.status)) blocked.push(dep);
         break;
+      }
       case "free-worker":
         if (workerCapacity.activeWorkerDemand >= workerCapacity.limit) blocked.push(dep);
         break;
@@ -1307,9 +1310,11 @@ function buildBoardStallCandidate(
                 ? "inspect worker; review monitor state or stop conditions"
                 : stage === "USER_CHECKPOINTING"
                   ? "inspect worker; publish checkpoint, notify user, or revise the Journey"
-                  : stage === "BOOKKEEPING"
-                    ? "inspect worker; refresh shared state or re-dispatch"
-                    : "inspect worker; resume port or remove if already synced",
+                  : stage === "PORTING"
+                    ? "inspect worker; resume port or advance to Memory after sync"
+                    : stage === "MEMORY"
+                      ? "inspect worker; finish durable-state closure or re-dispatch"
+                      : "inspect worker; refresh shared state or re-dispatch",
     };
   }
 

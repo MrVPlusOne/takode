@@ -159,7 +159,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("quest-design-only requests");
     expect(skill).toContain("dispatch-only requests where a quest already exists");
     expect(skill).toContain("write the approved Journey to the board before or with dispatch");
-    expect(skill).toContain("standard tracked-code phases are self-explanatory by default");
+    expect(skill).toContain("standard phases are self-explanatory by default");
     expect(skill).toContain("`user-checkpoint`");
     expect(skill).toContain("ask what it contributes over merging the work into a later phase");
     expect(skill).toContain("`implement` includes normal investigation, root-cause analysis");
@@ -217,7 +217,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("summarize that the work was synced without listing routine SHAs");
     expect(skill).toContain("Final debrief draft:");
     expect(skill).toContain("Debrief TLDR draft:");
-    expect(skill).toContain("focused Bookkeeping phase");
+    expect(skill).toContain("route final Memory");
     expect(skill).toContain("Do not rely on log parsing or memory");
     expect(skill).toContain("Every completed non-cancelled quest must include a final debrief and debrief TLDR");
     expect(skill).toContain("Completion without both is incomplete in the workflow");

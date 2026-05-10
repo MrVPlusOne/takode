@@ -17,11 +17,15 @@ const mockStoreState = {
   sessionAttention: new Map<string, "action" | "error" | "review" | null>(),
   sessionNotifications: new Map<string, Array<unknown>>(),
   sessionTimers: new Map<string, Array<{ id: string }>>(),
+  sessionBoards: new Map<string, Array<unknown>>(),
+  sdkSessions: [] as Array<{ sessionId: string; leaderActivePhaseSummary?: unknown }>,
   currentSessionId: null as string | null,
 };
 
 vi.mock("../store.js", () => ({
-  useStore: (selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState),
+  useStore: Object.assign((selector: (state: typeof mockStoreState) => unknown) => selector(mockStoreState), {
+    getState: () => mockStoreState,
+  }),
   countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
 }));
 

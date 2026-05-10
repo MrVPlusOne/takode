@@ -4,7 +4,7 @@
   "color": { "name": "yellow", "accent": "#fde047" },
   "boardState": "BOOKKEEPING",
   "assigneeRole": "worker",
-  "contract": "Record durable shared external state such as quest updates, stream updates, artifact locations, handoff facts, and superseded facts.",
-  "nextLeaderAction": "read the bookkeeping leader brief, record the durable shared state update, then advance when the facts and handoff state are current",
+  "contract": "Compatibility phase for targeted durable shared external state that does not fit normal phase documentation or final Memory closure.",
+  "nextLeaderAction": "read the bookkeeping leader brief, record the targeted durable shared-state update, then advance when the facts and handoff state are current",
   "aliases": ["state-update", "stream-update"]
 }
