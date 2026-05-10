@@ -100,6 +100,8 @@ describe("MessageBubble needs-input reminder messages", () => {
 
       expect(screen.getByText("Historical needs-input reminder")).toBeTruthy();
       expect(screen.getByText("resolved")).toBeTruthy();
+      expect(screen.queryByTestId("agent-source-badge")).toBeNull();
+      expect(screen.queryByTitle("Message options")).toBeNull();
       expect(screen.queryByText("All referenced needs-input notifications have since been resolved.")).toBeNull();
       expect(screen.queryByText("Confirm rollout scope")).toBeNull();
       expect(screen.queryByText("Unresolved same-session needs-input notifications: 1.")).toBeNull();

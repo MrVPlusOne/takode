@@ -19,13 +19,10 @@ import { QuestClaimBlock } from "./QuestClaimBlock.js";
 import { generateReplyPreview } from "../utils/reply-preview.js";
 import { getDisplayReplyContext } from "../utils/reply-context.js";
 import { getSingleAnchoredNotification } from "../utils/anchored-notifications.js";
-import { buildNeedsInputReminderViewModel } from "../utils/needs-input-reminder.js";
-import { buildThreadRoutingReminderViewModel } from "../utils/thread-routing-reminder.js";
-import { buildQuestThreadReminderViewModel } from "../utils/quest-thread-reminder.js";
 import { buildThreadOutcomeReminderViewModel } from "../utils/thread-outcome-reminder.js";
 import { buildInjectedEventMessageViewModel } from "../utils/injected-event-message.js";
 import { InjectedEventMessageView } from "./InjectedEventMessageView.js";
-import { NeedsInputReminderView, QuestThreadReminderView, ThreadRoutingReminderView } from "./MessageReminderViews.js";
+import { isStandaloneReminderMessage, StandaloneReminderMessageView } from "./StandaloneReminderMessageView.js";
 import { FILE_TOOL_NAMES, isToolHiddenFromChat } from "../hooks/use-feed-model.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
@@ -302,6 +299,17 @@ export const MessageBubble = memo(function MessageBubble({
   if (message.role === "user" && message.agentSource?.sessionId?.startsWith("timer:")) {
     return (
       <TimerMessage
+        message={message}
+        sessionId={sessionId}
+        showTimestamp={showTimestamp}
+        searchHighlight={searchHighlight}
+      />
+    );
+  }
+
+  if (message.role === "user" && isStandaloneReminderMessage(message)) {
+    return (
+      <StandaloneReminderMessageView
         message={message}
         sessionId={sessionId}
         showTimestamp={showTimestamp}
@@ -1085,13 +1093,6 @@ function UserMessage({
     [message.content, message.metadata?.replyContext],
   );
   const displayContent = replyContext ? replyContext.userMessage : message.content;
-  const sessionNotifications = useStore((s) => (sessionId ? s.sessionNotifications.get(sessionId) : undefined));
-  const needsInputReminder = useMemo(
-    () => buildNeedsInputReminderViewModel(message, sessionNotifications),
-    [message, sessionNotifications],
-  );
-  const threadRoutingReminder = useMemo(() => buildThreadRoutingReminderViewModel(message), [message]);
-  const questThreadReminder = useMemo(() => buildQuestThreadReminderViewModel(message), [message]);
   const localImageEntries = message.localImages ?? [];
   const remoteImageEntries = message.images ?? [];
   const threadKey = getMessageThreadBadgeKey(message, currentThreadKey);
@@ -1166,22 +1167,14 @@ function UserMessage({
           </div>
         )}
         {pendingLabel && <div className="mb-2 text-[11px] text-cc-muted/80 font-mono-code">{pendingLabel}</div>}
-        {threadRoutingReminder ? (
-          <ThreadRoutingReminderView reminder={threadRoutingReminder} />
-        ) : questThreadReminder ? (
-          <QuestThreadReminderView reminder={questThreadReminder} />
-        ) : needsInputReminder ? (
-          <NeedsInputReminderView reminder={needsInputReminder} />
-        ) : (
-          <CollapsibleContent>
-            <MarkdownContent
-              text={displayContent}
-              variant="conservative"
-              sessionId={sessionId}
-              searchHighlight={searchHighlight}
-            />
-          </CollapsibleContent>
-        )}
+        <CollapsibleContent>
+          <MarkdownContent
+            text={displayContent}
+            variant="conservative"
+            sessionId={sessionId}
+            searchHighlight={searchHighlight}
+          />
+        </CollapsibleContent>
         {showTimestamp && <MessageTimestamp timestamp={message.timestamp} />}
       </div>
       {!message.pendingState && (

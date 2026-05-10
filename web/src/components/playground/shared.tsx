@@ -970,6 +970,49 @@ export function PlaygroundThreadOutcomeReminderMessage() {
   return <MessageBubble message={message} sessionId="playground-thread-outcome-reminder" showTimestamp={false} />;
 }
 
+export function PlaygroundResourceLeaseMessage() {
+  const message: ChatMessage = {
+    id: "playground-resource-lease-msg",
+    role: "user",
+    content: [
+      "[Resource lease acquired] You now hold `agent-browser`.",
+      "",
+      "Purpose: Validate injected reminder chips",
+      "Expires: 2026-05-10T04:00:00.000Z",
+      "",
+      "Heartbeat with `takode lease renew agent-browser`; release with `takode lease release agent-browser` when done.",
+    ].join("\n"),
+    timestamp: Date.now() - 15_000,
+    agentSource: { sessionId: "resource-lease:agent-browser", sessionLabel: "Resource Lease" },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-resource-lease" showTimestamp={false} />;
+}
+
+export function PlaygroundLongSleepGuardMessage() {
+  const message: ChatMessage = {
+    id: "playground-long-sleep-guard-msg",
+    role: "user",
+    content: "Do not use `sleep` longer than 1 minute. Use `takode timer` instead of long sleeps or polling waits.",
+    timestamp: Date.now() - 14_500,
+    agentSource: { sessionId: "system:long-sleep-guard", sessionLabel: "System" },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-long-sleep-guard" showTimestamp={false} />;
+}
+
+export function PlaygroundRestartContinuationMessage() {
+  const message: ChatMessage = {
+    id: "playground-restart-continuation-msg",
+    role: "user",
+    content: "Continue.",
+    timestamp: Date.now() - 14_000,
+    agentSource: { sessionId: "system:restart-continuation:prep-1", sessionLabel: "System" },
+  };
+
+  return <MessageBubble message={message} sessionId="playground-restart-continuation" showTimestamp={false} />;
+}
+
 export function PlaygroundCompactionRecoveryEventMessage() {
   const message: ChatMessage = {
     id: "playground-compaction-recovery-event-msg",

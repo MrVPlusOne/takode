@@ -98,7 +98,10 @@ import {
   PlaygroundNeedsInputReminderMessage,
   PlaygroundCompactionRecoveryEventMessage,
   PlaygroundLeaderKickoffEventMessage,
+  PlaygroundLongSleepGuardMessage,
   PlaygroundQuestThreadReminderMessage,
+  PlaygroundResourceLeaseMessage,
+  PlaygroundRestartContinuationMessage,
   PlaygroundThreadOutcomeReminderMessage,
   PlaygroundThreadRoutingReminderMessage,
   PlaygroundSectionGroup,
@@ -701,6 +704,15 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Quest thread reminder">
             <PlaygroundQuestThreadReminderMessage />
+          </Card>
+          <Card label="Resource lease event">
+            <PlaygroundResourceLeaseMessage />
+          </Card>
+          <Card label="Long sleep guard">
+            <PlaygroundLongSleepGuardMessage />
+          </Card>
+          <Card label="Restart continuation">
+            <PlaygroundRestartContinuationMessage />
           </Card>
           <Card label="Thread outcome reminder (collapsed chip)">
             <PlaygroundThreadOutcomeReminderMessage />
