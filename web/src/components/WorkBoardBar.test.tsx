@@ -1710,7 +1710,7 @@ describe("WorkBoardBar", () => {
     expect(getByText("1 item")).toBeInTheDocument();
   });
 
-  it("keeps selected workboard view per session in store while the main banner is visible", () => {
+  it("keeps selected workboard view per session while visiting a quest thread", () => {
     resetStore({
       sdkSessions: [
         { sessionId: "s1", isOrchestrator: true },
@@ -1735,7 +1735,8 @@ describe("WorkBoardBar", () => {
     expect(queryByTestId("board-table")).not.toBeInTheDocument();
 
     rerender(<WorkBoardBar sessionId="s1" />);
-    expect(queryByTestId("board-table")).not.toBeInTheDocument();
+    expect(getByTestId("workboard-panel")).toHaveAttribute("data-view", "active");
+    expect(getByTestId("board-table")).toBeInTheDocument();
   });
 
   it("does not close the selected view on outside click", () => {

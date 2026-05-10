@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, fireEvent, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
+import type { LeaderWorkboardView } from "../store-types.js";
 
 const mockNavigateTo = vi.fn();
 const mockNavigateToSession = vi.fn();
@@ -28,6 +29,23 @@ vi.mock("./SessionInfoPopover.js", () => ({
     <div data-testid="session-info-popover" data-anchor-present={anchorElement ? "true" : "false"} />
   ),
 }));
+vi.mock("./BoardTable.js", async (importOriginal) => {
+  const actual = await importOriginal<typeof import("./BoardTable.js")>();
+  return {
+    ...actual,
+    BoardTable: ({
+      board,
+      mode = "active",
+    }: {
+      board: Array<{ questId: string; status?: string; updatedAt: number }>;
+      mode?: string;
+    }) => (
+      <div data-testid="board-table" data-mode={mode}>
+        {board.length} rows
+      </div>
+    ),
+  };
+});
 
 interface MockStoreState {
   currentSessionId: string | null;
@@ -91,14 +109,20 @@ interface MockStoreState {
   sessionNames: Map<string, string>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   sessionBoards: Map<string, Array<{ questId: string; status?: string; updatedAt: number }>>;
+  sessionBoardRowStatuses: Map<string, Record<string, unknown>>;
   sessionCompletedBoards: Map<
     string,
     Array<{ questId: string; status?: string; updatedAt: number; completedAt?: number }>
   >;
+  leaderWorkboardViews: Map<string, LeaderWorkboardView>;
   setLeaderWorkboardView: ReturnType<typeof vi.fn>;
   quests: { status: string }[];
   refreshQuests: ReturnType<typeof vi.fn>;
   questNamedSessions: Set<string>;
+  sessionPreviews: Map<string, string>;
+  sessionTaskHistory: Map<string, unknown[]>;
+  askPermission: Map<string, boolean>;
+  activeTurnRoutes: Map<string, unknown>;
   shortcutSettings?: {
     enabled: boolean;
     preset: "standard" | "vscode-light" | "vim-light";
@@ -138,11 +162,17 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionNames: new Map(),
     diffFileStats: new Map(),
     sessionBoards: new Map(),
+    sessionBoardRowStatuses: new Map(),
     sessionCompletedBoards: new Map(),
+    leaderWorkboardViews: new Map(),
     setLeaderWorkboardView: vi.fn(),
     quests: [],
     refreshQuests: vi.fn().mockResolvedValue(undefined),
     questNamedSessions: new Set(),
+    sessionPreviews: new Map(),
+    sessionTaskHistory: new Map(),
+    askPermission: new Map(),
+    activeTurnRoutes: new Map(),
     shortcutSettings: { enabled: false, preset: "standard", overrides: {} },
     openSessionSearch: vi.fn(),
     closeSessionSearch: vi.fn(),
@@ -152,6 +182,12 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     requestBottomAlignOnNextUserMessage: vi.fn(),
     ...overrides,
   };
+  if (!overrides.setLeaderWorkboardView) {
+    storeState.setLeaderWorkboardView = vi.fn((sessionId: string, view: LeaderWorkboardView | null) => {
+      if (view) storeState.leaderWorkboardViews.set(sessionId, view);
+      else storeState.leaderWorkboardViews.delete(sessionId);
+    });
+  }
 }
 
 vi.mock("../store.js", () => {
@@ -180,6 +216,7 @@ vi.mock("../store.js", () => {
 });
 
 import { TopBar } from "./TopBar.js";
+import { WorkBoardBar } from "./WorkBoardBar.js";
 import { getGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
 import { api } from "../api.js";
 
@@ -490,6 +527,39 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
     expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "completed");
     expect(window.location.hash).toContain("/session/s1");
+  });
+
+  it.each([
+    ["topbar-workboard-shortcut", "active", "active"],
+    ["topbar-completed-shortcut", "completed", "completed"],
+  ] as const)("opens the %s panel after routing from a quest thread back to main", (shortcutTestId, expectedView, expectedMode) => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
+      sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
+      sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
+    });
+    window.location.hash = "#/session/s1?thread=q-1";
+
+    const view = render(
+      <>
+        <TopBar />
+        <WorkBoardBar sessionId="s1" currentThreadKey="q-1" />
+      </>,
+    );
+
+    expect(screen.queryByTestId("workboard-main-banner")).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByTestId(shortcutTestId));
+
+    expect(window.location.hash).toBe("#/session/s1");
+    view.rerender(
+      <>
+        <TopBar />
+        <WorkBoardBar sessionId="s1" currentThreadKey="main" />
+      </>,
+    );
+    expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", expectedView);
+    expect(screen.getByTestId("board-table")).toHaveAttribute("data-mode", expectedMode);
   });
 
   it("does not render leader shortcuts for non-leader sessions", () => {

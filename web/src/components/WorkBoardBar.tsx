@@ -1407,10 +1407,6 @@ export function WorkBoardBar({
     isSelectedThread(currentThreadKey, MAIN_THREAD_KEY) || isSelectedThread(currentThreadKey, ALL_THREADS_KEY);
 
   useEffect(() => {
-    if (!showMainBanner && activeView) setLeaderWorkboardView(sessionId, null);
-  }, [activeView, sessionId, setLeaderWorkboardView, showMainBanner]);
-
-  useEffect(() => {
     if (!activeView || !showMainBanner) return;
     const handler = (e: KeyboardEvent) => {
       if (e.key === "Escape") setLeaderWorkboardView(sessionId, null);
