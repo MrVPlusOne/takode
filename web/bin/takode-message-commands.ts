@@ -108,6 +108,10 @@ function appendThreadQueryParam(params: URLSearchParams, threadKey: string | und
   if (threadKey) params.set("threadKey", threadKey);
 }
 
+function formatThreadCommandSuffix(threadKey: string | undefined): string {
+  return threadKey ? ` --thread ${formatInlineText(threadKey)}` : "";
+}
+
 function compactThreadList(meta: ThreadMetadata): string[] {
   const keys = new Set<string>();
   const addKey = (key: string | undefined) => {
@@ -488,8 +492,9 @@ function printPeekHeader(d: {
 
 // ─── Peek mode handlers ─────────────────────────────────────────────────────
 
-function printPeekDefault(d: PeekDefaultResponse, sessionRef: string): void {
+function printPeekDefault(d: PeekDefaultResponse, sessionRef: string, threadKey?: string): void {
   const safeSessionRef = formatInlineText(sessionRef);
+  const threadSuffix = formatThreadCommandSuffix(threadKey);
   printPeekHeader(d);
   console.log(`Total: ${d.totalTurns} turns, ${d.totalMessages} messages (msg [0]-[${d.totalMessages - 1}])`);
   console.log("");
@@ -552,7 +557,7 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string): void {
     if (et.omittedMsgs > 0) {
       const firstIdx = et.messages.length > 0 ? et.messages[0].idx - et.omittedMsgs : 0;
       console.log(
-        `  ... ${et.omittedMsgs} earlier messages omitted (takode peek ${safeSessionRef} --from ${firstIdx} to see all)`,
+        `  ... ${et.omittedMsgs} earlier messages omitted (takode peek ${safeSessionRef} --from ${firstIdx}${threadSuffix} to see all)`,
       );
     }
 
@@ -561,13 +566,20 @@ function printPeekDefault(d: PeekDefaultResponse, sessionRef: string): void {
   }
 
   // Hint
-  console.log(
-    `Hint: takode peek ${safeSessionRef} for latest activity | --turn <N> to expand a turn | --from <msg-id> or --until <msg-id> to browse | takode read ${safeSessionRef} <msg-id> for full message`,
-  );
+  if (threadSuffix) {
+    console.log(
+      `Hint: takode peek ${safeSessionRef}${threadSuffix} for latest activity | takode peek ${safeSessionRef} --turn <N>${threadSuffix} to expand a turn | takode peek ${safeSessionRef} --from <msg-id>${threadSuffix} or takode peek ${safeSessionRef} --until <msg-id>${threadSuffix} to browse | takode read ${safeSessionRef} <msg-id>${threadSuffix} for full message`,
+    );
+  } else {
+    console.log(
+      `Hint: takode peek ${safeSessionRef} for latest activity | --turn <N> to expand a turn | --from <msg-id> or --until <msg-id> to browse | takode read ${safeSessionRef} <msg-id> for full message`,
+    );
+  }
 }
 
-function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number): void {
+function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number, threadKey?: string): void {
   const safeSessionRef = formatInlineText(sessionRef);
+  const threadSuffix = formatThreadCommandSuffix(threadKey);
   printPeekHeader(d);
   console.log(`Messages [${d.from}]-[${d.to}] of [0]-[${d.totalMessages - 1}]`);
   console.log("");
@@ -663,10 +675,10 @@ function printPeekRange(d: PeekRangeResponse, sessionRef: string, count: number)
   const firstShown = d.messages[0]?.idx ?? d.from;
   const lastShown = d.messages[d.messages.length - 1]?.idx ?? d.to;
   if (firstShown > 0) {
-    hints.push(`Prev: takode peek ${safeSessionRef} --until ${firstShown} --count ${count}`);
+    hints.push(`Prev: takode peek ${safeSessionRef} --until ${firstShown} --count ${count}${threadSuffix}`);
   }
   if (lastShown < d.totalMessages - 1) {
-    hints.push(`Next: takode peek ${safeSessionRef} --from ${lastShown + 1} --count ${count}`);
+    hints.push(`Next: takode peek ${safeSessionRef} --from ${lastShown + 1} --count ${count}${threadSuffix}`);
   }
   if (hints.length > 0) {
     console.log(hints.join("  |  "));
@@ -731,7 +743,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
       console.log(JSON.stringify(data, null, 2));
       return;
     }
-    printPeekRange(data as PeekRangeResponse, sessionRef, count);
+    printPeekRange(data as PeekRangeResponse, sessionRef, count, threadKey);
     return;
   }
 
@@ -752,7 +764,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
       console.log(JSON.stringify(data, null, 2));
       return;
     }
-    printPeekRange(data as PeekRangeResponse, sessionRef, count);
+    printPeekRange(data as PeekRangeResponse, sessionRef, count, threadKey);
     return;
   }
 
@@ -773,7 +785,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
       console.log(JSON.stringify(data, null, 2));
       return;
     }
-    printPeekRange(data as PeekRangeResponse, sessionRef, count);
+    printPeekRange(data as PeekRangeResponse, sessionRef, count, threadKey);
   } else if (detail) {
     // Detail mode (legacy behavior)
     const turns = Number(flags.turns) || 1;
@@ -799,7 +811,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
       console.log(JSON.stringify(data, null, 2));
       return;
     }
-    printPeekDefault(data as PeekDefaultResponse, sessionRef);
+    printPeekDefault(data as PeekDefaultResponse, sessionRef, threadKey);
   }
 }
 
@@ -977,17 +989,20 @@ export async function handleScan(base: string, args: string[]): Promise<void> {
 
   // Navigation hints -- "Older" goes toward turn 0, "Newer" goes toward the end
   const hints: string[] = [];
+  const threadSuffix = formatThreadCommandSuffix(threadKey);
   if (data.from > 0) {
-    hints.push(`Older: takode scan ${safeSessionRef} --until ${data.from} --count ${turnCount}`);
+    hints.push(`Older: takode scan ${safeSessionRef} --until ${data.from} --count ${turnCount}${threadSuffix}`);
   }
   if (data.from + data.count < data.totalTurns) {
-    hints.push(`Newer: takode scan ${safeSessionRef} --from ${data.from + data.count} --count ${turnCount}`);
+    hints.push(
+      `Newer: takode scan ${safeSessionRef} --from ${data.from + data.count} --count ${turnCount}${threadSuffix}`,
+    );
   }
   if (hints.length > 0) {
     console.log(hints.join("  |  "));
   }
   console.log(
-    `Expand: takode peek ${safeSessionRef} --turn <N>  |  Full message: takode read ${safeSessionRef} <msg-id>`,
+    `Expand: takode peek ${safeSessionRef} --turn <N>${threadSuffix}  |  Full message: takode read ${safeSessionRef} <msg-id>${threadSuffix}`,
   );
 }
 

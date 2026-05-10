@@ -233,6 +233,137 @@ describe("takode peek/scan source-aware truncation", () => {
     }
   });
 
+  it("preserves --thread filters in scan and range peek navigation hints", async () => {
+    const now = Date.now();
+    const server = createServer((req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-thread-hints", isOrchestrator: false }));
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?scan=turns&fromTurn=2&turnCount=2&threadKey=q-1298") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Thread Hint Worker",
+            status: "idle",
+            quest: null,
+            mode: "turn_scan",
+            totalTurns: 10,
+            totalMessages: 40,
+            from: 2,
+            count: 2,
+            turns: [
+              {
+                turn: 2,
+                si: 20,
+                ei: 21,
+                start: now - 20_000,
+                end: now - 18_000,
+                dur: 2_000,
+                stats: { tools: 0, messages: 2, subagents: 0 },
+                success: true,
+                user: "thread prompt",
+                result: "thread result",
+                threads: ["q-1298"],
+              },
+              {
+                turn: 3,
+                si: 22,
+                ei: 23,
+                start: now - 17_000,
+                end: now - 15_000,
+                dur: 2_000,
+                stats: { tools: 0, messages: 2, subagents: 0 },
+                success: true,
+                user: "next thread prompt",
+                result: "next thread result",
+                threads: ["q-1298"],
+              },
+            ],
+          }),
+        );
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?count=2&from=2&threadKey=q-1298") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Thread Hint Worker",
+            status: "idle",
+            quest: null,
+            mode: "range",
+            totalMessages: 10,
+            from: 2,
+            to: 3,
+            messages: [
+              {
+                idx: 2,
+                type: "user",
+                content: "thread prompt",
+                ts: now - 20_000,
+                threads: ["q-1298"],
+              },
+              {
+                idx: 3,
+                type: "assistant",
+                content: "thread answer",
+                ts: now - 19_000,
+                threads: ["q-1298"],
+              },
+            ],
+            bounds: [{ turn: 2, si: 2, ei: 3 }],
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: `unexpected ${method} ${url}` }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    try {
+      const env = {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-thread-hints",
+        COMPANION_AUTH_TOKEN: "auth-thread-hints",
+      };
+      const scanResult = await runTakode(
+        ["scan", "153", "--from", "2", "--count", "2", "--thread", "q-1298", "--port", String(port)],
+        env,
+      );
+      const peekResult = await runTakode(
+        ["peek", "153", "--from", "2", "--count", "2", "--thread", "q-1298", "--port", String(port)],
+        env,
+      );
+
+      expect(scanResult.status).toBe(0);
+      expect(scanResult.stdout).toContain("Older: takode scan 153 --until 2 --count 2 --thread q-1298");
+      expect(scanResult.stdout).toContain("Newer: takode scan 153 --from 4 --count 2 --thread q-1298");
+      expect(scanResult.stdout).toContain("Expand: takode peek 153 --turn <N> --thread q-1298");
+      expect(scanResult.stdout).toContain("Full message: takode read 153 <msg-id> --thread q-1298");
+
+      expect(peekResult.status).toBe(0);
+      expect(peekResult.stdout).toContain("Prev: takode peek 153 --until 2 --count 2 --thread q-1298");
+      expect(peekResult.stdout).toContain("Next: takode peek 153 --from 4 --count 2 --thread q-1298");
+    } finally {
+      server.close();
+    }
+  });
+
   it("summarizes injected compaction recovery prompts in compact scan and peek output only", async () => {
     // Regression coverage for compact views: injected recovery prompts should
     // collapse to a template summary, while other long system-sourced messages
