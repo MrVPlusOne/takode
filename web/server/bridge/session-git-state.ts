@@ -95,13 +95,33 @@ export function isDefaultMainComparisonRef(ref: string): boolean {
   return parts.length === 2 && (parts[1] === "main" || parts[1] === "master");
 }
 
-function getNonWorktreeAheadBehindKey(state: SessionState): string | null {
-  if (state.is_worktree || !state.cwd) return null;
+function getSharedAheadBehindKey(state: SessionState): string | null {
+  if (!state.cwd) return null;
   const ref = getGitComparisonRef(state);
   if (!ref) return null;
   const repoKey = state.repo_root || state.cwd;
   const headKey = state.git_head_sha || state.git_branch || "HEAD";
   return [repoKey, ref, headKey].join("\0");
+}
+
+async function resolveMergeBaseRef(cwd: string, ref: string): Promise<string | null> {
+  const key = [cwd, ref].join("\0");
+  let computation = inFlightMergeBaseRefs.get(key);
+  if (!computation) {
+    computation = execPromise(`${SERVER_GIT_CMD} merge-base ${ref} HEAD`, {
+      cwd,
+      timeout: GIT_CMD_TIMEOUT,
+    })
+      .then(({ stdout }) => stdout.trim() || null)
+      .catch(() => null)
+      .finally(() => {
+        if (inFlightMergeBaseRefs.get(key) === computation) {
+          inFlightMergeBaseRefs.delete(key);
+        }
+      });
+    inFlightMergeBaseRefs.set(key, computation);
+  }
+  return computation;
 }
 
 async function readAheadBehindCounts(cwd: string, ref: string): Promise<AheadBehindCounts> {
@@ -285,6 +305,7 @@ interface DiffStatsNumstatResult {
 }
 
 const inFlightDiffStatsComputations = new Map<string, Promise<DiffStatsNumstatResult>>();
+const inFlightMergeBaseRefs = new Map<string, Promise<string | null>>();
 
 interface RecomputeDiffIfDirtyDeps {
   broadcastDiffTotals: (session: SessionDiffRefreshLike) => void;
@@ -372,16 +393,8 @@ export async function updateDiffBaseStartSha(session: SessionDiffStateLike, prev
 
   let nextAnchor = currentHeadSha;
   if (ref) {
-    try {
-      const { stdout } = await execPromise(`${SERVER_GIT_CMD} merge-base ${ref} HEAD`, {
-        cwd,
-        timeout: GIT_CMD_TIMEOUT,
-      });
-      const mergeBase = stdout.trim();
-      if (mergeBase) nextAnchor = mergeBase;
-    } catch {
-      // Fall back to current HEAD when merge-base is unavailable.
-    }
+    const mergeBase = await resolveMergeBaseRef(cwd, ref);
+    if (mergeBase) nextAnchor = mergeBase;
   }
 
   if (nextAnchor !== existingAnchor) {
@@ -528,7 +541,7 @@ async function resolveAheadBehindForRefresh(
     return { sharedKey: null, counts: null };
   }
 
-  const sharedKey = getNonWorktreeAheadBehindKey(session.state);
+  const sharedKey = getSharedAheadBehindKey(session.state);
   if (!sharedKey) {
     const counts = await readAheadBehindCounts(session.state.cwd, ref);
     session.state.git_ahead = counts.ahead;
@@ -562,7 +575,7 @@ function broadcastSharedAheadBehindResult(
 ): void {
   for (const candidate of deps.sessions.values()) {
     if (candidate === sourceSession) continue;
-    if (getNonWorktreeAheadBehindKey(candidate.state) !== sharedKey) continue;
+    if (getSharedAheadBehindKey(candidate.state) !== sharedKey) continue;
     const changed =
       candidate.state.git_ahead !== counts.ahead ||
       candidate.state.git_behind !== counts.behind ||
@@ -623,16 +636,8 @@ export async function computeDiffStatsAsync(
     const worktreeFingerprint = session.state.is_worktree ? (await readWorktreeStateFingerprint(cwd)) || "" : "";
     let diffRef = diffBase;
     if (!session.state.is_worktree) {
-      try {
-        const { stdout: mbOut } = await execPromise(`${SERVER_GIT_CMD} merge-base ${diffBase} HEAD`, {
-          cwd,
-          timeout: GIT_CMD_TIMEOUT,
-        });
-        const mergeBase = mbOut.trim();
-        if (mergeBase) diffRef = mergeBase;
-      } catch {
-        // Fall back to a direct diff when merge-base is unavailable.
-      }
+      const mergeBase = await resolveMergeBaseRef(cwd, diffBase);
+      if (mergeBase) diffRef = mergeBase;
     }
 
     const cacheKey = buildDiffStatsCacheKey(session, diffRef, worktreeFingerprint);
@@ -895,6 +900,26 @@ async function runWorktreeGitStateRefreshForSnapshot(
   const previousFingerprint = session.worktreeStateFingerprint.trim();
   const previousRefreshAt = session.state.git_status_refreshed_at || 0;
   const staleRefresh = Date.now() - previousRefreshAt >= GIT_STATUS_AUTO_REFRESH_STALE_MS;
+  const visibilitySkipReason = getDiffStatsSkippedReasonForVisibility(session);
+  if (visibilitySkipReason) {
+    const beforeAdded = session.state.total_lines_added;
+    const beforeRemoved = session.state.total_lines_removed;
+    const beforeSkippedReason = session.state.diff_stats_skipped_reason ?? null;
+    setSkippedDiffStats(session, "", visibilitySkipReason, { cache: false });
+    session.diffStatsDirty = true;
+    session.worktreeStateFingerprint = currentFingerprint || "";
+    const totalsChanged =
+      beforeAdded !== session.state.total_lines_added ||
+      beforeRemoved !== session.state.total_lines_removed ||
+      beforeSkippedReason !== (session.state.diff_stats_skipped_reason ?? null);
+    if (totalsChanged && options.broadcastUpdate) {
+      deps.broadcastDiffTotals(session);
+    }
+    if (totalsChanged) {
+      deps.persistSession(session);
+    }
+    return session.state;
+  }
   if (currentFingerprint && previousFingerprint && currentFingerprint === previousFingerprint && !staleRefresh) {
     return session.state;
   }

@@ -959,6 +959,7 @@ describe("Diff stats computation", () => {
     session.state.total_lines_added = 43;
     session.state.total_lines_removed = 2;
     session.diffStatsDirty = false;
+    session.browserSockets.add(makeBrowserSocket("s1"));
 
     await bridge.refreshWorktreeGitStateForSnapshot("s1", { broadcastUpdate: true });
 
@@ -1486,16 +1487,11 @@ describe("Diff stats computation", () => {
     expect(session.state.total_lines_removed).toBe(4);
   });
 
-  it("snapshot refresh skips unopened worktree diff stats without launching numstat", async () => {
+  it("snapshot refresh skips unopened worktree git probes before metadata fan-out", async () => {
+    const commands: string[] = [];
     mockExecSync.mockImplementation((cmd: string) => {
-      if (cmd.includes("--abbrev-ref HEAD")) return "jiayi-wt-1\n";
-      if (cmd.includes("--git-dir")) return "/repo/.git/worktrees/jiayi-wt-1\n";
-      if (cmd.includes("--git-common-dir")) return "/repo/.git\n";
-      if (cmd.includes("rev-parse HEAD")) return "same-head-sha\n";
-      if (cmd.includes("--left-right --count")) return "0\t1\n";
-      if (cmd.includes("merge-base")) return "base-sha\n";
-      if (cmd.includes("diff --numstat")) throw new Error("diff should be skipped while worktree is not open");
-      return "";
+      commands.push(cmd);
+      throw new Error(`unopened snapshot refresh should not run git command: ${cmd}`);
     });
 
     bridge.markWorktree("s1", "/repo", "/tmp/wt", "jiayi");
@@ -1507,6 +1503,7 @@ describe("Diff stats computation", () => {
     expect(session.state.diff_stats_skipped_reason).toBe("Diff stats skipped: worktree is not open");
     expect(session.state.total_lines_added).toBe(0);
     expect(session.diffStatsDirty).toBe(true);
+    expect(commands).toHaveLength(0);
   });
 
   it("dedupes non-worktree ahead-behind refreshes and shares the result", async () => {
@@ -1582,6 +1579,103 @@ describe("Diff stats computation", () => {
     expect(s2.state.git_ahead).toBe(11);
     expect(s2.state.git_behind).toBe(7);
     expect(deps.nonWorktreeAheadBehindRefreshes.size).toBe(0);
+  });
+
+  it("coalesces same-base non-worktree refresh fan-out across metadata and numstat probes", async () => {
+    // Feedback #22 showed a restarted server spawning duplicate same-base
+    // `diff --numstat` alongside adjacent `merge-base` and `rev-list` work.
+    // Equivalent non-worktree refreshes should share those expensive probes.
+    const revListCallbacks: Array<(err: Error | null, result: { stdout: string; stderr: string }) => void> = [];
+    const mergeBaseCallbacks: Array<(err: Error | null, result: { stdout: string; stderr: string }) => void> = [];
+    const diffCallbacks: Array<(err: Error | null, result: { stdout: string; stderr: string }) => void> = [];
+    const commands: string[] = [];
+    mockExec.mockImplementation((cmd: string, opts: any, cb?: Function) => {
+      commands.push(cmd);
+      const callback = typeof opts === "function" ? opts : cb;
+      if (cmd.includes("rev-list --left-right --count")) {
+        if (callback) revListCallbacks.push(callback);
+        return;
+      }
+      if (cmd.includes("merge-base 3a60b84ae71902ae654d06b46def2d99a6218689 HEAD")) {
+        if (callback) mergeBaseCallbacks.push(callback);
+        return;
+      }
+      if (cmd.includes("diff --numstat base-sha")) {
+        if (callback) diffCallbacks.push(callback);
+        return;
+      }
+      if (cmd.includes("@{upstream}")) callback?.(null, { stdout: "origin/main\n", stderr: "" });
+      else if (cmd.includes("--abbrev-ref HEAD")) callback?.(null, { stdout: "feature\n", stderr: "" });
+      else if (cmd.includes("rev-parse HEAD")) callback?.(null, { stdout: "same-head-sha\n", stderr: "" });
+      else if (cmd.includes("--git-dir")) callback?.(null, { stdout: ".git\n", stderr: "" });
+      else if (cmd.includes("--show-toplevel")) callback?.(null, { stdout: "/Users/yuege/code/openai\n", stderr: "" });
+      else callback?.(null, { stdout: "", stderr: "" });
+    });
+
+    const s1 = bridge.getOrCreateSession("s1");
+    const s2 = bridge.getOrCreateSession("s2");
+    for (const session of [s1, s2]) {
+      session.state.cwd = "/Users/yuege/code/openai";
+      session.state.is_worktree = false;
+      session.state.diff_base_branch = "3a60b84ae71902ae654d06b46def2d99a6218689";
+      session.state.diff_base_branch_explicit = true;
+      session.diffStatsDirty = true;
+    }
+    const sessions = new Map([
+      ["s1", s1],
+      ["s2", s2],
+    ]);
+    const gitDeps = {
+      gitSessionKeys: [
+        "git_branch",
+        "git_default_branch",
+        "diff_base_branch",
+        "git_head_sha",
+        "diff_base_start_sha",
+        "is_worktree",
+        "is_containerized",
+        "repo_root",
+        "git_ahead",
+        "git_behind",
+        "total_lines_added",
+        "total_lines_removed",
+      ],
+      sessions,
+      nonWorktreeAheadBehindRefreshes: new Map(),
+      broadcastSessionUpdate: vi.fn(),
+      broadcastGitUpdate: vi.fn(),
+      broadcastDiffTotals: vi.fn(),
+      persistSession: vi.fn(),
+      notifyPoller: vi.fn(),
+      updateBranchIndex: vi.fn(),
+      invalidateSessionsSharingBranch: vi.fn(),
+    };
+    const deps = {
+      refreshGitInfo: (targetSession: any, options: any) =>
+        refreshGitInfoController(targetSession, gitDeps as any, options),
+      broadcastSessionUpdate: vi.fn(),
+      broadcastDiffTotals: vi.fn(),
+      persistSession: vi.fn(),
+    };
+
+    const first = refreshGitInfoPublicController(s1 as any, deps, { broadcastUpdate: true, force: true });
+    const second = refreshGitInfoPublicController(s2 as any, deps, { broadcastUpdate: true, force: true });
+
+    await vi.waitFor(() => expect(revListCallbacks).toHaveLength(1));
+    revListCallbacks[0]!(null, { stdout: "0\t2\n", stderr: "" });
+    await vi.waitFor(() => expect(mergeBaseCallbacks).toHaveLength(1));
+    mergeBaseCallbacks[0]!(null, { stdout: "base-sha\n", stderr: "" });
+    await vi.waitFor(() => expect(diffCallbacks).toHaveLength(1));
+    diffCallbacks[0]!(null, { stdout: "42\t7\tservices/hermes.ts\n", stderr: "" });
+    await Promise.all([first, second]);
+
+    expect(commands.filter((cmd) => cmd.includes("rev-list --left-right --count"))).toHaveLength(1);
+    expect(
+      commands.filter((cmd) => cmd.includes("merge-base 3a60b84ae71902ae654d06b46def2d99a6218689 HEAD")),
+    ).toHaveLength(1);
+    expect(commands.filter((cmd) => cmd.includes("diff --numstat base-sha"))).toHaveLength(1);
+    expect(s1.state.total_lines_added).toBe(42);
+    expect(s2.state.total_lines_added).toBe(42);
   });
 
   it("refreshWorktreeGitStateForSnapshot preserves stale totals when required diff recompute fails", async () => {
