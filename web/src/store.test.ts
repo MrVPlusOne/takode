@@ -982,6 +982,20 @@ describe("UI state", () => {
     expect(useStore.getState().currentSessionId).toBeNull();
     expect(localStorage.getItem("test-server:cc-current-session")).toBeNull();
   });
+
+  it("setSessionInfoOpenSessionId: does not notify subscribers when unchanged", () => {
+    const listener = vi.fn();
+    const unsubscribe = useStore.subscribe(listener);
+
+    useStore.getState().setSessionInfoOpenSessionId("s1");
+    expect(listener).toHaveBeenCalledTimes(1);
+    listener.mockClear();
+
+    useStore.getState().setSessionInfoOpenSessionId("s1");
+    expect(listener).not.toHaveBeenCalled();
+
+    unsubscribe();
+  });
 });
 
 // ─── Board block registration ──────────────────────────────────────────────
