@@ -1,11 +1,21 @@
 // @vitest-environment jsdom
 import { fireEvent, render, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
-import type { ReactNode } from "react";
+import { useSyncExternalStore, type ReactNode } from "react";
 import type { LeaderOpenThreadTabsState } from "../../shared/leader-open-thread-tabs.js";
 import { persistLeaderSelectedThreadKey, readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
+import { parseHash, threadRouteFromHash } from "../utils/routing.js";
+import type { LeaderWorkboardView } from "../store-types.js";
 
 interface MockStoreState {
+  currentSessionId: string | null;
+  sidebarOpen: boolean;
+  setSidebarOpen: ReturnType<typeof vi.fn>;
+  setSessionInfoOpenSessionId: ReturnType<typeof vi.fn>;
+  activeTab: "chat" | "diff";
+  setActiveTab: ReturnType<typeof vi.fn>;
+  changedFiles: Map<string, Set<string>>;
+  diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
   pendingPermissions: Map<string, Map<string, { tool_name?: string; request_id?: string }>>;
   connectionStatus: Map<string, "connecting" | "connected" | "disconnected">;
   sessions: Map<
@@ -23,11 +33,13 @@ interface MockStoreState {
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   sdkSessions: Array<{
     sessionId: string;
+    name?: string;
     archived?: boolean;
     isOrchestrator?: boolean;
     leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
   }>;
   sessionNotifications: Map<string, import("../types.js").SessionNotification[]>;
+  sessionAttention: Map<string, "action" | "error" | "review" | null>;
   sessionAttentionRecords: Map<string, import("../types.js").SessionAttentionRecord[]>;
   sessionBoards: Map<string, unknown[]>;
   sessionCompletedBoards: Map<string, unknown[]>;
@@ -36,6 +48,16 @@ interface MockStoreState {
   messages: Map<string, unknown[]>;
   historyLoading: Map<string, boolean>;
   quests: Array<Record<string, unknown> & { questId: string; title: string; status: string }>;
+  sessionNames: Map<string, string>;
+  questNamedSessions: Set<string>;
+  refreshQuests: ReturnType<typeof vi.fn>;
+  leaderWorkboardViews: Map<string, LeaderWorkboardView>;
+  setLeaderWorkboardView: ReturnType<typeof vi.fn>;
+  shortcutSettings: {
+    enabled: boolean;
+    preset: "standard" | "vscode-light" | "vim-light";
+    overrides: Record<string, string | null>;
+  };
   zoomLevel: number;
 }
 
@@ -45,6 +67,14 @@ const mockMessageFeedRenders = vi.fn();
 
 function resetStore(overrides: Partial<MockStoreState> = {}) {
   mockState = {
+    currentSessionId: "s1",
+    sidebarOpen: true,
+    setSidebarOpen: vi.fn(),
+    setSessionInfoOpenSessionId: vi.fn(),
+    activeTab: "chat",
+    setActiveTab: vi.fn(),
+    changedFiles: new Map(),
+    diffFileStats: new Map(),
     pendingPermissions: new Map(),
     connectionStatus: new Map([["s1", "connected"]]),
     sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
@@ -54,6 +84,7 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionStatus: new Map([["s1", "idle"]]),
     sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
     sessionNotifications: new Map(),
+    sessionAttention: new Map(),
     sessionAttentionRecords: new Map(),
     sessionBoards: new Map(),
     sessionCompletedBoards: new Map(),
@@ -62,9 +93,21 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     messages: new Map(),
     historyLoading: new Map(),
     quests: [],
+    sessionNames: new Map([["s1", "Leader Session"]]),
+    questNamedSessions: new Set(),
+    refreshQuests: vi.fn().mockResolvedValue(undefined),
+    leaderWorkboardViews: new Map(),
+    setLeaderWorkboardView: vi.fn(),
+    shortcutSettings: { enabled: false, preset: "standard", overrides: {} },
     zoomLevel: 1,
     ...overrides,
   };
+  if (!overrides.setLeaderWorkboardView) {
+    mockState.setLeaderWorkboardView = vi.fn((sessionId: string, view: LeaderWorkboardView | null) => {
+      if (view) mockState.leaderWorkboardViews.set(sessionId, view);
+      else mockState.leaderWorkboardViews.delete(sessionId);
+    });
+  }
 }
 
 function leaderTabs(keys: string[], closed: LeaderOpenThreadTabsState["closedThreadTombstones"] = []) {
@@ -102,6 +145,7 @@ function threadMessage(questId: string, timestamp: number) {
 
 vi.mock("../store.js", () => ({
   useStore: (selector: (s: MockStoreState) => unknown) => selector(mockState),
+  countUserPermissions: (perms: Map<string, unknown> | undefined): number => perms?.size ?? 0,
   getSessionSearchState: () => ({ query: "", isOpen: false, mode: "strict", category: "all", matches: [] }),
 }));
 
@@ -172,6 +216,11 @@ vi.mock("./WorkBoardBar.js", () => ({
       data-open-thread-keys={openThreadKeys.join(",")}
       data-closed-thread-keys={closedThreadKeys.join(",")}
     >
+      {currentThreadKey === "main" && mockState.leaderWorkboardViews.get("s1") && (
+        <div data-testid="workboard-panel" data-view={mockState.leaderWorkboardViews.get("s1") ?? undefined}>
+          {mockState.leaderWorkboardViews.get("s1")}
+        </div>
+      )}
       {onSelectThread && (
         <>
           <button type="button" data-testid="mock-workboard-main" onClick={() => onSelectThread("main")}>
@@ -217,6 +266,7 @@ vi.mock("./SessionInlineLink.js", () => ({
   SessionInlineLink: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
 vi.mock("./SessionStatusDot.js", () => ({ SessionStatusDot: () => null }));
+vi.mock("./GlobalNeedsInputMenu.js", () => ({ GlobalNeedsInputMenu: () => null }));
 vi.mock("./CatIcons.js", () => ({ YarnBallDot: () => null }));
 vi.mock("./QuestJourneyTimeline.js", () => ({
   isCompletedJourneyPresentationStatus: (status?: string) =>
@@ -227,6 +277,32 @@ vi.mock("./QuestJourneyTimeline.js", () => ({
 vi.mock("./session-participant-status.js", () => ({ useParticipantSessionStatusDotProps: () => ({}) }));
 
 import { ChatView } from "./ChatView.js";
+import { TopBar } from "./TopBar.js";
+
+function RouteAwareLeaderSession() {
+  const hash = useSyncExternalStore(
+    (cb) => {
+      window.addEventListener("hashchange", cb);
+      return () => window.removeEventListener("hashchange", cb);
+    },
+    () => window.location.hash,
+  );
+  const route = parseHash(hash);
+  const threadRoute = route.page === "session" ? threadRouteFromHash(hash) : { hasThreadParam: false, threadKey: null };
+  const sessionId = route.page === "session" ? route.sessionId : "s1";
+
+  return (
+    <>
+      <TopBar />
+      <ChatView
+        key={sessionId}
+        sessionId={sessionId}
+        hasThreadRoute={threadRoute.hasThreadParam}
+        routeThreadKey={threadRoute.threadKey}
+      />
+    </>
+  );
+}
 
 beforeEach(() => {
   resetStore();
@@ -395,6 +471,38 @@ describe("ChatView leader open thread tabs", () => {
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-777"));
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-777");
+  });
+
+  it.each([
+    ["topbar-workboard-shortcut", "active"],
+    ["topbar-completed-shortcut", "completed"],
+  ] as const)("keeps the App route on Main when the %s is clicked from a quest thread", async (shortcutTestId, expectedView) => {
+    persistLeaderSelectedThreadKey("s1", "q-42");
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-42"])),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true, name: "Leader Session" }],
+      sessionBoards: new Map([["s1", [{ questId: "q-42", status: "IMPLEMENTING", title: "Active", updatedAt: 2 }]]]),
+      sessionCompletedBoards: new Map([
+        ["s1", [{ questId: "q-41", status: "DONE", title: "Completed", updatedAt: 1, completedAt: 1 }]],
+      ]),
+      messages: new Map([["s1", [threadMessage("q-42", 2)]]]),
+      quests: [{ questId: "q-42", title: "Routed quest", status: "in_progress" }],
+    });
+    window.location.hash = "#/session/s1?thread=q-42";
+
+    const view = render(<RouteAwareLeaderSession />);
+    const scope = within(view.container);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
+    expect(scope.queryByTestId("workboard-panel")).not.toBeInTheDocument();
+
+    fireEvent.click(scope.getByTestId(shortcutTestId));
+
+    await waitFor(() => expect(window.location.hash).toBe("#/session/s1"));
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "main"));
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-current-thread-key", "main");
+    expect(scope.getByTestId("workboard-panel")).toHaveAttribute("data-view", expectedView);
+    expect(readLeaderSelectedThreadKey("s1")).toBe("main");
   });
 
   it("renders server-owned tabs and applies remote close updates from another browser", () => {

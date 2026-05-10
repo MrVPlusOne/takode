@@ -10,6 +10,8 @@ import { coalesceSessionViewModel, type SessionViewModel } from "../utils/sessio
 import { questLabel } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
+import { MAIN_THREAD_KEY } from "../utils/thread-projection.js";
+import { persistLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
 
 type TopBarState = ReturnType<typeof useStore.getState>;
 
@@ -224,8 +226,9 @@ export function TopBar({
   const openLeaderWorkboardView = useCallback(
     (view: "active" | "completed") => {
       if (!currentSessionId) return;
+      persistLeaderSelectedThreadKey(currentSessionId, MAIN_THREAD_KEY);
       setLeaderWorkboardView(currentSessionId, view);
-      navigateToSessionThread(currentSessionId, "main");
+      navigateToSessionThread(currentSessionId, MAIN_THREAD_KEY);
     },
     [currentSessionId, setLeaderWorkboardView],
   );

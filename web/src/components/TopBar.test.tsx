@@ -219,11 +219,14 @@ import { TopBar } from "./TopBar.js";
 import { WorkBoardBar } from "./WorkBoardBar.js";
 import { getGlobalNeedsInputEntries } from "./GlobalNeedsInputMenu.js";
 import { api } from "../api.js";
+import { readLeaderSelectedThreadKey } from "../utils/thread-viewport.js";
 
 beforeEach(() => {
   vi.clearAllMocks();
   window.innerWidth = 1280;
   window.location.hash = "";
+  localStorage.clear();
+  localStorage.setItem("cc-server-id", "test-server");
   resetStore();
 });
 
@@ -523,10 +526,12 @@ describe("TopBar", () => {
     fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
     expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "active");
     expect(window.location.hash).toContain("/session/s1");
+    expect(readLeaderSelectedThreadKey("s1")).toBe("main");
 
     fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
     expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "completed");
     expect(window.location.hash).toContain("/session/s1");
+    expect(readLeaderSelectedThreadKey("s1")).toBe("main");
   });
 
   it.each([
