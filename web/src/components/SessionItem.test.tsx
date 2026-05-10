@@ -13,6 +13,7 @@ const mockStoreState = {
   sessionAttention: new Map<string, "action" | "error" | "review" | null>(),
   sessionNotifications: new Map<string, Array<any>>(),
   sessionTimers: new Map<string, Array<{ id: string }>>(),
+  sessionBoards: new Map<string, Array<any>>(),
   sdkSessions: [] as Array<any>,
   currentSessionId: "s1",
   updateSdkSession: vi.fn(),
@@ -58,6 +59,7 @@ const SHMI_PORTRAIT = LEADER_PROFILE_PORTRAITS.find((portrait) => portrait.poolI
 beforeEach(() => {
   mockStoreState.updateSdkSession.mockClear();
   vi.mocked(api.updateLeaderProfilePortrait).mockClear();
+  mockStoreState.sessionBoards.clear();
 });
 
 function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType {
@@ -415,7 +417,17 @@ describe("SessionItem leader profiles", () => {
     expect(screen.getByRole("button", { name: /open tako 1\.1 profile/i })).toBeInTheDocument();
   });
 
-  it("lays out leader portraits across title and metadata rows while preserving preview width", () => {
+  it("lays out leader portraits across title and metadata rows while showing active Journey phase counts", () => {
+    mockStoreState.sessionBoards.set("s1", [
+      {
+        questId: "q-1",
+        title: "Implement leader chip",
+        status: "IMPLEMENTING",
+        updatedAt: 1,
+        journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+      },
+    ]);
+
     renderSessionItem({
       session: makeSession({
         isOrchestrator: true,
@@ -439,7 +451,19 @@ describe("SessionItem leader profiles", () => {
     expect(screen.getByTestId("session-metadata-row")).toHaveClass("col-start-2", "row-start-2");
     expect(screen.getByTestId("session-metadata-row")).toHaveTextContent("#1286");
     expect(screen.getByTestId("session-preview-row")).toHaveClass("col-span-2", "row-start-3");
-    expect(screen.getByTestId("session-preview-row")).toHaveTextContent("recent activity stays readable");
+    expect(screen.getByTestId("session-preview-row")).toHaveAttribute("data-leader-active-phase-summary", "true");
+    expect(screen.getByTestId("session-preview-row")).toHaveTextContent("1 Implement");
+    expect(screen.queryByText("recent activity stays readable")).not.toBeInTheDocument();
+  });
+
+  it("does not show stale user-message previews for leader chips with no active phase counts", () => {
+    renderSessionItem({
+      session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),
+      sessionPreview: "stale leader user prompt",
+    });
+
+    expect(screen.queryByTestId("session-preview-row")).not.toBeInTheDocument();
+    expect(screen.queryByText("stale leader user prompt")).not.toBeInTheDocument();
   });
 
   it("does not render portraits for non-leader sessions", () => {

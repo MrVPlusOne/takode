@@ -192,10 +192,10 @@ describe("Playground", () => {
     expect(
       rail.compareDocumentPosition(screen.getByTestId("workboard-main-banner")) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByTestId("workboard-summary-button")).toHaveTextContent("Open Workboard");
+    expect(screen.getByTestId("workboard-active-button")).toBeInTheDocument();
     expect(
       screen
-        .getByTestId("workboard-summary-button")
+        .getByTestId("workboard-active-button")
         .compareDocumentPosition(screen.getByTestId("workboard-phase-summary")) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.queryByTestId("workboard-current-thread")).toBeNull();
@@ -314,15 +314,11 @@ describe("Playground", () => {
     expect(screen.getByTestId("thread-tab-rail")).toBeTruthy();
 
     fireEvent.click(screen.getByText("Main banner"));
-    fireEvent.click(screen.getByTestId("workboard-summary-button"));
-    expect(screen.getByTestId("workboard-thread-main")).toHaveAttribute("data-variant", "compact");
-    expect(screen.getByTestId("workboard-thread-all")).toHaveAttribute("data-secondary", "true");
-    expect(screen.getByTestId("workboard-other-threads-toggle")).toHaveTextContent("2 other");
-    expect(screen.getByTestId("workboard-other-threads-toggle")).toHaveAttribute("aria-expanded", "false");
-    expect(
-      within(screen.getByTestId("workboard-off-board-threads")).queryByText("Off-board routed discussion"),
-    ).toBeNull();
-    fireEvent.click(screen.getByTestId("workboard-other-threads-toggle"));
+    expect(screen.getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "true");
+    expect(screen.getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "false");
+    expect(screen.getByTestId("workboard-other-button")).toHaveTextContent("2other");
+    expect(screen.queryByTestId("workboard-off-board-threads")).toBeNull();
+    fireEvent.click(screen.getByTestId("workboard-other-button"));
     expect(screen.getByTestId("workboard-other-threads-content")).toHaveTextContent("Off-board routed discussion");
   });
 

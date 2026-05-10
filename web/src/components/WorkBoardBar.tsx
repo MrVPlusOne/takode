@@ -30,11 +30,12 @@ import type { ActiveTurnRoute } from "../types.js";
 import { BoardTable, orderBoardRows } from "./BoardTable.js";
 import type { BoardRowData } from "./BoardTable.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
-import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { isAttentionRecordActive, type AttentionRecord } from "../utils/attention-records.js";
 import type { QuestmasterTask } from "../types.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
+import { activeBoardSummarySegments, boardSummary, type BoardSummarySegment } from "./leader-board-summary.js";
+import type { LeaderWorkboardView } from "../store-types.js";
 
 export interface WorkBoardThreadNavigationRow {
   threadKey: string;
@@ -46,41 +47,11 @@ export interface WorkBoardThreadNavigationRow {
   section?: "active" | "done";
 }
 
-export interface BoardSummarySegment {
-  text: string;
-  className: string;
-  style?: CSSProperties;
-}
-
 const DONE_THREAD_TITLE_COLOR = "var(--color-cc-muted)";
 const QUEUED_THREAD_TITLE_COLOR = "var(--color-cc-fg)";
-const MAX_WORK_BOARD_BOOLEAN_STORAGE_CHARS = 8;
 
-/**
- * Build a compact status summary for the collapsed board bar.
- * Active phase colors come from phase metadata; non-phase statuses stay neutral.
- */
-export function boardSummary(board: BoardRowData[], completedCount: number): BoardSummarySegment[] {
-  if (board.length === 0 && completedCount === 0) return [{ text: "Empty", className: "text-cc-muted" }];
-  const counts = new Map<string, { count: number; className: string; style?: CSSProperties }>();
-  for (const row of orderBoardRows(board)) {
-    const currentPhase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
-    const presentation = getQuestJourneyPresentation(row.status);
-    const label = currentPhase?.label ?? presentation?.label ?? row.status ?? "unknown";
-    const className = currentPhase ? "text-cc-fg" : presentation ? "text-cc-muted" : "text-cc-fg/80";
-    const style = currentPhase ? { color: currentPhase.color.accent } : undefined;
-    const entry = counts.get(label);
-    if (entry) entry.count++;
-    else counts.set(label, { count: 1, className, style });
-  }
-  const segments: BoardSummarySegment[] = [...counts.entries()].map(([label, { count, className, style }]) => ({
-    text: `${count} ${label}`,
-    className,
-    ...(style ? { style } : {}),
-  }));
-  if (completedCount > 0) segments.push({ text: `${completedCount} done`, className: "text-cc-muted" });
-  return segments;
-}
+export { activeBoardSummarySegments, boardSummary };
+export type { BoardSummarySegment };
 
 export function reorderThreadTabsAfterDrag(
   threadKeys: ReadonlyArray<string>,
@@ -201,51 +172,6 @@ function stringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<str
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function workBoardExpandedKey(sessionId: string): string {
-  return `cc-work-board-expanded:${sessionId}`;
-}
-
-function workBoardOtherThreadsExpandedKey(sessionId: string): string {
-  return `cc-work-board-other-threads-expanded:${sessionId}`;
-}
-
-function readExpandedState(sessionId: string): boolean {
-  return readWorkBoardBooleanState(workBoardExpandedKey(sessionId));
-}
-
-function readOtherThreadsExpandedState(sessionId: string): boolean {
-  return readWorkBoardBooleanState(workBoardOtherThreadsExpandedKey(sessionId));
-}
-
-function readWorkBoardBooleanState(storageKey: string): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const value = scopedGetItem(storageKey);
-    if (!value) return false;
-    if (value.length > MAX_WORK_BOARD_BOOLEAN_STORAGE_CHARS) {
-      warnWorkBoardStorage("Ignoring oversized Work Board storage value.", { storageKey, length: value.length });
-      return false;
-    }
-    return value === "1";
-  } catch (error) {
-    warnWorkBoardStorage("Could not read Work Board storage value; using collapsed state.", error);
-    return false;
-  }
-}
-
-function persistWorkBoardBooleanState(storageKey: string, value: boolean): void {
-  if (typeof window === "undefined") return;
-  try {
-    scopedSetItem(storageKey, value ? "1" : "0");
-  } catch (error) {
-    warnWorkBoardStorage("Could not persist Work Board storage value; continuing in memory.", error);
-  }
-}
-
-function warnWorkBoardStorage(message: string, error: unknown): void {
-  console.warn(`[takode] ${message}`, error);
-}
-
 function normalizeThreadKey(threadKey: string): string {
   return threadKey.trim().toLowerCase();
 }
@@ -257,20 +183,6 @@ function isSelectedThread(currentThreadKey: string, targetThreadKey: string): bo
 function isActiveOutputThread(activeTurnRoute: ActiveTurnRoute | null | undefined, targetThreadKey: string): boolean {
   if (!activeTurnRoute?.threadKey) return false;
   return normalizeThreadKey(activeTurnRoute.threadKey) === normalizeThreadKey(targetThreadKey);
-}
-
-function rowMatchesQuery(row: BoardRowData, query: string): boolean {
-  if (!query) return true;
-  return [row.questId, row.title, row.status, row.worker, row.workerNum?.toString(), ...(row.waitFor ?? [])]
-    .filter(Boolean)
-    .some((value) => value!.toLowerCase().includes(query));
-}
-
-function threadRowMatchesQuery(row: WorkBoardThreadNavigationRow, query: string): boolean {
-  if (!query) return true;
-  return [row.threadKey, row.questId, row.title, row.section, row.messageCount?.toString()]
-    .filter(Boolean)
-    .some((value) => value!.toLowerCase().includes(query));
 }
 
 function ThreadNavButton({
@@ -322,75 +234,6 @@ function ThreadNavButton({
         </span>
       )}
     </button>
-  );
-}
-
-function ThreadSearchField({
-  query,
-  expanded,
-  onQueryChange,
-  onFocusChange,
-}: {
-  query: string;
-  expanded: boolean;
-  onQueryChange: (query: string) => void;
-  onFocusChange: (focused: boolean) => void;
-}) {
-  return (
-    <div
-      className={`relative ml-auto h-8 ${
-        expanded ? "min-w-[8.5rem] flex-1" : "w-9 flex-none"
-      } sm:min-w-[12rem] sm:max-w-md sm:flex-1`}
-      data-testid="workboard-thread-search"
-      data-expanded={expanded ? "true" : "false"}
-    >
-      <svg
-        viewBox="0 0 16 16"
-        fill="none"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        className={`pointer-events-none absolute top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-cc-muted ${
-          expanded ? "left-2" : "left-1/2 -translate-x-1/2 sm:left-2 sm:translate-x-0"
-        }`}
-        aria-hidden="true"
-      >
-        <circle cx="6.5" cy="6.5" r="4.5" />
-        <path d="M10 10l3.5 3.5" strokeLinecap="round" />
-      </svg>
-      <input
-        type="search"
-        value={query}
-        onChange={(event) => onQueryChange(event.target.value)}
-        onFocus={() => onFocusChange(true)}
-        onBlur={() => onFocusChange(false)}
-        onKeyDown={(event) => {
-          if (event.key !== "Escape") return;
-          event.stopPropagation();
-          onQueryChange("");
-          event.currentTarget.blur();
-        }}
-        placeholder="Search threads, board, history"
-        className={`h-full w-full rounded-md border border-cc-border bg-cc-input-bg py-1.5 text-xs text-cc-fg outline-none transition-colors placeholder:text-cc-muted/65 focus:border-cc-primary/60 ${
-          expanded
-            ? "pl-7 pr-7"
-            : "cursor-pointer px-0 text-transparent placeholder:text-transparent sm:pl-7 sm:pr-7 sm:text-cc-fg sm:placeholder:text-cc-muted/65"
-        }`}
-        aria-label="Search threads, board, and history"
-      />
-      {query && (
-        <button
-          type="button"
-          onMouseDown={(event) => event.preventDefault()}
-          onClick={() => onQueryChange("")}
-          className="absolute right-1.5 top-1/2 inline-flex h-5 w-5 -translate-y-1/2 items-center justify-center rounded text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
-          aria-label="Clear thread search"
-        >
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
-            <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-          </svg>
-        </button>
-      )}
-    </div>
   );
 }
 
@@ -479,67 +322,38 @@ function threadKeyToSelectAfterClosing(threadKey: string, tabs: ReadonlyArray<Pr
 function OtherThreadSection({
   rows,
   totalCount,
-  expanded,
   currentThreadKey,
-  onToggle,
   onSelectThread,
 }: {
   rows: WorkBoardThreadNavigationRow[];
   totalCount: number;
-  expanded: boolean;
   currentThreadKey: string;
-  onToggle: () => void;
   onSelectThread: (threadKey: string) => void;
 }) {
   if (totalCount === 0) return null;
 
   return (
-    <div className="border-t border-cc-border" data-testid="workboard-off-board-threads">
-      <button
-        type="button"
-        onClick={onToggle}
-        className="flex w-full cursor-pointer items-center gap-2 px-3 py-1.5 transition-colors hover:bg-cc-hover/50"
-        data-testid="workboard-other-threads-toggle"
-        aria-expanded={expanded}
-      >
-        <svg
-          viewBox="0 0 12 12"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="1.5"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-          className={`h-2.5 w-2.5 shrink-0 text-cc-muted transition-transform duration-150 ${expanded ? "rotate-90" : ""}`}
-          aria-hidden="true"
-        >
-          <path d="M4 2l4 4-4 4" />
-        </svg>
-        <span className="text-[11px] text-cc-muted">{totalCount} other</span>
-      </button>
-      {expanded && (
-        <div className="px-3 pb-2" data-testid="workboard-other-threads-content">
-          {rows.length > 0 ? (
-            <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3">
-              {rows.map((row) => {
-                const selected = isSelectedThread(currentThreadKey, row.threadKey);
-                const count = row.messageCount ?? 0;
-                const detail = `${count} message${count === 1 ? "" : "s"}`;
-                return (
-                  <ThreadNavButton
-                    key={row.threadKey}
-                    label={row.questId ? `${row.questId} ${row.title}` : row.title}
-                    detail={detail}
-                    selected={selected}
-                    onClick={() => onSelectThread(row.threadKey)}
-                    testId="workboard-off-board-thread"
-                  />
-                );
-              })}
-            </div>
-          ) : (
-            <div className="py-1.5 text-xs text-cc-muted italic">No other threads match</div>
-          )}
+    <div className="px-3 py-2" data-testid="workboard-off-board-threads">
+      {rows.length > 0 ? (
+        <div className="grid gap-1.5 sm:grid-cols-2 xl:grid-cols-3" data-testid="workboard-other-threads-content">
+          {rows.map((row) => {
+            const selected = isSelectedThread(currentThreadKey, row.threadKey);
+            const count = row.messageCount ?? 0;
+            const detail = `${count} message${count === 1 ? "" : "s"}`;
+            return (
+              <ThreadNavButton
+                key={row.threadKey}
+                label={row.questId ? `${row.questId} ${row.title}` : row.title}
+                detail={detail}
+                selected={selected}
+                onClick={() => onSelectThread(row.threadKey)}
+                testId="workboard-off-board-thread"
+              />
+            );
+          })}
         </div>
+      ) : (
+        <div className="py-1.5 text-xs text-cc-muted italic">No other threads</div>
       )}
     </div>
   );
@@ -1461,6 +1275,103 @@ function ThreadTabRail({
   );
 }
 
+function SummarySegments({
+  segments,
+  separatorClassName = "text-cc-fg/40",
+}: {
+  segments: BoardSummarySegment[];
+  separatorClassName?: string;
+}) {
+  return (
+    <>
+      {segments.map((seg, i, arr) => (
+        <span key={i}>
+          <span className={seg.className} style={seg.style}>
+            {seg.text}
+          </span>
+          {i < arr.length - 1 && <span className={separatorClassName}>, </span>}
+        </span>
+      ))}
+    </>
+  );
+}
+
+function ProjectionToggle({
+  currentThreadKey,
+  onSelectThread,
+}: {
+  currentThreadKey: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  if (!onSelectThread) return null;
+  const allSelected = isSelectedThread(currentThreadKey, ALL_THREADS_KEY);
+  const mainSelected = !allSelected;
+  const base =
+    "inline-flex h-6 items-center rounded px-2 text-[10px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset";
+  const selected = "bg-cc-hover text-cc-fg";
+  const idle = "text-cc-muted hover:bg-cc-hover/55 hover:text-cc-fg";
+  return (
+    <div
+      className="inline-flex shrink-0 items-center rounded-md border border-cc-border/70 bg-cc-card/60 p-0.5"
+      data-testid="workboard-projection-toggle"
+      aria-label="Main thread projection"
+    >
+      <button
+        type="button"
+        onClick={() => onSelectThread(MAIN_THREAD_KEY)}
+        className={`${base} ${mainSelected ? selected : idle}`}
+        aria-pressed={mainSelected}
+        data-testid="workboard-projection-main"
+      >
+        Main
+      </button>
+      <button
+        type="button"
+        onClick={() => onSelectThread(ALL_THREADS_KEY)}
+        className={`${base} ${allSelected ? selected : idle}`}
+        aria-pressed={allSelected}
+        data-testid="workboard-projection-all"
+      >
+        All
+      </button>
+    </div>
+  );
+}
+
+function BannerControlButton({
+  view,
+  activeView,
+  onSelectView,
+  children,
+  testId,
+  ariaLabel,
+}: {
+  view: LeaderWorkboardView;
+  activeView: LeaderWorkboardView | null;
+  onSelectView: (view: LeaderWorkboardView) => void;
+  children: ReactNode;
+  testId: string;
+  ariaLabel: string;
+}) {
+  const selected = activeView === view;
+  return (
+    <button
+      type="button"
+      onClick={() => onSelectView(view)}
+      className={`inline-flex h-6 min-w-0 shrink-0 items-center gap-1.5 rounded-md border px-2 text-[11px] transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset ${
+        selected
+          ? "border-cc-primary/50 bg-cc-primary/12 text-cc-fg"
+          : "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg"
+      }`}
+      data-testid={testId}
+      aria-pressed={selected}
+      aria-label={ariaLabel}
+    >
+      {children}
+    </button>
+  );
+}
+
 export function WorkBoardBar({
   sessionId,
   currentThreadKey = "main",
@@ -1489,39 +1400,24 @@ export function WorkBoardBar({
   const isOrchestrator = useStore((s) =>
     s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true),
   );
+  const activeView = useStore((s) => s.leaderWorkboardViews?.get(sessionId) ?? null);
+  const setLeaderWorkboardView = useStore((s) => s.setLeaderWorkboardView ?? (() => {}));
 
-  const [expanded, setExpanded] = useState(() => readExpandedState(sessionId));
-  const [completedExpanded, setCompletedExpanded] = useState(false);
-  const [otherThreadsExpanded, setOtherThreadsExpanded] = useState(() => readOtherThreadsExpandedState(sessionId));
-  const [threadQuery, setThreadQuery] = useState("");
-  const [threadSearchFocused, setThreadSearchFocused] = useState(false);
-  const showMainWorkBoard = isSelectedThread(currentThreadKey, MAIN_THREAD_KEY);
+  const showMainBanner =
+    isSelectedThread(currentThreadKey, MAIN_THREAD_KEY) || isSelectedThread(currentThreadKey, ALL_THREADS_KEY);
 
   useEffect(() => {
-    setExpanded(readExpandedState(sessionId));
-    setCompletedExpanded(false);
-    setOtherThreadsExpanded(readOtherThreadsExpandedState(sessionId));
-    setThreadQuery("");
-    setThreadSearchFocused(false);
-  }, [sessionId]);
+    if (!showMainBanner && activeView) setLeaderWorkboardView(sessionId, null);
+  }, [activeView, sessionId, setLeaderWorkboardView, showMainBanner]);
 
   useEffect(() => {
-    persistWorkBoardBooleanState(workBoardExpandedKey(sessionId), expanded);
-  }, [sessionId, expanded]);
-
-  useEffect(() => {
-    persistWorkBoardBooleanState(workBoardOtherThreadsExpandedKey(sessionId), otherThreadsExpanded);
-  }, [sessionId, otherThreadsExpanded]);
-
-  // Close on Escape
-  useEffect(() => {
-    if (!expanded || !showMainWorkBoard) return;
+    if (!activeView || !showMainBanner) return;
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setExpanded(false);
+      if (e.key === "Escape") setLeaderWorkboardView(sessionId, null);
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [expanded, showMainWorkBoard]);
+  }, [activeView, sessionId, setLeaderWorkboardView, showMainBanner]);
 
   const activeCount = board?.length ?? 0;
   const completedCount = completedBoard?.length ?? 0;
@@ -1685,28 +1581,18 @@ export function WorkBoardBar({
         .sort((a, b) => a.threadKey.localeCompare(b.threadKey)),
     [boardThreadKeys, threadRows],
   );
-  const normalizedThreadQuery = threadQuery.trim().toLowerCase();
-  const filteredBoard = useMemo(
-    () => activeBoardRows.filter((row) => rowMatchesQuery(row, normalizedThreadQuery)),
-    [activeBoardRows, normalizedThreadQuery],
-  );
-  const filteredCompletedBoard = useMemo(
-    () => completedBoardRows.filter((row) => rowMatchesQuery(row, normalizedThreadQuery)),
-    [completedBoardRows, normalizedThreadQuery],
-  );
-  const filteredOffBoardThreads = useMemo(
-    () => offBoardThreads.filter((row) => threadRowMatchesQuery(row, normalizedThreadQuery)),
-    [normalizedThreadQuery, offBoardThreads],
-  );
-  const threadSearchExpanded = threadSearchFocused || normalizedThreadQuery.length > 0;
-  const summarySegments = useMemo(() => {
-    const segments =
-      activeCount === 0 && completedCount === 0 && offBoardThreads.length > 0
-        ? []
-        : boardSummary(activeBoardRows, completedCount);
-    if (offBoardThreads.length === 0) return segments;
-    return [...segments, { text: `${offBoardThreads.length} other`, className: "text-cc-muted" }];
-  }, [activeBoardRows, activeCount, completedCount, offBoardThreads.length]);
+  const activeSummarySegments = useMemo(() => activeBoardSummarySegments(activeBoardRows), [activeBoardRows]);
+  const handleSelectView = (view: LeaderWorkboardView) => {
+    setLeaderWorkboardView(sessionId, view);
+  };
+  const panelView =
+    activeView === "active" && activeSummarySegments.length === 0
+      ? null
+      : activeView === "completed" && completedCount === 0
+        ? null
+        : activeView === "other" && offBoardThreads.length === 0
+          ? null
+          : activeView;
 
   // This is the primary thread navigator for leader sessions, so keep it visible
   // even before the first quest row exists.
@@ -1726,150 +1612,103 @@ export function WorkBoardBar({
         newTabKeys={newThreadTabKeys}
       />
 
-      {showMainWorkBoard && (
+      {showMainBanner && (
         <div
-          className="flex min-w-0 items-center gap-2 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:px-4"
+          className="flex min-w-0 flex-wrap items-center gap-1.5 border-b border-cc-border bg-cc-card px-3 py-1.5 sm:flex-nowrap sm:px-4"
           data-testid="workboard-main-banner"
+          data-active-view={panelView ?? ""}
         >
-          <button
-            type="button"
-            onClick={() => setExpanded(!expanded)}
-            className="inline-flex shrink-0 items-center gap-1 rounded-md border border-cc-border/70 bg-cc-hover/40 px-2 py-0.5 text-[10px] font-medium text-cc-fg transition-colors hover:bg-cc-hover/70 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70 focus-visible:ring-inset"
-            data-testid="workboard-summary-button"
-            aria-expanded={expanded}
-          >
-            <span>{expanded ? "Close Workboard" : "Open Workboard"}</span>
-            <svg
-              viewBox="0 0 12 12"
-              fill="none"
-              stroke="currentColor"
-              strokeWidth="1.5"
-              strokeLinecap="round"
-              strokeLinejoin="round"
-              className={`w-3 h-3 text-cc-muted shrink-0 transition-transform duration-150 ${expanded ? "rotate-180" : ""}`}
-              aria-hidden="true"
-            >
-              <path d="M3 5l3-3 3 3" />
-            </svg>
-          </button>
-
+          <ProjectionToggle currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
           <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-blue-400 shrink-0">
             <path d="M1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11z" />
             <path d="M4 4h2v5H4zM7 4h2v7H7zM10 4h2v3h-2z" />
           </svg>
 
-          <span className="min-w-0 flex-1 truncate text-[11px]" data-testid="workboard-phase-summary">
-            {summarySegments.map((seg, i, arr) => (
-              <span key={i}>
-                <span className={seg.className} style={seg.style}>
-                  {seg.text}
-                </span>
-                {i < arr.length - 1 && <span className="text-cc-fg/40">, </span>}
+          {activeSummarySegments.length > 0 && (
+            <BannerControlButton
+              view="active"
+              activeView={panelView}
+              onSelectView={handleSelectView}
+              testId="workboard-active-button"
+              ariaLabel="Open active workboard"
+            >
+              <span className="min-w-0 truncate" data-testid="workboard-phase-summary">
+                <SummarySegments segments={activeSummarySegments} />
               </span>
-            ))}
-          </span>
+            </BannerControlButton>
+          )}
+          {completedCount > 0 && (
+            <BannerControlButton
+              view="completed"
+              activeView={panelView}
+              onSelectView={handleSelectView}
+              testId="workboard-completed-button"
+              ariaLabel="Open completed quests"
+            >
+              <span className="tabular-nums">{completedCount}</span>
+              <span>done</span>
+            </BannerControlButton>
+          )}
+          {offBoardThreads.length > 0 && (
+            <BannerControlButton
+              view="other"
+              activeView={panelView}
+              onSelectView={handleSelectView}
+              testId="workboard-other-button"
+              ariaLabel="Open other threads"
+            >
+              <span className="tabular-nums">{offBoardThreads.length}</span>
+              <span>other</span>
+            </BannerControlButton>
+          )}
+          {activeSummarySegments.length === 0 && completedCount === 0 && offBoardThreads.length === 0 && (
+            <span className="min-w-0 flex-1 truncate text-[11px] text-cc-muted" data-testid="workboard-empty-summary">
+              Empty
+            </span>
+          )}
 
-          <span className="text-[10px] text-cc-muted shrink-0 tabular-nums">
+          <span className="ml-auto text-[10px] text-cc-muted shrink-0 tabular-nums">
             {activeCount} {activeCount === 1 ? "item" : "items"}
           </span>
         </div>
       )}
 
-      {/* Expanded board table -- inline, pushes the feed down */}
-      {showMainWorkBoard && expanded && (
-        <div className="border-b border-cc-border bg-cc-card max-h-[55dvh] overflow-y-auto">
-          <div
-            className="flex min-w-0 items-center gap-1.5 border-b border-cc-border px-3 py-1.5"
-            data-testid="workboard-thread-controls"
-            data-search-expanded={threadSearchExpanded ? "true" : "false"}
-          >
-            {onSelectThread && (
-              <div className="flex min-w-0 shrink-0 items-center gap-1.5" data-testid="workboard-thread-nav">
-                <ThreadNavButton
-                  label="Main Thread"
-                  detail="Clean staging thread"
-                  selected={isSelectedThread(currentThreadKey, "main")}
-                  onClick={() => onSelectThread("main")}
-                  testId="workboard-thread-main"
-                  variant="compact"
-                />
-                <ThreadNavButton
-                  label="All Threads"
-                  detail="Global debug feed"
-                  selected={isSelectedThread(currentThreadKey, "all")}
-                  onClick={() => onSelectThread("all")}
-                  testId="workboard-thread-all"
-                  variant="compact"
-                  secondary
-                />
-              </div>
-            )}
-            <ThreadSearchField
-              query={threadQuery}
-              expanded={threadSearchExpanded}
-              onQueryChange={setThreadQuery}
-              onFocusChange={setThreadSearchFocused}
-            />
-          </div>
-          {filteredBoard.length > 0 && (
+      {showMainBanner && panelView && (
+        <div
+          className="max-h-[55dvh] overflow-y-auto border-b border-cc-border bg-cc-card"
+          data-testid="workboard-panel"
+          data-view={panelView}
+        >
+          {panelView === "active" && activeBoardRows.length > 0 && (
             <BoardTable
-              board={filteredBoard}
+              board={activeBoardRows}
               rowSessionStatuses={rowSessionStatuses}
               selectedThreadKey={currentThreadKey}
               onSelectQuestThread={onSelectThread}
             />
           )}
-          {filteredBoard.length === 0 && (
-            <div className="px-3 py-3 text-xs text-cc-muted italic">
-              {activeCount === 0 ? "No active items" : "No active items match"}
+          {panelView === "active" && activeBoardRows.length === 0 && (
+            <div className="px-3 py-3 text-xs text-cc-muted italic">No active items</div>
+          )}
+          {panelView === "completed" && completedBoardRows.length > 0 && (
+            <div className="opacity-70">
+              <BoardTable
+                board={completedBoardRows}
+                mode="completed"
+                rowSessionStatuses={rowSessionStatuses}
+                selectedThreadKey={currentThreadKey}
+                onSelectQuestThread={onSelectThread}
+              />
             </div>
           )}
-
-          {/* Collapsible completed section */}
-          {completedCount > 0 && (
-            <div className="border-t border-cc-border">
-              <button
-                type="button"
-                onClick={() => setCompletedExpanded(!completedExpanded)}
-                className="w-full flex items-center gap-2 px-3 py-1.5 hover:bg-cc-hover/50 transition-colors cursor-pointer"
-              >
-                <svg
-                  viewBox="0 0 12 12"
-                  fill="none"
-                  stroke="currentColor"
-                  strokeWidth="1.5"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  className={`w-2.5 h-2.5 text-cc-muted shrink-0 transition-transform duration-150 ${completedExpanded ? "rotate-90" : ""}`}
-                >
-                  <path d="M4 2l4 4-4 4" />
-                </svg>
-                <span className="text-[11px] text-cc-muted">{completedCount} completed</span>
-              </button>
-              {completedExpanded && (
-                <div className="opacity-60">
-                  {filteredCompletedBoard.length > 0 ? (
-                    <BoardTable
-                      board={filteredCompletedBoard}
-                      mode="completed"
-                      rowSessionStatuses={rowSessionStatuses}
-                      selectedThreadKey={currentThreadKey}
-                      onSelectQuestThread={onSelectThread}
-                    />
-                  ) : (
-                    <div className="px-3 py-3 text-xs text-cc-muted italic">No completed items match</div>
-                  )}
-                </div>
-              )}
-            </div>
+          {panelView === "completed" && completedBoardRows.length === 0 && (
+            <div className="px-3 py-3 text-xs text-cc-muted italic">No completed quests</div>
           )}
-          {onSelectThread && (
+          {panelView === "other" && onSelectThread && (
             <OtherThreadSection
-              rows={filteredOffBoardThreads}
+              rows={offBoardThreads}
               totalCount={offBoardThreads.length}
-              expanded={otherThreadsExpanded}
               currentThreadKey={currentThreadKey}
-              onToggle={() => setOtherThreadsExpanded(!otherThreadsExpanded)}
               onSelectThread={onSelectThread}
             />
           )}

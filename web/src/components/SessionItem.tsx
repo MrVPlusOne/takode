@@ -10,6 +10,9 @@ import { getHighestNotificationUrgency, type NotificationUrgency } from "../util
 import { isClearedNotificationStatus } from "../notification-status.js";
 import { formatGitStatusAge, isGitStatusStale } from "../../shared/git-status-freshness.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
+import { activeBoardSummarySegments, type BoardSummarySegment } from "./leader-board-summary.js";
+
+const EMPTY_LEADER_BOARD_ROWS: never[] = [];
 
 type SearchMatchedField =
   | "session_number"
@@ -761,12 +764,22 @@ export function SessionItem({
                 {renderHighlightedSnippet(displayMatch.snippet)}
               </div>
             ) : (
-              <SessionPreviewRow
-                sessionId={s.id}
-                userPreview={sessionPreview}
-                className={usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : undefined}
-                data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
-              />
+              <>
+                {s.isOrchestrator ? (
+                  <LeaderActivePhasePreviewRow
+                    sessionId={s.id}
+                    className={usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : undefined}
+                    data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
+                  />
+                ) : (
+                  <SessionPreviewRow
+                    sessionId={s.id}
+                    userPreview={sessionPreview}
+                    className={usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : undefined}
+                    data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
+                  />
+                )}
+              </>
             ))}
 
           {/* Row 2 for expanded leader portraits; Row 3 for compact/default rows. */}
@@ -1185,6 +1198,45 @@ export function SessionItem({
         </button>
       )}
     </div>
+  );
+}
+
+function LeaderActivePhasePreviewRow({
+  sessionId,
+  className = "",
+  "data-testid": testId,
+}: {
+  sessionId: string;
+  className?: string;
+  "data-testid"?: string;
+}) {
+  const activeBoard = useStore((s) => s.sessionBoards?.get(sessionId) ?? EMPTY_LEADER_BOARD_ROWS);
+  const segments = activeBoardSummarySegments(activeBoard);
+  if (segments.length === 0) return null;
+
+  return (
+    <div
+      className={`mt-0.5 min-w-0 truncate text-[10.5px] leading-tight ${className}`}
+      data-testid={testId}
+      data-leader-active-phase-summary="true"
+    >
+      <LeaderActivePhaseSegments segments={segments} />
+    </div>
+  );
+}
+
+function LeaderActivePhaseSegments({ segments }: { segments: BoardSummarySegment[] }) {
+  return (
+    <>
+      {segments.map((segment, index) => (
+        <span key={index}>
+          <span className={segment.className} style={segment.style}>
+            {segment.text}
+          </span>
+          {index < segments.length - 1 && <span className="text-cc-fg/35">, </span>}
+        </span>
+      ))}
+    </>
   );
 }
 

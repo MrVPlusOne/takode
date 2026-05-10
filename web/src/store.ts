@@ -95,6 +95,19 @@ const TOOL_PROGRESS_OUTPUT_LIMIT = 12_000;
 const MAX_SIDE_PANEL_STORAGE_ITEMS = 500;
 const MAX_SIDE_PANEL_STORAGE_CHARS = 20_000;
 
+function withMapEntry<K, V>(source: ReadonlyMap<K, V>, key: K, value: V): Map<K, V> {
+  const next = new Map(source);
+  next.set(key, value);
+  return next;
+}
+
+function withOptionalMapEntry<K, V>(source: ReadonlyMap<K, V>, key: K, value: V | null): Map<K, V> {
+  const next = new Map(source);
+  if (value) next.set(key, value);
+  else next.delete(key);
+  return next;
+}
+
 function getInitialShortcutSettings(): ShortcutSettings {
   if (typeof window === "undefined") return DEFAULT_SHORTCUT_SETTINGS;
   const stored = scopedGetItem("cc-shortcuts");
@@ -252,25 +265,16 @@ export const useStore = create<AppState>((set, get) => ({
     }),
   sessionBoards: new Map(),
   setSessionBoard: (sessionId, board) =>
-    set((s) => {
-      const next = new Map(s.sessionBoards);
-      next.set(sessionId, board);
-      return { sessionBoards: next };
-    }),
+    set((s) => ({ sessionBoards: withMapEntry(s.sessionBoards, sessionId, board) })),
   sessionBoardRowStatuses: new Map(),
   setSessionBoardRowStatuses: (sessionId, statuses) =>
-    set((s) => {
-      const next = new Map(s.sessionBoardRowStatuses);
-      next.set(sessionId, statuses);
-      return { sessionBoardRowStatuses: next };
-    }),
+    set((s) => ({ sessionBoardRowStatuses: withMapEntry(s.sessionBoardRowStatuses, sessionId, statuses) })),
   sessionCompletedBoards: new Map(),
   setSessionCompletedBoard: (sessionId, board) =>
-    set((s) => {
-      const next = new Map(s.sessionCompletedBoards);
-      next.set(sessionId, board);
-      return { sessionCompletedBoards: next };
-    }),
+    set((s) => ({ sessionCompletedBoards: withMapEntry(s.sessionCompletedBoards, sessionId, board) })),
+  leaderWorkboardViews: new Map(),
+  setLeaderWorkboardView: (sessionId, view) =>
+    set((s) => ({ leaderWorkboardViews: withOptionalMapEntry(s.leaderWorkboardViews, sessionId, view) })),
   backgroundAgentNotifs: new Map(),
   toolStartTimestamps: new Map(),
   sessionAttention: new Map(),
@@ -1948,6 +1952,7 @@ export const useStore = create<AppState>((set, get) => ({
       sessionBoards: new Map(),
       sessionBoardRowStatuses: new Map(),
       sessionCompletedBoards: new Map(),
+      leaderWorkboardViews: new Map(),
       backgroundAgentNotifs: new Map(),
       toolStartTimestamps: new Map(),
       prStatus: new Map(),

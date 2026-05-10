@@ -48,6 +48,7 @@ export function usePlaygroundSeed() {
       PLAYGROUND_DISCONNECTED_SESSION_ID,
       PLAYGROUND_BROKEN_SESSION_ID,
       PLAYGROUND_THREAD_PANEL_SESSION_ID,
+      "leader-alpha",
       questInProgressId,
       questVerificationId,
     ];
@@ -892,6 +893,22 @@ export function usePlaygroundSeed() {
         nextFireAt: Date.now() + 1_200_000,
         createdAt: Date.now() - 240_000,
         fireCount: 0,
+      },
+    ]);
+    store.setSessionBoard("leader-alpha", [
+      {
+        questId: "q-play-1",
+        title: "Refine leader banner controls",
+        status: "IMPLEMENTING",
+        updatedAt: Date.now() - 120_000,
+        journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+      },
+      {
+        questId: "q-play-2",
+        title: "Review sidebar phase summaries",
+        status: "CODE_REVIEWING",
+        updatedAt: Date.now() - 60_000,
+        journey: { mode: "active", phaseIds: ["implement", "code-review"], currentPhaseId: "code-review" },
       },
     ]);
 

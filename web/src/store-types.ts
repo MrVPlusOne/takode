@@ -24,6 +24,8 @@ import type {
   VsCodeSelectionState,
 } from "./types.js";
 
+export type LeaderWorkboardView = "active" | "completed" | "other";
+
 export interface PendingSession {
   id: string;
   backend: "claude" | "codex" | "claude-sdk";
@@ -114,6 +116,8 @@ export interface AppState {
   setSessionBoardRowStatuses: (sessionId: string, statuses: Record<string, BoardRowSessionStatus>) => void;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
   setSessionCompletedBoard: (sessionId: string, board: BoardRowData[]) => void;
+  leaderWorkboardViews: Map<string, LeaderWorkboardView>;
+  setLeaderWorkboardView: (sessionId: string, view: LeaderWorkboardView | null) => void;
   backgroundAgentNotifs: Map<string, Map<string, { status: string; outputFile?: string; summary?: string }>>;
   setBackgroundAgentNotif: (
     sessionId: string,

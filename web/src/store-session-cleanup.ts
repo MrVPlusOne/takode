@@ -70,6 +70,8 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
   sessionNotifications.delete(sessionId);
   const sessionAttentionRecords = new Map(s.sessionAttentionRecords);
   sessionAttentionRecords.delete(sessionId);
+  const leaderWorkboardViews = new Map(s.leaderWorkboardViews);
+  leaderWorkboardViews.delete(sessionId);
   const changedFiles = new Map(s.changedFiles);
   changedFiles.delete(sessionId);
   const diffFileStats = new Map(s.diffFileStats);
@@ -158,6 +160,7 @@ export function removeSessionState(s: AppState, sessionId: string): Partial<AppS
     sessionTimers,
     sessionNotifications,
     sessionAttentionRecords,
+    leaderWorkboardViews,
     changedFiles,
     diffFileStats,
     sessionNames,

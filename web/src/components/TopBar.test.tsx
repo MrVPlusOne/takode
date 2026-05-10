@@ -11,6 +11,7 @@ vi.mock("../api.js", () => ({
     pauseSession: vi.fn().mockResolvedValue({ ok: true }),
     unpauseSession: vi.fn().mockResolvedValue({ ok: true }),
     getSessionNotifications: vi.fn().mockResolvedValue([]),
+    fetchNotificationContext: vi.fn().mockResolvedValue(null),
     markNotificationDone: vi.fn().mockResolvedValue({ ok: true }),
     updateLeaderProfilePortrait: vi.fn(),
   },
@@ -49,6 +50,7 @@ interface MockStoreState {
       backend_type?: string;
       claimedQuestStatus?: string;
       claimedQuestVerificationInboxUnread?: boolean;
+      isOrchestrator?: boolean;
       pause?: any;
     }
   >;
@@ -88,6 +90,12 @@ interface MockStoreState {
   sessionNotifications: Map<string, Array<any>>;
   sessionNames: Map<string, string>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
+  sessionBoards: Map<string, Array<{ questId: string; status?: string; updatedAt: number }>>;
+  sessionCompletedBoards: Map<
+    string,
+    Array<{ questId: string; status?: string; updatedAt: number; completedAt?: number }>
+  >;
+  setLeaderWorkboardView: ReturnType<typeof vi.fn>;
   quests: { status: string }[];
   refreshQuests: ReturnType<typeof vi.fn>;
   questNamedSessions: Set<string>;
@@ -129,6 +137,9 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionNotifications: new Map(),
     sessionNames: new Map(),
     diffFileStats: new Map(),
+    sessionBoards: new Map(),
+    sessionCompletedBoards: new Map(),
+    setLeaderWorkboardView: vi.fn(),
     quests: [],
     refreshQuests: vi.fn().mockResolvedValue(undefined),
     questNamedSessions: new Set(),
@@ -175,6 +186,7 @@ import { api } from "../api.js";
 beforeEach(() => {
   vi.clearAllMocks();
   window.innerWidth = 1280;
+  window.location.hash = "";
   resetStore();
 });
 
@@ -348,9 +360,9 @@ describe("TopBar", () => {
 
     expect(screen.getByRole("dialog", { name: "Global needs-input notifications" })).toBeInTheDocument();
     expect(screen.getByText("#102 Worker Two")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Confirm rollback plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open source message for Confirm rollback plan" })).toBeInTheDocument();
     expect(screen.getByText("#101 Worker One")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Pick deployment window" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Open source message for Pick deployment window" })).toBeInTheDocument();
   });
 
   it("stops quest badge polling while the tab is hidden", async () => {
@@ -447,6 +459,50 @@ describe("TopBar", () => {
 
     render(<TopBar />);
     expect(screen.queryByTitle("Current mode: Plan")).not.toBeInTheDocument();
+  });
+
+  it("shows desktop leader Workboard and Completed shortcuts when the current leader has counts", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
+      sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
+      sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
+    });
+
+    render(<TopBar />);
+
+    expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("Workboard1");
+    expect(screen.getByTestId("topbar-completed-shortcut")).toHaveTextContent("Completed1");
+  });
+
+  it("routes desktop leader shortcuts to main with the requested workboard view", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: true, name: "Leader Session" }],
+      sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
+      sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
+    });
+
+    render(<TopBar />);
+
+    fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
+    expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "active");
+    expect(window.location.hash).toContain("/session/s1");
+
+    fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
+    expect(storeState.setLeaderWorkboardView).toHaveBeenLastCalledWith("s1", "completed");
+    expect(window.location.hash).toContain("/session/s1");
+  });
+
+  it("does not render leader shortcuts for non-leader sessions", () => {
+    resetStore({
+      sdkSessions: [{ sessionId: "s1", createdAt: 1, isOrchestrator: false, name: "Worker Session" }],
+      sessionBoards: new Map([["s1", [{ questId: "q-1", status: "IMPLEMENTING", updatedAt: 1 }]]]),
+      sessionCompletedBoards: new Map([["s1", [{ questId: "q-2", status: "DONE", updatedAt: 2, completedAt: 2 }]]]),
+    });
+
+    render(<TopBar />);
+
+    expect(screen.queryByTestId("topbar-workboard-shortcut")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("topbar-completed-shortcut")).not.toBeInTheDocument();
   });
 
   it("shows checked quest marker from SDK metadata for a selected snapshot-only session", () => {

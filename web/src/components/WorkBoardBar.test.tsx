@@ -3,10 +3,10 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { render, fireEvent, within, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { BoardRowData } from "./BoardTable.js";
-import { scopedKey } from "../utils/scoped-storage.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 import type { QuestJourneyPhaseId } from "../../shared/quest-journey.js";
 import type { QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
+import type { LeaderWorkboardView } from "../store-types.js";
 
 // ─── WorkBoardBar component tests ─────────────────────────────────────────────
 
@@ -14,6 +14,8 @@ interface MockStoreState {
   sessionBoards: Map<string, BoardRowData[]>;
   sessionBoardRowStatuses: Map<string, Record<string, import("../types.js").BoardRowSessionStatus>>;
   sessionCompletedBoards: Map<string, BoardRowData[]>;
+  leaderWorkboardViews: Map<string, LeaderWorkboardView>;
+  setLeaderWorkboardView: (sessionId: string, view: LeaderWorkboardView | null) => void;
   sdkSessions: Array<{
     sessionId: string;
     isOrchestrator?: boolean;
@@ -44,6 +46,11 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
     sessionBoards: new Map(),
     sessionBoardRowStatuses: new Map(),
     sessionCompletedBoards: new Map(),
+    leaderWorkboardViews: new Map(),
+    setLeaderWorkboardView: vi.fn((sessionId: string, view: LeaderWorkboardView | null) => {
+      if (view) mockState.leaderWorkboardViews.set(sessionId, view);
+      else mockState.leaderWorkboardViews.delete(sessionId);
+    }),
     sdkSessions: [],
     sessions: new Map(),
     sessionNames: new Map(),
@@ -192,10 +199,13 @@ describe("WorkBoardBar", () => {
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", []]]),
     });
-    const { getByText, getByTestId } = render(<WorkBoardBar sessionId="s1" />);
+    const { getByText, getByTestId, queryByTestId } = render(<WorkBoardBar sessionId="s1" />);
     expect(getByText("Empty")).toBeInTheDocument();
     expect(getByTestId("workboard-main-banner")).toBeInTheDocument();
-    expect(getByTestId("workboard-summary-button")).toHaveTextContent("Open Workboard");
+    expect(getByTestId("workboard-empty-summary")).toHaveTextContent("Empty");
+    expect(queryByTestId("workboard-active-button")).not.toBeInTheDocument();
+    expect(queryByTestId("workboard-completed-button")).not.toBeInTheDocument();
+    expect(queryByTestId("workboard-other-button")).not.toBeInTheDocument();
     expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-open-tab-count", "1");
     expect(getByTestId("thread-main-tab")).toHaveAttribute("data-thread-key", "main");
     expect(getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
@@ -218,9 +228,9 @@ describe("WorkBoardBar", () => {
     const { getByText, getByTestId, queryByTestId } = render(<WorkBoardBar sessionId="s1" />);
     expect(getByTestId("workboard-main-banner")).toBeInTheDocument();
     expect(queryByTestId("workboard-current-thread")).not.toBeInTheDocument();
-    expect(getByTestId("workboard-summary-button")).toHaveTextContent("Open Workboard");
+    expect(getByTestId("workboard-active-button")).toBeInTheDocument();
     expect(
-      getByTestId("workboard-summary-button").compareDocumentPosition(getByTestId("workboard-phase-summary")) &
+      getByTestId("workboard-active-button").compareDocumentPosition(getByTestId("workboard-phase-summary")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     // Each status segment renders separately with its color class
@@ -239,7 +249,6 @@ describe("WorkBoardBar", () => {
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
-    localStorage.setItem(scopedKey("cc-work-board-expanded:s1"), "1");
 
     const { getByTestId, queryByTestId } = render(
       <WorkBoardBar sessionId="s1" currentThreadKey="q-1" currentThreadLabel="q-1" />,
@@ -247,12 +256,12 @@ describe("WorkBoardBar", () => {
 
     expect(getByTestId("thread-tab-rail")).toBeInTheDocument();
     expect(queryByTestId("workboard-main-banner")).not.toBeInTheDocument();
-    expect(queryByTestId("workboard-summary-button")).not.toBeInTheDocument();
+    expect(queryByTestId("workboard-active-button")).not.toBeInTheDocument();
     expect(queryByTestId("board-table")).not.toBeInTheDocument();
     expect(queryByTestId("workboard-return-main")).not.toBeInTheDocument();
   });
 
-  it("does not show BoardTable when collapsed (default)", () => {
+  it("does not show BoardTable until an explicit banner view is selected", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
@@ -1638,16 +1647,20 @@ describe("WorkBoardBar", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-2");
   });
 
-  it("expands to show BoardTable on click", () => {
+  it("opens the active workboard from the banner active-count button", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
-    const { getByTestId } = render(<WorkBoardBar sessionId="s1" />);
-    fireEvent.click(getByTestId("workboard-summary-button"));
+    const view = render(<WorkBoardBar sessionId="s1" />);
+    fireEvent.click(view.getByTestId("workboard-active-button"));
+    view.rerender(<WorkBoardBar sessionId="s1" />);
+    const { getByTestId } = view;
+
+    expect(getByTestId("workboard-panel")).toHaveAttribute("data-view", "active");
     expect(getByTestId("board-table")).toBeInTheDocument();
     expect(
-      getByTestId("workboard-summary-button").compareDocumentPosition(getByTestId("board-table")) &
+      getByTestId("workboard-active-button").compareDocumentPosition(getByTestId("board-table")) &
         Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
@@ -1660,27 +1673,31 @@ describe("WorkBoardBar", () => {
     ).toBeTruthy();
   });
 
-  it("collapses on second click", () => {
+  it("keeps the active workboard selected on repeated active-button clicks", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
-    const { getByTestId, queryByTestId } = render(<WorkBoardBar sessionId="s1" />);
-    const button = getByTestId("workboard-summary-button");
-    fireEvent.click(button); // expand
-    fireEvent.click(button); // collapse
-    expect(queryByTestId("board-table")).not.toBeInTheDocument();
+    const view = render(<WorkBoardBar sessionId="s1" />);
+    const button = view.getByTestId("workboard-active-button");
+    fireEvent.click(button);
+    fireEvent.click(button);
+    view.rerender(<WorkBoardBar sessionId="s1" />);
+    expect(view.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active");
+    expect(view.getByTestId("board-table")).toBeInTheDocument();
   });
 
-  it("closes on Escape key when expanded", () => {
+  it("closes the selected banner view on Escape", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
-    const { getByTestId, queryByTestId } = render(<WorkBoardBar sessionId="s1" />);
-    fireEvent.click(getByTestId("workboard-summary-button")); // expand
+    mockState.leaderWorkboardViews.set("s1", "active");
+    const view = render(<WorkBoardBar sessionId="s1" />);
+    expect(view.getByTestId("board-table")).toBeInTheDocument();
     fireEvent.keyDown(document, { key: "Escape" });
-    expect(queryByTestId("board-table")).not.toBeInTheDocument();
+    view.rerender(<WorkBoardBar sessionId="s1" />);
+    expect(view.queryByTestId("board-table")).not.toBeInTheDocument();
   });
 
   it("shows singular 'item' for a single board row", () => {
@@ -1693,7 +1710,7 @@ describe("WorkBoardBar", () => {
     expect(getByText("1 item")).toBeInTheDocument();
   });
 
-  it("persists expanded state per session across remounts and session switches", () => {
+  it("keeps selected workboard view per session in store while the main banner is visible", () => {
     resetStore({
       sdkSessions: [
         { sessionId: "s1", isOrchestrator: true },
@@ -1704,11 +1721,11 @@ describe("WorkBoardBar", () => {
         ["s2", BOARD_DATA],
       ]),
     });
-    const { getByTestId, queryByTestId, rerender, unmount } = render(<WorkBoardBar sessionId="s1" />);
+    const { getByTestId, queryByTestId, rerender } = render(<WorkBoardBar sessionId="s1" />);
 
-    fireEvent.click(getByTestId("workboard-summary-button"));
+    fireEvent.click(getByTestId("workboard-active-button"));
+    rerender(<WorkBoardBar sessionId="s1" />);
     expect(getByTestId("board-table")).toBeInTheDocument();
-    expect(localStorage.getItem(scopedKey("cc-work-board-expanded:s1"))).toBe("1");
 
     rerender(<WorkBoardBar sessionId="s2" />);
     expect(queryByTestId("board-table")).not.toBeInTheDocument();
@@ -1718,27 +1735,23 @@ describe("WorkBoardBar", () => {
     expect(queryByTestId("board-table")).not.toBeInTheDocument();
 
     rerender(<WorkBoardBar sessionId="s1" />);
-    expect(getByTestId("board-table")).toBeInTheDocument();
-
-    unmount();
-    const remounted = render(<WorkBoardBar sessionId="s1" />);
-    expect(remounted.getByTestId("board-table")).toBeInTheDocument();
+    expect(queryByTestId("board-table")).not.toBeInTheDocument();
   });
 
-  it("does not collapse on outside click", () => {
+  it("does not close the selected view on outside click", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
+    mockState.leaderWorkboardViews.set("s1", "active");
     const { getByTestId } = render(<WorkBoardBar sessionId="s1" />);
-    fireEvent.click(getByTestId("workboard-summary-button"));
     expect(getByTestId("board-table")).toBeInTheDocument();
 
     fireEvent.mouseDown(document.body);
     expect(getByTestId("board-table")).toBeInTheDocument();
   });
 
-  it("offers Main and All Threads navigation when expanded", () => {
+  it("offers Main and All Threads projection in the persistent banner", () => {
     const onSelectThread = vi.fn();
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
@@ -1746,60 +1759,25 @@ describe("WorkBoardBar", () => {
     });
 
     const { getByTestId } = render(<WorkBoardBar sessionId="s1" onSelectThread={onSelectThread} />);
-    fireEvent.click(getByTestId("workboard-summary-button"));
-    const controls = getByTestId("workboard-thread-controls");
-    expect(within(controls).getByTestId("workboard-thread-nav")).toBeInTheDocument();
-    expect(within(controls).getByLabelText("Search threads, board, and history")).toBeInTheDocument();
-    expect(getByTestId("workboard-thread-main")).toHaveAttribute("data-variant", "compact");
-    expect(getByTestId("workboard-thread-main")).toHaveAttribute("data-secondary", "false");
-    expect(getByTestId("workboard-thread-all")).toHaveAttribute("data-variant", "compact");
-    expect(getByTestId("workboard-thread-all")).toHaveAttribute("data-secondary", "true");
-    fireEvent.click(getByTestId("workboard-thread-main"));
-    fireEvent.click(getByTestId("workboard-thread-all"));
+    expect(getByTestId("workboard-projection-toggle")).toBeInTheDocument();
+    expect(getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "true");
+    expect(getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "false");
 
+    fireEvent.click(getByTestId("workboard-projection-main"));
+    fireEvent.click(getByTestId("workboard-projection-all"));
     expect(onSelectThread).toHaveBeenNthCalledWith(1, "main");
     expect(onSelectThread).toHaveBeenNthCalledWith(2, "all");
   });
 
-  it("keeps thread search compact until focused or populated", () => {
+  it("marks All projection selected in the persistent banner", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
 
-    const { getByLabelText, getByTestId } = render(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} />);
-    fireEvent.click(getByTestId("workboard-summary-button"));
-
-    const controls = getByTestId("workboard-thread-controls");
-    const search = getByTestId("workboard-thread-search");
-    const input = getByLabelText("Search threads, board, and history");
-    expect(controls).toHaveAttribute("data-search-expanded", "false");
-    expect(search).toHaveAttribute("data-expanded", "false");
-
-    fireEvent.focus(input);
-    expect(controls).toHaveAttribute("data-search-expanded", "true");
-    expect(search).toHaveAttribute("data-expanded", "true");
-
-    fireEvent.blur(input);
-    expect(controls).toHaveAttribute("data-search-expanded", "false");
-    expect(search).toHaveAttribute("data-expanded", "false");
-
-    fireEvent.change(input, { target: { value: "q-99" } });
-    expect(input).toHaveValue("q-99");
-    expect(controls).toHaveAttribute("data-search-expanded", "true");
-    expect(search).toHaveAttribute("data-expanded", "true");
-
-    fireEvent.keyDown(input, { key: "Escape" });
-    expect(input).toHaveValue("");
-    expect(getByTestId("board-table")).toBeInTheDocument();
-    expect(controls).toHaveAttribute("data-search-expanded", "false");
-    expect(search).toHaveAttribute("data-expanded", "false");
-
-    fireEvent.change(input, { target: { value: "q-99" } });
-    fireEvent.click(getByLabelText("Clear thread search"));
-    expect(input).toHaveValue("");
-    expect(controls).toHaveAttribute("data-search-expanded", "false");
-    expect(search).toHaveAttribute("data-expanded", "false");
+    const { getByTestId } = render(<WorkBoardBar sessionId="s1" currentThreadKey="all" onSelectThread={vi.fn()} />);
+    expect(getByTestId("workboard-projection-main")).toHaveAttribute("aria-pressed", "false");
+    expect(getByTestId("workboard-projection-all")).toHaveAttribute("aria-pressed", "true");
   });
 
   it("navigates active and completed quest threads without changing QuestLink semantics", () => {
@@ -1812,13 +1790,14 @@ describe("WorkBoardBar", () => {
       ]),
     });
 
-    const { getByTestId, getAllByTestId, getByText } = render(
-      <WorkBoardBar sessionId="s1" onSelectThread={onSelectThread} />,
-    );
-    fireEvent.click(getByTestId("workboard-summary-button"));
-    fireEvent.click(getAllByTestId("board-thread-action")[0]);
-    fireEvent.click(getByText("1 completed"));
-    fireEvent.click(getAllByTestId("board-thread-action").find((button) => button.textContent?.includes("q-3"))!);
+    const view = render(<WorkBoardBar sessionId="s1" onSelectThread={onSelectThread} />);
+    fireEvent.click(view.getByTestId("workboard-active-button"));
+    view.rerender(<WorkBoardBar sessionId="s1" onSelectThread={onSelectThread} />);
+    fireEvent.click(view.getAllByTestId("board-thread-action")[0]);
+
+    fireEvent.click(view.getByTestId("workboard-completed-button"));
+    view.rerender(<WorkBoardBar sessionId="s1" onSelectThread={onSelectThread} />);
+    fireEvent.click(view.getAllByTestId("board-thread-action").find((button) => button.textContent?.includes("q-3"))!);
 
     expect(onSelectThread).toHaveBeenNthCalledWith(1, "q-1");
     expect(onSelectThread).toHaveBeenNthCalledWith(2, "q-3");
@@ -1831,153 +1810,69 @@ describe("WorkBoardBar", () => {
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
 
-    const { getByTestId } = render(
+    const view = render(
       <WorkBoardBar
         sessionId="s1"
         onSelectThread={onSelectThread}
         threadRows={[{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }]}
       />,
     );
+    const { getByTestId } = view;
 
-    fireEvent.click(getByTestId("workboard-summary-button"));
-    expect(getByTestId("workboard-off-board-threads")).toHaveTextContent("1 other");
-    expect(getByTestId("workboard-other-threads-toggle")).toHaveAttribute("aria-expanded", "false");
-    expect(getByTestId("workboard-phase-summary")).toHaveTextContent("1 other");
-    expect(getByTestId("workboard-off-board-threads")).not.toHaveTextContent("Off-board thread");
-    fireEvent.click(getByTestId("workboard-other-threads-toggle"));
-    expect(getByTestId("workboard-other-threads-toggle")).toHaveAttribute("aria-expanded", "true");
+    expect(getByTestId("workboard-other-button")).toHaveTextContent("1other");
+    expect(getByTestId("workboard-phase-summary")).toHaveTextContent("1 Implement, 1 Queued");
+    expect(view.queryByTestId("workboard-off-board-threads")).not.toBeInTheDocument();
+    fireEvent.click(getByTestId("workboard-other-button"));
+    view.rerender(
+      <WorkBoardBar
+        sessionId="s1"
+        onSelectThread={onSelectThread}
+        threadRows={[{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }]}
+      />,
+    );
+    expect(getByTestId("workboard-panel")).toHaveAttribute("data-view", "other");
     expect(getByTestId("workboard-other-threads-content")).toHaveTextContent("Off-board thread");
     fireEvent.click(getByTestId("workboard-off-board-thread"));
     expect(onSelectThread).toHaveBeenCalledWith("q-99");
   });
 
-  it("persists the Other Threads expanded state per session", () => {
+  it("opens a separate completed-quests view from the completed button", () => {
     resetStore({
-      sdkSessions: [
-        { sessionId: "s1", isOrchestrator: true },
-        { sessionId: "s2", isOrchestrator: true },
-      ],
-      sessionBoards: new Map([
-        ["s1", BOARD_DATA],
-        ["s2", BOARD_DATA],
+      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
+      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionCompletedBoards: new Map([
+        ["s1", [{ questId: "q-3", status: "DONE", title: "Finished", updatedAt: 3, completedAt: 3 }]],
       ]),
     });
 
-    const threadRows = [{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }];
-    const view = render(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} threadRows={threadRows} />);
-    fireEvent.click(view.getByTestId("workboard-summary-button"));
-    fireEvent.click(view.getByTestId("workboard-other-threads-toggle"));
+    const view = render(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} />);
+    fireEvent.click(view.getByTestId("workboard-completed-button"));
+    view.rerender(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} />);
 
-    expect(view.getByTestId("workboard-other-threads-content")).toHaveTextContent("Off-board thread");
-    expect(localStorage.getItem(scopedKey("cc-work-board-other-threads-expanded:s1"))).toBe("1");
-
-    view.rerender(<WorkBoardBar sessionId="s2" onSelectThread={vi.fn()} threadRows={threadRows} />);
-    fireEvent.click(view.getByTestId("workboard-summary-button"));
-    expect(view.getByTestId("workboard-other-threads-toggle")).toHaveAttribute("aria-expanded", "false");
-    expect(view.queryByTestId("workboard-other-threads-content")).not.toBeInTheDocument();
-
-    view.rerender(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} threadRows={threadRows} />);
-    expect(view.getByTestId("workboard-other-threads-toggle")).toHaveAttribute("aria-expanded", "true");
-    expect(view.getByTestId("workboard-other-threads-content")).toHaveTextContent("Off-board thread");
+    expect(view.getByTestId("workboard-panel")).toHaveAttribute("data-view", "completed");
+    expect(view.getByTestId("board-table")).toHaveAttribute("data-mode", "completed");
   });
 
-  it("keeps Work Board expansion state in memory when scoped localStorage writes hit quota", () => {
+  it("hides the active work button when there are no active phase counts", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
+      sessionBoards: new Map([["s1", []]]),
+      sessionCompletedBoards: new Map([
+        ["s1", [{ questId: "q-3", status: "DONE", title: "Finished", updatedAt: 3, completedAt: 3 }]],
+      ]),
     });
-    // Simulate the reported browser condition: the tiny preference write fails
-    // because overall localStorage quota is already exhausted.
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const originalSetItem = Storage.prototype.setItem;
-    vi.spyOn(Storage.prototype, "setItem").mockImplementation(function setItem(this: Storage, key, value) {
-      const storageKey = String(key);
-      if (
-        storageKey.includes("cc-work-board-expanded") ||
-        storageKey.includes("cc-work-board-other-threads-expanded")
-      ) {
-        throw new DOMException("Quota exceeded", "QuotaExceededError");
-      }
-      return originalSetItem.call(this, key, value);
-    });
-
-    const threadRows = [{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }];
-    const view = render(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} threadRows={threadRows} />);
-
-    fireEvent.click(view.getByTestId("workboard-summary-button"));
-    expect(view.getByTestId("board-table")).toBeInTheDocument();
-
-    fireEvent.click(view.getByTestId("workboard-other-threads-toggle"));
-    expect(view.getByTestId("workboard-other-threads-toggle")).toHaveAttribute("aria-expanded", "true");
-    expect(view.getByTestId("workboard-other-threads-content")).toHaveTextContent("Off-board thread");
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Could not persist Work Board storage value"),
-      expect.any(DOMException),
-    );
+    const { queryByTestId, getByTestId } = render(<WorkBoardBar sessionId="s1" />);
+    expect(queryByTestId("workboard-active-button")).not.toBeInTheDocument();
+    expect(getByTestId("workboard-completed-button")).toHaveTextContent("1done");
   });
 
-  it("falls back to collapsed Work Board state when scoped localStorage reads fail", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
-    });
-    // Some browsers can throw on storage reads in restricted/quota states; the
-    // Work Board should render collapsed instead of tripping the error boundary.
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    const originalGetItem = Storage.prototype.getItem;
-    vi.spyOn(Storage.prototype, "getItem").mockImplementation(function getItem(this: Storage, key) {
-      const storageKey = String(key);
-      if (
-        storageKey.includes("cc-work-board-expanded") ||
-        storageKey.includes("cc-work-board-other-threads-expanded")
-      ) {
-        throw new DOMException("Read failed", "SecurityError");
-      }
-      return originalGetItem.call(this, key);
-    });
-
-    const threadRows = [{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }];
-    const view = render(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} threadRows={threadRows} />);
-
-    expect(view.queryByTestId("board-table")).not.toBeInTheDocument();
-    fireEvent.click(view.getByTestId("workboard-summary-button"));
-    expect(view.getByTestId("workboard-other-threads-toggle")).toHaveAttribute("aria-expanded", "false");
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Could not read Work Board storage value"),
-      expect.any(DOMException),
-    );
-  });
-
-  it("ignores oversized legacy Work Board boolean storage values", () => {
-    resetStore({
-      sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
-      sessionBoards: new Map([["s1", BOARD_DATA]]),
-    });
-    // These keys are boolean hints, so legacy values larger than the expected
-    // "1"/"0" shape are discarded rather than trusted.
-    vi.spyOn(console, "warn").mockImplementation(() => {});
-    localStorage.setItem(scopedKey("cc-work-board-expanded:s1"), "1".repeat(128));
-    localStorage.setItem(scopedKey("cc-work-board-other-threads-expanded:s1"), "1".repeat(128));
-
-    const threadRows = [{ threadKey: "q-99", questId: "q-99", title: "Off-board thread", messageCount: 2 }];
-    const view = render(<WorkBoardBar sessionId="s1" onSelectThread={vi.fn()} threadRows={threadRows} />);
-
-    expect(view.queryByTestId("board-table")).not.toBeInTheDocument();
-    fireEvent.click(view.getByTestId("workboard-summary-button"));
-    expect(view.getByTestId("workboard-other-threads-toggle")).toHaveAttribute("aria-expanded", "false");
-    expect(console.warn).toHaveBeenCalledWith(
-      expect.stringContaining("Ignoring oversized Work Board storage value"),
-      expect.objectContaining({ length: 128 }),
-    );
-  });
-
-  it("filters expanded board and off-board history lookup by query", () => {
+  it("does not render the removed workboard search control", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
     });
 
-    const { getByLabelText, getByTestId, queryByText } = render(
+    const { getByTestId, queryByLabelText, queryByText } = render(
       <WorkBoardBar
         sessionId="s1"
         onSelectThread={vi.fn()}
@@ -1985,15 +1880,8 @@ describe("WorkBoardBar", () => {
       />,
     );
 
-    fireEvent.click(getByTestId("workboard-summary-button"));
-    fireEvent.change(getByLabelText("Search threads, board, and history"), { target: { value: "archived" } });
-
-    expect(getByTestId("workboard-other-threads-toggle")).toHaveTextContent("1 other");
-    expect(getByTestId("workboard-other-threads-toggle")).toHaveAttribute("aria-expanded", "false");
-    expect(getByTestId("workboard-off-board-threads")).not.toHaveTextContent("Archived follow-up thread");
-    expect(queryByText("No active items match")).toBeInTheDocument();
-
-    fireEvent.click(getByTestId("workboard-other-threads-toggle"));
-    expect(getByTestId("workboard-other-threads-content")).toHaveTextContent("Archived follow-up thread");
+    expect(queryByText("Search threads, board, and history")).not.toBeInTheDocument();
+    expect(queryByLabelText("Search threads, board, and history")).not.toBeInTheDocument();
+    expect(getByTestId("workboard-main-banner")).toBeInTheDocument();
   });
 });
