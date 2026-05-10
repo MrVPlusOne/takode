@@ -82,7 +82,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("quest feedback add q-N --text-file summary.md --tldr-file summary-tldr.md");
     expect(skill).toContain("Final debrief TLDRs should be self-contained quest-journey summaries");
     expect(skill).toContain("Phase-note TLDRs should usually be 1-5 scan-friendly bullets or sentences");
-    expect(skill).toContain("Raw commit hashes, branch names, exhaustive command lists");
+    expect(skill).toContain("Machine-oriented bookkeeping, including synced SHA lists");
     expect(skill).toContain("File Link Guidance");
     expect(skill).toContain("[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)");
     expect(skill).toContain("Standard Markdown file links to repo files may be opened best-effort");
@@ -214,6 +214,7 @@ describe("ensureQuestmasterIntegration", () => {
       'quest complete q-N --items "..." --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md',
     );
     expect(skill).toContain("Synced SHAs: sha1,sha2");
+    expect(skill).toContain("summarize that the work was synced without listing routine SHAs");
     expect(skill).toContain("Final debrief draft:");
     expect(skill).toContain("Debrief TLDR draft:");
     expect(skill).toContain("focused Bookkeeping phase");
@@ -234,7 +235,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("--debrief-tldr-file");
     expect(skill).toContain("If you complete a quest");
     expect(skill).toContain("The debrief TLDR should stay higher level and self-contained");
-    expect(skill).toContain("Routine SHAs, branch names, command lists, and verification mechanics belong in the body");
+    expect(skill).toContain("Routine synced SHAs, raw commit IDs, branch names");
+    expect(skill).toContain("command lists or transcripts, raw paths, and verification mechanics belong in the body");
     expect(skill).toContain("Re-running the same summary-style feedback (`Summary:` or `Refreshed summary:`)");
     expect(skill).toContain("Only add a second port-specific comment");
     expect(skill).toContain("pass `quest complete ... --no-code`");
