@@ -35,6 +35,8 @@ Commands:
                                                          Add feedback entry
   feedback add <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
                                                          Add feedback entry explicitly
+  feedback edit <id> <index> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--json]
+                                                         Edit an existing feedback entry
   feedback list <id> [--last N] [--author human|agent|all] [--unaddressed] [--json]
                                                          List indexed feedback entries
   feedback latest <id> [--author human|agent|all] [--unaddressed] [--full] [--json]
@@ -75,6 +77,7 @@ Safer rich-text input:
   quest claim q-1 --force --reason "board assigned this phase to me"
   quest reassign q-1 --session 42 --reason "stale previous worker"
   quest feedback q-1 --text-file note.md --tldr-file note-tldr.md
+  quest feedback edit q-1 0 --text-file note.md --tldr-file note-tldr.md
   quest feedback latest q-1 --author human --unaddressed --full
   quest feedback show q-1 0
   printf '%s\\n' 'Line 1' '\`$(nope)\`' | quest feedback q-1 --text-file -

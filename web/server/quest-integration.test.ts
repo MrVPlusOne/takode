@@ -88,6 +88,10 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Standard Markdown file links to repo files may be opened best-effort");
     expect(skill).toContain("Quest Journey Phase Documentation");
     expect(skill).toContain("every active phase should leave durable quest feedback");
+    expect(skill).toContain("Maintain one current phase note per phase occurrence");
+    expect(skill).toContain("quest feedback edit <id> <index>");
+    expect(skill).toContain("instead of appending a near-duplicate note");
+    expect(skill).toContain("explicitly say which prior feedback index is superseded");
     expect(skill).toContain("For phase-note TLDRs, write 1-5 scan-friendly bullets or sentences");
     expect(skill).toContain("takode worker-stream");
     expect(skill).toContain("optional, creates an internal herd checkpoint");
@@ -390,6 +394,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("quest feedback list <id>");
     expect(skill).toContain("quest feedback latest <id>");
     expect(skill).toContain("quest feedback show <id> <index>");
+    expect(skill).toContain("quest feedback edit <id> <index>");
     expect(skill).toContain("Use these read-only commands instead of `quest show --json` plus jq/Python");
   });
 

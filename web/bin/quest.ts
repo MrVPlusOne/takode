@@ -23,7 +23,7 @@
  *   later      Move review-pending quest out of review inbox
  *   inbox      Move review-pending quest back to review inbox
  *   check      Toggle a verification checkbox
- *   feedback   Add a feedback entry to a quest's thread
+ *   feedback   Add, edit, or inspect quest feedback entries
  *   address    Toggle feedback addressed status
  *   reassign   Reassign quest ownership from a leader session
  *   delete     Delete a quest
@@ -82,6 +82,7 @@ import { parseRelationshipFlags } from "./quest-relationship-flags.js";
 import { fetchSessionMetadataMap, type SessionMetadata } from "./quest-session-metadata.js";
 import { runTagsCommand } from "./quest-tags-command.js";
 import { runClaimCommand, runReassignCommand } from "./quest-ownership-command.js";
+import { runFeedbackEditCommand } from "./quest-feedback-edit-command.js";
 import {
   guardLocalQuestStatusMutation,
   parseQuestStatusMutationOverride,
@@ -1638,6 +1639,7 @@ async function cmdFeedback(): Promise<void> {
   if (subcommand === "latest") return cmdFeedbackLatest();
   if (subcommand === "show") return cmdFeedbackShow();
   if (subcommand === "add") return cmdFeedbackAdd({ explicitAdd: true });
+  if (subcommand === "edit") return runFeedbackEditCommand({ companionPort, companionAuthHeaders });
   return cmdFeedbackAdd({ explicitAdd: false });
 }
 

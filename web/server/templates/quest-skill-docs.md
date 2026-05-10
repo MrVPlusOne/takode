@@ -90,6 +90,7 @@ quest edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc
 quest check  <id> <index> [--json]                            Toggle verification item
 quest feedback <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry
 quest feedback add <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]  Add feedback entry explicitly
+quest feedback edit <id> <index> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--json]  Edit an existing feedback entry
 quest feedback list <id> [--last N] [--author human|agent|all] [--unaddressed] [--json]  List indexed feedback entries
 quest feedback latest <id> [--author human|agent|all] [--unaddressed] [--full] [--json]  Show latest matching feedback
 quest feedback show <id> <index> [--json]                     Show one indexed feedback entry
@@ -131,6 +132,8 @@ When quest feedback, comments, summaries, notes, or phase documentation refer to
 ## Quest Journey Phase Documentation
 
 When a quest is running through a Quest Journey, every active phase should leave durable quest feedback before handoff or phase end. The entry should be scoped to the current phase when possible, contain full agent-oriented detail for future sessions, and include TLDR metadata for human scanning when the body has more than one small point.
+
+Maintain one current phase note per phase occurrence. When a phase note needs correction, expansion, or a metadata refresh, inspect the current indexed entry with `quest feedback list/latest/show` and edit that entry with `quest feedback edit <id> <index> --text-file ... --tldr-file ...` instead of appending a near-duplicate note. Append a superseding note only when older tooling cannot edit or when an exceptional audit trail is needed; in that case, explicitly say which prior feedback index is superseded.
 
 Use value-based compression instead of hard length caps. High-value phase-note content includes phase-local decisions, blockers, recovery context, review judgments, user choices, external artifact state, residual risks, and next-phase handoff facts. Low-value content includes file-by-file diff narration, exhaustive command transcripts, routine green test lists, branch hygiene narration, copied tool output, generic review checklists, and repeated commit metadata that Git or Questmaster already preserves. Include low-level details only when they explain non-obvious risk, recovery, verification, or external state.
 
@@ -281,6 +284,18 @@ quest transition q-12 --status in_progress --desc-file /tmp/quest-description.md
 | `--images "a.png,b.png"` | Attach multiple images (comma-separated) |
 | `--json` | Output JSON |
 
+### quest feedback edit <id> <index> [--text "..." | --text-file <path>|-] [flags]
+
+Edit an existing feedback entry by its stable zero-based index. Use this to refresh the current phase note instead of appending corrected duplicates. The edit preserves existing metadata such as phase association, kind, author/session attribution, addressed state, images, and original feedback timestamp unless the server route explicitly changes a supplied field. Use an empty `--tldr-file` input when you need to clear existing TLDR metadata.
+
+| Flag | Description |
+|------|-------------|
+| `--text "..."` | Replacement feedback text |
+| `--text-file <path>` | Read replacement feedback text from a file, or use `-` to read from stdin |
+| `--tldr "..."` | Replacement TLDR metadata |
+| `--tldr-file <path>` | Read replacement TLDR metadata from a file, or use `-` to read from stdin |
+| `--json` | Output JSON |
+
 ### quest feedback list/latest/show
 
 Use these read-only commands instead of `quest show --json` plus jq/Python when inspecting feedback:
@@ -313,6 +328,7 @@ Ported commits and preserved shell-sensitive text literally.
 EOF
 
 quest feedback q-12 --text-file /tmp/quest-feedback.txt --tldr-file /tmp/quest-feedback-tldr.txt
+quest feedback edit q-12 3 --text-file /tmp/quest-feedback.txt --tldr-file /tmp/quest-feedback-tldr.txt
 
 printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal text, not shell.' | \
   quest feedback q-12 --text-file -
