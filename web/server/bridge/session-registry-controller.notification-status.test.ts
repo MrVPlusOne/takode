@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest";
 import {
   buildPersistedSessionPayload,
   getNotificationStatusSnapshot,
+  markAllNotificationsDone,
   markNotificationDone,
   notifyUser,
   restorePersistedSessions,
@@ -119,6 +120,51 @@ describe("session notification status metadata", () => {
         notificationStatusVersion: 2,
       }),
     );
+  });
+
+  it("rebroadcasts fresh notification metadata for idempotent done operations", () => {
+    const session = makeSession({
+      notifications: [{ id: "n-1", category: "needs-input", summary: "Already done", timestamp: 1000, done: true }],
+      notificationStatusVersion: 3,
+      notificationStatusUpdatedAt: 3000,
+      attentionReason: "action",
+    });
+    const deps = makeDeps();
+
+    // Regression coverage: if a browser missed the original resolution event, a
+    // later already-done resolve must still publish an authoritative zero count.
+    expect(markNotificationDone(session, "n-1", true, deps)).toBe(true);
+    expect(session.notificationStatusVersion).toBe(4);
+    expect(session.attentionReason).toBeNull();
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "notification_update",
+        notificationStatusVersion: 4,
+        notifications: [expect.objectContaining({ id: "n-1", done: true })],
+      }),
+    );
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ attentionReason: null }),
+      }),
+    );
+
+    deps.broadcastToBrowsers.mockClear();
+    deps.persistSession.mockClear();
+
+    expect(markAllNotificationsDone(session, true, deps)).toBe(0);
+    expect(session.notificationStatusVersion).toBe(5);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "notification_update",
+        notificationStatusVersion: 5,
+      }),
+    );
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
   it("excludes legacy waiting markers from server notification status snapshots", () => {

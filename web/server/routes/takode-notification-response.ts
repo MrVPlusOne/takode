@@ -29,6 +29,7 @@ export function registerTakodeNotificationResponseRoute(
     );
     if (!notification) return c.json({ error: "Notification not found" }, 404);
     if (notification.done) {
+      markNotificationDoneController(session, notifId, true, notificationPersistDeps);
       return c.json({ ok: true, sessionId: id, notificationId: notifId, delivery: "already_done", changed: false });
     }
 

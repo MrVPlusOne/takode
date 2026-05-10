@@ -1916,12 +1916,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
       (entry) => entry.id === rawNotificationId && entry.category === "needs-input",
     );
     if (!notification) return c.json({ error: "Notification not found" }, 404);
-    if (notification.done) {
-      return c.json({ ok: true, notificationId: numericId, rawNotificationId, changed: false });
-    }
-
+    const wasDone = notification.done;
     markNotificationDoneController(session, rawNotificationId, true, notificationPersistDeps);
-    return c.json({ ok: true, notificationId: numericId, rawNotificationId, changed: true });
+    return c.json({ ok: true, notificationId: numericId, rawNotificationId, changed: !wasDone });
   });
 
   // ─── Notification Inbox ─────────────────────────────────────────────

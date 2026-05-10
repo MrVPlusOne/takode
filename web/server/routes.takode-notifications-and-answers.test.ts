@@ -28,7 +28,11 @@ vi.mock("node:child_process", () => {
       if (callback) callback(err, { stdout: e.stdout ?? "", stderr: e.stderr ?? "" });
     }
   });
-  return { execSync: execSyncMock, exec: execMock };
+  const execFileMock = vi.fn((...args: any[]) => {
+    const callback = args.find((arg) => typeof arg === "function");
+    if (callback) callback(null, { stdout: "", stderr: "" });
+  });
+  return { execSync: execSyncMock, exec: execMock, execFile: execFileMock };
 });
 
 const mockResolveBinary = vi.hoisted(() => vi.fn((_name: string) => null as string | null));
@@ -1012,6 +1016,8 @@ describe("Takode server-authoritative auth", () => {
     bridge._sessions["orch-1"].notifications = [
       { id: "n-5", category: "needs-input", summary: "Already done", timestamp: 1000, messageId: null, done: true },
     ];
+    bridge._sessions["orch-1"].notificationStatusVersion = 4;
+    bridge._sessions["orch-1"].notificationStatusUpdatedAt = 4000;
 
     const res = await app.request("/api/sessions/orch-1/notifications/needs-input/5/resolve", {
       method: "POST",
@@ -1027,6 +1033,65 @@ describe("Takode server-authoritative auth", () => {
       changed: false,
     });
     expect(bridge._sessions["orch-1"].notifications[0].done).toBe(true);
+    // Regression coverage: an already-resolved CLI notification can still be
+    // the user's explicit repair action after the browser missed the first
+    // resolution broadcast, so the route must republish authoritative status.
+    expect(bridge._sessions["orch-1"].notificationStatusVersion).toBe(5);
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
+      "orch-1",
+      expect.objectContaining({
+        type: "notification_update",
+        notificationStatusVersion: 5,
+        notifications: [expect.objectContaining({ id: "n-5", done: true })],
+      }),
+    );
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
+      "orch-1",
+      expect.objectContaining({
+        type: "session_update",
+        session: expect.objectContaining({ attentionReason: null }),
+      }),
+    );
+  });
+
+  it("refreshes notification status when a needs-input response is already done", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].notifications = [
+      {
+        id: "n-7",
+        category: "needs-input",
+        summary: "Already answered",
+        timestamp: 1000,
+        messageId: "asst-1",
+        done: true,
+      },
+    ];
+    bridge._sessions["orch-1"].notificationStatusVersion = 2;
+    bridge._sessions["orch-1"].notificationStatusUpdatedAt = 2000;
+
+    const res = await app.request("/api/sessions/orch-1/notifications/n-7/response", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "Use the prior answer." }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      ok: true,
+      sessionId: "orch-1",
+      notificationId: "n-7",
+      delivery: "already_done",
+      changed: false,
+    });
+    expect(bridge.injectUserMessage).not.toHaveBeenCalled();
+    expect(bridge._sessions["orch-1"].notificationStatusVersion).toBe(3);
+    expect(bridge.broadcastToSession).toHaveBeenCalledWith(
+      "orch-1",
+      expect.objectContaining({
+        type: "notification_update",
+        notificationStatusVersion: 3,
+      }),
+    );
   });
 
   it("marks notification as done via POST", async () => {
