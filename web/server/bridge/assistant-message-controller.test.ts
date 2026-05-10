@@ -6,6 +6,7 @@ import {
   handleAssistantMessageWithRuntime,
   type AssistantMessageSessionLike,
 } from "./claude-message-controller.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { BrowserIncomingMessage, CLIAssistantMessage, ContentBlock } from "../session-types.js";
 
 function makeSession(): AssistantMessageSessionLike {
@@ -46,6 +47,31 @@ function makeAssistant(
       stop_reason: "end_turn",
       usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
     },
+  };
+}
+
+function makeThreadStatus({
+  kind = "waiting",
+  threadKey,
+  summary = kind === "waiting" ? "waiting on reviewer pass" : "ready for review",
+  messageId = "status-old",
+  timestamp = 10,
+}: {
+  kind?: LeaderThreadStatus["kind"];
+  threadKey: string;
+  summary?: string;
+  messageId?: string;
+  timestamp?: number;
+}): LeaderThreadStatus {
+  return {
+    kind,
+    label: kind === "waiting" ? "Thread Waiting" : "Thread Ready",
+    threadKey,
+    ...(threadKey !== "main" ? { questId: threadKey } : {}),
+    summary,
+    messageId,
+    timestamp,
+    updatedAt: timestamp,
   };
 }
 
@@ -437,6 +463,82 @@ describe("assistant-message-controller", () => {
     });
     expect(assistant?.type === "assistant" ? assistant.threadRefs : undefined).toBeUndefined();
     expect(assistant?.type === "assistant" ? assistant.threadKey : undefined).toBeUndefined();
+  });
+
+  it("preserves unrelated thread statuses when routed output touches a different thread", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    const existing = makeThreadStatus({ threadKey: "q-941", summary: "worker still running" });
+    session.state.leaderThreadStatuses = { "q-941": existing };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-942]\nReviewer dispatched." }]), {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+      persistSession: () => {},
+    });
+
+    expect(session.state.leaderThreadStatuses).toEqual({ "q-941": existing });
+    expect(broadcasts.some((msg) => msg.type === "session_update")).toBe(false);
+  });
+
+  it("clears a same-thread status when fresh routed output has no marker", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.state.leaderThreadStatuses = {
+      "q-941": makeThreadStatus({ threadKey: "q-941", summary: "old status" }),
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(session, makeAssistant([{ type: "text", text: "[thread:q-941]\nImplementation update." }]), {
+      hasAssistantReplay: () => false,
+      broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+      persistSession: () => {},
+    });
+
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toBeUndefined();
+    expect(broadcasts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          type: "session_update",
+          session: { leaderThreadStatuses: {} },
+        }),
+      ]),
+    );
+  });
+
+  it("replaces a same-thread status when fresh routed output has a new marker", () => {
+    const session = makeSession();
+    session.state.isOrchestrator = true;
+    session.state.leaderThreadStatuses = {
+      "q-941": makeThreadStatus({ kind: "waiting", threadKey: "q-941", summary: "old status" }),
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    handleAssistantMessage(
+      session,
+      makeAssistant([
+        {
+          type: "text",
+          text: "[thread:q-941]\nImplementation complete.\n{[(Thread Ready: q-941 | ready for review)]}",
+        },
+      ]),
+      {
+        hasAssistantReplay: () => false,
+        broadcastToBrowsers: (_session, msg) => broadcasts.push(msg),
+        persistSession: () => {},
+      },
+    );
+
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toMatchObject({
+      kind: "ready",
+      summary: "ready for review",
+      threadKey: "q-941",
+    });
+    expect(broadcasts.find((msg) => msg.type === "assistant")).toMatchObject({
+      type: "assistant",
+      threadStatusMarkers: [expect.objectContaining({ kind: "ready", threadKey: "q-941" })],
+    });
   });
 
   it("updates the active running route when leader assistant output is routed to a quest thread", () => {

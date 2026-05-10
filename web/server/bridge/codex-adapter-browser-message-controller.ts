@@ -10,7 +10,11 @@ import type {
 } from "../session-types.js";
 import type { ParsedThreadStatusMarker } from "../../shared/thread-status-marker.js";
 import { sessionTag } from "../session-tag.js";
-import { normalizeLeaderAssistantRouting, recordLeaderThreadStatusMarkers } from "./thread-routing-reminder.js";
+import {
+  hasLeaderVisibleTextContent,
+  normalizeLeaderAssistantRouting,
+  updateLeaderThreadStatusesForAssistantOutput,
+} from "./thread-routing-reminder.js";
 import { queueQuestThreadRemindersForCompletedTurn } from "./quest-thread-reminder.js";
 import { recordCompactionFinished, recordCompactionStarted } from "./session-lifecycle-events.js";
 import { shouldTrackCodexToolResultRecovery } from "./tool-result-recovery-controller.js";
@@ -299,6 +303,7 @@ export async function handleCodexAdapterBrowserMessage(
   let outgoing: BrowserIncomingMessage | null = msg;
   let activeRouteFromAssistant: ThreadRouteMetadata | undefined;
   let pendingThreadStatusMarkers: ParsedThreadStatusMarker[] | undefined;
+  let leaderThreadStatusesChanged = false;
 
   if (msg.type === "session_init") {
     const sanitized = deps.sanitizeCodexSessionPatch(msg.session as unknown as Record<string, unknown>);
@@ -463,13 +468,20 @@ export async function handleCodexAdapterBrowserMessage(
     if (deps.isDuplicateCodexAssistantReplay(session, normalizedAssistant)) {
       return;
     }
-    const threadStatusRecords = recordLeaderThreadStatusMarkers(session, pendingThreadStatusMarkers, {
-      messageId: normalizedAssistant.message.id,
-      timestamp: assistantTimestamp,
-    });
+    const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+      session,
+      pendingThreadStatusMarkers,
+      {
+        messageId: normalizedAssistant.message.id,
+        timestamp: assistantTimestamp,
+      },
+      hasLeaderVisibleTextContent(normalizedAssistant.message.content) ? activeRouteFromAssistant : undefined,
+    );
+    const threadStatusRecords = statusUpdate.records;
     if (threadStatusRecords.length > 0) {
       normalizedAssistant = { ...normalizedAssistant, threadStatusMarkers: threadStatusRecords };
     }
+    leaderThreadStatusesChanged = statusUpdate.changed;
     outgoing = normalizedAssistant;
   }
 
@@ -481,7 +493,7 @@ export async function handleCodexAdapterBrowserMessage(
     if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(outgoing);
     deps.persistSession(session);
-    if (outgoing.threadStatusMarkers?.length) {
+    if (leaderThreadStatusesChanged) {
       deps.broadcastToBrowsers(session, {
         type: "session_update",
         session: { leaderThreadStatuses: session.state.leaderThreadStatuses },

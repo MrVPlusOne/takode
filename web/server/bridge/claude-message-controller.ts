@@ -43,8 +43,9 @@ import type { ImageRef } from "../image-store.js";
 import {
   buildThreadRoutingReminderForCompletedTurn,
   extractLeaderThreadStatusMarkersFromContent,
+  hasLeaderVisibleTextContent,
   normalizeLeaderAssistantRouting,
-  recordLeaderThreadStatusMarkers,
+  updateLeaderThreadStatusesForAssistantOutput,
 } from "./thread-routing-reminder.js";
 import {
   consumeQuestThreadRemindersForCompletedTurn,
@@ -461,10 +462,16 @@ export function handleAssistantMessage(
     );
     const timestamp = Date.now();
     const resolvedMessageId = msg.message.id ?? msg.uuid ?? `assistant-${timestamp}-${session.messageHistory.length}`;
-    const threadStatusRecords = recordLeaderThreadStatusMarkers(session, routed.threadStatusMarkers, {
-      messageId: resolvedMessageId,
-      timestamp,
-    });
+    const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+      session,
+      routed.threadStatusMarkers,
+      {
+        messageId: resolvedMessageId,
+        timestamp,
+      },
+      hasLeaderVisibleTextContent(routed.content) ? routeFromLeaderAssistantResult(routed) : undefined,
+    );
+    const threadStatusRecords = statusUpdate.records;
     const browserMsg: BrowserIncomingMessage = {
       type: "assistant",
       message: { ...msg.message, id: resolvedMessageId, content: routed.content },
@@ -484,7 +491,7 @@ export function handleAssistantMessage(
     if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
-    if (threadStatusRecords.length > 0) {
+    if (statusUpdate.changed) {
       deps.broadcastToBrowsers(session, {
         type: "session_update",
         session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
@@ -536,10 +543,16 @@ export function handleAssistantMessage(
     }
 
     const timestamp = Date.now();
-    const threadStatusRecords = recordLeaderThreadStatusMarkers(session, routed.threadStatusMarkers, {
-      messageId: msgId,
-      timestamp,
-    });
+    const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+      session,
+      routed.threadStatusMarkers,
+      {
+        messageId: msgId,
+        timestamp,
+      },
+      hasLeaderVisibleTextContent(routed.content) ? routeFromLeaderAssistantResult(routed) : undefined,
+    );
+    const threadStatusRecords = statusUpdate.records;
     const browserMsg: BrowserIncomingMessage = {
       type: "assistant",
       message: { ...routedMessage, content: [...routedMessage.content] },
@@ -561,7 +574,7 @@ export function handleAssistantMessage(
     if (transitionMarker) deps.broadcastToBrowsers(session, transitionMarker);
     session.messageHistory.push(browserMsg);
     deps.broadcastToBrowsers(session, browserMsg);
-    if (threadStatusRecords.length > 0) {
+    if (statusUpdate.changed) {
       deps.broadcastToBrowsers(session, {
         type: "session_update",
         session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
@@ -588,10 +601,17 @@ export function handleAssistantMessage(
       routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined,
     );
     const timestamp = Date.now();
-    const threadStatusRecords = recordLeaderThreadStatusMarkers(session, statusExtracted.markers, {
-      messageId: msgId,
-      timestamp,
-    });
+    const historyEntryRoute = routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined;
+    const statusUpdate = updateLeaderThreadStatusesForAssistantOutput(
+      session,
+      statusExtracted.markers,
+      {
+        messageId: msgId,
+        timestamp,
+      },
+      hasLeaderVisibleTextContent(newBlocks) ? historyEntryRoute : undefined,
+    );
+    const threadStatusRecords = statusUpdate.records;
     if (threadStatusRecords.length > 0) {
       historyEntry.threadStatusMarkers = [...(historyEntry.threadStatusMarkers ?? []), ...threadStatusRecords];
     }
@@ -631,17 +651,13 @@ export function handleAssistantMessage(
       },
       { skipBuffer: true },
     );
-    if (threadStatusRecords.length > 0) {
+    if (statusUpdate.changed) {
       deps.broadcastToBrowsers(session, {
         type: "session_update",
         session: { leaderThreadStatuses: session.state.leaderThreadStatuses },
       });
     }
-    updateActiveTurnRouteFromLeaderAssistant(
-      session,
-      routeFromHistoryEntry(historyEntry as BrowserIncomingMessage) ?? undefined,
-      deps,
-    );
+    updateActiveTurnRouteFromLeaderAssistant(session, historyEntryRoute, deps);
   }
 
   extractActivityPreview(session, msg.message.content);

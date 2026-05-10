@@ -15,7 +15,12 @@ import {
   type LeaderThreadStatus,
   type ParsedThreadStatusMarker,
 } from "../../shared/thread-status-marker.js";
-import { routeFromHistoryEntry, threadRouteForTarget, type ThreadRouteMetadata } from "../thread-routing-metadata.js";
+import {
+  routeFromHistoryEntry,
+  routeKey,
+  threadRouteForTarget,
+  type ThreadRouteMetadata,
+} from "../thread-routing-metadata.js";
 import { extractQuestThreadRemindersFromContent } from "./quest-thread-reminder.js";
 
 const THREAD_ROUTING_EXPECTED =
@@ -51,6 +56,11 @@ export interface LeaderThreadStatusSessionLike {
   };
 }
 
+export interface LeaderThreadStatusUpdateResult {
+  records: LeaderThreadStatus[];
+  changed: boolean;
+}
+
 function threadRefForTarget(target: { threadKey: string; questId?: string }): ThreadRef | undefined {
   if (target.threadKey === "main") return undefined;
   return {
@@ -67,6 +77,10 @@ function mergeThreadRefs(existing: ThreadRef[] | undefined): ThreadRef[] | undef
     refs.set(threadStatusKey(ref.threadKey), ref);
   }
   return refs.size > 0 ? [...refs.values()] : undefined;
+}
+
+export function hasLeaderVisibleTextContent(content: ContentBlock[]): boolean {
+  return content.some((block) => block.type === "text" && block.text.trim().length > 0);
 }
 
 export function extractLeaderThreadStatusMarkersFromContent(content: ContentBlock[]): {
@@ -199,12 +213,24 @@ export function recordLeaderThreadStatusMarkers(
   markers: ParsedThreadStatusMarker[] | undefined,
   anchor: { messageId: string; timestamp: number },
 ): LeaderThreadStatus[] {
-  if (!markers?.length) return [];
+  return updateLeaderThreadStatusesForAssistantOutput(session, markers, anchor).records;
+}
+
+export function updateLeaderThreadStatusesForAssistantOutput(
+  session: LeaderThreadStatusSessionLike,
+  markers: ParsedThreadStatusMarker[] | undefined,
+  anchor: { messageId: string; timestamp: number },
+  visibleOutputRoute?: ThreadRouteMetadata,
+): LeaderThreadStatusUpdateResult {
+  if (!markers?.length && !visibleOutputRoute) return { records: [], changed: false };
 
   const statuses = { ...(session.state.leaderThreadStatuses ?? {}) };
   const records: LeaderThreadStatus[] = [];
-  for (const marker of markers) {
+  const markerThreadKeys = new Set<string>();
+  let changed = false;
+  for (const marker of markers ?? []) {
     const key = threadStatusKey(marker.target.threadKey);
+    markerThreadKeys.add(key);
     const record: LeaderThreadStatus = {
       kind: marker.kind,
       label: marker.label,
@@ -217,16 +243,22 @@ export function recordLeaderThreadStatusMarkers(
     };
     statuses[key] = record;
     records.push(record);
+    changed = true;
   }
-  session.state.leaderThreadStatuses = statuses;
-  return records;
-}
 
-export function clearLeaderThreadStatusesForGenerationStart(session: LeaderThreadStatusSessionLike): boolean {
-  const existing = session.state.leaderThreadStatuses;
-  if (!existing || Object.keys(existing).length === 0) return false;
-  session.state.leaderThreadStatuses = {};
-  return true;
+  if (visibleOutputRoute) {
+    const touchedKey = routeKey(visibleOutputRoute);
+    const current = statuses[touchedKey];
+    if (current && current.messageId !== anchor.messageId && !markerThreadKeys.has(touchedKey)) {
+      delete statuses[touchedKey];
+      changed = true;
+    }
+  }
+
+  if (changed) {
+    session.state.leaderThreadStatuses = statuses;
+  }
+  return { records, changed };
 }
 
 function findTriggeringTurnRoute(session: ThreadRoutingReminderSessionLike): ThreadRouteMetadata {

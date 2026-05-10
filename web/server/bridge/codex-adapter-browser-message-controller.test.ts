@@ -4,6 +4,7 @@ import {
   isCodexContextWindowExhaustionMessage,
   type CodexAdapterBrowserMessageDeps,
 } from "./codex-adapter-browser-message-controller.js";
+import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
 import type { ActiveTurnRoute, BrowserIncomingMessage, ContentBlock } from "../session-types.js";
 
 type TestCodexSession = {
@@ -65,6 +66,31 @@ function makeResult(id: string, numTurns = 1): BrowserIncomingMessage {
       uuid: id,
       session_id: "codex-leader",
     },
+  };
+}
+
+function makeThreadStatus({
+  kind = "waiting",
+  threadKey,
+  summary = kind === "waiting" ? "waiting on reviewer" : "ready for review",
+  messageId = "old-status",
+  timestamp = 10,
+}: {
+  kind?: LeaderThreadStatus["kind"];
+  threadKey: string;
+  summary?: string;
+  messageId?: string;
+  timestamp?: number;
+}): LeaderThreadStatus {
+  return {
+    kind,
+    label: kind === "waiting" ? "Thread Waiting" : "Thread Ready",
+    threadKey,
+    ...(threadKey !== "main" ? { questId: threadKey } : {}),
+    summary,
+    messageId,
+    timestamp,
+    updatedAt: timestamp,
   };
 }
 
@@ -374,6 +400,45 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
         type: "assistant",
         threadStatusMarkers: [expect.objectContaining({ kind: "waiting", threadKey: "q-941" })],
       }),
+    ]);
+  });
+
+  it("preserves unrelated Codex thread statuses when routed output touches a different thread", async () => {
+    const session = makeSession();
+    const existing = makeThreadStatus({ threadKey: "q-941", summary: "worker still running" });
+    session.state.leaderThreadStatuses = { "q-941": existing };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:q-942]\nReviewer dispatched." }], "codex-unrelated"),
+      makeDeps(broadcasts),
+    );
+
+    expect(session.state.leaderThreadStatuses).toEqual({ "q-941": existing });
+    expect(broadcasts).toEqual([expect.objectContaining({ type: "assistant", threadKey: "q-942" })]);
+  });
+
+  it("clears a same-thread Codex status when fresh routed output has no marker", async () => {
+    const session = makeSession();
+    session.state.leaderThreadStatuses = {
+      "q-941": makeThreadStatus({ threadKey: "q-941", summary: "old status" }),
+    };
+    const broadcasts: BrowserIncomingMessage[] = [];
+
+    await handleCodexAdapterBrowserMessage(
+      session,
+      makeAssistant([{ type: "text", text: "[thread:q-941]\nImplementation update." }], "codex-clear"),
+      makeDeps(broadcasts),
+    );
+
+    expect(session.state.leaderThreadStatuses?.["q-941"]).toBeUndefined();
+    expect(broadcasts).toEqual([
+      expect.objectContaining({
+        type: "session_update",
+        session: { leaderThreadStatuses: {} },
+      }),
+      expect.objectContaining({ type: "assistant", threadKey: "q-941" }),
     ]);
   });
 

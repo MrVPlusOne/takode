@@ -1,7 +1,6 @@
 import { sessionTag } from "../session-tag.js";
 import type { ActiveTurnRoute } from "../session-types.js";
 import type { LeaderThreadStatus } from "../../shared/thread-status-marker.js";
-import { clearLeaderThreadStatusesForGenerationStart } from "./thread-routing-reminder.js";
 
 /** Reasons that indicate the turn ended due to recovery/error, not a normal result.
  *  Queued turns should be drained (not promoted) for these reasons because the CLI
@@ -264,9 +263,6 @@ function startQueuedTurn<S extends GenerationLifecycleSession>(
   session.compactedDuringTurn = false;
   session.userMessageIdsThisTurn = [...entry.userMessageIds];
   session.activeTurnRoute = entry.activeTurnRoute;
-  if (clearLeaderThreadStatusesForGenerationStart(session)) {
-    deps.broadcastSessionUpdate?.(session, { leaderThreadStatuses: session.state.leaderThreadStatuses });
-  }
   console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${turnReason})`);
   deps.recordGenerationStarted?.(session, turnReason);
   deps.emitTakodeEvent(session.id, "turn_start", {
@@ -351,9 +347,6 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     session.userMessageIdsThisTurn = [];
     session.questThreadRemindersThisTurn = [];
     session.activeTurnRoute = null;
-    if (clearLeaderThreadStatusesForGenerationStart(session)) {
-      deps.broadcastSessionUpdate?.(session, { leaderThreadStatuses: session.state.leaderThreadStatuses });
-    }
     console.log(`[ws-bridge] Generation started for session ${sessionTag(session.id)} (${reason})`);
     deps.recordGenerationStarted?.(session, reason);
 

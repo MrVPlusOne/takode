@@ -173,7 +173,7 @@ describe("setGenerating(false) — queued turn handling", () => {
     expect(session.userMessageIdsThisTurn).toEqual([]);
   });
 
-  it("clears leader thread statuses when a new generation starts", () => {
+  it("keeps leader thread statuses when a new generation starts", () => {
     const broadcastSessionUpdate = vi.fn();
     session.state.leaderThreadStatuses = {
       "q-941": {
@@ -192,11 +192,13 @@ describe("setGenerating(false) — queued turn handling", () => {
 
     setGenerating(deps, session, true, "initial");
 
-    expect(session.state.leaderThreadStatuses).toEqual({});
-    expect(broadcastSessionUpdate).toHaveBeenCalledWith(session, { leaderThreadStatuses: {} });
+    expect(session.state.leaderThreadStatuses).toEqual({
+      "q-941": expect.objectContaining({ kind: "waiting", threadKey: "q-941" }),
+    });
+    expect(broadcastSessionUpdate).not.toHaveBeenCalled();
   });
 
-  it("clears leader thread statuses when a queued turn is promoted", () => {
+  it("keeps leader thread statuses when a queued turn is promoted", () => {
     const broadcastSessionUpdate = vi.fn();
     setupWithQueuedTurns(session, deps, 1);
     session.state.leaderThreadStatuses = {
@@ -215,8 +217,10 @@ describe("setGenerating(false) — queued turn handling", () => {
     setGenerating(deps, session, false, "result");
 
     expect(session.isGenerating).toBe(true);
-    expect(session.state.leaderThreadStatuses).toEqual({});
-    expect(broadcastSessionUpdate).toHaveBeenCalledWith(session, { leaderThreadStatuses: {} });
+    expect(session.state.leaderThreadStatuses).toEqual({
+      main: expect.objectContaining({ kind: "ready", threadKey: "main" }),
+    });
+    expect(broadcastSessionUpdate).not.toHaveBeenCalled();
   });
 
   it("drains ALL queued turns on 'stuck_auto_recovery' reason", () => {
