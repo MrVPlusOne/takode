@@ -8,6 +8,8 @@ import {
   buildPeekResponse,
   buildPeekDefault,
   buildPeekRange,
+  buildPeekRangeForContainingMessage,
+  buildPeekRangeForTurnNumber,
   buildReadResponse,
   findTurnBoundaries,
   buildPeekTurnScan,
@@ -899,24 +901,23 @@ export function createTakodeRoutes(ctx: RouteContext) {
 
     // Turn mode: resolve turn number to message range, then use range mode
     if (turnParam !== undefined) {
-      const turnNum = parseInt(turnParam, 10);
-      if (isNaN(turnNum) || turnNum < 0) return c.json({ error: "turn must be a non-negative integer" }, 400);
+      const result = buildPeekRangeForTurnNumber(
+        history,
+        parseInt(turnParam, 10),
+        { showTools: c.req.query("showTools") === "true", threadKey },
+        sessionId,
+      );
+      return result.ok ? c.json({ ...base, ...result.response }) : c.json({ error: result.error }, result.status);
+    }
 
-      const allTurns = findTurnBoundaries(history);
-      if (turnNum >= allTurns.length) {
-        return c.json(
-          { error: `Turn ${turnNum} not found. Session has ${allTurns.length} turns (0-${allTurns.length - 1}).` },
-          404,
-        );
-      }
-
-      const turn = allTurns[turnNum];
-      const endIdx = turn.endIdx >= 0 ? turn.endIdx : history.length - 1;
-      const showTools = c.req.query("showTools") === "true";
-      return c.json({
-        ...base,
-        ...buildPeekRange(history, { from: turn.startIdx, until: endIdx, showTools, threadKey }, sessionId),
-      });
+    if (c.req.query("turnContaining") !== undefined) {
+      const result = buildPeekRangeForContainingMessage(
+        history,
+        parseInt(c.req.query("turnContaining") ?? "", 10),
+        { showTools: c.req.query("showTools") === "true", threadKey },
+        sessionId,
+      );
+      return result.ok ? c.json({ ...base, ...result.response }) : c.json({ error: result.error }, result.status);
     }
 
     if (fromParam !== undefined || untilParam !== undefined) {

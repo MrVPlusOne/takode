@@ -1422,6 +1422,10 @@ export interface ReadOptions {
   getToolResult?: (toolUseId: string) => { content: string; is_error: boolean } | null;
 }
 
+type PeekRangeLookupResult =
+  | { ok: true; response: PeekRangeResponse }
+  | { ok: false; status: 400 | 404; error: string };
+
 /**
  * Build a read response for a single message by index.
  *
@@ -1482,6 +1486,79 @@ export function buildReadResponse(
   }
 
   return response;
+}
+
+export function buildPeekRangeForContainingMessage(
+  messageHistory: BrowserIncomingMessage[],
+  idx: number,
+  options: { showTools?: boolean; threadKey?: string; getToolResult?: ReadOptions["getToolResult"] } = {},
+  sessionId?: string,
+): PeekRangeLookupResult {
+  if (!Number.isInteger(idx) || idx < 0) {
+    return { ok: false, status: 400, error: "turnContaining must be a non-negative integer" };
+  }
+  if (idx >= messageHistory.length) {
+    return { ok: false, status: 404, error: `Message index ${idx} out of range (0-${messageHistory.length - 1})` };
+  }
+
+  if (options.threadKey) {
+    const read = buildReadResponse(
+      messageHistory,
+      idx,
+      { offset: 0, limit: 1, getToolResult: options.getToolResult },
+      sessionId,
+    );
+    if (!read || !threadMetadataParticipatesInThread(read, options.threadKey)) {
+      return {
+        ok: false,
+        status: 404,
+        error: `Message index ${idx} does not participate in thread ${options.threadKey}`,
+      };
+    }
+  }
+
+  const turn = findTurnBoundaries(messageHistory).find((item) => {
+    const endIdx = item.endIdx >= 0 ? item.endIdx : messageHistory.length - 1;
+    return idx >= item.startIdx && idx <= endIdx;
+  });
+  if (!turn) return { ok: false, status: 404, error: `Message index ${idx} is not contained in a turn` };
+
+  const endIdx = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+  return {
+    ok: true,
+    response: buildPeekRange(
+      messageHistory,
+      { from: turn.startIdx, until: endIdx, showTools: options.showTools, threadKey: options.threadKey },
+      sessionId,
+    ),
+  };
+}
+
+export function buildPeekRangeForTurnNumber(
+  messageHistory: BrowserIncomingMessage[],
+  turnNum: number,
+  options: BuildPeekRangeOptions = {},
+  sessionId?: string,
+): PeekRangeLookupResult {
+  if (!Number.isInteger(turnNum) || turnNum < 0) {
+    return { ok: false, status: 400, error: "turn must be a non-negative integer" };
+  }
+
+  const allTurns = findTurnBoundaries(messageHistory);
+  if (turnNum >= allTurns.length) {
+    return {
+      ok: false,
+      status: 404,
+      error: `Turn ${turnNum} not found. Session has ${allTurns.length} turns (0-${allTurns.length - 1}).`,
+    };
+  }
+
+  const turn = allTurns[turnNum]!;
+  const endIdx = turn.endIdx >= 0 ? turn.endIdx : messageHistory.length - 1;
+  return {
+    ok: true,
+    response: buildPeekRange(messageHistory, { ...options, from: turn.startIdx, until: endIdx }, sessionId),
+  };
 }
 
 // ─── Turn Scan ────────────────────────────────────────────────────────────────

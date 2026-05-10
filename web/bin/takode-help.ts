@@ -81,13 +81,14 @@ Options:
   --json          Output JSON
 `;
 
-const PEEK_HELP = `Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--thread main|q-N] [--show-tools] [--detail] [--turns N] [--json]
+const PEEK_HELP = `Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--turn-containing msg-id] [--thread main|q-N] [--show-tools] [--detail] [--turns N] [--json]
 
 View session activity with progressive detail.
 
 Examples:
   takode peek 1
   takode peek 1 --turn 5
+  takode peek 1 --turn-containing 42
   takode peek 1 --thread q-123
   takode peek 1 --from 500 --count 50
   takode peek 1 --detail --turns 3
@@ -513,6 +514,7 @@ Peek modes:
   takode peek 1                    Smart overview (collapsed turns + expanded last turn)
   takode peek 1 --from 500         Browse messages starting at index 500
   takode peek 1 --until 530 --count 50  Browse backward ending at message 530 (inclusive)
+  takode peek 1 --turn-containing 42  Show the turn containing message 42
   takode peek 1 --detail --turns 3 Full detail on last 3 turns
 
 Global options:
@@ -539,6 +541,7 @@ Examples:
   takode peek 1
   takode peek 1 --from 200
   takode peek 1 --until 530 --count 30
+  takode peek 1 --turn-containing 42
   takode peek 1 --detail --turns 3
   takode read 1 42
   takode grep 1 "authentication"

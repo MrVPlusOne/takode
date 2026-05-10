@@ -2,6 +2,7 @@ import { describe, it, expect } from "vitest";
 import {
   buildPeekDefault,
   buildPeekRange,
+  buildPeekRangeForContainingMessage,
   buildPeekResponse,
   buildPeekTurnScan,
   buildReadResponse,
@@ -654,6 +655,47 @@ describe("buildPeekRange", () => {
       threadStatuses: [expect.objectContaining({ threadKey: "q-1298", summary: "waiting on explore" })],
     });
     expect(result.messages[1]).toMatchObject({ type: "result" });
+  });
+
+  it("resolves a message index to its containing turn with thread filtering", () => {
+    // This supports compact grep rows: callers can jump from a message id to
+    // turn context explicitly instead of carrying turn labels on every row.
+    const history: BrowserIncomingMessage[] = [
+      userMsg("main prompt", 1000),
+      withThread(assistantMsg("thread answer", 1500), "q-1300"),
+      resultMsg(200),
+    ];
+
+    const result = buildPeekRangeForContainingMessage(history, 1, { threadKey: "q-1300" });
+
+    expect(result).toMatchObject({
+      ok: true,
+      response: {
+        mode: "range",
+        from: 0,
+        to: 2,
+        bounds: [{ turn: 0, si: 0, ei: 2 }],
+      },
+    });
+    if (result.ok) {
+      expect(result.response.messages.map((message) => message.idx)).toEqual([1, 2]);
+    }
+  });
+
+  it("rejects message-to-turn lookup when the message is outside the selected thread", () => {
+    const history: BrowserIncomingMessage[] = [
+      userMsg("main prompt", 1000),
+      withThread(assistantMsg("thread answer", 1500), "q-1300"),
+      resultMsg(200),
+    ];
+
+    const result = buildPeekRangeForContainingMessage(history, 0, { threadKey: "q-1300" });
+
+    expect(result).toEqual({
+      ok: false,
+      status: 404,
+      error: "Message index 0 does not participate in thread q-1300",
+    });
   });
 });
 

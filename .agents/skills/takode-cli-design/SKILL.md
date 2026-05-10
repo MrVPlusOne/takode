@@ -18,6 +18,23 @@ Default output is compact, operational, and enough for the next decision. Bulky,
 - Expanded JSON is opt-in with `--details`, `--include <field>`, or a narrowly named detail command.
 - Prefer progressive reveal: summary first, then `detail <id>`, `--full`, `--verbose`, `--details`, `--include <field>`, `--limit`, `--count`, or `--from` for deeper inspection.
 
+## Common Case First
+
+Do not make every row or message more verbose to support an occasional follow-up workflow. When a detail is only needed for navigation, debugging, or rare disambiguation, prefer an explicit lookup or reveal path over adding that detail to default rows.
+
+Examples:
+- Prefer `takode peek <session> --turn-containing <msg-id>` over printing a turn id on every `takode grep` result.
+- Prefer a compact `threads:` line in `scan`/`peek` over default verbose per-thread status summaries.
+- Keep rich status, marker, raw message, or provenance details available through `read`, JSON, `--details`, `--include`, or a targeted command when they are not needed for the common scanning task.
+
+Before adding a default field to repeated rows, ask:
+- Is this needed in most rows for the next decision?
+- Would a user/model usually act on it immediately?
+- Can the same workflow be served by a targeted command using an existing id?
+- Does this field multiply token cost across long outputs?
+
+If the field mainly supports a rare follow-up, do not include it by default. Add or improve the follow-up command instead.
+
 ## Bulky Fields
 
 Do not include these by default:

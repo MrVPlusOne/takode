@@ -716,7 +716,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   const sessionRef = args[0];
   if (!sessionRef)
     err(
-      "Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--thread main|q-N] [--show-tools] [--detail] [--turns N] [--json]",
+      "Usage: takode peek <session> [--from N] [--until N] [--count N] [--task N] [--turn N] [--turn-containing msg-id] [--thread main|q-N] [--show-tools] [--detail] [--turns N] [--json]",
     );
   const safeSessionRef = formatInlineText(sessionRef);
 
@@ -725,6 +725,7 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   const showTools = flags["show-tools"] === true;
   const taskNum = parseIntegerFlag(flags, "task", "task number");
   const turnNum = parseIntegerFlag(flags, "turn", "turn number");
+  const turnContainingIdx = parseIntegerFlag(flags, "turn-containing", "message index");
   const fromIdx = parseIntegerFlag(flags, "from", "message index");
   const untilIdx = parseIntegerFlag(flags, "until", "message index");
   const count = parsePositiveIntegerFlag(flags, "count", "message count", 60);
@@ -734,10 +735,29 @@ export async function handlePeek(base: string, args: string[]): Promise<void> {
   if (fromIdx !== undefined && fromIdx < 0) err("--from must be a non-negative integer.");
   if (untilIdx !== undefined && untilIdx < 0) err("--until must be a non-negative integer.");
   if (turnNum !== undefined && turnNum < 0) err("--turn must be a non-negative integer.");
+  if (turnContainingIdx !== undefined && turnContainingIdx < 0)
+    err("--turn-containing must be a non-negative integer.");
+  if (turnNum !== undefined && turnContainingIdx !== undefined)
+    err("Cannot use both --turn and --turn-containing. Use one or the other.");
 
   // Resolve --turn N to a message range via the server
   if (turnNum !== undefined) {
     const params = new URLSearchParams({ turn: String(turnNum) });
+    if (showTools) params.set("showTools", "true");
+    appendThreadQueryParam(params, threadKey);
+    const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
+    const data = await apiGet(base, path);
+    if (jsonMode) {
+      console.log(JSON.stringify(data, null, 2));
+      return;
+    }
+    printPeekRange(data as PeekRangeResponse, sessionRef, count, threadKey);
+    return;
+  }
+
+  // Resolve --turn-containing idx to that message's full turn via the server.
+  if (turnContainingIdx !== undefined) {
+    const params = new URLSearchParams({ turnContaining: String(turnContainingIdx) });
     if (showTools) params.set("showTools", "true");
     appendThreadQueryParam(params, threadKey);
     const path = `/sessions/${encodeURIComponent(sessionRef)}/messages?${params}`;
@@ -1101,17 +1121,14 @@ export async function handleGrep(base: string, args: string[]): Promise<void> {
   for (const match of data.matches) {
     const time = formatTimeShort(match.ts);
     const idx = `[${match.idx}]`;
-    const turnLabel = match.turn !== null ? `turn ${match.turn}` : "";
     const typeLabel = match.type.padEnd(6);
-    console.log(
-      `  ${idx.padEnd(7)} ${time}  ${typeLabel} ${turnLabel.padEnd(9)} ${formatThreadTag(match)}${match.snippet}`,
-    );
+    console.log(`  ${idx.padEnd(7)} ${time}  ${typeLabel} ${formatThreadTag(match)}${match.snippet}`);
   }
 
   console.log("");
   const threadSuffix = formatThreadCommandSuffix(threadKey);
   console.log(
-    `Hint: takode read ${safeSessionRef} <msg-id>${threadSuffix} for full message | takode peek ${safeSessionRef} --turn <N>${threadSuffix} for turn context`,
+    `Hint: takode read ${safeSessionRef} <msg-id>${threadSuffix} for full message | takode peek ${safeSessionRef} --turn-containing <msg-id>${threadSuffix} for turn context`,
   );
 }
 

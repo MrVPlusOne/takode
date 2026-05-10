@@ -149,6 +149,27 @@ describe("takode peek/scan source-aware truncation", () => {
         return;
       }
 
+      if (method === "GET" && url === "/api/sessions/153/messages?turnContaining=1&threadKey=q-1298") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sid: "worker-153",
+            sn: 153,
+            name: "Thread Worker",
+            status: "idle",
+            quest: null,
+            ...buildPeekRange(history, { from: 0, until: 2, threadKey: "q-1298" }),
+          }),
+        );
+        return;
+      }
+
+      if (method === "GET" && url === "/api/sessions/153/messages?turnContaining=0&threadKey=q-1298") {
+        res.writeHead(404, { "content-type": "application/json" });
+        res.end(JSON.stringify({ error: "Message index 0 does not participate in thread q-1298" }));
+        return;
+      }
+
       if (method === "GET" && url === "/api/sessions/153/messages/1?threadKey=q-1298") {
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
@@ -228,6 +249,15 @@ describe("takode peek/scan source-aware truncation", () => {
         ["grep", "153", "needle", "--count", "3", "--thread", "q-1298", "--port", String(port)],
         env,
       );
+      const turnContainingResult = await runTakode(
+        ["peek", "153", "--turn-containing", "1", "--thread", "q-1298", "--port", String(port)],
+        env,
+      );
+      const turnContainingWrongThreadResult = await runTakode(
+        ["peek", "153", "--turn-containing", "0", "--thread", "q-1298", "--port", String(port)],
+        env,
+      );
+      const peekHelpResult = await runTakode(["help", "peek"], env);
 
       expect(scanResult.status).toBe(0);
       expect(scanResult.stdout).toContain("threads: q-1289, q-1298");
@@ -247,10 +277,22 @@ describe("takode peek/scan source-aware truncation", () => {
 
       expect(grepResult.status).toBe(0);
       expect(grepResult.stdout).toContain("[q-1289,q-1298]");
-      expect(grepResult.stdout).toMatch(/\bassistant turn 0\s+\[q-1289,q-1298\]/);
+      expect(grepResult.stdout).not.toMatch(/\bassistant\s+turn\s+\d/);
+      expect(grepResult.stdout).not.toMatch(/\bT\d+\b/);
       expect(grepResult.stdout).toContain("mixed q-1289 reply with needle");
       expect(grepResult.stdout).toContain("takode read 153 <msg-id> --thread q-1298");
-      expect(grepResult.stdout).toContain("takode peek 153 --turn <N> --thread q-1298");
+      expect(grepResult.stdout).toContain("takode peek 153 --turn-containing <msg-id> --thread q-1298");
+
+      expect(turnContainingResult.status).toBe(0);
+      expect(turnContainingResult.stdout).toContain("--- Turn 0 ---");
+      expect(turnContainingResult.stdout).toContain("[q-1289,q-1298]");
+
+      expect(turnContainingWrongThreadResult.status).toBe(1);
+      expect(turnContainingWrongThreadResult.stderr).toContain("Message index 0 does not participate in thread q-1298");
+
+      expect(peekHelpResult.status).toBe(0);
+      expect(peekHelpResult.stdout).toContain("--turn-containing msg-id");
+      expect(peekHelpResult.stdout).toContain("takode peek 1 --turn-containing 42");
     } finally {
       server.close();
     }
