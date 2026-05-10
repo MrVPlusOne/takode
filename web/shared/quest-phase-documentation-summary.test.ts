@@ -359,4 +359,30 @@ describe("selectQuestPreviewProgressTldr", () => {
 
     expect(preview).toBeNull();
   });
+
+  it("omits cancelled completed quest preview progress instead of falling back to stale phase TLDR", () => {
+    const preview = selectQuestPreviewProgressTldr({
+      ...baseQuest,
+      status: "done",
+      completedAt: 80,
+      verificationItems: [],
+      cancelled: true,
+      journeyRuns: [run()],
+      feedback: [
+        {
+          author: "agent",
+          text: "Cancelled implementation detail should not appear as current progress.",
+          tldr: "Stale implementation TLDR.",
+          ts: 50,
+          phaseOccurrenceId: "run-1:p4",
+          journeyRunId: "run-1",
+          phaseId: "implement",
+          phasePosition: 4,
+          phaseOccurrence: 2,
+        },
+      ],
+    });
+
+    expect(preview).toBeNull();
+  });
 });

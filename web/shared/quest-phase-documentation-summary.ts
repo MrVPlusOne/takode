@@ -118,7 +118,8 @@ export function phaseDocumentationPreview(entry: QuestFeedbackEntry): string {
 }
 
 export function selectQuestPreviewProgressTldr(quest: QuestmasterTask): QuestPreviewProgressTldr | null {
-  if (quest.status === "done" && quest.cancelled !== true) {
+  if (quest.status === "done") {
+    if (quest.cancelled === true) return null;
     const debriefTldr = normalizeTldr(quest.debriefTldr);
     if (debriefTldr) return { kind: "debrief", label: "Final Debrief", text: debriefTldr };
     return null;
