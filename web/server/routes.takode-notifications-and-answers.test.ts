@@ -1179,6 +1179,7 @@ describe("Takode server-authoritative auth", () => {
       },
       undefined,
       { threadKey: "main" },
+      { bypassPause: true },
     );
     expect(bridge.getSession("worker-1")?.notifications[0]?.done).toBe(true);
   });

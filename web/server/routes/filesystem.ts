@@ -2,7 +2,7 @@ import { Hono } from "hono";
 import { readFile, writeFile, stat, readdir } from "node:fs/promises";
 import { resolve, join, dirname, extname, relative, basename } from "node:path";
 import { homedir } from "node:os";
-import { exec as execCb, execFile as execFileCb } from "node:child_process";
+import * as childProcess from "node:child_process";
 import { promisify } from "node:util";
 import { ensureAssistantWorkspace, ASSISTANT_DIR } from "../assistant-workspace.js";
 import { expandTilde } from "../path-resolver.js";
@@ -13,8 +13,7 @@ import type { RouteContext } from "./context.js";
 import { requireSharp, isSharpUnavailableError } from "../image-optimizer.js";
 import { LocalImageVariantStore, type LocalImageVariantKind } from "../local-image-variant-store.js";
 
-const execPromise = promisify(execCb);
-const execFilePromise = promisify(execFileCb);
+const execPromise = promisify(childProcess.exec);
 
 /** 10 MB — generous maxBuffer for git diff commands that may produce large output. */
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
@@ -41,6 +40,32 @@ const IMAGE_MIME_BY_EXT: Record<string, string> = {
   ".heic": "image/heic",
   ".heif": "image/heif",
 };
+
+function shellQuoteArg(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function getExecFilePromise() {
+  let execFile: typeof childProcess.execFile | undefined;
+  try {
+    execFile = childProcess.execFile;
+  } catch {
+    execFile = undefined;
+  }
+  const execFileCb =
+    execFile ??
+    (((file: string, args: readonly string[] | undefined, options: unknown, callback?: unknown) => {
+      const cb = typeof options === "function" ? options : callback;
+      const opts = typeof options === "function" ? undefined : options;
+      const command = [file, ...(args ?? [])].map(shellQuoteArg).join(" ");
+      return childProcess.exec(
+        command,
+        opts as Parameters<typeof childProcess.exec>[1],
+        cb as Parameters<typeof childProcess.exec>[2],
+      );
+    }) as typeof childProcess.execFile);
+  return promisify(execFileCb);
+}
 
 interface FileLinkResolveRequest {
   path: string;
@@ -449,7 +474,7 @@ export function createFilesystemRoutes(ctx: RouteContext) {
     try {
       const target = await resolveFileLinkPath(request, wsBridge);
       if (!target.exists) return c.json({ error: "File not found", absolutePath: target.absolutePath }, 404);
-      await execFilePromise("open", ["-R", target.absolutePath]);
+      await getExecFilePromise()("open", ["-R", target.absolutePath]);
       return c.json({ ok: true, absolutePath: target.absolutePath });
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : "Cannot reveal file link" }, 400);

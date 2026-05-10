@@ -390,7 +390,7 @@ export async function handleCodexAdapterBrowserMessage(
     if (routed.questThreadReminders?.length) {
       queueQuestThreadRemindersForCompletedTurn(session, routed.questThreadReminders, activeRouteFromAssistant);
     }
-    const timestamp = Date.now();
+    const timestamp = typeof msg.timestamp === "number" ? msg.timestamp : Date.now();
     const resolvedMessageId = msg.message.id ?? msg.uuid ?? `assistant-${timestamp}-${session.messageHistory.length}`;
     pendingThreadStatusMarkers = routed.threadStatusMarkers;
     const routedMsg = {

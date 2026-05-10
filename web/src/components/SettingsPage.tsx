@@ -26,6 +26,7 @@ import {
   DEFAULT_STT_MODEL,
   SettingsVoiceTranscriptionSection,
 } from "./SettingsVoiceTranscriptionSection.js";
+import type { LeaderProfilePoolSettings } from "../../shared/leader-profile-portraits.js";
 import { SettingsPageHeader } from "./SettingsPageHeader.js";
 import { SettingsSearchControls, SettingsSectionNav, useSettingsSearchNavigation } from "./settings-search.js";
 import { EDIT_BLOCKS_EXPANDED_KEY } from "./ToolBlock.js";
@@ -179,6 +180,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   const [codexLeaderRecycleThresholdTokensByModel, setCodexLeaderRecycleThresholdTokensByModel] = useState<
     Record<string, number>
   >({});
+  const [leaderProfilePools, setLeaderProfilePools] = useState<LeaderProfilePoolSettings | undefined>(undefined);
   const [codexLeaderThresholdOverrideDrafts, setCodexLeaderThresholdOverrideDrafts] = useState<
     CodexLeaderThresholdOverrideDraft[]
   >([]);
@@ -337,6 +339,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
         setCodexNonLeaderAutoCompactThresholdPercent(s.codexNonLeaderAutoCompactThresholdPercent ?? 90);
         setCodexLeaderRecycleThresholdTokens(s.codexLeaderRecycleThresholdTokens ?? 260_000);
         setCodexLeaderRecycleThresholdTokensByModel(s.codexLeaderRecycleThresholdTokensByModel ?? {});
+        setLeaderProfilePools(s.leaderProfilePools);
         setCodexLeaderThresholdOverrideDrafts((currentDrafts) =>
           codexLeaderThresholdOverrideDraftsFromSettings(s.codexLeaderRecycleThresholdTokensByModel, currentDrafts),
         );
@@ -1559,7 +1562,11 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
               </div>
             </CollapsibleSection>
 
-            <SettingsLeaderProfilesSection sectionSearchProps={settingsSearch.childSectionSearch("leader-profiles")} />
+            <SettingsLeaderProfilesSection
+              sectionSearchProps={settingsSearch.childSectionSearch("leader-profiles")}
+              poolsFromSettings={leaderProfilePools}
+              loadOnMount={false}
+            />
 
             {/* ── 5. Push Notifications (Pushover) ─────────────────── */}
             <CollapsibleSection

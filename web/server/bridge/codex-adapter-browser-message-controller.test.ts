@@ -385,7 +385,7 @@ describe("codex-adapter-browser-message-controller thread routing", () => {
       kind: "waiting",
       threadKey: "q-941",
       messageId: "codex-status-live",
-      timestamp: 1_000_000,
+      timestamp: 1,
     });
     expect(broadcasts).toEqual([
       expect.objectContaining({

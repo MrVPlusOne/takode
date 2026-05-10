@@ -318,6 +318,10 @@ const WS_BRIDGE_USER_MESSAGE_RUNNING_TIMEOUT_MS = 30_000;
 const WS_BRIDGE_VSCODE_OPEN_FILE_TIMEOUT_MS = 8_000;
 const WS_BRIDGE_VSCODE_WINDOW_STALE_MS = 30_000;
 
+function readLauncherSession(host: any, sessionId: string) {
+  return typeof host.launcher?.getSession === "function" ? host.launcher.getSession(sessionId) : undefined;
+}
+
 function requestCliRelaunchIfUnpaused(host: any): ((sessionId: string) => void) | undefined {
   if (!host.onCLIRelaunchNeeded) return undefined;
   return (sessionId: string) => {
@@ -374,7 +378,7 @@ export function getSessionGitStateDeps(host: any) {
     },
     updateBranchIndex: (targetSession: unknown) =>
       updateBranchIndexState(targetSession as Session, {
-        isArchived: host.launcher?.getSession((targetSession as Session).id)?.archived === true,
+        isArchived: readLauncherSession(host, (targetSession as Session).id)?.archived === true,
         branchToSessions: host.branchToSessions,
         sessionBranches: host.sessionBranches,
       }),
@@ -386,7 +390,7 @@ export function getSessionGitStateDeps(host: any) {
         sessionBranches: host.sessionBranches,
         lastCrossSessionRefreshAt: host.lastCrossSessionRefreshAt,
         throttleMs: WS_BRIDGE_CROSS_SESSION_THROTTLE_MS,
-        isArchived: (sessionId) => host.launcher?.getSession(sessionId)?.archived === true,
+        isArchived: (sessionId) => readLauncherSession(host, sessionId)?.archived === true,
         refreshSession: (candidateSession) =>
           host.refreshGitInfoThenRecomputeDiff(candidateSession as Session, { broadcastUpdate: true }),
       });
@@ -422,7 +426,7 @@ export function getSessionCleanupDeps(host: any) {
 export function getSessionNotificationDeps(host: any) {
   return {
     isHerdedWorkerSession: (targetSession: unknown) => host.isHerdedWorkerSession(targetSession as Session),
-    getLauncherSessionInfo: (sessionId: string) => host.launcher?.getSession(sessionId),
+    getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     broadcastToBrowsers: (targetSession: unknown, msg: BrowserIncomingMessage) =>
       host.broadcastToBrowsers(targetSession as Session, msg),
     persistSession: (targetSession: unknown) => host.persistSession(targetSession as Session),
@@ -462,7 +466,7 @@ export function getSessionRegistryDeps(host: any) {
     emitTakodeEvent: (sessionId: string, type: string, data: Record<string, unknown>) =>
       host.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
     attached: (targetSession: unknown) => backendAttachedController(targetSession as Session),
-    getLauncherSessionInfo: (sessionId: string) => host.launcher?.getSession(sessionId),
+    getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     recoveryTimeoutMs: CODEX_RECOVERY_TIMEOUT_MS,
     getHerdedSessionIds: (leaderId: string) =>
       host.launcher?.getHerdedSessions?.(leaderId)?.map((worker: { sessionId: string }) => worker.sessionId) ?? [],
@@ -500,7 +504,7 @@ export function getSessionRegistryDeps(host: any) {
 
 export function getCompactionRecoveryRuntimeDeps(host: any) {
   return {
-    isLeaderSession: (session: unknown) => host.launcher?.getSession((session as Session).id)?.isOrchestrator === true,
+    isLeaderSession: (session: unknown) => readLauncherSession(host, (session as Session).id)?.isOrchestrator === true,
     isSystemSourceTag: (agentSource: { sessionId: string; sessionLabel?: string } | undefined) =>
       host.isSystemSourceTag(agentSource),
     injectUserMessage: (
@@ -514,7 +518,7 @@ export function getCompactionRecoveryRuntimeDeps(host: any) {
 export function getCommonClaudeRuntimeDeps(host: any) {
   const generationDeps = host.getGenerationLifecycleDeps();
   return {
-    getLauncherSessionInfo: (sessionId: string) => host.launcher?.getSession(sessionId),
+    getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     refreshGitInfoThenRecomputeDiff: (
       targetSession: unknown,
       options: { notifyPoller?: boolean; broadcastUpdate?: boolean },
@@ -551,7 +555,7 @@ export function getCommonCodexRuntimeDeps(host: any) {
       host.emitTakodeEvent(sessionId, type as TakodeEventType, data as any),
     requestCodexAutoRecovery: (targetSession: unknown, reason: string) =>
       host.requestCodexAutoRecovery(targetSession as Session, reason),
-    getLauncherSessionInfo: (sessionId: string) => host.launcher?.getSession(sessionId),
+    getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     setAttentionError: (targetSession: unknown) =>
       setAttentionController(targetSession as Session, "error", sessionRegistryDeps),
     setGenerating: (targetSession: unknown, generating: boolean, reason: string) =>
@@ -641,7 +645,7 @@ export function getClaudeMessageHandlers(host: any) {
         turnTriggerSource as "user" | "leader" | "system" | "unknown",
         {
           isHerdedWorkerSession: (concreteSession) => host.isHerdedWorkerSession(concreteSession as Session),
-          getLauncherSessionInfo: (sessionId: string) => host.launcher?.getSession(sessionId),
+          getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
           broadcastToBrowsers: (concreteSession, browserMsg) =>
             host.broadcastToBrowsers(concreteSession as Session, browserMsg),
           persistSession: (concreteSession) => host.persistSession(concreteSession as Session),
@@ -657,7 +661,7 @@ export function getClaudeMessageHandlers(host: any) {
       ),
     validateLeaderThreadOutcomes: (targetSession: unknown, turnTriggerSource: unknown) => {
       validateLeaderThreadOutcomesController(targetSession as Session, {
-        isLeaderSession: (sessionId) => host.launcher?.getSession(sessionId)?.isOrchestrator === true,
+        isLeaderSession: (sessionId) => readLauncherSession(host, sessionId)?.isOrchestrator === true,
         getTurnSource: () => turnTriggerSource as "user" | "leader" | "system" | "unknown",
         injectUserMessage: (sessionId, content, agentSource, threadRoute) => {
           const delivery = host.injectUserMessage(sessionId, content, agentSource, undefined, threadRoute);
@@ -740,7 +744,7 @@ export function getBrowserTransportDeps(host: any) {
       };
     },
     getVsCodeSelectionState: () => host.browserTransportState.vscodeSelectionState,
-    getLauncherSessionInfo: (sessionId: string) => host.launcher?.getSession(sessionId),
+    getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     backendAttached: (targetSession: unknown) => backendAttachedController(targetSession as Session),
     backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
     requestCodexAutoRecovery: (targetSession: unknown, reason: string) =>
@@ -930,7 +934,7 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
       const settings = getSettings();
       return resolveCodexLeaderRecycleThresholdTokens(settings, modelId);
     },
-    getLauncherSessionInfo: (sessionId: string) => host.launcher?.getSession(sessionId),
+    getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     touchActivity: (sessionId: string) => host.launcher?.touchActivity(sessionId),
     clearOptimisticRunningTimer: (targetSession: unknown, reason: string) =>
       clearOptimisticRunningTimerLifecycle(targetSession as Session),
@@ -1102,7 +1106,7 @@ export function getBrowserRoutingDeps(host: any) {
       host.formatVsCodeSelectionPrompt(selection),
     getCliSessionId: (targetSession: unknown) => {
       const session = targetSession as Session;
-      return host.launcher?.getSession(session.id)?.cliSessionId || session.state.session_id || "";
+      return readLauncherSession(host, session.id)?.cliSessionId || session.state.session_id || "";
     },
     nextUserMessageId: (ts: number) => `user-${ts}-${host.userMsgCounter++}`,
     onUserMessage: host.onUserMessage
@@ -1170,7 +1174,7 @@ export function getBrowserRoutingDeps(host: any) {
       trySteerPendingCodexInputsController(targetSession as Session, reason, codexRecoveryDeps),
     sendToBrowser: (ws: unknown, browserMsg: BrowserIncomingMessage) =>
       sendToBrowserController(ws as ServerWebSocket<SocketData>, browserMsg),
-    getLauncherSessionInfo: (sessionId: string) => host.launcher?.getSession(sessionId),
+    getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     requestCodexIntentionalRelaunch: (targetSession: unknown, reason: string, delayMs?: number) =>
       (() => {
         const session = targetSession as Session;
@@ -1390,7 +1394,7 @@ export function getGenerationLifecycleDeps(host: any) {
     },
     onOrchestratorTurnEnd: (sessionId: string, reason?: string) => {
       if (!host.herdEventDispatcher) return;
-      const info = host.launcher?.getSession(sessionId);
+      const info = readLauncherSession(host, sessionId);
       if (info?.isOrchestrator) {
         host.herdEventDispatcher.onOrchestratorTurnEnd(sessionId, reason);
       }

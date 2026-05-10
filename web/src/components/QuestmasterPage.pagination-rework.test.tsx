@@ -230,6 +230,11 @@ async function settleLatestQuestPageRequest() {
   });
 }
 
+async function waitForRenderedQuest(questId: string) {
+  await settleLatestQuestPageRequest();
+  await waitFor(() => expect(renderedQuestIds()).toContain(questId));
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
   resetState({
@@ -291,15 +296,26 @@ describe("QuestmasterPage paged browsing rework", () => {
 
     scrollNearQuestmasterBottom();
     await waitFor(() =>
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 50 })),
+      expect(mockListQuestPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offset: 50, limit: 50 }),
+        expect.any(AbortSignal),
+      ),
     );
+    await waitForRenderedQuest("q-100");
     scrollNearQuestmasterBottom();
     await waitFor(() =>
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100, limit: 50 })),
+      expect(mockListQuestPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offset: 100, limit: 50 }),
+        expect.any(AbortSignal),
+      ),
     );
+    await waitForRenderedQuest("q-150");
     scrollNearQuestmasterBottom();
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 150, limit: 50 }));
+      expect(mockListQuestPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offset: 150, limit: 50 }),
+        expect.any(AbortSignal),
+      );
       expect(renderedQuestIds()[0]).toBe("q-51");
       expect(screen.getByTestId("quest-page-bottom-range")).toHaveTextContent("Showing 51-200 of 200");
     });
@@ -308,7 +324,10 @@ describe("QuestmasterPage paged browsing rework", () => {
     window.dispatchEvent(new Event("focus"));
 
     await waitFor(() => {
-      expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 150 }));
+      expect(mockListQuestPage).toHaveBeenLastCalledWith(
+        expect.objectContaining({ offset: 50, limit: 150 }),
+        expect.any(AbortSignal),
+      );
       expect(renderedQuestIds()[0]).toBe("q-51");
       expect(screen.getByTestId("quest-page-bottom-range")).toHaveTextContent("Showing 51-200 of 200");
     });
@@ -345,15 +364,26 @@ describe("QuestmasterPage paged browsing rework", () => {
       await settleLatestQuestPageRequest();
       scrollNearQuestmasterBottom();
       await waitFor(() =>
-        expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 50, limit: 50 })),
+        expect(mockListQuestPage).toHaveBeenLastCalledWith(
+          expect.objectContaining({ offset: 50, limit: 50 }),
+          expect.any(AbortSignal),
+        ),
       );
+      await waitForRenderedQuest("q-100");
       scrollNearQuestmasterBottom();
       await waitFor(() =>
-        expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 100, limit: 50 })),
+        expect(mockListQuestPage).toHaveBeenLastCalledWith(
+          expect.objectContaining({ offset: 100, limit: 50 }),
+          expect.any(AbortSignal),
+        ),
       );
+      await waitForRenderedQuest("q-150");
       scrollNearQuestmasterBottom();
       await waitFor(() => {
-        expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 150, limit: 50 }));
+        expect(mockListQuestPage).toHaveBeenLastCalledWith(
+          expect.objectContaining({ offset: 150, limit: 50 }),
+          expect.any(AbortSignal),
+        );
         expect(renderedQuestIds()[0]).toBe("q-51");
       });
 
@@ -362,7 +392,10 @@ describe("QuestmasterPage paged browsing rework", () => {
       fireEvent.wheel(scroller, { deltaY: -100 });
 
       await waitFor(() => {
-        expect(mockListQuestPage).toHaveBeenLastCalledWith(expect.objectContaining({ offset: 0, limit: 50 }));
+        expect(mockListQuestPage).toHaveBeenLastCalledWith(
+          expect.objectContaining({ offset: 0, limit: 50 }),
+          expect.any(AbortSignal),
+        );
         expect(renderedQuestIds()[0]).toBe("q-1");
         expect(renderedQuestIds()[149]).toBe("q-150");
         expect(scroller.scrollTop).toBeGreaterThan(1_000);

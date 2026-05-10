@@ -14,16 +14,32 @@ interface SettingsLeaderProfilesSectionProps {
     results: SettingsSearchResults;
     id: SettingsSectionId;
   };
+  poolsFromSettings?: LeaderProfilePoolSettings;
+  loadOnMount?: boolean;
 }
 
-export function SettingsLeaderProfilesSection({ sectionSearchProps }: SettingsLeaderProfilesSectionProps) {
-  const [pools, setPools] = useState<LeaderProfilePoolSettings>(DEFAULT_LEADER_PROFILE_POOLS);
+export function SettingsLeaderProfilesSection({
+  sectionSearchProps,
+  poolsFromSettings,
+  loadOnMount = true,
+}: SettingsLeaderProfilesSectionProps) {
+  const [pools, setPools] = useState<LeaderProfilePoolSettings>(poolsFromSettings ?? DEFAULT_LEADER_PROFILE_POOLS);
   const [loading, setLoading] = useState(true);
   const [savingPool, setSavingPool] = useState<string | null>(null);
   const [error, setError] = useState("");
   const saveInFlightRef = useRef(false);
 
   useEffect(() => {
+    if (poolsFromSettings) {
+      setPools(poolsFromSettings);
+    }
+  }, [poolsFromSettings]);
+
+  useEffect(() => {
+    if (!loadOnMount) {
+      setLoading(false);
+      return;
+    }
     let active = true;
     api
       .getSettings()
@@ -39,7 +55,7 @@ export function SettingsLeaderProfilesSection({ sectionSearchProps }: SettingsLe
     return () => {
       active = false;
     };
-  }, []);
+  }, [loadOnMount]);
 
   const countsByPool = useMemo(() => {
     const counts = new Map<string, number>();

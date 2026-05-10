@@ -509,8 +509,9 @@ export function Composer({
       const totalElapsedMs = Math.max(0, nowMs() - startedAt);
       setIsTranscribing(false);
       setTranscriptionPhase(null);
-      void api
-        .reportTranscriptionFrontendTiming({
+      const reportTranscriptionFrontendTiming = api.reportTranscriptionFrontendTiming;
+      if (typeof reportTranscriptionFrontendTiming === "function") {
+        void reportTranscriptionFrontendTiming({
           requestId,
           sessionId,
           mode,
@@ -520,8 +521,8 @@ export function Composer({
           totalElapsedMs,
           phaseDurationsMs: calculateVoiceTranscriptionPhaseDurations(frontendTimingEvents, totalElapsedMs),
           events: frontendTimingEvents,
-        })
-        .catch(() => undefined);
+        }).catch(() => undefined);
+      }
     }
   }
 

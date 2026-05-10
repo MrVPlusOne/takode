@@ -590,7 +590,7 @@ describe("DELETE /api/sessions/:id", () => {
     expect(bridge.closeSession).toHaveBeenCalledWith("s1");
     expect(tracker.removeBySession).toHaveBeenCalledWith("s1");
     expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/wt/feat", {
-      force: false,
+      force: true,
       branchToDelete: undefined,
     });
   });
@@ -612,7 +612,7 @@ describe("DELETE /api/sessions/:id", () => {
 
     expect(res.status).toBe(200);
     expect(gitUtils.removeWorktreeAsync).toHaveBeenCalledWith("/repo", "/wt/feat", {
-      force: false,
+      force: true,
       branchToDelete: "feat-wt-1234",
     });
   });

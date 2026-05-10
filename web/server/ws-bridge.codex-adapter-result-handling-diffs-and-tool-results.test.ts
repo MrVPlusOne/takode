@@ -576,7 +576,7 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex adapter result handling", () => {
-  it("ignores codex session_update line counters and keeps server-computed diff stats authoritative", () => {
+  it("ignores codex session_update line counters and keeps server-computed diff stats authoritative", async () => {
     const browser = makeBrowserSocket("s1");
     const adapter = makeCodexAdapterMock();
     bridge.attachCodexAdapter("s1", adapter as any);
@@ -600,9 +600,12 @@ describe("Codex adapter result handling", () => {
     expect(session.state.total_lines_removed).toBe(4);
     expect(session.state.context_used_percent).toBe(27);
 
-    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    const update = calls.find((c: any) => c.type === "session_update");
-    expect(update).toBeDefined();
+    let update: any;
+    await vi.waitFor(() => {
+      const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+      update = calls.find((c: any) => c.type === "session_update");
+      expect(update).toBeDefined();
+    });
     expect(update.session.total_lines_added).toBeUndefined();
     expect(update.session.total_lines_removed).toBeUndefined();
     expect(update.session.context_used_percent).toBe(27);
@@ -670,6 +673,8 @@ describe("Codex adapter result handling", () => {
 
     const session = bridge.getSession("s1")!;
     session.diffStatsDirty = true;
+    session.state.diff_base_branch = "feature-base";
+    session.state.diff_base_branch_explicit = true;
     session.state.total_lines_added = 0;
     session.state.total_lines_removed = 0;
 
@@ -707,6 +712,9 @@ describe("Codex adapter result handling", () => {
     bridge.attachCodexAdapter("s1", adapter as any);
     bridge.handleBrowserOpen(browser, "s1");
     browser.send.mockClear();
+    const session = bridge.getSession("s1")!;
+    session.state.diff_base_branch = "feature-base";
+    session.state.diff_base_branch_explicit = true;
 
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/codex\n";
@@ -748,7 +756,7 @@ describe("Codex adapter result handling", () => {
     });
 
     await vi.waitFor(() => {
-      const state = bridge.getSession("s1")!.state;
+      const state = session.state;
       expect(state.total_lines_added).toBe(12);
       expect(state.total_lines_removed).toBe(4);
     });

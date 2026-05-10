@@ -1,14 +1,13 @@
 import { useEffect, useRef } from "react";
 import type { ChatMessage } from "../types.js";
+import { useStore, getSessionSearchState } from "../store.js";
 import {
-  useStore,
-  getSessionSearchState,
   computeSessionSearchMatches,
   sessionSearchMessageMatchesCategory,
   sessionSearchTextMatches,
   type SearchMatch,
   type SessionSearchCategory,
-} from "../store.js";
+} from "../store-session-search.js";
 
 /**
  * Hook that computes search matches whenever the query, mode, category, or messages change.

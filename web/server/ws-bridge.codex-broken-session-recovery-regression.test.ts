@@ -722,8 +722,15 @@ describe("Codex broken-session recovery regression", () => {
       },
     } as any);
 
-    const resumedQueuedMsg = (adapter3.sendBrowserMessage.mock.calls as any[])[1]?.[0];
-    expect(resumedQueuedMsg).toBeDefined();
+    let resumedQueuedMsg: any;
+    await vi.waitFor(() => {
+      resumedQueuedMsg = (adapter3.sendBrowserMessage.mock.calls as any[])
+        .map((call) => call[0])
+        .find((msg) =>
+          getCodexStartPendingInputs(msg).some((input: any) => input.content === "queued behind broken turn"),
+        );
+      expect(resumedQueuedMsg).toBeDefined();
+    });
     expect(getCodexStartPendingInputs(resumedQueuedMsg)[0]?.content).toBe("queued behind broken turn");
   });
 

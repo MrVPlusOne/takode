@@ -576,7 +576,7 @@ function makeInitMsg(overrides: Record<string, unknown> = {}) {
 }
 
 describe("Codex MCP startup failures", () => {
-  it("keeps an established session connected when optional connector auth fails", () => {
+  it("keeps an established session connected when optional connector auth fails", async () => {
     const sid = "s-established-mcp-auth-noise";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
@@ -618,7 +618,12 @@ describe("Codex MCP startup failures", () => {
     expect(session.codexAdapter).toBe(adapter);
     expect(session.state.backend_state).toBe("connected");
 
-    const sentTypes = browser.send.mock.calls.map(([raw]: [unknown]) => JSON.parse(String(raw)).type);
+    let sentTypes: string[] = [];
+    await vi.waitFor(() => {
+      sentTypes = browser.send.mock.calls.map(([raw]: [unknown]) => JSON.parse(String(raw)).type);
+      expect(sentTypes).toContain("mcp_status");
+      expect(sentTypes).toContain("session_update");
+    });
     expect(sentTypes).toContain("mcp_status");
     expect(sentTypes).toContain("session_update");
     expect(sentTypes).not.toContain("backend_disconnected");

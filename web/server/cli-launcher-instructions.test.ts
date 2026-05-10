@@ -99,8 +99,8 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");
     expect(result).toContain("global orchestration, worker-slot scheduling, shared resource safety");
     expect(result).toContain("`waiting`");
-    expect(result).toContain("transient status marker, not an unresolved user notification");
-    expect(result).toContain("does not receive an ID");
+    expect(result).toContain("Legacy CLI status for sessions that are parked on non-user work");
+    expect(result).toContain("Leader/orchestrator threads should prefer inline `Thread Waiting` markers");
   });
 
   it("includes global resource lease guidance for shared dev-server and browser work", () => {

@@ -1070,6 +1070,16 @@ describe("POST /api/quests/:questId/complete", () => {
   }
 
   it("allows an authenticated leader to complete on behalf of a worker session", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "worker-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
     vi.spyOn(questStore, "completeQuest").mockResolvedValueOnce({
       id: "q-1-v4",
       questId: "q-1",
@@ -1112,6 +1122,16 @@ describe("POST /api/quests/:questId/complete", () => {
   });
 
   it("resolves numeric completion sessionId before leader authorization and lookup", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      sessionId: "worker-1",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+    } as any);
     vi.spyOn(questStore, "completeQuest").mockResolvedValueOnce({
       id: "q-1-v4",
       questId: "q-1",

@@ -9,12 +9,8 @@ import { Lightbox } from "./Lightbox.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { getMessageMarkdown, getMessagePlainText, copyRichText, writeClipboardText } from "../utils/copy-utils.js";
 import { EVENT_HEADER_RE, HERD_CHIP_BASE, HERD_CHIP_INTERACTIVE, parseHerdEvents } from "../utils/herd-event-parser.js";
-import {
-  useStore,
-  getSessionSearchState,
-  countUserPermissions,
-  sessionSearchMessageMatchesCategory,
-} from "../store.js";
+import { useStore, getSessionSearchState, countUserPermissions } from "../store.js";
+import { sessionSearchMessageMatchesCategory } from "../store-session-search.js";
 import { formatVsCodeSelectionAttachmentLabel } from "../utils/vscode-context.js";
 import { absoluteUrlForHash, navigateToSession, routeSessionRefForId, sessionMessageHash } from "../utils/routing.js";
 import { api } from "../api.js";

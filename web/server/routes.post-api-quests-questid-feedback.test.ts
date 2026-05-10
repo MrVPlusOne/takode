@@ -600,6 +600,7 @@ describe("REST quest description TLDR warnings", () => {
       version: 1,
       title: "Quest",
       status: "idea",
+      sessionId: "session-1",
       createdAt: Date.now(),
     } as any);
     vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
@@ -698,6 +699,7 @@ describe("REST quest description TLDR warnings", () => {
       version: 3,
       title: "Quest",
       status: "refined",
+      sessionId: "session-1",
       description: "Previous description",
       tldr: "Existing stale TLDR",
       createdAt: Date.now(),

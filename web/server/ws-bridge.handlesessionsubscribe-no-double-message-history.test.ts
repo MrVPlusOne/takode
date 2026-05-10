@@ -788,6 +788,8 @@ describe("handleSessionSubscribe — no double message_history", () => {
       start_index: 6,
       section_turn_count: 1,
       visible_section_count: 2,
+      has_older_items: true,
+      has_newer_items: false,
       window_hash: expect.any(String),
     });
     expect(windowSync.messages.map((m: any) => m.id || m.message?.id)).toEqual([
@@ -840,6 +842,8 @@ describe("handleSessionSubscribe — no double message_history", () => {
       start_index: 0,
       section_turn_count: 1,
       visible_section_count: 2,
+      has_older_items: false,
+      has_newer_items: true,
       window_hash: expect.any(String),
     });
     expect(windowSync.messages.map((m: any) => m.id)).toEqual(["u1", undefined, "u2", undefined]);

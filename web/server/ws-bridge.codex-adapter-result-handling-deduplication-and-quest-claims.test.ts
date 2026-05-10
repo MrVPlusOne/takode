@@ -625,7 +625,7 @@ describe("Codex adapter result handling", () => {
     expect(assistantHistory).toHaveLength(1);
   });
 
-  it("deduplicates Codex assistant messages with different IDs but same content within 15s window", () => {
+  it("deduplicates Codex assistant messages with different IDs but same content within 15s window", async () => {
     // When Codex reconnects and replays the same message with a different ID
     // but identical content within the 15-second window, it should be deduped.
     const browser = makeBrowserSocket("s1");
@@ -666,6 +666,7 @@ describe("Codex adapter result handling", () => {
       parent_tool_use_id: null,
       timestamp: 1700000001001,
     });
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.filter((c: any) => c.type === "assistant")).toHaveLength(1);
@@ -674,7 +675,7 @@ describe("Codex adapter result handling", () => {
     expect(assistantHistory).toHaveLength(1);
   });
 
-  it("does not deduplicate legitimate repeated Codex text when timestamp exceeds 15s window", () => {
+  it("does not deduplicate legitimate repeated Codex text when timestamp exceeds 15s window", async () => {
     // Messages with identical content but timestamps >15s apart are legitimate
     // repeated text, not reconnect replays.
     const browser = makeBrowserSocket("s1");
@@ -715,6 +716,7 @@ describe("Codex adapter result handling", () => {
       parent_tool_use_id: null,
       timestamp: 1700000021000,
     });
+    await flushAsync();
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls.filter((c: any) => c.type === "assistant")).toHaveLength(2);

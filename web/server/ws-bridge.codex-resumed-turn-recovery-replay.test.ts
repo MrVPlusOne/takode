@@ -926,9 +926,11 @@ describe("Codex resumed-turn recovery", () => {
       },
     } as any);
 
-    expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
-      expect.objectContaining({ type: "user_message", content: "follow-up should stay queued" }),
-    );
+    await vi.waitFor(() => {
+      expect(adapter2.sendBrowserMessage).toHaveBeenCalledWith(
+        expect.objectContaining({ type: "user_message", content: "follow-up should stay queued" }),
+      );
+    });
   });
 
   it("re-arms resumed in-progress queued follow-up turns after disconnect", async () => {

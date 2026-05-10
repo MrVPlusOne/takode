@@ -591,7 +591,13 @@ describe("CLI message routing", () => {
     // Set up session with a diff_base_branch and tracked files so computeDiffStats runs
     const session = bridge.getSession("s1")!;
     session.state.cwd = "/test";
-    session.state.diff_base_branch = "main";
+    session.state.diff_base_branch = "feature-base";
+    session.state.diff_base_branch_explicit = true;
+    session.messageHistory.push(
+      { type: "user_message", content: "First request", timestamp: 1 } as any,
+      { type: "user_message", content: "Second request", timestamp: 2 } as any,
+      { type: "user_message", content: "Current request", timestamp: 3 } as any,
+    );
 
     mockExecSync.mockImplementation((cmd: string) => {
       if (cmd.includes("--abbrev-ref HEAD")) return "feat/branch\n";
@@ -624,8 +630,10 @@ describe("CLI message routing", () => {
     bridge.handleCLIMessage(cli, msg);
 
     const state = bridge.getSession("s1")!.state;
-    expect(state.total_cost_usd).toBe(0.05);
-    expect(state.num_turns).toBe(3);
+    await vi.waitFor(() => {
+      expect(state.total_cost_usd).toBe(0.05);
+      expect(state.num_turns).toBe(3);
+    });
 
     // Async diff computation needs a tick to resolve
     await vi.waitFor(() => {
@@ -633,8 +641,8 @@ describe("CLI message routing", () => {
       expect(state.total_lines_removed).toBe(10);
     });
 
-    expect(session.messageHistory).toHaveLength(1);
-    expect(session.messageHistory[0].type).toBe("result");
+    expect(session.messageHistory).toHaveLength(4);
+    expect(session.messageHistory[3].type).toBe("result");
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     const resultBroadcast = calls.find((c: any) => c.type === "result");

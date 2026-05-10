@@ -697,14 +697,16 @@ describe("Codex retries user message when turn is stale after disconnect", () =>
       },
     } as any);
 
-    const followUpCall = adapter2.sendBrowserMessage.mock.calls.find((call) => {
-      const msg = call[0] as any;
-      return (
-        msg?.type === "codex_start_pending" &&
-        getCodexStartPendingInputs(msg).some((input) => input.content === "hello after relaunch")
-      );
+    await vi.waitFor(() => {
+      const followUpCall = adapter2.sendBrowserMessage.mock.calls.find((call) => {
+        const msg = call[0] as any;
+        return (
+          msg?.type === "codex_start_pending" &&
+          getCodexStartPendingInputs(msg).some((input) => input.content === "hello after relaunch")
+        );
+      });
+      expect(followUpCall).toBeDefined();
     });
-    expect(followUpCall).toBeDefined();
   });
 
   it("retries image user message when resumed turn is inProgress but thread is idle", async () => {
