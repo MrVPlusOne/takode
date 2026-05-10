@@ -7,6 +7,7 @@ import {
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestPhaseDocumentationTimeline } from "./QuestPhaseDocumentationTimeline.js";
+import { QuestTextImagePreviews } from "./QuestPhaseNoteImages.js";
 import { QuestRelationshipLinks } from "./QuestRelationshipLinks.js";
 import type { ReactNode } from "react";
 import type { QuestmasterTask } from "../types.js";
@@ -93,6 +94,11 @@ export function QuestDetailTextSections({
                 searchHighlight={detailSearchHighlight}
                 wrapLongContent
               />
+              <QuestTextImagePreviews
+                text={description}
+                sessionId={sessionId}
+                testId="quest-description-image-thumbnails"
+              />
             </div>
           )}
           <div className="min-w-0 max-w-full space-y-2">
@@ -103,6 +109,11 @@ export function QuestDetailTextSections({
               sessionId={sessionId}
               searchHighlight={detailSearchHighlight}
               wrapLongContent
+            />
+            <QuestTextImagePreviews
+              text={questDebrief ?? ""}
+              sessionId={sessionId}
+              testId="quest-debrief-image-thumbnails"
             />
           </div>
         </>

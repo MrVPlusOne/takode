@@ -87,7 +87,7 @@ describe("QuestPhaseNoteImages", () => {
     fireEvent.click(within(thumbnailStrip).getByRole("button", { name: "Open image one.png" }));
     expect(screen.getByRole("dialog", { name: "Image preview: one.png" })).toBeVisible();
     expect(screen.getByTestId("image-preview-modal-filename")).toHaveTextContent("one.png");
-    expect(screen.getByTestId("image-preview-modal-index")).toHaveTextContent("1 / 2");
+    expect(screen.getByTestId("image-preview-modal-index")).toHaveTextContent("1 of 2");
 
     fireEvent.click(screen.getByRole("button", { name: "Next image" }));
     expect(screen.getByRole("dialog", { name: "Image preview: two.jpeg" })).toBeVisible();
@@ -95,6 +95,34 @@ describe("QuestPhaseNoteImages", () => {
 
     fireEvent.keyDown(document, { key: "ArrowLeft" });
     expect(screen.getByRole("dialog", { name: "Image preview: one.png" })).toBeVisible();
+  });
+
+  it("keeps the modal filename centered separately from the right-aligned navigation controls", () => {
+    render(<QuestPhaseNoteImages text={"Screenshots: /tmp/one.png `/tmp/two.jpeg`"} />);
+
+    const preloadImages = screen.getAllByTestId("image-preview-preload");
+    fireEvent.load(preloadImages[0]!);
+    fireEvent.load(preloadImages[1]!);
+    fireEvent.click(screen.getByRole("button", { name: "Open image one.png" }));
+
+    const header = screen.getByTestId("image-preview-modal-header");
+    const title = screen.getByTestId("image-preview-modal-title");
+    const controls = screen.getByTestId("image-preview-modal-controls");
+    const footprint = screen.getByTestId("image-preview-modal-control-footprint");
+    const filename = within(title).getByTestId("image-preview-modal-filename");
+
+    expect(header).toHaveClass("grid", "grid-cols-[minmax(max-content,1fr)_minmax(0,42rem)_minmax(max-content,1fr)]");
+    expect(footprint).toHaveClass("invisible", "col-start-1");
+    expect(footprint).toHaveAttribute("aria-hidden", "true");
+    expect(title).toHaveClass("col-start-2", "min-w-0", "max-w-full", "justify-self-stretch", "overflow-hidden");
+    expect(filename).toHaveTextContent("one.png");
+    expect(filename).toHaveClass("w-full", "truncate");
+    expect(within(controls).queryByTestId("image-preview-modal-filename")).toBeNull();
+    expect(controls).toHaveClass("col-start-3", "justify-self-end");
+    expect(within(controls).getByRole("button", { name: "Previous image" })).toBeVisible();
+    expect(within(controls).getByRole("button", { name: "Next image" })).toBeVisible();
+    expect(within(controls).getByTestId("image-preview-modal-index")).toHaveTextContent("1 of 2");
+    expect(within(controls).getByRole("button", { name: "Close image preview" })).toBeVisible();
   });
 
   it("absorbs Escape when closing the shared image modal", () => {

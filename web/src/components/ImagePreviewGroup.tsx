@@ -172,8 +172,26 @@ function ImagePreviewModal({
       data-testid="image-preview-modal"
     >
       <div className="flex min-h-0 flex-1 flex-col">
-        <div className="flex min-h-[3.25rem] shrink-0 items-center justify-between gap-3 border-b border-cc-border bg-cc-card px-3 py-2 sm:px-4">
-          <div className="flex min-w-0 items-center gap-2">
+        <div
+          className="grid min-h-[3.25rem] shrink-0 grid-cols-[minmax(max-content,1fr)_minmax(0,42rem)_minmax(max-content,1fr)] items-center gap-2 border-b border-cc-border bg-cc-card px-3 py-2 sm:px-4"
+          data-testid="image-preview-modal-header"
+        >
+          <ModalHeaderControlFootprint selectedIndex={selectedIndex} count={images.length} />
+          <div
+            className="pointer-events-none col-start-2 min-w-0 max-w-full justify-self-stretch overflow-hidden text-center"
+            data-testid="image-preview-modal-title"
+          >
+            <span
+              className="block min-w-0 w-full truncate font-mono-code text-sm text-cc-fg"
+              data-testid="image-preview-modal-filename"
+            >
+              {image.filename}
+            </span>
+          </div>
+          <div
+            className="col-start-3 flex shrink-0 items-center gap-1.5 justify-self-end"
+            data-testid="image-preview-modal-controls"
+          >
             <IconButton label="Previous image" disabled={!canNavigate} onClick={() => selectOffset(-1)}>
               <path d="M10.5 3.5L6 8l4.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
             </IconButton>
@@ -181,18 +199,12 @@ function ImagePreviewModal({
               <path d="M5.5 3.5L10 8l-4.5 4.5" strokeLinecap="round" strokeLinejoin="round" />
             </IconButton>
             <span className="shrink-0 font-mono-code text-xs text-cc-muted" data-testid="image-preview-modal-index">
-              {selectedIndex + 1} / {images.length}
+              {selectedIndex + 1} of {images.length}
             </span>
-            <span
-              className="min-w-0 truncate font-mono-code text-sm text-cc-fg"
-              data-testid="image-preview-modal-filename"
-            >
-              {image.filename}
-            </span>
+            <IconButton label="Close image preview" onClick={onClose}>
+              <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
+            </IconButton>
           </div>
-          <IconButton label="Close image preview" onClick={onClose}>
-            <path d="M4 4l8 8M12 4l-8 8" strokeLinecap="round" />
-          </IconButton>
         </div>
         <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
           <img
@@ -206,6 +218,23 @@ function ImagePreviewModal({
       </div>
     </div>,
     document.body,
+  );
+}
+
+function ModalHeaderControlFootprint({ selectedIndex, count }: { selectedIndex: number; count: number }) {
+  return (
+    <div
+      className="invisible col-start-1 flex shrink-0 items-center gap-1.5 justify-self-start"
+      aria-hidden="true"
+      data-testid="image-preview-modal-control-footprint"
+    >
+      <span className="h-8 w-8 shrink-0 rounded-md border border-transparent" />
+      <span className="h-8 w-8 shrink-0 rounded-md border border-transparent" />
+      <span className="shrink-0 font-mono-code text-xs">
+        {selectedIndex + 1} of {count}
+      </span>
+      <span className="h-8 w-8 shrink-0 rounded-md border border-transparent" />
+    </div>
   );
 }
 

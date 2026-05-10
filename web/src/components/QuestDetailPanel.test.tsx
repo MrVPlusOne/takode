@@ -19,7 +19,11 @@ const mockMarkAllNotificationsDone = vi.fn();
 vi.mock("../api.js", () => ({
   api: {
     questImageUrl: (id: string) => `/api/quests/_images/${id}`,
-    getFsImageUrl: (path: string) => `/api/fs/image?path=${encodeURIComponent(path)}`,
+    getFsImageUrl: (path: string, variant?: "thumbnail" | "full") => {
+      const params = new URLSearchParams({ path });
+      if (variant) params.set("variant", variant);
+      return `/api/fs/image?${params.toString()}`;
+    },
     getSettings: (...args: unknown[]) => mockGetSettings(...args),
     openVsCodeRemoteFile: vi.fn(),
     checkQuestVerification: (...args: unknown[]) => mockCheckQuestVerification(...args),
@@ -998,6 +1002,60 @@ describe("QuestDetailPanel", () => {
     expect(text.indexOf("Full Final Debrief")).toBeLessThan(text.indexOf("Final debrief outcome."));
     expect(text.indexOf("Final debrief outcome.")).toBeLessThan(text.indexOf("Journey Details"));
     expect(text.indexOf("Journey Details")).toBeLessThan(text.indexOf("Implementation phase TLDR."));
+  });
+
+  it("shows image previews after Full Description when it contains supported local image references", () => {
+    const quest = makeVerificationQuest({
+      description:
+        "Initial quest description with screenshots: /tmp/quest-description.png and https://example.com/remote.png.",
+      debrief: "Final debrief outcome.",
+      debriefTldr: "Final debrief TLDR.",
+    });
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.queryByTestId("quest-description-image-thumbnails")).toBeNull();
+    fireEvent.load(screen.getByTestId("image-preview-preload"));
+
+    const descriptionImages = screen.getByTestId("quest-description-image-thumbnails");
+    expect(within(descriptionImages).getByRole("button", { name: "Open image quest-description.png" })).toBeVisible();
+    expect(within(descriptionImages).queryByRole("button", { name: "Open image remote.png" })).toBeNull();
+    expect(screen.getByText("Full Description").compareDocumentPosition(descriptionImages)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+    expect(descriptionImages.compareDocumentPosition(screen.getByText("Full Final Debrief"))).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    const text = document.body.textContent ?? "";
+    expect(text.indexOf("Initial quest description with screenshots")).toBeLessThan(text.indexOf("Full Final Debrief"));
+  });
+
+  it("shows image previews after Full Final Debrief when it contains supported local image links", () => {
+    const quest = makeVerificationQuest({
+      description: "Initial quest description.",
+      debrief: "Final debrief evidence: [mobile](file:artifacts/mobile.png) and [notes](file:artifacts/notes.txt).",
+      debriefTldr: "Final debrief TLDR.",
+    });
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+
+    render(<QuestDetailPanel />);
+
+    expect(screen.queryByTestId("quest-debrief-image-thumbnails")).toBeNull();
+    fireEvent.load(screen.getByTestId("image-preview-preload"));
+
+    const debriefImages = screen.getByTestId("quest-debrief-image-thumbnails");
+    expect(within(debriefImages).getByRole("button", { name: "Open image mobile.png" })).toBeVisible();
+    expect(within(debriefImages).queryByRole("button", { name: "Open image notes.txt" })).toBeNull();
+    expect(screen.getByText("Full Final Debrief").compareDocumentPosition(debriefImages)).toBe(
+      Node.DOCUMENT_POSITION_FOLLOWING,
+    );
+
+    fireEvent.click(within(debriefImages).getByRole("button", { name: "Open image mobile.png" }));
+    expect(screen.getByTestId("image-preview-modal-image").getAttribute("src")).toBe(
+      "/api/fs/file-link/image?path=artifacts%2Fmobile.png&isRelative=1&variant=full&sessionId=session-abc",
+    );
   });
 
   it("does not use the merged TLDR layout when only debrief TLDR is present", () => {

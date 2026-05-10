@@ -6,7 +6,19 @@ export function extractMentionedLocalImagePaths(text: string, sessionId?: string
   return extractMentionedLocalImagePreviewItems(text, { sessionId });
 }
 
-export function QuestPhaseNoteImages({ text, sessionId }: { text: string; sessionId?: string }) {
+export function QuestTextImagePreviews({
+  text,
+  sessionId,
+  testId,
+}: {
+  text: string;
+  sessionId?: string;
+  testId: string;
+}) {
   const images = useMemo(() => extractMentionedLocalImagePreviewItems(text, { sessionId }), [sessionId, text]);
-  return <ImagePreviewGroup images={images} testId="phase-note-image-thumbnails" />;
+  return <ImagePreviewGroup images={images} testId={testId} />;
+}
+
+export function QuestPhaseNoteImages({ text, sessionId }: { text: string; sessionId?: string }) {
+  return <QuestTextImagePreviews text={text} sessionId={sessionId} testId="phase-note-image-thumbnails" />;
 }
