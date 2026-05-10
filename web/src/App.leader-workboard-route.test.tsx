@@ -2,6 +2,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
+import type { SessionState } from "./types.js";
 
 const mockConnectSession = vi.fn();
 const mockDisconnectSession = vi.fn();
@@ -126,23 +127,39 @@ import { resetSessionGitStatusAutoRefreshForTest } from "./utils/session-git-sta
 
 const SESSION_ID = "playground-board-bar";
 
-function seedLeaderRouteFixture() {
+function seedLeaderRouteFixture({ sdkLeaderSession = true }: { sdkLeaderSession?: boolean } = {}) {
   const now = Date.now();
   useStore.setState({
     currentSessionId: null,
-    sdkSessions: [
-      {
-        sessionId: SESSION_ID,
-        createdAt: now,
-        archived: false,
-        cwd: "/mock/playground",
-        isOrchestrator: true,
-        name: "Leader Route Fixture",
-        sessionNum: 402,
-        state: "connected",
-      },
-    ],
-    sessions: new Map(),
+    sdkSessions: sdkLeaderSession
+      ? [
+          {
+            sessionId: SESSION_ID,
+            createdAt: now,
+            archived: false,
+            cwd: "/mock/playground",
+            isOrchestrator: true,
+            name: "Leader Route Fixture",
+            sessionNum: 402,
+            state: "connected",
+          },
+        ]
+      : [],
+    sessions: new Map([
+      [
+        SESSION_ID,
+        {
+          session_id: SESSION_ID,
+          id: SESSION_ID,
+          cwd: "/mock/playground",
+          backend_state: "connected",
+          backend_error: null,
+          isOrchestrator: true,
+          name: "Leader Route Fixture",
+          sessionNum: 402,
+        } as Partial<SessionState> as SessionState,
+      ],
+    ]),
     sessionNames: new Map([[SESSION_ID, "Leader Route Fixture"]]),
     cliConnected: new Map([[SESSION_ID, true]]),
     cliEverConnected: new Map([[SESSION_ID, true]]),
@@ -222,6 +239,26 @@ beforeEach(() => {
 });
 
 it("keeps the explicit leader quest-thread route stable while title-bar shortcuts open panels in place", async () => {
+  render(<App />);
+
+  await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));
+  expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
+  expect(screen.getByTestId("topbar-workboard-shortcut")).toHaveTextContent("1 Implement");
+
+  fireEvent.click(screen.getByTestId("topbar-workboard-shortcut"));
+
+  await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "active"));
+  expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
+
+  fireEvent.click(screen.getByTestId("topbar-completed-shortcut"));
+
+  await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "completed"));
+  expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
+});
+
+it("renders title-bar panels on a quest-thread route when leader metadata comes from session state", async () => {
+  seedLeaderRouteFixture({ sdkLeaderSession: false });
+
   render(<App />);
 
   await waitFor(() => expect(screen.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-42"));

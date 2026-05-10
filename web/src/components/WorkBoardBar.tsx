@@ -1343,8 +1343,10 @@ export function WorkBoardBar({
   const board = useStore((s) => s.sessionBoards.get(sessionId));
   const rowSessionStatuses = useStore((s) => s.sessionBoardRowStatuses.get(sessionId));
   const completedBoard = useStore((s) => s.sessionCompletedBoards.get(sessionId));
-  const isOrchestrator = useStore((s) =>
-    s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true),
+  const isOrchestrator = useStore(
+    (s) =>
+      s.sessions.get(sessionId)?.isOrchestrator === true ||
+      s.sdkSessions.some((session) => session.sessionId === sessionId && session.isOrchestrator === true),
   );
   const activeView = useStore((s) => s.leaderWorkboardViews?.get(sessionId) ?? null);
   const setLeaderWorkboardView = useStore((s) => s.setLeaderWorkboardView ?? (() => {}));
