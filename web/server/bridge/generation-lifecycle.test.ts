@@ -261,6 +261,20 @@ describe("setGenerating(false) — queued turn handling", () => {
     expect(session.queuedTurnStarts).toBe(0);
   });
 
+  it("preserves queued lifecycle entries when live Codex recovery retries before drain", () => {
+    const recoverPendingCodexTurnBeforeQueueDrain = vi.fn(() => true);
+    deps = makeDeps({ recoverPendingCodexTurnBeforeQueueDrain });
+    deps.sessions.set(session.id, session);
+    setupWithQueuedTurns(session, deps, 2);
+
+    setGenerating(deps, session, false, "user_message_timeout");
+
+    expect(recoverPendingCodexTurnBeforeQueueDrain).toHaveBeenCalledWith(session, "user_message_timeout");
+    expect(session.isGenerating).toBe(false);
+    expect(session.queuedTurnStarts).toBe(2);
+    expect(session.queuedTurnReasons).toEqual(["queued_msg_0", "queued_msg_1"]);
+  });
+
   it("leaves queued turns alone on non-recovery, non-result reason", () => {
     // For reasons like "interrupt" that don't indicate a dead CLI,
     // queued turns should remain for the CLI to process later.

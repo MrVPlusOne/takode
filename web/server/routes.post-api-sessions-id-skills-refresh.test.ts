@@ -539,15 +539,18 @@ async function parseSSE(res: Response): Promise<{ event: string; data: string }[
 }
 
 describe("POST /api/sessions/:id/skills/refresh", () => {
-  it("refreshes Codex skills for a codex session", async () => {
+  it("requires explicit relaunch instead of refreshing Codex skills in place", async () => {
     const refreshSkills = vi.fn(async () => ["review", "fix"]);
     bridge.getSession.mockReturnValue({ backendType: "codex", codexAdapter: { refreshSkills } });
 
     const res = await app.request("/api/sessions/s1/skills/refresh", { method: "POST" });
 
-    expect(res.status).toBe(200);
-    await expect(res.json()).resolves.toEqual({ ok: true, skills: ["review", "fix"] });
-    expect(refreshSkills).toHaveBeenCalledWith(true, "api");
+    expect(res.status).toBe(409);
+    await expect(res.json()).resolves.toEqual({
+      error: "Skill updates are applied when the Codex session is relaunched",
+      requires_relaunch: true,
+    });
+    expect(refreshSkills).not.toHaveBeenCalled();
   });
 
   it("rejects skill refresh for non-codex sessions", async () => {

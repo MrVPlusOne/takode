@@ -55,6 +55,7 @@ export interface GenerationLifecycleDeps<S extends GenerationLifecycleSession> {
   buildTurnToolSummary: (session: S) => Record<string, unknown>;
   recordGenerationStarted?: (session: S, reason: string) => void;
   recordGenerationEnded?: (session: S, reason: string, elapsedMs: number) => void;
+  recoverPendingCodexTurnBeforeQueueDrain?: (session: S, reason: string) => boolean;
   onGenerationStopped?: (session: S, reason: string) => void;
   onOrchestratorTurnEnd?: (sessionId: string, reason?: string) => void;
   /** Returns who triggered the current turn on a given session. */
@@ -403,10 +404,19 @@ export function setGenerating<S extends GenerationLifecycleSession>(
     } else if (RECOVERY_REASONS.has(reason)) {
       const staleEntries = getQueuedTurnLifecycleEntries(session);
       if (staleEntries.length > 0) {
-        console.warn(
-          `[ws-bridge] Draining ${staleEntries.length} orphaned queued turn(s) for session ${sessionTag(session.id)} (reason: ${reason})`,
-        );
-        replaceQueuedTurnLifecycleEntries(session, []);
+        const recoveredBeforeDrain = deps.recoverPendingCodexTurnBeforeQueueDrain?.(session, reason) ?? false;
+        if (recoveredBeforeDrain) {
+          console.warn(
+            `[ws-bridge] Retried live Codex pending turn before draining ${staleEntries.length} queued lifecycle entr${
+              staleEntries.length === 1 ? "y" : "ies"
+            } for session ${sessionTag(session.id)} (reason: ${reason})`,
+          );
+        } else {
+          console.warn(
+            `[ws-bridge] Draining ${staleEntries.length} orphaned queued turn(s) for session ${sessionTag(session.id)} (reason: ${reason})`,
+          );
+          replaceQueuedTurnLifecycleEntries(session, []);
+        }
       }
     }
   }

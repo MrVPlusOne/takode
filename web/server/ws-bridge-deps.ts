@@ -208,6 +208,7 @@ import {
   reconcileRecoveredQueuedTurnLifecycle as reconcileRecoveredQueuedTurnLifecycleController,
   recordSteeredCodexTurn as recordSteeredCodexTurnController,
   removePendingCodexInput as removePendingCodexInputController,
+  retryNonDrainableCodexHeadTurn as retryNonDrainableCodexHeadTurnController,
   retryPendingCodexTurn as retryPendingCodexTurnController,
   requestCodexAutoRecovery as requestCodexAutoRecoveryOrchestratorController,
   setPendingCodexInputCancelable as setPendingCodexInputCancelableController,
@@ -1384,6 +1385,14 @@ export function getGenerationLifecycleDeps(host: any) {
         { reason, elapsed: elapsedMs },
         session.backendType,
         session.state.cwd,
+      );
+    },
+    recoverPendingCodexTurnBeforeQueueDrain: (session: Session, reason: string) => {
+      if (session.backendType !== "codex") return false;
+      return retryNonDrainableCodexHeadTurnController(
+        session,
+        `${reason}_before_queued_lifecycle_drain`,
+        host.getCodexRecoveryOrchestratorDeps(),
       );
     },
     onGenerationStopped: (session: Session) => {

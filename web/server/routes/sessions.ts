@@ -1635,16 +1635,10 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!session) return c.json({ error: "Session not found" }, 404);
     if (session.backendType !== "codex")
       return c.json({ error: "Skill refresh is only supported for Codex sessions" }, 400);
-
-    if (!session.codexAdapter?.refreshSkills) {
-      return c.json({ error: "Codex adapter unavailable" }, 503);
-    }
-    try {
-      const skills = await session.codexAdapter.refreshSkills(true, "api");
-      return c.json({ ok: true, skills });
-    } catch (err) {
-      return c.json({ error: err instanceof Error ? err.message : String(err) || "Failed to refresh skills" }, 503);
-    }
+    return c.json(
+      { error: "Skill updates are applied when the Codex session is relaunched", requires_relaunch: true },
+      409,
+    );
   });
   api.post("/sessions/:id/revert", async (c) => {
     const id = resolveId(c.req.param("id"));

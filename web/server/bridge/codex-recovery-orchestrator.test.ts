@@ -150,7 +150,7 @@ function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | n
     onTurnStartFailed: vi.fn((callback: (msg: any) => void) => {
       callbacks.turnStartFailed = callback;
     }),
-    getCurrentTurnId: vi.fn(() => null),
+    getCurrentTurnId: vi.fn<() => string | null>(() => null),
     getLastDisconnectDiagnostics: vi.fn(() => disconnectDiagnostics),
     isConnected: vi.fn(() => true),
     sendBrowserMessage: vi.fn(() => true),
@@ -158,6 +158,7 @@ function makeLifecycleAdapter(disconnectDiagnostics: Record<string, unknown> | n
     rollbackTurns: vi.fn(async () => {}),
     emitDisconnect: () => callbacks.disconnect?.(),
     emitSessionMeta: (meta: any) => callbacks.sessionMeta?.(meta),
+    emitTurnSteerFailed: (pendingInputIds: string[]) => callbacks.turnSteerFailed?.(pendingInputIds),
   };
 }
 
@@ -372,6 +373,53 @@ describe("hydrateCodexResumedHistory", () => {
 });
 
 describe("reconcileCodexResumedTurn", () => {
+  it("retries an interrupted resume with only user input without waiting for user-message timeout", () => {
+    const request = "continue the implementation";
+    const session = makeSession([{ id: "input-1", content: request, timestamp: 1_000, cancelable: false }]);
+    session.isGenerating = true;
+    const pending = makePendingTurn();
+    pending.userContent = request;
+    pending.status = "backend_acknowledged";
+    pending.turnTarget = "current";
+    pending.turnId = "turn-user-only";
+    pending.acknowledgedAt = 1_500;
+    pending.disconnectedAt = 2_000;
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      dispatchQueuedCodexTurns: vi.fn((session: CodexRecoveryOrchestratorSessionLike) => {
+        const head = session.pendingCodexTurns[0];
+        if (head) head.status = "dispatched";
+      }),
+      setGenerating: vi.fn((session: CodexRecoveryOrchestratorSessionLike, generating: boolean) => {
+        session.isGenerating = generating;
+      }),
+    });
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-user-only",
+          status: "interrupted",
+          error: null,
+          items: [{ type: "userMessage", content: [{ type: "text", text: request }] }],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_retry_pending_turn_restart");
+    expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_retry_pending_turn");
+    expect(deps.markRunningFromUserDispatch).toHaveBeenCalledWith(session, "codex_retry_pending_turn");
+    expect(pending.status).toBe("dispatched");
+    expect(pending.turnTarget).toBe("current");
+    expect(pending.turnId).toBeNull();
+  });
+
   it("dedupes routed recovered assistant replay against an already stored stripped leader row", () => {
     // This matches the observed replay shape: the original Main assistant row
     // is already stored without the leader marker, then Codex resume replays
@@ -731,6 +779,84 @@ describe("reconcileCodexResumedTurn", () => {
 describe("registerCodexAdapterRecoveryLifecycle", () => {
   afterEach(() => {
     vi.restoreAllMocks();
+  });
+
+  it("collapses duplicate queued and backend-ack pending turns after recovery session_meta", () => {
+    const session = makeSession([]);
+    prepareLifecycleSession(session);
+    const queued = makePendingTurn();
+    queued.status = "queued";
+    queued.turnTarget = null;
+    queued.dispatchCount = 1;
+    queued.createdAt = 1_000;
+    queued.updatedAt = 1_100;
+    const acknowledged = makePendingTurn();
+    acknowledged.status = "backend_acknowledged";
+    acknowledged.turnTarget = "queued";
+    acknowledged.turnId = "turn-ack";
+    acknowledged.dispatchCount = 2;
+    acknowledged.createdAt = 1_200;
+    acknowledged.updatedAt = 1_300;
+    acknowledged.acknowledgedAt = 1_250;
+    session.pendingCodexTurns = [queued, acknowledged];
+    const adapter = makeLifecycleAdapter();
+    adapter.getCurrentTurnId = vi.fn(() => "turn-ack");
+    const deps = makeLifecycleDeps({
+      getCodexHeadTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike) => session.pendingCodexTurns[0] ?? null),
+    });
+
+    session.codexAdapter = adapter as any;
+    registerCodexAdapterRecoveryLifecycle(session.id, session, adapter, deps);
+    adapter.emitSessionMeta({
+      cliSessionId: "thread-recovered",
+      resumeSnapshot: {
+        threadId: "thread-recovered",
+        threadStatus: "idle",
+        turnCount: 0,
+        turns: [],
+      },
+    });
+
+    expect(session.pendingCodexTurns).toHaveLength(1);
+    expect(session.pendingCodexTurns[0]).toMatchObject({
+      status: "backend_acknowledged",
+      turnTarget: null,
+      turnId: "turn-ack",
+      dispatchCount: 2,
+      createdAt: 1_000,
+      updatedAt: 1_300,
+      acknowledgedAt: 1_250,
+    });
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+  });
+
+  it("uses stale turn-steer rejection as an immediate pending-turn retry signal", () => {
+    const session = makeSession([{ id: "input-1", content: "continue", timestamp: 1_000, cancelable: false }]);
+    prepareLifecycleSession(session);
+    const pending = makePendingTurn();
+    pending.status = "backend_acknowledged";
+    pending.turnTarget = "current";
+    pending.turnId = "turn-stale";
+    pending.acknowledgedAt = 1_500;
+    session.pendingCodexTurns = [pending];
+    const adapter = makeLifecycleAdapter();
+    const deps = makeLifecycleDeps({
+      getCodexHeadTurn: vi.fn((session: CodexRecoveryOrchestratorSessionLike) => session.pendingCodexTurns[0] ?? null),
+      dispatchQueuedCodexTurns: vi.fn((session: CodexRecoveryOrchestratorSessionLike) => {
+        const head = session.pendingCodexTurns[0];
+        if (head?.status === "queued") head.status = "dispatched";
+      }),
+    });
+
+    session.codexAdapter = adapter as any;
+    registerCodexAdapterRecoveryLifecycle(session.id, session, adapter, deps);
+    adapter.emitTurnSteerFailed(["input-1"]);
+
+    expect(deps.setPendingCodexInputsCancelable).toHaveBeenCalledWith(session, ["input-1"], true);
+    expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_retry_pending_turn");
+    expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_turn_steer_failed");
+    expect(pending.status).toBe("dispatched");
+    expect(pending.turnId).toBeNull();
   });
 
   it("correlates adapter disconnect diagnostics through process snapshot and recovery session_meta", () => {

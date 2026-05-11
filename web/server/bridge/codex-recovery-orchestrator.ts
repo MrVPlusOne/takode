@@ -621,6 +621,81 @@ export function queueCodexPendingStartBatch(
   deps.dispatchQueuedCodexTurns(session, reason);
 }
 
+function codexPendingInputGroupKey(turn: CodexOutboundTurn): string {
+  return [...(turn.pendingInputIds ?? [turn.userMessageId])].sort().join("\u0000");
+}
+
+function codexPendingTurnRecoveryRank(turn: CodexOutboundTurn): number {
+  const targetRank = turn.turnTarget === "current" ? 40 : turn.turnTarget === "queued" ? 20 : 0;
+  const statusRank =
+    turn.status === "backend_acknowledged"
+      ? 8
+      : turn.status === "dispatched"
+        ? 6
+        : turn.status === "queued"
+          ? 4
+          : turn.status === "blocked_broken_session"
+            ? 2
+            : 0;
+  const turnIdRank = turn.turnId ? 1 : 0;
+  return targetRank + statusRank + turnIdRank;
+}
+
+function mergeCodexPendingTurnRecoveryState(keeper: CodexOutboundTurn, duplicate: CodexOutboundTurn): void {
+  keeper.dispatchCount = Math.max(keeper.dispatchCount, duplicate.dispatchCount);
+  keeper.createdAt = Math.min(keeper.createdAt, duplicate.createdAt);
+  keeper.updatedAt = Math.max(keeper.updatedAt, duplicate.updatedAt);
+  keeper.historyIndex = keeper.historyIndex >= 0 ? keeper.historyIndex : duplicate.historyIndex;
+  keeper.acknowledgedAt = keeper.acknowledgedAt ?? duplicate.acknowledgedAt;
+  keeper.disconnectedAt = keeper.disconnectedAt ?? duplicate.disconnectedAt;
+  keeper.resumeConfirmedAt = keeper.resumeConfirmedAt ?? duplicate.resumeConfirmedAt;
+  keeper.turnId = keeper.turnId ?? duplicate.turnId;
+  keeper.lastError = keeper.lastError ?? duplicate.lastError;
+}
+
+export function reconcileDuplicateCodexPendingTurns(
+  session: CodexRecoveryOrchestratorSessionLike,
+  reason: string,
+  deps: Pick<CodexRecoveryOrchestratorDeps, "persistSession">,
+): number {
+  const groups = new Map<string, CodexOutboundTurn[]>();
+  for (const turn of session.pendingCodexTurns) {
+    if (turn.status === "completed") continue;
+    const key = codexPendingInputGroupKey(turn);
+    if (!key) continue;
+    const group = groups.get(key);
+    if (group) {
+      group.push(turn);
+    } else {
+      groups.set(key, [turn]);
+    }
+  }
+
+  const duplicates = new Set<CodexOutboundTurn>();
+  for (const group of groups.values()) {
+    if (group.length < 2) continue;
+    let keeper = group[0]!;
+    for (const candidate of group.slice(1)) {
+      if (codexPendingTurnRecoveryRank(candidate) > codexPendingTurnRecoveryRank(keeper)) {
+        keeper = candidate;
+      }
+    }
+    for (const duplicate of group) {
+      if (duplicate === keeper) continue;
+      mergeCodexPendingTurnRecoveryState(keeper, duplicate);
+      duplicates.add(duplicate);
+    }
+  }
+
+  if (duplicates.size === 0) return 0;
+  session.pendingCodexTurns = session.pendingCodexTurns.filter((turn) => !duplicates.has(turn));
+  console.warn(
+    `[ws-bridge] Collapsed ${duplicates.size} duplicate Codex pending turn(s) for session ${sessionTag(session.id)} (${reason})`,
+  );
+  deps.persistSession(session);
+  return duplicates.size;
+}
+
 export function pokeStaleCodexPendingDelivery(
   session: CodexRecoveryOrchestratorSessionLike,
   reason: string,
@@ -832,6 +907,7 @@ export function registerCodexAdapterRecoveryLifecycle(
     }
     deps.setBackendState(session, "connected", null);
     clearCodexInitRecoveryState(session);
+    reconcileDuplicateCodexPendingTurns(session, "session_meta", deps);
     retryNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", deps);
     clearStaleCodexCompactionState(session, "session_meta_stale_compaction", deps);
     if (meta.model) {
@@ -940,6 +1016,8 @@ export function registerCodexAdapterRecoveryLifecycle(
   adapter.onTurnSteerFailed((pendingInputIds: string[]) => {
     if (session.codexAdapter !== adapter) return;
     deps.setPendingCodexInputsCancelable(session, pendingInputIds, true);
+    reconcileDuplicateCodexPendingTurns(session, "codex_turn_steer_failed", deps);
+    retryNonDrainableCodexHeadTurn(session, "codex_turn_steer_failed_stale_ack_head", deps);
     deps.rebuildQueuedCodexPendingStartBatch(session);
     deps.dispatchQueuedCodexTurns(session, "codex_turn_steer_failed");
   });
@@ -1721,6 +1799,10 @@ export function retryPendingCodexTurn(
   deps: CodexRecoveryOrchestratorDeps,
 ): void {
   const releasedHeadQueuedTurn = pending.turnTarget === "queued";
+  const restartRunningGuard = session.isGenerating && pending.turnTarget !== "queued";
+  if (restartRunningGuard) {
+    deps.setGenerating(session, false, "codex_retry_pending_turn_restart");
+  }
   pending.status = session.state.backend_state === "broken" ? "blocked_broken_session" : "queued";
   pending.updatedAt = Date.now();
   pending.acknowledgedAt = null;
@@ -1731,6 +1813,14 @@ export function retryPendingCodexTurn(
   pending.resumeConfirmedAt = null;
   reconcileRecoveredQueuedTurnLifecycle(session, "codex_retry_pending_turn", deps, { releasedHeadQueuedTurn });
   deps.dispatchQueuedCodexTurns(session, "codex_retry_pending_turn");
+  const pendingAfterDispatch: CodexOutboundTurn = pending;
+  if (pendingAfterDispatch.status === "dispatched" && !session.isGenerating) {
+    const target = deps.markRunningFromUserDispatch(session, "codex_retry_pending_turn");
+    pendingAfterDispatch.turnTarget = target;
+    if (pendingAfterDispatch.historyIndex >= 0) {
+      deps.trackUserMessageForTurn(session, pendingAfterDispatch.historyIndex, target);
+    }
+  }
   deps.persistSession(session);
 }
 export function retryNonDrainableCodexHeadTurn(
