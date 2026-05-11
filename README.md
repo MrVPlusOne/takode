@@ -4,13 +4,13 @@
 
 <h1 align="center">Takode</h1>
 <p align="center"><strong>Orchestrate Claude Code and Codex agents from one local control room.</strong></p>
-<p align="center">A leader agent can turn requests into quests, coordinate workers and reviewers, and keep every Quest Journey visible while you stay in control. When you just want one coding session, Takode is still a cleaner local UI for Claude Code or Codex.</p>
+<p align="center">A leader agent can turn requests into quests, coordinate workers and reviewers, and keep every Quest Journey visible while you stay in control. Direct Claude Code and Codex sessions still have a great home here; orchestration is there when the work gets bigger.</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" /></a>
 </p>
 
-Takode is built for real local software work:
+Takode helps local agent work stay clear, coordinated, and easy to revisit:
 
 - **Leader-managed orchestration** across multiple workers, reviewers, quests, and phases
 - **Visible Quest Journeys** so task structure, ownership, review, checkpoints, and handoffs do not disappear into chat
@@ -24,14 +24,17 @@ The model provider behind Claude Code or Codex is still the external dependency.
 
 ## Orchestrate More Than One Agent
 
+Direct sessions are great for focused tasks. Bigger autonomous work can feel risky when the scope is only in a prompt, no reviewer checks the worker's output, parallel workers do not share context, and useful notes stay buried in chat.
+
 Takode's strongest workflow starts with a **leader session**. Give the leader a request, screenshot, bug report, or quest, and it can coordinate the rest of the work:
 
 1. Turn the request into one or more persistent quests
-2. Plan a Quest Journey with the right phases for the risk
+2. Sketch the scope and success criteria before work starts
 3. Dispatch workers, usually in isolated git worktrees
 4. Route code review, outcome review, or mental simulation to reviewer sessions
-5. Stop for user checkpoints when the direction needs your decision
-6. Port accepted tracked changes and close durable state in final Memory
+5. Share quest context across related workers
+6. Stop for user checkpoints when the direction needs your decision
+7. Port accepted tracked changes and close durable state in final Memory
 
 The Work Board and quest tabs keep that orchestration visible: what is active, who owns it, what phase it is in, what is waiting, and what has already completed. You do not have to reconstruct progress from a long terminal transcript.
 
@@ -45,12 +48,13 @@ When work should survive beyond one chat turn, Takode tracks it as a **quest**: 
 
 Quests are not just issue rows. They are the units that leader agents orchestrate.
 
-Each Quest Journey gives the task meta-structure:
+Each Quest Journey gives the task just enough structure to make more autonomous agentic work easier to trust:
 
 - **Who does what**: leader, worker, reviewer, or user checkpoint
-- **What to focus on**: alignment, exploration, implementation, review, execution, outcome review, porting, or Memory closure
+- **What good looks like**: alignment, scope, success criteria, and the phase responsibilities for the work
 - **What evidence matters**: code review findings, browser evidence, external results, user decisions, synced changes, or durable-state updates
-- **When to challenge the work**: reviewer phases can provide adversarial review of correctness, missing tests, maintainability, UX evidence, or workflow risks before acceptance
+- **When to challenge the work**: reviewer phases can check correctness, missing tests, maintainability, UX evidence, or workflow risks before acceptance
+- **Where the story lives**: phase notes, TLDRs, reviews, and debriefs stay attached to the quest instead of disappearing into raw session history
 
 For tracked code changes, the normal path is:
 
@@ -74,7 +78,7 @@ Completed quests become permanent project memory in the practical sense: durable
 
 You do not need a leader workflow to benefit from Takode.
 
-If you already use Claude Code or Codex directly, Takode gives you a better surface for the same local work:
+For focused one-session work, Takode still gives you a better surface for the same local tools:
 
 - grouped, readable tool calls in chat
 - permission controls and visible approval paths
@@ -175,7 +179,7 @@ clone or after dependency changes, run `bun install --cwd web` first.
 
 ## Name
 
-Takode is named after the creator's cat, Tako. The app keeps that origin as a small product detail by assigning cat portraits to leader sessions.
+Takode is named after my cat Tako. The cat portraits for leader sessions are a small nod to him, and a reminder that orchestration can still have a bit of personality.
 
 <p align="center">
   <img src="docs/screenshots/readme-tako-portraits.jpeg" alt="Takode leader portrait picker showing cat portraits inspired by Tako" width="42%" />
