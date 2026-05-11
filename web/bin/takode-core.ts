@@ -483,6 +483,7 @@ export type TakodeSessionInfo = {
   branch?: string;
   actualBranch?: string;
   envSlug?: string;
+  memorySessionSpaceSlug?: string;
   cronJobId?: string;
   cronJobName?: string;
   containerId?: string;
@@ -609,6 +610,7 @@ export function buildSessionInfoJson(
     branch: session.branch ?? null,
     actualBranch: session.actualBranch ?? null,
     envSlug: session.envSlug ?? null,
+    memorySessionSpaceSlug: session.memorySessionSpaceSlug ?? null,
     cronJobId: session.cronJobId ?? null,
     cronJobName: session.cronJobName ?? null,
     containerId: session.containerId ?? null,

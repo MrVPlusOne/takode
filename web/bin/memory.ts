@@ -9,7 +9,7 @@ import {
   type MemoryKind,
 } from "../server/workstream-memory-types.js";
 
-const VALUE_OPTIONS = new Set(["--root", "--server-id", "--server-slug"]);
+const VALUE_OPTIONS = new Set(["--root", "--server-id", "--server-slug", "--session-space"]);
 const args = process.argv.slice(2);
 const commandIndex = findCommandIndex(args);
 const command = commandIndex === -1 ? undefined : args[commandIndex];
@@ -90,9 +90,11 @@ Commands:
 
 Options:
   --root PATH       Override the memory repo root for this command.
-  --server-slug SLUG
-                    Override the server slug used for default repo discovery.
-  --json            Emit exact machine-readable fields. Default output is concise for agents.
+	  --server-slug SLUG
+	                    Override the server slug used for default repo discovery.
+	  --session-space SLUG
+	                    Override the session-space slug used for default repo discovery.
+	  --json            Emit exact machine-readable fields. Default output is concise for agents.
 
 Default repo:
   ~/.companion/memory/<serverSlug>/<sessionSpace>
@@ -108,9 +110,10 @@ Frontmatter schema:
   id and kind are derived from the repo-relative file path.
 
 Common examples:
-  memory repo path
-  memory --server-slug dev repo path
-  memory catalog show
+	  memory repo path
+	  memory --server-slug dev repo path
+	  memory --server-slug dev --session-space Other repo path
+	  memory catalog show
   memory catalog diff
   # If catalog/context makes a memory match plausible, search with concrete terms.
   rg "exact task terms" "$(memory repo path)"
@@ -130,6 +133,7 @@ function repoOptions() {
     root: option("root"),
     serverId: option("server-id"),
     serverSlug: option("server-slug"),
+    sessionSpaceSlug: option("session-space"),
   };
 }
 

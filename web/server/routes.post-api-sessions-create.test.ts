@@ -215,6 +215,7 @@ function createMockLauncher() {
     removeSession: vi.fn(),
     getOrchestratorGuardrails: vi.fn(() => "# Takode — Cross-Session Orchestration\n..."),
     getPort: vi.fn(() => 3456),
+    getMemorySessionSpaceSlug: vi.fn(() => "Takode"),
     verifySessionAuthToken: vi.fn(() => true),
     herdSessions: vi.fn(() => ({ herded: [], notFound: [], conflicts: [], reassigned: [], leaders: [] })),
     unherdSession: vi.fn(() => false),
@@ -1211,6 +1212,89 @@ describe("POST /api/sessions/create", () => {
     // so reviewerOf should be on the returned JSON
     const json = await res.json();
     expect(json.reviewerOf).toBe(42);
+  });
+
+  it("passes an authoritative memory session-space slug into launch options and env", async () => {
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/test",
+        memorySessionSpaceSlug: "Other",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memorySessionSpaceSlug: "Other",
+        env: expect.objectContaining({
+          COMPANION_MEMORY_SPACE_SLUG: "Other",
+        }),
+      }),
+    );
+  });
+
+  it("uses the server memory session-space default for create when the request omits an explicit slug", async () => {
+    launcher.getMemorySessionSpaceSlug.mockReturnValue("Other");
+    vi.mocked(envManager.getEnv).mockResolvedValue({
+      name: "Stale Memory Space",
+      slug: "stale-memory-space",
+      variables: { COMPANION_MEMORY_SPACE_SLUG: "Takode", API_KEY: "secret123" },
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cwd: "/test", envSlug: "stale-memory-space" }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memorySessionSpaceSlug: "Other",
+        env: expect.objectContaining({
+          API_KEY: "secret123",
+          COMPANION_MEMORY_SPACE_SLUG: "Other",
+        }),
+      }),
+    );
+  });
+
+  it("uses the server memory session-space default for resume when the request omits an explicit slug", async () => {
+    launcher.getMemorySessionSpaceSlug.mockReturnValue("Other");
+    vi.mocked(envManager.getEnv).mockResolvedValue({
+      name: "Stale Memory Space",
+      slug: "stale-memory-space",
+      variables: { COMPANION_MEMORY_SPACE_SLUG: "Takode", API_KEY: "secret123" },
+      createdAt: 1000,
+      updatedAt: 1000,
+    });
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        backend: "claude",
+        cwd: "/test",
+        envSlug: "stale-memory-space",
+        resumeCliSessionId: "cli-resume-1",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        resumeCliSessionId: "cli-resume-1",
+        memorySessionSpaceSlug: "Other",
+        env: expect.objectContaining({
+          API_KEY: "secret123",
+          COMPANION_MEMORY_SPACE_SLUG: "Other",
+        }),
+      }),
+    );
   });
 
   it("rejects creation when an active reviewer already exists for the same parent (409)", async () => {

@@ -160,6 +160,30 @@ describe("session replacement routes", () => {
     );
   });
 
+  it("inherits the replaced worker memory session-space when the create payload omits it", async () => {
+    const { app, deps } = makeApp({ memorySessionSpaceSlug: "Other" });
+
+    const res = await app.request("/sessions/worker-1/replace-worktree-worker", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        create: {
+          backend: "claude",
+          cwd: "/repo",
+          useWorktree: true,
+        },
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(deps.createSessionFromBody).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memorySessionSpaceSlug: "Other",
+      }),
+      expect.any(Object),
+    );
+  });
+
   it("refuses dirty worktrees before archiving", async () => {
     vi.mocked(gitUtils.isWorktreeDirtyAsync).mockResolvedValue(true);
     const { app, deps } = makeApp();

@@ -559,6 +559,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
     name?: string | null;
     permissionMode?: string;
     backendType?: string;
+    memorySessionSpaceSlug?: string;
   };
   const leaderSessionLabel = leader.name
     ? `#${leader.sessionNum ?? "?"} ${leader.name}`
@@ -593,6 +594,9 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
   // --reviewer <session-number>: create a reviewer session tied to a parent worker
   const reviewerRaw = flags.reviewer;
   let reviewerOfNum: number | undefined;
+  let reviewerParentSession:
+    | { memorySessionSpaceSlug?: string; cwd?: string; sessionNum?: number; archived?: boolean }
+    | undefined;
   if (reviewerRaw !== undefined) {
     const parsed = Number(String(reviewerRaw).replace(/^#/, ""));
     if (!Number.isInteger(parsed) || parsed < 0) {
@@ -648,6 +652,7 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
         name?: string;
         sessionNum?: number;
         cwd?: string;
+        memorySessionSpaceSlug?: string;
       }>;
       const existingReviewer = allSessions.find((s) => !s.archived && s.reviewerOf === reviewerOfNum);
       if (existingReviewer) {
@@ -663,9 +668,9 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
 
       // Inherit the parent worker's cwd so the reviewer lands in the same
       // sidebar project group. repoRoot is inferred by the server from cwd.
-      const parentSession = allSessions.find((s) => s.sessionNum === reviewerOfNum && !s.archived);
-      if (parentSession?.cwd?.trim() && typeof flags.cwd !== "string") {
-        cwd = parentSession.cwd;
+      reviewerParentSession = allSessions.find((s) => s.sessionNum === reviewerOfNum && !s.archived);
+      if (reviewerParentSession?.cwd?.trim() && typeof flags.cwd !== "string") {
+        cwd = reviewerParentSession.cwd;
       }
     } catch (e) {
       // Only re-throw our own errors (from err()); skip API fetch failures
@@ -684,6 +689,10 @@ export async function handleSpawn(base: string, args: string[]): Promise<void> {
       useWorktree: reviewerOfNum !== undefined ? false : useWorktree,
       createdBy: leaderSessionId,
     };
+    const memorySessionSpaceSlug = reviewerParentSession?.memorySessionSpaceSlug ?? leader.memorySessionSpaceSlug;
+    if (memorySessionSpaceSlug) {
+      createPayload.memorySessionSpaceSlug = memorySessionSpaceSlug;
+    }
 
     // Reviewer sessions: auto-set name and suppress auto-naming
     if (reviewerOfNum !== undefined) {

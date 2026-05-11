@@ -461,7 +461,68 @@ describe("relaunch", () => {
     expect(relaunchCmd).toContain("CLAUDE_CODE_OAUTH_TOKEN=tok-test");
     expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_SERVER_ID=test-server-id"))).toBe(true);
     expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_SERVER_SLUG=local"))).toBe(true);
+    expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_MEMORY_SPACE_SLUG=Takode"))).toBe(true);
     expect(relaunchCmd.some((arg: string) => arg.startsWith("COMPANION_AUTH_TOKEN="))).toBe(true);
+  });
+
+  it("preserves the persisted memory session-space slug during relaunch", async () => {
+    let resolveFirst: (code: number) => void;
+    const firstProc = {
+      pid: 12345,
+      kill: vi.fn(() => {
+        resolveFirst(0);
+      }),
+      exited: new Promise<number>((r) => {
+        resolveFirst = r;
+      }),
+      stdout: null,
+      stderr: null,
+    };
+    mockSpawn.mockReturnValueOnce(firstProc);
+
+    await launcher.launch({
+      cwd: "/tmp/project",
+      containerId: "abc123def456",
+      containerName: "companion-test",
+      memorySessionSpaceSlug: "Other",
+    });
+
+    const secondProc = createMockProc(54321);
+    mockSpawn.mockReturnValueOnce(secondProc);
+
+    const result = await launcher.relaunch("test-session-id");
+    expect(result).toEqual({ ok: true });
+
+    const [relaunchCmd] = mockSpawn.mock.calls[1];
+    expect(relaunchCmd).toContain("COMPANION_MEMORY_SPACE_SLUG=Other");
+    expect(launcher.getSession("test-session-id")?.memorySessionSpaceSlug).toBe("Other");
+  });
+
+  it("keeps the persisted memory session-space authoritative over env profile relaunch vars", async () => {
+    store.saveLauncher([
+      {
+        sessionId: "profile-relaunch",
+        state: "exited" as const,
+        backendType: "claude" as const,
+        cwd: "/tmp/project",
+        createdAt: Date.now(),
+        envSlug: "profile-with-stale-space",
+        memorySessionSpaceSlug: "PersistedSpace",
+      },
+    ]);
+    await store.flushAll();
+    launcher.setEnvResolver(async () => ({
+      COMPANION_MEMORY_SPACE_SLUG: "StaleProfileSpace",
+      PROFILE_ONLY: "kept",
+    }));
+    await launcher.restoreFromDisk();
+
+    const result = await launcher.relaunch("profile-relaunch");
+
+    expect(result).toEqual({ ok: true });
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(options.env.PROFILE_ONLY).toBe("kept");
+    expect(options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("PersistedSpace");
   });
 
   it("returns error for unknown session", async () => {

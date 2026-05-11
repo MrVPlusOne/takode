@@ -204,16 +204,58 @@ source:
     };
 
     // This locks down the compaction-recovery-friendly form shown in help.
-    const preCommand = await runMemory(["--server-slug", "dev", "repo", "path"], scopedEnv);
+    const preCommand = await runMemory(["--server-slug", "dev", "--session-space", "Other", "repo", "path"], scopedEnv);
     expect(preCommand.status).toBe(0);
 
     // This preserves the original post-command placement that already worked.
-    const postCommand = await runMemory(["repo", "path", "--server-slug", "dev"], scopedEnv);
+    const postCommand = await runMemory(
+      ["repo", "path", "--server-slug", "dev", "--session-space", "Other"],
+      scopedEnv,
+    );
     expect(postCommand.status).toBe(0);
 
-    const expectedRoot = join(tempDir, ".companion", "memory", "dev", "Takode");
+    const expectedRoot = join(tempDir, ".companion", "memory", "dev", "Other");
     expect(preCommand.stdout.trim()).toBe(expectedRoot);
     expect(postCommand.stdout.trim()).toBe(expectedRoot);
+  });
+
+  it("does not move or catalog another session space when the default space changes", async () => {
+    const scopedEnv = {
+      HOME: tempDir,
+      COMPANION_SERVER_ID: "same-server",
+      COMPANION_SERVER_SLUG: "prod",
+      COMPANION_PORT: "",
+      COMPANION_MEMORY_DIR: "",
+    };
+    const takodeRoot = join(tempDir, ".companion", "memory", "prod", "Takode");
+    const otherRoot = join(tempDir, ".companion", "memory", "prod", "Other");
+
+    const first = await runMemory(["catalog", "--json"], { ...scopedEnv, COMPANION_MEMORY_SPACE_SLUG: "Takode" });
+    expect(first.status).toBe(0);
+    await mkdir(join(takodeRoot, "current"), { recursive: true });
+    await writeFile(
+      join(takodeRoot, "current", "takode.md"),
+      `---
+description: Belongs to the Takode session space.
+source:
+  - q-1331
+---
+
+Takode-owned memory.
+`,
+      "utf-8",
+    );
+
+    const other = await runMemory(["catalog", "--json"], { ...scopedEnv, COMPANION_MEMORY_SPACE_SLUG: "Other" });
+
+    expect(other.status).toBe(0);
+    const otherJson = JSON.parse(other.stdout);
+    expect(otherJson.repo).toEqual(
+      expect.objectContaining({ root: otherRoot, sessionSpaceSlug: "Other", serverId: "same-server" }),
+    );
+    expect(otherJson.entries).toEqual([]);
+    await expect(readFile(join(takodeRoot, "current", "takode.md"), "utf-8")).resolves.toContain("Takode-owned memory");
+    await expect(readFile(join(otherRoot, "current", "takode.md"), "utf-8")).rejects.toThrow();
   });
 
   it("lints authored files and exits non-zero for schema errors", async () => {

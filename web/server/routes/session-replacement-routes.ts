@@ -44,6 +44,7 @@ interface ReplaceableWorker {
   repoRoot: string;
   branch: string;
   actualBranch: string;
+  memorySessionSpaceSlug?: string;
 }
 
 interface ReplacementTarget {
@@ -185,6 +186,7 @@ async function validateReplacementTarget(
       repoRoot: worker.repoRoot,
       branch: worker.branch,
       actualBranch: worker.actualBranch,
+      memorySessionSpaceSlug: worker.memorySessionSpaceSlug,
     },
     baseBranch: worker.branch,
     baseSha,
@@ -273,6 +275,10 @@ export function registerSessionReplacementRoutes(api: Hono, deps: SessionReplace
         cwd: worker.cwd,
         useWorktree: false,
         createdBy: auth.callerId,
+        memorySessionSpaceSlug:
+          typeof createBody.memorySessionSpaceSlug === "string"
+            ? createBody.memorySessionSpaceSlug
+            : worker.memorySessionSpaceSlug,
       };
       delete replacementBody.branch;
 

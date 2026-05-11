@@ -34,6 +34,7 @@ import { sessionTag } from "./session-tag.js";
 import type { HerdChangeEvent, HerdSessionsResponse } from "../shared/herd-types.js";
 import { getSessionAuthDir, getSessionAuthPath } from "../shared/session-auth.js";
 import type { SdkSessionInfo } from "./session-info.js";
+import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
 
 export type { SdkSessionInfo } from "./session-info.js";
 
@@ -170,6 +171,8 @@ export interface LaunchOptions {
   pluginDirs?: string[];
   /** Extra instructions appended to the system prompt (e.g., orchestrator guardrails). */
   extraInstructions?: string;
+  /** Authoritative Takode memory/session-space slug for default memory repo resolution. */
+  memorySessionSpaceSlug?: string;
 }
 
 /**
@@ -191,6 +194,7 @@ export class CliLauncher {
   private port: number;
   private serverId: string;
   private serverSlug: string;
+  private memorySessionSpaceSlug: string;
   private store: SessionStore | null = null;
   private recorder: RecorderManager | null = null;
   private onCodexAdapter: ((sessionId: string, adapter: CodexAdapter) => void) | null = null;
@@ -220,15 +224,23 @@ export class CliLauncher {
   /** Integer session number → UUID */
   private sessionByNum = new Map<number, string>();
 
-  constructor(port: number, options?: { serverId?: string; serverSlug?: string }) {
+  constructor(port: number, options?: { serverId?: string; serverSlug?: string; memorySessionSpaceSlug?: string }) {
     this.port = port;
     this.serverId = options?.serverId?.trim() || "unknown-server";
     this.serverSlug = options?.serverSlug?.trim() || "local";
+    this.memorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(
+      options?.memorySessionSpaceSlug ?? process.env[COMPANION_MEMORY_SPACE_SLUG_ENV],
+    );
   }
 
   /** Get the server port number. */
   getPort(): number {
     return this.port;
+  }
+
+  /** Get the authoritative default memory/session-space slug for new sessions. */
+  getMemorySessionSpaceSlug(): string {
+    return this.memorySessionSpaceSlug;
   }
 
   setServerSlug(serverSlug: string): void {
@@ -391,6 +403,21 @@ export class CliLauncher {
     return info.sessionAuthToken;
   }
 
+  private resolveLaunchMemorySessionSpaceSlug(options: LaunchOptions): string {
+    return normalizeMemorySessionSpaceSlug(options.memorySessionSpaceSlug ?? this.memorySessionSpaceSlug);
+  }
+
+  private ensureMemorySessionSpaceSlug(info: SdkSessionInfo): string {
+    const memorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(
+      info.memorySessionSpaceSlug ?? this.memorySessionSpaceSlug,
+    );
+    if (info.memorySessionSpaceSlug !== memorySessionSpaceSlug) {
+      info.memorySessionSpaceSlug = memorySessionSpaceSlug;
+      this.persistState();
+    }
+    return memorySessionSpaceSlug;
+  }
+
   /** Get the auth token for a session, generating one for legacy sessions if missing. */
   getSessionAuthToken(sessionId: string): string | undefined {
     const info = this.sessions.get(sessionId);
@@ -430,8 +457,16 @@ export class CliLauncher {
     if (!data || !Array.isArray(data)) return 0;
 
     let recovered = 0;
+    let memorySessionSpaceBackfilled = false;
     for (const info of data) {
       if (this.sessions.has(info.sessionId)) continue;
+      const memorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(
+        info.memorySessionSpaceSlug ?? this.memorySessionSpaceSlug,
+      );
+      if (info.memorySessionSpaceSlug !== memorySessionSpaceSlug) {
+        info.memorySessionSpaceSlug = memorySessionSpaceSlug;
+        memorySessionSpaceBackfilled = true;
+      }
 
       // Migrate legacy herdedBy array → string (pre-single-leader refactor)
       if (Array.isArray(info.herdedBy)) {
@@ -490,7 +525,7 @@ export class CliLauncher {
     for (const info of sorted) {
       info.sessionNum = this.assignSessionNum(info.sessionId);
     }
-    if (sorted.length > 0) {
+    if (sorted.length > 0 || memorySessionSpaceBackfilled) {
       // Persist the newly assigned numbers so they're stable on next restart
       this.persistState();
     }
@@ -548,6 +583,7 @@ export class CliLauncher {
     const sessionId = randomUUID();
     const cwd = options.cwd || process.cwd();
     const backendType = options.backendType || "claude";
+    const memorySessionSpaceSlug = this.resolveLaunchMemorySessionSpaceSlug(options);
 
     const info: SdkSessionInfo = {
       sessionId,
@@ -560,6 +596,7 @@ export class CliLauncher {
       createdAt: Date.now(),
       lastActivityAt: Date.now(),
       backendType,
+      memorySessionSpaceSlug,
     };
 
     if (backendType === "codex") {
@@ -624,6 +661,7 @@ export class CliLauncher {
       ...options.env,
       COMPANION_SERVER_ID: this.serverId,
       COMPANION_SERVER_SLUG: this.serverSlug,
+      [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,
       COMPANION_SESSION_ID: sessionId,
       COMPANION_SESSION_NUMBER: String(info.sessionNum),
       COMPANION_AUTH_TOKEN: sessionAuthToken,
@@ -760,10 +798,19 @@ export class CliLauncher {
 
     let runtimeEnv = this.sessionEnvs.get(sessionId);
     const sessionAuthToken = this.ensureSessionAuthToken(info);
+    const memorySessionSpaceSlug = this.ensureMemorySessionSpaceSlug(info);
 
-    // Ensure runtime env always carries the auth token (covers legacy in-memory maps).
-    if (runtimeEnv && runtimeEnv.COMPANION_AUTH_TOKEN !== sessionAuthToken) {
-      runtimeEnv = { ...runtimeEnv, COMPANION_AUTH_TOKEN: sessionAuthToken };
+    // Ensure runtime env always carries authoritative identity/auth vars (covers legacy in-memory maps).
+    if (
+      runtimeEnv &&
+      (runtimeEnv.COMPANION_AUTH_TOKEN !== sessionAuthToken ||
+        runtimeEnv[COMPANION_MEMORY_SPACE_SLUG_ENV] !== memorySessionSpaceSlug)
+    ) {
+      runtimeEnv = {
+        ...runtimeEnv,
+        COMPANION_AUTH_TOKEN: sessionAuthToken,
+        [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,
+      };
       this.sessionEnvs.set(sessionId, runtimeEnv);
     }
 
@@ -775,6 +822,7 @@ export class CliLauncher {
       const reconstructed: Record<string, string> = {
         COMPANION_SERVER_ID: this.serverId,
         COMPANION_SERVER_SLUG: this.serverSlug,
+        [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,
         COMPANION_SESSION_ID: sessionId,
         COMPANION_SESSION_NUMBER: sessionNum !== undefined ? String(sessionNum) : "",
         COMPANION_AUTH_TOKEN: sessionAuthToken,
@@ -788,6 +836,7 @@ export class CliLauncher {
         const profileVars = await this.envResolver(info.envSlug);
         if (profileVars) Object.assign(reconstructed, profileVars);
       }
+      reconstructed[COMPANION_MEMORY_SPACE_SLUG_ENV] = memorySessionSpaceSlug;
       this.sessionEnvs.set(sessionId, reconstructed);
       runtimeEnv = reconstructed;
     }

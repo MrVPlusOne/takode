@@ -59,6 +59,7 @@ import { registerSessionNotificationContextRoute } from "./session-notification-
 import { chooseRandomLeaderProfilePortraitId } from "../leader-profile-assignments.js";
 import { isSessionPaused } from "../session-pause.js";
 import { LEADER_KICKOFF_SOURCE_ID, LEADER_KICKOFF_SOURCE_LABEL } from "../../shared/injected-event-message.js";
+import { COMPANION_MEMORY_SPACE_SLUG_ENV, normalizeMemorySessionSpaceSlug } from "../memory-session-space.js";
 
 export function createSessionsRoutes(ctx: RouteContext) {
   const api = new Hono();
@@ -179,6 +180,17 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (typeof value !== "string") return undefined;
     const trimmed = value.trim();
     return trimmed || undefined;
+  };
+
+  const resolveMemorySessionSpaceSlugForCreate = (body: any): string => {
+    if (body.memorySessionSpaceSlug !== undefined && typeof body.memorySessionSpaceSlug !== "string") {
+      throwPreparationError("memorySessionSpaceSlug must be a string", 400, "resolving_env");
+    }
+    return normalizeMemorySessionSpaceSlug(
+      typeof body.memorySessionSpaceSlug === "string"
+        ? body.memorySessionSpaceSlug
+        : launcher.getMemorySessionSpaceSlug(),
+    );
   };
 
   const normalizeDurableTreeGroupId = (value: unknown): string => normalizeTreeGroupId(value) || "default";
@@ -393,7 +405,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
         const companionEnv = await envManager.getEnv(body.envSlug);
         if (companionEnv) envVars = { ...companionEnv.variables, ...body.env };
       }
-      envVars = { ...envVars, COMPANION_PORT: String(launcher.getPort()) };
+      const memorySessionSpaceSlug = resolveMemorySessionSpaceSlugForCreate(body);
+      envVars = {
+        ...envVars,
+        COMPANION_PORT: String(launcher.getPort()),
+        [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,
+      };
       if (isOrchestrator) {
         envVars.TAKODE_ROLE = "orchestrator";
         envVars.TAKODE_API_PORT = String(launcher.getPort());
@@ -416,6 +433,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
         resumeCliSessionId: body.resumeCliSessionId,
         permissionMode: initialModeState.permissionMode,
         askPermission: initialModeState.askPermission,
+        memorySessionSpaceSlug,
       };
       return {
         launchOptions,
@@ -457,7 +475,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
       }
     }
 
-    envVars = { ...envVars, COMPANION_PORT: String(launcher.getPort()) };
+    const memorySessionSpaceSlug = resolveMemorySessionSpaceSlugForCreate(body);
+    envVars = {
+      ...envVars,
+      COMPANION_PORT: String(launcher.getPort()),
+      [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,
+    };
     if (isOrchestrator) {
       envVars.TAKODE_ROLE = "orchestrator";
       envVars.TAKODE_API_PORT = String(launcher.getPort());
@@ -765,6 +788,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       containerImage,
       worktreeInfo,
       extraInstructions: orchestratorGuardrails,
+      memorySessionSpaceSlug,
     };
 
     return {

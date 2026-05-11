@@ -469,11 +469,31 @@ describe("launch", () => {
     const [, options] = mockSpawn.mock.calls[0];
     expect(options.env.COMPANION_SERVER_ID).toBe("test-server-id");
     expect(options.env.COMPANION_SERVER_SLUG).toBe("local");
+    expect(options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("Takode");
     expect(options.env.COMPANION_SESSION_ID).toBe("test-session-id");
     expect(options.env.COMPANION_SESSION_NUMBER).toBeDefined();
     expect(typeof options.env.COMPANION_AUTH_TOKEN).toBe("string");
     expect(options.env.COMPANION_AUTH_TOKEN.length).toBeGreaterThan(0);
     expect(launcher.verifySessionAuthToken("test-session-id", options.env.COMPANION_AUTH_TOKEN)).toBe(true);
+  });
+
+  it("keeps stale memory env vars from overriding the launcher default", async () => {
+    const info = await launcher.launch({
+      cwd: "/tmp/project",
+      env: { COMPANION_MEMORY_SPACE_SLUG: "StaleProfileSpace" },
+    });
+
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(info.memorySessionSpaceSlug).toBe("Takode");
+    expect(options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("Takode");
+  });
+
+  it("persists and injects an explicit memory session-space slug", async () => {
+    const info = await launcher.launch({ cwd: "/tmp/project", memorySessionSpaceSlug: "Other" });
+
+    const [, options] = mockSpawn.mock.calls[0];
+    expect(info.memorySessionSpaceSlug).toBe("Other");
+    expect(options.env.COMPANION_MEMORY_SPACE_SLUG).toBe("Other");
   });
 
   // spawnCodex is async (prepareCodexHome uses async fs), so wait for the
@@ -596,6 +616,8 @@ describe("launch", () => {
     const [cmdAndArgs] = mockSpawn.mock.calls[0];
     // With bash -lc wrapping, CLI args are in the last element as a single string
     const bashCmd = cmdAndArgs[cmdAndArgs.length - 1];
+    expect(cmdAndArgs).toContain("-e");
+    expect(cmdAndArgs).toContain("COMPANION_MEMORY_SPACE_SLUG=Takode");
     expect(bashCmd).toContain("--permission-mode");
     expect(bashCmd).toContain("acceptEdits");
     expect(bashCmd).not.toContain("bypassPermissions");

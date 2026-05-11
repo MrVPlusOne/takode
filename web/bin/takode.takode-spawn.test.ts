@@ -149,6 +149,109 @@ describe("takode spawn", () => {
     expect(result.stdout).toContain("worktree=yes");
   });
 
+  it("inherits memory session-space from the leader for workers and from the parent for reviewers", async () => {
+    const createBodies: JsonObject[] = [];
+    const created = [{ sessionId: "worker-space" }, { sessionId: "reviewer-space" }];
+    const server = createServer(async (req, res) => {
+      const method = req.method || "";
+      const url = req.url || "";
+
+      if (method === "GET" && url === "/api/takode/me") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ sessionId: "leader-space", isOrchestrator: true }));
+        return;
+      }
+      if (method === "GET" && url === "/api/sessions/leader-space") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: "leader-space",
+            permissionMode: "plan",
+            backendType: "claude",
+            memorySessionSpaceSlug: "LeaderSpace",
+          }),
+        );
+        return;
+      }
+      if (method === "GET" && url === "/api/takode/sessions") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify([
+            {
+              sessionId: "parent-worker",
+              sessionNum: 42,
+              archived: false,
+              cwd: "/repo/parent-worker",
+              memorySessionSpaceSlug: "ParentSpace",
+            },
+          ]),
+        );
+        return;
+      }
+      if (method === "POST" && url === "/api/sessions/create") {
+        createBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify(created.shift()));
+        return;
+      }
+      if (
+        method === "GET" &&
+        (url === "/api/sessions/worker-space/info" || url === "/api/sessions/reviewer-space/info")
+      ) {
+        const isReviewer = url.includes("reviewer-space");
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            sessionId: isReviewer ? "reviewer-space" : "worker-space",
+            sessionNum: isReviewer ? 52 : 51,
+            name: isReviewer ? "Reviewer Space" : "Worker Space",
+            state: "running",
+            backendType: "claude",
+            cwd: isReviewer ? "/repo/parent-worker" : "/tmp/worker-space",
+            createdAt: Date.now(),
+            cliConnected: true,
+            isGenerating: false,
+            isWorktree: !isReviewer,
+          }),
+        );
+        return;
+      }
+
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+    const env = {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-space",
+      COMPANION_AUTH_TOKEN: "auth-space",
+    };
+
+    const workerResult = await runTakode(["spawn", "--port", String(port), "--json"], env);
+    const reviewerResult = await runTakode(["spawn", "--port", String(port), "--reviewer", "42", "--json"], env);
+
+    server.close();
+
+    expect(workerResult.status).toBe(0);
+    expect(reviewerResult.status).toBe(0);
+    expect(createBodies[0]).toEqual(
+      expect.objectContaining({
+        memorySessionSpaceSlug: "LeaderSpace",
+      }),
+    );
+    expect(createBodies[1]).toEqual(
+      expect.objectContaining({
+        reviewerOf: 42,
+        cwd: "/repo/parent-worker",
+        useWorktree: false,
+        memorySessionSpaceSlug: "ParentSpace",
+      }),
+    );
+  });
+
   it("inherits bypass permission mode and sends initial message to each spawned session", async () => {
     const createBodies: JsonObject[] = [];
     const messageCalls: Array<{ id: string; body: JsonObject }> = [];

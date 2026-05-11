@@ -16,6 +16,7 @@ beforeEach(async () => {
   process.env.COMPANION_MEMORY_DIR = join(tempDir, "memory");
   process.env.COMPANION_SERVER_ID = "test-server";
   process.env.COMPANION_SERVER_SLUG = "test";
+  delete process.env.COMPANION_MEMORY_SPACE_SLUG;
   memoryStore = await import("./workstream-memory-store.js");
 });
 
@@ -23,6 +24,7 @@ afterEach(async () => {
   delete process.env.COMPANION_MEMORY_DIR;
   delete process.env.COMPANION_SERVER_ID;
   delete process.env.COMPANION_SERVER_SLUG;
+  delete process.env.COMPANION_MEMORY_SPACE_SLUG;
   if (originalHome === undefined) delete process.env.HOME;
   else process.env.HOME = originalHome;
   await rm(tempDir, { recursive: true, force: true });
@@ -131,7 +133,7 @@ Body.
     process.env.HOME = tempDir;
     const flatRoot = join(tempDir, ".companion", "memory", "test");
     const nestedRoot = join(flatRoot, "Takode");
-    const indexPath = join(tempDir, ".companion", "memory", ".servers", "test-server.json");
+    const indexPath = join(tempDir, ".companion", "memory", ".servers", "test-server", "Takode.json");
     await mkdir(join(flatRoot, "current"), { recursive: true });
     await mkdir(join(nestedRoot, "current"), { recursive: true });
     await writeFile(
@@ -194,12 +196,54 @@ Body text.
     await expect(readFile(join(oldRoot, "current", "rename.md"), "utf-8")).rejects.toThrow();
   });
 
+  it("does not migrate an indexed repo from another session space", async () => {
+    delete process.env.COMPANION_MEMORY_DIR;
+    process.env.HOME = tempDir;
+    process.env.COMPANION_SERVER_ID = "same-server";
+    process.env.COMPANION_SERVER_SLUG = "prod";
+    process.env.COMPANION_MEMORY_SPACE_SLUG = "Takode";
+    const takodeRoot = join(tempDir, ".companion", "memory", "prod", "Takode");
+    const otherRoot = join(tempDir, ".companion", "memory", "prod", "Other");
+
+    await memoryStore.ensureMemoryRepo();
+    await mkdir(join(takodeRoot, "current"), { recursive: true });
+    await writeFile(
+      join(takodeRoot, "current", "takode.md"),
+      `---
+description: Belongs to the Takode session space.
+source:
+  - q-1331
+---
+
+Takode-owned memory.
+`,
+      "utf-8",
+    );
+
+    process.env.COMPANION_MEMORY_SPACE_SLUG = "Other";
+    const otherRepo = await memoryStore.ensureMemoryRepo();
+
+    expect(otherRepo.root).toBe(otherRoot);
+    expect(otherRepo.sessionSpaceSlug).toBe("Other");
+    await expect(readFile(join(takodeRoot, "current", "takode.md"), "utf-8")).resolves.toContain("Takode-owned memory");
+    await expect(readFile(join(otherRoot, "current", "takode.md"), "utf-8")).rejects.toThrow();
+
+    const takodeIndex = JSON.parse(
+      await readFile(join(tempDir, ".companion", "memory", ".servers", "same-server", "Takode.json"), "utf-8"),
+    );
+    const otherIndex = JSON.parse(
+      await readFile(join(tempDir, ".companion", "memory", ".servers", "same-server", "Other.json"), "utf-8"),
+    );
+    expect(takodeIndex).toEqual(expect.objectContaining({ sessionSpaceSlug: "Takode", root: takodeRoot }));
+    expect(otherIndex).toEqual(expect.objectContaining({ sessionSpaceSlug: "Other", root: otherRoot }));
+  });
+
   it("rejects rename to a non-empty slug without rewriting the server index", async () => {
     delete process.env.COMPANION_MEMORY_DIR;
     process.env.HOME = tempDir;
     const oldRoot = join(tempDir, ".companion", "memory", "old-slug", "Takode");
     const collisionRoot = join(tempDir, ".companion", "memory", "new-slug", "Takode");
-    const indexPath = join(tempDir, ".companion", "memory", ".servers", "test-server.json");
+    const indexPath = join(tempDir, ".companion", "memory", ".servers", "test-server", "Takode.json");
 
     process.env.COMPANION_SERVER_SLUG = "old-slug";
     await memoryStore.ensureMemoryRepo();

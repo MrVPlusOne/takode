@@ -7,6 +7,11 @@ import { basename, dirname, isAbsolute, join, relative, resolve, sep } from "nod
 import { promisify } from "node:util";
 import { getServerId, getServerSlug, normalizeServerSlug } from "./settings-manager.js";
 import {
+  COMPANION_MEMORY_SPACE_SLUG_ENV,
+  DEFAULT_MEMORY_SESSION_SPACE_SLUG,
+  normalizeMemorySessionSpaceSlug,
+} from "./memory-session-space.js";
+import {
   MEMORY_COMMIT_OPERATIONS,
   MEMORY_KINDS,
   type FrontmatterScalar,
@@ -39,7 +44,6 @@ const LOCK_INFO_FILE = "owner.json";
 const SERVER_INDEX_DIR = ".servers";
 const CATALOG_SEEN_DIR_NAME = "takode-memory-catalog-seen";
 const DEFAULT_LOCK_TTL_MS = 10 * 60 * 1000;
-const DEFAULT_SESSION_SPACE_SLUG = "Takode";
 const OBSOLETE_FRONTMATTER_FIELDS = new Set([
   "id",
   "kind",
@@ -121,7 +125,7 @@ function resolveMemoryRepoInternal(options: MemoryRepoOptions = {}): ResolvedMem
   const serverSlug =
     normalizeServerSlug(options.serverSlug ?? process.env.COMPANION_SERVER_SLUG ?? getServerSlug()) || "local";
   const sessionSpaceSlug = normalizeSessionSpaceSlug(
-    options.sessionSpaceSlug ?? process.env.COMPANION_MEMORY_SPACE_SLUG ?? DEFAULT_SESSION_SPACE_SLUG,
+    options.sessionSpaceSlug ?? process.env[COMPANION_MEMORY_SPACE_SLUG_ENV] ?? DEFAULT_MEMORY_SESSION_SPACE_SLUG,
   );
   const explicitRoot = !!(options.root?.trim() || process.env.COMPANION_MEMORY_DIR?.trim());
   const baseRoot = join(process.env.HOME || homedir(), ".companion", "memory");
@@ -996,7 +1000,7 @@ async function migrateDefaultMemoryRepo(repo: ResolvedMemoryRepo): Promise<void>
 
 async function getMigrationCandidates(repo: ResolvedMemoryRepo): Promise<string[]> {
   const candidates: string[] = [];
-  const index = await readServerMemoryIndex(repo.baseRoot, repo.serverId);
+  const index = await readServerMemoryIndex(repo.baseRoot, repo.serverId, repo.sessionSpaceSlug);
   if (index?.root) candidates.push(index.root);
   if (index?.serverSlug) {
     const indexedServerRoot = join(repo.baseRoot, sanitizeSlugForPath(index.serverSlug));
@@ -1050,13 +1054,31 @@ async function moveMemoryRepo(sourceRoot: string, targetRoot: string, baseRoot: 
   await rename(tempRoot, target);
 }
 
-async function readServerMemoryIndex(baseRoot: string, serverId: string): Promise<ServerMemoryIndexEntry | null> {
+async function readServerMemoryIndex(
+  baseRoot: string,
+  serverId: string,
+  sessionSpaceSlug: string,
+): Promise<ServerMemoryIndexEntry | null> {
+  const currentIndex = await readServerMemoryIndexFile(serverIndexPath(baseRoot, serverId, sessionSpaceSlug), serverId);
+  if (currentIndex) return currentIndex;
+
+  const legacyIndex = await readServerMemoryIndexFile(legacyServerIndexPath(baseRoot, serverId), serverId);
+  if (!legacyIndex) return null;
+  if (legacyIndex.sessionSpaceSlug && legacyIndex.sessionSpaceSlug !== sessionSpaceSlug) return null;
+  return legacyIndex;
+}
+
+async function readServerMemoryIndexFile(
+  path: string,
+  expectedServerId?: string,
+): Promise<ServerMemoryIndexEntry | null> {
   try {
-    const raw = await readFile(serverIndexPath(baseRoot, serverId), "utf-8");
+    const raw = await readFile(path, "utf-8");
     const parsed = JSON.parse(raw) as Partial<ServerMemoryIndexEntry>;
-    if (typeof parsed.serverId !== "string" || parsed.serverId !== serverId) return null;
+    if (typeof parsed.serverId !== "string") return null;
+    if (expectedServerId !== undefined && parsed.serverId !== expectedServerId) return null;
     return {
-      serverId,
+      serverId: parsed.serverId,
       serverSlug: typeof parsed.serverSlug === "string" ? parsed.serverSlug : "",
       ...(typeof parsed.sessionSpaceSlug === "string"
         ? { sessionSpaceSlug: normalizeSessionSpaceSlug(parsed.sessionSpaceSlug) }
@@ -1074,36 +1096,29 @@ async function readServerMemoryIndexes(baseRoot: string): Promise<ServerMemoryIn
   const entries = await safeReaddir(dir);
   const indexes: ServerMemoryIndexEntry[] = [];
   for (const entry of entries) {
-    if (!entry.isFile() || !entry.name.endsWith(".json")) continue;
-    try {
-      const raw = await readFile(join(dir, entry.name), "utf-8");
-      const parsed = JSON.parse(raw) as Partial<ServerMemoryIndexEntry>;
-      if (
-        typeof parsed.serverId === "string" &&
-        typeof parsed.serverSlug === "string" &&
-        typeof parsed.root === "string"
-      ) {
-        indexes.push({
-          serverId: parsed.serverId,
-          serverSlug: parsed.serverSlug,
-          ...(typeof parsed.sessionSpaceSlug === "string"
-            ? { sessionSpaceSlug: normalizeSessionSpaceSlug(parsed.sessionSpaceSlug) }
-            : {}),
-          root: parsed.root,
-          updatedAt: typeof parsed.updatedAt === "string" ? parsed.updatedAt : "",
-        });
+    if (entry.isFile() && entry.name.endsWith(".json")) {
+      const index = await readServerMemoryIndexFile(join(dir, entry.name));
+      if (index) {
+        indexes.push(index);
       }
-    } catch {
-      console.warn(`Skipping unreadable memory server index: ${join(dir, entry.name)}`);
       continue;
+    }
+    if (!entry.isDirectory()) continue;
+    const childDir = join(dir, entry.name);
+    for (const child of await safeReaddir(childDir)) {
+      if (!child.isFile() || !child.name.endsWith(".json")) continue;
+      const index = await readServerMemoryIndexFile(join(childDir, child.name));
+      if (index) {
+        indexes.push(index);
+      }
     }
   }
   return indexes;
 }
 
 async function writeServerMemoryIndex(repo: ResolvedMemoryRepo): Promise<void> {
-  const path = serverIndexPath(repo.baseRoot, repo.serverId);
-  await mkdir(join(repo.baseRoot, SERVER_INDEX_DIR), { recursive: true });
+  const path = serverIndexPath(repo.baseRoot, repo.serverId, repo.sessionSpaceSlug);
+  await mkdir(dirname(path), { recursive: true });
   const entry: ServerMemoryIndexEntry = {
     serverId: repo.serverId,
     serverSlug: repo.serverSlug,
@@ -1114,7 +1129,16 @@ async function writeServerMemoryIndex(repo: ResolvedMemoryRepo): Promise<void> {
   await writeFile(path, JSON.stringify(entry, null, 2), "utf-8");
 }
 
-function serverIndexPath(baseRoot: string, serverId: string): string {
+function serverIndexPath(baseRoot: string, serverId: string, sessionSpaceSlug: string): string {
+  return join(
+    baseRoot,
+    SERVER_INDEX_DIR,
+    sanitizeSlugForPath(serverId),
+    `${sanitizeSlugForPath(sessionSpaceSlug)}.json`,
+  );
+}
+
+function legacyServerIndexPath(baseRoot: string, serverId: string): string {
   return join(baseRoot, SERVER_INDEX_DIR, `${sanitizeSlugForPath(serverId)}.json`);
 }
 
@@ -1166,8 +1190,7 @@ function sanitizeSlugForPath(slug: string): string {
 }
 
 function normalizeSessionSpaceSlug(slug: string): string {
-  const normalized = slug.trim();
-  return normalized || DEFAULT_SESSION_SPACE_SLUG;
+  return normalizeMemorySessionSpaceSlug(slug);
 }
 
 function sessionSpaceSlugFromRoot(serverSlug: string, root: string): string | undefined {
