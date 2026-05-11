@@ -1345,6 +1345,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
 
   it("navigates to memory page when Memory is clicked", () => {
     render(<Sidebar />);
+    expect(screen.getByTestId("memory-nav-icon").querySelector("path")?.getAttribute("d")).toContain("M12 5a3 3");
     fireEvent.click(screen.getByTitle("Memory"));
     expect(window.location.hash).toBe("#/memory");
   });

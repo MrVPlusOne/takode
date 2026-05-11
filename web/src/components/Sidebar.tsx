@@ -1567,10 +1567,19 @@ export function Sidebar() {
               isMemoryPage ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
             }`}
           >
-            <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-4 h-4">
-              <path d="M3 4.5h4.5M8.5 4.5H13M3 8h10M3 11.5h3.5M7.5 11.5H13" strokeLinecap="round" />
-              <circle cx="8" cy="4.5" r="1" fill="currentColor" stroke="none" />
-              <circle cx="7" cy="11.5" r="1" fill="currentColor" stroke="none" />
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              className="w-4 h-4"
+              data-testid="memory-nav-icon"
+            >
+              <path d="M12 5a3 3 0 1 0-6 .1 4 4 0 0 0-2.5 5.8 4 4 0 0 0 .5 6.6A4 4 0 1 0 12 18Z" />
+              <path d="M12 5a3 3 0 1 1 6 .1 4 4 0 0 1 2.5 5.8 4 4 0 0 1-.5 6.6A4 4 0 1 1 12 18Z" />
+              <path d="M15 13a4.5 4.5 0 0 1-3-4 4.5 4.5 0 0 1-3 4" />
             </svg>
           </button>
           <button
