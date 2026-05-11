@@ -1,138 +1,120 @@
 <p align="center">
-  <img src="docs/screenshots/readme-leader-workflow.jpeg" alt="Takode leader session with live work board" width="100%" />
+  <img src="docs/screenshots/readme-orchestration-hero.jpeg" alt="Takode leader session coordinating multiple Quest Journeys from one workspace" width="100%" />
 </p>
 
 <h1 align="center">Takode</h1>
-<p align="center"><strong>A better local workspace for Claude Code and Codex.</strong></p>
-<p align="center">Use either backend through one cleaner UI on desktop or mobile, keep full visibility into tool calls, and stay in control of your data. When you want more, add quests and leader-managed parallel work.</p>
+<p align="center"><strong>Orchestrate Claude Code and Codex agents from one local control room.</strong></p>
+<p align="center">A leader agent can turn requests into quests, coordinate workers and reviewers, and keep every Quest Journey visible while you stay in control. When you just want one coding session, Takode is still a cleaner local UI for Claude Code or Codex.</p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT License" /></a>
 </p>
 
-Takode is useful even if you only want one session.
+Takode is built for real local software work:
 
-It gives you a cleaner way to run Claude Code or Codex on your own machine:
+- **Leader-managed orchestration** across multiple workers, reviewers, quests, and phases
+- **Visible Quest Journeys** so task structure, ownership, review, checkpoints, and handoffs do not disappear into chat
+- **Permanent quest records** with human TLDRs, full agent notes, verification state, and searchable history
+- **One consistent UI** for Claude Code and Codex sessions, including direct single-session work
+- **Local-first control**: your project files, session state, quest state, and history stay on your machine
 
-- **One consistent UI** for both Claude Code and Codex
-- **Full tool-call visibility** instead of opaque terminal output
-- **Multi-session management** in one workspace, including mobile
-- **Local-first operation**: everything runs on your laptop
-- **Optional quest and leader workflows** when one session is no longer enough
+The model provider behind Claude Code or Codex is still the external dependency. Takode itself does not require a hosted backend.
 
 ---
 
-## Why Switch
+## Orchestrate More Than One Agent
 
-### A nicer everyday interface
+Takode's strongest workflow starts with a **leader session**. Give the leader a request, screenshot, bug report, or quest, and it can coordinate the rest of the work:
 
-If you already use Claude Code or Codex directly, Takode gives you a better surface for the same core workflows:
+1. Turn the request into one or more persistent quests
+2. Plan a Quest Journey with the right phases for the risk
+3. Dispatch workers, usually in isolated git worktrees
+4. Route code review, outcome review, or mental simulation to reviewer sessions
+5. Stop for user checkpoints when the direction needs your decision
+6. Port accepted tracked changes and close durable state in final Memory
+
+The Work Board and quest tabs keep that orchestration visible: what is active, who owns it, what phase it is in, what is waiting, and what has already completed. You do not have to reconstruct progress from a long terminal transcript.
+
+## Quests Are Units of Orchestrated Work
+
+When work should survive beyond one chat turn, Takode tracks it as a **quest**: a durable task with status, ownership, feedback, screenshots, verification, phase notes, and a final debrief.
+
+<p align="center">
+  <img src="docs/screenshots/readme-quest-journeys.jpeg" alt="Takode Questmaster showing quests, owners, leaders, status, verification, and a completed Quest Journey preview" width="82%" />
+</p>
+
+Quests are not just issue rows. They are the units that leader agents orchestrate.
+
+Each Quest Journey gives the task meta-structure:
+
+- **Who does what**: leader, worker, reviewer, or user checkpoint
+- **What to focus on**: alignment, exploration, implementation, review, execution, outcome review, porting, or Memory closure
+- **What evidence matters**: code review findings, browser evidence, external results, user decisions, synced changes, or durable-state updates
+- **When to challenge the work**: reviewer phases can provide adversarial review of correctness, missing tests, maintainability, UX evidence, or workflow risks before acceptance
+
+For tracked code changes, the normal path is:
+
+`alignment -> implement -> code-review -> port -> memory`
+
+More complex work can add phases like `explore`, `mental-simulation`, `execute`, `outcome-review`, or `user-checkpoint`. Zero-tracked-change work can omit `port`, but non-cancelled quests still finish with final `memory` closure.
+
+## Completed Work Becomes Searchable Project Memory
+
+Agents document work on the quest as the Journey progresses. Each phase can have a short TLDR for humans and full detail for future agents.
+
+<p align="center">
+  <img src="docs/screenshots/readme-phase-memory.jpeg" alt="Takode quest detail showing phase documentation with TLDR bullets and full detail for future agents" width="82%" />
+</p>
+
+That makes a quest easier to review than raw conversation history. You can scan the Journey, expand phase details when needed, and see why a decision was made.
+
+Completed quests become permanent project memory in the practical sense: durable, searchable records that future agents can inspect when they need prior context. Final Memory closure also gives agents a place to settle file-based memory updates, deferrals, stale-state checks, cleanup, and follow-up routing. It is not magic model memory; it is explicit durable state.
+
+## Direct Sessions Still Matter
+
+You do not need a leader workflow to benefit from Takode.
+
+If you already use Claude Code or Codex directly, Takode gives you a better surface for the same local work:
 
 - grouped, readable tool calls in chat
-- easier session switching and monitoring
-- a UI that works well on desktop and mobile
+- permission controls and visible approval paths
 - persistent session history that survives restarts
+- easier switching across many sessions and projects
+- one UI for both Claude Code and Codex
+- mobile access when you need to check progress or answer a prompt away from your desk
 
-You can use Takode as a better front-end for a single coding agent and stop there.
+<p align="center">
+  <img src="docs/screenshots/readme-mobile-orchestration.jpeg" alt="Takode mobile view showing leader quest tabs, notifications, voice input, and a composer" width="40%" />
+</p>
 
-### Works with both backends
+Every session is still a real Claude Code or Codex instance with its own conversation, working directory, and git branch. Takode makes those sessions easier to inspect, route, and control.
 
-Takode supports **Claude Code** and **Codex** side by side. Each session can use a different backend, and the workspace gives them a consistent interface for sessions, chat, permissions, and tool visibility.
+## Find and Steer Work
 
-### Local-first and under your control
+Takode is designed so both humans and agents can operate the workspace.
+
+- **Universal Search** can help find sessions, threads, messages, quests, and quest actions
+- **Notifications** surface needs-input prompts, review-ready work, and other attention points
+- **Quest and session links** preserve context so leader, worker, and quest views stay connected
+- **CLI tools** expose major Takode workflows to agents, which lets leader sessions coordinate workers without relying only on the graphical UI
+
+## Local Control and Integrations
 
 Takode runs on your machine and works with local project directories.
 
 - your sessions run locally
 - your files stay local
-- your session coordination, quest state, and history stay under your control
+- your session coordination, quest state, file-based memory, and history stay under your control
 - there is no Takode-hosted backend you have to trust with your code
 
-The only external dependency you need is the model provider used by Claude Code or Codex.
+The model-provider CLI you choose remains the external service boundary.
 
-## When You Need More Than One Chat
-
-### Quest-driven work when chat is not enough
-
-When a request should survive beyond one chat turn, Takode can track it as a **quest**: a persistent task with status, history, feedback, screenshots, and verification items.
-
-- You can ask an agent to write, polish, split, or update quests for you, similar to how you would manage GitHub issues
-- A bug report or feature idea can become a quest
-- An existing quest like `q-430` can be reassigned, reviewed, or sent back for rework
-- Completed work lands in a **verification inbox** instead of disappearing into chat history
-- New user feedback can restart the same quest cleanly instead of creating messy side conversations
-
-<p align="center">
-  <img src="docs/screenshots/readme-quests.jpeg" alt="Takode quest inbox and search" width="72%" />
-</p>
-
-### A leader session can coordinate the team
-
-Takode's most powerful workflow is optional, not required. One session can act as a **leader** that coordinates the rest:
-
-1. It turns your request into one or more refined quests
-2. It dispatches workers, usually in isolated **git worktrees**
-3. It reacts to worker updates as work finishes, gets blocked, or needs review
-4. It pushes each quest through a phase-based journey: planning, quest-specific execution/review phases, and porting when needed
-
-That makes Takode feel much closer to working with a small engineering team than with a single coding chat.
-
-<p align="center">
-  <img src="docs/screenshots/readme-leader-workflow.jpeg" alt="Takode leader session with live work board" width="100%" />
-</p>
-
-### Review is part of the workflow
-
-Takode is built around a quest journey, not just “agent says done”:
-
-`PLANNING → IMPLEMENTING → CODE REVIEW → PORTING`
-
-In plain terms: leaders assemble the Journey from reusable phases like explore, implement, code-review, mental-simulation, execute, outcome-review, bookkeeping, and port. Zero-tracked-change quests use the same model and simply omit `port` from the planned phases.
-
-### You can actually see what your agents are doing
-
-Every session is a real Claude Code or Codex instance with its own conversation, working directory, and git branch. Takode puts them in one workspace and exposes the details that matter:
-
-- live tool calls, grouped in chat
-- session status and pending actions
-- permission banners and plan approvals
-- notifications when a session needs your attention
-- a mobile-friendly UI for checking in away from your desk
-
-<p align="center">
-  <img src="docs/screenshots/readme-mobile.jpeg" alt="Takode running on mobile" width="36%" />
-</p>
-
-> Most Takode features -- quests, orchestration, session management, notifications -- are accessible to agents via built-in CLI tools. That is what lets leader sessions coordinate workers autonomously.
-
----
-
-## The Typical Workflow
-
-**Solo use:** Create a session, point it at your repo, and use Takode as a better window into Claude Code or Codex: grouped tool calls, persistent session history, permissions UI, and multi-session visibility.
-
-**Quest workflow:** When you need more structure, create quests for bugs or features and work through them in Takode. You can also ask an agent to draft or refine those quests for you so the task description stays clean and actionable.
-
-**Leader workflow:** When you want parallel execution, start a leader session and give it a bug, idea, screenshot, or quest ID. The leader turns that into tracked work, dispatches the right workers, routes review, and moves finished work into verification. You stay focused on direction and feedback instead of micromanaging every terminal.
-
-```
-You
- └─ Leader session
-      ├─ Worker #1 (fix/mobile)    → worktree, own branch
-      ├─ Worker #2 (search/cli)    → worktree, own branch
-      ├─ Worker #3 (investigation) → worktree, own branch
-      └─ Reviewer sessions         → skeptic + groom review
-```
-
----
-
-## Also Included
+Also included:
 
 - **Permission controls**: run in agent mode or plan mode, with optional per-tool approvals
 - **Voice input**: dictate prompts directly in the app
-- **Notifications**: in-app badges and optional Pushover alerts
-- **Responsive UI**: check on sessions, approve work, and send messages from mobile
-- **Bonus: VS Code integration**: Takode can build and install the VS Code extension for you, and once installed, VS Code cursor selections can be streamed into Takode in real time even if Takode is open in a separate browser window
+- **Pushover notifications**: optional push alerts for events that need attention
+- **VS Code integration**: Takode can install its VS Code extension, and editor selections can stream into Takode even when the app is open in a browser
 
 <p align="center">
   <img src="docs/screenshots/readme-vscode.jpeg" alt="Takode running alongside VS Code with editor context" width="100%" />
@@ -158,7 +140,7 @@ Then:
 2. Create a session
 3. Choose Claude Code or Codex as the backend
 4. Select the local project directory you want the session to work in
-5. Start chatting
+5. Start chatting, or start a leader session when you want orchestration
 
 Takode runs locally. There is no required third-party service besides the model provider behind the CLI you choose.
 
@@ -190,6 +172,14 @@ clone or after dependency changes, run `bun install --cwd web` first.
 - [WebSocket Protocol Reference](WEBSOCKET_PROTOCOL_REVERSED.md)
 - [Architecture & Contributor Guide](CLAUDE.md)
 - [Feed and Thread Debugging Guardrails](docs/feed-thread-debugging.md)
+
+## Name
+
+Takode is named after the creator's cat, Tako. The app keeps that origin as a small product detail by assigning cat portraits to leader sessions.
+
+<p align="center">
+  <img src="docs/screenshots/readme-tako-portraits.jpeg" alt="Takode leader portrait picker showing cat portraits inspired by Tako" width="42%" />
+</p>
 
 ## Origin
 
