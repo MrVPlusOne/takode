@@ -2,11 +2,18 @@
 import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { MemoryCatalogResponse, MemoryRecentCommit, MemoryRecordResponse, MemorySpacesResponse } from "../api.js";
+import type {
+  MemoryCatalogResponse,
+  MemoryRecentCommit,
+  MemoryRecordResponse,
+  MemorySpacesResponse,
+  MemoryUpdateDiffResponse,
+} from "../api.js";
 
 const mockListMemorySpaces = vi.fn();
 const mockGetMemoryCatalog = vi.fn();
 const mockGetMemoryRecord = vi.fn();
+const mockGetMemoryUpdateDiff = vi.fn();
 const mockOpenVsCodeRemoteFile = vi.fn();
 
 vi.mock("../api.js", () => ({
@@ -14,6 +21,7 @@ vi.mock("../api.js", () => ({
     listMemorySpaces: (...args: unknown[]) => mockListMemorySpaces(...args),
     getMemoryCatalog: (...args: unknown[]) => mockGetMemoryCatalog(...args),
     getMemoryRecord: (...args: unknown[]) => mockGetMemoryRecord(...args),
+    getMemoryUpdateDiff: (...args: unknown[]) => mockGetMemoryUpdateDiff(...args),
     openVsCodeRemoteFile: (...args: unknown[]) => mockOpenVsCodeRemoteFile(...args),
   },
 }));
@@ -237,6 +245,26 @@ function otherRecordResponse(): MemoryRecordResponse {
   };
 }
 
+function updateDiffResponse(commit = recentCommit()): MemoryUpdateDiffResponse {
+  return {
+    repo: catalogResponse().repo,
+    commit,
+    diff: [
+      "diff --git a/knowledge/service-x.md b/knowledge/service-x.md",
+      "index 1111111..2222222 100644",
+      "--- a/knowledge/service-x.md",
+      "+++ b/knowledge/service-x.md",
+      "@@ -1,3 +1,3 @@",
+      " ---",
+      " description: Explains Service X config and failure modes.",
+      " ---",
+      "-Service X is started through an old command.",
+      "+Service X is started through the updated command.",
+      "",
+    ].join("\n"),
+  };
+}
+
 describe("MemoryPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -247,6 +275,10 @@ describe("MemoryPage", () => {
     mockGetMemoryRecord.mockImplementation((opts?: { root?: string; path?: string }) =>
       Promise.resolve(opts?.root?.endsWith("/Other") ? otherRecordResponse() : recordResponse(opts?.path)),
     );
+    mockGetMemoryUpdateDiff.mockImplementation((opts?: { sha?: string }) => {
+      const commit = catalogResponse().git.recentCommits.find((item) => item.sha === opts?.sha) ?? recentCommit();
+      return Promise.resolve(updateDiffResponse(commit));
+    });
     mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "source", commandId: "cmd" });
   });
 
@@ -272,18 +304,11 @@ describe("MemoryPage", () => {
     expect(screen.getAllByRole("link", { name: "q-1220" })[0]).toHaveAttribute("href", "#/questmaster?quest=q-1220");
     expect(screen.getByRole("link", { name: "session:1576:99" })).toHaveAttribute("href", "#/session/1576/msg/99");
     expect(screen.getByTestId("memory-page-layout")).toHaveClass("lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]");
-    expect(screen.getByRole("region", { name: "Memory record detail" })).toHaveClass("min-w-0", "overflow-hidden");
+    expect(screen.getByRole("region", { name: "Memory detail" })).toHaveClass("min-w-0", "overflow-hidden");
     expect(screen.getByTestId("memory-detail-body")).toHaveClass("space-y-4");
     expect(screen.getByTestId("memory-detail-body")).not.toHaveClass("grid");
     expect(screen.getByTestId("memory-record-current-content").querySelector(".max-w-none")).toBeTruthy();
     expect(container.querySelector("aside")).not.toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole("tab", { name: "Recent updates" }));
-    expect(screen.getByRole("tab", { name: "Records" })).toHaveAttribute("aria-selected", "false");
-    expect(screen.getByRole("tab", { name: "Recent updates" })).toHaveAttribute("aria-selected", "true");
-    expect(screen.getByRole("tabpanel", { name: "Recent updates" })).toHaveClass("min-h-0", "flex-1");
-    expect(screen.getAllByText(/by session:1576/).length).toBeGreaterThan(0);
-    expect(screen.getByText("source unknown")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "Open record" }));
     await waitFor(() =>
@@ -292,6 +317,51 @@ describe("MemoryPage", () => {
         targetKind: "file",
       }),
     );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Recent updates" }));
+    expect(screen.getByRole("tab", { name: "Records" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Recent updates" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "Recent updates" })).toHaveClass("min-h-0", "flex-1");
+    expect(screen.getAllByText(/by session:1576/).length).toBeGreaterThan(0);
+    expect(screen.getByText("source unknown")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Open" })).not.toBeInTheDocument();
+  });
+
+  it("selects recent updates and renders the committed diff in the detail pane", async () => {
+    render(<MemoryPage embedded />);
+
+    expect(await screen.findByText("Service X is started through a local dev command.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("tab", { name: "Recent updates" }));
+    expect(await screen.findByText("Selected update")).toBeInTheDocument();
+    expect(screen.queryByText("Selected record")).not.toBeInTheDocument();
+    expect(screen.getByTestId("memory-update-detail-body")).toBeInTheDocument();
+    expect(screen.getAllByText("service-x.md").length).toBeGreaterThan(0);
+    expect(
+      (
+        await screen.findAllByText((_, element) =>
+          Boolean(element?.textContent?.includes("Service X is started through the updated command.")),
+        )
+      ).length,
+    ).toBeGreaterThan(0);
+    await waitFor(() =>
+      expect(mockGetMemoryUpdateDiff).toHaveBeenCalledWith({
+        root: "/Users/test/.companion/memory/prod/Takode",
+        sha: "abcdef123456",
+      }),
+    );
+
+    fireEvent.click(screen.getByText("Document procedure"));
+    expect(await screen.findByText("procedures/run-service.md")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockGetMemoryUpdateDiff).toHaveBeenLastCalledWith({
+        root: "/Users/test/.companion/memory/prod/Takode",
+        sha: "bcdef234567",
+      }),
+    );
+
+    fireEvent.click(screen.getByRole("tab", { name: "Records" }));
+    expect((await screen.findAllByText("Selected record")).length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Service X is started through a local dev command.").length).toBeGreaterThan(0);
   });
 
   it("selects memory spaces by dropdown root when sibling session spaces share a server slug", async () => {
@@ -349,7 +419,7 @@ describe("MemoryPage", () => {
       await within(mobileDetail).findByText("Service X is started through a local dev command."),
     ).toBeInTheDocument();
 
-    fireEvent.click(within(mobileDetail).getByRole("button", { name: "Back to records" }));
+    fireEvent.click(within(mobileDetail).getByRole("button", { name: "Back to browser" }));
     expect(screen.queryByTestId("memory-mobile-detail")).not.toBeInTheDocument();
   });
 

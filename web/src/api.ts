@@ -324,6 +324,12 @@ export interface MemoryRecordResponse {
   issues: MemoryLintIssue[];
 }
 
+export interface MemoryUpdateDiffResponse {
+  repo: MemoryRepoInfo;
+  commit: MemoryRecentCommit;
+  diff: string;
+}
+
 export interface CreateSessionOpts {
   model?: string;
   permissionMode?: string;
@@ -1230,6 +1236,14 @@ export const api = {
     if (opts.serverSlug) params.set("serverSlug", opts.serverSlug);
     if (opts.root) params.set("root", opts.root);
     return get<MemoryRecordResponse>(`/memory/records?${params.toString()}`);
+  },
+
+  getMemoryUpdateDiff: (opts: { serverSlug?: string; root?: string; sha: string }) => {
+    const params = new URLSearchParams();
+    if (opts.serverSlug) params.set("serverSlug", opts.serverSlug);
+    if (opts.root) params.set("root", opts.root);
+    const qs = params.toString();
+    return get<MemoryUpdateDiffResponse>(`/memory/updates/${encodeURIComponent(opts.sha)}${qs ? `?${qs}` : ""}`);
   },
 
   getHerdDiagnostics: (sessionId: string) =>

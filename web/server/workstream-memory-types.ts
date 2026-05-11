@@ -105,6 +105,12 @@ export interface MemoryRecentCommit {
   changedFiles: MemoryCommitFileChange[];
 }
 
+export interface MemoryCommitDiff {
+  repo: MemoryRepoInfo;
+  commit: MemoryRecentCommit;
+  diff: string;
+}
+
 export type MemoryLintSeverity = "error" | "warning";
 
 export interface MemoryLintIssue {

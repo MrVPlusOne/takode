@@ -8,6 +8,7 @@ import {
   lintMemory,
   markMemoryCatalogSeen,
   memoryRecentCommits,
+  memoryCommitDiff,
   memoryGitDiff,
   memoryGitStatus,
   readMemoryRecord,
@@ -83,6 +84,10 @@ export class WorkstreamMemoryService {
 
   recentCommits(options?: MemoryRepoOptions, limit?: number) {
     return memoryRecentCommits(options, limit);
+  }
+
+  commitDiff(options: MemoryRepoOptions | undefined, sha: string) {
+    return memoryCommitDiff(options, sha);
   }
 
   gitDiff(options?: MemoryRepoOptions) {

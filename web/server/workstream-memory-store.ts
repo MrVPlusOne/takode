@@ -21,6 +21,7 @@ import {
   type MemoryCatalogEntry,
   type MemoryCatalogDiff,
   type MemoryCommitInput,
+  type MemoryCommitDiff,
   type MemoryCommitOperation,
   type MemoryCommitResult,
   type MemoryFile,
@@ -377,6 +378,43 @@ export async function memoryRecentCommits(options: MemoryRepoOptions = {}, limit
   } catch (error) {
     console.warn("Unable to read recent memory commits:", error);
     return [];
+  }
+}
+
+export async function memoryCommitDiff(options: MemoryRepoOptions = {}, sha: string): Promise<MemoryCommitDiff | null> {
+  const repo = await repoForRead(options);
+  if (options.readOnly && !repo.initialized) return null;
+  const normalizedSha = sha.trim();
+  if (!/^[0-9a-f]{7,40}$/i.test(normalizedSha)) {
+    throw new Error("Invalid memory update SHA");
+  }
+
+  try {
+    const metadataOutput = await runGit(repo.root, [
+      "show",
+      "--format=%x1e%H%x1f%h%x1f%ct%x1f%an%x1f%ae%x1f%s%x1f%B%x1d",
+      "--name-status",
+      normalizedSha,
+      "--",
+      ...MEMORY_KINDS,
+    ]);
+    const commit = parseRecentMemoryCommits(metadataOutput)[0];
+    if (!commit || commit.changedFiles.length === 0) return null;
+    const diff = await runGit(repo.root, [
+      "show",
+      "--format=",
+      "--find-renames",
+      "--patch",
+      "--no-ext-diff",
+      "--unified=3",
+      normalizedSha,
+      "--",
+      ...MEMORY_KINDS,
+    ]);
+    return { repo, commit, diff };
+  } catch (error) {
+    console.warn("Unable to read memory commit diff:", error);
+    return null;
   }
 }
 

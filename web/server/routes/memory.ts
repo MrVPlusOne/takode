@@ -124,5 +124,21 @@ export function createMemoryRoutes(_ctx: RouteContext) {
     }
   });
 
+  api.get("/memory/updates/:sha", async (c) => {
+    const sha = c.req.param("sha")?.trim();
+    if (!sha) return c.json({ error: "sha path parameter is required" }, 400);
+
+    const { workstreamMemoryService } = await import("../workstream-memory-service.js");
+    try {
+      const options = await resolveMemorySpaceOptions(c);
+      const update = await workstreamMemoryService.commitDiff(options, sha);
+      if (!update) return c.json({ error: "memory update not found" }, 404);
+      return c.json(update);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return c.json({ error: message }, /invalid/i.test(message) ? 400 : 404);
+    }
+  });
+
   return api;
 }

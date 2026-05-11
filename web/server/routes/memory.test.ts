@@ -229,6 +229,83 @@ source:
     expect((await twoRes.json()).git.recentCommits).toHaveLength(2);
   });
 
+  it("returns committed memory update metadata and unified diff content", async () => {
+    // Verifies Recent updates can drill into committed memory changes without exposing arbitrary git refs.
+    await writeMemoryFile(
+      "prod",
+      "knowledge/service-x.md",
+      `
+description: Explains Service X config and failure modes.
+source:
+  - q-1220
+`,
+      "Service X starts with the old command.",
+    );
+    const { ensureMemoryRepo } = await import("../workstream-memory-store.js");
+    const repo = await ensureMemoryRepo();
+    await execFileAsync("git", ["--no-optional-locks", "-C", repo.root, "add", "--", "knowledge"]);
+    await execFileAsync("git", [
+      "--no-optional-locks",
+      "-C",
+      repo.root,
+      "-c",
+      "user.name=Takode Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "-m",
+      "Seed memory",
+    ]);
+    await writeMemoryFile(
+      "prod",
+      "knowledge/service-x.md",
+      `
+description: Explains Service X config and failure modes.
+source:
+  - q-1220
+`,
+      "Service X starts with the new command.",
+    );
+    await execFileAsync("git", ["--no-optional-locks", "-C", repo.root, "add", "--", "knowledge"]);
+    await execFileAsync("git", [
+      "--no-optional-locks",
+      "-C",
+      repo.root,
+      "-c",
+      "user.name=Takode Test",
+      "-c",
+      "user.email=test@example.invalid",
+      "commit",
+      "-m",
+      "Update memory detail",
+      "-m",
+      "Quest: q-1334\nSession: session:1745\nSource: q-1334",
+    ]);
+    const sha = (
+      await execFileAsync("git", ["--no-optional-locks", "-C", repo.root, "rev-parse", "HEAD"])
+    ).stdout.trim();
+
+    const app = await makeApp();
+    const res = await app.request(`/memory/updates/${sha}?serverSlug=prod`);
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json.commit).toMatchObject({
+      sha,
+      message: "Update memory detail",
+      quest: "q-1334",
+      session: "session:1745",
+      sources: ["q-1334"],
+      changedFiles: [expect.objectContaining({ status: "M", path: "knowledge/service-x.md" })],
+    });
+    expect(json.diff).toContain("diff --git a/knowledge/service-x.md b/knowledge/service-x.md");
+    expect(json.diff).toContain("-Service X starts with the old command.");
+    expect(json.diff).toContain("+Service X starts with the new command.");
+
+    const invalid = await app.request("/memory/updates/not-a-sha?serverSlug=prod");
+    expect(invalid.status).toBe(400);
+  });
+
   it("loads catalog and records for discovered sibling memory spaces without migration conflicts", async () => {
     // Verifies selecting a sibling repo uses its discovered root instead of treating its slug as a server rename.
     await writeMemoryFile(
