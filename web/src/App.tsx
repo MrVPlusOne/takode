@@ -158,6 +158,18 @@ export default function App() {
   const isScheduledPage = route.page === "scheduled";
   const isQuestmasterPage = route.page === "questmaster";
   const isMemoryPage = route.page === "memory";
+  const isFullPageRoute = isSettingsPage || isTerminalPage || isScheduledPage || isQuestmasterPage || isMemoryPage;
+  const fullPageRouteLabel = isMemoryPage
+    ? "Memory"
+    : isTerminalPage
+      ? "Terminal"
+      : isScheduledPage
+        ? "Timers"
+        : isSettingsPage
+          ? "Settings"
+          : isQuestmasterPage
+            ? "Questmaster"
+            : undefined;
   const isSessionView = route.page === "session" || route.page === "home";
   const routeSessionId = useMemo(
     () => (route.page === "session" ? resolveSessionIdFromRoute(route.sessionId, sdkSessions) : null),
@@ -637,6 +649,7 @@ export default function App() {
       {/* Main area */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         <TopBar
+          fullPageLabel={isFullPageRoute ? fullPageRouteLabel : undefined}
           universalSearchOpen={universalSearchOpen}
           onOpenUniversalSearch={openUniversalSearch}
           onCloseUniversalSearch={closeUniversalSearch}

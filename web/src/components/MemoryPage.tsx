@@ -25,6 +25,7 @@ type LoadState<T> =
 const MEMORY_KINDS: MemoryKind[] = ["current", "knowledge", "procedures", "decisions", "references", "artifacts"];
 const INITIAL_RECENT_LIMIT = 20;
 const RECENT_INCREMENT = 20;
+type MemorySidePanelTab = "records" | "updates";
 
 function spaceLabel(space: Pick<MemorySpaceInfo, "slug" | "sessionSpaceSlug">): string {
   return space.sessionSpaceSlug ? `${space.slug}/${space.sessionSpaceSlug}` : space.slug;
@@ -135,6 +136,22 @@ function ActionButton({
       onClick={onClick}
       disabled={disabled}
       className="rounded-md border border-cc-border bg-cc-hover px-2.5 py-1.5 text-xs font-medium text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-active focus:border-cc-primary/60 focus:outline-none disabled:cursor-not-allowed disabled:opacity-45"
+    >
+      {children}
+    </button>
+  );
+}
+
+function PanelTabButton({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      onClick={onClick}
+      className={`rounded-md px-2.5 py-1 text-xs font-medium transition-colors focus:outline-none focus:ring-1 focus:ring-cc-primary/60 ${
+        active ? "bg-cc-active text-cc-fg" : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+      }`}
     >
       {children}
     </button>
@@ -491,10 +508,10 @@ function RecentTimeline({
   const commits = catalog?.git.recentCommits ?? [];
   const canLoadMore = commits.length >= recentLimit;
   return (
-    <section className="flex min-h-0 flex-col overflow-hidden rounded-md border border-cc-border bg-cc-card">
+    <section className="flex h-full min-h-0 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center justify-between gap-3 border-b border-cc-border px-3 py-2">
         <div>
-          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Recent memory edits</h2>
+          <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Recent updates</h2>
           <div className="mt-0.5 text-[11px] text-cc-muted">{commits.length ? `${commits.length} shown` : "none"}</div>
         </div>
         {canLoadMore ? <ActionButton onClick={onLoadMore}>Load more</ActionButton> : null}
@@ -644,6 +661,7 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   const [query, setQuery] = useState("");
   const [collapsedKinds, setCollapsedKinds] = useState<Set<MemoryKind>>(new Set());
   const [mobileDetailOpen, setMobileDetailOpen] = useState(false);
+  const [sidePanelTab, setSidePanelTab] = useState<MemorySidePanelTab>("records");
   const [recentLimit, setRecentLimit] = useState(INITIAL_RECENT_LIMIT);
 
   useEffect(() => {
@@ -809,11 +827,11 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
   return (
     <div className={`${embedded ? "h-full" : "min-h-screen"} bg-cc-bg text-cc-fg`}>
       <div className="flex h-full min-w-0 flex-col overflow-hidden">
-        <header className="shrink-0 border-b border-cc-border px-4 py-3">
-          <div className="flex flex-col gap-3 xl:flex-row xl:items-start xl:justify-between">
-            <div className="min-w-0 space-y-3">
-              <div className="flex flex-wrap items-center gap-2.5">
-                <h1 className="text-xl font-semibold leading-tight text-cc-fg">Memory</h1>
+        <header className="shrink-0 border-b border-cc-border px-3 py-2">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <h1 className="text-lg font-semibold leading-tight text-cc-fg">Memory</h1>
                 <span className={`rounded border px-2 py-0.5 text-[11px] ${healthTone(catalog)}`}>
                   {catalog
                     ? catalog.issueCounts.errors
@@ -835,118 +853,140 @@ export function MemoryPage({ embedded = false }: MemoryPageProps) {
                 ) : null}
               </div>
 
-              <div className="flex flex-col gap-2 md:flex-row md:items-end">
-                {spacesState.status === "ready" ? (
-                  <SpaceSelect spaces={spacesState.data.spaces} selectedRoot={selectedRoot} onSelect={selectRoot} />
+              <div className="flex flex-wrap items-center gap-1.5">
+                <ActionButton onClick={refreshCatalog}>Refresh</ActionButton>
+                {selectedSpace ? (
+                  <>
+                    <ActionButton onClick={() => copyText(selectedRecordPath ?? selectedSpace.root)}>
+                      Copy path
+                    </ActionButton>
+                    <ActionButton
+                      onClick={() =>
+                        openPath(
+                          selectedRecordPath ?? selectedSpace.root,
+                          recordState.status === "ready" ? "file" : "directory",
+                        )
+                      }
+                    >
+                      Open
+                    </ActionButton>
+                  </>
                 ) : null}
-                <div className="min-w-0 flex-1">
-                  <div className="text-[10px] font-semibold uppercase tracking-wide text-cc-muted">Repository path</div>
-                  <div className="mt-1 break-all font-mono text-[11px] leading-relaxed text-cc-muted">
-                    {catalog?.repo.root ?? selectedSpace?.root ?? ""}
-                  </div>
-                </div>
               </div>
             </div>
 
-            <div className="flex flex-wrap items-center gap-2">
-              <ActionButton onClick={refreshCatalog}>Refresh</ActionButton>
-              {selectedSpace ? (
-                <>
-                  <ActionButton onClick={() => copyText(selectedRecordPath ?? selectedSpace.root)}>
-                    Copy path
-                  </ActionButton>
-                  <ActionButton
-                    onClick={() =>
-                      openPath(
-                        selectedRecordPath ?? selectedSpace.root,
-                        recordState.status === "ready" ? "file" : "directory",
-                      )
-                    }
-                  >
-                    Open
-                  </ActionButton>
-                </>
+            <div className="grid min-w-0 gap-2 md:grid-cols-[minmax(220px,320px)_minmax(0,1fr)] md:items-end">
+              {spacesState.status === "ready" ? (
+                <SpaceSelect spaces={spacesState.data.spaces} selectedRoot={selectedRoot} onSelect={selectRoot} />
               ) : null}
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold uppercase tracking-wide text-cc-muted">Repository path</div>
+                <div
+                  className="mt-1 truncate font-mono text-[11px] leading-relaxed text-cc-muted"
+                  title={catalog?.repo.root ?? selectedSpace?.root ?? ""}
+                >
+                  {catalog?.repo.root ?? selectedSpace?.root ?? ""}
+                </div>
+              </div>
             </div>
           </div>
         </header>
 
         <main className="min-h-0 flex-1 overflow-hidden p-3">
           <div
-            className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)] lg:overflow-hidden"
+            className="grid h-full min-h-0 grid-cols-1 gap-3 overflow-y-auto lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)] lg:overflow-hidden"
             data-testid="memory-page-layout"
           >
-            <section className="min-h-0 space-y-3 lg:flex lg:flex-col lg:overflow-hidden">
-              <div className="shrink-0 space-y-2">
-                <div className="flex flex-wrap items-center justify-between gap-2 px-0.5">
-                  <div>
-                    <h2 className="text-[11px] font-semibold uppercase tracking-wide text-cc-muted">Records</h2>
-                    <div className="mt-0.5 text-[11px] text-cc-muted">
+            <section
+              className="flex min-h-[420px] flex-col overflow-hidden rounded-md border border-cc-border bg-cc-card lg:min-h-0"
+              data-testid="memory-side-panel"
+            >
+              <div
+                className="flex shrink-0 items-center justify-between gap-2 border-b border-cc-border px-2 py-1.5"
+                role="tablist"
+                aria-label="Memory side panel"
+              >
+                <div className="flex items-center gap-1">
+                  <PanelTabButton active={sidePanelTab === "records"} onClick={() => setSidePanelTab("records")}>
+                    Records
+                  </PanelTabButton>
+                  <PanelTabButton active={sidePanelTab === "updates"} onClick={() => setSidePanelTab("updates")}>
+                    Recent updates
+                  </PanelTabButton>
+                </div>
+                {catalog ? (
+                  <span className="shrink-0 rounded border border-cc-border bg-cc-hover px-2 py-1 text-[11px] text-cc-muted">
+                    {sidePanelTab === "records"
+                      ? formatRecordCount(catalog.entries.length)
+                      : `${catalog.git.recentCommits.length} shown`}
+                  </span>
+                ) : null}
+              </div>
+
+              {sidePanelTab === "records" ? (
+                <div className="flex min-h-0 flex-1 flex-col" role="tabpanel" aria-label="Records">
+                  <div className="shrink-0 space-y-2 border-b border-cc-border p-2">
+                    <div className="text-[11px] text-cc-muted">
                       {catalog
                         ? `${filteredEntries.length}/${catalog.entries.length} in ${selectedSpaceLabel}`
                         : "loading"}
                     </div>
+                    <input
+                      type="search"
+                      value={query}
+                      onChange={(event) => setQuery(event.target.value)}
+                      placeholder="Filter records..."
+                      aria-label="Filter memory"
+                      className="w-full rounded-md border border-cc-border bg-cc-input-bg px-2.5 py-1.5 text-xs text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60"
+                    />
                   </div>
-                  {catalog ? (
-                    <span className="rounded border border-cc-border bg-cc-hover px-2 py-1 text-[11px] text-cc-muted">
-                      {formatRecordCount(catalog.entries.length)}
-                    </span>
-                  ) : null}
+
+                  <div className="min-h-0 flex-1 overflow-y-auto p-2">
+                    {spacesState.status === "loading" ? <SkeletonRows count={2} /> : null}
+                    {spacesState.status === "error" ? (
+                      <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+                        Failed to load memory spaces: {spacesState.error}
+                      </div>
+                    ) : null}
+                    {catalogState.status === "loading" ? <SkeletonRows count={5} /> : null}
+                    {catalogState.status === "error" ? (
+                      <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
+                        Failed to load catalog: {catalogState.error}
+                      </div>
+                    ) : null}
+                    {catalogState.status === "ready" && catalogState.data.entries.length === 0 ? (
+                      <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
+                        This memory repo has no Markdown records in authored directories.
+                      </div>
+                    ) : null}
+                    {catalogState.status === "ready" &&
+                    catalogState.data.entries.length > 0 &&
+                    filteredEntries.length === 0 ? (
+                      <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
+                        No memory records match this filter.
+                      </div>
+                    ) : null}
+                    {catalogState.status === "ready" && filteredEntries.length > 0 ? (
+                      <RecordTree
+                        entriesByKind={entriesByKind}
+                        pathIssues={pathIssues}
+                        collapsedKinds={collapsedKinds}
+                        selectedPath={selectedPath}
+                        onToggleKind={toggleKind}
+                        onSelectEntry={selectEntry}
+                      />
+                    ) : null}
+                  </div>
                 </div>
-                <input
-                  type="search"
-                  value={query}
-                  onChange={(event) => setQuery(event.target.value)}
-                  placeholder="Filter file names, descriptions, sources..."
-                  aria-label="Filter memory"
-                  className="w-full rounded-md border border-cc-border bg-cc-input-bg px-3 py-2 text-xs text-cc-fg outline-none placeholder:text-cc-muted focus:border-cc-primary/60"
-                />
-              </div>
-
-              <div className="min-h-[260px] lg:min-h-0 lg:flex-1 lg:overflow-y-auto">
-                {spacesState.status === "loading" ? <SkeletonRows count={2} /> : null}
-                {spacesState.status === "error" ? (
-                  <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
-                    Failed to load memory spaces: {spacesState.error}
-                  </div>
-                ) : null}
-                {catalogState.status === "loading" ? <SkeletonRows count={5} /> : null}
-                {catalogState.status === "error" ? (
-                  <div className="rounded-md border border-red-500/25 bg-red-500/10 p-4 text-sm text-red-200">
-                    Failed to load catalog: {catalogState.error}
-                  </div>
-                ) : null}
-                {catalogState.status === "ready" && catalogState.data.entries.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
-                    This memory repo has no Markdown records in authored directories.
-                  </div>
-                ) : null}
-                {catalogState.status === "ready" &&
-                catalogState.data.entries.length > 0 &&
-                filteredEntries.length === 0 ? (
-                  <div className="rounded-md border border-dashed border-cc-border p-4 text-sm text-cc-muted">
-                    No memory records match this filter.
-                  </div>
-                ) : null}
-                {catalogState.status === "ready" && filteredEntries.length > 0 ? (
-                  <RecordTree
-                    entriesByKind={entriesByKind}
-                    pathIssues={pathIssues}
-                    collapsedKinds={collapsedKinds}
-                    selectedPath={selectedPath}
-                    onToggleKind={toggleKind}
-                    onSelectEntry={selectEntry}
+              ) : (
+                <div className="min-h-0 flex-1" role="tabpanel" aria-label="Recent updates">
+                  <RecentTimeline
+                    catalog={catalog}
+                    recentLimit={recentLimit}
+                    onLoadMore={() => setRecentLimit((current) => current + RECENT_INCREMENT)}
                   />
-                ) : null}
-              </div>
-
-              <div className="min-h-[260px] shrink-0 lg:h-[280px]">
-                <RecentTimeline
-                  catalog={catalog}
-                  recentLimit={recentLimit}
-                  onLoadMore={() => setRecentLimit((current) => current + RECENT_INCREMENT)}
-                />
-              </div>
+                </div>
+              )}
             </section>
 
             <section

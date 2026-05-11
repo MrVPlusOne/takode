@@ -19,6 +19,7 @@ type TopBarState = ReturnType<typeof useStore.getState>;
 const EMPTY_LEADER_BOARD_ROWS: readonly BoardRowData[] = [];
 
 interface TopBarProps {
+  fullPageLabel?: string;
   universalSearchOpen?: boolean;
   onOpenUniversalSearch?: () => void;
   onCloseUniversalSearch?: () => void;
@@ -91,6 +92,7 @@ export function getCurrentTopBarSessionState(state: TopBarState) {
 }
 
 export function TopBar({
+  fullPageLabel,
   universalSearchOpen = false,
   onOpenUniversalSearch = () => {},
   onCloseUniversalSearch = () => {},
@@ -242,6 +244,53 @@ export function TopBar({
     },
     [currentSessionId, setLeaderWorkboardView],
   );
+
+  if (fullPageLabel) {
+    return (
+      <header className="shrink-0 flex items-center justify-between px-2 sm:px-4 py-2 bg-cc-card border-b border-cc-border">
+        <div className="flex min-w-0 items-center gap-3">
+          <button
+            onClick={() => setSidebarOpen(!sidebarOpen)}
+            className="flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg"
+            title={getShortcutTitle("Toggle sidebar", shortcutSettings, "toggle_sidebar", shortcutPlatform)}
+          >
+            <svg viewBox="0 0 20 20" fill="currentColor" className="h-4 w-4">
+              <path
+                fillRule="evenodd"
+                d="M3 5a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 10a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1zM3 15a1 1 0 011-1h12a1 1 0 110 2H4a1 1 0 01-1-1z"
+                clipRule="evenodd"
+              />
+            </svg>
+          </button>
+          <span className="truncate text-[12px] font-semibold text-cc-fg">{fullPageLabel}</span>
+        </div>
+        <div className="flex shrink-0 items-center gap-2 text-[12px] text-cc-muted sm:gap-3">
+          <GlobalNeedsInputMenu />
+          <SearchToggleButton
+            isOpen={universalSearchOpen}
+            onOpen={onOpenUniversalSearch}
+            onClose={onCloseUniversalSearch}
+          />
+          <button
+            onClick={handleQuestToggle}
+            className={`relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-lg transition-colors ${
+              isQuestmasterPage ? "bg-cc-active text-cc-primary" : "text-cc-muted hover:bg-cc-hover hover:text-cc-fg"
+            }`}
+            title={isQuestmasterPage ? "Back to session" : "Quests"}
+          >
+            <svg viewBox="0 0 16 16" fill="currentColor" className="h-4 w-4">
+              <path d="M2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11zM1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM4 5.75a.75.75 0 01.75-.75h6.5a.75.75 0 010 1.5h-6.5A.75.75 0 014 5.75zM4.75 8a.75.75 0 000 1.5h4.5a.75.75 0 000-1.5h-4.5zM4 11.25a.75.75 0 01.75-.75h2.5a.75.75 0 010 1.5h-2.5a.75.75 0 01-.75-.75z" />
+            </svg>
+            {activeQuestCount > 0 && (
+              <span className="absolute -top-1 -right-1 flex h-[14px] min-w-[14px] items-center justify-center rounded-full bg-cc-primary px-0.5 text-[8px] font-semibold leading-none text-white">
+                {activeQuestCount}
+              </span>
+            )}
+          </button>
+        </div>
+      </header>
+    );
+  }
 
   return (
     <header className="shrink-0 flex items-center justify-between px-2 sm:px-4 py-2 sm:py-2.5 bg-cc-card border-b border-cc-border">

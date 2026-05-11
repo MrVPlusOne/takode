@@ -199,7 +199,9 @@ vi.mock("./components/TaskPanel.js", () => ({
 }));
 
 vi.mock("./components/TopBar.js", () => ({
-  TopBar: () => <div data-testid="top-bar" />,
+  TopBar: ({ fullPageLabel }: { fullPageLabel?: string }) => (
+    <div data-testid="top-bar" data-full-page-label={fullPageLabel ?? ""} />
+  ),
 }));
 
 vi.mock("./components/ChatView.js", () => ({
@@ -448,6 +450,24 @@ describe("App hidden panels", () => {
 
     expect(screen.getByTestId("active-timers-page")).toBeInTheDocument();
     expect(screen.queryByTestId("chat-view")).toBeNull();
+  });
+
+  it("lets full-page routes own the top chrome instead of rendering session identity chrome", () => {
+    for (const [hash, testId, label] of [
+      ["#/memory", "memory-page", "Memory"],
+      ["#/terminal", "terminal-page", "Terminal"],
+      ["#/scheduled", "active-timers-page", "Timers"],
+      ["#/settings", "settings-page", "Settings"],
+      ["#/questmaster", "questmaster-page", "Questmaster"],
+    ] as const) {
+      window.location.hash = hash;
+      const view = render(<App />);
+
+      expect(screen.getByTestId(testId)).toBeInTheDocument();
+      expect(screen.getByTestId("top-bar")).toHaveAttribute("data-full-page-label", label);
+
+      view.unmount();
+    }
   });
 
   it("mounts MemoryPage on the memory route", () => {

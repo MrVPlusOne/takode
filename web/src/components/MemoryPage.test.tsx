@@ -250,13 +250,16 @@ describe("MemoryPage", () => {
     mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "source", commandId: "cmd" });
   });
 
-  it("renders a dropdown space selector, grouped records, contained detail, and separate timeline", async () => {
-    // Validates the structural replacement requested in feedback #9: no large Spaces column, simple rows, and a separate timeline.
+  it("renders a compact header, tabbed side panel, grouped records, and contained detail", async () => {
+    // Validates the Memory browser surface stays dense: no large Spaces column, tabbed left panel, and contained detail.
     const { container } = render(<MemoryPage embedded />);
 
     expect(await screen.findByRole("heading", { name: "Memory" })).toBeInTheDocument();
     expect(screen.getByLabelText("Memory space")).toHaveValue("/Users/test/.companion/memory/prod/Takode");
     expect(screen.queryByRole("complementary", { name: "Memory spaces" })).not.toBeInTheDocument();
+    expect(screen.getByTestId("memory-side-panel")).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Records" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tab", { name: "Recent updates" })).toHaveAttribute("aria-selected", "false");
     expect(await screen.findByRole("button", { name: /knowledge.*1/i })).toHaveAttribute("aria-expanded", "true");
     expect(screen.getByRole("button", { name: /procedures.*1/i })).toBeInTheDocument();
 
@@ -268,13 +271,17 @@ describe("MemoryPage", () => {
     expect(await screen.findByText("Service X is started through a local dev command.")).toBeInTheDocument();
     expect(screen.getAllByRole("link", { name: "q-1220" })[0]).toHaveAttribute("href", "#/questmaster?quest=q-1220");
     expect(screen.getByRole("link", { name: "session:1576:99" })).toHaveAttribute("href", "#/session/1576/msg/99");
-    expect(screen.getByTestId("memory-page-layout")).toHaveClass("lg:grid-cols-[minmax(260px,340px)_minmax(0,1fr)]");
+    expect(screen.getByTestId("memory-page-layout")).toHaveClass("lg:grid-cols-[minmax(280px,360px)_minmax(0,1fr)]");
     expect(screen.getByRole("region", { name: "Memory record detail" })).toHaveClass("min-w-0", "overflow-hidden");
     expect(screen.getByTestId("memory-detail-body")).toHaveClass("space-y-4");
     expect(screen.getByTestId("memory-detail-body")).not.toHaveClass("grid");
     expect(screen.getByTestId("memory-record-current-content").querySelector(".max-w-none")).toBeTruthy();
     expect(container.querySelector("aside")).not.toBeInTheDocument();
-    expect(screen.getByText("Recent memory edits")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("tab", { name: "Recent updates" }));
+    expect(screen.getByRole("tab", { name: "Records" })).toHaveAttribute("aria-selected", "false");
+    expect(screen.getByRole("tab", { name: "Recent updates" })).toHaveAttribute("aria-selected", "true");
+    expect(screen.getByRole("tabpanel", { name: "Recent updates" })).toHaveClass("min-h-0", "flex-1");
     expect(screen.getAllByText(/by session:1576/).length).toBeGreaterThan(0);
     expect(screen.getByText("source unknown")).toBeInTheDocument();
 
@@ -350,6 +357,8 @@ describe("MemoryPage", () => {
     mockGetMemoryCatalog.mockResolvedValue(catalogWithTwentyCommits());
     render(<MemoryPage embedded />);
 
+    await screen.findByRole("tab", { name: "Recent updates" });
+    fireEvent.click(screen.getByRole("tab", { name: "Recent updates" }));
     await screen.findByText("Memory edit 0");
     expect(mockGetMemoryCatalog).toHaveBeenLastCalledWith({
       root: "/Users/test/.companion/memory/prod/Takode",

@@ -309,6 +309,23 @@ describe("TopBar", () => {
     expect(screen.queryByTitle("Pause session")).not.toBeInTheDocument();
   });
 
+  it("uses route-owned chrome on full-page routes without showing the current session title", () => {
+    resetStore({
+      currentSessionId: "s1",
+      sidebarOpen: false,
+      sessionNames: new Map([["s1", "Main Session"]]),
+      sessions: new Map([["s1", { cwd: "/repo" }]]),
+      sdkSessions: [{ sessionId: "s1", createdAt: 40, cliConnected: true, state: "connected", name: "Main Session" }],
+    });
+
+    render(<TopBar fullPageLabel="Memory" />);
+
+    expect(screen.getByText("Memory")).toBeInTheDocument();
+    expect(screen.queryByText("Main Session")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTitle("Toggle sidebar"));
+    expect(storeState.setSidebarOpen).toHaveBeenCalledWith(true);
+  });
+
   it("does not expose paused-state controls in the top bar", () => {
     resetStore({
       currentSessionId: "s1",
