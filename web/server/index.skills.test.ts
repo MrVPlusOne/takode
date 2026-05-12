@@ -17,6 +17,7 @@ const ORCHESTRATION_DESIGN_SKILL_PATH = join(
 const SKEPTIC_REVIEW_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "skeptic-review", "SKILL.md");
 const WORKTREE_RULES_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "worktree-rules", "SKILL.md");
 const LEADER_DISPATCH_SKILL_PATH = join(SERVER_DIR, "..", "..", ".claude", "skills", "leader-dispatch", "SKILL.md");
+const QUEST_SKILL_TEMPLATE_PATH = join(SERVER_DIR, "templates", "quest-skill-docs.md");
 const REPO_ROOT = join(SERVER_DIR, "..", "..");
 const QUEST_JOURNEY_SKILL_SLUGS = [
   "quest-journey-alignment",
@@ -131,6 +132,10 @@ describe("index startup skill registration", () => {
     expect(source).toContain("The Port assignee brief owns the standard report shape");
     expect(source).toContain("Your handoff should add only context-dependent deltas");
     expect(source).toContain("Leader-specific deltas for this port");
+    expect(source).toContain("do not narrow below the strong Port verification gate");
+    expect(source).toContain("focused affected tests plus full `bun run test`");
+    expect(source).toContain("route the worker back to fix it before the quest can be marked done");
+    expect(source).toContain("open an immediate fix quest");
   });
 
   it("keeps skeptic-review summary creation guidance from teaching lossy long summaries", async () => {
@@ -146,6 +151,13 @@ describe("index startup skill registration", () => {
     const source = await readFile(WORKTREE_RULES_SKILL_PATH, "utf-8");
 
     // /port-changes owns sync evidence, but final Memory owns durable closure.
+    expect(source).toContain("Run the required pre-push gate");
+    expect(source).toContain("For tracked code/test changes, verify the main repo before pushing");
+    expect(source).toContain("focused affected tests for the accepted change");
+    expect(source).toContain("cd <BASE_REPO>/web && bun run test");
+    expect(source).toContain("Do not silently narrow the gate to focused tests");
+    expect(source).toContain("do not push");
+    expect(source).toContain("open an immediate fix quest");
     expect(source).toContain("--debrief-file /tmp/final-debrief.md");
     expect(source).toContain("--debrief-tldr-file /tmp/final-debrief-tldr.md");
     expect(source).toContain("Port is not final quest closure");
@@ -155,5 +167,21 @@ describe("index startup skill registration", () => {
     expect(source).toContain("accepted-state summary");
     expect(source).toContain("self-contained quest-journey understanding");
     expect(source).toContain("Keep routine commit hashes, branch names, command lists");
+  });
+
+  it("documents the full gate for tracked code/test changes in quest-facing guidance", async () => {
+    const docs = await Promise.all([
+      readFile(join(REPO_ROOT, "CLAUDE.md"), "utf-8"),
+      readFile(join(REPO_ROOT, "AGENTS.md"), "utf-8"),
+      readFile(QUEST_SKILL_TEMPLATE_PATH, "utf-8"),
+    ]);
+
+    for (const doc of docs) {
+      expect(doc).toContain("For tracked code/test changes");
+      expect(doc).toContain("cd web && bun run typecheck");
+      expect(doc).toContain("cd web && bun run test");
+      expect(doc).toContain("cd web && bun run format:check");
+      expect(doc).not.toContain("For refactor quests");
+    }
   });
 });

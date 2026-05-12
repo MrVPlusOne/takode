@@ -7,7 +7,8 @@ Leader actions:
 - Include the exact assignee brief path in the instruction: `~/.companion/quest-journey-phases/port/assignee.md`.
 - Send a separate explicit `/port-changes` instruction.
 - Require the assignee report to include `Synced SHAs: sha1,sha2`.
-- Require the appropriate post-port verification gate.
+- Require the strong Port verification gate for tracked code/test changes: focused affected tests plus full `bun run test`, `bun run typecheck`, and `bun run format:check` before push unless an explicit infeasibility exception is visible before final acceptance.
+- If the full suite fails and the failure is likely related to the current quest or port, route the worker back to fix it before the quest can be marked done. If the failure appears unrelated, open an immediate fix quest unless there is already an active quest for that failure being worked by another leader.
 - Treat Port as optional and narrow. Port syncs accepted tracked changes, verifies the main repo after sync, and reports synced SHAs and risks; it does not own final Memory closure.
 - When memory could affect final handoff, debrief accuracy, post-port risk, or the memory-update decision, provide context-specific memory deltas: memory files or decisions already inspected, accepted work that created durable facts, known freshness or audit concerns, and whether Port is explicitly assigned to write memory. The assignee brief owns the standard catalog-first reading, `memory catalog diff` freshness check, direct-file inspection, and memory-statement mechanics.
 - Keep durable memory writing out of normal Port unless you explicitly assign it. If accepted work created or changed memory-worthy durable facts and memory writing is not explicitly in Port scope, advance to final Memory with the deferral context or route a curator when the assignee reports a deferral.

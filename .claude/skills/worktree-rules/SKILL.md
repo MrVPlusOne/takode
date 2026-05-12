@@ -55,14 +55,32 @@ Track the resulting **main-repo SHAs** in the same order as you cherry-pick them
 
 If cherry-pick still conflicts (it shouldn't after a clean rebase), tell the user the conflicting files and ask how to proceed. Do not force-resolve or abort without asking.
 
-### 5. Verify and push
+### 5. Run the required pre-push gate
 
-Run `git -C <BASE_REPO> log --oneline -5` to confirm the commits landed correctly, then push:
+Run `git -C <BASE_REPO> log --oneline -5` to confirm the commits landed correctly.
+
+For tracked code/test changes, verify the main repo before pushing with:
+- focused affected tests for the accepted change
+- `cd <BASE_REPO>/web && bun run test`
+- `cd <BASE_REPO>/web && bun run typecheck`
+- `cd <BASE_REPO>/web && bun run format:check`
+
+`format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
+
+If a full run is infeasible, the exception must already be explicit in the Port handoff or be reported before final acceptance. Do not silently narrow the gate to focused tests.
+
+If the required pre-push gate fails:
+- If the failure is likely related to the current quest or port, do not push. Report the failure and the main repo's unpushed sync state so the leader can route the worker back to fix it before the quest can be marked done.
+- If the failure appears unrelated to the current port, do not hide it. Report the red-main risk explicitly; the leader should open an immediate fix quest unless there is already an active quest for that failure being worked by another leader.
+
+### 6. Push
+
+After the required pre-push gate passes or an explicit infeasibility exception is visible, push:
 ```bash
 git -C <BASE_REPO> push origin <BASE_BRANCH>
 ```
 
-### 6. Sync both worktree and local main branch
+### 7. Sync both worktree and local main branch
 
 - Reset this worktree branch to match the base branch: `git reset --hard <BASE_BRANCH>`
 - Fast-forward the local base branch in the main repo:
@@ -70,24 +88,17 @@ git -C <BASE_REPO> push origin <BASE_BRANCH>
   git -C <BASE_REPO> checkout <BASE_BRANCH> && git -C <BASE_REPO> merge --ff-only origin/<BASE_BRANCH>
   ```
 
-### 7. Run required post-port verification
+### 8. Run post-push sync verification
 
-After resetting, run the required post-port verification in the worktree to verify nothing broke. For refactor quests, the current full automated gate is:
-
-- `cd web && bun run typecheck`
-- `cd web && bun run test`
-- `cd web && bun run format:check`
-
-`format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now. If a full run is infeasible, document the exception explicitly in your report before calling the sync ready. If the required post-port verification fails:
-- (a) If the fix is straightforward, fix it, commit, and re-sync following steps 1-6
-- (b) Otherwise, explain the failures to the user and ask how to proceed
+After resetting, verify that the worktree and main repo are synced to the pushed branch. Run cheap consistency checks such as `git status`, `git log --oneline -5`, and `git diff --check`, plus any post-push reruns required by the Port handoff or by non-obvious pre-push risk. If post-push verification fails, report it explicitly and route a fix before final quest closure.
 
 ## Completion Checklist
 
 Do NOT report the sync as complete until ALL of the following are true:
 - [ ] Main repo log shows the cherry-picked commits
+- [ ] Required pre-push verification passed in the main repo, or an explicitly documented infeasibility exception is visible before final acceptance
 - [ ] Worktree has been reset to match the main repo branch
-- [ ] Required post-port verification has been run **after the reset** AND passed, or an explicitly documented full-run exception has been reported
+- [ ] Required post-push sync verification has been run after the reset and passed
 - [ ] Changes have been pushed to the remote
 
 ## Quest Status Rule

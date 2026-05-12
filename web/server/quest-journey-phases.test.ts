@@ -412,6 +412,28 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.assigneeBrief).toContain("memory statement");
   });
 
+  it("seeds Port briefs with the strong code/test pre-push verification gate", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const portPhase = phases.find((phase) => phase.id === "port");
+
+    expect(portPhase?.leaderBrief).toContain("strong Port verification gate for tracked code/test changes");
+    expect(portPhase?.leaderBrief).toContain("focused affected tests plus full `bun run test`");
+    expect(portPhase?.leaderBrief).toContain("before push");
+    expect(portPhase?.leaderBrief).toContain("explicit infeasibility exception");
+    expect(portPhase?.leaderBrief).toContain("route the worker back to fix it");
+    expect(portPhase?.leaderBrief).toContain("open an immediate fix quest");
+    expect(portPhase?.leaderBrief).toContain("already an active quest for that failure");
+
+    expect(portPhase?.assigneeBrief).toContain("strong Port verification gate by default");
+    expect(portPhase?.assigneeBrief).toContain("focused affected tests plus full `bun run test`");
+    expect(portPhase?.assigneeBrief).toContain("before pushing");
+    expect(portPhase?.assigneeBrief).toContain("skipped or failed full-suite evidence");
+    expect(portPhase?.assigneeBrief).toContain("pre-push and post-push verification results");
+  });
+
   it("seeds review phases with documentation quality checks", async () => {
     const companionHome = await makeCompanionHome();
     await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
