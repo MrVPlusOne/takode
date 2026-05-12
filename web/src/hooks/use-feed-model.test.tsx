@@ -39,6 +39,33 @@ function makeInjectedUserMessage(
   });
 }
 
+function makeNotifyToolMessage(id: string, timestamp: number): ChatMessage {
+  return makeMessage({
+    id,
+    role: "assistant",
+    content: "",
+    timestamp,
+    contentBlocks: [
+      {
+        type: "tool_use",
+        id: `${id}-tool`,
+        name: "Bash",
+        input: { command: 'takode notify needs-input "confirm proposal"' },
+      },
+    ],
+  });
+}
+
+function makeVisibleLeaderMessage(id: string, content: string, timestamp: number): ChatMessage {
+  return makeMessage({
+    id,
+    role: "assistant",
+    content,
+    timestamp,
+    metadata: { leaderUserMessage: true },
+  });
+}
+
 function makeJourneyFinishedRecord(overrides: Partial<SessionAttentionRecord> = {}): SessionAttentionRecord {
   const createdAt = overrides.createdAt ?? 4;
   return {
@@ -258,6 +285,176 @@ describe("leader mode collapsed preview without deprecated metadata", () => {
       "a-visible-after",
     ]);
     expect(entryIds(turn.agentEntries)).toEqual(["a-private-before", "a-private-after"]);
+  });
+});
+
+describe("leader mode segment-local needs-input preview selection", () => {
+  it("preserves normal segment summaries when no needs-input notification is present", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "coordinate work", timestamp: 1 }),
+      makeMessage({ id: "a-private", role: "assistant", content: "Checking the board before routing.", timestamp: 2 }),
+      makeVisibleLeaderMessage("a-status", "Worker is dispatched and I’m waiting for the read-in.", 3),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-status"]);
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-status"]);
+  });
+
+  it("promotes the proposal immediately before a needs-input notify call", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "make a quest", timestamp: 1 }),
+      makeMessage({
+        id: "a-proposal",
+        role: "assistant",
+        content:
+          "Proposed Quest\n\n- Title: Improve collapsed previews\n- Goal / Acceptance: keep proposals visible when confirmation is requested.",
+        timestamp: 2,
+      }),
+      makeNotifyToolMessage("a-notify", 3),
+      makeVisibleLeaderMessage("a-waiting", "Waiting on confirmation before creating the quest.", 4),
+    ];
+
+    const model = buildFeedModel(messages, true, 0, ["a-notify"]);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["a-proposal", "a-notify", "a-waiting"]);
+    expect(entryIds(turn.agentEntries)).toEqual([]);
+    expect(turn.stats.messageCount).toBe(0);
+  });
+
+  it("promotes the proposal immediately after a needs-input notify call", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "revise the proposal", timestamp: 1 }),
+      makeNotifyToolMessage("a-notify", 2),
+      makeMessage({
+        id: "a-proposal",
+        role: "assistant",
+        content:
+          "Proposed Quest\n\n- Title: Revised preview heuristic\n- Goal / Acceptance: implement the user-approved segment-local behavior.",
+        timestamp: 3,
+      }),
+      makeVisibleLeaderMessage("a-waiting", "Approval notification `42` is open for the revised proposal.", 4),
+    ];
+
+    const model = buildFeedModel(messages, true, 0, ["a-notify"]);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["a-notify", "a-proposal", "a-waiting"]);
+    expect(entryIds(turn.agentEntries)).toEqual([]);
+  });
+
+  it("promotes same-response text that also invokes a needs-input notify tool", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "confirm this plan", timestamp: 1 }),
+      makeMessage({
+        id: "a-mixed",
+        role: "assistant",
+        content:
+          "Proposed Quest\n\n- Title: Same response proposal\n- Goal / Acceptance: keep text eligible even when the response also calls notify.",
+        timestamp: 2,
+        contentBlocks: [
+          {
+            type: "tool_use",
+            id: "notify-tool",
+            name: "Bash",
+            input: { command: 'takode notify needs-input "approve same response proposal"' },
+          },
+        ],
+      }),
+      makeVisibleLeaderMessage("a-waiting", "Approval notification `43` is open for the same-response proposal.", 3),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["a-mixed", "a-waiting"]);
+    expect(entryIds(turn.agentEntries)).toEqual([]);
+  });
+
+  it("finds the proposal across intervening tool activity before the notify call", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "investigate CI", timestamp: 1 }),
+      makeMessage({
+        id: "a-proposal",
+        role: "assistant",
+        content:
+          "Checkpoint for [q-1335](quest:q-1335):\n\nFindings:\n- The failing job is macOS `bun run test`.\n- The user must choose the fix scope.",
+        timestamp: 2,
+      }),
+      makeMessage({
+        id: "a-board-tool",
+        role: "assistant",
+        content: "",
+        timestamp: 3,
+        contentBlocks: [
+          { type: "tool_use", id: "board-tool", name: "Bash", input: { command: "takode board detail q-1335" } },
+        ],
+      }),
+      makeNotifyToolMessage("a-notify", 4),
+      makeMessage({
+        id: "a-set-tool",
+        role: "assistant",
+        content: "",
+        timestamp: 5,
+        contentBlocks: [
+          { type: "tool_use", id: "set-tool", name: "Bash", input: { command: "takode board set q-1335" } },
+        ],
+      }),
+      makeVisibleLeaderMessage(
+        "a-waiting",
+        "Published the checkpoint and linked [q-1335](quest:q-1335) to needs-input `215`.",
+        6,
+      ),
+    ];
+
+    const model = buildFeedModel(messages, true, 0, ["a-notify"]);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["a-proposal", "activity", "a-notify", "activity", "a-waiting"]);
+    expect(entryIds(turn.agentEntries)).toEqual([]);
+  });
+
+  it("uses the successful retry context when a prior needs-input notify attempt was orphaned", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "change this icon", timestamp: 1 }),
+      makeMessage({
+        id: "a-proposal",
+        role: "assistant",
+        content:
+          "Proposed Quest\n\n- Title: Replace Memory tab icon with a brain icon\n- Goal / Acceptance: preserve navigation behavior and layout stability.",
+        timestamp: 2,
+      }),
+      makeNotifyToolMessage("a-orphaned-notify", 3),
+      makeNotifyToolMessage("a-retry-notify", 4),
+      makeVisibleLeaderMessage(
+        "a-waiting",
+        "Approval notification `390` is open for the Memory tab brain icon quest.",
+        5,
+      ),
+    ];
+
+    const model = buildFeedModel(messages, true, 0, ["a-retry-notify"]);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["a-proposal", "activity", "a-retry-notify", "a-waiting"]);
+    expect(entryIds(turn.agentEntries)).toEqual([]);
+  });
+
+  it("falls back to the existing short status when the segment has no substantive proposal", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "open a decision prompt", timestamp: 1 }),
+      makeNotifyToolMessage("a-notify", 2),
+      makeVisibleLeaderMessage("a-waiting", "Waiting on confirmation before dispatch.", 3),
+    ];
+
+    const model = buildFeedModel(messages, true, 0, ["a-notify"]);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["a-notify", "a-waiting"]);
+    expect(entryIds(turn.agentEntries)).toEqual([]);
   });
 });
 

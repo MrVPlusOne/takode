@@ -570,17 +570,142 @@ function shouldShowAttentionRecordInCollapsedTurn(record: SessionAttentionRecord
   return !(record.type === "needs_input" && record.source.kind === "notification");
 }
 
-function buildCollapsedTurnEntries(entries: FeedEntry[], visibleEntryKeys: ReadonlySet<string>): CollapsedTurnEntry[] {
+function messageText(msg: ChatMessage): string {
+  const content = msg.content.trim();
+  if (content) return content;
+  return (msg.contentBlocks ?? [])
+    .filter((block): block is Extract<ContentBlock, { type: "text" }> => block.type === "text")
+    .map((block) => block.text.trim())
+    .filter(Boolean)
+    .join("\n");
+}
+
+function toolInputHasNeedsInputNotify(input: Record<string, unknown>): boolean {
+  for (const value of Object.values(input)) {
+    if (typeof value !== "string") continue;
+    if (/\btakode\s+notify\s+needs-input\b/.test(value)) return true;
+  }
+  return false;
+}
+
+function messageHasNeedsInputNotifyTool(msg: ChatMessage): boolean {
+  return (msg.contentBlocks ?? []).some(
+    (block) => block.type === "tool_use" && toolInputHasNeedsInputNotify(block.input),
+  );
+}
+
+function entryHasNeedsInputSignal(entry: FeedEntry | null): boolean {
+  if (!entry) return false;
+  if (entry.kind === "tool_msg_group") return entry.items.some((item) => toolInputHasNeedsInputNotify(item.input));
+  if (entry.kind !== "message") return false;
+
+  const { msg } = entry;
+  return (
+    msg.notification?.category === "needs-input" ||
+    msg.metadata?.attentionRecord?.type === "needs_input" ||
+    messageHasNeedsInputNotifyTool(msg)
+  );
+}
+
+function isNeedsInputStatusText(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized) return true;
+  return (
+    /^approval notification `?\d+`? is open\b/i.test(normalized) ||
+    /^waiting on confirmation\b/i.test(normalized) ||
+    /\blinked .*needs-input `?\d+`?/i.test(normalized) ||
+    /\bwaiting on your (choice|confirmation|decision)\b/i.test(normalized)
+  );
+}
+
+function scoreNeedsInputPreviewCandidate(entry: FeedEntry): number {
+  if (entry.kind !== "message" || entry.msg.role !== "assistant") return Number.NEGATIVE_INFINITY;
+
+  const text = messageText(entry.msg);
+  if (!text || isNeedsInputStatusText(text)) return Number.NEGATIVE_INFINITY;
+
+  let score = 0;
+  if (messageHasNeedsInputNotifyTool(entry.msg)) score += 8;
+  if (/\b(Proposed Quest|Goal \/ Acceptance|Findings|Checkpoint|Recommendation|Decision|Journey)\b/i.test(text)) {
+    score += 5;
+  }
+  const bulletCount = text.split("\n").filter((line) => /^\s*[-*]\s+/.test(line)).length;
+  if (bulletCount >= 3) score += 3;
+  else if (bulletCount > 0) score += 1;
+  if (/\[(?:q-\d+|#\d+)[^\]]*\]\((?:quest|session):/.test(text)) score += 2;
+  if (text.length >= 120) score += 2;
+  if (text.length >= 400) score += 1;
+
+  return score;
+}
+
+function nearestPreviewCandidate(
+  entries: FeedEntry[],
+  start: number,
+  step: 1 | -1,
+): { index: number; score: number } | null {
+  for (let index = start; index >= 0 && index < entries.length; index += step) {
+    const score = scoreNeedsInputPreviewCandidate(entries[index]);
+    if (score > 0) return { index, score };
+  }
+  return null;
+}
+
+function chooseNeedsInputSegmentPreview(
+  hiddenEntries: FeedEntry[],
+  previousVisibleEntry: FeedEntry | null,
+  nextVisibleEntry: FeedEntry | null,
+): FeedEntry | null {
+  const candidates: Array<{ index: number; score: number }> = [];
+
+  if (entryHasNeedsInputSignal(nextVisibleEntry)) {
+    const candidate = nearestPreviewCandidate(hiddenEntries, hiddenEntries.length - 1, -1);
+    if (candidate) candidates.push({ ...candidate, score: candidate.score + 6 });
+  }
+
+  if (entryHasNeedsInputSignal(previousVisibleEntry)) {
+    const candidate = nearestPreviewCandidate(hiddenEntries, 0, 1);
+    if (candidate) candidates.push({ ...candidate, score: candidate.score + 6 });
+  }
+
+  for (let index = 0; index < hiddenEntries.length; index++) {
+    if (!entryHasNeedsInputSignal(hiddenEntries[index])) continue;
+    const sameEntryScore = scoreNeedsInputPreviewCandidate(hiddenEntries[index]);
+    if (sameEntryScore > 0) candidates.push({ index, score: sameEntryScore + 10 });
+
+    const before = nearestPreviewCandidate(hiddenEntries, index - 1, -1);
+    if (before) candidates.push({ ...before, score: before.score + 4 });
+
+    const after = nearestPreviewCandidate(hiddenEntries, index + 1, 1);
+    if (after) candidates.push({ ...after, score: after.score + 4 });
+  }
+
+  if (candidates.length === 0) return null;
+
+  candidates.sort((a, b) => {
+    if (b.score !== a.score) return b.score - a.score;
+    return b.index - a.index;
+  });
+  return hiddenEntries[candidates[0].index] ?? null;
+}
+
+function buildCollapsedTurnEntries(
+  entries: FeedEntry[],
+  visibleEntryKeys: ReadonlySet<string>,
+  leaderMode: boolean,
+): { collapsedEntries: CollapsedTurnEntry[]; promotedEntryKeys: Set<string> } {
   const collapsedEntries: CollapsedTurnEntry[] = [];
+  const promotedEntryKeys = new Set<string>();
   let hiddenStartKey: string | null = null;
   let hiddenEntries: FeedEntry[] = [];
+  let previousVisibleEntry: FeedEntry | null = null;
 
-  const flushHiddenActivity = () => {
-    if (hiddenStartKey === null || hiddenEntries.length === 0) return;
-    const stats = countEntryStats(hiddenEntries);
+  const pushHiddenActivity = (entriesToPush: FeedEntry[], startKey: string | null) => {
+    if (startKey === null || entriesToPush.length === 0) return;
+    const stats = countEntryStats(entriesToPush);
     collapsedEntries.push({
       kind: "activity",
-      key: `activity:${hiddenStartKey}:${hiddenEntries.length}`,
+      key: `activity:${startKey}:${entriesToPush.length}`,
       stats: {
         messageCount: stats.messages,
         toolCount: stats.tools,
@@ -588,6 +713,27 @@ function buildCollapsedTurnEntries(entries: FeedEntry[], visibleEntryKeys: Reado
         herdEventCount: stats.herdEvents,
       },
     });
+  };
+
+  const flushHiddenActivity = (nextVisibleEntry: FeedEntry | null) => {
+    if (hiddenStartKey === null || hiddenEntries.length === 0) return;
+    const promotedEntry = leaderMode
+      ? chooseNeedsInputSegmentPreview(hiddenEntries, previousVisibleEntry, nextVisibleEntry)
+      : null;
+
+    if (promotedEntry) {
+      const promotedKey = getEntryId(promotedEntry);
+      const promotedIndex = hiddenEntries.findIndex((entry) => getEntryId(entry) === promotedKey);
+      const before = hiddenEntries.slice(0, promotedIndex);
+      const after = hiddenEntries.slice(promotedIndex + 1);
+      pushHiddenActivity(before, before.length > 0 ? getEntryId(before[0]) : null);
+      collapsedEntries.push({ kind: "entry", key: `entry:${promotedKey}`, entry: promotedEntry });
+      promotedEntryKeys.add(promotedKey);
+      pushHiddenActivity(after, after.length > 0 ? getEntryId(after[0]) : null);
+    } else {
+      pushHiddenActivity(hiddenEntries, hiddenStartKey);
+    }
+
     hiddenStartKey = null;
     hiddenEntries = [];
   };
@@ -595,16 +741,17 @@ function buildCollapsedTurnEntries(entries: FeedEntry[], visibleEntryKeys: Reado
   for (const entry of entries) {
     const key = getEntryId(entry);
     if (visibleEntryKeys.has(key)) {
-      flushHiddenActivity();
+      flushHiddenActivity(entry);
       collapsedEntries.push({ kind: "entry", key: `entry:${key}`, entry });
+      previousVisibleEntry = entry;
       continue;
     }
     hiddenStartKey ??= key;
     hiddenEntries.push(entry);
   }
 
-  flushHiddenActivity();
-  return collapsedEntries;
+  flushHiddenActivity(null);
+  return { collapsedEntries, promotedEntryKeys };
 }
 
 /** Build a Turn from accumulated entries */
@@ -665,8 +812,14 @@ function makeTurn(
     collapsedVisibleEntryKeys.add(getEntryId(responseEntry));
     if (responseEntry.kind === "message") collapsedVisibleMessageIds.add(responseEntry.msg.id);
   }
+  const { collapsedEntries, promotedEntryKeys } = buildCollapsedTurnEntries(
+    rawAgentEntries,
+    collapsedVisibleEntryKeys,
+    leaderMode,
+  );
+  for (const key of promotedEntryKeys) collapsedVisibleEntryKeys.add(key);
+
   const agentEntries = rawAgentEntries.filter((entry) => !collapsedVisibleEntryKeys.has(getEntryId(entry)));
-  const collapsedEntries = buildCollapsedTurnEntries(rawAgentEntries, collapsedVisibleEntryKeys);
 
   // Extract sub-conclusions for normal sessions only. In leader sessions,
   // ordinary assistant text is private activity and should not be promoted
@@ -695,7 +848,8 @@ function makeTurn(
     stats: {
       // Subtract responseEntry and notificationEntries; remaining count reflects
       // messages still inside the collapsible agent activity section.
-      messageCount: s.messages - (responseEntry ? 1 : 0) - notificationEntries.length,
+      messageCount:
+        s.messages - (responseEntry ? 1 : 0) - countEntryStats(notificationEntries).messages - promotedEntryKeys.size,
       toolCount: s.tools,
       subagentCount: s.subagents,
       herdEventCount: s.herdEvents,
