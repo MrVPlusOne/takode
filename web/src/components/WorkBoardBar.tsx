@@ -1049,10 +1049,10 @@ function ThreadTabRail({
                     <button
                       type="button"
                       aria-label={`Close ${displayQuestId ?? displayTitle}`}
-                      className={`inline-flex shrink-0 items-center justify-center overflow-hidden border-l border-current/10 text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:w-5 focus-visible:border-l focus-visible:opacity-100 ${
+                      className={`inline-flex w-5 shrink-0 items-center justify-center overflow-hidden border-l border-current/10 text-cc-muted transition-colors hover:bg-cc-hover hover:text-cc-fg focus-visible:border-current/10 focus-visible:opacity-100 ${
                         selected
                           ? "w-5 opacity-100"
-                          : "w-5 opacity-70 sm:w-0 sm:border-l-0 sm:opacity-0 sm:group-hover:w-5 sm:group-hover:border-l sm:group-hover:opacity-100"
+                          : "opacity-70 sm:pointer-events-none sm:border-transparent sm:opacity-0 sm:group-hover:pointer-events-auto sm:group-hover:border-current/10 sm:group-hover:opacity-100"
                       }`}
                       data-testid="thread-tab-close"
                       data-compact-close="true"

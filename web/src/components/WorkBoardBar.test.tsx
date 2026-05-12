@@ -912,18 +912,20 @@ describe("WorkBoardBar", () => {
     const inactiveClose = within(tabs[1]).getByTestId("thread-tab-close");
     expect(inactiveClose).toHaveAttribute("data-compact-close", "true");
     expect(inactiveClose).toHaveAttribute("data-selected", "false");
+    // The close affordance reserves a constant slot, so hover/focus can reveal it
+    // without changing the tab's measured width or shifting neighboring tabs.
     expect(inactiveClose).toHaveClass(
       "w-5",
-      "sm:w-0",
-      "sm:border-l-0",
+      "sm:pointer-events-none",
+      "sm:border-transparent",
       "sm:opacity-0",
-      "sm:group-hover:w-5",
-      "sm:group-hover:border-l",
+      "sm:group-hover:pointer-events-auto",
+      "sm:group-hover:border-current/10",
       "sm:group-hover:opacity-100",
-      "focus-visible:w-5",
-      "focus-visible:border-l",
+      "focus-visible:border-current/10",
       "focus-visible:opacity-100",
     );
+    expect(inactiveClose).not.toHaveClass("sm:w-0", "sm:group-hover:w-5", "focus-visible:w-5");
   });
 
   it("keeps selected Main as one connected surface while active output uses a separate marker", () => {
