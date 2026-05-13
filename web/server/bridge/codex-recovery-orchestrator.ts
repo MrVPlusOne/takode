@@ -1149,7 +1149,7 @@ export function registerCodexAdapterRecoveryLifecycle(
       });
     } else if (!intentionalRelaunch && session.consecutiveAdapterFailures > deps.maxAdapterRelaunchFailures) {
       console.error(
-        `[ws-bridge] Codex adapter for session ${sessionTag(sessionId)} exceeded ${deps.maxAdapterRelaunchFailures} consecutive failures — stopping auto-relaunch`,
+        `[ws-bridge] Codex adapter for session ${sessionTag(sessionId)} exceeded ${deps.maxAdapterRelaunchFailures} consecutive adapter-disconnect recovery attempts -- pausing adapter-disconnect auto-relaunch`,
       );
       deps.emitTakodeEvent(sessionId, "session_disconnected", {
         wasGenerating,
@@ -1157,7 +1157,7 @@ export function registerCodexAdapterRecoveryLifecycle(
       });
       deps.broadcastToBrowsers(session, {
         type: "error",
-        message: `Session stopped after ${deps.maxAdapterRelaunchFailures} consecutive launch failures. Use the relaunch button to try again.`,
+        message: `Codex disconnected repeatedly after ${deps.maxAdapterRelaunchFailures} automatic recovery attempts. Adapter-disconnect auto-relaunch is paused; use the relaunch button to retry. Orchestrator sessions may also be woken by queued herd events when safe.`,
       });
     } else if (!intentionalRelaunch && !deps.hasCliRelaunchCallback) {
       deps.emitTakodeEvent(sessionId, "session_disconnected", {

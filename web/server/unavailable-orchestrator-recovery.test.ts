@@ -75,6 +75,18 @@ describe("shouldWakeUnavailableOrchestratorForPendingEvents", () => {
       }),
     ).toBe(false);
   });
+
+  it("allows pending herd events to wake Codex leaders after adapter retry-limit exhaustion", () => {
+    // Adapter-disconnect retry exhaustion pauses that relaunch loop, but it is
+    // not a terminal broken state. Pending herd events may still wake the leader
+    // through the explicit orchestrator recovery path.
+    expect(
+      shouldWakeUnavailableOrchestratorForPendingEvents(
+        makeSession({ consecutiveAdapterFailures: 4, lastAdapterFailureAt: Date.now() }),
+        makeDeps({ isOrchestrator: true, state: "exited" }),
+      ),
+    ).toBe(true);
+  });
 });
 
 describe("createUnavailableOrchestratorRecoveryWake", () => {
@@ -110,5 +122,18 @@ describe("createUnavailableOrchestratorRecoveryWake", () => {
 
     expect(wake("leader-1", "pending_herd_event_dead_backend")).toBe(true);
     expect(requestCliRelaunch).toHaveBeenCalledWith("leader-1");
+  });
+
+  it("requests Codex recovery for pending herd events after adapter retry-limit exhaustion", () => {
+    const exhaustedSession = makeSession({ consecutiveAdapterFailures: 4 });
+    const requestCodexAutoRecovery = vi.fn(() => true);
+    const wake = createUnavailableOrchestratorRecoveryWake({
+      getSession: () => exhaustedSession,
+      getLauncherSessionInfo: () => ({ isOrchestrator: true, state: "exited" }),
+      requestCodexAutoRecovery,
+    });
+
+    expect(wake("leader-1", "pending_herd_event_dead_backend")).toBe(true);
+    expect(requestCodexAutoRecovery).toHaveBeenCalledWith(exhaustedSession, "pending_herd_event_dead_backend");
   });
 });

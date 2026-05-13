@@ -681,7 +681,7 @@ describe("Codex disconnect auto-relaunch", () => {
     expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected", reason: "idle_limit" }));
   });
 
-  it("stops auto-relaunch after repeated reconnect failures even across session_init", () => {
+  it("pauses adapter-disconnect auto-relaunch after repeated disconnects even across session_init", () => {
     const sid = "s1";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
@@ -703,11 +703,12 @@ describe("Codex disconnect auto-relaunch", () => {
 
     expect(relaunchCb).toHaveBeenCalledTimes(3);
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
-    expect(calls).toContainEqual(
-      expect.objectContaining({
-        type: "error",
-        message: expect.stringContaining("Session stopped after 3 consecutive launch failures"),
-      }),
-    );
+    const errorMessage = (calls as Array<{ type?: string; message?: string }>).find(
+      (call) => call.type === "error",
+    )?.message;
+    expect(errorMessage).toContain("Codex disconnected repeatedly after 3 automatic recovery attempts");
+    expect(errorMessage).toContain("Adapter-disconnect auto-relaunch is paused");
+    expect(errorMessage).toContain("Orchestrator sessions may also be woken by queued herd events when safe");
+    expect(errorMessage).not.toContain("this session");
   });
 });
