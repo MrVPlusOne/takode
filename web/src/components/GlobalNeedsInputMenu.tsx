@@ -222,7 +222,7 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
   return (
     <div className="px-3 py-2.5 hover:bg-cc-hover/35 transition-colors">
       <div className="flex items-start gap-2">
-        <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-amber-400" aria-hidden="true" />
+        <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-cc-attention" aria-hidden="true" />
         <div className="min-w-0 flex-1">
           <div className="flex min-w-0 items-center gap-1.5">
             <span className="truncate text-[11px] font-medium text-cc-muted" title={sessionLabel}>
@@ -262,7 +262,7 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
                       key={answer}
                       type="button"
                       onClick={() => setQuestionAnswer(question.key, answer)}
-                      className="max-w-full truncate rounded border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200 transition-colors hover:bg-amber-400/20 cursor-pointer"
+                      className="max-w-full truncate rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
                       title={`Use suggested answer: ${answer}`}
                     >
                       {answer}
@@ -275,7 +275,7 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
                 value={answersByQuestion[question.key] ?? ""}
                 onChange={(e) => setQuestionAnswer(question.key, e.currentTarget.value)}
                 aria-label={`Answer for ${question.prompt}`}
-                className="w-full rounded border border-cc-border/60 bg-cc-bg/70 px-2 py-1 text-[12px] text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-amber-400/45"
+                className="w-full rounded border border-cc-border/60 bg-cc-bg/70 px-2 py-1 text-[12px] text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-cc-attention"
                 placeholder="Your answer"
               />
             </div>
@@ -284,11 +284,11 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
             type="button"
             onClick={sendResponse}
             disabled={!canSubmitResponse}
-            className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-100 transition-colors hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+            className="rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
           >
             {sending ? "Sending..." : deliveryError ? "Retry" : "Send Response"}
           </button>
-          {deliveryError && <p className="text-[10px] leading-snug text-amber-200/80">{deliveryError}</p>}
+          {deliveryError && <p className="text-[10px] leading-snug text-cc-attention">{deliveryError}</p>}
         </div>
       )}
     </div>
@@ -417,12 +417,12 @@ export function GlobalNeedsInputMenu() {
         ref={triggerRef}
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="inline-flex h-7 items-center gap-1 rounded-lg border border-amber-400/20 bg-amber-400/10 px-2 text-[11px] font-medium text-amber-200 transition-colors hover:border-amber-400/35 hover:bg-amber-400/15 cursor-pointer"
+        className="inline-flex h-7 items-center gap-1 rounded-lg border border-cc-attention-border bg-cc-attention-bg px-2 text-[11px] font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
         aria-label={`${count} unresolved needs-input ${count === 1 ? "notification" : "notifications"} across sessions`}
         title="Needs-input notifications across sessions"
       >
         <span>{count}</span>
-        <BellIcon className="h-3.5 w-3.5 shrink-0 text-amber-300" />
+        <BellIcon className="h-3.5 w-3.5 shrink-0 text-cc-attention" />
       </button>
       {open && (
         <GlobalNeedsInputPopover entries={entries} sdkSessions={sdkSessions} onClose={close} triggerRef={triggerRef} />

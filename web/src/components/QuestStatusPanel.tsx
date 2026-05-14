@@ -191,7 +191,7 @@ function OwnerChip({ context }: { context: QuestStatusContext }) {
       <SessionInlineLink
         sessionId={ownerSessionId}
         sessionNum={ownerSessionNum}
-        className="min-w-0 truncate font-mono-code text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2"
+        className="min-w-0 truncate font-mono-code text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
       >
         {ownerSessionNum != null ? `#${ownerSessionNum}` : ownerSessionId.slice(0, 8)}
       </SessionInlineLink>
@@ -215,7 +215,7 @@ function LeaderChip({ quest }: { quest?: QuestmasterTask }) {
         sessionId={leaderSessionId}
         sessionNum={leaderSessionNum}
         threadKey={quest.questId}
-        className="min-w-0 truncate font-mono-code text-blue-400 hover:text-blue-300 hover:underline decoration-dotted underline-offset-2"
+        className="min-w-0 truncate font-mono-code text-cc-info hover:text-cc-info-strong hover:underline decoration-dotted underline-offset-2"
       >
         {leaderSessionNum != null ? `#${leaderSessionNum}` : leaderSessionId.slice(0, 8)}
       </SessionInlineLink>
@@ -226,11 +226,11 @@ function LeaderChip({ quest }: { quest?: QuestmasterTask }) {
 function MetricPill({ label, value, tone = "muted" }: { label: string; value: string; tone?: "muted" | "attention" }) {
   const toneClass =
     tone === "attention"
-      ? "border-amber-400/20 bg-amber-400/10 text-amber-200"
+      ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention"
       : "border-cc-border bg-cc-hover/60 text-cc-muted";
   return (
     <span className={`inline-flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[10px] ${toneClass}`}>
-      <span className="text-cc-muted/75">{label}</span>
+      <span className="text-current">{label}</span>
       <span className="font-medium text-cc-fg">{value}</span>
     </span>
   );
@@ -277,7 +277,7 @@ export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
           aria-label={`Open details for ${context.questId}`}
         >
           <div className="flex min-w-0 items-baseline gap-2">
-            <span className="shrink-0 font-mono-code text-[11px] text-blue-400 group-hover:text-blue-300">
+            <span className="shrink-0 font-mono-code text-[11px] text-cc-info group-hover:text-cc-info-strong">
               {context.questId}
             </span>
             <span className="min-w-0 truncate text-[13px] font-semibold leading-snug text-cc-fg group-hover:text-cc-primary">
@@ -296,7 +296,7 @@ export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
               <SessionInlineLink
                 sessionId={context.row.worker}
                 sessionNum={context.row.workerNum}
-                className="font-mono-code text-[11px] text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2"
+                className="font-mono-code text-[11px] text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
               >
                 {context.row.workerNum != null ? `#${context.row.workerNum}` : context.row.worker.slice(0, 8)}
               </SessionInlineLink>
@@ -322,7 +322,7 @@ export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
         )}
 
         {attention && (
-          <div className="mt-2 rounded-md border border-amber-400/20 bg-amber-400/10 px-2 py-1.5 text-[11px] leading-snug text-amber-100">
+          <div className="mt-2 rounded-md border border-cc-attention-border bg-cc-attention-bg px-2 py-1.5 text-[11px] leading-snug text-cc-attention">
             {attention}
           </div>
         )}

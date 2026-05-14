@@ -36,8 +36,8 @@ export function QuestClaimBlock({
   const statusInfo = getQuestStatusTheme(quest.status);
   const isSubmitted = variant === "submitted";
   const headerLabel = isSubmitted ? "Quest Ready for Review" : "Quest Claimed";
-  const borderColor = isSubmitted ? "border-purple-500/30" : "border-amber-500/30";
-  const accentColor = isSubmitted ? "text-purple-400" : "text-amber-400";
+  const borderColor = isSubmitted ? "border-cc-status-done/30" : "border-cc-attention-border";
+  const accentColor = isSubmitted ? "text-cc-status-done" : "text-cc-attention";
 
   useEffect(() => {
     if (!detailsOpen) return;

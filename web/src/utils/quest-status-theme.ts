@@ -11,31 +11,31 @@ export interface QuestStatusTheme {
 export const QUEST_STATUS_THEME: Record<QuestStatus, QuestStatusTheme> = {
   idea: {
     label: "Idea",
-    dot: "bg-zinc-400",
-    bg: "bg-zinc-500/10",
-    text: "text-zinc-400",
-    border: "border-zinc-500/20",
+    dot: "bg-cc-status-idea",
+    bg: "bg-cc-status-idea/10",
+    text: "text-cc-status-idea",
+    border: "border-cc-status-idea/25",
   },
   refined: {
     label: "Refined",
-    dot: "bg-amber-400",
-    bg: "bg-amber-500/10",
-    text: "text-amber-400",
-    border: "border-amber-500/20",
+    dot: "bg-cc-status-refined",
+    bg: "bg-cc-status-refined/10",
+    text: "text-cc-status-refined",
+    border: "border-cc-status-refined/25",
   },
   in_progress: {
     label: "In Progress",
-    dot: "bg-green-400",
-    bg: "bg-green-500/10",
-    text: "text-green-400",
-    border: "border-green-500/20",
+    dot: "bg-cc-status-progress",
+    bg: "bg-cc-status-progress/10",
+    text: "text-cc-status-progress",
+    border: "border-cc-status-progress/25",
   },
   done: {
     label: "Done",
-    dot: "bg-purple-400",
-    bg: "bg-purple-500/10",
-    text: "text-purple-400",
-    border: "border-purple-500/20",
+    dot: "bg-cc-status-done",
+    bg: "bg-cc-status-done/10",
+    text: "text-cc-status-done",
+    border: "border-cc-status-done/25",
   },
 };
 
@@ -44,9 +44,9 @@ export function getQuestStatusTheme(status: string): QuestStatusTheme {
   if (known) return known;
   return {
     label: status,
-    dot: "bg-zinc-400",
-    bg: "bg-zinc-500/10",
+    dot: "bg-cc-status-idea",
+    bg: "bg-cc-status-idea/10",
     text: "text-cc-muted",
-    border: "border-zinc-500/20",
+    border: "border-cc-status-idea/25",
   };
 }

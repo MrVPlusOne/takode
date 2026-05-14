@@ -4,6 +4,7 @@ import {
   type QuestPhaseDocumentationSummary,
 } from "../../shared/quest-phase-documentation-summary.js";
 import { timeAgo } from "../utils/quest-helpers.js";
+import { getQuestPhaseBorderStyle, getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestPhaseNoteImages } from "./QuestPhaseNoteImages.js";
 import { SessionNumChip } from "./SessionNumChip.js";
@@ -56,7 +57,12 @@ export function QuestPhaseDocumentationTimeline({
                 <span
                   className="mt-1 h-2.5 w-2.5 rounded-full border"
                   style={
-                    phase ? { borderColor: phase.color.accent, backgroundColor: `${phase.color.accent}22` } : undefined
+                    phase
+                      ? {
+                          ...getQuestPhaseBorderStyle(phase),
+                          backgroundColor: getQuestPhaseColorValue(phase.color, 0.13),
+                        }
+                      : undefined
                   }
                   aria-hidden="true"
                 />

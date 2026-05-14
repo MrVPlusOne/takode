@@ -7,6 +7,7 @@ import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
 import type { QuestJourneyPhaseId } from "../../shared/quest-journey.js";
 import type { QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
 import type { LeaderWorkboardView } from "../store-types.js";
+import { getQuestPhaseColorValue, getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
 
 // ─── WorkBoardBar component tests ─────────────────────────────────────────────
 
@@ -164,6 +165,16 @@ function expectNoNotificationSurfaceTone(element: HTMLElement) {
   expect(element.className).not.toContain("border-blue-400/35");
   expect(element.className).not.toContain("bg-blue-400/10");
   expect(element.className).not.toContain("text-blue-100");
+}
+
+function getPhaseColor(status: string): string | undefined {
+  const phase = getQuestJourneyPhaseForState(status);
+  return phase ? getQuestPhaseColorValue(phase.color) : undefined;
+}
+
+function getPhaseThreadTabTitleColor(status: string): string | undefined {
+  const phase = getQuestJourneyPhaseForState(status);
+  return phase ? getQuestPhaseThreadTabTitleColorValue(phase.color) : undefined;
 }
 
 beforeEach(() => {
@@ -838,9 +849,7 @@ describe("WorkBoardBar", () => {
 
     const implementingTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     const implementingTitle = within(implementingTab).getByTestId("thread-tab-title");
-    expect(implementingTitle).toHaveStyle({
-      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
-    });
+    expect(implementingTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("IMPLEMENTING"));
     expect(implementingTitle).toHaveTextContent("q-1");
     expect(implementingTitle).toHaveTextContent("Fix bug");
     expect(within(implementingTab).queryByText("Implement")).not.toBeInTheDocument();
@@ -897,7 +906,7 @@ describe("WorkBoardBar", () => {
       // The fixed minimum protects the quest id; the More list owns real overflow.
       expect(tab).toHaveClass("min-w-[var(--thread-tab-width)]", "max-w-[14rem]", "flex-[1_1_var(--thread-tab-width)]");
     }
-    expect(tabs[0]).toHaveClass("border-violet-100/45", "border-b-transparent", "text-white");
+    expect(tabs[0]).toHaveClass("border-cc-primary/45", "border-b-transparent", "text-cc-fg");
     expect(within(tabs[0]).getByTestId("thread-tab-select")).toHaveClass(
       "focus-visible:ring-violet-100/70",
       "focus-visible:ring-inset",
@@ -967,8 +976,8 @@ describe("WorkBoardBar", () => {
     const mainTab = getByTestId("thread-main-tab");
     expect(mainTab).toHaveAttribute("aria-pressed", "true");
     expect(mainTab).toHaveAttribute("data-active-output", "true");
-    expect(mainTab).toHaveClass("border-violet-100/45", "border-b-transparent", "text-white");
-    expect(mainTab).toHaveClass("bg-white/[0.055]");
+    expect(mainTab).toHaveClass("border-cc-primary/45", "border-b-transparent", "text-cc-fg");
+    expect(mainTab).toHaveClass("bg-cc-card");
     expect(mainTab.className).not.toContain("rgba(139,92,246");
     expect(mainTab).toHaveClass("focus-visible:ring-violet-100/70");
     expect(mainTab).not.toHaveClass("border-amber-400/60", "border-cc-primary/70", "border-b-cc-bg");
@@ -1018,16 +1027,17 @@ describe("WorkBoardBar", () => {
     expect(within(activeTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "false");
     expect(activeTab).toHaveAttribute("data-active-output", "true");
     expect(within(activeTab).getByTestId("thread-tab-active-output-indicator")).toBeInTheDocument();
-    expect(within(activeTab).getByTestId("thread-tab-title")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
-    });
+    expect(within(activeTab).getByTestId("thread-tab-title")).toHaveAttribute(
+      "data-title-color",
+      getPhaseThreadTabTitleColor("IMPLEMENTING"),
+    );
     expect(within(activeTab).getByTestId("thread-tab-title").getAttribute("style") ?? "").not.toContain("animation");
 
     const selectedTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
     expect(within(selectedTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
     expect(selectedTab).toHaveAttribute("data-active-output", "false");
-    expect(selectedTab).toHaveClass("border-violet-100/45", "border-b-transparent", "text-white");
-    expect(selectedTab).toHaveClass("bg-white/[0.055]");
+    expect(selectedTab).toHaveClass("border-cc-primary/45", "border-b-transparent", "text-cc-fg");
+    expect(selectedTab).toHaveClass("bg-cc-card");
     expect(selectedTab.className).not.toContain("rgba(139,92,246");
     expect(selectedTab).not.toHaveClass("border-amber-400/60", "border-cc-primary/70");
     expect(within(selectedTab).queryByTestId("thread-tab-active-output-indicator")).not.toBeInTheDocument();
@@ -1064,9 +1074,7 @@ describe("WorkBoardBar", () => {
 
     const implementingTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
     const implementingTitle = within(implementingTab).getByTestId("thread-tab-title");
-    expect(implementingTitle).toHaveStyle({
-      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
-    });
+    expect(implementingTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("IMPLEMENTING"));
     expect(implementingTitle).toHaveTextContent("q-1");
     expect(implementingTitle).toHaveTextContent("Fix bug");
     expect(within(implementingTab).queryByText("Implement")).not.toBeInTheDocument();
@@ -1106,7 +1114,7 @@ describe("WorkBoardBar", () => {
     const completedTitle = within(completedTab).getByTestId("thread-tab-title");
     expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(completedTitle).not.toHaveStyle({
-      color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
+      color: getPhaseColor("PORTING"),
     });
   });
 
@@ -1134,7 +1142,7 @@ describe("WorkBoardBar", () => {
     const completedTitle = within(completedTab).getByTestId("thread-tab-title");
     expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(completedTitle).not.toHaveStyle({
-      color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
+      color: getPhaseColor("PORTING"),
     });
   });
 
@@ -1175,9 +1183,7 @@ describe("WorkBoardBar", () => {
     const tab = getAllByTestId("thread-tab").find((candidate) => candidate.getAttribute("data-thread-key") === "q-3")!;
     expect(tab).toHaveAttribute("data-closable", "false");
     const title = within(tab).getByTestId("thread-tab-title");
-    expect(title).toHaveStyle({
-      color: getQuestJourneyPhaseForState("USER_CHECKPOINTING")?.color.accent,
-    });
+    expect(title).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("USER_CHECKPOINTING"));
     expect(title).not.toHaveAttribute("data-title-color", "var(--color-cc-muted)");
   });
 
@@ -1216,7 +1222,7 @@ describe("WorkBoardBar", () => {
     expect(summary).toHaveTextContent("1 Implement");
     expect(summary).toHaveTextContent("1 Queued");
     expect(within(summary).getByText("1 Implement")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
+      color: getPhaseColor("IMPLEMENTING"),
     });
   });
 
@@ -1249,9 +1255,7 @@ describe("WorkBoardBar", () => {
     expect(bell).not.toHaveClass("animate-pulse");
     const activeTitle = within(needsInputTab).getByTestId("thread-tab-title");
     expect(activeTitle).toHaveAttribute("data-active-output", "true");
-    expect(activeTitle).toHaveStyle({
-      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
-    });
+    expect(activeTitle).toHaveAttribute("data-title-color", getPhaseThreadTabTitleColor("IMPLEMENTING"));
     expect(activeTitle.getAttribute("style") ?? "").not.toContain("animation");
     expect(activeTitle).not.toHaveClass("border");
     expect(activeTitle).not.toHaveClass("bg-sky-400/10");
@@ -1286,7 +1290,7 @@ describe("WorkBoardBar", () => {
     expect(within(noBellTab).queryByTestId("thread-tab-needs-input-bell")).not.toBeInTheDocument();
   });
 
-  it("prioritizes an amber bell when a visible tab has needs-input and blue notification attention", () => {
+  it("prioritizes a needs-input bell when a visible tab has needs-input and review attention", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", [{ ...BOARD_DATA[0]!, waitForInput: ["n-1"] }, BOARD_DATA[1]!]]]),
@@ -1316,11 +1320,11 @@ describe("WorkBoardBar", () => {
     expect(reviewTab).toHaveAttribute("data-blue-notification", "true");
     expect(reviewTab).toHaveAttribute("data-needs-input", "true");
     expectNoNotificationSurfaceTone(reviewTab);
-    expect(within(reviewTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+    expect(within(reviewTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
     expect(within(reviewTab).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
 
     const currentTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
-    expect(currentTab).toHaveClass("border-violet-100/45", "bg-white/[0.055]", "text-white");
+    expect(currentTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
   });
 
   it("marks the output glint as reduced-motion-disabled while keeping the static marker contract", () => {
@@ -1390,12 +1394,12 @@ describe("WorkBoardBar", () => {
     expect(mainTab).toHaveAttribute("data-needs-input", "true");
     expect(mainTab).toHaveTextContent("Answer");
     expectNoNotificationSurfaceTone(mainTab);
-    expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+    expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
     expect(queryByTestId("thread-chip")).not.toBeInTheDocument();
     expect(getByTestId("thread-tab-rail")).toHaveAttribute("data-closed-chip-count", "0");
   });
 
-  it("renders Main needs-input as an amber bell without tinting Main while a quest tab is current", () => {
+  it("renders Main needs-input as an attention bell without tinting Main while a quest tab is current", () => {
     resetStore({
       sdkSessions: [{ sessionId: "s1", isOrchestrator: true }],
       sessionBoards: new Map([["s1", BOARD_DATA]]),
@@ -1424,10 +1428,10 @@ describe("WorkBoardBar", () => {
     expect(mainTab).toHaveAttribute("data-needs-input", "true");
     expect(mainTab).toHaveTextContent("Answer");
     expectNoNotificationSurfaceTone(mainTab);
-    expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+    expect(within(mainTab).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
 
     const currentTab = getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
-    expect(currentTab).toHaveClass("border-violet-100/45", "bg-white/[0.055]", "text-white");
+    expect(currentTab).toHaveClass("border-cc-primary/45", "bg-cc-card", "text-cc-fg");
   });
 
   it("keeps closed inactive history hidden unless the user has opened it as a tab", () => {

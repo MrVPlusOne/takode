@@ -24,7 +24,7 @@ describe("QuestClaimBlock", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /Quest Claimed/i }));
     const inProgressBadge = screen.getByText("In Progress");
-    expect(inProgressBadge).toHaveClass("text-green-400");
+    expect(inProgressBadge).toHaveClass("text-cc-status-progress");
   });
 
   it("renders leader session attribution when the quest includes a leader", () => {

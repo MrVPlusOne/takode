@@ -24,6 +24,7 @@ import { QUEST_STATUS_THEME } from "../utils/quest-status-theme.js";
 import { getQuestJourneyPhaseForState, getQuestJourneyPresentation } from "../../shared/quest-journey.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { SessionNumChip } from "./SessionNumChip.js";
+import { getQuestPhaseDotStyle, getQuestPhaseTextStyle } from "../utils/quest-phase-theme.js";
 
 const STATUS_SORT_RANK: Record<QuestStatus, number> = {
   idea: 0,
@@ -69,6 +70,7 @@ export type QuestmasterDisplayStatus = {
   dotClass?: string;
   dotStyle?: CSSProperties;
   textClass: string;
+  textStyle?: CSSProperties;
   sortRank: number;
 };
 
@@ -126,12 +128,12 @@ export function getQuestmasterDisplayStatus(
     const presentation = getQuestJourneyPresentation(journeyContext.row.status);
     const phase = getQuestJourneyPhaseForState(journeyContext.row.status);
     if (presentation || phase) {
-      const accent = phase?.color.accent;
       return {
         label: presentation?.label ?? phase?.label ?? "In Progress",
-        dotStyle: accent ? { backgroundColor: accent } : undefined,
-        dotClass: accent ? undefined : QUEST_STATUS_THEME.in_progress.dot,
-        textClass: "text-cc-muted",
+        dotStyle: phase ? getQuestPhaseDotStyle(phase) : undefined,
+        dotClass: phase ? undefined : QUEST_STATUS_THEME.in_progress.dot,
+        textClass: phase ? "" : "text-cc-muted",
+        textStyle: phase ? getQuestPhaseTextStyle(phase) : undefined,
         sortRank: 2,
       };
     }
@@ -158,7 +160,7 @@ export function renderSearchHighlightText(text: string, searchText: string): Rea
     <>
       {parts.map((part, index) =>
         part.matched ? (
-          <mark key={`${part.text}-${index}`} className="bg-amber-300/25 text-amber-100 rounded-[2px] px-0.5">
+          <mark key={`${part.text}-${index}`} className="rounded-[2px] bg-cc-attention-bg px-0.5 text-cc-attention">
             {part.text}
           </mark>
         ) : (
@@ -527,7 +529,7 @@ function CompactQuestIdControls({ quest, searchText }: { quest: QuestmasterTask;
     >
       <a
         href={`#/questmaster?quest=${quest.questId}`}
-        className="justify-self-start font-mono-code text-blue-400 hover:text-blue-300 hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-blue-300/70 rounded-sm"
+        className="justify-self-start font-mono-code text-cc-info hover:text-cc-info-strong hover:underline focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-info/70 rounded-sm"
         onClick={(event) => {
           event.preventDefault();
           event.stopPropagation();
@@ -643,7 +645,10 @@ const CompactQuestRow = memo(function CompactQuestRow({
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle">
         <QuestStatusHoverTarget quest={quest}>
-          <span className={`inline-flex items-center gap-1.5 ${displayStatus.textClass}`}>
+          <span
+            className={`inline-flex items-center gap-1.5 ${displayStatus.textClass}`}
+            style={displayStatus.textStyle}
+          >
             <span
               className={`h-1.5 w-1.5 rounded-full ${displayStatus.dotClass ?? ""}`}
               style={displayStatus.dotStyle}
@@ -657,7 +662,7 @@ const CompactQuestRow = memo(function CompactQuestRow({
       </td>
       <td className="px-3 py-1.5 whitespace-nowrap align-middle tabular-nums">
         {totalFeedbackCount > 0 ? (
-          <span className={unaddressedFeedbackCount > 0 ? "text-amber-400" : "text-emerald-400/70"}>
+          <span className={unaddressedFeedbackCount > 0 ? "text-cc-attention" : "text-cc-status-progress"}>
             {unaddressedFeedbackCount > 0
               ? `${unaddressedFeedbackCount} open / ${totalFeedbackCount}`
               : `${totalFeedbackCount} addressed`}

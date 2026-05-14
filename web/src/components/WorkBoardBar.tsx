@@ -32,6 +32,7 @@ import type { BoardRowData } from "./BoardTable.js";
 import { isCompletedJourneyPresentationStatus } from "./QuestJourneyTimeline.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY } from "../utils/thread-projection.js";
 import { isAttentionRecordActive, type AttentionRecord } from "../utils/attention-records.js";
+import { getQuestPhaseThreadTabTitleColorValue } from "../utils/quest-phase-theme.js";
 import type { QuestmasterTask } from "../types.js";
 import { QuestHoverCard } from "./QuestHoverCard.js";
 import { activeBoardSummarySegments, boardSummary, type BoardSummarySegment } from "./leader-board-summary.js";
@@ -418,7 +419,7 @@ function boardRowTitleColor(row: BoardRowData): string | undefined {
   if ((row.status ?? "").trim().toUpperCase() === "QUEUED") return QUEUED_THREAD_TITLE_COLOR;
   const currentPhase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
   const phase = currentPhase ?? getQuestJourneyPhaseForState(row.status);
-  return phase?.color.accent;
+  return phase ? getQuestPhaseThreadTabTitleColorValue(phase.color) : undefined;
 }
 
 function doneThreadTitleColor({
@@ -688,7 +689,7 @@ function ThreadTabRail({
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="relative z-10 h-3 w-3 shrink-0 text-amber-400"
+        className="relative z-10 h-3 w-3 shrink-0 text-cc-attention"
         aria-hidden="true"
         data-testid="thread-tab-needs-input-bell"
         data-active-output={activeOutput ? "true" : "false"}
@@ -708,7 +709,7 @@ function ThreadTabRail({
         strokeWidth="1.5"
         strokeLinecap="round"
         strokeLinejoin="round"
-        className="relative z-10 h-3 w-3 shrink-0 text-blue-400"
+        className="relative z-10 h-3 w-3 shrink-0 text-cc-info"
         aria-hidden="true"
         data-testid="thread-tab-blue-notification-bell"
         data-active-output={activeOutput ? "true" : "false"}
@@ -748,7 +749,7 @@ function ThreadTabRail({
 
   function tabTone({ selected }: { selected: boolean; needsInput: boolean; blueNudge: boolean }): string {
     if (selected) {
-      return "relative z-10 -mb-px rounded-b-none border-violet-100/45 border-b-transparent bg-white/[0.055] text-white shadow-[0_-1px_0_rgba(221,214,254,0.78),0_0_0_1px_rgba(196,181,253,0.16),0_10px_20px_-16px_rgba(196,181,253,0.78),inset_0_1px_0_rgba(255,255,255,0.14)]";
+      return "relative z-10 -mb-px rounded-b-none border-cc-primary/45 border-b-transparent bg-cc-card text-cc-fg shadow-[0_-1px_0_rgba(174,86,48,0.46),0_0_0_1px_rgba(174,86,48,0.13),0_10px_20px_-16px_rgba(174,86,48,0.55),inset_0_1px_0_rgba(255,255,255,0.18)]";
     }
     return "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg";
   }
@@ -1120,9 +1121,9 @@ function ThreadTabRail({
               }}
               className={`relative inline-flex h-full min-w-[4.25rem] items-center justify-center gap-1 rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${
                 moreTabsOpen || selectedHidden
-                  ? "border-violet-100/45 bg-white/[0.055] text-white"
+                  ? "border-cc-primary/45 bg-cc-card text-cc-fg"
                   : activeOutputHidden
-                    ? "border-sky-300/35 bg-sky-400/10 text-sky-100 hover:bg-sky-400/15"
+                    ? "border-cc-info-border bg-cc-info-bg text-cc-info hover:bg-cc-info-bg/80"
                     : "border-cc-border/70 bg-cc-hover/30 text-cc-muted hover:bg-cc-hover/60 hover:text-cc-fg"
               }`}
               data-testid="thread-tabs-more-button"
@@ -1136,7 +1137,7 @@ function ThreadTabRail({
               aria-label={`${hiddenTabs.length} hidden tab${hiddenTabs.length === 1 ? "" : "s"}`}
             >
               {activeOutputHidden && (
-                <span className="h-1.5 w-1.5 rounded-full bg-sky-200 shadow-[0_0_8px_rgba(224,242,254,0.8)]" />
+                <span className="h-1.5 w-1.5 rounded-full bg-cc-info shadow-[0_0_8px_rgba(14,116,144,0.45)] dark:shadow-[0_0_8px_rgba(125,211,252,0.65)]" />
               )}
               {needsInputHidden && <NeedsInputBell activeOutput={activeOutputHidden} />}
               {showBlueNudgeHidden && <BlueNotificationBell activeOutput={activeOutputHidden} />}
@@ -1205,7 +1206,7 @@ function ThreadTabRail({
                       <div
                         key={threadKey}
                         className={`group flex min-w-0 items-center gap-2 px-2 py-1.5 text-left text-[11px] transition-colors ${
-                          selected ? "bg-violet-100/10 text-white" : "text-cc-fg hover:bg-cc-hover/50"
+                          selected ? "bg-cc-primary/10 text-cc-fg" : "text-cc-fg hover:bg-cc-hover/50"
                         }`}
                         data-testid="thread-tabs-more-row"
                         data-thread-key={threadKey}
@@ -1605,7 +1606,7 @@ export function WorkBoardBar({
           data-active-view={panelView ?? ""}
         >
           <ProjectionToggle currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
-          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-blue-400 shrink-0">
+          <svg viewBox="0 0 16 16" fill="currentColor" className="w-3.5 h-3.5 text-cc-info shrink-0">
             <path d="M1 2.5A1.5 1.5 0 012.5 1h11A1.5 1.5 0 0115 2.5v11a1.5 1.5 0 01-1.5 1.5h-11A1.5 1.5 0 011 13.5v-11zM2.5 2a.5.5 0 00-.5.5v11a.5.5 0 00.5.5h11a.5.5 0 00.5-.5v-11a.5.5 0 00-.5-.5h-11z" />
             <path d="M4 4h2v5H4zM7 4h2v7H7zM10 4h2v3h-2z" />
           </svg>

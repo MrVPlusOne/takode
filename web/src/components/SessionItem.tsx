@@ -538,9 +538,9 @@ export function SessionItem({
         backgroundColor: s.isOrchestrator ? herdGroupBadgeTheme.leaderBackground : herdGroupBadgeTheme.herdBackground,
       }
     : {
-        color: s.isOrchestrator ? "#f59e0b" : "#fbbf24",
-        borderColor: "rgba(245, 158, 11, 0.18)",
-        backgroundColor: "rgba(245, 158, 11, 0.1)",
+        color: "var(--color-cc-attention)",
+        borderColor: "var(--color-cc-attention-border)",
+        backgroundColor: "var(--color-cc-attention-bg)",
       };
   const usesExpandedLeaderPortrait =
     !compact && !isEditing && !archived && s.isOrchestrator && !!s.leaderProfilePortrait;
@@ -559,7 +559,7 @@ export function SessionItem({
       <>
         {parts.map((part, index) =>
           part.matched ? (
-            <mark key={`${part.text}-${index}`} className="bg-amber-300/25 text-amber-100 rounded-[2px] px-0.5">
+            <mark key={`${part.text}-${index}`} className="rounded-[2px] bg-cc-attention-bg px-0.5 text-cc-attention">
               {part.text}
             </mark>
           ) : (
@@ -591,6 +591,10 @@ export function SessionItem({
         ? "bg-cc-hover/50 border-cc-border/80"
         : "bg-cc-hover/20 border-cc-border/80 hover:bg-cc-hover/35 sm:bg-transparent sm:hover:bg-cc-hover"
   } ${herdHighlightClass}`;
+  const sidebarMetadataClassName = isActive || isSearchSelected ? "text-cc-fg/80" : "text-cc-muted";
+  const selectedSidebarMetadata = isActive || isSearchSelected;
+  const sidebarLineAdditionClassName = selectedSidebarMetadata ? "text-current" : "text-green-500";
+  const sidebarLineRemovalClassName = selectedSidebarMetadata ? "text-current" : "text-red-400";
 
   const rowStyle = {
     transform: swipeOffsetPx !== 0 ? `translateX(${swipeOffsetPx}px)` : undefined,
@@ -713,7 +717,7 @@ export function SessionItem({
             )}
             {!isEditing && isPaused && (
               <span
-                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-amber-400/25 bg-amber-500/10 px-1.5 text-[9px] font-medium leading-[16px] text-amber-400"
+                className="inline-flex shrink-0 items-center gap-1 rounded-full border border-cc-attention-border bg-cc-attention-bg px-1.5 text-[9px] font-medium leading-[16px] text-cc-attention"
                 title={`${pausedHeldCount} held input${pausedHeldCount === 1 ? "" : "s"}`}
                 data-testid="session-pause-badge"
               >
@@ -752,7 +756,7 @@ export function SessionItem({
               </span>
             )}
             {archived && s.archivedAt && (
-              <span className="text-[10px] text-cc-muted/60 shrink-0 ml-auto">{timeAgo(s.archivedAt)}</span>
+              <span className="text-[10px] text-cc-muted shrink-0 ml-auto">{timeAgo(s.archivedAt)}</span>
             )}
           </div>
 
@@ -761,7 +765,7 @@ export function SessionItem({
             !isEditing &&
             (displayMatch ? (
               <div
-                className={`mt-0.5 min-w-0 truncate text-[10.5px] leading-tight text-cc-muted/80 ${usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : ""}`}
+                className={`mt-0.5 min-w-0 truncate text-[10.5px] leading-tight ${sidebarMetadataClassName} ${usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : ""}`}
                 data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
               >
                 <span className="text-cc-primary/70 mr-1">{displayMatch.fieldLabel}</span>
@@ -780,6 +784,7 @@ export function SessionItem({
                   <SessionPreviewRow
                     sessionId={s.id}
                     userPreview={sessionPreview}
+                    toneClassName={sidebarMetadataClassName}
                     className={usesExpandedLeaderPortrait ? "col-span-2 row-start-3" : undefined}
                     data-testid={usesExpandedLeaderPortrait ? "session-preview-row" : undefined}
                   />
@@ -790,11 +795,11 @@ export function SessionItem({
           {/* Row 2 for expanded leader portraits; Row 3 for compact/default rows. */}
           {!isEditing && (
             <div
-              className={`flex min-w-0 items-center gap-1 mt-0.5 text-[10.5px] text-cc-muted leading-tight ${usesExpandedLeaderPortrait ? "col-start-2 row-start-2" : ""}`}
+              className={`flex min-w-0 items-center gap-1 mt-0.5 text-[10.5px] ${sidebarMetadataClassName} leading-tight ${usesExpandedLeaderPortrait ? "col-start-2 row-start-2" : ""}`}
               data-testid={usesExpandedLeaderPortrait ? "session-metadata-row" : undefined}
             >
               {s.sessionNum != null && (
-                <span className="text-[9px] font-mono text-cc-muted/60 shrink-0">#{s.sessionNum}</span>
+                <span className="text-[9px] font-mono text-current shrink-0">#{s.sessionNum}</span>
               )}
               <img src={backendLogo} alt={backendAlt} className="w-3.5 h-3.5 shrink-0 object-contain opacity-85" />
               {/* Shield icon: ask permission status (Claude only, hidden in compact/linear modes) */}
@@ -827,7 +832,7 @@ export function SessionItem({
                 </span>
               )}
               {s.isContainerized && (
-                <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-blue-400 bg-blue-500/10">
+                <span className="text-[9px] font-medium px-1.5 rounded-full leading-[16px] shrink-0 text-cc-info bg-cc-info-bg">
                   Docker
                 </span>
               )}
@@ -842,7 +847,7 @@ export function SessionItem({
                     archived && s.worktreeCleanupStatus === "failed"
                       ? "bg-red-500/10 text-red-400"
                       : archived && s.worktreeCleanupStatus === "pending"
-                        ? "bg-amber-500/10 text-amber-400"
+                        ? "bg-cc-attention-bg text-cc-attention"
                         : archived && s.worktreeExists === false
                           ? "bg-cc-muted/10 text-cc-muted"
                           : "bg-cc-primary/10 text-cc-primary"
@@ -947,8 +952,8 @@ export function SessionItem({
                   data-testid="session-git-line-diff"
                   data-stale={gitStatusStale ? "true" : "false"}
                 >
-                  <span className="text-green-500">+{s.linesAdded}</span>
-                  <span className="text-red-400">-{s.linesRemoved}</span>
+                  <span className={sidebarLineAdditionClassName}>+{s.linesAdded}</span>
+                  <span className={sidebarLineRemovalClassName}>-{s.linesRemoved}</span>
                 </span>
               )}
               {hasSkippedDiffStats && (
@@ -1257,11 +1262,13 @@ function LeaderActivePhaseSegments({ segments }: { segments: BoardSummarySegment
 function SessionPreviewRow({
   sessionId,
   userPreview,
+  toneClassName = "text-cc-muted",
   className = "",
   "data-testid": testId,
 }: {
   sessionId: string;
   userPreview?: string;
+  toneClassName?: string;
   className?: string;
   "data-testid"?: string;
 }) {
@@ -1284,7 +1291,7 @@ function SessionPreviewRow({
   if (userPreview) {
     return (
       <div
-        className={`mt-0.5 min-w-0 truncate text-[10.5px] leading-tight text-cc-muted/60 ${className}`}
+        className={`mt-0.5 min-w-0 truncate text-[10.5px] leading-tight ${toneClassName} ${className}`}
         data-testid={testId}
       >
         {userPreview}

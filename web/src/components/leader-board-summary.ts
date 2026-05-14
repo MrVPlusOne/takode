@@ -4,6 +4,7 @@ import {
   buildLeaderActivePhaseSummary,
   type LeaderActivePhaseSummarySegment,
 } from "../../shared/leader-active-phase-summary.js";
+import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 
 export interface BoardSummarySegment {
   text: string;
@@ -21,7 +22,9 @@ export function boardSummarySegmentsFromActivePhaseSummary(
   return summary.map((segment) => ({
     text: `${segment.count} ${segment.label}`,
     className: segment.tone === "phase" ? "text-cc-fg" : segment.tone === "status" ? "text-cc-muted" : "text-cc-fg/80",
-    ...(segment.color ? { style: { color: segment.color } } : {}),
+    ...(segment.color && segment.colorName
+      ? { style: { color: getQuestPhaseColorValue({ name: segment.colorName, accent: segment.color }) } }
+      : {}),
   }));
 }
 

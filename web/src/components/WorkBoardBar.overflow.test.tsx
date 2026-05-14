@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
 import type { QuestmasterTask, SessionAttentionRecord, SessionState } from "../types.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
+import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 
 interface MockStoreState {
   sessionBoards: Map<string, BoardRowData[]>;
@@ -95,6 +96,11 @@ function expectNoNotificationSurfaceTone(element: HTMLElement) {
   expect(element.className).not.toContain("border-blue-400/35");
   expect(element.className).not.toContain("bg-blue-400/10");
   expect(element.className).not.toContain("text-blue-100");
+}
+
+function getPhaseColor(status: string): string | undefined {
+  const phase = getQuestJourneyPhaseForState(status);
+  return phase ? getQuestPhaseColorValue(phase.color) : undefined;
 }
 
 function setMeasuredRailWidth(width: number, threadTabWidth = width) {
@@ -453,7 +459,7 @@ describe("WorkBoardBar overflow tabs", () => {
     const moreButton = await screen.findByTestId("thread-tabs-more-button");
     expect(moreButton).toHaveAttribute("data-has-blue-notification", "true");
     expectNoNotificationSurfaceTone(moreButton);
-    expect(within(moreButton).getByTestId("thread-tab-blue-notification-bell")).toHaveClass("text-blue-400");
+    expect(within(moreButton).getByTestId("thread-tab-blue-notification-bell")).toHaveClass("text-cc-info");
 
     fireEvent.click(moreButton);
     expect(onSelectThread).not.toHaveBeenCalled();
@@ -469,7 +475,7 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(onSelectThread).toHaveBeenCalledWith("q-4");
   });
 
-  it("aggregates hidden amber needs-input nudges without tinting the More button surface", async () => {
+  it("aggregates hidden needs-input nudges without tinting the More button surface", async () => {
     resetStore({
       sessionBoards: new Map([
         ["s1", [{ questId: "q-4", title: "Quest 4 thread", status: "WAITING", updatedAt: 4, waitForInput: ["user"] }]],
@@ -488,10 +494,10 @@ describe("WorkBoardBar overflow tabs", () => {
     const moreButton = await screen.findByTestId("thread-tabs-more-button");
     expect(moreButton).toHaveAttribute("data-has-needs-input", "true");
     expectNoNotificationSurfaceTone(moreButton);
-    expect(within(moreButton).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+    expect(within(moreButton).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
   });
 
-  it("prioritizes hidden amber over blue on More and hidden rows", async () => {
+  it("prioritizes hidden needs-input over review attention on More and hidden rows", async () => {
     resetStore({
       sessionBoards: new Map([
         ["s1", [{ questId: "q-4", title: "Quest 4 thread", status: "WAITING", updatedAt: 4, waitForInput: ["user"] }]],
@@ -512,7 +518,7 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(moreButton).toHaveAttribute("data-has-needs-input", "true");
     expect(moreButton).toHaveAttribute("data-has-blue-notification", "true");
     expectNoNotificationSurfaceTone(moreButton);
-    expect(within(moreButton).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+    expect(within(moreButton).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
     expect(within(moreButton).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
 
     fireEvent.click(moreButton);
@@ -522,7 +528,7 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(q4Row).toHaveAttribute("data-hidden", "true");
     expect(q4Row).toHaveAttribute("data-needs-input", "true");
     expect(q4Row).toHaveAttribute("data-blue-notification", "true");
-    expect(within(q4Row).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-amber-400");
+    expect(within(q4Row).getByTestId("thread-tab-needs-input-bell")).toHaveClass("text-cc-attention");
     expect(within(q4Row).queryByTestId("thread-tab-blue-notification-bell")).not.toBeInTheDocument();
   });
 
@@ -565,7 +571,7 @@ describe("WorkBoardBar overflow tabs", () => {
     const completedTitle = within(completedRow).getByTestId("thread-tabs-more-row-title");
     expect(completedTitle).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(completedTitle).not.toHaveStyle({
-      color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
+      color: getPhaseColor("PORTING"),
     });
   });
 
@@ -624,7 +630,7 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(within(tab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
     expect(title).toHaveAttribute("data-title-color", "var(--color-cc-muted)");
     expect(title).not.toHaveStyle({
-      color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
+      color: getPhaseColor("PORTING"),
     });
     expectNoNotificationSurfaceTone(tab);
   });

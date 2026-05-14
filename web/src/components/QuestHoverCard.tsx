@@ -2,6 +2,7 @@ import { useLayoutEffect, useMemo, useRef, type ReactNode } from "react";
 import { createPortal } from "react-dom";
 import type { BoardParticipantStatus, BoardRowSessionStatus, QuestmasterTask } from "../types.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
+import { getQuestPhaseDotStyle } from "../utils/quest-phase-theme.js";
 import { getQuestLeaderSessionId, getQuestOwnerSessionId } from "../utils/quest-helpers.js";
 import { findQuestJourneyContext, type QuestJourneyBoardRow } from "../utils/quest-journey-context.js";
 import { useStore } from "../store.js";
@@ -88,7 +89,7 @@ export function QuestHoverCard({
   const journeyPresentation = canUseJourneyStatusLabel ? getQuestJourneyPresentation(journeyBoardRow?.status) : null;
   const terminalStatusLabel = quest.status === "done" ? "Completed" : statusTheme.label;
   const statusLabel = journeyPresentation?.label ?? journeyPhase?.label ?? terminalStatusLabel;
-  const statusDotStyle = journeyPhase?.color.accent ? { backgroundColor: journeyPhase.color.accent } : undefined;
+  const statusDotStyle = journeyPhase ? getQuestPhaseDotStyle(journeyPhase) : undefined;
   const queuedWaitForReason = formatQueuedWaitForReason(journeyBoardRow);
   const showOwnerSession = !!ownerSessionId && workerParticipant?.sessionId !== ownerSessionId;
   const completedAt = quest.status === "done" ? quest.completedAt : null;

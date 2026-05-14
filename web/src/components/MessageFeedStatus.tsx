@@ -114,17 +114,17 @@ export function ElapsedTimer({
           reviewedQuestId,
         });
   const dotColor = isStuck
-    ? "text-amber-400"
+    ? "text-cc-attention"
     : streamingPauseStartedAt
-      ? "text-amber-400"
+      ? "text-cc-attention"
       : "text-cc-primary animate-pulse";
   const canNavigateActiveTurn =
     variant === "floating" && !!onSelectThread && !!activeTurnNavigationTarget && !isStuck && !streamingPauseStartedAt;
   const floatingChipClassName =
-    "relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md";
+    "relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden rounded-[18px] border border-cc-border bg-cc-card/95 px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md";
   const floatingChipContents = (
     <>
-      <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
+      <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
       <YarnBallDot className={dotColor} />
       <span className="relative truncate text-cc-fg/90">{label}</span>
       <span className="relative text-cc-muted/75">{formatElapsed(elapsed)}</span>
@@ -136,7 +136,7 @@ export function ElapsedTimer({
       {isStuck && (
         <button
           onClick={handleRelaunch}
-          className="relative ml-1 text-amber-400 hover:text-amber-300 underline cursor-pointer"
+          className="relative ml-1 text-cc-attention hover:text-cc-attention-strong underline cursor-pointer"
         >
           Relaunch
         </button>
@@ -189,7 +189,10 @@ export function ElapsedTimer({
       )}
       <span className="text-cc-muted/60">)</span>
       {isStuck && (
-        <button onClick={handleRelaunch} className="ml-1 text-amber-400 hover:text-amber-300 underline cursor-pointer">
+        <button
+          onClick={handleRelaunch}
+          className="ml-1 text-cc-attention hover:text-cc-attention-strong underline cursor-pointer"
+        >
           Relaunch
         </button>
       )}
@@ -352,7 +355,7 @@ export function PendingCodexInputList({ sessionId, inputs }: { sessionId: string
               data-feed-block-id={getPendingCodexFeedBlockId(input.id)}
               className="flex items-center gap-2 rounded-2xl border border-amber-500/20 bg-amber-500/8 px-3 py-2 text-sm text-cc-fg"
             >
-              <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-amber-400" />
+              <span className="inline-flex h-2 w-2 shrink-0 rounded-full bg-cc-attention" />
               <span className="min-w-0 flex-1 truncate" title={preview || "Pending message"}>
                 {truncated || "Pending message"}
               </span>

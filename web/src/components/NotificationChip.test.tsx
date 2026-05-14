@@ -251,7 +251,7 @@ describe("NotificationChip", () => {
     expect(screen.queryByText("Waiting on reviewer")).not.toBeInTheDocument();
   });
 
-  it("colors the bell blue when review is the highest active urgency", () => {
+  it("uses the theme-safe info color when review is the highest active urgency", () => {
     // Review-only inboxes should render a single-height inline count + bell
     // segment with explicit review copy.
     setNotifications("s1", [
@@ -265,14 +265,14 @@ describe("NotificationChip", () => {
     const bell = badge.querySelector("svg");
     expect(chip).toHaveTextContent("1review");
     expect(within(chip).queryByText("unreads")).not.toBeInTheDocument();
-    expect(bell?.className.baseVal ?? bell?.getAttribute("class")).toContain("text-blue-500");
+    expect(bell?.className.baseVal ?? bell?.getAttribute("class")).toContain("text-cc-info");
     expect(badge).toHaveTextContent("1");
     expect(badge.className).not.toContain("rounded-full");
   });
 
   it("prioritizes needs-input on the chip surface when needs-input and review are both active", () => {
-    // Mixed inboxes should show one amber bell, with review discoverable as
-    // secondary text instead of a competing blue bell.
+    // Mixed inboxes should show one attention bell, with review discoverable as
+    // secondary text instead of a competing info bell.
     setNotifications("s1", [
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
       { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
@@ -287,7 +287,7 @@ describe("NotificationChip", () => {
     const reviewSecondary = within(chip).getByTestId("notification-chip-review-secondary");
     const needsInputBell = needsInputBadge.querySelector("svg");
     expect(chip).toHaveTextContent("2needs input+1 review");
-    expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-amber-400");
+    expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-cc-attention");
     expect(within(chip).queryByTestId("notification-chip-review")).not.toBeInTheDocument();
     expect(needsInputBadge).toHaveTextContent("2");
     expect(reviewSecondary).toHaveTextContent("+1 review");
@@ -297,7 +297,7 @@ describe("NotificationChip", () => {
   it("uses a newer active summary when the cached full inbox is still review-only", () => {
     // Global session_activity_update can arrive before the full notification
     // inbox refreshes. The chip should follow the newer server summary instead
-    // of briefly turning back to blue from stale cached details.
+    // of briefly turning back to review urgency from stale cached details.
     setNotifications("s1", [
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
     ]);
@@ -314,7 +314,7 @@ describe("NotificationChip", () => {
     expect(within(chip).queryByTestId("notification-chip-review")).toBeNull();
     const needsInputBadge = within(chip).getByTestId("notification-chip-needs-input");
     const needsInputBell = needsInputBadge.querySelector("svg");
-    expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-amber-400");
+    expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-cc-attention");
   });
 
   it("shows an active summary even before the full notification payload arrives", () => {
@@ -336,7 +336,7 @@ describe("NotificationChip", () => {
   });
 
   it("keeps a newer needs-input summary when stale clear state is still cached", () => {
-    // Protects the observed transition: stale clear/blue local notification
+    // Protects the observed transition: stale clear/review local notification
     // state must not override a newer authoritative needs-input summary.
     setNotificationSummary("s1", {
       notificationUrgency: "needs-input",
@@ -360,6 +360,67 @@ describe("NotificationChip", () => {
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
     expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
     expect(screen.getByText("Needs review")).toBeInTheDocument();
+  });
+
+  it("uses fully readable muted text for notification timestamps", () => {
+    // Light-theme Execute caught timestamp metadata rendered as text-cc-muted/60,
+    // which falls below AA on the notification popover card.
+    setNotifications("s1", [
+      {
+        id: "needs-input-1",
+        category: "needs-input",
+        summary: "Choose rollout mode",
+        timestamp: Date.now() - 120_000,
+        done: false,
+      },
+    ]);
+    render(<NotificationChip sessionId="s1" />);
+
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+
+    const timestamp = screen.getByText(/m ago/);
+    expect(timestamp).toHaveClass("text-cc-muted");
+    expect(timestamp.className).not.toContain("text-cc-muted/60");
+  });
+
+  it("uses theme-readable muted text for source context action labels", () => {
+    // Execute caught visible More and Preview labels when they resolved through
+    // low-contrast muted utilities on light and dark notification popovers.
+    mockStoreState.messages = new Map([
+      [
+        "s1",
+        [
+          {
+            id: "msg-123",
+            role: "assistant",
+            content: "The deployment is staged and the smoke test is green.\n\nRollback is ready if the canary fails.",
+            timestamp: Date.now() - 10,
+          },
+        ],
+      ],
+    ]);
+    setNotifications("s1", [
+      {
+        id: "n-1",
+        category: "needs-input",
+        summary: "Deploy now?",
+        timestamp: Date.now(),
+        messageId: "msg-123",
+        done: false,
+      },
+    ]);
+
+    render(<NotificationChip sessionId="s1" />);
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+
+    const moreButton = screen.getByRole("button", { name: "More" });
+    const previewButton = screen.getByRole("button", { name: "Preview source message" });
+    expect(moreButton).toHaveClass("cc-muted-readable");
+    expect(previewButton).toHaveClass("cc-muted-readable");
+    expect(moreButton).not.toHaveClass("text-cc-muted");
+    expect(previewButton).not.toHaveClass("text-cc-muted");
+    expect(moreButton.className).not.toContain("text-cc-muted/80");
+    expect(previewButton.className).not.toContain("text-cc-muted/80");
   });
 
   it("sends a paused-session notification answer through the response API", async () => {
@@ -691,7 +752,10 @@ describe("NotificationChip", () => {
 
     render(<NotificationChip sessionId="s1" />);
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
-    fireEvent.click(screen.getByRole("button", { name: "Use composer" }));
+    const useComposerButton = screen.getByRole("button", { name: "Use composer" });
+    expect(useComposerButton).toHaveClass("cc-muted-readable");
+    expect(useComposerButton).not.toHaveClass("text-cc-muted");
+    fireEvent.click(useComposerButton);
 
     expect(mockSetReplyContext).toHaveBeenCalledWith("s1", {
       messageId: "msg-123",
@@ -965,7 +1029,7 @@ describe("NotificationChip", () => {
     expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "review-visible", true);
   });
 
-  it("does not auto-resolve visible amber needs-input rows in the notification popover", () => {
+  it("does not auto-resolve visible needs-input rows in the notification popover", () => {
     const observer = installIntersectionObserverMock();
     setNotifications("s1", [
       {

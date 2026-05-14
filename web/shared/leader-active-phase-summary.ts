@@ -18,6 +18,7 @@ export interface LeaderActivePhaseSummarySegment {
   count: number;
   tone: "phase" | "status" | "unknown";
   color?: string;
+  colorName?: string;
 }
 
 const JOURNEY_STATUS_PRIORITY = new Map([...QUEST_JOURNEY_STATES].reverse().map((status, index) => [status, index]));
@@ -25,7 +26,10 @@ const JOURNEY_STATUS_PRIORITY = new Map([...QUEST_JOURNEY_STATES].reverse().map(
 export function buildLeaderActivePhaseSummary(
   board: readonly LeaderActivePhaseSummaryRow[],
 ): LeaderActivePhaseSummarySegment[] {
-  const counts = new Map<string, { count: number; tone: LeaderActivePhaseSummarySegment["tone"]; color?: string }>();
+  const counts = new Map<
+    string,
+    { count: number; tone: LeaderActivePhaseSummarySegment["tone"]; color?: string; colorName?: string }
+  >();
 
   for (const row of orderActiveRows(board)) {
     const currentPhase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
@@ -33,19 +37,21 @@ export function buildLeaderActivePhaseSummary(
     const label = currentPhase?.label ?? presentation?.label ?? row.status ?? "unknown";
     const tone = currentPhase ? "phase" : presentation ? "status" : "unknown";
     const color = currentPhase?.color.accent;
+    const colorName = currentPhase?.color.name;
     const entry = counts.get(label);
     if (entry) {
       entry.count += 1;
       continue;
     }
-    counts.set(label, { count: 1, tone, ...(color ? { color } : {}) });
+    counts.set(label, { count: 1, tone, ...(color ? { color } : {}), ...(colorName ? { colorName } : {}) });
   }
 
-  return [...counts.entries()].map(([label, { count, tone, color }]) => ({
+  return [...counts.entries()].map(([label, { count, tone, color, colorName }]) => ({
     label,
     count,
     tone,
     ...(color ? { color } : {}),
+    ...(colorName ? { colorName } : {}),
   }));
 }
 

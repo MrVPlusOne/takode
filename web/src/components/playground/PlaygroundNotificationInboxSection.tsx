@@ -210,14 +210,14 @@ export function PlaygroundNotificationInboxSection() {
             <button
               type="button"
               onClick={seedNotificationData}
-              className="text-xs font-medium px-3 py-1.5 rounded-md bg-blue-500/20 hover:bg-blue-500/30 text-blue-300 transition-colors cursor-pointer"
+              className="text-xs font-medium px-3 py-1.5 rounded-md border border-cc-info-border bg-cc-info-bg hover:bg-cc-info-bg/80 text-cc-info transition-colors cursor-pointer"
             >
               Seed notification data
             </button>
             <button
               type="button"
               onClick={seedSummaryOnlyNeedsInput}
-              className="ml-2 text-xs font-medium px-3 py-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
+              className="ml-2 text-xs font-medium px-3 py-1.5 rounded-md border border-cc-attention-border bg-cc-attention-bg hover:bg-cc-attention-bg/80 text-cc-attention transition-colors cursor-pointer"
             >
               Seed summary-only needs-input
             </button>
@@ -240,7 +240,7 @@ export function PlaygroundNotificationInboxSection() {
             <button
               type="button"
               onClick={seedGlobalNeedsInputData}
-              className="text-xs font-medium px-3 py-1.5 rounded-md bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 transition-colors cursor-pointer"
+              className="text-xs font-medium px-3 py-1.5 rounded-md border border-cc-attention-border bg-cc-attention-bg hover:bg-cc-attention-bg/80 text-cc-attention transition-colors cursor-pointer"
             >
               Seed global needs-input data
             </button>

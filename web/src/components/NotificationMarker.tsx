@@ -201,7 +201,7 @@ export function NotificationMarker({
         isDone
           ? "border-cc-border bg-cc-hover/30 text-cc-muted opacity-60"
           : isAction
-            ? "border-amber-500/20 bg-amber-500/5 text-amber-400"
+            ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention"
             : isReview
               ? "border-emerald-500/20 bg-emerald-500/5 text-cc-muted"
               : "border-cc-border/60 bg-cc-hover/20 text-cc-muted"
@@ -248,7 +248,7 @@ export function NotificationMarker({
           {questionViews.map((question, index) => (
             <div key={question.key} className="space-y-1.5" data-testid="notification-question-block">
               {questionViews.length > 1 && (
-                <div className="text-[10px] leading-snug text-amber-100/80">
+                <div className="text-[10px] leading-snug text-cc-attention">
                   <span className="text-cc-muted">{index + 1}. </span>
                   {question.prompt}
                 </div>
@@ -258,7 +258,7 @@ export function NotificationMarker({
                   key={answer}
                   type="button"
                   onClick={handleSuggestedAnswer({ questionKey: question.key, value: answer })}
-                  className="w-full min-w-0 whitespace-normal break-words rounded border border-amber-400/25 bg-amber-400/10 px-1.5 py-1 text-left text-[10px] leading-snug text-amber-200 transition-colors hover:bg-amber-400/20 cursor-pointer"
+                  className="w-full min-w-0 whitespace-normal break-words rounded border border-cc-attention-border bg-cc-attention-bg px-1.5 py-1 text-left text-[10px] leading-snug text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
                   title={`Use suggested answer: ${answer}`}
                   aria-label={`Use suggested answer: ${answer}`}
                 >
@@ -272,7 +272,7 @@ export function NotificationMarker({
                   onClick={(e) => e.stopPropagation()}
                   onChange={(e) => setQuestionAnswer(question.key, e.currentTarget.value)}
                   aria-label={`Answer for ${question.prompt}`}
-                  className="min-w-0 flex-1 rounded border border-amber-400/25 bg-cc-bg/70 px-1.5 py-1 text-[11px] text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-amber-400/45"
+                  className="min-w-0 flex-1 rounded border border-cc-attention-border bg-cc-bg/70 px-1.5 py-1 text-[11px] text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-cc-attention"
                   placeholder="Your answer"
                 />
                 {questionViews.length === 1 && (
@@ -280,7 +280,7 @@ export function NotificationMarker({
                     type="button"
                     onClick={sendQuickReply}
                     disabled={!canSendQuickReply}
-                    className="shrink-0 rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-100 transition-colors hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+                    className="shrink-0 rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-1 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
                   >
                     Reply
                   </button>
@@ -295,7 +295,7 @@ export function NotificationMarker({
                 type="button"
                 onClick={sendQuickReply}
                 disabled={!canSendQuickReply}
-                className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-1 text-[11px] text-amber-100 transition-colors hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+                className="rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-1 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
               >
                 Reply
               </button>

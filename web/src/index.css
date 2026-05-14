@@ -14,16 +14,69 @@ html, body {
   --color-cc-primary-hover: #c4643a;
   --color-cc-user-bubble: #DDD9CE;
   --color-cc-border: rgba(0,0,0,0.15);
-  --color-cc-muted: #7d796e;
+  --color-cc-muted: #6f6a60;
   --color-cc-sidebar: #EDEAE2;
   --color-cc-input-bg: #FFFFFF;
-  --color-cc-code-bg: #1e1e1e;
-  --color-cc-code-fg: #d4d4d4;
+  --color-cc-code-bg: #ECE9DF;
+  --color-cc-code-fg: #24221f;
   --color-cc-hover: rgba(0,0,0,0.07);
   --color-cc-active: rgba(0,0,0,0.12);
   --color-cc-success: #2d7d46;
   --color-cc-error: #c53030;
-  --color-cc-warning: #b7791f;
+  --color-cc-warning: #8a4b00;
+  --color-cc-attention: #8a4b00;
+  --color-cc-attention-strong: #6f3d00;
+  --color-cc-attention-bg: #fff4d6;
+  --color-cc-attention-border: rgba(138,75,0,0.32);
+  --color-cc-info: #075985;
+  --color-cc-info-strong: #0c4a6e;
+  --color-cc-info-bg: #e0f2fe;
+  --color-cc-info-border: rgba(7,89,133,0.28);
+  --color-cc-status-idea: #57534e;
+  --color-cc-status-refined: #8a4b00;
+  --color-cc-status-progress: #166534;
+  --color-cc-status-done: #6d28d9;
+  --color-cc-phase-amber: #8a4b00;
+  --color-cc-phase-blue: #1d4ed8;
+  --color-cc-phase-cyan: #0e7490;
+  --color-cc-phase-emerald: #047857;
+  --color-cc-phase-fuchsia: #a21caf;
+  --color-cc-phase-green: #15803d;
+  --color-cc-phase-orange: #9a3412;
+  --color-cc-phase-sky: #0369a1;
+  --color-cc-phase-violet: #6d28d9;
+  --color-cc-phase-yellow: #854d0e;
+}
+
+:root {
+  --color-cc-phase-thread-tab-title-amber: #8a4b00;
+  --color-cc-phase-thread-tab-title-blue: #1d4ed8;
+  --color-cc-phase-thread-tab-title-cyan: #0e7490;
+  --color-cc-phase-thread-tab-title-emerald: #047857;
+  --color-cc-phase-thread-tab-title-fuchsia: #a21caf;
+  --color-cc-phase-thread-tab-title-green: #166534;
+  --color-cc-phase-thread-tab-title-orange: #9a3412;
+  --color-cc-phase-thread-tab-title-sky: #0369a1;
+  --color-cc-phase-thread-tab-title-violet: #6d28d9;
+  --color-cc-phase-thread-tab-title-yellow: #854d0e;
+  --color-cc-muted-readable: var(--color-cc-muted);
+  --color-cc-participant-muted-readable: var(--color-cc-muted-readable);
+}
+
+.cc-muted-readable {
+  color: var(--color-cc-muted-readable) !important;
+}
+
+.cc-muted-readable:hover {
+  color: var(--color-cc-fg) !important;
+}
+
+.cc-participant-muted-readable {
+  color: var(--color-cc-participant-muted-readable) !important;
+}
+
+.cc-participant-muted-readable:hover {
+  color: var(--color-cc-fg) !important;
 }
 
 @keyframes fadeSlideIn {
@@ -329,6 +382,38 @@ html, body {
   --color-cc-success: #48bb78;
   --color-cc-error: #fc8181;
   --color-cc-warning: #f6e05e;
+  --color-cc-attention: #f6d365;
+  --color-cc-attention-strong: #fde68a;
+  --color-cc-attention-bg: rgba(245,158,11,0.12);
+  --color-cc-attention-border: rgba(251,191,36,0.3);
+  --color-cc-info: #7dd3fc;
+  --color-cc-info-strong: #bae6fd;
+  --color-cc-info-bg: rgba(56,189,248,0.12);
+  --color-cc-info-border: rgba(125,211,252,0.28);
+  --color-cc-status-idea: #a1a1aa;
+  --color-cc-status-refined: #fbbf24;
+  --color-cc-status-progress: #4ade80;
+  --color-cc-status-done: #c084fc;
+  --color-cc-phase-amber: #fbbf24;
+  --color-cc-phase-blue: #60a5fa;
+  --color-cc-phase-cyan: #22d3ee;
+  --color-cc-phase-emerald: #34d399;
+  --color-cc-phase-fuchsia: #e879f9;
+  --color-cc-phase-green: #4ade80;
+  --color-cc-phase-orange: #fb923c;
+  --color-cc-phase-sky: #38bdf8;
+  --color-cc-phase-violet: #a78bfa;
+  --color-cc-phase-yellow: #fde047;
+  --color-cc-phase-thread-tab-title-amber: #fbbf24;
+  --color-cc-phase-thread-tab-title-blue: #60a5fa;
+  --color-cc-phase-thread-tab-title-cyan: #22d3ee;
+  --color-cc-phase-thread-tab-title-emerald: #34d399;
+  --color-cc-phase-thread-tab-title-fuchsia: #e879f9;
+  --color-cc-phase-thread-tab-title-green: #4ade80;
+  --color-cc-phase-thread-tab-title-orange: #fb923c;
+  --color-cc-phase-thread-tab-title-sky: #38bdf8;
+  --color-cc-phase-thread-tab-title-violet: #a78bfa;
+  --color-cc-phase-thread-tab-title-yellow: #fde047;
 }
 
 /* VS Code Dark Modern — matches the VS Code default dark theme colors */
@@ -350,34 +435,107 @@ html, body {
   --color-cc-success: #2ea043;
   --color-cc-error: #f85149;
   --color-cc-warning: #cca700;
+  --color-cc-attention: #cca700;
+  --color-cc-attention-strong: #f0d76b;
+  --color-cc-attention-bg: rgba(204,167,0,0.14);
+  --color-cc-attention-border: rgba(204,167,0,0.32);
+  --color-cc-info: #75beff;
+  --color-cc-info-strong: #9cdcfe;
+  --color-cc-info-bg: rgba(0,120,212,0.16);
+  --color-cc-info-border: rgba(117,190,255,0.28);
+  --color-cc-status-idea: #a6a6a6;
+  --color-cc-status-refined: #cca700;
+  --color-cc-status-progress: #4ec9b0;
+  --color-cc-status-done: #c586c0;
+  --color-cc-phase-amber: #fbbf24;
+  --color-cc-phase-blue: #60a5fa;
+  --color-cc-phase-cyan: #22d3ee;
+  --color-cc-phase-emerald: #34d399;
+  --color-cc-phase-fuchsia: #e879f9;
+  --color-cc-phase-green: #4ade80;
+  --color-cc-phase-orange: #fb923c;
+  --color-cc-phase-sky: #38bdf8;
+  --color-cc-phase-violet: #a78bfa;
+  --color-cc-phase-yellow: #fde047;
+  --color-cc-phase-thread-tab-title-amber: #fbbf24;
+  --color-cc-phase-thread-tab-title-blue: #60a5fa;
+  --color-cc-phase-thread-tab-title-cyan: #22d3ee;
+  --color-cc-phase-thread-tab-title-emerald: #34d399;
+  --color-cc-phase-thread-tab-title-fuchsia: #e879f9;
+  --color-cc-phase-thread-tab-title-green: #4ade80;
+  --color-cc-phase-thread-tab-title-orange: #fb923c;
+  --color-cc-phase-thread-tab-title-sky: #38bdf8;
+  --color-cc-phase-thread-tab-title-violet: #a78bfa;
+  --color-cc-phase-thread-tab-title-yellow: #fde047;
+}
+
+.dark .cc-muted-readable {
+  --color-cc-muted-readable: #858585;
+}
+
+.dark .cc-participant-muted-readable {
+  --color-cc-participant-muted-readable: #888888;
+}
+
+.theme-vscode-dark .cc-muted-readable {
+  --color-cc-muted-readable: #9d9d9d;
+}
+
+.theme-vscode-dark .cc-participant-muted-readable {
+  --color-cc-participant-muted-readable: #9d9d9d;
 }
 
 /* ─── Syntax highlighting tokens (highlight.js) ───────────────────────────── */
-/* Minimal dark theme — matches the app's dark code block background.
-   Only colors the tokens highlight.js emits; background comes from Tailwind. */
+/* Tokenized highlight.js colors. Background comes from the code surface tokens. */
+:root {
+  --cc-syntax-keyword: #7c3aed;
+  --cc-syntax-string: #9a3412;
+  --cc-syntax-number: #166534;
+  --cc-syntax-title: #854d0e;
+  --cc-syntax-comment: #58694c;
+  --cc-syntax-variable: #075985;
+  --cc-syntax-type: #047857;
+  --cc-syntax-meta: #1d4ed8;
+  --cc-syntax-selector: #92400e;
+  --cc-syntax-fg: var(--color-cc-code-fg);
+}
+
+.dark {
+  --cc-syntax-keyword: #c586c0;
+  --cc-syntax-string: #ce9178;
+  --cc-syntax-number: #b5cea8;
+  --cc-syntax-title: #dcdcaa;
+  --cc-syntax-comment: #6a9955;
+  --cc-syntax-variable: #9cdcfe;
+  --cc-syntax-type: #4ec9b0;
+  --cc-syntax-meta: #569cd6;
+  --cc-syntax-selector: #d7ba7d;
+  --cc-syntax-fg: #d4d4d4;
+}
+
 .hljs-keyword,
-.hljs-built_in { color: #c586c0; }          /* purple — keywords, builtins */
+.hljs-built_in { color: var(--cc-syntax-keyword); }
 .hljs-string,
-.hljs-regexp { color: #ce9178; }            /* warm tan — strings, regex */
+.hljs-regexp { color: var(--cc-syntax-string); }
 .hljs-number,
-.hljs-literal { color: #b5cea8; }           /* soft green — numbers, booleans */
+.hljs-literal { color: var(--cc-syntax-number); }
 .hljs-title.function_,
-.hljs-title.class_ { color: #dcdcaa; }      /* yellow — function/class names */
+.hljs-title.class_ { color: var(--cc-syntax-title); }
 .hljs-comment,
-.hljs-doctag { color: #6a9955; }            /* green — comments */
+.hljs-doctag { color: var(--cc-syntax-comment); }
 .hljs-variable,
-.hljs-params { color: #9cdcfe; }            /* light blue — variables, params */
-.hljs-type { color: #4ec9b0; }              /* teal — type names */
+.hljs-params { color: var(--cc-syntax-variable); }
+.hljs-type { color: var(--cc-syntax-type); }
 .hljs-attr,
-.hljs-attribute { color: #9cdcfe; }         /* light blue — attributes */
+.hljs-attribute { color: var(--cc-syntax-variable); }
 .hljs-meta,
-.hljs-meta .hljs-keyword { color: #569cd6; } /* blue — decorators, pragmas */
+.hljs-meta .hljs-keyword { color: var(--cc-syntax-meta); }
 .hljs-selector-tag,
-.hljs-selector-class { color: #d7ba7d; }    /* gold — CSS selectors */
-.hljs-addition { color: #b5cea8; }          /* green — diff additions */
-.hljs-deletion { color: #ce9178; }          /* tan — diff deletions */
-.hljs-operator { color: #d4d4d4; }          /* default fg — operators */
-.hljs-punctuation { color: #d4d4d4; }       /* default fg — punctuation */
+.hljs-selector-class { color: var(--cc-syntax-selector); }
+.hljs-addition { color: var(--cc-syntax-number); }
+.hljs-deletion { color: var(--cc-syntax-string); }
+.hljs-operator { color: var(--cc-syntax-fg); }
+.hljs-punctuation { color: var(--cc-syntax-fg); }
 
 /* Scrollbar styling */
 ::-webkit-scrollbar {

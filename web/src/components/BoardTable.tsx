@@ -27,6 +27,7 @@ import {
 } from "./QuestJourneyTimeline.js";
 import type { BoardParticipantStatus, BoardRowSessionStatus } from "../types.js";
 import type { QuestmasterTask } from "../types.js";
+import { getQuestPhaseTextStyle } from "../utils/quest-phase-theme.js";
 
 /** A row in the leader's work board (matches server BoardRow). */
 export interface BoardRowData {
@@ -46,7 +47,7 @@ export interface BoardRowData {
 export type BoardTableMode = "active" | "completed";
 
 const SESSION_LINK_CLASSNAME =
-  "font-mono-code text-amber-400 hover:text-amber-300 hover:underline decoration-dotted underline-offset-2";
+  "font-mono-code text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2";
 
 const JOURNEY_STATUS_PRIORITY = new Map([...QUEST_JOURNEY_STATES].reverse().map((status, index) => [status, index]));
 
@@ -187,7 +188,7 @@ export function QuestLink({ questId }: { questId: string }) {
         onClick={handleClick}
         onMouseEnter={handleMouseEnter}
         onMouseLeave={handleMouseLeave}
-        className="font-mono-code text-blue-400 hover:text-blue-300 hover:underline cursor-pointer transition-colors"
+        className="font-mono-code text-cc-info hover:text-cc-info-strong hover:underline cursor-pointer transition-colors"
       >
         {questId}
       </button>
@@ -278,7 +279,7 @@ function WaitForRef({ depRef }: { depRef: string }) {
 
 function WaitForInputRef({ notificationId }: { notificationId: string }) {
   const match = /^n-(\d+)$/i.exec(notificationId.trim());
-  return <span className="text-amber-200/90">{`input ${match ? match[1] : notificationId}`}</span>;
+  return <span className="text-cc-attention">{`input ${match ? match[1] : notificationId}`}</span>;
 }
 
 function JourneyHoverCard({
@@ -409,7 +410,7 @@ function StatusCell({ row, mode }: { row: BoardRowData; mode: BoardTableMode }) 
   const phase = getQuestJourneyPhaseForState(status);
   if (phase) {
     return (
-      <span className="block max-w-full truncate text-cc-fg" style={{ color: phase.color.accent }}>
+      <span className="block max-w-full truncate text-cc-fg" style={getQuestPhaseTextStyle(phase)}>
         {phase.label}
       </span>
     );

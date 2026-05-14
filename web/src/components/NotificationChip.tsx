@@ -187,7 +187,7 @@ function NotificationCountInline({
 }) {
   const isNeedsInput = category === "needs-input";
   const isReview = category === "review";
-  const iconClassName = isNeedsInput ? "text-amber-400" : isReview ? "text-blue-500" : "text-cc-muted/85";
+  const iconClassName = isNeedsInput ? "text-cc-attention" : isReview ? "text-cc-info" : "text-cc-muted/85";
   const label = isNeedsInput ? "Needs input" : isReview ? "Review" : "Waiting";
 
   return (
@@ -218,7 +218,7 @@ function NotificationCountInline({
           </>
         )}
       </svg>
-      <span className={isNeedsInput ? "text-amber-100/90" : isReview ? "text-blue-100/85" : "text-cc-muted/85"}>
+      <span className={isNeedsInput ? "text-cc-attention" : isReview ? "text-cc-info" : "text-cc-muted/85"}>
         {labelText}
       </span>
     </span>
@@ -391,7 +391,7 @@ function NotificationItem({
   const compactReviewSummary = notif.category === "review" ? getCompactReviewSummary(notif.summary) : null;
   const label = compactReviewSummary?.text || getNotificationTitle(notif);
   const questSummary = compactReviewSummary?.questSummary ?? null;
-  const labelClassName = notif.done ? "text-cc-muted/60 line-through" : "text-cc-fg/90";
+  const labelClassName = notif.done ? "text-cc-muted line-through" : "text-cc-fg/90";
   const rowRef = useVisibleReviewNotificationAutoResolve<HTMLDivElement>({ sessionId, notification: notif });
   const sourceContext = useMemo(
     () => (isNeedsInput ? getNotificationSourceContext(notif, notificationTargetMessages, actionableMessageId) : null),
@@ -409,7 +409,7 @@ function NotificationItem({
         <QuestInlineLink
           questId={questSummary.questId}
           stopPropagation={true}
-          className={`font-mono-code hover:underline ${notif.done ? "text-cc-muted/60" : "text-cc-primary"}`}
+          className={`font-mono-code hover:underline ${notif.done ? "text-cc-muted" : "text-cc-primary"}`}
         >
           {questSummary.questId}
         </QuestInlineLink>
@@ -458,7 +458,7 @@ function NotificationItem({
         <div className="flex items-center gap-1.5">
           <span
             className={`inline-block w-1.5 h-1.5 rounded-full shrink-0 ${
-              isNeedsInput ? "bg-amber-400" : notif.category === "review" ? "bg-emerald-400" : "bg-cc-muted/65"
+              isNeedsInput ? "bg-cc-attention" : notif.category === "review" ? "bg-cc-info" : "bg-cc-muted/65"
             }`}
           />
           {isNeedsInput ? (
@@ -485,7 +485,7 @@ function NotificationItem({
             <div className="text-[12px] text-left">{renderLabel()}</div>
           )}
         </div>
-        <div className="text-[10px] text-cc-muted/60 mt-0.5 pl-3">{formatRelativeTime(notif.timestamp)}</div>
+        <div className="text-[10px] text-cc-muted mt-0.5 pl-3">{formatRelativeTime(notif.timestamp)}</div>
         {isNeedsInput && !notif.done && (
           <div className="mt-2 space-y-2 pl-3" data-testid="notification-answer-actions">
             {questionViews.map((question, index) => (
@@ -510,7 +510,7 @@ function NotificationItem({
                           e.stopPropagation();
                           setQuestionAnswer(question.key, answer);
                         }}
-                        className="max-w-full truncate rounded border border-amber-400/25 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-200 transition-colors hover:bg-amber-400/20 cursor-pointer"
+                        className="max-w-full truncate rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 cursor-pointer"
                         title={`Use suggested answer: ${answer}`}
                       >
                         {answer}
@@ -524,7 +524,7 @@ function NotificationItem({
                   onClick={(e) => e.stopPropagation()}
                   onChange={(e) => setQuestionAnswer(question.key, e.currentTarget.value)}
                   aria-label={`Answer for ${question.prompt}`}
-                  className="w-full rounded border border-cc-border/60 bg-cc-bg/70 px-2 py-1 text-[12px] text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-amber-400/45"
+                  className="w-full rounded border border-cc-border/60 bg-cc-bg/70 px-2 py-1 text-[12px] text-cc-fg outline-none transition-colors placeholder:text-cc-muted/50 focus:border-cc-attention"
                   placeholder="Answer"
                 />
               </div>
@@ -534,14 +534,14 @@ function NotificationItem({
                 type="button"
                 onClick={sendResponse}
                 disabled={!canSendResponse}
-                className="rounded border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-[11px] text-amber-100 transition-colors hover:bg-amber-400/20 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
+                className="rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] text-cc-attention transition-colors hover:bg-cc-attention-bg/80 disabled:cursor-not-allowed disabled:opacity-45 cursor-pointer"
               >
                 Send Response
               </button>
               <button
                 type="button"
                 onClick={startReply()}
-                className="rounded border border-cc-border/60 px-2 py-0.5 text-[11px] text-cc-muted transition-colors hover:border-cc-primary/40 hover:text-cc-fg cursor-pointer"
+                className="rounded border border-cc-border/60 px-2 py-0.5 text-[11px] cc-muted-readable transition-colors hover:border-cc-primary/40 hover:text-cc-fg cursor-pointer"
               >
                 Use composer
               </button>
@@ -672,7 +672,7 @@ function NotificationPopover({
               <div className="border-t border-cc-border/30">
                 <button
                   onClick={() => setShowDone((p) => !p)}
-                  className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-cc-muted/70 hover:text-cc-muted cursor-pointer transition-colors"
+                  className="w-full flex items-center gap-1.5 px-3 py-1.5 text-[11px] text-cc-muted hover:text-cc-fg cursor-pointer transition-colors"
                 >
                   <svg
                     className={`w-3 h-3 transition-transform ${showDone ? "rotate-90" : ""}`}
@@ -708,7 +708,7 @@ function NotificationPopover({
 
 // ─── Notification Chip (floating pill) ───────────────────────────────────────
 
-/** Glassmorphic floating pill for notification inbox. Renders nothing when no active notifications exist. */
+/** Floating pill for notification inbox. Renders nothing when no active notifications exist. */
 export function NotificationChip({
   sessionId,
   currentThreadKey,
@@ -741,9 +741,9 @@ export function NotificationChip({
         ref={chipRef}
         onClick={toggle}
         aria-label={ariaLabel}
-        className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1 overflow-hidden rounded-[18px] border border-white/8 bg-[linear-gradient(135deg,rgba(255,255,255,0.08),rgba(255,255,255,0.02))] px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.28)] backdrop-blur-md cursor-pointer hover:border-white/15 transition-colors"
+        className="pointer-events-auto relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1 overflow-hidden rounded-[18px] border border-cc-border bg-cc-card/95 px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md cursor-pointer hover:border-cc-muted/35 transition-colors"
       >
-        <span className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.10),transparent_55%)]" />
+        <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
         <span className="relative inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
           {hasNeedsInput ? (
             <>

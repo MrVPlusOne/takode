@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import type { BoardRowData } from "./BoardTable.js";
 import { boardSummary, constrainThreadTabTransformToHorizontal, reorderThreadTabsAfterDrag } from "./WorkBoardBar.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
+import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 
 describe("boardSummary", () => {
   it("returns 'Empty' for an empty board", () => {
@@ -17,7 +18,7 @@ describe("boardSummary", () => {
       {
         text: "2 Implement",
         className: "text-cc-fg",
-        style: { color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent },
+        style: { color: getPhaseColor("IMPLEMENTING") },
       },
     ]);
   });
@@ -39,7 +40,7 @@ describe("boardSummary", () => {
       {
         text: "1 Implement",
         className: "text-cc-fg",
-        style: { color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent },
+        style: { color: getPhaseColor("IMPLEMENTING") },
       },
     ]);
   });
@@ -56,17 +57,17 @@ describe("boardSummary", () => {
       {
         text: "1 Port",
         className: "text-cc-fg",
-        style: { color: getQuestJourneyPhaseForState("PORTING")?.color.accent },
+        style: { color: getPhaseColor("PORTING") },
       },
       {
         text: "1 Code Review",
         className: "text-cc-fg",
-        style: { color: getQuestJourneyPhaseForState("CODE_REVIEWING")?.color.accent },
+        style: { color: getPhaseColor("CODE_REVIEWING") },
       },
       {
         text: "2 Implement",
         className: "text-cc-fg",
-        style: { color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent },
+        style: { color: getPhaseColor("IMPLEMENTING") },
       },
     ]);
   });
@@ -90,7 +91,7 @@ describe("boardSummary", () => {
       {
         text: "1 Implement",
         className: "text-cc-fg",
-        style: { color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent },
+        style: { color: getPhaseColor("IMPLEMENTING") },
       },
       { text: "3 Completed", className: "text-cc-muted" },
     ]);
@@ -101,6 +102,11 @@ describe("boardSummary", () => {
     expect(boardSummary(board, 0)).toEqual([{ text: "1 CUSTOM_STATUS", className: "text-cc-fg/80" }]);
   });
 });
+
+function getPhaseColor(status: string): string | undefined {
+  const phase = getQuestJourneyPhaseForState(status);
+  return phase ? getQuestPhaseColorValue(phase.color) : undefined;
+}
 
 describe("reorderThreadTabsAfterDrag", () => {
   it("reorders sortable thread keys and ignores Main or unknown drag targets", () => {

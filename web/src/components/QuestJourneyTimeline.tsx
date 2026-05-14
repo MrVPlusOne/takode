@@ -7,6 +7,12 @@ import {
   type QuestJourneyPhase,
   type QuestJourneyPlanState,
 } from "../../shared/quest-journey.js";
+import {
+  getQuestPhaseBorderStyle,
+  getQuestPhaseCurrentDotStyle,
+  getQuestPhaseLineStyle,
+  getQuestPhaseTextStyle,
+} from "../utils/quest-phase-theme.js";
 
 type JourneyVariant = "horizontal" | "compact" | "vertical";
 type JourneyPresentationMode = "active" | "completed" | "proposed";
@@ -32,34 +38,6 @@ const MUTED_LABEL_CLASS = "text-cc-muted/65";
 const VERTICAL_JOURNEY_PHASES_BEFORE = 5;
 const VERTICAL_JOURNEY_PHASES_AFTER = 10;
 const VERTICAL_JOURNEY_VISIBLE_LIMIT = VERTICAL_JOURNEY_PHASES_BEFORE + VERTICAL_JOURNEY_PHASES_AFTER + 1;
-
-function colorWithAlpha(hex: string, alpha: number): string {
-  const value = hex.replace("#", "");
-  const red = Number.parseInt(value.slice(0, 2), 16);
-  const green = Number.parseInt(value.slice(2, 4), 16);
-  const blue = Number.parseInt(value.slice(4, 6), 16);
-  return `rgba(${red}, ${green}, ${blue}, ${alpha})`;
-}
-
-function phaseAccentStyle(phase: QuestJourneyPhase, alpha = 1): CSSProperties {
-  return { color: alpha === 1 ? phase.color.accent : colorWithAlpha(phase.color.accent, alpha) };
-}
-
-function phaseBorderStyle(phase: QuestJourneyPhase, alpha = 1): CSSProperties {
-  return { borderColor: alpha === 1 ? phase.color.accent : colorWithAlpha(phase.color.accent, alpha) };
-}
-
-function phaseLineStyle(phase: QuestJourneyPhase, alpha = 0.45): CSSProperties {
-  return { backgroundColor: colorWithAlpha(phase.color.accent, alpha) };
-}
-
-function phaseCurrentDotStyle(phase: QuestJourneyPhase): CSSProperties {
-  return {
-    backgroundColor: phase.color.accent,
-    borderColor: phase.color.accent,
-    boxShadow: `0 0 0 3px ${colorWithAlpha(phase.color.accent, 0.18)}`,
-  };
-}
 
 export function isCompletedJourneyPresentationStatus(status?: string | null): boolean {
   const normalized = (status ?? "").trim().toLowerCase();
@@ -122,8 +100,8 @@ function phaseDotClassName(item: PhaseItem): string {
 
 function phaseDotStyle(item: PhaseItem): CSSProperties | undefined {
   if (item.state === "completed") return undefined;
-  if (item.state === "current") return phaseCurrentDotStyle(item.phase);
-  return phaseBorderStyle(item.phase, item.state === "proposed" ? 0.55 : 0.75);
+  if (item.state === "current") return getQuestPhaseCurrentDotStyle(item.phase);
+  return getQuestPhaseBorderStyle(item.phase, item.state === "proposed" ? 0.55 : 0.75);
 }
 
 function phaseLabelClassName(item: PhaseItem, compact = false): string {
@@ -136,7 +114,7 @@ function phaseLabelClassName(item: PhaseItem, compact = false): string {
 
 function phaseLabelStyle(item: PhaseItem): CSSProperties | undefined {
   if (item.state === "completed" || item.state === "current" || item.state === "proposed") return undefined;
-  return phaseAccentStyle(item.phase, 0.9);
+  return getQuestPhaseTextStyle(item.phase, 0.9);
 }
 
 function noteCount(journey: QuestJourneyPlanState): number {
@@ -242,7 +220,7 @@ export function QuestJourneyCompactSummary({
     >
       <span
         className={`h-2.5 w-2.5 shrink-0 rounded-full border ${currentItem ? "" : "border-cc-muted/45 bg-transparent"}`.trim()}
-        style={currentItem ? phaseCurrentDotStyle(currentItem.phase) : undefined}
+        style={currentItem ? getQuestPhaseCurrentDotStyle(currentItem.phase) : undefined}
         aria-hidden="true"
       />
       <span className="shrink-0 font-medium text-cc-fg">{label}</span>
@@ -253,7 +231,7 @@ export function QuestJourneyCompactSummary({
       )}
       {position && <span className="shrink-0 text-[10px] text-cc-muted">{position}</span>}
       {showNotes && notes > 0 && (
-        <span className="shrink-0 text-[10px] text-amber-200/90">{`${notes} note${notes === 1 ? "" : "s"}`}</span>
+        <span className="shrink-0 text-[10px] text-cc-attention">{`${notes} note${notes === 1 ? "" : "s"}`}</span>
       )}
     </div>
   );
@@ -294,7 +272,7 @@ function HorizontalJourney({
             {itemIndex > 0 && (
               <span
                 className={`mx-1 h-px w-3 shrink-0 ${connectorMuted ? "bg-cc-muted/30" : ""}`}
-                style={connectorMuted || !connectorPhase ? undefined : phaseLineStyle(connectorPhase)}
+                style={connectorMuted || !connectorPhase ? undefined : getQuestPhaseLineStyle(connectorPhase)}
                 aria-hidden="true"
               />
             )}
@@ -420,7 +398,7 @@ function VerticalJourney({
                     style={
                       item.state === "completed"
                         ? undefined
-                        : phaseLineStyle(item.phase, mode === "proposed" ? 0.2 : 0.35)
+                        : getQuestPhaseLineStyle(item.phase, mode === "proposed" ? 0.2 : 0.35)
                     }
                     aria-hidden="true"
                   />
@@ -517,14 +495,14 @@ export function QuestJourneyPreviewCard({
               aria-label={`${quest.questId}${quest.title ? ` ${quest.title}` : ""}`}
               className="mb-2 flex w-full min-w-0 items-baseline gap-2 border-b border-cc-border/50 pb-1.5 text-left"
             >
-              <span className="shrink-0 font-mono-code text-[11px] text-blue-400 hover:text-blue-300">
+              <span className="shrink-0 font-mono-code text-[11px] text-cc-info hover:text-cc-info-strong">
                 {quest.questId}
               </span>
               {quest.title && <span className="min-w-0 truncate text-xs font-medium text-cc-fg">{quest.title}</span>}
             </button>
           ) : (
             <div className="mb-2 flex min-w-0 items-baseline gap-2 border-b border-cc-border/50 pb-1.5">
-              <span className="shrink-0 font-mono-code text-[11px] text-blue-400">{quest.questId}</span>
+              <span className="shrink-0 font-mono-code text-[11px] text-cc-info">{quest.questId}</span>
               {quest.title && <span className="min-w-0 truncate text-xs font-medium text-cc-fg">{quest.title}</span>}
             </div>
           )}

@@ -5,6 +5,7 @@ import { fireEvent, render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import { BoardTable, formatCompletedTime, orderBoardRows, type BoardRowData } from "./BoardTable.js";
 import { getQuestJourneyPhaseForState } from "../../shared/quest-journey.js";
+import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 
 interface MockStoreState {
   quests: Array<{
@@ -65,6 +66,11 @@ beforeEach(() => {
   };
   openQuestOverlay.mockReset();
 });
+
+function getPhaseColor(status: string): string | undefined {
+  const phase = getQuestJourneyPhaseForState(status);
+  return phase ? getQuestPhaseColorValue(phase.color) : undefined;
+}
 
 describe("BoardTable", () => {
   it("shows Wait For for active board rows", () => {
@@ -157,28 +163,28 @@ describe("BoardTable", () => {
 
     expect(screen.getByText("Queued")).toHaveClass("text-cc-muted");
     expect(screen.getByText("Alignment")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("PLANNING")?.color.accent,
+      color: getPhaseColor("PLANNING"),
     });
     expect(screen.getByText("Explore")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("EXPLORING")?.color.accent,
+      color: getPhaseColor("EXPLORING"),
     });
     expect(screen.getByText("Implement")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("IMPLEMENTING")?.color.accent,
+      color: getPhaseColor("IMPLEMENTING"),
     });
     expect(screen.getByText("Code Review")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("CODE_REVIEWING")?.color.accent,
+      color: getPhaseColor("CODE_REVIEWING"),
     });
     expect(screen.getByText("Mental Simulation")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("MENTAL_SIMULATING")?.color.accent,
+      color: getPhaseColor("MENTAL_SIMULATING"),
     });
     expect(screen.getByText("Outcome Review")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("OUTCOME_REVIEWING")?.color.accent,
+      color: getPhaseColor("OUTCOME_REVIEWING"),
     });
     expect(screen.getByText("Bookkeeping")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("BOOKKEEPING")?.color.accent,
+      color: getPhaseColor("BOOKKEEPING"),
     });
     expect(screen.getByText("Port")).toHaveStyle({
-      color: getQuestJourneyPhaseForState("PORTING")?.color.accent,
+      color: getPhaseColor("PORTING"),
     });
   });
 

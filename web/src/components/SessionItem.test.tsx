@@ -463,6 +463,49 @@ describe("SessionItem leader profiles", () => {
     expect(screen.queryByText("recent activity stays readable")).not.toBeInTheDocument();
   });
 
+  it("uses stronger metadata text on the selected active session row", () => {
+    // The selected light sidebar row background is darker than the base app
+    // background, so ordinary muted metadata needs a stronger selected-row tone.
+    renderSessionItem({
+      isActive: true,
+      session: makeSession({
+        isOrchestrator: true,
+        leaderProfilePortrait: TAKO_PORTRAIT,
+        sessionNum: 72,
+        linesAdded: 18,
+        linesRemoved: 3,
+      }),
+    });
+
+    const metadataRow = screen.getByTestId("session-metadata-row");
+    expect(metadataRow).toHaveTextContent("#72");
+    expect(metadataRow).toHaveClass("text-cc-fg/80");
+    expect(metadataRow).not.toHaveClass("text-cc-muted");
+    expect(within(metadataRow).getByText("#72")).toHaveClass("text-current");
+
+    const lineDiff = screen.getByTestId("session-git-line-diff");
+    expect(within(lineDiff).getByText("+18")).toHaveClass("text-current");
+    expect(within(lineDiff).getByText("+18")).not.toHaveClass("text-green-500");
+    expect(within(lineDiff).getByText("-3")).toHaveClass("text-current");
+    expect(within(lineDiff).getByText("-3")).not.toHaveClass("text-red-400");
+  });
+
+  it("preserves git diff color cues on non-selected session rows", () => {
+    renderSessionItem({
+      isActive: false,
+      session: makeSession({
+        isOrchestrator: true,
+        leaderProfilePortrait: TAKO_PORTRAIT,
+        linesAdded: 18,
+        linesRemoved: 3,
+      }),
+    });
+
+    const lineDiff = screen.getByTestId("session-git-line-diff");
+    expect(within(lineDiff).getByText("+18")).toHaveClass("text-green-500");
+    expect(within(lineDiff).getByText("-3")).toHaveClass("text-red-400");
+  });
+
   it("does not show stale user-message previews for leader chips with no active phase counts", () => {
     renderSessionItem({
       session: makeSession({ isOrchestrator: true, leaderProfilePortrait: TAKO_PORTRAIT }),

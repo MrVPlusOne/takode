@@ -12,14 +12,19 @@ colors:
   primary: "#ae5630"
   primary-hover: "#c4643a"
   muted: "#858585"
+  light-muted: "#6f6a60"
   success: "#48bb78"
   error: "#fc8181"
-  warning: "#f6e05e"
+  warning: "#8a4b00"
+  attention: "#8a4b00"
+  info: "#075985"
   light-bg: "#f5f5f0"
   light-fg: "#1a1a18"
   light-surface: "#FFFFFF"
   light-sidebar: "#edeae2"
   light-user-bubble: "#ddd9ce"
+  light-code-bg: "#ECE9DF"
+  light-code-fg: "#24221f"
 typography:
   body:
     fontFamily: "system-ui, -apple-system, sans-serif"
@@ -106,15 +111,19 @@ Takode uses restrained warm-neutral theming: near-black operational surfaces, lo
 - **Sidebar Black** (`#191919`): Dark sidebar/navigation surface.
 - **Soft Foreground** (`#eeeeee`): Primary text on dark surfaces.
 - **Muted Gray** (`#858585`): Secondary text, timestamps, inactive controls.
+- **Light Metadata Gray** (`#6f6a60`): Light-theme secondary text, timestamps, inactive controls, and compact labels. It stays deliberately muted while meeting AA on both white cards and the warm light workspace.
 - **Code Black** (`#111111`): Code and diff backgrounds.
 - **Warm Light Workspace** (`#f5f5f0`): Light-mode page background.
 - **Light Surface** (`#FFFFFF`): Current white light-mode card and input surface.
 - **Light Sidebar** (`#edeae2`): Light-mode sidebar.
 
 ### Semantic
-- **Success Green** (`#48bb78`): Success and connected states.
-- **Soft Error Red** (`#fc8181`): Errors, destructive warnings, failed states.
-- **Signal Yellow** (`#f6e05e`): Warnings, in-progress attention, preparation states.
+- **Success Green** (`#48bb78` dark, `#2d7d46` light): Success and connected states.
+- **Soft Error Red** (`#fc8181` dark, `#c53030` light): Errors, destructive warnings, failed states.
+- **Attention Amber** (`#f6d365` dark, `#8a4b00` light): Needs-input prompts, warning labels, and questionnaire controls. Use the `cc-attention` token family rather than raw amber Tailwind classes.
+- **Info Blue** (`#7dd3fc` dark, `#075985` light): Review/unread/info labels where blue remains semantic. Use the `cc-info` token family rather than raw blue Tailwind classes.
+- **Status Tokens** (`cc-status-*`): Quest status text/dot colors are theme-aware. They preserve bright dark-theme accents while using darker readable light-theme text.
+- **Quest Journey Phase Tokens** (`cc-phase-*`): Phase metadata may keep bright identity accents, but UI text, dots, lines, and borders should use phase presentation helpers so light theme gets AA-readable equivalents. Dense Work Board thread-tab titles use the `cc-phase-thread-tab-title-*` token family rather than raw phase accents.
 
 ### Named Rules
 **The One Warm Accent Rule.** Use the copper primary as the main product accent. Do not introduce unrelated decorative accent families unless a feature has a real semantic need.
@@ -122,6 +131,10 @@ Takode uses restrained warm-neutral theming: near-black operational surfaces, lo
 **The Low-Contrast Structure Rule.** Borders, dividers, hover fills, and inactive states should stay quiet. The UI should distinguish structure without looking like a grid of heavy boxes.
 
 **The Flavor Is Rare Rule.** Cat-themed visuals should be small, purposeful accents. They can make the product feel friendlier, but they must not compete with status, routing, review, or approval information.
+
+**The Light Theme Contrast Rule.** Light theme uses darker semantic presentation tokens for small text, labels, phase names, notification controls, and code. Do not place `text-white`, `text-*-100`, `text-*-200`, `text-*-300`, or `text-*-400` on light surfaces unless the class is explicitly theme-qualified or backed by a contrast check.
+
+**The Metadata Accent Rule.** Shared metadata colors, such as Quest Journey phase JSON accents, are identity data. Runtime UI should convert them through presentation helpers instead of applying the raw hex to normal-size text.
 
 ## 3. Typography
 
@@ -191,6 +204,7 @@ Takode is mostly flat, using tonal layering, borders, and sticky positioning for
 ### Chat Feed and Tool Blocks
 - **Messages:** User messages use a compact rounded bubble; assistant messages are more integrated into the feed with metadata and action affordances.
 - **Tool blocks:** Grouped, collapsible, and readable. Edit/write groups stay flatter when that improves scanning.
+- **Code:** Dark theme uses the established near-black code surface; light theme uses a warm neutral code surface with dark text and light-mode syntax tokens. Do not reuse dark code colors as light defaults.
 - **Notifications:** Floating notification chip and popover are compact but must never cover the composer controls needed to respond.
 - **Playful accents:** Cat-themed indicators may appear in activity, attention, or empty-state details when they are small, recognizable, and do not hide system state.
 

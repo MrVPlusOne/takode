@@ -166,7 +166,7 @@ export function NeedsInputSourceTarget({
         <button
           type="button"
           onClick={onNavigate}
-          className="min-w-0 flex-1 rounded-sm text-left transition-colors hover:text-amber-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/45 cursor-pointer"
+          className="min-w-0 flex-1 rounded-sm text-left transition-colors hover:text-cc-attention focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
           aria-label={`Open source message for ${title}`}
           data-testid={testIdPrefix ? `${testIdPrefix}-source-target` : undefined}
         >
@@ -185,7 +185,7 @@ export function NeedsInputSourceTarget({
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] text-cc-muted/80 transition-colors hover:bg-cc-hover/60 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/45 cursor-pointer"
+            className="inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] cc-muted-readable transition-colors hover:bg-cc-hover/60 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
             aria-expanded={expanded}
             aria-controls={contextId}
           >
@@ -199,7 +199,7 @@ export function NeedsInputSourceTarget({
             onFocus={showPreview}
             onBlur={closePreview}
             onClick={(event) => event.stopPropagation()}
-            className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] text-cc-muted/80 transition-colors hover:bg-cc-hover/60 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-400/45 cursor-pointer"
+            className="inline-flex items-center gap-1 rounded px-1 py-0.5 text-[10px] cc-muted-readable transition-colors hover:bg-cc-hover/60 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
             aria-label="Preview source message"
             data-testid={testIdPrefix ? `${testIdPrefix}-source-preview-trigger` : undefined}
           >
