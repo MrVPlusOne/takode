@@ -218,8 +218,17 @@ describe("Playground", () => {
     expect(workBoardBar.queryByTestId("workboard-current-thread")).toBeNull();
     expect(workBoardBar.getByTestId("thread-main-tab")).toHaveTextContent("Main Thread");
     expect(workBoardBar.getByTestId("thread-main-tab")).toHaveAttribute("aria-pressed", "true");
-    expect(workBoardBar.getByTestId("thread-main-tab")).toHaveClass("border-violet-100/45", "border-b-transparent");
-    expect(workBoardBar.getByTestId("thread-main-tab")).not.toHaveClass("border-amber-400/60", "border-cc-primary/70");
+    expect(workBoardBar.getByTestId("thread-main-tab")).toHaveClass(
+      "border-cc-primary/45",
+      "border-b-transparent",
+      "bg-cc-card",
+      "text-cc-fg",
+    );
+    expect(workBoardBar.getByTestId("thread-main-tab")).not.toHaveClass(
+      "border-violet-100/45",
+      "border-amber-400/60",
+      "border-cc-primary/70",
+    );
     expect(workBoardBar.getByTestId("workboard-phase-summary")).toHaveTextContent("1 Code Review");
     const mainTitle = within(workBoardBar.getByTestId("thread-main-tab")).getByTestId("thread-tab-title");
     expect(mainTitle).toHaveAttribute("data-active-output", "false");
@@ -319,7 +328,13 @@ describe("Playground", () => {
       .getAllByTestId("thread-tab")
       .find((tab) => tab.getAttribute("data-thread-key") === "q-42")!;
     expect(within(selectedActiveQuestTab).getByTestId("thread-tab-select")).toHaveAttribute("aria-pressed", "true");
-    expect(selectedActiveQuestTab).toHaveClass("border-violet-100/45", "border-b-transparent");
+    expect(selectedActiveQuestTab).toHaveClass(
+      "border-cc-primary/45",
+      "border-b-transparent",
+      "bg-cc-card",
+      "text-cc-fg",
+    );
+    expect(selectedActiveQuestTab).not.toHaveClass("border-violet-100/45", "border-amber-400/60");
     expect(selectedActiveQuestTab).toHaveAttribute("data-active-output", "true");
     expect(within(selectedActiveQuestTab).getByTestId("thread-tab-active-output-indicator")).toBeTruthy();
 
