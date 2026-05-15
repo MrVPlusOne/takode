@@ -1069,6 +1069,8 @@ export interface SessionState {
   session_id: string;
   /** Durable Takode session-group identity. Explicitly set to "default" when ungrouped. */
   treeGroupId?: string;
+  /** Authoritative memory/session-space slug used for default memory repo resolution. */
+  memorySessionSpaceSlug?: string;
   /** Whether this session is an orchestrator/leader session. */
   isOrchestrator?: boolean;
   /** Server-owned leader quest/thread tab state. Browsers must treat this as authoritative. */

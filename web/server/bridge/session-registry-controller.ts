@@ -246,6 +246,7 @@ export function applyInitialSessionState(
     containerizedHostCwd?: string;
     cwd?: string;
     treeGroupId?: string;
+    memorySessionSpaceSlug?: string;
     askPermission?: boolean;
     uiMode?: "plan" | "agent";
     resumedFromExternal?: boolean;
@@ -270,6 +271,13 @@ export function applyInitialSessionState(
     const normalizedTreeGroupId = options.treeGroupId.trim() || "default";
     if (session.state.treeGroupId !== normalizedTreeGroupId) {
       session.state.treeGroupId = normalizedTreeGroupId;
+      shouldPersist = true;
+    }
+  }
+  if (typeof options.memorySessionSpaceSlug === "string") {
+    const normalizedMemorySessionSpaceSlug = options.memorySessionSpaceSlug.trim();
+    if (normalizedMemorySessionSpaceSlug && session.state.memorySessionSpaceSlug !== normalizedMemorySessionSpaceSlug) {
+      session.state.memorySessionSpaceSlug = normalizedMemorySessionSpaceSlug;
       shouldPersist = true;
     }
   }

@@ -351,6 +351,8 @@ export interface CreateSessionOpts {
   role?: "worker" | "orchestrator";
   /** Server-side session group assignment for durable group membership. */
   treeGroupId?: string;
+  /** Explicit memory/session-space override; omitted sessions inherit their tree group. */
+  memorySessionSpaceSlug?: string;
   /** CLI session ID to resume (from an external CLI session, e.g. VS Code or terminal) */
   resumeCliSessionId?: string;
 }

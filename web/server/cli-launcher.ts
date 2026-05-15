@@ -418,6 +418,23 @@ export class CliLauncher {
     return memorySessionSpaceSlug;
   }
 
+  setMemorySessionSpaceSlug(sessionId: string, slug: string): boolean {
+    const info = this.sessions.get(sessionId);
+    if (!info) return false;
+    const memorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(slug);
+    if (info.memorySessionSpaceSlug === memorySessionSpaceSlug) return false;
+    info.memorySessionSpaceSlug = memorySessionSpaceSlug;
+    const env = this.sessionEnvs.get(sessionId);
+    if (env) {
+      this.sessionEnvs.set(sessionId, {
+        ...env,
+        [COMPANION_MEMORY_SPACE_SLUG_ENV]: memorySessionSpaceSlug,
+      });
+    }
+    this.persistState();
+    return true;
+  }
+
   /** Get the auth token for a session, generating one for legacy sessions if missing. */
   getSessionAuthToken(sessionId: string): string | undefined {
     const info = this.sessions.get(sessionId);

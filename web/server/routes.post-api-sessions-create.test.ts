@@ -216,6 +216,7 @@ function createMockLauncher() {
     getOrchestratorGuardrails: vi.fn(() => "# Takode — Cross-Session Orchestration\n..."),
     getPort: vi.fn(() => 3456),
     getMemorySessionSpaceSlug: vi.fn(() => "Takode"),
+    setMemorySessionSpaceSlug: vi.fn(() => false),
     verifySessionAuthToken: vi.fn(() => true),
     herdSessions: vi.fn(() => ({ herded: [], notFound: [], conflicts: [], reassigned: [], leaders: [] })),
     unherdSession: vi.fn(() => false),
@@ -611,6 +612,139 @@ describe("POST /api/sessions/create", () => {
     expect(await treeGroupStore.getGroupForSession("session-1")).toBe(group.id);
   });
 
+  it("uses the requested tree group name as the default memory session-space for Codex leaders", async () => {
+    const group = await treeGroupStore.createGroup("MSI");
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        backend: "codex",
+        role: "orchestrator",
+        cwd: "/test",
+        treeGroupId: group.id,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendType: "codex",
+        memorySessionSpaceSlug: "MSI",
+        env: expect.objectContaining({
+          COMPANION_MEMORY_SPACE_SLUG: "MSI",
+        }),
+      }),
+    );
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        treeGroupId: group.id,
+        memorySessionSpaceSlug: "MSI",
+      }),
+    );
+  });
+
+  it("keeps an explicit memory session-space slug when creating inside a different tree group", async () => {
+    const group = await treeGroupStore.createGroup("MSI");
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/test",
+        treeGroupId: group.id,
+        memorySessionSpaceSlug: "ExplicitSpace",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memorySessionSpaceSlug: "ExplicitSpace",
+        env: expect.objectContaining({
+          COMPANION_MEMORY_SPACE_SLUG: "ExplicitSpace",
+        }),
+      }),
+    );
+  });
+
+  it("uses the creator tree group as the default memory session-space for spawned sessions", async () => {
+    const group = await treeGroupStore.createGroup("MSI");
+    ensureBridgeSession(bridge, "leader-msi", { state: { treeGroupId: group.id } });
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/test",
+        createdBy: "leader-msi",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memorySessionSpaceSlug: "MSI",
+        env: expect.objectContaining({
+          COMPANION_MEMORY_SPACE_SLUG: "MSI",
+        }),
+      }),
+    );
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        treeGroupId: group.id,
+        memorySessionSpaceSlug: "MSI",
+      }),
+    );
+  });
+
+  it("keeps an explicit requested tree group visually authoritative when also spawned by a leader", async () => {
+    // A create request can be both a leader spawn and an explicit placement into
+    // another session space. The requested tree group must stay authoritative so
+    // the visible group and default memory repo cannot diverge after launch.
+    const leaderGroup = await treeGroupStore.createGroup("Takode");
+    const requestedGroup = await treeGroupStore.createGroup("MSI");
+    ensureBridgeSession(bridge, "leader-takode", { state: { treeGroupId: leaderGroup.id } });
+    launcher.getSession.mockImplementation((id: string) =>
+      id === "leader-takode" ? { sessionId: id, isOrchestrator: true } : undefined,
+    );
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        cwd: "/test",
+        createdBy: "leader-takode",
+        treeGroupId: requestedGroup.id,
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        memorySessionSpaceSlug: "MSI",
+        env: expect.objectContaining({
+          COMPANION_MEMORY_SPACE_SLUG: "MSI",
+        }),
+      }),
+    );
+    expect(launcher.herdSessions).toHaveBeenCalledWith("leader-takode", ["session-1"]);
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(bridge.applyInitialSessionState).toHaveBeenCalledWith(
+      "session-1",
+      expect.objectContaining({
+        treeGroupId: requestedGroup.id,
+        memorySessionSpaceSlug: "MSI",
+      }),
+    );
+    expect(await treeGroupStore.getGroupForSession("session-1")).toBe(requestedGroup.id);
+    expect(await treeGroupStore.getGroupForSession("session-1")).not.toBe(leaderGroup.id);
+  });
+
   it("syncs session metadata and assignment index on manual reassignment", async () => {
     const group = await treeGroupStore.createGroup("Reassigned");
     ensureBridgeSession(bridge, "s1", { state: { treeGroupId: "default" } });
@@ -629,6 +763,8 @@ describe("POST /api/sessions/create", () => {
 
     expect(res.status).toBe(200);
     expect(bridge._sessions["s1"].state.treeGroupId).toBe(group.id);
+    expect(bridge._sessions["s1"].state.memorySessionSpaceSlug).toBe("Reassigned");
+    expect(launcher.setMemorySessionSpaceSlug).toHaveBeenCalledWith("s1", "Reassigned");
     expect(bridge.persistSessionById).toHaveBeenCalledWith("s1");
     expect(await treeGroupStore.getGroupForSession("s1")).toBe(group.id);
     expect(await streamStore.listStreams({ scope: defaultScope, includeArchived: true })).toEqual([]);
@@ -1292,6 +1428,33 @@ describe("POST /api/sessions/create", () => {
         env: expect.objectContaining({
           API_KEY: "secret123",
           COMPANION_MEMORY_SPACE_SLUG: "Other",
+        }),
+      }),
+    );
+  });
+
+  it("uses the requested tree group name as the memory session-space when resuming Codex sessions", async () => {
+    const group = await treeGroupStore.createGroup("MSI");
+
+    const res = await app.request("/api/sessions/create", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        backend: "codex",
+        cwd: "/test",
+        treeGroupId: group.id,
+        resumeCliSessionId: "codex-resume-1",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(launcher.launch).toHaveBeenCalledWith(
+      expect.objectContaining({
+        backendType: "codex",
+        resumeCliSessionId: "codex-resume-1",
+        memorySessionSpaceSlug: "MSI",
+        env: expect.objectContaining({
+          COMPANION_MEMORY_SPACE_SLUG: "MSI",
         }),
       }),
     );
