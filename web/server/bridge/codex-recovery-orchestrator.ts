@@ -899,13 +899,13 @@ export function registerCodexAdapterRecoveryLifecycle(
     if (meta.cliSessionId) {
       deps.setCliSessionIdFromMeta(session.id, meta.cliSessionId);
     }
+    deps.setBackendState(session, "connected", null);
     const recyclePending = deps.getLauncherSessionInfo(session.id)?.codexLeaderRecyclePending;
     const pendingRollback = (session as any).pendingCodexRollback;
     if (meta.resumeSnapshot && !pendingRollback) {
       deps.hydrateCodexResumedHistory(session, meta.resumeSnapshot);
       reconcileCodexResumedTurn(session, meta.resumeSnapshot, deps);
     }
-    deps.setBackendState(session, "connected", null);
     clearCodexInitRecoveryState(session);
     reconcileDuplicateCodexPendingTurns(session, "session_meta", deps);
     retryNonDrainableCodexHeadTurn(session, "session_meta_stale_ack_head", deps);
@@ -1268,13 +1268,21 @@ export function reconcileCodexResumedTurn(
 ): void {
   const pending = deps.getCodexTurnInRecovery(session);
   const lastTurn = snapshot.lastTurn;
-  if (!pending) return;
+  if (!pending) {
+    if (lastTurn && lastTurn.status !== "completed") {
+      console.warn(
+        `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} ` +
+          `has status=${lastTurn.status} but no pending turn; skipping automatic retry`,
+      );
+    }
+    return;
+  }
   if (!lastTurn) {
     if (pending.turnId) {
       console.log(
         `[ws-bridge] Resumed Codex snapshot for session ${sessionTag(session.id)} has no lastTurn while pending turn ${pending.turnId} is in flight; retrying message`,
       );
-      retryPendingCodexTurn(session, pending, deps);
+      retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
     }
     return;
   }
@@ -1293,15 +1301,20 @@ export function reconcileCodexResumedTurn(
         `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} ` +
           "lost local turn identity after turn/start; thread is idle and turn has no items, retrying user message",
       );
-      retryPendingCodexTurn(session, pending, deps);
+      retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
       return;
     }
     if (pending.turnId && pending.turnId !== lastTurn.id) {
       console.log(
         `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} does not match pending turn ${pending.turnId}; retrying message`,
       );
-      retryPendingCodexTurn(session, pending, deps);
+      retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
+      return;
     }
+    console.warn(
+      `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} ` +
+        "does not match pending Codex turn by id or text; skipping automatic retry",
+    );
     return;
   }
   const completedHistoryIndexes = commitPendingCodexInputs(
@@ -1317,7 +1330,7 @@ export function reconcileCodexResumedTurn(
     console.log(
       `[ws-bridge] Resumed Codex turn ${lastTurn.id} for session ${sessionTag(session.id)} has only user input; retrying message`,
     );
-    retryPendingCodexTurn(session, pending, deps);
+    retryPendingCodexTurn(session, pending, deps, { diagnoseDispatchFailure: true });
     return;
   }
   if (lastTurn.status === "inProgress" && snapshot.threadStatus === "idle") {
@@ -1797,6 +1810,7 @@ export function retryPendingCodexTurn(
   session: CodexRecoveryOrchestratorSessionLike,
   pending: CodexOutboundTurn,
   deps: CodexRecoveryOrchestratorDeps,
+  options: { diagnoseDispatchFailure?: boolean } = {},
 ): void {
   const releasedHeadQueuedTurn = pending.turnTarget === "queued";
   const restartRunningGuard = session.isGenerating && pending.turnTarget !== "queued";
@@ -1814,6 +1828,15 @@ export function retryPendingCodexTurn(
   reconcileRecoveredQueuedTurnLifecycle(session, "codex_retry_pending_turn", deps, { releasedHeadQueuedTurn });
   deps.dispatchQueuedCodexTurns(session, "codex_retry_pending_turn");
   const pendingAfterDispatch: CodexOutboundTurn = pending;
+  const retryIssue = options.diagnoseDispatchFailure ? getCodexRetryDispatchIssue(session, pendingAfterDispatch) : null;
+  if (retryIssue) {
+    const message = `Codex resumed an interrupted user-only turn, but automatic retry was not dispatched: ${retryIssue}.`;
+    pendingAfterDispatch.lastError = message;
+    console.warn(`[ws-bridge] ${message} session=${sessionTag(session.id)}`);
+    deps.broadcastToBrowsers(session, { type: "error", message });
+    deps.persistSession(session);
+    return;
+  }
   if (pendingAfterDispatch.status === "dispatched" && !session.isGenerating) {
     const target = deps.markRunningFromUserDispatch(session, "codex_retry_pending_turn");
     pendingAfterDispatch.turnTarget = target;
@@ -1823,6 +1846,20 @@ export function retryPendingCodexTurn(
   }
   deps.persistSession(session);
 }
+
+function getCodexRetryDispatchIssue(
+  session: CodexRecoveryOrchestratorSessionLike,
+  pending: CodexOutboundTurn,
+): string | null {
+  if (pending.status === "dispatched" || pending.status === "backend_acknowledged") return null;
+  if (pending.status === "blocked_broken_session") return "session is in a non-retryable broken state";
+  if (!session.codexAdapter) return "adapter not connected";
+  if (session.state.backend_state !== "connected")
+    return `backend state is ${session.state.backend_state ?? "unknown"}`;
+  if (!session.codexAdapter.isConnected()) return "adapter not connected";
+  return `retry remained ${pending.status}`;
+}
+
 export function retryNonDrainableCodexHeadTurn(
   session: CodexRecoveryOrchestratorSessionLike,
   reason: string,

@@ -636,6 +636,51 @@ describe("Codex retries user message when turn is stale after disconnect", () =>
     expect(getCodexStartPendingInputs(retried)[0]?.content).toBe("implement the feature and run tests");
   });
 
+  it("keeps a user-only interrupted resume running after server-owned retry dispatch", async () => {
+    const sid = "s-user-only-retry";
+    const adapter1 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter1 as any);
+    emitCodexSessionReady(adapter1, { cliSessionId: "thread-1" });
+
+    const browser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(browser, sid);
+
+    await bridge.handleBrowserMessage(
+      browser,
+      JSON.stringify({
+        type: "user_message",
+        content: "continue the implementation",
+      }),
+    );
+
+    adapter1.emitDisconnect("turn-user-only");
+
+    const adapter2 = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter2 as any);
+    emitCodexSessionReady(adapter2, {
+      cliSessionId: "thread-user-only",
+      resumeSnapshot: {
+        threadId: "thread-user-only",
+        turnCount: 1,
+        threadStatus: "idle",
+        lastTurn: {
+          id: "turn-user-only",
+          status: "interrupted",
+          error: null,
+          items: [{ type: "userMessage", content: [{ type: "text", text: "continue the implementation" }] }],
+        },
+      },
+    });
+
+    const retried = adapter2.sendBrowserMessage.mock.calls[0]?.[0] as any;
+    expect(getCodexStartPendingInputs(retried)[0]?.content).toBe("continue the implementation");
+    expect(bridge.getSession(sid)?.isGenerating).toBe(true);
+    expect(getPendingCodexTurn(bridge.getSession(sid)!)).toMatchObject({
+      status: "dispatched",
+      turnTarget: "current",
+    });
+  });
+
   it("retries a stale acknowledged head turn so post-relaunch user input can drain", async () => {
     const sid = "s-stale-ack-followup";
     const adapter1 = makeCodexAdapterMock();

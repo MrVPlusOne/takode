@@ -420,6 +420,51 @@ describe("reconcileCodexResumedTurn", () => {
     expect(pending.turnId).toBeNull();
   });
 
+  it("surfaces a visible diagnostic when a safe user-only retry cannot dispatch", () => {
+    const request = "continue the implementation";
+    const session = makeSession([{ id: "input-1", content: request, timestamp: 1_000, cancelable: false }]);
+    session.isGenerating = true;
+    const pending = makePendingTurn();
+    pending.userContent = request;
+    pending.status = "backend_acknowledged";
+    pending.turnTarget = "current";
+    pending.turnId = "turn-user-only";
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      dispatchQueuedCodexTurns: vi.fn(),
+      setGenerating: vi.fn((session: CodexRecoveryOrchestratorSessionLike, generating: boolean) => {
+        session.isGenerating = generating;
+      }),
+    });
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-user-only",
+          status: "interrupted",
+          error: null,
+          items: [{ type: "userMessage", content: [{ type: "text", text: request }] }],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    expect(pending.status).toBe("queued");
+    expect(pending.lastError).toContain("automatic retry was not dispatched");
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("adapter not connected"),
+      }),
+    );
+  });
+
   it("dedupes routed recovered assistant replay against an already stored stripped leader row", () => {
     // This matches the observed replay shape: the original Main assistant row
     // is already stored without the leader marker, then Codex resume replays
