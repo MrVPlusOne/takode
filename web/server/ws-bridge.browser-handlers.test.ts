@@ -773,7 +773,7 @@ describe("Browser handlers", () => {
     expect(disconnectedMsg).toBeDefined();
   });
 
-  it("handleBrowserOpen: Codex dead backend enters recovering state before relaunch", () => {
+  it("handleBrowserOpen: Codex dead backend only syncs disconnected state without passive recovery", () => {
     const sid = "s-codex-browser-open-dead";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
@@ -786,16 +786,39 @@ describe("Browser handlers", () => {
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
 
-    expect(relaunchCb).toHaveBeenCalledWith(sid);
-    expect(bridge.getSession(sid)?.state.backend_state).toBe("recovering");
+    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(bridge.getSession(sid)?.state.backend_state).not.toBe("recovering");
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
-    expect(calls).toContainEqual(
+    expect(calls).not.toContainEqual(
       expect.objectContaining({
         type: "session_update",
-        session: expect.objectContaining({ backend_state: "recovering", backend_error: null }),
+        session: expect.objectContaining({ backend_state: "recovering" }),
       }),
     );
+  });
+
+  it("handleBrowserOpen: repeated Codex passive opens do not amplify relaunch requests", () => {
+    const sid = "s-codex-browser-switch-dead";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "connected", killedByIdleManager: false })),
+    } as any);
+
+    const firstBrowser = makeBrowserSocket(sid);
+    const secondBrowser = makeBrowserSocket(sid);
+    bridge.handleBrowserOpen(firstBrowser, sid);
+    bridge.handleBrowserOpen(secondBrowser, sid);
+
+    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(bridge.getSession(sid)?.browserSockets.size).toBe(2);
+    for (const browser of [firstBrowser, secondBrowser]) {
+      const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+      expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));
+    }
   });
 
   it("handleBrowserOpen: does NOT relaunch when Codex adapter is attached but still initializing", () => {

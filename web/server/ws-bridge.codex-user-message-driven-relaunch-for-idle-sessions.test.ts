@@ -596,7 +596,7 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
 
     const browser = makeBrowserSocket(sid);
     bridge.handleBrowserOpen(browser, sid);
-    relaunchCb.mockClear(); // clear any relaunch from handleBrowserOpen
+    expect(relaunchCb).not.toHaveBeenCalled();
     browser.send.mockClear();
 
     // Send a user message — should trigger relaunch

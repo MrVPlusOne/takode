@@ -749,8 +749,6 @@ export function getBrowserTransportDeps(host: any) {
     getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     backendAttached: (targetSession: unknown) => backendAttachedController(targetSession as Session),
     backendConnected: (targetSession: unknown) => backendConnectedController(targetSession as Session),
-    requestCodexAutoRecovery: (targetSession: unknown, reason: string) =>
-      host.requestCodexAutoRecovery(targetSession as Session, reason),
     requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
       host.recycleCodexLeaderSession((targetSession as Session).id, trigger),
     requestCliRelaunch: requestCliRelaunchIfUnpaused(host),

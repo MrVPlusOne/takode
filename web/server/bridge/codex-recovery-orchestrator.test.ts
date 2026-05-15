@@ -964,7 +964,7 @@ describe("handleCodexAdapterInitError", () => {
     session.codexAdapter = adapter as any;
     session.state.backend_state = "resuming";
     session.pendingCodexTurns = [pending];
-    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    (session as any).codexAutoRecoveryReason = "queued_user_message_adapter_missing";
     const deps = makeRecoveryDeps();
 
     const result = handleCodexAdapterInitError(
@@ -985,7 +985,10 @@ describe("handleCodexAdapterInitError", () => {
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
 
     vi.advanceTimersByTime(1_000);
-    expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(session, "init_error:browser_open_dead_backend");
+    expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(
+      session,
+      "init_error:queued_user_message_adapter_missing",
+    );
   });
 
   it("marks broken only after transient init retry budget is exhausted", () => {
@@ -996,7 +999,7 @@ describe("handleCodexAdapterInitError", () => {
     const pending = makePendingTurn();
     session.codexAdapter = adapter as any;
     session.pendingCodexTurns = [pending];
-    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    (session as any).codexAutoRecoveryReason = "queued_user_message_adapter_missing";
     (session as any).codexInitRecoveryFailures = 3;
     const deps = makeRecoveryDeps({ maxAdapterRelaunchFailures: 3 });
 
@@ -1023,7 +1026,7 @@ describe("handleCodexAdapterInitError", () => {
     const adapter = { id: "adapter-1" };
     const session = makeSession([]);
     session.codexAdapter = adapter as any;
-    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    (session as any).codexAutoRecoveryReason = "queued_user_message_adapter_missing";
     const deps = makeRecoveryDeps();
 
     const result = handleCodexAdapterInitError(
@@ -1056,7 +1059,7 @@ describe("handleCodexAdapterInitError", () => {
     const adapter = { id: "adapter-1" };
     const session = makeSession([]);
     session.codexAdapter = adapter as any;
-    (session as any).codexAutoRecoveryReason = "browser_open_dead_backend";
+    (session as any).codexAutoRecoveryReason = "queued_user_message_adapter_missing";
     const deps = makeRecoveryDeps();
     const error = `Codex initialization failed: Transport closed. Stderr: ${stderr}`;
 

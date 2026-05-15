@@ -67,7 +67,6 @@ function makeInjectDeps(overrides: Record<string, unknown> = {}) {
     getLauncherSessionInfo: vi.fn(() => ({ isOrchestrator: true, state: "connected", backendType: "codex" })),
     backendAttached: vi.fn(() => true),
     backendConnected: vi.fn(() => true),
-    requestCodexAutoRecovery: vi.fn(() => false),
     getRouteChain: vi.fn(() => undefined),
     setRouteChain: vi.fn(),
     clearRouteChain: vi.fn(),

@@ -143,7 +143,6 @@ export interface BrowserTransportDeps {
   getLauncherSessionInfo: (sessionId: string) => BrowserTransportLauncherInfo | null | undefined;
   backendAttached: (session: BrowserTransportSessionLike) => boolean;
   backendConnected: (session: BrowserTransportSessionLike) => boolean;
-  requestCodexAutoRecovery: (session: BrowserTransportSessionLike, reason: string) => boolean;
   requestCliRelaunch?: (sessionId: string) => void;
   getRouteChain: (sessionId: string) => Promise<void> | undefined;
   setRouteChain: (sessionId: string, task: Promise<void>) => void;
@@ -274,9 +273,8 @@ export function handleBrowserOpen(
       );
     } else if (session.backendType === "codex") {
       console.log(
-        `[ws-bridge] Browser connected but backend is dead for session ${sessionTag(session.id)}, requesting relaunch`,
+        `[ws-bridge] Browser connected but Codex backend is dead for session ${sessionTag(session.id)}; passive browser-open recovery is suppressed`,
       );
-      deps.requestCodexAutoRecovery(session, "browser_open_dead_backend");
     } else if (deps.requestCliRelaunch) {
       console.log(
         `[ws-bridge] Browser connected but backend is dead for session ${sessionTag(session.id)}, requesting relaunch`,
