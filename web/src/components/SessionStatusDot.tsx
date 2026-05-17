@@ -12,54 +12,16 @@
  */
 
 import { PowerPlugDot } from "./CatIcons.js";
+import {
+  deriveSessionStatus,
+  type SessionVisualStatus,
+  type SessionVisualStatusInput,
+} from "../utils/session-visual-status.js";
 
-export type SessionVisualStatus =
-  | "archived"
-  | "permission"
-  | "disconnected"
-  | "running"
-  | "compacting"
-  | "completed_unread"
-  | "idle";
+export { deriveSessionStatus, type SessionVisualStatus };
 
-export interface SessionStatusDotProps {
+export interface SessionStatusDotProps extends SessionVisualStatusInput {
   className?: string;
-  /** Whether the session is archived */
-  archived?: boolean;
-  /** Number of pending permission requests */
-  permCount: number;
-  /** Whether the CLI process is connected */
-  isConnected: boolean;
-  /** SDK process state */
-  sdkState: "starting" | "connected" | "running" | "exited" | null;
-  /** Session activity status */
-  status: "idle" | "running" | "compacting" | "reverting" | null;
-  /** Whether the session has unread results the user hasn't seen */
-  hasUnread?: boolean;
-  /** Whether the session was killed by the idle manager (shows as idle instead of disconnected) */
-  idleKilled?: boolean;
-}
-
-/**
- * Derives the visual status from session state fields.
- * Exported for testability.
- */
-export function deriveSessionStatus(props: SessionStatusDotProps): SessionVisualStatus {
-  const { archived, permCount, isConnected, sdkState, status, hasUnread, idleKilled } = props;
-
-  if (archived) return "archived";
-  if (permCount > 0) return "permission";
-  // Disconnected: CLI not connected and not still starting up.
-  // isConnected is accurate for all sessions (active via WebSocket, non-active via REST fallback).
-  // Sessions killed by idle manager show as "idle" (gray) instead of "disconnected" (red)
-  // since they don't need user attention — they'll relaunch on demand.
-  if (!isConnected && sdkState !== "starting") {
-    return idleKilled ? "idle" : "disconnected";
-  }
-  if (status === "running") return "running";
-  if (status === "compacting" || status === "reverting") return "compacting";
-  if (hasUnread) return "completed_unread";
-  return "idle";
 }
 
 /** Maps visual status to the rounded dot background color. */

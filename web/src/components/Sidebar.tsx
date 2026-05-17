@@ -25,7 +25,6 @@ import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
-import { deriveSessionStatus } from "./SessionStatusDot.js";
 import type { SdkSessionInfo } from "../types.js";
 import {
   hydrateSessionList,
@@ -46,6 +45,7 @@ import {
   type HerdGroupBadgeTheme,
 } from "../utils/herd-group-theme.js";
 import { getShortcutTitle } from "../shortcuts.js";
+import { getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
 
 /** Restrict drag movement to vertical axis only. */
 const restrictToVerticalAxis: Modifier = ({ transform }) => ({
@@ -161,6 +161,7 @@ export function Sidebar() {
   const sessionTaskHistory = useStore((s) => s.sessionTaskHistory);
   const pendingPermissions = useStore((s) => s.pendingPermissions);
   const sessionAttention = useStore((s) => s.sessionAttention);
+  const sessionNotifications = useStore((s) => s.sessionNotifications);
   const askPermissionMap = useStore((s) => s.askPermission);
   const reorderMode = useStore((s) => s.reorderMode);
   const setReorderMode = useStore((s) => s.setReorderMode);
@@ -311,27 +312,33 @@ export function Sidebar() {
       .catch(() => {});
   }, []);
 
-  // Update document.title when serverName, attention, or permission counts change.
-  // Uses the same deriveSessionStatus logic as the yarn ball indicator (TopBar)
-  // so the tab badge count always matches the visible attention indicators.
+  // Update document.title when serverName or attention counts change.
+  // Needs-input notifications use the same aggregate as the global bell; other
+  // title attention keeps the existing session-level permission/unread behavior.
   useEffect(() => {
-    let totalAttention = 0;
-    for (const sdk of sdkSessions) {
-      if (sdk.archived) continue;
-      const vs = deriveSessionStatus({
-        permCount: countUserPermissions(pendingPermissions.get(sdk.sessionId)),
-        isConnected: cliConnected.get(sdk.sessionId) ?? sdk.cliConnected ?? false,
-        sdkState: sdk.state ?? null,
-        status: sessionStatus.get(sdk.sessionId) ?? null,
-        hasUnread: !!sessionAttention.get(sdk.sessionId),
-        idleKilled: cliDisconnectReason.get(sdk.sessionId) === "idle_limit",
-      });
-      if (vs === "permission" || vs === "completed_unread") totalAttention++;
-    }
+    const totalAttention = getDocumentTitleAttentionCount({
+      sdkSessions,
+      sessionNotifications,
+      pendingPermissions,
+      sessionAttention,
+      sessionStatus,
+      cliConnected,
+      cliDisconnectReason,
+      countUserPermissions,
+    });
     const suffix = import.meta.env.DEV ? "[DEV] Takode" : "Takode";
     const base = serverName ? `${serverName} — ${suffix}` : suffix;
     document.title = totalAttention > 0 ? `(${totalAttention}) ${base}` : base;
-  }, [serverName, sessionAttention, pendingPermissions, sdkSessions, sessionStatus, cliConnected, cliDisconnectReason]);
+  }, [
+    serverName,
+    sessionAttention,
+    pendingPermissions,
+    sessionNotifications,
+    sdkSessions,
+    sessionStatus,
+    cliConnected,
+    cliDisconnectReason,
+  ]);
 
   // Focus server name input when entering edit mode
   useEffect(() => {
