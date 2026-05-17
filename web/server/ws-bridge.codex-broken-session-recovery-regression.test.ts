@@ -649,7 +649,7 @@ describe("Codex broken-session recovery regression", () => {
     expect(calls).toContainEqual(
       expect.objectContaining({
         type: "error",
-        message: "Codex session is broken. Your message was queued and will run after relaunch.",
+        message: "Codex recovery is paused. Your message was queued and will run after manual Resume.",
       }),
     );
     expect(calls.find((msg: any) => msg.type === "status_change" && msg.status === "running")).toBeUndefined();
