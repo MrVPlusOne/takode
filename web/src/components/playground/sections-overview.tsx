@@ -492,7 +492,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Thread Projections"
-        description="Main keeps attached source context visible without source attachment markers; All Threads preserves the global view; quest projections keep attached context plus routed notification and thread-status chips."
+        description="Main keeps attached source context visible without source attachment markers; All Threads preserves the global view; quest projections keep attached context plus routed notification and thread-status footer metadata."
       >
         <div className="grid gap-4 xl:grid-cols-4">
           <Card label="Main">
@@ -510,7 +510,7 @@ export function PlaygroundOverviewSections() {
               <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-961" />
             </div>
           </Card>
-          <Card label="Routed Notification">
+          <Card label="Status Footer">
             <div className="h-[280px] overflow-hidden rounded-xl border border-cc-border bg-cc-card">
               <MessageFeed sessionId={PLAYGROUND_THREAD_PANEL_SESSION_ID} threadKey="q-963" />
             </div>

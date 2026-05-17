@@ -48,10 +48,6 @@ export function getFooterFeedBlockId(kind: string): string {
   return `footer:${kind}`;
 }
 
-export function getCurrentThreadStatusFeedBlockId(threadKey: string): string {
-  return `current-thread-status:${threadKey}`;
-}
-
 export function getPendingCodexFeedBlockId(inputId: string): string {
   return `pending-codex:${inputId}`;
 }

@@ -26,7 +26,6 @@ import {
   formatElapsed,
   getApprovalBatchFeedBlockId,
   getFooterFeedBlockId,
-  getCurrentThreadStatusFeedBlockId,
   getMessageFeedBlockId,
   getSubagentFeedBlockId,
   getToolGroupFeedBlockId,
@@ -272,24 +271,40 @@ function visibleCurrentThreadStatuses(
   );
 }
 
-function ThreadStatusChipRow({
+function entryHasModelActivity(entry: FeedEntry): boolean {
+  if (entry.kind !== "message") return true;
+  return entry.msg.role === "assistant";
+}
+
+function turnHasModelActivity(turn: Turn): boolean {
+  return turn.allEntries.some(entryHasModelActivity);
+}
+
+function latestStatusHostTurnId(sections: FeedSection[]): string | null {
+  let latestTurnId: string | null = null;
+  for (let sectionIndex = sections.length - 1; sectionIndex >= 0; sectionIndex--) {
+    const turns = sections[sectionIndex].turns;
+    for (let turnIndex = turns.length - 1; turnIndex >= 0; turnIndex--) {
+      const turn = turns[turnIndex];
+      latestTurnId ??= turn.id;
+      if (turnHasModelActivity(turn)) return turn.id;
+    }
+  }
+  return latestTurnId;
+}
+
+function ThreadStatusMetadata({
   statuses,
   currentThreadKey,
   onSelectThread,
-  feedBlockId,
 }: {
   statuses: LeaderThreadStatus[];
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
-  feedBlockId?: string;
 }) {
   if (statuses.length === 0) return null;
   return (
-    <div
-      className="flex flex-wrap gap-1.5 pl-9 pb-2"
-      aria-label="Thread status updates"
-      data-feed-block-id={feedBlockId}
-    >
+    <div className="flex flex-wrap items-center gap-1.5" aria-label="Current thread status">
       {statuses.map((status) => {
         const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
         const selectable =
@@ -301,18 +316,18 @@ function ThreadStatusChipRow({
               className={`h-1.5 w-1.5 rounded-full ${status.kind === "ready" ? "bg-green-400/70" : "bg-amber-300/70"}`}
               aria-hidden="true"
             />
-            <span className="font-medium text-cc-fg/75">{status.label}</span>
-            <span className="text-cc-muted/60">{label}</span>
-            <span className="max-w-[min(30rem,70vw)] truncate text-cc-muted/80">{status.summary}</span>
+            <span className="font-medium text-cc-fg/70">{status.label}</span>
+            <span className="text-cc-muted/55">{label}</span>
+            <span className="max-w-[min(24rem,58vw)] truncate text-cc-muted/75">{status.summary}</span>
           </>
         );
         const className =
-          "inline-flex max-w-full items-center gap-1.5 rounded-full border border-cc-border/60 bg-cc-card/70 px-2.5 py-1 text-[11px] leading-none shadow-[0_8px_20px_rgba(0,0,0,0.18)]";
+          "inline-flex max-w-full items-center gap-1.5 rounded-md border border-cc-border/50 bg-cc-hover/20 px-1.5 py-0.5 text-[10px] leading-none";
         return selectable ? (
           <button
-            key={`${status.threadKey}:${status.messageId}:${status.kind}`}
+            key={`${status.threadKey}:${status.messageId}:${status.kind}:${status.updatedAt ?? status.timestamp}`}
             type="button"
-            className={`${className} cursor-pointer hover:bg-cc-hover/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50`}
+            className={`${className} cursor-pointer hover:bg-cc-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50`}
             onClick={() => onSelectThread?.(status.threadKey)}
             title={`Open ${label}`}
             aria-label={`${status.label} for ${label}: ${status.summary}. Open thread.`}
@@ -321,7 +336,7 @@ function ThreadStatusChipRow({
           </button>
         ) : (
           <div
-            key={`${status.threadKey}:${status.messageId}:${status.kind}`}
+            key={`${status.threadKey}:${status.messageId}:${status.kind}:${status.updatedAt ?? status.timestamp}`}
             className={className}
             role="status"
             aria-label={`${status.label} for ${label}: ${status.summary}`}
@@ -334,30 +349,23 @@ function ThreadStatusChipRow({
   );
 }
 
-export function CurrentThreadStatusChipRow({
-  sessionId,
+function TurnThreadStatusFooter({
+  statuses,
   currentThreadKey,
   onSelectThread,
 }: {
-  sessionId: string;
+  statuses: LeaderThreadStatus[];
   currentThreadKey?: string;
   onSelectThread?: (threadKey: string) => void;
 }) {
-  const currentThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
-  const statuses = useMemo(
-    () => visibleCurrentThreadStatuses(currentThreadStatuses, currentThreadKey),
-    [currentThreadKey, currentThreadStatuses],
-  );
-  const normalizedCurrentThreadKey = normalizeThreadKey(currentThreadKey || "main");
-  const feedBlockId = getCurrentThreadStatusFeedBlockId(normalizedCurrentThreadKey);
-
   return (
-    <ThreadStatusChipRow
-      statuses={statuses}
-      currentThreadKey={currentThreadKey}
-      onSelectThread={onSelectThread}
-      feedBlockId={feedBlockId}
-    />
+    <div
+      className="-mt-1 flex items-center gap-1.5 pl-9 font-mono-code text-[10px] text-cc-muted/70"
+      data-testid="turn-thread-status-footer"
+    >
+      <span className="shrink-0 text-cc-muted/45">Status</span>
+      <ThreadStatusMetadata statuses={statuses} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
+    </div>
   );
 }
 
@@ -1705,6 +1713,15 @@ export const TurnEntries = memo(function TurnEntries({
   toggleTurn: (turnId: string) => void;
 }) {
   const turns = useMemo(() => sections.flatMap((section) => section.turns), [sections]);
+  const currentThreadStatuses = useStore((s) => s.sessions.get(sessionId)?.leaderThreadStatuses);
+  const visibleThreadStatuses = useMemo(
+    () => visibleCurrentThreadStatuses(currentThreadStatuses, currentThreadKey),
+    [currentThreadKey, currentThreadStatuses],
+  );
+  const threadStatusFooterTurnId = useMemo(
+    () => (visibleThreadStatuses.length > 0 ? latestStatusHostTurnId(sections) : null),
+    [sections, visibleThreadStatuses.length],
+  );
   const minuteBoundaryLabels = useMemo(() => {
     const visibleTimedMessages: ChatMessage[] = [];
 
@@ -1736,6 +1753,7 @@ export const TurnEntries = memo(function TurnEntries({
               const turnIndex = globalIndex++;
               const isActivityExpanded = turnStates[turnIndex]?.isActivityExpanded ?? false;
               const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
+              const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
 
               return (
                 <div key={turn.id}>
@@ -1827,6 +1845,13 @@ export const TurnEntries = memo(function TurnEntries({
                           </div>
                         )}
                       </>
+                    )}
+                    {showThreadStatusFooter && (
+                      <TurnThreadStatusFooter
+                        statuses={visibleThreadStatuses}
+                        currentThreadKey={currentThreadKey}
+                        onSelectThread={onSelectThread}
+                      />
                     )}
                   </div>
                 </div>

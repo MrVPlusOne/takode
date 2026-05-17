@@ -140,7 +140,7 @@ import {
   findVisibleSectionEndIndex,
   findVisibleSectionStartIndex,
 } from "./MessageFeed.js";
-import { getCurrentThreadStatusFeedBlockId, getMessageFeedBlockId } from "./message-feed-utils.js";
+import { getMessageFeedBlockId } from "./message-feed-utils.js";
 
 function makeMessage(overrides: Partial<ChatMessage> & { role: ChatMessage["role"] }): ChatMessage {
   return {
@@ -623,8 +623,8 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByLabelText("Thread Ready for thread:q-941: review accepted")).toBeTruthy();
   });
 
-  it("floats the current thread status chip below later visible feed entries", () => {
-    const sid = "test-thread-status-floats-to-bottom";
+  it("attaches the current thread status to the latest model turn footer", () => {
+    const sid = "test-thread-status-latest-turn-footer";
     const base = 1_700_000_000_000;
     const status = {
       kind: "ready" as const,
@@ -676,7 +676,7 @@ describe("MessageFeed - message rendering", () => {
     render(<MessageFeed sessionId={sid} threadKey="main" />);
 
     const chip = screen.getByLabelText("Thread Ready for Main: q-1307 dispatched");
-    const statusRow = chip.closest("[data-feed-block-id]") as HTMLElement | null;
+    const statusFooter = screen.getByTestId("turn-thread-status-footer");
     const routingMarker = screen.getByTestId("thread-transition-marker");
     const laterItem = screen.getByText("Later visible turn-end item");
     const feedEndSlack = document.querySelector("[data-feed-end-slack]");
@@ -685,15 +685,18 @@ describe("MessageFeed - message rendering", () => {
     expect(routingMarker.textContent).toContain("Work continued from Main to thread:q-1306");
     expect(routingMarker.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(laterItem.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(statusRow?.dataset.feedBlockId).toBe(getCurrentThreadStatusFeedBlockId("main"));
+    expect(statusFooter.textContent).toContain("Status");
+    expect(statusFooter.closest("[data-turn-id]")).toBe(laterItem.closest("[data-turn-id]"));
+    expect(document.querySelector('[data-feed-block-id^="current-thread-status:"]')).toBeNull();
     expect(feedEndSlack).toBeTruthy();
     expect(
-      (statusRow as HTMLElement).compareDocumentPosition(feedEndSlack as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+      (statusFooter.closest("[data-turn-id]") as HTMLElement).compareDocumentPosition(feedEndSlack as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
-  it("keeps the current thread status row as the latest real feed block after expanded footer content", () => {
-    const sid = "test-thread-status-bottom-footer-placement";
+  it("keeps the current thread status footer attached after expanded turn controls", () => {
+    const sid = "test-thread-status-expanded-footer-placement";
     const base = 1_700_000_000_000;
     const status = {
       kind: "ready" as const,
@@ -768,7 +771,7 @@ describe("MessageFeed - message rendering", () => {
     render(<MessageFeed sessionId={sid} threadKey="q-1320" />);
 
     const chip = screen.getByLabelText("Thread Ready for thread:q-1320: memory audit dispatched");
-    const statusRow = chip.closest("[data-feed-block-id]") as HTMLElement | null;
+    const statusFooter = screen.getByTestId("turn-thread-status-footer");
     const collapseFooter = screen.getAllByTitle("Collapse this turn").at(-1);
     const feedEndSlack = document.querySelector("[data-feed-end-slack]");
 
@@ -777,15 +780,85 @@ describe("MessageFeed - message rendering", () => {
     expect(
       (collapseFooter as HTMLElement).compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(statusRow?.dataset.feedBlockId).toBe(getCurrentThreadStatusFeedBlockId("q-1320"));
+    expect(statusFooter.closest("[data-turn-id]")).toBe(
+      screen.getByText("Your memory-audit follow-up is now represented by q-1322.").closest("[data-turn-id]"),
+    );
+    expect(document.querySelector('[data-feed-block-id^="current-thread-status:"]')).toBeNull();
     expect(feedEndSlack).toBeTruthy();
     expect(
-      (statusRow as HTMLElement).compareDocumentPosition(feedEndSlack as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+      (statusFooter.closest("[data-turn-id]") as HTMLElement).compareDocumentPosition(feedEndSlack as Node) &
+        Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
   });
 
-  it("scrolls to the current thread status row instead of stopping at the previous feed block", () => {
-    const sid = "test-thread-status-scroll-bottom-target";
+  it("keeps the current thread status footer on a collapsed latest activity turn", () => {
+    const sid = "test-thread-status-collapsed-footer-placement";
+    const base = 1_700_000_000_000;
+    const status = {
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "main",
+      summary: "worker still running",
+      messageId: "status-main",
+      timestamp: base,
+      updatedAt: base,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { main: status } });
+    setStoreTurnOverrides(sid, [["u2", false]]);
+    setStoreMessages(sid, [
+      makeMessage({ id: "u1", role: "user", content: "Start previous turn", timestamp: base - 2 }),
+      makeMessage({ id: "a1", role: "assistant", content: "Previous turn complete", timestamp: base - 1 }),
+      makeMessage({ id: "u2", role: "user", content: "Run latest tool-heavy turn", timestamp: base }),
+      makeMessage({
+        id: "tool-latest",
+        role: "assistant",
+        content: "",
+        timestamp: base + 1,
+        contentBlocks: [{ type: "tool_use", id: "tool-latest-use", name: "Bash", input: { command: "date" } }],
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    // A collapsed, tool-only latest turn has no assistant message timestamp, so
+    // the status must attach to the collapsed activity footer instead.
+    const footer = screen.getByTestId("turn-thread-status-footer");
+    expect(screen.getByLabelText("Thread Waiting for Main: worker still running")).toBeTruthy();
+    expect(screen.getByText("1 tool")).toBeTruthy();
+    expect(footer.closest("[data-turn-id]")?.getAttribute("data-turn-id")).toBe("u2");
+    expect(document.querySelector('[data-feed-block-id^="current-thread-status:"]')).toBeNull();
+  });
+
+  it("falls back to the latest visible turn for sparse thread projections without model activity", () => {
+    const sid = "test-thread-status-sparse-thread-footer";
+    const base = 1_700_000_000_000;
+    const status = {
+      kind: "ready" as const,
+      label: "Thread Ready" as const,
+      threadKey: "main",
+      summary: "nothing else to show",
+      messageId: "status-main",
+      timestamp: base,
+      updatedAt: base,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { main: status } });
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-only", role: "user", content: "Sparse thread context only", timestamp: base }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="main" />);
+
+    // Sparse projections can lack an assistant/model tail. The current status
+    // should still remain visible without reintroducing a feed-end status block.
+    const footer = screen.getByTestId("turn-thread-status-footer");
+    expect(screen.getByText("Sparse thread context only")).toBeTruthy();
+    expect(screen.getByLabelText("Thread Ready for Main: nothing else to show")).toBeTruthy();
+    expect(footer.closest("[data-turn-id]")?.getAttribute("data-turn-id")).toBe("u-only");
+    expect(document.querySelector('[data-feed-block-id^="current-thread-status:"]')).toBeNull();
+  });
+
+  it("scrolls to the latest host turn when current thread status is footer metadata", () => {
+    const sid = "test-thread-status-scroll-bottom-host-turn";
     const base = 1_700_000_000_000;
     const status = {
       kind: "ready" as const,
@@ -828,11 +901,11 @@ describe("MessageFeed - message rendering", () => {
     const latestBlock = document.querySelector(
       `[data-feed-block-id="${getMessageFeedBlockId("later-result")}"]`,
     ) as HTMLElement | null;
-    const statusRow = document.querySelector(
-      `[data-feed-block-id="${getCurrentThreadStatusFeedBlockId("main")}"]`,
-    ) as HTMLElement | null;
+    const statusFooter = screen.getByTestId("turn-thread-status-footer");
+    const hostTurn = statusFooter.closest("[data-turn-id]") as HTMLElement | null;
     expect(latestBlock).toBeTruthy();
-    expect(statusRow).toBeTruthy();
+    expect(hostTurn).toBeTruthy();
+    expect(document.querySelector('[data-feed-block-id^="current-thread-status:"]')).toBeNull();
 
     setElementClientSize(container, 800, 500);
     setElementScrollHeight(container, 1_000);
@@ -840,7 +913,7 @@ describe("MessageFeed - message rendering", () => {
       setElementOffsetMetrics(block, 0, 1);
     }
     setElementOffsetMetrics(latestBlock as HTMLElement, 620, 40);
-    setElementOffsetMetrics(statusRow as HTMLElement, 700, 32);
+    setElementOffsetMetrics(hostTurn as HTMLElement, 0, 732);
 
     act(() => {
       jumpToLatest?.();

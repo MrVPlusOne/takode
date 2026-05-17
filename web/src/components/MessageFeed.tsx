@@ -18,7 +18,7 @@ import { MarkdownContent } from "./MarkdownContent.js";
 import { CollapseFooter, TurnCollapseFooter } from "./CollapseFooter.js";
 import { api } from "../api.js";
 import { ElapsedTimer, FeedStatusPill, PendingCodexInputList, PendingUserUploadList } from "./MessageFeedStatus.js";
-import { CurrentThreadStatusChipRow, FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
+import { FeedFooter, TurnEntries } from "./MessageFeedEntries.js";
 import {
   SAVE_THREAD_VIEWPORT_EVENT,
   type FeedViewportPosition,
@@ -1844,11 +1844,6 @@ export function MessageFeed({
                   <PendingCodexInputList sessionId={sessionId} inputs={pendingCodexInputs} />
                 )}
                 <FeedFooter sessionId={sessionId} visibleToolUseIds={visibleToolUseIds} />
-                <CurrentThreadStatusChipRow
-                  sessionId={sessionId}
-                  currentThreadKey={threadKey}
-                  onSelectThread={onSelectThread}
-                />
                 <div
                   aria-hidden="true"
                   className="pointer-events-none"
