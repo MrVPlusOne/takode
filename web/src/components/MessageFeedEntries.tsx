@@ -1151,6 +1151,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   sessionId,
   currentThreadKey,
   durationMs,
+  threadStatusFooter,
   onCollapse,
   minuteBoundaryLabels,
   isCodexSession,
@@ -1162,6 +1163,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
   sessionId: string;
   currentThreadKey: string;
   durationMs: number | null;
+  threadStatusFooter?: ReactNode;
   onCollapse: () => void;
   minuteBoundaryLabels: Map<string, string>;
   isCodexSession: boolean;
@@ -1186,6 +1188,7 @@ export const TurnEntriesExpanded = memo(function TurnEntriesExpanded({
         onOpenCodexTerminal={onOpenCodexTerminal}
         onSelectThread={onSelectThread}
       />
+      {threadStatusFooter}
       {turn.agentEntries.length > 0 && <TurnCollapseFooter headerRef={headerRef} onCollapse={onCollapse} />}
     </>
   );
@@ -1754,6 +1757,13 @@ export const TurnEntries = memo(function TurnEntries({
               const isActivityExpanded = turnStates[turnIndex]?.isActivityExpanded ?? false;
               const turnSummaryDuration = getTurnSummaryDurationMs(turn, turns[turnIndex + 1] ?? null, leaderMode);
               const showThreadStatusFooter = turn.id === threadStatusFooterTurnId;
+              const threadStatusFooter = showThreadStatusFooter ? (
+                <TurnThreadStatusFooter
+                  statuses={visibleThreadStatuses}
+                  currentThreadKey={currentThreadKey}
+                  onSelectThread={onSelectThread}
+                />
+              ) : null;
 
               return (
                 <div key={turn.id}>
@@ -1783,6 +1793,7 @@ export const TurnEntries = memo(function TurnEntries({
                           sessionId={sessionId}
                           currentThreadKey={currentThreadKey}
                           durationMs={turnSummaryDuration}
+                          threadStatusFooter={threadStatusFooter}
                           minuteBoundaryLabels={minuteBoundaryLabels}
                           isCodexSession={isCodexSession}
                           activeCodexTerminalIds={activeCodexTerminalIds}
@@ -1846,13 +1857,7 @@ export const TurnEntries = memo(function TurnEntries({
                         )}
                       </>
                     )}
-                    {showThreadStatusFooter && (
-                      <TurnThreadStatusFooter
-                        statuses={visibleThreadStatuses}
-                        currentThreadKey={currentThreadKey}
-                        onSelectThread={onSelectThread}
-                      />
-                    )}
+                    {(!isActivityExpanded || turn.allEntries.length === 0) && threadStatusFooter}
                   </div>
                 </div>
               );

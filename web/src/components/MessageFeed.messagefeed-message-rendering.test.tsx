@@ -695,7 +695,7 @@ describe("MessageFeed - message rendering", () => {
     ).toBeTruthy();
   });
 
-  it("keeps the current thread status footer attached after expanded turn controls", () => {
+  it("keeps the current thread status footer above expanded turn collapse controls", () => {
     const sid = "test-thread-status-expanded-footer-placement";
     const base = 1_700_000_000_000;
     const status = {
@@ -777,9 +777,7 @@ describe("MessageFeed - message rendering", () => {
 
     expect(screen.getByText("Your memory-audit follow-up is now represented by q-1322.")).toBeTruthy();
     expect(collapseFooter).toBeTruthy();
-    expect(
-      (collapseFooter as HTMLElement).compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING,
-    ).toBeTruthy();
+    expect(chip.compareDocumentPosition(collapseFooter as HTMLElement) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(statusFooter.closest("[data-turn-id]")).toBe(
       screen.getByText("Your memory-audit follow-up is now represented by q-1322.").closest("[data-turn-id]"),
     );
