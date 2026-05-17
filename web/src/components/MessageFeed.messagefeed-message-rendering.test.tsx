@@ -685,7 +685,8 @@ describe("MessageFeed - message rendering", () => {
     expect(routingMarker.textContent).toContain("Work continued from Main to thread:q-1306");
     expect(routingMarker.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
     expect(laterItem.compareDocumentPosition(chip) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(statusFooter.textContent).toContain("Status");
+    expect(statusFooter.textContent).toContain("Thread Ready");
+    expect(statusFooter.textContent?.startsWith("Status")).toBe(false);
     expect(statusFooter.closest("[data-turn-id]")).toBe(laterItem.closest("[data-turn-id]"));
     expect(document.querySelector('[data-feed-block-id^="current-thread-status:"]')).toBeNull();
     expect(feedEndSlack).toBeTruthy();

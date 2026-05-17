@@ -316,18 +316,18 @@ function ThreadStatusMetadata({
               className={`h-1.5 w-1.5 rounded-full ${status.kind === "ready" ? "bg-green-400/70" : "bg-amber-300/70"}`}
               aria-hidden="true"
             />
-            <span className="font-medium text-cc-fg/70">{status.label}</span>
-            <span className="text-cc-muted/55">{label}</span>
-            <span className="max-w-[min(24rem,58vw)] truncate text-cc-muted/75">{status.summary}</span>
+            <span className="font-medium text-cc-fg/75">{status.label}</span>
+            <span className="text-cc-muted/60">{label}</span>
+            <span className="max-w-[min(30rem,70vw)] truncate text-cc-muted/80">{status.summary}</span>
           </>
         );
         const className =
-          "inline-flex max-w-full items-center gap-1.5 rounded-md border border-cc-border/50 bg-cc-hover/20 px-1.5 py-0.5 text-[10px] leading-none";
+          "inline-flex max-w-full items-center gap-1.5 rounded-full border border-cc-border/60 bg-cc-card/70 px-2.5 py-1 text-[11px] leading-none shadow-[0_8px_20px_rgba(0,0,0,0.18)]";
         return selectable ? (
           <button
             key={`${status.threadKey}:${status.messageId}:${status.kind}:${status.updatedAt ?? status.timestamp}`}
             type="button"
-            className={`${className} cursor-pointer hover:bg-cc-hover/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50`}
+            className={`${className} cursor-pointer hover:bg-cc-hover/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50`}
             onClick={() => onSelectThread?.(status.threadKey)}
             title={`Open ${label}`}
             aria-label={`${status.label} for ${label}: ${status.summary}. Open thread.`}
@@ -363,7 +363,6 @@ function TurnThreadStatusFooter({
       className="-mt-1 flex items-center gap-1.5 pl-9 font-mono-code text-[10px] text-cc-muted/70"
       data-testid="turn-thread-status-footer"
     >
-      <span className="shrink-0 text-cc-muted/45">Status</span>
       <ThreadStatusMetadata statuses={statuses} currentThreadKey={currentThreadKey} onSelectThread={onSelectThread} />
     </div>
   );
