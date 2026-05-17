@@ -453,6 +453,47 @@ describe("UniversalSearchOverlay", () => {
     });
   });
 
+  it("requests and renders Events-only Message results as event cards", async () => {
+    localStorage.setItem(
+      "cc-universal-search-message-settings",
+      JSON.stringify({ scope: "leader_all_tabs", filters: { user: false, assistant: false, event: true } }),
+    );
+    mockSearchSessionMessages.mockResolvedValue(
+      messageSearchResponse(
+        [
+          messageResult({
+            messageId: "herd-event",
+            role: "user",
+            category: "event",
+            snippet: "compact injected-system payload",
+            sourceLabel: "Herd Events",
+          }),
+        ],
+        {
+          scope: { kind: "leader_all_tabs", label: "Searching in #11 across tabs" },
+          filters: { user: false, assistant: false, event: true },
+        },
+      ),
+    );
+
+    renderOverlay({ sessions: [{ ...sessions[0]!, isOrchestrator: true }, sessions[1]!] });
+
+    expect(await screen.findByText("compact injected-system payload")).toBeInTheDocument();
+    await waitFor(() =>
+      expect(mockSearchSessionMessages).toHaveBeenLastCalledWith(
+        "s-new",
+        expect.objectContaining({
+          scope: "leader_all_tabs",
+          filters: { user: false, assistant: false, event: true },
+        }),
+      ),
+    );
+    const resultRow = screen.getByText("compact injected-system payload").closest('[role="option"]');
+    expect(resultRow).not.toBeNull();
+    expect(within(resultRow as HTMLElement).getByText("event")).toBeInTheDocument();
+    expect(within(resultRow as HTMLElement).queryByText("user")).not.toBeInTheDocument();
+  });
+
   it("runs only the selected mode adapter and uses newest-updated quest sorting for empty queries", async () => {
     const recentQuest = quest({
       questId: "q-101",
@@ -844,6 +885,23 @@ describe("UniversalSearchOverlay", () => {
     fireEvent.keyDown(dialog, { key: "Tab" });
     expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
     fireEvent.keyDown(dialog, { key: "Escape" });
+    expect(callbacks.onClose).toHaveBeenCalledTimes(1);
+  });
+
+  it("ignores Enter while the search input is in IME composition", async () => {
+    const callbacks = renderOverlay();
+    const dialog = screen.getByRole("dialog", { name: "Universal Search" });
+
+    await screen.findByText("Recent user request about universal search");
+    fireEvent.keyDown(dialog, { key: "Enter", isComposing: true });
+    fireEvent.keyDown(dialog, { key: "Enter", keyCode: 229 });
+
+    expect(callbacks.onOpenMessage).not.toHaveBeenCalled();
+    expect(callbacks.onClose).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(dialog, { key: "Enter" });
+
+    expect(callbacks.onOpenMessage).toHaveBeenCalledWith("s-new", "user-new", "main");
     expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 });

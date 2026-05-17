@@ -48,6 +48,15 @@ function assistant(id: string, text: string, timestamp: number, threadKey?: stri
   };
 }
 
+function compactMarker(id: string, summary: string, timestamp: number): BrowserIncomingMessage {
+  return {
+    type: "compact_marker",
+    id,
+    summary,
+    timestamp,
+  };
+}
+
 describe("searchSessionMessages", () => {
   it("searches normal sessions across the whole persisted history", () => {
     const response = searchSessionMessages({
@@ -155,5 +164,29 @@ describe("searchSessionMessages", () => {
     expect(response.nextOffset).toBe(1);
     expect(response.results).toHaveLength(1);
     expect(response.results[0]).toMatchObject({ messageId: "event", category: "event" });
+  });
+
+  it("returns only event-category results when only the Events filter is enabled", () => {
+    const response = searchSessionMessages({
+      sessionId: "leader-session",
+      sessionNum: 456,
+      isLeaderSession: true,
+      messageHistory: [
+        user("normal-user", "normal user compact request", 10),
+        user("injected-event", "herd compact event payload", 20, { agentSource: { sessionId: "herd-events" } }),
+        compactMarker("system-event", "Conversation compact summary", 30),
+      ],
+      query: "compact",
+      filters: { user: false, assistant: false, event: true },
+      scope: "leader_all_tabs",
+    });
+
+    expect(response.results).toHaveLength(2);
+    expect(response.results.map((result) => result.messageId)).toEqual(
+      expect.arrayContaining(["system-event", "injected-event"]),
+    );
+    expect(response.results.map((result) => result.messageId)).not.toContain("normal-user");
+    expect(response.results.every((result) => result.category === "event")).toBe(true);
+    expect(response.results.map((result) => result.role)).toEqual(expect.arrayContaining(["system", "user"]));
   });
 });

@@ -206,6 +206,10 @@ function nextMode(current: UniversalSearchMode, direction: 1 | -1, messageModeAv
   return modes[(currentIndex + direction + modes.length) % modes.length]!;
 }
 
+function isComposingEnter(event: KeyboardEvent<HTMLElement>): boolean {
+  return event.key === "Enter" && (event.nativeEvent.isComposing || event.nativeEvent.keyCode === 229);
+}
+
 function sessionNumForId(sessions: SdkSessionInfo[], sessionId: string | null): number | null {
   if (!sessionId) return null;
   return sessions.find((session) => session.sessionId === sessionId)?.sessionNum ?? null;
@@ -554,6 +558,8 @@ export function UniversalSearchOverlay({
   );
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (isComposingEnter(event)) return;
+
     if (questActionMenu) {
       const menuResult = results.find(
         (result): result is Extract<UniversalSearchResult, { kind: "quest" }> =>
@@ -1125,13 +1131,14 @@ function MessageResultRow({
   onOpen: () => void;
 }) {
   const parts = getHighlightParts(message.snippet, query);
+  const badgeLabel = message.category;
   return (
     <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
       <div className="flex min-w-0 items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
             <span className="rounded-md bg-cc-hover px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-cc-muted">
-              {message.role}
+              {badgeLabel}
             </span>
             {message.sourceLabel && (
               <span className="rounded-md border border-cc-border px-1.5 py-0.5 text-[10px] text-cc-muted">
