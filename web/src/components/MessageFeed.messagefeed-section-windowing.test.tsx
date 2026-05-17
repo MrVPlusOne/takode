@@ -621,6 +621,14 @@ function makeDomRect(height: number, width = 0): DOMRect {
   } as DOMRect;
 }
 
+function makePositionedDomRect(top: number, bottom: number): DOMRect {
+  return {
+    ...makeDomRect(bottom - top),
+    top,
+    bottom,
+  } as DOMRect;
+}
+
 describe("MessageFeed section windowing", () => {
   it("chunks turns into fixed-size default sections", () => {
     const turns = makeSectionTurns(120);
@@ -696,6 +704,103 @@ describe("MessageFeed section windowing", () => {
     expect(screen.getByText("Section 2 marker")).toBeTruthy();
     expect(screen.getByText("Section 4 marker")).toBeTruthy();
     expect(container.querySelectorAll("[data-feed-section-id]")).toHaveLength(3);
+  });
+
+  it("navigates to leader-authored user text without treating injected event messages as user targets", () => {
+    const sid = "test-leader-user-navigation-target";
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-real", role: "user", content: "Human prompt", timestamp: 1 }),
+      makeMessage({
+        id: "timer-event",
+        role: "user",
+        content: "Timer fired",
+        timestamp: 2,
+        agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
+      }),
+      makeMessage({
+        id: "leader-visible",
+        role: "assistant",
+        content: "Leader-origin visible user text",
+        timestamp: 3,
+        metadata: { leaderUserMessage: true },
+      }),
+      makeMessage({ id: "assistant-tail", role: "assistant", content: "Worker response", timestamp: 4 }),
+    ]);
+    setStoreFeedScrollPosition(sid, { scrollTop: 240, scrollHeight: 900, isAtBottom: false });
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.getAttribute("data-message-id") === "leader-visible") return makePositionedDomRect(-80, -40);
+      if (this.getAttribute("data-message-id") === "timer-event") return makePositionedDomRect(-20, 20);
+      if (this.getAttribute("data-testid") === "message-feed-scroll-container") return makePositionedDomRect(0, 400);
+      return makeDomRect(40);
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+    fireEvent.click(screen.getByLabelText("Previous user message"));
+
+    const scrollContext = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
+    expect(scrollContext?.getAttribute("data-message-id")).toBe("leader-visible");
+    rectSpy.mockRestore();
+  });
+
+  it("treats herding leader user-source messages as user navigation targets", () => {
+    const sid = "test-herding-leader-user-navigation-target";
+    setStoreSdkSessionRole(sid, { herdedBy: "leader-session" });
+    setStoreMessages(sid, [
+      makeMessage({ id: "u-real", role: "user", content: "Human prompt", timestamp: 1 }),
+      makeMessage({
+        id: "timer-event",
+        role: "user",
+        content: "Timer fired",
+        timestamp: 2,
+        agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
+      }),
+      makeMessage({
+        id: "leader-routed",
+        role: "user",
+        content: "Leader routed prompt",
+        timestamp: 3,
+        agentSource: { sessionId: "leader-session", sessionLabel: "Leader" },
+      }),
+      makeMessage({ id: "assistant-tail", role: "assistant", content: "Worker response", timestamp: 4 }),
+    ]);
+    setStoreFeedScrollPosition(sid, { scrollTop: 240, scrollHeight: 900, isAtBottom: false });
+    const rectSpy = vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (
+      this: HTMLElement,
+    ) {
+      if (this.getAttribute("data-message-id") === "leader-routed") return makePositionedDomRect(-80, -40);
+      if (this.getAttribute("data-message-id") === "timer-event") return makePositionedDomRect(-20, 20);
+      if (this.getAttribute("data-testid") === "message-feed-scroll-container") return makePositionedDomRect(0, 400);
+      return makeDomRect(40);
+    });
+
+    render(<MessageFeed sessionId={sid} />);
+    fireEvent.click(screen.getByLabelText("Previous user message"));
+
+    const scrollContext = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
+    expect(scrollContext?.getAttribute("data-message-id")).toBe("leader-routed");
+    rectSpy.mockRestore();
+  });
+
+  it("loads hidden local sections before scrolling to previous and next user-message targets", () => {
+    const sid = "test-local-section-user-navigation";
+    setStoreMessages(sid, makeSectionedMessages(4, 2));
+    setStoreFeedScrollPosition(sid, { scrollTop: 240, scrollHeight: 900, isAtBottom: false });
+
+    render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+    fireEvent.click(screen.getByLabelText("Previous user message"));
+
+    expect(screen.getByText("Section 1 turn 2")).toBeTruthy();
+    let scrollContext = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
+    expect(scrollContext?.getAttribute("data-turn-id")).toBe("u2");
+
+    mockScrollIntoView.mockClear();
+    fireEvent.click(screen.getByLabelText("Next user message"));
+
+    expect(screen.getByText("Section 4 marker")).toBeTruthy();
+    scrollContext = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
+    expect(scrollContext?.getAttribute("data-turn-id")).toBe("u7");
   });
 
   it("requests an older history window from the server when the loaded feed is windowed", () => {
@@ -1148,6 +1253,65 @@ describe("MessageFeed section windowing", () => {
       }),
     );
     expect(screen.getByText("Loading older section...")).toBeTruthy();
+  });
+
+  it("requests an older selected-thread window and scrolls to the previous user-message target after sync", () => {
+    const sid = "test-selected-thread-user-navigation-window";
+    const threadKey = "q-1027";
+    setStoreSessionState(sid, { isOrchestrator: true });
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 2,
+      itemCount: 4,
+      totalItems: 8,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      messages: [
+        makeMessage({ id: "u3", role: "user", content: "Completed q-1027 turn 3", timestamp: 5 }),
+        makeMessage({ id: "a3", role: "assistant", content: "Completed q-1027 reply 3", timestamp: 6 }),
+        makeMessage({ id: "u4", role: "user", content: "Completed q-1027 turn 4", timestamp: 5 }),
+        makeMessage({ id: "a4", role: "assistant", content: "Completed q-1027 reply 4", timestamp: 6 }),
+      ],
+    });
+
+    const { rerender } = render(
+      <MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />,
+    );
+    mockSendToSession.mockClear();
+    fireEvent.click(screen.getByLabelText("Previous user message"));
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      sid,
+      expect.objectContaining({
+        type: "thread_window_request",
+        thread_key: threadKey,
+        from_item: 0,
+        item_count: 6,
+      }),
+    );
+
+    setStoreSelectedThreadWindow({
+      sessionId: sid,
+      threadKey,
+      fromItem: 0,
+      itemCount: 6,
+      totalItems: 8,
+      sectionItemCount: 2,
+      visibleItemCount: 3,
+      messages: [
+        makeMessage({ id: "u1", role: "user", content: "Completed q-1027 turn 1", timestamp: 1 }),
+        makeMessage({ id: "a1", role: "assistant", content: "Completed q-1027 reply 1", timestamp: 2 }),
+        makeMessage({ id: "u2", role: "user", content: "Completed q-1027 turn 2", timestamp: 3 }),
+        makeMessage({ id: "a2", role: "assistant", content: "Completed q-1027 reply 2", timestamp: 4 }),
+        makeMessage({ id: "u3", role: "user", content: "Completed q-1027 turn 3", timestamp: 3 }),
+        makeMessage({ id: "a3", role: "assistant", content: "Completed q-1027 reply 3", timestamp: 4 }),
+      ],
+    });
+    rerender(<MessageFeed sessionId={sid} threadKey={threadKey} projectThreadRoutes={false} sectionTurnCount={2} />);
+
+    const scrollContext = mockScrollIntoView.mock.contexts.at(-1) as HTMLElement | undefined;
+    expect(scrollContext?.getAttribute("data-turn-id")).toBe("u2");
   });
 
   it("loads older selected-thread content from the boundary button when the viewport cannot scroll upward", () => {

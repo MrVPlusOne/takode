@@ -83,6 +83,8 @@ import {
 } from "./message-feed-selected-window.js";
 import { getSavedViewportRestoreKey, readSavedViewportPosition } from "./message-feed-viewport-state.js";
 import { getHistoryBoundaryWindowRequest, getThreadBoundaryWindowRequest } from "./message-feed-window-paging.js";
+import { collectUserNavigationTargets } from "./message-feed-user-navigation.js";
+import { useUserMessageNavigation } from "./message-feed-user-navigation-hook.js";
 import {
   isUserBoundaryEntry,
   useFeedModel,
@@ -156,6 +158,9 @@ export function MessageFeed({
     (s) =>
       s.sessions?.get(sessionId)?.isOrchestrator === true ||
       s.sdkSessions?.some((sdk) => sdk.sessionId === sessionId && sdk.isOrchestrator === true) === true,
+  );
+  const userNavigationSourceSessionId = useStore(
+    (s) => s.sdkSessions?.find((sdk) => sdk.sessionId === sessionId)?.herdedBy ?? sessionId,
   );
   const selectedFeedWindowEnabled = useMemo(() => {
     if (isAllThreadsKey(normalizedThreadKey)) return false;
@@ -293,6 +298,10 @@ export function MessageFeed({
     anchoredNotificationMessageIds,
     perf: { sessionId, threadKey: normalizedThreadKey },
   });
+  const userNavigationTargets = useMemo(
+    () => collectUserNavigationTargets(turns, userNavigationSourceSessionId),
+    [turns, userNavigationSourceSessionId],
+  );
   const activeLiveSubagentEntries = useMemo(
     () =>
       collectLiveSubagentEntries(
@@ -1023,36 +1032,22 @@ export function MessageFeed({
     containerRef.current?.scrollTo({ top: 0, behavior: "smooth" });
   }, []);
 
-  const handleScrollToPreviousUserMessageClick = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const containerRect = el.getBoundingClientRect();
-    const turns = el.querySelectorAll("[data-user-turn]");
-    for (let i = turns.length - 1; i >= 0; i--) {
-      const turn = turns[i] as HTMLElement;
-      const turnTop = turn.getBoundingClientRect().top - containerRect.top;
-      if (turnTop < -5) {
-        turn.scrollIntoView({ block: "start", behavior: "smooth" });
-        return;
-      }
-    }
-  }, []);
-
-  const handleScrollToNextUserMessageClick = useCallback(() => {
-    const el = containerRef.current;
-    if (!el) return;
-    const containerRect = el.getBoundingClientRect();
-    const turns = el.querySelectorAll("[data-user-turn]");
-    for (let i = 0; i < turns.length; i++) {
-      const turn = turns[i] as HTMLElement;
-      const turnTop = turn.getBoundingClientRect().top - containerRect.top;
-      if (turnTop > el.clientHeight * 0.3) {
-        turn.scrollIntoView({ block: "start", behavior: "smooth" });
-        return;
-      }
-    }
-    scrollToBottom();
-  }, [scrollToBottom]);
+  const { handleScrollToPreviousUserMessageClick, handleScrollToNextUserMessageClick } = useUserMessageNavigation({
+    containerRef,
+    contentRootRef,
+    userNavigationTargets,
+    activeHistoryWindow,
+    activeThreadWindow,
+    normalizedThreadKey,
+    visibleWindowSignature,
+    autoFollowEnabledRef,
+    markSectionLoadPending,
+    requestThreadWindow,
+    requestHistoryWindow,
+    ensureSectionForTurnVisible,
+    scrollToFeedBlock,
+    scrollToBottom,
+  });
 
   const navFabButtonClassName = isTouch
     ? "h-10 w-10 rounded-full bg-cc-card border border-cc-border shadow-lg flex items-center justify-center text-cc-muted hover:text-cc-fg hover:bg-cc-hover transition-all cursor-pointer"
