@@ -37,7 +37,15 @@ function makePauseState(): SessionPauseState {
 describe("PauseOtherSourcesButton", () => {
   it("uses explanatory tooltip copy and toggles pause from the composer area", async () => {
     const onToggle = vi.fn();
-    render(<PauseOtherSourcesButton isPaused={false} heldCount={0} busy={false} onToggle={onToggle} />);
+    render(
+      <PauseOtherSourcesButton
+        isPaused={false}
+        heldCount={0}
+        busy={false}
+        directComposerMessagesSend={true}
+        onToggle={onToggle}
+      />,
+    );
 
     const button = screen.getByTestId("composer-pause-sources-button");
     expect(button.getAttribute("title")).toBe(
@@ -48,11 +56,27 @@ describe("PauseOtherSourcesButton", () => {
 
     expect(onToggle).toHaveBeenCalledTimes(1);
   });
+
+  it("does not imply direct composer sends work while the session is disconnected", () => {
+    render(
+      <PauseOtherSourcesButton
+        isPaused={false}
+        heldCount={0}
+        busy={false}
+        directComposerMessagesSend={false}
+        onToggle={() => {}}
+      />,
+    );
+
+    expect(screen.getByTestId("composer-pause-sources-button").getAttribute("title")).toBe(
+      "Pause other input sources. Direct composer messages still need the session to resume.",
+    );
+  });
 });
 
 describe("PausedInputChip", () => {
   it("shows paused mode and expands to inspect held messages", async () => {
-    render(<PausedInputChip pause={makePauseState()} heldCount={2} />);
+    render(<PausedInputChip pause={makePauseState()} heldCount={2} directComposerMessagesSend={true} />);
 
     expect(screen.getByTestId("composer-paused-chip").textContent).toContain("Other sources paused");
     expect(screen.getByText("2 held inputs")).toBeTruthy();
@@ -67,10 +91,30 @@ describe("PausedInputChip", () => {
   });
 
   it("stays visible with an empty held list while paused", async () => {
-    render(<PausedInputChip pause={{ pausedAt: 1_000, queuedMessages: [] }} heldCount={0} />);
+    render(
+      <PausedInputChip
+        pause={{ pausedAt: 1_000, queuedMessages: [] }}
+        heldCount={0}
+        directComposerMessagesSend={true}
+      />,
+    );
 
     await userEvent.click(screen.getByTestId("composer-paused-chip"));
 
     expect(screen.getByTestId("composer-held-input-list").textContent).toContain("No held input yet.");
+  });
+
+  it("uses disconnected-session copy when direct composer sends are backend-gated", () => {
+    render(
+      <PausedInputChip
+        pause={{ pausedAt: 1_000, queuedMessages: [] }}
+        heldCount={0}
+        directComposerMessagesSend={false}
+      />,
+    );
+
+    expect(
+      screen.getByText("Direct composer messages still need the session to resume. External input waits here."),
+    ).toBeTruthy();
   });
 });

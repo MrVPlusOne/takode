@@ -592,7 +592,7 @@ describe("Composer permission mode selector", () => {
     setupMockStore({ isConnected: false, session: { permissionMode: "acceptEdits" } });
     render(<Composer sessionId="s1" />);
 
-    const selector = screen.getByTitle(/Accept edits:/);
+    const selector = screen.getByTitle("Resume session to change permissions");
     expect(selector.hasAttribute("disabled")).toBe(true);
   });
 

@@ -41,6 +41,7 @@ const mockUpdateSettings = vi.fn().mockResolvedValue({});
 const mockRefreshSessionSkills = vi.fn().mockResolvedValue({ ok: true, skills: [] });
 const mockPrepareUserMessageImages = vi.fn();
 const mockDeletePreparedUserMessageImage = vi.fn().mockResolvedValue({ ok: true });
+const mockSearchFiles = vi.fn();
 
 // Build a controllable mock store state
 let mockStoreState: Record<string, unknown> = {};
@@ -59,6 +60,7 @@ vi.mock("../api.js", () => ({
     prepareUserMessageImages: (...args: unknown[]) => mockPrepareUserMessageImages(...args),
     deletePreparedUserMessageImage: (...args: unknown[]) => mockDeletePreparedUserMessageImage(...args),
     transcribe: (...args: unknown[]) => mockTranscribe(...args),
+    searchFiles: (...args: unknown[]) => mockSearchFiles(...args),
   },
 }));
 
@@ -254,6 +256,7 @@ function makeMessage(overrides: Partial<ChatMessage> & { id: string; content: st
 function setupMockStore(
   overrides: {
     isConnected?: boolean;
+    connectionStatus?: "connecting" | "connected" | "disconnected";
     sessionStatus?: "idle" | "running" | "compacting" | null;
     session?: Partial<SessionState>;
     draftText?: string;
@@ -280,6 +283,7 @@ function setupMockStore(
 ) {
   const {
     isConnected = true,
+    connectionStatus: explicitConnectionStatus,
     sessionStatus = "idle",
     session = {},
     draftText = "",
@@ -292,12 +296,16 @@ function setupMockStore(
     messages = [],
     vscodeSelectionContext = null,
   } = overrides;
+  const connectionStatus = explicitConnectionStatus ?? (isConnected ? "connected" : "disconnected");
 
   const sessionsMap = new Map<string, SessionState>();
   sessionsMap.set("s1", makeSession(session));
 
   const cliConnectedMap = new Map<string, boolean>();
   cliConnectedMap.set("s1", isConnected);
+
+  const connectionStatusMap = new Map<string, "connecting" | "connected" | "disconnected">();
+  connectionStatusMap.set("s1", connectionStatus);
 
   const sessionStatusMap = new Map<string, "idle" | "running" | "compacting" | null>();
   sessionStatusMap.set("s1", sessionStatus);
@@ -311,6 +319,7 @@ function setupMockStore(
   mockStoreState = {
     sessions: sessionsMap,
     cliConnected: cliConnectedMap,
+    connectionStatus: connectionStatusMap,
     sessionStatus: sessionStatusMap,
     previousPermissionMode: previousPermissionModeMap,
     askPermission: askPermissionMap,
@@ -487,6 +496,8 @@ beforeEach(() => {
   mockGetSettings.mockResolvedValue({ claudeDefaultModel: "" });
   mockUpdateSettings.mockResolvedValue({});
   mockRefreshSessionSkills.mockResolvedValue({ ok: true, skills: [] });
+  mockSearchFiles.mockReset();
+  mockSearchFiles.mockResolvedValue({ root: "/test", results: [] });
   mockPrepareUserMessageImages.mockReset();
   mockDeletePreparedUserMessageImage.mockReset();
   mockDeletePreparedUserMessageImage.mockResolvedValue({ ok: true });
@@ -543,6 +554,83 @@ describe("Composer send button state", () => {
     render(<Composer sessionId="s1" />);
     const sendBtn = screen.getByTitle("Send message");
     expect(sendBtn.hasAttribute("disabled")).toBe(true);
+  });
+
+  it("keeps text send backend-gated when the CLI is disconnected but the browser is connected", () => {
+    setupMockStore({ isConnected: false, connectionStatus: "connected" });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "Hold this draft" } });
+
+    const sendBtn = screen.getByTitle("Resume session to send message");
+    expect(sendBtn.hasAttribute("disabled")).toBe(true);
+
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ type: "user_message", content: "Hold this draft" }),
+    );
+  });
+
+  it("allows voice dictation while the CLI is disconnected and the browser is connected", async () => {
+    setupMockStore({ isConnected: false, connectionStatus: "connected" });
+    render(<Composer sessionId="s1" />);
+
+    const voiceButton = screen.getAllByLabelText("Voice input")[0];
+    expect(voiceButton.hasAttribute("disabled")).toBe(false);
+
+    await userEvent.click(voiceButton);
+
+    expect(mockVoiceState.toggleRecording).toHaveBeenCalledTimes(1);
+    await waitFor(() => {
+      expect(mockTranscribe).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("allows image preparation while the CLI is disconnected and leaves final delivery disabled", async () => {
+    setupMockStore({ isConnected: false, connectionStatus: "connected" });
+    const { container } = render(<Composer sessionId="s1" />);
+    const uploadButton = screen.getByTitle("Upload image");
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    expect(uploadButton.hasAttribute("disabled")).toBe(false);
+
+    fireEvent.change(fileInput, { target: { files: [makeImageFile("offline.png")] } });
+
+    await waitFor(() => {
+      expect(mockPrepareUserMessageImages).toHaveBeenCalledTimes(1);
+    });
+    expect(await screen.findByAltText("offline.png")).toBeTruthy();
+    expect(screen.getByText("Ready")).toBeTruthy();
+    expect(screen.getByTitle("Resume session to send message").hasAttribute("disabled")).toBe(true);
+  });
+
+  it("keeps file mention search available while the CLI is disconnected and the browser is connected", async () => {
+    mockSearchFiles.mockResolvedValue({
+      root: "/test",
+      results: [
+        {
+          relativePath: "web/src/components/Composer.tsx",
+          absolutePath: "/test/web/src/components/Composer.tsx",
+          fileName: "Composer.tsx",
+        },
+      ],
+    });
+    setupMockStore({
+      isConnected: false,
+      connectionStatus: "connected",
+      session: { cwd: "/test/web", repo_root: "/test" },
+    });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")! as HTMLTextAreaElement;
+
+    fireEvent.change(textarea, { target: { value: "Open @Com", selectionStart: "Open @Com".length } });
+
+    await waitFor(() => {
+      expect(mockSearchFiles).toHaveBeenCalledWith("/test", "Com", expect.any(AbortSignal));
+    });
+    expect(await screen.findByText("Composer.tsx")).toBeTruthy();
   });
 
   it("typing text enables the send button", async () => {

@@ -40,16 +40,22 @@ export function PauseOtherSourcesButton({
   isPaused,
   heldCount,
   busy,
+  directComposerMessagesSend,
   onToggle,
 }: {
   isPaused: boolean;
   heldCount: number;
   busy: boolean;
+  directComposerMessagesSend: boolean;
   onToggle: () => void;
 }) {
   const title = isPaused
-    ? "Resume other input sources. Releases held CLI, timer, herd, and programmatic work."
-    : "Pause other input sources. Direct composer messages still send; CLI, timer, herd, and programmatic work is held.";
+    ? directComposerMessagesSend
+      ? "Resume other input sources. Releases held CLI, timer, herd, and programmatic work."
+      : "Resume other input sources. Direct composer messages still need the session to resume."
+    : directComposerMessagesSend
+      ? "Pause other input sources. Direct composer messages still send; CLI, timer, herd, and programmatic work is held."
+      : "Pause other input sources. Direct composer messages still need the session to resume.";
 
   return (
     <button
@@ -80,9 +86,11 @@ export function PauseOtherSourcesButton({
 export function PausedInputChip({
   pause,
   heldCount,
+  directComposerMessagesSend,
 }: {
   pause: SessionPauseState | null | undefined;
   heldCount: number;
+  directComposerMessagesSend: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const queued = pause?.queuedMessages ?? [];
@@ -92,8 +100,10 @@ export function PausedInputChip({
     () =>
       visibleCount > 0
         ? `Other input sources are paused. ${label} will release after resume.`
-        : "Other input sources are paused. Direct composer messages still send.",
-    [label, visibleCount],
+        : directComposerMessagesSend
+          ? "Other input sources are paused. Direct composer messages still send."
+          : "Other input sources are paused. Direct composer messages still need the session to resume.",
+    [directComposerMessagesSend, label, visibleCount],
   );
 
   if (!pause?.pausedAt) return null;
@@ -115,7 +125,9 @@ export function PausedInputChip({
             <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-mono-code text-[10px]">{label}</span>
           </button>
           <span className="min-w-0 flex-1 text-amber-200/80">
-            Direct composer messages still send. External input waits here.
+            {directComposerMessagesSend
+              ? "Direct composer messages still send. External input waits here."
+              : "Direct composer messages still need the session to resume. External input waits here."}
           </span>
         </div>
         {open && (

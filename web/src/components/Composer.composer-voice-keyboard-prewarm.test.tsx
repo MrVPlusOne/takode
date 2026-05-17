@@ -256,6 +256,7 @@ function makeMessage(overrides: Partial<ChatMessage> & { id: string; content: st
 function setupMockStore(
   overrides: {
     isConnected?: boolean;
+    connectionStatus?: "connecting" | "connected" | "disconnected";
     sessionStatus?: "idle" | "running" | "compacting" | null;
     session?: Partial<SessionState>;
     draftText?: string;
@@ -287,6 +288,7 @@ function setupMockStore(
 ) {
   const {
     isConnected = true,
+    connectionStatus: explicitConnectionStatus,
     sessionStatus = "idle",
     session = {},
     draftText = "",
@@ -300,12 +302,16 @@ function setupMockStore(
     shortcutSettings = { enabled: true, preset: "standard", overrides: {} },
     vscodeSelectionContext = null,
   } = overrides;
+  const connectionStatus = explicitConnectionStatus ?? (isConnected ? "connected" : "disconnected");
 
   const sessionsMap = new Map<string, SessionState>();
   sessionsMap.set("s1", makeSession(session));
 
   const cliConnectedMap = new Map<string, boolean>();
   cliConnectedMap.set("s1", isConnected);
+
+  const connectionStatusMap = new Map<string, "connecting" | "connected" | "disconnected">();
+  connectionStatusMap.set("s1", connectionStatus);
 
   const sessionStatusMap = new Map<string, "idle" | "running" | "compacting" | null>();
   sessionStatusMap.set("s1", sessionStatus);
@@ -319,6 +325,7 @@ function setupMockStore(
   mockStoreState = {
     sessions: sessionsMap,
     cliConnected: cliConnectedMap,
+    connectionStatus: connectionStatusMap,
     sessionStatus: sessionStatusMap,
     previousPermissionMode: previousPermissionModeMap,
     askPermission: askPermissionMap,
@@ -572,6 +579,24 @@ describe("Composer voice keyboard prewarm", () => {
 
       fireEvent.keyDown(document, { key: "Shift" });
       fireEvent.keyUp(document, { key: "Shift" });
+      expect(mockVoiceState.toggleRecording).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("runs voice shortcuts while the CLI is disconnected and the browser is connected", () => {
+    setupMockStore({ isConnected: false, connectionStatus: "connected" });
+    vi.useFakeTimers();
+    try {
+      render(<Composer sessionId="s1" />);
+
+      fireEvent.keyDown(document, { key: "Shift" });
+      fireEvent.keyUp(document, { key: "Shift" });
+      vi.advanceTimersByTime(200);
+      fireEvent.keyDown(document, { key: "Shift" });
+      fireEvent.keyUp(document, { key: "Shift" });
+
       expect(mockVoiceState.toggleRecording).toHaveBeenCalledTimes(1);
     } finally {
       vi.useRealTimers();

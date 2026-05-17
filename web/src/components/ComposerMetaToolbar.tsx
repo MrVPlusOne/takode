@@ -17,6 +17,8 @@ export function ComposerMetaToolbar({
   diffLinesRemoved,
   isCodex,
   isConnected,
+  imageUploadDisabled,
+  imageUploadTitle,
   showModelDropdown,
   setShowModelDropdown,
   modelDropdownRef,
@@ -67,6 +69,8 @@ export function ComposerMetaToolbar({
   diffLinesRemoved: number;
   isCodex: boolean;
   isConnected: boolean;
+  imageUploadDisabled: boolean;
+  imageUploadTitle: string;
   showModelDropdown: boolean;
   setShowModelDropdown: (open: boolean) => void;
   modelDropdownRef: RefObject<HTMLDivElement | null>;
@@ -124,7 +128,11 @@ export function ComposerMetaToolbar({
                   ? "opacity-30 cursor-not-allowed text-cc-muted"
                   : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
               }`}
-              title={`${selectedPermission.label}: ${selectedPermission.description}`}
+              title={
+                isConnected
+                  ? `${selectedPermission.label}: ${selectedPermission.description}`
+                  : "Resume session to change permissions"
+              }
             >
               <span className="truncate">{selectedPermission.label}</span>
               <svg viewBox="0 0 16 16" fill="currentColor" className="h-2.5 w-2.5 shrink-0 opacity-50">
@@ -218,7 +226,9 @@ export function ComposerMetaToolbar({
                       className={`flex min-w-0 items-center gap-0.5 font-mono-code transition-colors select-none ${
                         !isConnected ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
                       }`}
-                      title={`Model: ${sessionView.model} (click to change)`}
+                      title={
+                        isConnected ? `Model: ${sessionView.model} (click to change)` : "Resume session to change model"
+                      }
                     >
                       <span className="truncate">{formatModel(sessionView.model)}</span>
                       <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
@@ -257,7 +267,11 @@ export function ComposerMetaToolbar({
                         className={`flex min-w-0 items-center gap-0.5 font-mono-code transition-colors select-none ${
                           !isConnected ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
                         }`}
-                        title={`Model: ${sessionView.model} (relaunch required)`}
+                        title={
+                          isConnected
+                            ? `Model: ${sessionView.model} (relaunch required)`
+                            : "Resume session to change model"
+                        }
                       >
                         <span className="truncate">{formatModel(sessionView.model)}</span>
                         <svg viewBox="0 0 16 16" fill="currentColor" className="w-2.5 h-2.5 shrink-0 opacity-50">
@@ -295,7 +309,9 @@ export function ComposerMetaToolbar({
                         className={`flex items-center gap-1 transition-colors select-none ${
                           !isConnected ? "cursor-not-allowed opacity-30" : "cursor-pointer hover:text-cc-fg"
                         }`}
-                        title="Reasoning effort (relaunch required)"
+                        title={
+                          isConnected ? "Reasoning effort (relaunch required)" : "Resume session to change reasoning"
+                        }
                       >
                         <span>
                           {CODEX_REASONING_EFFORTS.find((x) => x.value === codexReasoningEffort)?.label.toLowerCase() ||
@@ -338,13 +354,13 @@ export function ComposerMetaToolbar({
       <div className="ml-auto flex shrink-0 items-center gap-1.5 sm:gap-1">
         <button
           onClick={onOpenFilePicker}
-          disabled={!isConnected}
+          disabled={imageUploadDisabled}
           className={`flex items-center justify-center w-11 h-11 sm:w-8 sm:h-8 rounded-lg transition-colors ${
-            isConnected
+            !imageUploadDisabled
               ? "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
               : "text-cc-muted opacity-30 cursor-not-allowed"
           }`}
-          title="Upload image"
+          title={imageUploadTitle}
         >
           <svg
             viewBox="0 0 16 16"
@@ -406,7 +422,7 @@ export function ComposerMetaToolbar({
                   ? "bg-cc-primary hover:bg-cc-primary-hover text-white cursor-pointer"
                   : "bg-cc-hover text-cc-muted cursor-not-allowed"
               } ${sendPressing ? "animate-[send-morph_500ms_ease-out]" : ""}`}
-              title="Send message"
+              title={sendButtonTitle}
             >
               {sendPressing ? (
                 <CatPawAvatar className="w-5 h-5 sm:w-4 sm:h-4" />

@@ -598,8 +598,10 @@ export function Composer({
   const sessionView = useStore(
     useShallow((s) => {
       const sessionData = s.sessions.get(sessionId);
+      const isConnected = s.cliConnected.get(sessionId) ?? false;
       return {
-        isConnected: s.cliConnected.get(sessionId) ?? false,
+        isConnected,
+        browserConnectionStatus: s.connectionStatus?.get(sessionId) ?? (isConnected ? "connected" : "disconnected"),
         explicitAskPermission: s.askPermission.get(sessionId),
         backendType: sessionData?.backend_type,
         permissionMode: sessionData?.permissionMode || "acceptEdits",
@@ -644,11 +646,16 @@ export function Composer({
   );
 
   const isConnected = sessionView.isConnected;
+  const isBrowserServerConnected = sessionView.browserConnectionStatus === "connected";
   const voiceShortcutIsAvailable = useCallback(
     (actionId: ShortcutActionId) => {
       if (actionId === "voice_start") {
         return (
-          !isRecordingRef.current && !isPreparingRef.current && isConnected && !isTranscribing && !voiceEditProposal
+          !isRecordingRef.current &&
+          !isPreparingRef.current &&
+          isBrowserServerConnected &&
+          !isTranscribing &&
+          !voiceEditProposal
         );
       }
       if (actionId === "voice_stop") {
@@ -656,7 +663,7 @@ export function Composer({
       }
       return false;
     },
-    [isConnected, isTranscribing, voiceEditProposal],
+    [isBrowserServerConnected, isTranscribing, voiceEditProposal],
   );
 
   const runVoiceShortcutAction = useCallback(
@@ -1599,27 +1606,36 @@ export function Composer({
   const voiceIdleTitle = text.trim().length > 0 ? "Voice edit" : "Voice input";
   const voiceButtonTitle =
     (!voiceSupported ? voiceUnsupportedTooltip : voiceError) ||
-    (isPreparing
-      ? "Preparing microphone..."
-      : isTranscribing
-        ? transcriptionPhase === "preparing"
-          ? "Preparing transcript..."
-          : transcriptionPhase === "editing"
-            ? "Editing..."
-            : transcriptionPhase === "appending"
-              ? "Appending..."
-              : transcriptionPhase === "enhancing"
-                ? "Enhancing..."
-                : "Transcribing..."
-        : isRecording
-          ? "Stop recording"
-          : voiceEditProposal
-            ? "Accept or undo the voice edit first"
-            : voiceIdleTitle);
-  const voiceButtonDisabled = !isConnected || isTranscribing || isPreparing || !!voiceEditProposal;
+    (!isBrowserServerConnected
+      ? "Reconnect to Takode server to use voice input"
+      : isPreparing
+        ? "Preparing microphone..."
+        : isTranscribing
+          ? transcriptionPhase === "preparing"
+            ? "Preparing transcript..."
+            : transcriptionPhase === "editing"
+              ? "Editing..."
+              : transcriptionPhase === "appending"
+                ? "Appending..."
+                : transcriptionPhase === "enhancing"
+                  ? "Enhancing..."
+                  : "Transcribing..."
+          : isRecording
+            ? "Stop recording"
+            : voiceEditProposal
+              ? "Accept or undo the voice edit first"
+              : voiceIdleTitle);
+  const voiceButtonDisabled = !isBrowserServerConnected || isTranscribing || isPreparing || !!voiceEditProposal;
   const compactVoiceButtonDisabled = voiceButtonDisabled;
+  const imageUploadDisabled = !isBrowserServerConnected;
+  const imageUploadTitle = imageUploadDisabled ? "Reconnect to Takode server to upload images" : "Upload image";
   const sendButtonTitle =
-    attachmentBlockReason || (activePendingUserUpload ? "Delivering pending message" : "Send message");
+    attachmentBlockReason ||
+    (activePendingUserUpload
+      ? "Delivering pending message"
+      : !isConnected && (text.trim().length > 0 || images.length > 0)
+        ? "Resume session to send message"
+        : "Send message");
   const plainReferencePreviews = useMemo(() => {
     const questIds = new Set(previewQuestIds);
     const sessionNums = new Set(previewSessionNums);
@@ -1767,7 +1783,11 @@ export function Composer({
                   persistPreferredVoiceMode("append");
                 }}
               />
-              <PausedInputChip pause={pauseState} heldCount={pausedInputQueueCount} />
+              <PausedInputChip
+                pause={pauseState}
+                heldCount={pausedInputQueueCount}
+                directComposerMessagesSend={isConnected}
+              />
               <ComposerReferencePreview references={plainReferencePreviews} />
             </>
           }
@@ -1780,6 +1800,8 @@ export function Composer({
                 diffLinesRemoved={diffLinesRemoved}
                 isCodex={isCodex}
                 isConnected={isConnected}
+                imageUploadDisabled={imageUploadDisabled}
+                imageUploadTitle={imageUploadTitle}
                 showModelDropdown={showModelDropdown}
                 setShowModelDropdown={setShowModelDropdown}
                 modelDropdownRef={modelDropdownRef}
@@ -1815,6 +1837,7 @@ export function Composer({
                     isPaused={isPaused}
                     heldCount={pausedInputQueueCount}
                     busy={pauseBusy}
+                    directComposerMessagesSend={isConnected}
                     onToggle={handleTogglePause}
                   />
                 }
