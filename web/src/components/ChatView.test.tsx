@@ -9,7 +9,14 @@ interface MockStoreState {
   sessions: Map<
     string,
     {
-      backend_state?: "initializing" | "resuming" | "recovering" | "connected" | "disconnected" | "broken";
+      backend_state?:
+        | "initializing"
+        | "resuming"
+        | "recovering"
+        | "connected"
+        | "disconnected"
+        | "broken"
+        | "recovery_suppressed";
       backend_error?: string | null;
       isOrchestrator?: boolean;
       claimedQuestId?: string | null;
@@ -20,7 +27,7 @@ interface MockStoreState {
   >;
   cliConnected: Map<string, boolean>;
   cliEverConnected: Map<string, boolean>;
-  cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
+  cliDisconnectReason: Map<string, "idle_limit" | "broken" | "recovery_suppressed" | null>;
   serverReachable: boolean;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   sdkSessions: Array<{
@@ -492,6 +499,25 @@ describe("ChatView backend banners", () => {
     expect(scope.getByText("Recovering session...")).toBeInTheDocument();
     expect(scope.queryByText("Session disconnected")).not.toBeInTheDocument();
     expectLiveBannerBetweenFeedAndComposer(view.container);
+  });
+
+  it("shows the recovery-suppressed banner and manual resume action", () => {
+    resetStore({
+      sessions: new Map([
+        ["s1", { backend_state: "recovery_suppressed", backend_error: "Automatic recovery failed 3 times." }],
+      ]),
+      cliConnected: new Map([["s1", false]]),
+      cliEverConnected: new Map([["s1", true]]),
+      cliDisconnectReason: new Map([["s1", "recovery_suppressed"]]),
+      sessionStatus: new Map([["s1", null]]),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByText("Automatic recovery failed 3 times.")).toBeInTheDocument();
+    expectLiveBannerBetweenFeedAndComposer(view.container);
+    fireEvent.click(scope.getByRole("button", { name: "Resume" }));
+    expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
   });
 
   it("renders the session-disconnected action near the composer", () => {

@@ -1608,6 +1608,7 @@ export function createSessionsRoutes(ctx: RouteContext) {
       }
     }
 
+    (wsBridge as any).clearCodexAutomaticRecoverySuppression?.(id);
     const result = await launcher.relaunch(id);
     if (!result.ok) {
       const status =

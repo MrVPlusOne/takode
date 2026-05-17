@@ -991,16 +991,17 @@ describe("handleCodexAdapterInitError", () => {
     );
   });
 
-  it("marks broken only after transient init retry budget is exhausted", () => {
-    // Once the bounded retry budget is spent, the UI should become terminally
-    // broken so users see a real failure instead of an infinite respawn loop.
+  it("suppresses automatic recovery after the transient init retry budget is exhausted", () => {
+    // Once the bounded retry budget is spent, queued work remains durable but
+    // automatic relaunch pauses so users see a manual recovery path instead of
+    // an infinite respawn loop.
     const adapter = { id: "adapter-1" };
     const session = makeSession([]);
     const pending = makePendingTurn();
     session.codexAdapter = adapter as any;
     session.pendingCodexTurns = [pending];
     (session as any).codexAutoRecoveryReason = "queued_user_message_adapter_missing";
-    (session as any).codexInitRecoveryFailures = 3;
+    (session as any).codexInitRecoveryFailures = 2;
     const deps = makeRecoveryDeps({ maxAdapterRelaunchFailures: 3 });
 
     const result = handleCodexAdapterInitError(
@@ -1012,13 +1013,21 @@ describe("handleCodexAdapterInitError", () => {
     );
 
     expect(result).toBe("broken");
-    expect(session.state.backend_state).toBe("broken");
-    expect(pending.status).toBe("blocked_broken_session");
+    expect(session.state.backend_state).toBe("recovery_suppressed");
+    expect((session.state as any).backend_error).toContain(
+      "Codex automatic recovery is paused after 3 failed attempts",
+    );
+    expect(pending.status).toBe("queued");
     expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
-    expect(deps.setAttentionError).toHaveBeenCalledWith(session);
+    expect(deps.setAttentionError).not.toHaveBeenCalled();
+    expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_recovery_suppressed");
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
+      type: "backend_disconnected",
+      reason: "recovery_suppressed",
+    });
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, {
       type: "error",
-      message: "Codex initialization failed: Transport closed",
+      message: "Codex automatic recovery is paused after 3 failed attempts. Use Resume to retry manually.",
     });
   });
 

@@ -274,4 +274,104 @@ describe("startup-recovery", () => {
       },
     ]);
   });
+
+  it("requests bounded startup relaunch for newest active dead Codex sessions", async () => {
+    const launcherSessions: StartupRecoveryLauncherSession[] = [
+      {
+        sessionId: "old-codex",
+        backendType: "codex",
+        state: "exited",
+        exitCode: -1,
+        createdAt: 1,
+        lastActivityAt: 10,
+      },
+      {
+        sessionId: "new-codex",
+        backendType: "codex",
+        state: "exited",
+        exitCode: -1,
+        createdAt: 2,
+        lastActivityAt: 30,
+      },
+      {
+        sessionId: "middle-codex",
+        backendType: "codex",
+        state: "exited",
+        exitCode: -1,
+        createdAt: 3,
+        lastActivityAt: 20,
+      },
+    ];
+    const sessions = new Map<string, StartupRecoverySession>(
+      launcherSessions.map((session) => [
+        session.sessionId,
+        { backendType: "codex", state: { backend_state: "disconnected" } },
+      ]),
+    );
+    const requestCliRelaunch = vi.fn();
+
+    const result = await runStartupRecovery({
+      listLauncherSessions: () => launcherSessions,
+      getSession: (sessionId) => sessions.get(sessionId),
+      isBackendConnected: () => false,
+      requestCliRelaunch,
+      activeRecoveryLimit: 2,
+      activeRecoverySpacingMs: 250,
+    });
+
+    expect(requestCliRelaunch).toHaveBeenCalledTimes(2);
+    expect(requestCliRelaunch).toHaveBeenNthCalledWith(1, "new-codex", {
+      delayMs: 0,
+      reason: "active_dead_backend",
+    });
+    expect(requestCliRelaunch).toHaveBeenNthCalledWith(2, "middle-codex", {
+      delayMs: 250,
+      reason: "active_dead_backend",
+    });
+    expect(result.recovered).toEqual([
+      {
+        sessionId: "new-codex",
+        reasons: ["active_dead_backend"],
+        requestedRelaunch: true,
+        clearedIdleKilled: false,
+      },
+      {
+        sessionId: "middle-codex",
+        reasons: ["active_dead_backend"],
+        requestedRelaunch: true,
+        requestedRelaunchDelayMs: 250,
+        clearedIdleKilled: false,
+      },
+    ]);
+  });
+
+  it("excludes inactive or suppressed dead Codex sessions from startup active recovery", async () => {
+    const launcherSessions: StartupRecoveryLauncherSession[] = [
+      { sessionId: "idle-killed", backendType: "codex", state: "exited", exitCode: -1, killedByIdleManager: true },
+      { sessionId: "paused", backendType: "codex", state: "exited", exitCode: -1 },
+      { sessionId: "suppressed", backendType: "codex", state: "exited", exitCode: -1 },
+      { sessionId: "claude", backendType: "claude", state: "exited", exitCode: -1 },
+      { sessionId: "clean-exit", backendType: "codex", state: "exited", exitCode: 0 },
+    ];
+    const sessions = new Map<string, StartupRecoverySession>([
+      ["idle-killed", { backendType: "codex", state: { backend_state: "disconnected" } }],
+      ["paused", { backendType: "codex", state: { backend_state: "disconnected" } }],
+      ["suppressed", { backendType: "codex", state: { backend_state: "recovery_suppressed" } }],
+      ["claude", { backendType: "claude", state: { backend_state: "disconnected" } }],
+      ["clean-exit", { backendType: "codex", state: { backend_state: "disconnected" } }],
+    ]);
+    const requestCliRelaunch = vi.fn();
+
+    const result = await runStartupRecovery({
+      listLauncherSessions: () => launcherSessions,
+      getSession: (sessionId) => sessions.get(sessionId),
+      isBackendConnected: () => false,
+      isSessionPaused: (sessionId) => sessionId === "paused",
+      requestCliRelaunch,
+      activeRecoveryLimit: 10,
+    });
+
+    expect(requestCliRelaunch).not.toHaveBeenCalled();
+    expect(result.recovered).toEqual([]);
+  });
 });

@@ -61,7 +61,7 @@ function clearPendingCliDisconnect(sessionId: string): void {
   pendingCliDisconnectTimers.delete(sessionId);
 }
 
-function applyCliDisconnected(sessionId: string, reason: "idle_limit" | "broken" | null): void {
+function applyCliDisconnected(sessionId: string, reason: "idle_limit" | "broken" | "recovery_suppressed" | null): void {
   const store = useStore.getState();
   store.setCliConnected(sessionId, false);
   store.setCliDisconnectReason(sessionId, reason);

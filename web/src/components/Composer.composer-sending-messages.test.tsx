@@ -552,6 +552,23 @@ describe("Composer sending messages", () => {
     expect(mockRequestBottomAlignOnNextUserMessage).toHaveBeenCalledWith("s1");
   });
 
+  it("pressing Enter sends while the backend transport is disconnected", () => {
+    setupMockStore({ isConnected: false });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "queue after restart" } });
+    fireEvent.keyDown(textarea, { key: "Enter", shiftKey: false });
+
+    expect(mockSendToSession).toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({
+        type: "user_message",
+        content: "queue after restart",
+      }),
+    );
+  });
+
   it("sends the selected quest thread key with user messages", () => {
     const { container } = render(<Composer sessionId="s1" threadKey="q-941" questId="q-941" />);
     const textarea = container.querySelector("textarea")!;

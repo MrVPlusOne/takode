@@ -143,6 +143,7 @@ import {
   buildPersistedSessionPayload as buildPersistedSessionPayloadController,
   clearActionAttentionIfNoPermissions as clearActionAttentionIfNoPermissionsController,
   clearAttentionAndMarkRead as clearAttentionAndMarkReadController,
+  clearCodexAutomaticRecoverySuppression as clearCodexAutomaticRecoverySuppressionController,
   deriveBackendState as deriveBackendStateController,
   finalizeCodexRollback as finalizeCodexRollbackController,
   getNotifications as getNotificationsController,
@@ -1260,6 +1261,12 @@ export class WsBridge {
     const session = this.sessions.get(sessionId);
     if (!session) return;
     markCodexAutoRecoveryFailedController(session, this.getSessionRegistryDeps());
+  }
+
+  clearCodexAutomaticRecoverySuppression(sessionId: string): void {
+    const session = this.sessions.get(sessionId);
+    if (!session) return;
+    clearCodexAutomaticRecoverySuppressionController(session, this.getSessionRegistryDeps());
   }
 
   isBackendConnected(sessionId: string): boolean {

@@ -55,6 +55,7 @@ export interface SessionRegistryDeps {
   attached?: (session: SessionLike) => boolean;
   getLauncherSessionInfo?: (sessionId: string) => any;
   recoveryTimeoutMs?: number;
+  maxAdapterRelaunchFailures?: number;
   getHerdedSessionIds?: (leaderId: string) => string[];
   getSessionNum?: (sessionId: string) => number | undefined;
   getSessionName?: (sessionId: string) => string | undefined;
@@ -739,6 +740,7 @@ export function backendAttached(session: SessionLike): boolean {
 
 export function deriveBackendState(session: SessionLike): NonNullable<SessionState["backend_state"]> {
   if (session.state.backend_state === "broken") return "broken";
+  if (session.state.backend_state === "recovery_suppressed") return "recovery_suppressed";
   if (backendConnected(session)) return "connected";
   if (
     session.state.backend_state === "initializing" ||
@@ -777,14 +779,21 @@ export function requestCodexAutoRecovery(
     | "attached"
     | "getLauncherSessionInfo"
     | "broadcastSessionUpdate"
+    | "broadcastToBrowsers"
     | "recoveryTimeoutMs"
+    | "maxAdapterRelaunchFailures"
     | "finalizeCodexRecoveringTurn"
   >,
 ): boolean {
   const launcherInfo = deps.getLauncherSessionInfo?.(session.id);
   if (!deps.requestCliRelaunch) return false;
   if (launcherInfo?.archived || launcherInfo?.killedByIdleManager) return false;
-  if (session.state.backend_state === "broken") return false;
+  if (session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed") return false;
+  const maxFailures = deps.maxAdapterRelaunchFailures ?? 3;
+  if (reason !== "adapter_disconnect" && (session as any).consecutiveAdapterFailures >= maxFailures) {
+    suppressCodexAutomaticRecovery(session, `automatic recovery suppressed after ${maxFailures} failed attempts`, deps);
+    return false;
+  }
   (session as any).codexAutoRecoveryReason = reason;
   setBackendState(session, "recovering", null, deps);
   deps.persistSession(session);
@@ -796,7 +805,16 @@ export function requestCodexAutoRecovery(
     console.warn(
       `[ws-bridge] Codex auto-recovery timeout for session ${sessionTag(session.id)} (${reason}) -- resetting to disconnected`,
     );
-    setBackendState(session, "disconnected", null, deps);
+    const failures = noteCodexAutomaticRecoveryFailure(session, deps);
+    if (failures >= maxFailures) {
+      suppressCodexAutomaticRecovery(
+        session,
+        `Automatic recovery timed out ${failures} times. Use Resume to retry manually.`,
+        deps,
+      );
+    } else {
+      setBackendState(session, "disconnected", null, deps);
+    }
     const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
     if (retryTimer) clearTimeout(retryTimer);
     (session as any).codexInitRetryTimer = null;
@@ -816,13 +834,29 @@ export function markCodexAutoRecoveryFailed(
   session: SessionLike,
   deps: Pick<
     SessionRegistryDeps,
-    "attached" | "emitTakodeEvent" | "persistSession" | "broadcastSessionUpdate" | "finalizeCodexRecoveringTurn"
+    | "attached"
+    | "emitTakodeEvent"
+    | "persistSession"
+    | "broadcastSessionUpdate"
+    | "broadcastToBrowsers"
+    | "finalizeCodexRecoveringTurn"
+    | "maxAdapterRelaunchFailures"
   >,
 ): void {
   if (session.backendType !== "codex") return;
   if (session.state.backend_state !== "recovering") return;
   if (deps.attached?.(session)) return;
-  setBackendState(session, "disconnected", null, deps);
+  const failures = noteCodexAutomaticRecoveryFailure(session, deps);
+  const maxFailures = deps.maxAdapterRelaunchFailures ?? 3;
+  if (failures >= maxFailures) {
+    suppressCodexAutomaticRecovery(
+      session,
+      `Automatic recovery failed ${failures} times. Use Resume to retry manually.`,
+      deps,
+    );
+  } else {
+    setBackendState(session, "disconnected", null, deps);
+  }
   const retryTimer = (session as any).codexInitRetryTimer as ReturnType<typeof setTimeout> | null | undefined;
   if (retryTimer) clearTimeout(retryTimer);
   (session as any).codexInitRetryTimer = null;
@@ -833,6 +867,53 @@ export function markCodexAutoRecoveryFailed(
     reason: "recovery_failed",
   });
   deps.finalizeCodexRecoveringTurn?.(session, "recovery_failed");
+  deps.persistSession(session);
+}
+
+export function clearCodexAutomaticRecoverySuppression(
+  session: SessionLike,
+  deps: Pick<SessionRegistryDeps, "persistSession" | "broadcastSessionUpdate">,
+): void {
+  if (session.backendType !== "codex") return;
+  (session as any).consecutiveAdapterFailures = 0;
+  (session as any).lastAdapterFailureAt = null;
+  (session as any).codexInitRecoveryFailures = 0;
+  (session as any).codexAutoRecoveryReason = null;
+  if (session.state.backend_state === "recovery_suppressed") {
+    setBackendState(session, "disconnected", null, deps);
+  }
+  deps.persistSession(session);
+}
+
+function noteCodexAutomaticRecoveryFailure(
+  session: SessionLike,
+  deps: Pick<SessionRegistryDeps, "maxAdapterRelaunchFailures">,
+): number {
+  const current =
+    typeof (session as any).consecutiveAdapterFailures === "number" ? (session as any).consecutiveAdapterFailures : 0;
+  const failures = Math.min(current + 1, (deps.maxAdapterRelaunchFailures ?? 3) + 1);
+  (session as any).consecutiveAdapterFailures = failures;
+  (session as any).lastAdapterFailureAt = Date.now();
+  return failures;
+}
+
+function suppressCodexAutomaticRecovery(
+  session: SessionLike,
+  message: string,
+  deps: Pick<
+    SessionRegistryDeps,
+    "broadcastSessionUpdate" | "broadcastToBrowsers" | "emitTakodeEvent" | "persistSession"
+  >,
+): void {
+  const diagnostic = `Codex automatic recovery is paused: ${message}`;
+  setBackendState(session, "recovery_suppressed", diagnostic, deps);
+  deps.broadcastToBrowsers?.(session, { type: "backend_disconnected", reason: "recovery_suppressed" });
+  deps.broadcastToBrowsers?.(session, { type: "error", message: diagnostic });
+  deps.emitTakodeEvent?.(session.id, "session_disconnected", {
+    wasGenerating: session.isGenerating,
+    reason: "recovery_suppressed",
+  });
+  console.error(`[ws-bridge] ${diagnostic} for session ${sessionTag(session.id)}`);
   deps.persistSession(session);
 }
 

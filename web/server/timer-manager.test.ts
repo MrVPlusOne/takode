@@ -304,9 +304,10 @@ describe("TimerManager", () => {
       expect(timers[0].fireCount).toBe(1);
     });
 
-    it("coalesces missed recurring occurrences while the backend is disconnected", async () => {
-      // Recurring timers should not enqueue one model message per missed interval
-      // while the CLI/backend is offline; reconnect delivers the newest due one.
+    it("fires a coalesced recurring timer event while the backend is disconnected", async () => {
+      // Disconnected is a transport state, so due recurring timers still enqueue
+      // work through the normal injected-message path and let recovery happen
+      // on demand instead of waiting for a later reconnect.
       await manager.createTimer("session-1", {
         title: "priority check",
         description: "Look at only the active incident lane.",
@@ -314,24 +315,11 @@ describe("TimerManager", () => {
       });
 
       backendConnected = false;
-      vi.advanceTimersByTime(10 * 60_000 + 1);
-      await triggerSweep(manager);
-      vi.advanceTimersByTime(10 * 60_000);
-      await triggerSweep(manager);
-      vi.advanceTimersByTime(10 * 60_000);
-      await triggerSweep(manager);
-
-      expect(bridge.injectUserMessage).not.toHaveBeenCalled();
-      expect(manager.listTimers("session-1")[0]).toMatchObject({
-        fireCount: 0,
-        nextFireAt: new Date("2026-04-08T12:10:00Z").getTime(),
-      });
-
-      vi.advanceTimersByTime(5 * 60_000 + 1);
-      backendConnected = true;
-      await triggerSweep(manager);
+      vi.advanceTimersByTime(35 * 60_000 + 1);
+      const result = await (manager as any).sweep();
 
       expect(bridge.injectUserMessage).toHaveBeenCalledTimes(1);
+      expect(result.fired).toEqual([{ sessionId: "session-1", timerId: "t1", delivery: "queued" }]);
       const content = bridge.injectUserMessage.mock.calls[0]?.[1] as string;
       expect(content).toContain("2 earlier due occurrences were skipped while the session was unavailable.");
       expect(content).toContain("This timer was initially scheduled to fire at 2026-04-08T12:30:00.000Z.");

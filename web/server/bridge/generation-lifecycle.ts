@@ -438,6 +438,7 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
       session.pendingCodexInputs.length > 0 &&
       !session.codexAdapter &&
       session.state.backend_state !== "broken" &&
+      session.state.backend_state !== "recovery_suppressed" &&
       session.state.backend_state !== "recovering" &&
       launcherInfo?.archived !== true &&
       launcherInfo?.killedByIdleManager !== true
@@ -459,6 +460,7 @@ export function runStuckSessionWatchdogSweep<S extends StuckWatchdogSession>(
       session.codexAdapter &&
       !session.isGenerating &&
       session.state.backend_state !== "broken" &&
+      session.state.backend_state !== "recovery_suppressed" &&
       session.state.backend_state !== "recovering" &&
       launcherInfo?.archived !== true &&
       launcherInfo?.killedByIdleManager !== true

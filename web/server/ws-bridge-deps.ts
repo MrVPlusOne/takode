@@ -470,6 +470,7 @@ export function getSessionRegistryDeps(host: any) {
     attached: (targetSession: unknown) => backendAttachedController(targetSession as Session),
     getLauncherSessionInfo: (sessionId: string) => readLauncherSession(host, sessionId),
     recoveryTimeoutMs: CODEX_RECOVERY_TIMEOUT_MS,
+    maxAdapterRelaunchFailures: MAX_ADAPTER_RELAUNCH_FAILURES,
     getHerdedSessionIds: (leaderId: string) =>
       host.launcher?.getHerdedSessions?.(leaderId)?.map((worker: { sessionId: string }) => worker.sessionId) ?? [],
     getSessionNum: (sessionId: string) => host.launcher?.getSessionNum?.(sessionId),

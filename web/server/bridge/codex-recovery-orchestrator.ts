@@ -596,14 +596,19 @@ export function rebuildQueuedCodexPendingStartBatch(
     pendingInputIds: deliverable.map((input) => input.id),
     userContent: buildCodexPendingBatchRecoveryText(deliverable, deps),
     historyIndex: -1,
-    status: session.state.backend_state === "broken" ? "blocked_broken_session" : "queued",
+    status:
+      session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed"
+        ? "blocked_broken_session"
+        : "queued",
     dispatchCount: 0,
     createdAt: now,
     updatedAt: now,
     acknowledgedAt: null,
     turnTarget: null,
     lastError:
-      session.state.backend_state === "broken" ? "Codex session needs relaunch before queued messages can run." : null,
+      session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed"
+        ? "Codex session needs manual Resume before queued messages can run."
+        : null,
     turnId: null,
     disconnectedAt: null,
     resumeConfirmedAt: null,
@@ -831,7 +836,7 @@ export function handleCodexAdapterInitError(
     (session as any).codexInitRecoveryFailures = failures;
     session.lastAdapterFailureAt = now;
     session.consecutiveAdapterFailures = failures;
-    if (failures <= deps.maxAdapterRelaunchFailures) {
+    if (failures < deps.maxAdapterRelaunchFailures) {
       if (pending) {
         pending.status = "queued";
         pending.turnId = null;
@@ -852,6 +857,22 @@ export function handleCodexAdapterInitError(
       deps.persistSession(session);
       return "retrying";
     }
+    clearCodexInitRecoveryState(session);
+    if (pending) {
+      pending.status = "queued";
+      pending.lastError = error;
+      pending.updatedAt = now;
+      deps.setPendingCodexInputsCancelable(session, pending.pendingInputIds ?? [pending.userMessageId], true);
+    }
+    deps.rebuildQueuedCodexPendingStartBatch(session);
+    const diagnostic = `Codex automatic recovery is paused after ${failures} failed attempts. Use Resume to retry manually.`;
+    deps.setBackendState(session, "recovery_suppressed", diagnostic);
+    deps.setGenerating(session, false, "codex_recovery_suppressed");
+    deps.broadcastToBrowsers(session, { type: "backend_disconnected", reason: "recovery_suppressed" });
+    deps.broadcastToBrowsers(session, { type: "error", message: diagnostic });
+    deps.broadcastToBrowsers(session, { type: "status_change", status: null });
+    deps.persistSession(session);
+    return "broken";
   }
 
   clearCodexInitRecoveryState(session);
@@ -1817,7 +1838,10 @@ export function retryPendingCodexTurn(
   if (restartRunningGuard) {
     deps.setGenerating(session, false, "codex_retry_pending_turn_restart");
   }
-  pending.status = session.state.backend_state === "broken" ? "blocked_broken_session" : "queued";
+  pending.status =
+    session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed"
+      ? "blocked_broken_session"
+      : "queued";
   pending.updatedAt = Date.now();
   pending.acknowledgedAt = null;
   pending.lastError = null;

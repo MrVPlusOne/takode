@@ -23,7 +23,7 @@ export interface TimerSweepResult {
   skipped: Array<{
     sessionId: string;
     timerId: string;
-    reason: "backend_disconnected" | "session_paused";
+    reason: "session_paused";
   }>;
 }
 
@@ -195,13 +195,8 @@ export class TimerManager {
 
         const fireContext =
           timer.type === "recurring" && timer.intervalMs && timer.intervalMs > 0
-            ? this.resolveRecurringFireContext(sessionId, timer, now)
+            ? this.resolveRecurringFireContext(timer, now)
             : { scheduledFireAt: timer.nextFireAt };
-        if (!fireContext) {
-          result.skipped.push({ sessionId, timerId: timer.id, reason: "backend_disconnected" });
-          continue;
-        }
-
         // Timer is due -- fire it.
         const delivery = this.fireTimer(sessionId, timer, fireContext);
         result.fired.push({ sessionId, timerId: timer.id, delivery });
@@ -254,8 +249,7 @@ export class TimerManager {
     return result;
   }
 
-  private resolveRecurringFireContext(sessionId: string, timer: SessionTimer, now: number): TimerFireContext | null {
-    if (!this.isBackendConnected(sessionId) || this.isSessionPaused(sessionId)) return null;
+  private resolveRecurringFireContext(timer: SessionTimer, now: number): TimerFireContext {
     const intervalMs = timer.intervalMs;
     if (!intervalMs || intervalMs <= 0) return { scheduledFireAt: timer.nextFireAt };
     const skippedCount = Math.floor((now - timer.nextFireAt) / intervalMs);
@@ -263,11 +257,6 @@ export class TimerManager {
       scheduledFireAt: timer.nextFireAt + skippedCount * intervalMs,
       skippedCount,
     };
-  }
-
-  private isBackendConnected(sessionId: string): boolean {
-    const bridge = this.wsBridge as WsBridge & { isBackendConnected?: (sessionId: string) => boolean };
-    return bridge.isBackendConnected?.(sessionId) ?? true;
   }
 
   private isSessionPaused(sessionId: string): boolean {

@@ -604,6 +604,7 @@ export function Composer({
         browserConnectionStatus: s.connectionStatus?.get(sessionId) ?? (isConnected ? "connected" : "disconnected"),
         explicitAskPermission: s.askPermission.get(sessionId),
         backendType: sessionData?.backend_type,
+        backendState: sessionData?.backend_state,
         permissionMode: sessionData?.permissionMode || "acceptEdits",
         serverUiMode: sessionData?.uiMode,
         codexReasoningEffort: sessionData?.codex_reasoning_effort || "",
@@ -647,6 +648,9 @@ export function Composer({
 
   const isConnected = sessionView.isConnected;
   const isBrowserServerConnected = sessionView.browserConnectionStatus === "connected";
+  const isRecoverySuppressed =
+    sessionView.backendState === "recovery_suppressed" || sessionView.backendState === "broken";
+  const canUseInput = !isRecoverySuppressed;
   const voiceShortcutIsAvailable = useCallback(
     (actionId: ShortcutActionId) => {
       if (actionId === "voice_start") {
@@ -654,6 +658,7 @@ export function Composer({
           !isRecordingRef.current &&
           !isPreparingRef.current &&
           isBrowserServerConnected &&
+          canUseInput &&
           !isTranscribing &&
           !voiceEditProposal
         );
@@ -663,7 +668,7 @@ export function Composer({
       }
       return false;
     },
-    [isBrowserServerConnected, isTranscribing, voiceEditProposal],
+    [canUseInput, isBrowserServerConnected, isTranscribing, voiceEditProposal],
   );
 
   const runVoiceShortcutAction = useCallback(
@@ -858,7 +863,8 @@ export function Composer({
     const msg = text.trim();
     if (
       (!msg && images.length === 0) ||
-      !isConnected ||
+      !isBrowserServerConnected ||
+      !canUseInput ||
       voiceEditProposal ||
       !allImagesReady ||
       activePendingUserUpload
@@ -1515,7 +1521,8 @@ export function Composer({
           : null;
   const canSend =
     (text.trim().length > 0 || images.length > 0) &&
-    isConnected &&
+    isBrowserServerConnected &&
+    canUseInput &&
     !voiceEditProposal &&
     !activePendingUserUpload &&
     allImagesReady;
@@ -1608,34 +1615,44 @@ export function Composer({
     (!voiceSupported ? voiceUnsupportedTooltip : voiceError) ||
     (!isBrowserServerConnected
       ? "Reconnect to Takode server to use voice input"
-      : isPreparing
-        ? "Preparing microphone..."
-        : isTranscribing
-          ? transcriptionPhase === "preparing"
-            ? "Preparing transcript..."
-            : transcriptionPhase === "editing"
-              ? "Editing..."
-              : transcriptionPhase === "appending"
-                ? "Appending..."
-                : transcriptionPhase === "enhancing"
-                  ? "Enhancing..."
-                  : "Transcribing..."
-          : isRecording
-            ? "Stop recording"
-            : voiceEditProposal
-              ? "Accept or undo the voice edit first"
-              : voiceIdleTitle);
-  const voiceButtonDisabled = !isBrowserServerConnected || isTranscribing || isPreparing || !!voiceEditProposal;
+      : !canUseInput
+        ? "Resume session to use voice input"
+        : isPreparing
+          ? "Preparing microphone..."
+          : isTranscribing
+            ? transcriptionPhase === "preparing"
+              ? "Preparing transcript..."
+              : transcriptionPhase === "editing"
+                ? "Editing..."
+                : transcriptionPhase === "appending"
+                  ? "Appending..."
+                  : transcriptionPhase === "enhancing"
+                    ? "Enhancing..."
+                    : "Transcribing..."
+            : isRecording
+              ? "Stop recording"
+              : voiceEditProposal
+                ? "Accept or undo the voice edit first"
+                : voiceIdleTitle);
+  const voiceButtonDisabled =
+    !isBrowserServerConnected || !canUseInput || isTranscribing || isPreparing || !!voiceEditProposal;
   const compactVoiceButtonDisabled = voiceButtonDisabled;
-  const imageUploadDisabled = !isBrowserServerConnected;
-  const imageUploadTitle = imageUploadDisabled ? "Reconnect to Takode server to upload images" : "Upload image";
+  const imageUploadDisabled = !isBrowserServerConnected || !canUseInput;
+  const imageUploadTitle = !isBrowserServerConnected
+    ? "Reconnect to Takode server to upload images"
+    : !canUseInput
+      ? "Resume session to upload images"
+      : "Upload image";
+  const hasDraft = text.trim().length > 0 || images.length > 0;
   const sendButtonTitle =
     attachmentBlockReason ||
     (activePendingUserUpload
       ? "Delivering pending message"
-      : !isConnected && (text.trim().length > 0 || images.length > 0)
-        ? "Resume session to send message"
-        : "Send message");
+      : !isBrowserServerConnected && hasDraft
+        ? "Reconnect to Takode server to send message"
+        : !canUseInput && hasDraft
+          ? "Resume session to send message"
+          : "Send message");
   const plainReferencePreviews = useMemo(() => {
     const questIds = new Set(previewQuestIds);
     const sessionNums = new Set(previewSessionNums);

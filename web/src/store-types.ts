@@ -71,7 +71,7 @@ export interface AppState {
   connectionStatus: Map<string, "connecting" | "connected" | "disconnected">;
   cliConnected: Map<string, boolean>;
   cliEverConnected: Map<string, boolean>;
-  cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
+  cliDisconnectReason: Map<string, "idle_limit" | "broken" | "recovery_suppressed" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   activeTurnRoutes: Map<string, ActiveTurnRoute | null>;
   sessionStuck: Map<string, boolean>;
@@ -326,7 +326,7 @@ export interface AppState {
   setConnectionStatus: (sessionId: string, status: "connecting" | "connected" | "disconnected") => void;
   setCliConnected: (sessionId: string, connected: boolean) => void;
   setCliEverConnected: (sessionId: string) => void;
-  setCliDisconnectReason: (sessionId: string, reason: "idle_limit" | "broken" | null) => void;
+  setCliDisconnectReason: (sessionId: string, reason: "idle_limit" | "broken" | "recovery_suppressed" | null) => void;
   setSessionStatus: (sessionId: string, status: "idle" | "running" | "compacting" | "reverting" | null) => void;
   setActiveTurnRoute: (sessionId: string, route: ActiveTurnRoute | null | undefined) => void;
   setSessionStuck: (sessionId: string, stuck: boolean) => void;

@@ -615,31 +615,27 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
     expect(session.pendingCodexTurns.length).toBeGreaterThan(0);
   });
 
-  it("resets consecutiveAdapterFailures on user-message-driven relaunch", async () => {
-    // After previous adapter failures, a user message should reset the counter
-    // so the session doesn't stay stuck at the failure cap.
-    const sid = "s-reset-failures";
+  it("suppresses automatic relaunch after repeated queued-work recovery failures", async () => {
+    // Once automatic recovery has repeatedly failed, new queued user work stays
+    // durable but no longer relaunches the backend indefinitely. Manual Resume
+    // clears the suppression through the explicit relaunch route.
+    const sid = "s-suppress-auto-recovery";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
     bridge.setLauncher({
       touchActivity: vi.fn(),
       touchUserMessage: vi.fn(),
-      getSession: vi.fn(() => ({ state: "exited", killedByIdleManager: false })),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "exited", killedByIdleManager: false })),
     } as any);
 
-    // Simulate 3 adapter failures to hit the cap
     const browser = makeBrowserSocket(sid);
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+    session.consecutiveAdapterFailures = 3;
     bridge.handleBrowserOpen(browser, sid);
-    for (let i = 0; i < 3; i++) {
-      const adapter = makeCodexAdapterMock();
-      bridge.attachCodexAdapter(sid, adapter as any);
-      adapter.emitDisconnect();
-    }
-    const session = bridge.getSession(sid)!;
-    expect(session.consecutiveAdapterFailures).toBe(3);
     relaunchCb.mockClear();
+    browser.send.mockClear();
 
-    // Send a user message — should reset failures and trigger relaunch
     await bridge.handleBrowserMessage(
       browser,
       JSON.stringify({
@@ -648,8 +644,18 @@ describe("Codex user-message-driven relaunch for idle sessions", () => {
       }),
     );
 
-    expect(session.consecutiveAdapterFailures).toBe(0);
-    expect(relaunchCb).toHaveBeenCalledWith(sid);
+    expect(relaunchCb).not.toHaveBeenCalled();
+    expect(session.state.backend_state).toBe("recovery_suppressed");
+    expect(session.isGenerating).toBe(false);
+    expect(session.pendingCodexInputs.map((input: any) => input.content)).toContain("try again");
+    const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
+    expect(calls).toContainEqual(expect.objectContaining({ type: "status_change", status: null }));
+    expect(calls).toContainEqual(
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("Codex automatic recovery is paused"),
+      }),
+    );
   });
 
   it("wakes idle-killed Codex sessions by clearing flag and relaunching on user_message", async () => {

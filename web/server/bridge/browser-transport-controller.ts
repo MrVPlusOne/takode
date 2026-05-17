@@ -291,7 +291,11 @@ export function handleBrowserOpen(
 
   sendToBrowser(ws, {
     type: "backend_disconnected",
-    ...(session.state.backend_state === "broken" ? { reason: "broken" } : {}),
+    ...(session.state.backend_state === "broken"
+      ? { reason: "broken" }
+      : session.state.backend_state === "recovery_suppressed"
+        ? { reason: "recovery_suppressed" }
+        : {}),
   } as BrowserIncomingMessage);
 }
 
@@ -643,7 +647,8 @@ export function injectUserMessage(
       session.backendType !== "codex" &&
       launcherInfo &&
       launcherInfo.state === "exited" &&
-      session.state.backend_state !== "broken"
+      session.state.backend_state !== "broken" &&
+      session.state.backend_state !== "recovery_suppressed"
     ) {
       // Claude SDK's missing-adapter route already queues the message and
       // requests relaunch. The post-route fallback remains needed when an SDK

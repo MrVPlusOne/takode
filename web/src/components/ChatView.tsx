@@ -108,7 +108,13 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
 
 type LiveConnectionStatusBannerProps = {
-  status: "starting" | "broken" | "cli-disconnected" | "websocket-disconnected" | "server-unreachable";
+  status:
+    | "starting"
+    | "broken"
+    | "recovery-suppressed"
+    | "cli-disconnected"
+    | "websocket-disconnected"
+    | "server-unreachable";
   backendState?: string;
   backendError?: string | null;
   hasEverConnected?: boolean;
@@ -127,23 +133,28 @@ function LiveConnectionStatusBanner({
   onRelaunch,
 }: LiveConnectionStatusBannerProps) {
   const isWarning =
-    status === "server-unreachable" || status === "broken" || (status === "cli-disconnected" && !idlePaused);
+    status === "server-unreachable" ||
+    status === "broken" ||
+    status === "recovery-suppressed" ||
+    (status === "cli-disconnected" && !idlePaused);
   const message =
     status === "server-unreachable"
       ? "Server unreachable"
       : status === "websocket-disconnected"
         ? "Reconnecting to session..."
-        : status === "broken"
-          ? (backendError ?? "CLI failed to recover. Relaunch to resume queued messages.")
-          : status === "cli-disconnected"
-            ? idlePaused
-              ? "Session paused to stay within keep-alive limit"
-              : "Session disconnected"
-            : backendState === "recovering"
-              ? "Recovering session..."
-              : backendState === "resuming" || hasEverConnected
-                ? "Reconnecting session..."
-                : "Starting session...";
+        : status === "recovery-suppressed"
+          ? (backendError ?? "Automatic recovery is paused. Resume manually to retry.")
+          : status === "broken"
+            ? (backendError ?? "CLI failed to recover. Relaunch to resume queued messages.")
+            : status === "cli-disconnected"
+              ? idlePaused
+                ? "Session paused to stay within keep-alive limit"
+                : "Session disconnected"
+              : backendState === "recovering"
+                ? "Recovering session..."
+                : backendState === "resuming" || hasEverConnected
+                  ? "Reconnecting session..."
+                  : "Starting session...";
 
   return (
     <div
@@ -175,7 +186,7 @@ function LiveConnectionStatusBanner({
         <span className={`min-w-0 text-xs font-medium ${isWarning ? "text-cc-warning" : "text-cc-text-secondary"}`}>
           {message}
         </span>
-        {(status === "broken" || status === "cli-disconnected") && onRelaunch && (
+        {(status === "broken" || status === "recovery-suppressed" || status === "cli-disconnected") && onRelaunch && (
           <button
             type="button"
             onClick={onRelaunch}
@@ -1416,16 +1427,18 @@ export function ChatView({
       ? "starting"
       : connStatus === "connected" && !cliConnected && backendState === "broken"
         ? "broken"
-        : connStatus === "connected" &&
-            !cliConnected &&
-            cliEverConnected &&
-            backendState !== "initializing" &&
-            backendState !== "resuming" &&
-            backendState !== "recovering"
-          ? "cli-disconnected"
-          : connStatus === "disconnected"
-            ? "websocket-disconnected"
-            : null;
+        : connStatus === "connected" && !cliConnected && backendState === "recovery_suppressed"
+          ? "recovery-suppressed"
+          : connStatus === "connected" &&
+              !cliConnected &&
+              cliEverConnected &&
+              backendState !== "initializing" &&
+              backendState !== "resuming" &&
+              backendState !== "recovering"
+            ? "cli-disconnected"
+            : connStatus === "disconnected"
+              ? "websocket-disconnected"
+              : null;
   return (
     <div className="relative flex flex-col h-full min-h-0">
       {preview ? (
@@ -1555,7 +1568,9 @@ export function ChatView({
           idlePaused={cliDisconnectReason === "idle_limit"}
           isResumeMissingRolloutError={isResumeMissingRolloutError}
           onRelaunch={
-            liveConnectionStatus === "broken" || liveConnectionStatus === "cli-disconnected"
+            liveConnectionStatus === "broken" ||
+            liveConnectionStatus === "cli-disconnected" ||
+            liveConnectionStatus === "recovery-suppressed"
               ? () => api.relaunchSession(sessionId).catch(console.error)
               : undefined
           }

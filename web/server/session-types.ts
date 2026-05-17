@@ -782,7 +782,7 @@ export type BrowserIncomingMessageBase =
   | { type: "permissions_cleared" }
   | { type: "auth_status"; isAuthenticating: boolean; output: string[]; error?: string }
   | { type: "error"; message: string }
-  | { type: "backend_disconnected"; reason?: "idle_limit" | "broken" }
+  | { type: "backend_disconnected"; reason?: "idle_limit" | "broken" | "recovery_suppressed" }
   | { type: "backend_connected" }
   | { type: "vscode_selection_state"; state: VsCodeSelectionState | null }
   | {
@@ -1077,7 +1077,14 @@ export interface SessionState {
   leaderOpenThreadTabs?: LeaderOpenThreadTabsState;
   backend_type?: BackendType;
   /** Server-authored backend lifecycle state. */
-  backend_state?: "initializing" | "resuming" | "recovering" | "connected" | "disconnected" | "broken";
+  backend_state?:
+    | "initializing"
+    | "resuming"
+    | "recovering"
+    | "connected"
+    | "disconnected"
+    | "recovery_suppressed"
+    | "broken";
   /** Server-authored backend failure detail for disconnected/broken states. */
   backend_error?: string | null;
   model: string;

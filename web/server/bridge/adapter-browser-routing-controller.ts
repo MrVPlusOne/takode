@@ -1691,22 +1691,31 @@ function maybeRequestAdapterRelaunchForUserMessage(
   deps: AdapterBrowserRoutingDeps,
 ): void {
   const launcherInfo = deps.getLauncherSessionInfo(session.id);
-  if (session.state.backend_state === "broken" || !launcherInfo || launcherInfo.state === "starting") {
+  if (
+    session.state.backend_state === "broken" ||
+    session.state.backend_state === "recovery_suppressed" ||
+    !launcherInfo ||
+    launcherInfo.state === "starting"
+  ) {
     return;
   }
   if (launcherInfo.killedByIdleManager) {
     launcherInfo.killedByIdleManager = false;
     console.log(`[ws-bridge] Clearing idle-killed flag for session ${sessionTag(session.id)} (adapter user_message)`);
   }
-  session.consecutiveAdapterFailures = 0;
   console.log(
     `[ws-bridge] User message queued while ${session.backendType} session ${sessionTag(session.id)} is not ready, requesting relaunch`,
   );
   if (session.backendType === "codex") {
-    deps.requestCodexAutoRecovery(session, "queued_user_message_adapter_missing");
-  } else {
-    deps.requestCliRelaunch?.(session.id);
+    const recoveryRequested = deps.requestCodexAutoRecovery(session, "queued_user_message_adapter_missing");
+    if (recoveryRequested) return;
+    if ((session.state as { backend_state?: string }).backend_state === "recovery_suppressed") {
+      deps.setGenerating(session, false, "codex_recovery_suppressed");
+      deps.broadcastStatusChange(session, null);
+    }
+    return;
   }
+  deps.requestCliRelaunch?.(session.id);
 }
 
 function activeTurnRouteFromIngestedUserMessage(ingested: IngestedUserMessage): ActiveTurnRoute {
@@ -1810,7 +1819,8 @@ export function routeAdapterBrowserMessage(
       msg.type === "user_message" &&
       ingested &&
       session.backendType !== "codex" &&
-      session.state.backend_state !== "broken"
+      session.state.backend_state !== "broken" &&
+      session.state.backend_state !== "recovery_suppressed"
     ) {
       const interruptSource = ingested.wasGenerating
         ? msg.agentSource
@@ -1867,7 +1877,11 @@ export function routeAdapterBrowserMessage(
           triggeringInputId: ingested.historyEntry.id,
         });
       }
-      if (!isHerdEvent && session.state.backend_state !== "broken") {
+      if (
+        !isHerdEvent &&
+        session.state.backend_state !== "broken" &&
+        session.state.backend_state !== "recovery_suppressed"
+      ) {
         const interruptSource = ingested.wasGenerating
           ? msg.agentSource
             ? isSystemSourceTag(msg.agentSource)
@@ -1905,10 +1919,10 @@ export function routeAdapterBrowserMessage(
           deps.queueCodexPendingStartBatch(session, deliveryReason);
         }
       }
-      if (session.state.backend_state === "broken") {
+      if (session.state.backend_state === "broken" || session.state.backend_state === "recovery_suppressed") {
         deps.broadcastToBrowsers(session, {
           type: "error",
-          message: "Codex session is broken. Your message was queued and will run after relaunch.",
+          message: "Codex recovery is paused. Your message was queued and will run after manual Resume.",
         });
       }
       if (!session.codexAdapter) {
@@ -1921,7 +1935,8 @@ export function routeAdapterBrowserMessage(
         userImageRefs?.length &&
         !session.codexAdapter.isConnected() &&
         session.state.backend_state !== "recovering" &&
-        session.state.backend_state !== "broken"
+        session.state.backend_state !== "broken" &&
+        session.state.backend_state !== "recovery_suppressed"
       ) {
         console.log(
           `[ws-bridge] Codex image send queued during reconnect window for session ${sessionTag(session.id)}`,

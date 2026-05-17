@@ -16,7 +16,7 @@ export interface SidebarVisibleSessionsInput {
   sessions: Map<string, SessionState>;
   sdkSessions: SdkSessionInfo[];
   cliConnected: Map<string, boolean>;
-  cliDisconnectReason: Map<string, "idle_limit" | "broken" | null>;
+  cliDisconnectReason: Map<string, "idle_limit" | "broken" | "recovery_suppressed" | null>;
   sessionStatus: Map<string, "idle" | "running" | "compacting" | "reverting" | null>;
   pendingPermissions: Map<string, Map<string, unknown>>;
   askPermission: Map<string, boolean>;

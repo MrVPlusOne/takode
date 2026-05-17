@@ -956,10 +956,28 @@ await captureStartupInjectedRelaunches(async () => {
     getSession: (sessionId) => wsBridge.getSession(sessionId),
     isBackendConnected: (sessionId) => wsBridge.isBackendConnected(sessionId),
     isSessionPaused: (sessionId) => wsBridge.isSessionPaused(sessionId),
-    requestCliRelaunch: (sessionId) => wsBridge.onCLIRelaunchNeeded?.(sessionId),
+    requestCliRelaunch: (sessionId, request) => {
+      const requestRecovery = () => {
+        if (request?.reason === "active_dead_backend") {
+          const session = wsBridge.getSession(sessionId);
+          if (session?.backendType === "codex") {
+            const requested = bridgeAny.requestCodexAutoRecovery?.(session, "startup_active_dead_backend");
+            if (requested) return;
+          }
+        }
+        wsBridge.onCLIRelaunchNeeded?.(sessionId);
+      };
+      if (request?.delayMs && request.delayMs > 0) {
+        setTimeout(requestRecovery, request.delayMs);
+        return;
+      }
+      requestRecovery();
+    },
     timerManager,
     restartContinuationSessionIds,
     alreadyRequestedRelaunchSessionIds: startupInjectedRelaunchSessionIds,
+    activeRecoveryLimit: getSettings().maxKeepAlive > 0 ? getSettings().maxKeepAlive : 4,
+    activeRecoverySpacingMs: 1500,
     log: (message, data) => serverLog.info(message, data),
   });
   if (recovery.recovered.length > 0) {

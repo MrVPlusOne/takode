@@ -549,9 +549,24 @@ describe("Composer send button state", () => {
     expect(sendBtn.hasAttribute("disabled")).toBe(true);
   });
 
-  it("send button is disabled when CLI is not connected", () => {
+  it("send button stays enabled when the backend transport is disconnected", () => {
     setupMockStore({ isConnected: false });
-    render(<Composer sessionId="s1" />);
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "queue while disconnected" } });
+
+    const sendBtn = screen.getByTitle("Send message");
+    expect(sendBtn.hasAttribute("disabled")).toBe(false);
+  });
+
+  it("send button is disabled when automatic recovery is suppressed", () => {
+    setupMockStore({ isConnected: false, session: { backend_state: "recovery_suppressed" } });
+    const { container } = render(<Composer sessionId="s1" />);
+    const textarea = container.querySelector("textarea")!;
+
+    fireEvent.change(textarea, { target: { value: "manual recovery needed" } });
+
     const sendBtn = screen.getByTitle("Send message");
     expect(sendBtn.hasAttribute("disabled")).toBe(true);
   });
