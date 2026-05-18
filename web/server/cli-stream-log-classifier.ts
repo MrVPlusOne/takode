@@ -4,10 +4,16 @@ export interface CodexTokenRefreshNoiseState {
   lastEmittedAt: number;
   suppressed: number;
 }
+export interface CodexMissingCustomToolOutputState {
+  lastEmittedAt: number;
+  suppressed: number;
+}
 
 export const CODEX_TOKEN_REFRESH_SUPPRESSION_MS = 60_000;
+export const CODEX_MISSING_CUSTOM_TOOL_OUTPUT_SUPPRESSION_MS = 60_000;
 
 const ANSI_ESCAPE_RE = /\x1b\[[0-9;]*m/g;
+const CODEX_MISSING_CUSTOM_TOOL_OUTPUT_RE = /Custom tool call output is missing for call id:\s*(\S+)/i;
 const CODEX_REFRESH_TOKEN_REUSE_PATTERNS = [
   "refresh_token_reused",
   "refresh token was already used",
@@ -27,6 +33,7 @@ export function classifyCliStreamLogLevel(label: "stdout" | "stderr", text: stri
   if (isCodexRefreshTokenReusedNoise(text)) return "warn";
   if (isCodexOpenTelemetryExportNoise(text)) return "warn";
   if (isCodexApplyPatchVerificationFailure(text)) return "warn";
+  if (isCodexMissingCustomToolOutputNoise(text)) return "warn";
   return "error";
 }
 
@@ -108,6 +115,45 @@ function isCodexApplyPatchVerificationFailure(text: string): boolean {
   }
 
   return hasApplyPatchVerificationFailure;
+}
+
+export function isCodexMissingCustomToolOutputNoise(text: string): boolean {
+  const lines = normalizedLines(text);
+  if (lines.length === 0) return false;
+  if (lines.some(isCodexActionableAuthFailureLine)) return false;
+  return lines.every((line) => line.includes("custom tool call output is missing for call id:"));
+}
+
+export function extractCodexMissingCustomToolOutputCallId(text: string): string | null {
+  const match = stripAnsi(text).match(CODEX_MISSING_CUSTOM_TOOL_OUTPUT_RE);
+  return match?.[1]?.trim() || null;
+}
+
+export function maybeFormatCodexMissingCustomToolOutputLogLine(
+  stateBySessionAndCall: Map<string, CodexMissingCustomToolOutputState>,
+  sessionId: string,
+  line: string,
+  now = Date.now(),
+  suppressMs = CODEX_MISSING_CUSTOM_TOOL_OUTPUT_SUPPRESSION_MS,
+): string | null {
+  const callId = extractCodexMissingCustomToolOutputCallId(line);
+  if (!callId) return line;
+  const key = `${sessionId}:${callId}`;
+  const current = stateBySessionAndCall.get(key);
+  if (!current || now - current.lastEmittedAt >= suppressMs) {
+    const prefix =
+      current && current.suppressed > 0
+        ? `[suppressed ${current.suppressed} repeated Codex missing custom tool-output stderr line(s) for session_id=${sessionId} call_id=${callId}] `
+        : "";
+    stateBySessionAndCall.set(key, { lastEmittedAt: now, suppressed: 0 });
+    return (
+      `${prefix}[codex-canonical-history-orphan session_id=${sessionId} call_id=${callId}] ${line}` +
+      " Takode diagnostic only; browser-visible recovery does not repair Codex rollout state."
+    );
+  }
+
+  current.suppressed++;
+  return null;
 }
 
 function isLikelyStandaloneStderrRecord(normalized: string): boolean {

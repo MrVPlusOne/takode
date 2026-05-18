@@ -1,8 +1,12 @@
 import { describe, expect, it } from "vitest";
 import {
   classifyCliStreamLogLevel,
+  extractCodexMissingCustomToolOutputCallId,
+  isCodexMissingCustomToolOutputNoise,
   isCodexRefreshTokenReusedNoise,
+  maybeFormatCodexMissingCustomToolOutputLogLine,
   maybeFormatCodexTokenRefreshLogLine,
+  type CodexMissingCustomToolOutputState,
   type CodexTokenRefreshNoiseState,
 } from "./cli-stream-log-classifier.js";
 
@@ -80,6 +84,28 @@ describe("CLI stream log classification", () => {
     ].join("\n");
 
     expect(classifyCliStreamLogLevel("stderr", chunk)).toBe("warn");
+  });
+
+  it("classifies Codex missing custom tool-output lines as warn", () => {
+    // This is a Codex canonical-history orphan diagnostic, not a Takode session
+    // failure. It should stay visible without flooding ERROR logs.
+    const line =
+      "2026-05-17T23:21:18.332Z ERROR codex_core::context_manager::normalize: " +
+      "Custom tool call output is missing for call id: call_B2StgCHbFi7KjujPrAjvrZko";
+
+    expect(isCodexMissingCustomToolOutputNoise(line)).toBe(true);
+    expect(extractCodexMissingCustomToolOutputCallId(line)).toBe("call_B2StgCHbFi7KjujPrAjvrZko");
+    expect(classifyCliStreamLogLevel("stderr", line)).toBe("warn");
+  });
+
+  it("does not demote missing custom tool-output chunks mixed with unrelated failures", () => {
+    const chunk = [
+      "ERROR codex_core::context_manager::normalize: Custom tool call output is missing for call id: call_missing",
+      "ERROR unrelated_component: generic stderr failure",
+    ].join("\n");
+
+    expect(isCodexMissingCustomToolOutputNoise(chunk)).toBe(false);
+    expect(classifyCliStreamLogLevel("stderr", chunk)).toBe("error");
   });
 
   it("classifies known Codex OpenTelemetry localhost export failures as warn", () => {
@@ -213,6 +239,26 @@ describe("CLI stream log classification", () => {
     expect(maybeFormatCodexTokenRefreshLogLine(state, "s1", "third", 3_000, 60_000)).toBeNull();
     expect(maybeFormatCodexTokenRefreshLogLine(state, "s1", "later", 62_000, 60_000)).toBe(
       "[suppressed 2 repeated Codex token refresh stderr line(s)] later",
+    );
+  });
+
+  it("rate-limits repeated Codex missing custom tool-output lines per session and call id", () => {
+    // Keep one useful diagnostic per orphaned call id and summarize repeats later.
+    const state = new Map<string, CodexMissingCustomToolOutputState>();
+    const first = "[session:test:stderr] ERROR normalize: Custom tool call output is missing for call id: call_orphan";
+    const second = "[session:test:stderr] ERROR normalize: Custom tool call output is missing for call id: call_orphan";
+    const otherCall =
+      "[session:test:stderr] ERROR normalize: Custom tool call output is missing for call id: call_other";
+
+    expect(maybeFormatCodexMissingCustomToolOutputLogLine(state, "session-uuid", first, 1_000, 60_000)).toContain(
+      "[codex-canonical-history-orphan session_id=session-uuid call_id=call_orphan]",
+    );
+    expect(maybeFormatCodexMissingCustomToolOutputLogLine(state, "session-uuid", second, 2_000, 60_000)).toBeNull();
+    expect(maybeFormatCodexMissingCustomToolOutputLogLine(state, "session-uuid", otherCall, 3_000, 60_000)).toContain(
+      "call_id=call_other",
+    );
+    expect(maybeFormatCodexMissingCustomToolOutputLogLine(state, "session-uuid", first, 62_000, 60_000)).toContain(
+      "[suppressed 1 repeated Codex missing custom tool-output stderr line(s) for session_id=session-uuid call_id=call_orphan]",
     );
   });
 });

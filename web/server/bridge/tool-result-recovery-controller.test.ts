@@ -3,6 +3,7 @@ import {
   finalizeSupersededCodexTerminalTools,
   recoverToolStartTimesFromHistory,
   scheduleCodexToolResultWatchdogs,
+  synthesizeCodexToolResultsFromResumedTurn,
   type ToolResultRecoveryDeps,
   type ToolResultRecoverySessionLike,
 } from "./tool-result-recovery-controller.js";
@@ -234,6 +235,38 @@ describe("tool-result-recovery-controller", () => {
     expect(session.toolStartTimes.has("older-tool")).toBe(false);
     expect(session.toolStartTimes.has("later-tool")).toBe(true);
     expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("ageMs=2000"));
+    warnSpy.mockRestore();
+  });
+
+  it("logs omitted resume snapshot fallback as browser-only repair without Codex rollout repair", () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(12_500);
+    const session = makeSession();
+    session.messageHistory = [];
+    session.toolStartTimes.clear();
+    session.toolStartTimes.set("call_file_change", 9_500);
+    addPersistedToolUse(session, "call_file_change", "Write", 9_500, {
+      changes: [{ kind: "add", path: "/tmp/port-summary.md" }],
+    });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+
+    const synthesized = synthesizeCodexToolResultsFromResumedTurn(
+      session,
+      { id: "turn_interrupted", status: "interrupted", error: null, items: [] },
+      {
+        disconnectedAt: 10_000,
+        resumeConfirmedAt: 12_000,
+      } as never,
+      makeDeps(),
+    );
+
+    expect(synthesized).toBe(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("resume_snapshot_fallback"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("toolName=Write"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("turnId=turn_interrupted"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("omittedFromResumeSnapshot=yes"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("browserHistoryRepaired=yes"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("codexRolloutRepaired=no"));
     warnSpy.mockRestore();
   });
 });

@@ -36,4 +36,33 @@ describe("CliLauncher pipeStream", () => {
     expect(stderrSpy).toHaveBeenCalledWith(expect.stringContaining("write_stdin failed: stdin is closed"));
     stderrSpy.mockRestore();
   });
+
+  it("classifies and dedupes repeated Codex missing custom tool-output stderr", async () => {
+    // A persisted Codex CustomToolCall orphan can repeat on stderr while the
+    // session continues. Keep one classified diagnostic with raw evidence and
+    // suppress identical call-id repeats.
+    const launcher = new CliLauncher(3456, { serverId: "test-server-id" });
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    const errorSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    const callId = "call_B2StgCHbFi7KjujPrAjvrZko";
+    const stderrLine = `2026-05-17T23:21:18.332Z ERROR codex_core::context_manager::normalize: Custom tool call output is missing for call id: ${callId}\n`;
+    const stream = new ReadableStream<Uint8Array>({
+      start(controller) {
+        controller.enqueue(new TextEncoder().encode(stderrLine));
+        controller.enqueue(new TextEncoder().encode(stderrLine));
+        controller.close();
+      },
+    });
+
+    const pipeStream = (launcher as unknown as { pipeStream: PipeStreamForTest }).pipeStream.bind(launcher);
+    await pipeStream("test-session-id", stream, "stderr");
+
+    expect(warnSpy).toHaveBeenCalledTimes(1);
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("codex-canonical-history-orphan"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining("session_id=test-session-id"));
+    expect(warnSpy).toHaveBeenCalledWith(expect.stringContaining(`call_id=${callId}`));
+    expect(errorSpy).not.toHaveBeenCalled();
+    warnSpy.mockRestore();
+    errorSpy.mockRestore();
+  });
 });

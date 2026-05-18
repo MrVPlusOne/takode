@@ -1,7 +1,10 @@
 import {
   classifyCliStreamLogLevel,
+  isCodexMissingCustomToolOutputNoise,
   isCodexRefreshTokenReusedNoise,
+  maybeFormatCodexMissingCustomToolOutputLogLine,
   maybeFormatCodexTokenRefreshLogLine,
+  type CodexMissingCustomToolOutputState,
   type CodexTokenRefreshNoiseState,
 } from "./cli-stream-log-classifier.js";
 
@@ -20,6 +23,8 @@ export function formatStreamTailForError(lines: string[]): string | null {
   if (!summary) return null;
   return summary.length > 500 ? `${summary.slice(0, 497)}...` : summary;
 }
+
+const codexMissingCustomToolOutputBySessionAndCall = new Map<string, CodexMissingCustomToolOutputState>();
 
 export async function pipeLauncherStream(args: {
   sessionId: string;
@@ -47,11 +52,17 @@ export async function pipeLauncherStream(args: {
       const sessionLabel = sessionNum !== undefined ? `#${sessionNum}` : sessionId.slice(0, 8);
       const line = `[session:${sessionLabel}:${label}] ${text.trimEnd()}`;
       const level = classifyCliStreamLogLevel(label, text);
-      const suppressedLine =
-        label === "stderr" && isCodexRefreshTokenReusedNoise(text)
-          ? maybeFormatCodexTokenRefreshLogLine(codexTokenRefreshNoiseBySession, sessionId, line)
-          : line;
-      if (suppressedLine) logCliStreamLine(level, suppressedLine);
+      let formattedLine: string | null = line;
+      if (label === "stderr" && isCodexMissingCustomToolOutputNoise(text)) {
+        formattedLine = maybeFormatCodexMissingCustomToolOutputLogLine(
+          codexMissingCustomToolOutputBySessionAndCall,
+          sessionId,
+          line,
+        );
+      } else if (label === "stderr" && isCodexRefreshTokenReusedNoise(text)) {
+        formattedLine = maybeFormatCodexTokenRefreshLogLine(codexTokenRefreshNoiseBySession, sessionId, line);
+      }
+      if (formattedLine) logCliStreamLine(level, formattedLine);
     }
   } catch (err) {
     console.warn("[cli-launcher] CLI stream reader closed with error:", err);

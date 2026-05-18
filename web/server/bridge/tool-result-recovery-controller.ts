@@ -34,6 +34,13 @@ export interface ToolResultRecoveryDeps {
   takodeBoardResultPreviewLimit: number;
   defaultToolResultPreviewLimit: number;
 }
+interface SyntheticToolResultPreviewLogContext {
+  turnId?: string | null;
+  turnStatus?: string | null;
+  disconnectedAt?: number | null;
+  resumeConfirmedAt?: number | null;
+  omittedFromResumeSnapshot?: boolean;
+}
 export function clearCodexToolResultWatchdog(session: ToolResultRecoverySessionLike, toolUseId: string): void {
   const timer = session.codexToolResultWatchdogs.get(toolUseId);
   if (!timer) return;
@@ -87,6 +94,7 @@ export function emitSyntheticToolResultPreview(
   isError: boolean,
   reason: string,
   deps: ToolResultRecoveryDeps,
+  logContext: SyntheticToolResultPreviewLogContext = {},
 ): void {
   if (!session.toolStartTimes.has(toolUseId)) return;
   if (deps.hasToolResultPreviewReplay(session, toolUseId)) {
@@ -107,6 +115,8 @@ export function emitSyntheticToolResultPreview(
   const startedAt = session.toolStartTimes.get(toolUseId);
   const ageMs = startedAt != null ? Math.max(0, Date.now() - startedAt) : undefined;
   const durationSeconds = startedAt != null ? Math.round((Date.now() - startedAt) / 100) / 10 : undefined;
+  const toolUseBlock = deps.getToolUseBlockInHistory(session, toolUseId);
+  const toolName = toolUseBlock?.name ?? null;
   session.toolStartTimes.delete(toolUseId);
   session.toolProgressOutput.delete(toolUseId);
   session.toolResults.set(toolUseId, {
@@ -132,9 +142,25 @@ export function emitSyntheticToolResultPreview(
   session.messageHistory.push(browserMsg);
   deps.broadcastToBrowsers(session, browserMsg);
   deps.persistSession(session);
+  const diagnosticParts = [
+    `${reason}; ageMs=${ageMs ?? "unknown"}; bytes=${totalSize}; retainedOutput=${retainedOutput ? "yes" : "no"}`,
+  ];
+  if (toolName) diagnosticParts.push(`toolName=${toolName}`);
+  if (logContext.turnId) diagnosticParts.push(`turnId=${logContext.turnId}`);
+  if (logContext.turnStatus) diagnosticParts.push(`turnStatus=${logContext.turnStatus}`);
+  if (typeof logContext.disconnectedAt === "number")
+    diagnosticParts.push(`disconnectedAt=${logContext.disconnectedAt}`);
+  if (typeof logContext.resumeConfirmedAt === "number") {
+    diagnosticParts.push(`resumeConfirmedAt=${logContext.resumeConfirmedAt}`);
+  }
+  if (logContext.omittedFromResumeSnapshot) {
+    diagnosticParts.push("omittedFromResumeSnapshot=yes");
+    diagnosticParts.push("browserHistoryRepaired=yes");
+    diagnosticParts.push("codexRolloutRepaired=no");
+  }
   console.warn(
     `[ws-bridge] Synthesized tool_result_preview for orphaned tool ${toolUseId} in session ${sessionTag(session.id)} ` +
-      `(${reason}; ageMs=${ageMs ?? "unknown"}; bytes=${totalSize}; retainedOutput=${retainedOutput ? "yes" : "no"})`,
+      `(${diagnosticParts.join("; ")})`,
   );
 }
 export function finalizeSupersededCodexTerminalTools(
@@ -394,6 +420,13 @@ export function synthesizeCodexToolResultsFromResumedTurn(
       turnStatus === "failed" || turnStatus === "declined",
       "resume_snapshot_fallback",
       deps,
+      {
+        turnId: turn.id,
+        turnStatus,
+        disconnectedAt: pending.disconnectedAt ?? null,
+        resumeConfirmedAt: pending.resumeConfirmedAt ?? null,
+        omittedFromResumeSnapshot: true,
+      },
     );
     synthesized++;
   }
