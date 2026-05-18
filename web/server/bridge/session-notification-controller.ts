@@ -201,9 +201,7 @@ export function notifyUser(
   const notificationId = `n-${nextNotificationCounter}`;
   const threadRoute =
     preferredThreadRoute ??
-    (createdFallbackMessage
-      ? { threadKey: "main" }
-      : resolveConsistentNotificationThreadRoute(session.messageHistory, anchorIndex, notificationId));
+    resolveConsistentNotificationThreadRoute(session.messageHistory, anchorIndex, notificationId);
   if (createdFallbackMessage) {
     createdFallbackMessage.threadKey = threadRoute.threadKey;
     if (threadRoute.questId) createdFallbackMessage.questId = threadRoute.questId;
