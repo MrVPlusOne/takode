@@ -904,13 +904,21 @@ export function PlaygroundOverviewSections() {
       {/* ─── Tool Blocks (standalone) ──────────────────────── */}
       <Section
         title="Tool Blocks"
-        description="Expandable tool call chips. Edit/Write/Read show smart-truncated path + Open File button in header; diffs start collapsed."
+        description="Expandable tool call chips. Edit/Write/Read and clear sed/cat file reads show smart-truncated paths; diffs start collapsed."
       >
         <div className="space-y-2 max-w-3xl">
           <ToolBlock
             name="Bash"
             input={{ command: "git status && npm run lint", description: "Check git status and lint" }}
             toolUseId="tb-1"
+            sessionId={MOCK_SESSION_ID}
+          />
+          <ToolBlock
+            name="Bash"
+            input={{
+              command: "sed -n '1,160p' /Users/stan/Dev/takode/.claude/skills/reviewer-groom/SKILL.md",
+            }}
+            toolUseId="tb-read-command"
             sessionId={MOCK_SESSION_ID}
           />
           <ToolBlock

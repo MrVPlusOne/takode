@@ -27,6 +27,7 @@ import {
   resolveEmbeddedVsCodePath,
   showEditorOpenError,
 } from "../utils/vscode-bridge.js";
+import { parseFileReadCommand } from "../utils/terminal-command-preview.js";
 
 /**
  * Lightweight error boundary that wraps the expanded content inside each ToolBlock.
@@ -292,7 +293,8 @@ const ToolBlockInner = memo(function ToolBlockInner({
     return false;
   });
   const headerRef = useRef<HTMLDivElement>(null);
-  const iconType = getToolIcon(name);
+  const fileReadCommand = name === "Bash" ? parseFileReadCommand(String(input.command || "")) : null;
+  const iconType = fileReadCommand ? "file" : getToolIcon(name);
   const label = getToolLabel(name);
   // Subscribe to a boolean primitive instead of the full ToolResultPreview object.
   // The object reference can change during history replay (re-deserialization),
@@ -400,11 +402,14 @@ const ToolBlockInner = memo(function ToolBlockInner({
         </svg>
         <ToolIcon type={iconType} />
         {!hideHeaderLabel && <span className="text-xs font-medium text-cc-fg">{label}</span>}
-        {isFileTool && filePathParts ? (
-          <span className="text-xs truncate flex-1 font-mono-code" title={filePath}>
-            {filePathParts.dirLabel && <span className="text-cc-muted">{filePathParts.dirLabel}</span>}
-            <span className="font-semibold text-cc-fg">{filePathParts.baseLabel}</span>
-          </span>
+        {fileReadCommand ? (
+          <FileReadCommandPreview filePath={fileReadCommand.filePath} />
+        ) : isFileTool && filePathParts ? (
+          <FilePathHeaderPreview
+            filePath={filePath}
+            dirLabel={filePathParts.dirLabel}
+            baseLabel={filePathParts.baseLabel}
+          />
         ) : multiFilePreview || preview ? (
           <span
             className={`text-xs truncate flex-1 font-mono-code ${hideHeaderLabel ? "text-cc-fg/90" : "text-cc-muted"}`}
@@ -447,6 +452,37 @@ const ToolBlockInner = memo(function ToolBlockInner({
     </div>
   );
 });
+
+function FileReadCommandPreview({ filePath }: { filePath: string }) {
+  const filePathParts = formatFileHeaderPath(filePath);
+  return (
+    <span className="min-w-0 flex flex-1 items-baseline gap-1.5 text-xs" title={filePath}>
+      <span className="shrink-0 font-medium text-cc-fg">Read</span>
+      <FilePathHeaderPreview
+        filePath={filePath}
+        dirLabel={filePathParts.dirLabel}
+        baseLabel={filePathParts.baseLabel}
+      />
+    </span>
+  );
+}
+
+function FilePathHeaderPreview({
+  filePath,
+  dirLabel,
+  baseLabel,
+}: {
+  filePath: string;
+  dirLabel: string;
+  baseLabel: string;
+}) {
+  return (
+    <span className="min-w-0 flex flex-1 items-baseline overflow-hidden text-xs font-mono-code" title={filePath}>
+      {dirLabel && <span className="min-w-0 truncate text-cc-muted">{dirLabel}</span>}
+      <span className="max-w-[70%] shrink-0 truncate font-semibold text-cc-fg">{baseLabel}</span>
+    </span>
+  );
+}
 
 const INLINE_BOARD_FALLBACK_SUBCOMMANDS = new Set([
   "",
