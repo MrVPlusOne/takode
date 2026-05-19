@@ -330,6 +330,13 @@ export function createQuestRoutes(ctx: RouteContext) {
     return c.json({ ok: true });
   });
 
+  const syncDoneQuestBoardState = (questId: string, quest: QuestmasterTask): void => {
+    if (quest.status !== "done") return;
+    (wsBridge as { completeQueuedBoardRowsForQuest?: (questId: string) => string[] }).completeQueuedBoardRowsForQuest?.(
+      questId,
+    );
+  };
+
   const transitionQuestAndSync = async (
     questId: string,
     input: import("../quest-types.js").QuestTransitionInput,
@@ -361,6 +368,7 @@ export function createQuestRoutes(ctx: RouteContext) {
       }
     }
 
+    syncDoneQuestBoardState(questId, quest);
     broadcastQuestUpdate(wsBridge);
     return quest;
   };
@@ -795,6 +803,7 @@ export function createQuestRoutes(ctx: RouteContext) {
         ...(typeof body.debriefTldr === "string" ? { debriefTldr: body.debriefTldr } : {}),
       });
       if (!quest) return c.json({ error: "Quest not found" }, 404);
+      syncDoneQuestBoardState(c.req.param("questId"), quest);
       broadcastQuestUpdate(wsBridge);
       // Update session's quest status so browsers can show review-pending state.
       const reviewOwnerSessionId =

@@ -515,6 +515,7 @@ function completeBoardRow(
   const removedWaitForInput = clearBoardRowWaitForInputIds(row);
   const completed = moveBoardRowToCompleted(session, questId);
   if (completed) upsertJourneyLifecycleAttentionRecord(session, completed, "finished", deps);
+  if (completed) clearResolvedQuestWaitFor(session, [questId]);
   for (const notificationId of removedWaitForInput) {
     deps.markNotificationDone(session.id, notificationId, true);
   }
@@ -523,6 +524,45 @@ function completeBoardRow(
     deps.notifyReview(session.id, buildBoardCompletionSummary([completed]));
   }
   return { board, completed };
+}
+
+export function completeQueuedBoardRowsForQuestInAllSessions(
+  sessions: BoardSessionsLike,
+  questId: string,
+  deps: Pick<WorkBoardStateDeps, "broadcastBoard" | "persistSession" | "markNotificationDone">,
+): string[] {
+  const completedInSessions: string[] = [];
+  const normalizedQuestId = questId.toLowerCase();
+
+  for (const session of sessions.values()) {
+    const boardQuestId = [...session.board.keys()].find(
+      (candidate: string) => candidate.toLowerCase() === normalizedQuestId,
+    );
+    if (!boardQuestId) continue;
+
+    const row = session.board.get(boardQuestId);
+    if (!row || !isQueuedBoardRowStatus(row.status)) continue;
+
+    const dispatchState = session.boardDispatchStates.get(boardQuestId);
+    if (dispatchState?.notificationId) {
+      deps.markNotificationDone(session.id, dispatchState.notificationId, true);
+    }
+    session.boardDispatchStates.delete(boardQuestId);
+    session.boardStallStates.delete(boardQuestId);
+
+    row.waitFor = undefined;
+    row.waitForInput = undefined;
+    moveBoardRowToCompleted(session, boardQuestId);
+    clearResolvedQuestWaitFor(session, [boardQuestId]);
+
+    const board = getBoard(session);
+    const completedBoard = getCompletedBoard(session);
+    deps.broadcastBoard(session, board, completedBoard);
+    deps.persistSession(session);
+    completedInSessions.push(session.id);
+  }
+
+  return completedInSessions;
 }
 
 export function moveBoardRowToCompleted(session: SessionLike, questId: string): BoardRow | null {

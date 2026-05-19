@@ -289,6 +289,34 @@ function createMockBridge() {
     addTaskEntry: vi.fn(),
     updateQuestTaskEntries: vi.fn(),
     removeBoardRowFromAll: vi.fn(),
+    completeQueuedBoardRowsForQuest: vi.fn(function (this: any, questId: string) {
+      const touched: string[] = [];
+      const normalizedQuestId = questId.toLowerCase();
+      for (const session of Object.values(this._sessions) as any[]) {
+        const boardQuestId = [...session.board.keys()].find(
+          (candidate: string) => candidate.toLowerCase() === normalizedQuestId,
+        );
+        if (!boardQuestId) continue;
+        const row = session.board.get(boardQuestId);
+        if (!row || (row.status || "").trim().toUpperCase() !== "QUEUED") continue;
+
+        session.board.delete(boardQuestId);
+        session.boardDispatchStates?.delete(boardQuestId);
+        row.waitFor = undefined;
+        row.waitForInput = undefined;
+        row.completedAt = 1234;
+        session.completedBoard.set(boardQuestId, row);
+        for (const dependent of session.board.values() as Iterable<any>) {
+          if (!Array.isArray(dependent.waitFor)) continue;
+          dependent.waitFor = dependent.waitFor.filter(
+            (ref: string) => ref.toLowerCase() !== boardQuestId.toLowerCase(),
+          );
+          if (dependent.waitFor.length === 0) dependent.waitFor = undefined;
+        }
+        touched.push(session.id);
+      }
+      return touched;
+    }),
     prepareSessionForRevert: vi.fn(
       (sessionId: string, truncateIdx: number, options?: { clearCodexState?: boolean }) => {
         const session = bridge.getOrCreateSession.mock.results.at(-1)?.value;
@@ -703,6 +731,30 @@ describe("Takode server-authoritative auth", () => {
     });
   });
 
+  it("archives done queued rows before returning takode board state", async () => {
+    setupTakodeSessions();
+    vi.spyOn(questStore, "getQuest").mockImplementation(async (questId: string) =>
+      questId === "q-1" ? ({ id: "q-1", title: "Already done", status: "done" } as any) : null,
+    );
+    bridge._sessions["orch-1"].board = new Map([
+      ["q-1", { questId: "q-1", title: "Already done", status: "QUEUED", waitFor: ["#1765"] }],
+      ["q-2", { questId: "q-2", title: "Still queued", status: "QUEUED", waitFor: ["q-1", "q-3"] }],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board?include_completed=true", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.completeQueuedBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+    expect(await res.json()).toMatchObject({
+      board: [{ questId: "q-2", status: "QUEUED", waitFor: ["q-3"] }],
+      completedBoard: [{ questId: "q-1", status: "QUEUED" }],
+    });
+    expect(bridge._sessions["orch-1"].completedBoard.get("q-1").waitFor).toBeUndefined();
+  });
+
   it("rejects queued board rows without an explicit wait-for reason", async () => {
     setupTakodeSessions();
 
@@ -716,6 +768,24 @@ describe("Takode server-authoritative auth", () => {
     expect(await res.json()).toMatchObject({
       error: expect.stringContaining("Queued rows require an explicit wait-for reason"),
     });
+  });
+
+  it("rejects queueing quests that are already done", async () => {
+    setupTakodeSessions();
+    vi.spyOn(questStore, "getQuest").mockResolvedValue({ id: "q-9", title: "Already done", status: "done" } as any);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({ questId: "q-9", status: "QUEUED", waitFor: ["q-1"] }),
+    });
+
+    expect(res.status).toBe(409);
+    expect(await res.json()).toMatchObject({
+      error: "Cannot queue q-9: quest is already done.",
+    });
+    expect(bridge.completeQueuedBoardRowsForQuest).toHaveBeenCalledWith("q-9");
+    expect(bridge._sessions["orch-1"].board.has("q-9")).toBe(false);
   });
 
   it("stores deduped wait-for-input links on active rows", async () => {

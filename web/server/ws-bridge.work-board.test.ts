@@ -21,6 +21,7 @@ import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from 
 import {
   advanceBoardRow as advanceBoardRowController,
   advanceBoardRowNoGroom as advanceBoardRowNoGroomController,
+  completeQueuedBoardRowsForQuestInAllSessions as completeQueuedBoardRowsForQuestInAllSessionsController,
   getBoard as getBoardController,
   getBoardQueueWarningsForSession as getBoardQueueWarningsForSessionController,
   getCompletedBoard as getCompletedBoardController,
@@ -233,6 +234,7 @@ type TestBridge = WsBridge & {
   onSessionUnarchived(sessionId: string): void;
   getBoard(sessionId: string): any[];
   upsertBoardRow(sessionId: string, row: any): any[] | null;
+  completeQueuedBoardRowsForQuest(questId: string): string[];
   removeBoardRows(sessionId: string, questIds: string[]): any[] | null;
   advanceBoardRow(sessionId: string, questId: string): any;
   advanceBoardRowNoGroom(sessionId: string, questId: string): any;
@@ -408,6 +410,8 @@ function attachBoardFacade(bridge: WsBridge): TestBridge {
     bridge.getSession(sessionId)
       ? upsertBoardRowController(bridge.getSession(sessionId)!, row, workBoardStateDeps)
       : null;
+  anyBridge.completeQueuedBoardRowsForQuest = (questId: string) =>
+    completeQueuedBoardRowsForQuestInAllSessionsController(anyBridge.sessions, questId, workBoardStateDeps);
   anyBridge.removeBoardRows = (sessionId: string, questIds: string[]) =>
     bridge.getSession(sessionId)
       ? removeBoardRowsController(bridge.getSession(sessionId)!, questIds, workBoardStateDeps)
@@ -1042,6 +1046,87 @@ describe("work board", () => {
     expect(rows.find((row) => row.questId === "q-1")?.waitFor).toEqual(["#5"]);
     expect(rows.find((row) => row.questId === "q-3")?.waitFor).toEqual(["q-99"]);
     expect(rows.find((row) => row.questId === "q-4")?.waitFor).toEqual(["free-worker"]);
+  });
+
+  it("advanceBoardRow prunes completed quest wait refs from queued dependents", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1357",
+      title: "Completed dependency",
+      status: "MEMORY",
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "memory"],
+        activePhaseIndex: 1,
+        currentPhaseId: "memory",
+      },
+    });
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1359",
+      title: "Dependent queued work",
+      status: "QUEUED",
+      waitFor: ["q-1357", "q-1358"],
+    });
+
+    const result = bridge.advanceBoardRow("s1", "q-1357");
+
+    expect(result?.removed).toBe(true);
+    expect(bridge.getBoard("s1").find((row) => row.questId === "q-1359")?.waitFor).toEqual(["q-1358"]);
+    const lastBoardUpdate = [...browser.send.mock.calls]
+      .map(([payload]) => {
+        try {
+          return JSON.parse(payload);
+        } catch {
+          return null;
+        }
+      })
+      .filter((message) => message?.type === "board_updated")
+      .at(-1);
+    expect(lastBoardUpdate.board.find((row: any) => row.questId === "q-1359").waitFor).toEqual(["q-1358"]);
+  });
+
+  it("archives queued rows for quests that completed outside the active board flow", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1353",
+      title: "Externally completed queued quest",
+      status: "QUEUED",
+      waitFor: ["#1765"],
+    });
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1359",
+      title: "Dependent queued work",
+      status: "QUEUED",
+      waitFor: ["q-1353", "q-1358"],
+    });
+
+    expect(bridge.completeQueuedBoardRowsForQuest("q-1353")).toEqual(["s1"]);
+
+    expect(bridge.getBoard("s1").map((row) => row.questId)).toEqual(["q-1359"]);
+    expect(bridge.getBoard("s1")[0].waitFor).toEqual(["q-1358"]);
+    expect(bridge.getCompletedBoard("s1")).toEqual([
+      expect.objectContaining({
+        questId: "q-1353",
+        waitFor: undefined,
+        completedAt: expect.any(Number),
+      }),
+    ]);
+    const lastBoardUpdate = [...browser.send.mock.calls]
+      .map(([payload]) => {
+        try {
+          return JSON.parse(payload);
+        } catch {
+          return null;
+        }
+      })
+      .filter((message) => message?.type === "board_updated")
+      .at(-1);
+    expect(lastBoardUpdate.board.map((row: any) => row.questId)).toEqual(["q-1359"]);
+    expect(lastBoardUpdate.completedBoard.map((row: any) => row.questId)).toEqual(["q-1353"]);
   });
 
   it("removeBoardRowFromAll clears stale quest waitFor refs across active boards", () => {

@@ -288,6 +288,7 @@ function createMockBridge() {
     addTaskEntry: vi.fn(),
     updateQuestTaskEntries: vi.fn(),
     removeBoardRowFromAll: vi.fn(),
+    completeQueuedBoardRowsForQuest: vi.fn(),
     prepareSessionForRevert: vi.fn(
       (sessionId: string, truncateIdx: number, options?: { clearCodexState?: boolean }) => {
         const session = bridge.getOrCreateSession.mock.results.at(-1)?.value;
@@ -578,5 +579,6 @@ describe("POST /api/quests/:questId/done", () => {
       claimedQuestTitle: undefined,
       claimedQuestStatus: undefined,
     });
+    expect(bridge.completeQueuedBoardRowsForQuest).toHaveBeenCalledWith("q-1");
   });
 });

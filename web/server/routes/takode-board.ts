@@ -183,6 +183,19 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     resolveSessionDeps,
   } = deps;
 
+  async function cleanupDoneQueuedRows(bridgeSession: any): Promise<void> {
+    const queuedQuestIds = [...bridgeSession.board.values()]
+      .filter((row: BoardRow) => (row.status || "").trim().toUpperCase() === "QUEUED")
+      .map((row: BoardRow) => row.questId);
+    for (const questId of queuedQuestIds) {
+      const quest = await questStore.getQuest(questId).catch(() => null);
+      if (quest?.status !== "done") continue;
+      (
+        wsBridge as { completeQueuedBoardRowsForQuest?: (questId: string) => string[] }
+      ).completeQueuedBoardRowsForQuest?.(questId);
+    }
+  }
+
   api.get("/sessions/:id/board", async (c) => {
     const auth = authenticateTakodeCaller(c);
     if ("response" in auth) return auth.response;
@@ -195,6 +208,7 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const bridgeSession = wsBridge.getSession(id);
+    if (bridgeSession) await cleanupDoneQueuedRows(bridgeSession);
     const board = bridgeSession ? getBoardController(bridgeSession) : [];
     const resolve = c.req.query("resolve") === "true";
     const includeCompleted = c.req.query("include_completed") === "true";
@@ -710,6 +724,15 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         },
         400,
       );
+    }
+    if (mergedIsQueued) {
+      const quest = await questStore.getQuest(questId).catch(() => null);
+      if (quest?.status === "done") {
+        (
+          wsBridge as { completeQueuedBoardRowsForQuest?: (questId: string) => string[] }
+        ).completeQueuedBoardRowsForQuest?.(questId);
+        return c.json({ error: `Cannot queue ${questId}: quest is already done.` }, 409);
+      }
     }
 
     const statusForUpsert = mergedStatus;

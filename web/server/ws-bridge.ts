@@ -124,6 +124,7 @@ import {
   handleCodexAdapterBrowserMessage as handleCodexAdapterBrowserMessageController,
 } from "./bridge/codex-adapter-browser-message-controller.js";
 import {
+  completeQueuedBoardRowsForQuestInAllSessions as completeQueuedBoardRowsForQuestInAllSessionsController,
   getBoardForSession as getBoardForSessionController,
   getBoardDispatchableSignature as getBoardDispatchableSignatureController,
   getBoardDispatchableSignatureForSession as getBoardDispatchableSignatureForSessionController,
@@ -1140,6 +1141,33 @@ export class WsBridge {
    *  True deletion -- removes from both active board and completed history. */
   removeBoardRowFromAll(questId: string): void {
     removeBoardRowFromAllSessionsController(this.sessions, questId, {
+      broadcastBoard: (targetSession, board, completedBoard) =>
+        this.broadcastToBrowsers(targetSession as Session, {
+          type: "board_updated",
+          board,
+          completedBoard,
+          leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
+          rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
+        }),
+      persistSession: (targetSession) => this.persistSession(targetSession as Session),
+      markNotificationDone: (sessionId, notifId, done) =>
+        markNotificationDoneBySessionIdController(this.sessions, sessionId, notifId, done, {
+          broadcastToBrowsers: (targetSession, msg) => this.broadcastToBrowsers(targetSession as Session, msg),
+          broadcastBoard: (targetSession, board, completedBoard) =>
+            this.broadcastToBrowsers(targetSession as Session, {
+              type: "board_updated",
+              board,
+              completedBoard,
+              leaderActivePhaseSummary: buildLeaderActivePhaseSummary(board),
+              rowSessionStatuses: this.getBoardRowSessionStatuses((targetSession as Session).id, board, completedBoard),
+            }),
+          persistSession: (targetSession) => this.persistSession(targetSession as Session),
+        }),
+    });
+  }
+
+  completeQueuedBoardRowsForQuest(questId: string): string[] {
+    return completeQueuedBoardRowsForQuestInAllSessionsController(this.sessions, questId, {
       broadcastBoard: (targetSession, board, completedBoard) =>
         this.broadcastToBrowsers(targetSession as Session, {
           type: "board_updated",
