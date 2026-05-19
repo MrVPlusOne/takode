@@ -56,6 +56,7 @@ import {
   notifyUser as notifyUserController,
   setSessionClaimedQuest as setSessionClaimedQuestController,
 } from "./bridge/session-registry-controller.js";
+import type { BoardRow } from "./session-types.js";
 import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { homedir, tmpdir } from "node:os";
@@ -1127,6 +1128,83 @@ describe("work board", () => {
       .at(-1);
     expect(lastBoardUpdate.board.map((row: any) => row.questId)).toEqual(["q-1359"]);
     expect(lastBoardUpdate.completedBoard.map((row: any) => row.questId)).toEqual(["q-1353"]);
+  });
+
+  it("removes stale queued duplicates without overwriting existing completed board history", () => {
+    const browser = makeBrowserSocket("s1");
+    bridge.handleBrowserOpen(browser, "s1");
+
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1353",
+      title: "Stale active duplicate",
+      status: "QUEUED",
+      waitFor: ["#1765"],
+    });
+    bridge.upsertBoardRow("s1", {
+      questId: "q-1359",
+      title: "Dependent queued work",
+      status: "QUEUED",
+      waitFor: ["q-1353", "q-1358"],
+    });
+    const session = bridge.getSession("s1")!;
+    session.notifications.push({
+      id: "n-review",
+      category: "review",
+      summary: "Dispatch pending",
+      timestamp: 1,
+      messageId: null,
+      done: false,
+    });
+    session.boardDispatchStates.set("q-1353", {
+      signature: "queued:q-1353",
+      notificationId: "n-review",
+      warnedAt: 2,
+    });
+    session.boardStallStates.set("q-1353", {
+      signature: "stalled:q-1353",
+      stalledSince: 3,
+      warnedAt: 4,
+    });
+    const existingCompletedRow: BoardRow = {
+      questId: "q-1353",
+      title: "Original completed Journey",
+      status: "MEMORY",
+      createdAt: 10,
+      updatedAt: 20,
+      completedAt: 30,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "implement", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "memory",
+        phaseTimings: {
+          "2": { startedAt: 20, endedAt: 30 },
+        },
+      },
+    };
+    session.completedBoard.set("q-1353", existingCompletedRow);
+
+    expect(bridge.completeQueuedBoardRowsForQuest("q-1353")).toEqual(["s1"]);
+
+    expect(bridge.getBoard("s1").map((row) => row.questId)).toEqual(["q-1359"]);
+    expect(bridge.getBoard("s1")[0].waitFor).toEqual(["q-1358"]);
+    expect(session.completedBoard.get("q-1353")).toBe(existingCompletedRow);
+    expect(bridge.getCompletedBoard("s1")).toEqual([existingCompletedRow]);
+    expect(session.boardDispatchStates.has("q-1353")).toBe(false);
+    expect(session.boardStallStates.has("q-1353")).toBe(false);
+    expect(session.notifications[0].done).toBe(true);
+    const lastBoardUpdate = [...browser.send.mock.calls]
+      .map(([payload]) => {
+        try {
+          return JSON.parse(payload);
+        } catch {
+          return null;
+        }
+      })
+      .filter((message) => message?.type === "board_updated")
+      .at(-1);
+    expect(lastBoardUpdate.board.map((row: any) => row.questId)).toEqual(["q-1359"]);
+    expect(lastBoardUpdate.completedBoard).toEqual([existingCompletedRow]);
   });
 
   it("removeBoardRowFromAll clears stale quest waitFor refs across active boards", () => {

@@ -543,6 +543,10 @@ export function completeQueuedBoardRowsForQuestInAllSessions(
     const row = session.board.get(boardQuestId);
     if (!row || !isQueuedBoardRowStatus(row.status)) continue;
 
+    const removedWaitForInput = clearBoardRowWaitForInputIds(row);
+    for (const notificationId of removedWaitForInput) {
+      deps.markNotificationDone(session.id, notificationId, true);
+    }
     const dispatchState = session.boardDispatchStates.get(boardQuestId);
     if (dispatchState?.notificationId) {
       deps.markNotificationDone(session.id, dispatchState.notificationId, true);
@@ -550,9 +554,13 @@ export function completeQueuedBoardRowsForQuestInAllSessions(
     session.boardDispatchStates.delete(boardQuestId);
     session.boardStallStates.delete(boardQuestId);
 
-    row.waitFor = undefined;
-    row.waitForInput = undefined;
-    moveBoardRowToCompleted(session, boardQuestId);
+    if (hasCompletedBoardRow(session, boardQuestId)) {
+      session.board.delete(boardQuestId);
+    } else {
+      row.waitFor = undefined;
+      row.waitForInput = undefined;
+      moveBoardRowToCompleted(session, boardQuestId);
+    }
     clearResolvedQuestWaitFor(session, [boardQuestId]);
 
     const board = getBoard(session);
@@ -563,6 +571,11 @@ export function completeQueuedBoardRowsForQuestInAllSessions(
   }
 
   return completedInSessions;
+}
+
+function hasCompletedBoardRow(session: SessionLike, questId: string): boolean {
+  const normalizedQuestId = questId.toLowerCase();
+  return [...session.completedBoard.keys()].some((candidate: string) => candidate.toLowerCase() === normalizedQuestId);
 }
 
 export function moveBoardRowToCompleted(session: SessionLike, questId: string): BoardRow | null {

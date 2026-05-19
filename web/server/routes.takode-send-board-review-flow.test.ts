@@ -302,10 +302,13 @@ function createMockBridge() {
 
         session.board.delete(boardQuestId);
         session.boardDispatchStates?.delete(boardQuestId);
-        row.waitFor = undefined;
-        row.waitForInput = undefined;
-        row.completedAt = 1234;
-        session.completedBoard.set(boardQuestId, row);
+        session.boardStallStates?.delete(boardQuestId);
+        if (!session.completedBoard.has(boardQuestId)) {
+          row.waitFor = undefined;
+          row.waitForInput = undefined;
+          row.completedAt = 1234;
+          session.completedBoard.set(boardQuestId, row);
+        }
         for (const dependent of session.board.values() as Iterable<any>) {
           if (!Array.isArray(dependent.waitFor)) continue;
           dependent.waitFor = dependent.waitFor.filter(
@@ -611,6 +614,7 @@ describe("Takode server-authoritative auth", () => {
           board: new Map(),
           completedBoard: new Map(),
           boardDispatchStates: new Map(),
+          boardStallStates: new Map(),
           messageHistory: [],
           notifications: [],
           pendingPermissions: new Map(),
@@ -753,6 +757,53 @@ describe("Takode server-authoritative auth", () => {
       completedBoard: [{ questId: "q-1", status: "QUEUED" }],
     });
     expect(bridge._sessions["orch-1"].completedBoard.get("q-1").waitFor).toBeUndefined();
+  });
+
+  it("preserves completed board history while lazily cleaning a stale done queued duplicate", async () => {
+    setupTakodeSessions();
+    vi.spyOn(questStore, "getQuest").mockImplementation(async (questId: string) =>
+      questId === "q-1" ? ({ id: "q-1", title: "Already done", status: "done" } as any) : null,
+    );
+    const existingCompletedRow = {
+      questId: "q-1",
+      title: "Original completed Journey",
+      status: "MEMORY",
+      createdAt: 10,
+      updatedAt: 20,
+      completedAt: 30,
+      journey: {
+        mode: "active",
+        phaseIds: ["alignment", "implement", "memory"],
+        activePhaseIndex: 2,
+        currentPhaseId: "memory",
+      },
+    };
+    bridge._sessions["orch-1"].board = new Map([
+      ["q-1", { questId: "q-1", title: "Stale duplicate", status: "QUEUED", waitFor: ["#1765"] }],
+      ["q-2", { questId: "q-2", title: "Still queued", status: "QUEUED", waitFor: ["q-1", "q-3"] }],
+    ]);
+    bridge._sessions["orch-1"].completedBoard = new Map([["q-1", existingCompletedRow]]);
+    bridge._sessions["orch-1"].boardDispatchStates = new Map([
+      ["q-1", { signature: "queued:q-1", notificationId: null, warnedAt: null }],
+    ]);
+    bridge._sessions["orch-1"].boardStallStates = new Map([
+      ["q-1", { signature: "stalled:q-1", stalledSince: 1, warnedAt: null }],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board?include_completed=true", {
+      method: "GET",
+      headers: authHeaders("orch-1", "tok-1"),
+    });
+
+    expect(res.status).toBe(200);
+    expect(bridge.completeQueuedBoardRowsForQuest).toHaveBeenCalledWith("q-1");
+    expect(await res.json()).toMatchObject({
+      board: [{ questId: "q-2", status: "QUEUED", waitFor: ["q-3"] }],
+      completedBoard: [{ questId: "q-1", title: "Original completed Journey", status: "MEMORY", completedAt: 30 }],
+    });
+    expect(bridge._sessions["orch-1"].completedBoard.get("q-1")).toBe(existingCompletedRow);
+    expect(bridge._sessions["orch-1"].boardDispatchStates.has("q-1")).toBe(false);
+    expect(bridge._sessions["orch-1"].boardStallStates.has("q-1")).toBe(false);
   });
 
   it("rejects queued board rows without an explicit wait-for reason", async () => {
