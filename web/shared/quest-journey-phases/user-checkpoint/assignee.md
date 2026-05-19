@@ -5,6 +5,7 @@ You are preparing a user decision checkpoint before the Journey continues.
 Boundary:
 - Present the findings, options, tradeoffs, and a recommendation needed for a user decision.
 - State what user answer would unblock the next Journey revision.
+- Treat this as a mid-Journey decision point, not final `User review checks`. Record the user's decision in checkpoint documentation and let final Memory decide later whether any post-completion user action remains.
 - Do not implement, review, port, complete the quest, or change quest status.
 - Do not treat this as terminal closure, a generic TBD handoff, or optional leader-only indecision.
 

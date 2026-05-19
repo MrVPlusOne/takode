@@ -349,7 +349,7 @@ describe("applyQuestListFilters", () => {
   });
 
   it("supports verification=all as all review-pending done quests", () => {
-    // verification=all is useful for quickly narrowing to all verification items regardless of inbox bucket.
+    // verification=all is useful for quickly narrowing to all review-pending done quests regardless of inbox bucket.
     const result = applyQuestListFilters(quests, { verification: "all" });
     expect(result.map((q) => q.questId)).toEqual(["q-4", "q-5"]);
   });

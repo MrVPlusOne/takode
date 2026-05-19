@@ -77,7 +77,7 @@ export function QuestClaimBlock({
 
       {quest.verificationItems && quest.verificationItems.length > 0 && (
         <div>
-          <label className="block text-[11px] text-cc-muted mb-1">Verification</label>
+          <label className="block text-[11px] text-cc-muted mb-1">User review checks</label>
           <div className="space-y-0.5">
             {quest.verificationItems.map((item, i) => (
               <div key={i} className="flex items-start gap-2 py-0.5 px-2">

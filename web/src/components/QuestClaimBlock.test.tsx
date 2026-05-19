@@ -81,6 +81,25 @@ describe("QuestClaimBlock", () => {
     expect(viewLink).toHaveAttribute("href", "#/questmaster?quest=q-76");
   });
 
+  it("labels submitted checks as User review checks", () => {
+    render(
+      <QuestClaimBlock
+        quest={{
+          questId: "q-79",
+          title: "Review checks label",
+          status: "done",
+          verificationItems: [{ text: "Inspect final UI", checked: false }],
+        }}
+        variant="submitted"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Quest Ready for Review/i }));
+
+    expect(screen.getByText("User review checks")).toBeInTheDocument();
+    expect(screen.getByText("Inspect final UI")).toBeInTheDocument();
+  });
+
   it("opens quest thumbnails in the shared lightbox overlay", () => {
     render(
       <QuestClaimBlock

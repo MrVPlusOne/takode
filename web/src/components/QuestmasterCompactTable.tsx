@@ -290,7 +290,7 @@ export function CompactQuestTable({
             />
             <CompactSortHeader
               column="verify"
-              label="Verify"
+              label="User review checks"
               sort={sort}
               sortSaving={sortSaving}
               onSortChange={onSortChange}

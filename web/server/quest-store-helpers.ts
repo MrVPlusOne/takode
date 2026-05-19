@@ -8,14 +8,14 @@ import type {
 import { hasQuestReviewMetadata } from "./quest-types.js";
 import { normalizeOwnershipEvents } from "./quest-ownership.js";
 
-/** Normalize verification items: accept strings or {text,checked} objects.
+/** Normalize User review checks: accept strings or {text,checked} objects.
  *  Rejects items with empty text. */
 export function normalizeVerificationItems(items: unknown[]): QuestVerificationItem[] {
   const result: QuestVerificationItem[] = [];
   for (const item of items) {
     if (typeof item === "string") {
       const text = item.trim();
-      if (!text) throw new Error("Verification item text must not be empty");
+      if (!text) throw new Error("User review check text must not be empty");
       result.push({ text, checked: false });
     } else if (
       typeof item === "object" &&
@@ -24,13 +24,13 @@ export function normalizeVerificationItems(items: unknown[]): QuestVerificationI
       typeof (item as { text: unknown }).text === "string"
     ) {
       const text = (item as { text: string }).text.trim();
-      if (!text) throw new Error("Verification item text must not be empty");
+      if (!text) throw new Error("User review check text must not be empty");
       result.push({
         text,
         checked: !!(item as { checked?: boolean }).checked,
       });
     } else {
-      throw new Error("Each verification item must be a string or { text: string, checked?: boolean }");
+      throw new Error("Each User review check must be a string or { text: string, checked?: boolean }");
     }
   }
   return result;

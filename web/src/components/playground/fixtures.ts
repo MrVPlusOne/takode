@@ -281,7 +281,7 @@ export const PLAYGROUND_SESSION_ROWS: Array<{ session: SidebarSessionItem; sessi
       sessionNum: 21,
     },
     sessionName: "Add dark mode toggle",
-    preview: "Quest complete, awaiting verification.",
+    preview: "Quest complete, awaiting user review.",
   },
 ];
 export const PLAYGROUND_HERD_GROUP_THEMES = (() => {
@@ -886,7 +886,7 @@ export const MSG_APPROVED_ASK_LONG: ChatMessage = {
   },
 };
 
-// Quest claimed — shown when a session claims a quest
+// Quest claimed -- shown when a session claims a quest
 export const MSG_QUEST_CLAIMED: ChatMessage = {
   id: "quest-claimed-q-7-1",
   role: "system",

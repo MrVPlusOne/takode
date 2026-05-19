@@ -1821,7 +1821,7 @@ export async function cancelQuest(questId: string, notes?: string): Promise<Ques
   return quest;
 }
 
-/** Toggle a verification item checkbox (in-place, no new version). */
+/** Toggle a User review check checkbox (in-place, no new version). */
 export async function checkVerificationItem(
   questId: string,
   index: number,
@@ -1833,12 +1833,12 @@ export async function checkVerificationItem(
       const current = getLiveQuestById(store, questId);
       if (!current) return { store, result: null };
       if (!("verificationItems" in current)) {
-        throw new Error("Quest does not have verification items");
+        throw new Error("Quest does not have User review checks");
       }
 
       const items = [...(current as QuestDone).verificationItems];
       if (index < 0 || index >= items.length) {
-        throw new Error(`Verification item index ${index} out of range`);
+        throw new Error(`User review check index ${index} out of range`);
       }
 
       items[index] = { ...items[index], checked };
@@ -1855,12 +1855,12 @@ export async function checkVerificationItem(
   if (!current) return null;
 
   if (!("verificationItems" in current)) {
-    throw new Error("Quest does not have verification items");
+    throw new Error("Quest does not have User review checks");
   }
 
   const items = (current as QuestDone).verificationItems;
   if (index < 0 || index >= items.length) {
-    throw new Error(`Verification item index ${index} out of range`);
+    throw new Error(`User review check index ${index} out of range`);
   }
 
   items[index].checked = checked;

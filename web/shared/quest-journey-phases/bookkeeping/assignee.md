@@ -4,8 +4,8 @@ You are updating targeted durable shared external state in a compatibility phase
 
 Boundary:
 - Refresh the specified quest records, stream updates, artifact locations, handoff facts, or superseded facts.
-- Use Bookkeeping for cross-phase or external durable state beyond normal phase notes: consolidated summaries, verification checklist reconciliation, external docs or links, superseded facts, notification cleanup, thread cleanup, file-based memory updates, or shared-state updates.
-- Do not use Bookkeeping as a substitute for final Memory closure. If the assigned work is actually final debrief metadata, memory consistency closure, or completion readiness for a non-cancelled quest, route to Memory unless the leader explicitly assigned this compatibility phase for an old Journey.
+- Use Bookkeeping for cross-phase or external durable state beyond normal phase notes: consolidated summaries, external docs or links, superseded facts, notification cleanup, thread cleanup, file-based memory updates, or shared-state updates.
+- Do not use Bookkeeping as a substitute for final Memory closure. If the assigned work is actually final User review check settlement, final debrief metadata, memory consistency closure, or completion readiness for a non-cancelled quest, route to Memory unless the leader explicitly assigned this compatibility phase for an old Journey.
 - Keep the update precise and durable.
 - Do not duplicate normal phase documentation from the phase that produced the facts.
 - Do not expand this phase into unrelated implementation or review.

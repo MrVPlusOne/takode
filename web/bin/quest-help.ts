@@ -19,7 +19,7 @@ Commands:
   reassign <id> --session <worker> --reason <text> [--json]
                                                          Leader-only audited ownership reassignment
   complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>] [--commit <sha>] [--commits "s1,s2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]
-                                                         Mark done and submit for review
+                                                         Mark done and submit optional User review checks
   done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--force --reason <text>] [--json]
                                                          Mark as done/cancelled
   cancel <id> [--notes "reason" | --notes-file <path>|-] [--force --reason <text>] [--json]
@@ -30,7 +30,7 @@ Commands:
   inbox  <id> [--json]                                   Move review-pending quest back to inbox
   edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--json]
                                                          Edit in place
-  check  <id> <index> [--json]                           Toggle verification item
+  check  <id> <index> [--json]                           Toggle a User review check
   feedback <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
                                                          Add feedback entry
   feedback add <id> [--text "..." | --text-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--author agent|human] [--session <sid>] [--phase <id>] [--phase-position <n>] [--phase-occurrence <n>] [--phase-occurrence-id <id>] [--journey-run <id>] [--kind <kind>] [--infer-phase] [--no-phase] [--image <path>] [--images "p1,p2"] [--json]
@@ -55,7 +55,7 @@ Environment:
 Auth fallback:
   .companion/session-auth.json (or legacy .codex/.claude paths)
 
-Verification scopes:
+Review scopes:
   --verification inbox      done quests in Review Inbox
   --verification reviewed   done quests acknowledged and still under review
   --verification all        all done quests still under review
@@ -81,8 +81,9 @@ Safer rich-text input:
   quest feedback latest q-1 --author human --unaddressed --full
   quest feedback show q-1 0
   printf '%s\\n' 'Line 1' '\`$(nope)\`' | quest feedback q-1 --text-file -
-  quest complete q-1 --items-file items.txt
-  printf '%s\\n' 'Review comma-heavy item, "quotes", {braces}' | quest complete q-1 --items-file -
+  quest complete q-1
+  quest complete q-1 --items-file user-review-checks.txt
+  printf '%s\\n' 'User should review comma-heavy item, "quotes", {braces}' | quest complete q-1 --items-file -
   quest done q-1 --debrief-file final-debrief.md --debrief-tldr-file final-debrief-tldr.md
   quest done q-1 --notes-file closeout.md
   printf '%s\\n' 'Superseded by q-2 with copied \`$(note)\` text' | quest cancel q-1 --notes-file -`);

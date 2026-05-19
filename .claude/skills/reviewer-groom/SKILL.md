@@ -73,8 +73,11 @@ evidence is clear and the fix is available through the Quest CLI, fix it
 directly instead of sending it back through leader -> worker -> reviewer. This
 includes marking clearly resolved human feedback addressed with `quest address`,
 adding or refreshing a consolidated summary with `quest feedback add`, checking
-verification items you personally verified with `quest check`, and correcting
+User review checks you personally verified with `quest check`, and correcting
 obvious structured metadata omissions when the current handoff supports it.
+Challenge proposed final User review checks that are really agent-owned evidence,
+such as tests, Code Review, Execute, Port, push, post-port verification, or
+Memory closure; cite the concrete item text by judgment rather than classifiers.
 Report any direct hygiene fixes in your review output. If the hygiene issue is
 real but there is no safe CLI operation for the current quest state, make it a
 finding instead.

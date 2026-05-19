@@ -9,6 +9,7 @@ Boundary:
 - Do not invent port commentary for zero-tracked-change quests whose Journey omitted `port`.
 - Do not treat Port as final quest closure. Every non-cancelled quest should advance to final Memory after Port, where final debrief metadata and durable-state closure are settled.
 - If Port has context Memory will need, include a concise accepted-state summary, final debrief draft, or debrief TLDR draft in your report. A Port handoff should make Memory cheap, but Port does not replace Memory.
+- Do not author final `User review checks`. Port-owned evidence belongs in Port phase documentation, synced SHA reporting, post-port verification notes, and debrief drafts for Memory.
 
 Verification failure routing:
 - If full `bun run test` fails and the failure is likely related to the current quest or port, the quest cannot be marked done until the worker fixes it and the gate is rerun.
@@ -31,7 +32,7 @@ Phase documentation:
 - If context was compacted during this phase, or if memory confidence is low, reconstruct the relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 - Optional checkpoint: after a valuable nontrivial phase outcome is ready, you may run `takode worker-stream` so the leader can start reading while you finish required paperwork. This does not replace phase documentation, final debrief ownership, or stopping at the phase boundary.
 - When referencing repository files in quest feedback or phase documentation, prefer Takode file-link syntax such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`; standard Markdown file links are best-effort fallback only.
-- Document ordered synced SHAs, pre-push and post-push verification categories, port anomalies, remaining sync risks, and any accepted-state or memory-specific context final Memory will need. Keep the dedicated `Synced SHAs: sha1,sha2` report line separate for leader bookkeeping; omit branch command transcripts unless recovery depended on them.
+- Document ordered synced SHAs, pre-push and post-push verification categories, port anomalies, remaining sync risks, and any accepted-state or memory-specific context final Memory will need. Keep the dedicated `Synced SHAs: sha1,sha2` report line separate for leader bookkeeping; omit branch command transcripts unless recovery depended on them. Leave final User review check settlement to Memory.
 
 Deliverable:
 - Return synced SHAs, pre-push and post-push verification results, any accepted-state or memory-specific context final Memory will need, and stop.

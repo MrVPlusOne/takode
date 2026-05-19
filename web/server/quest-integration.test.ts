@@ -211,7 +211,7 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("do **not** run `quest complete`");
     expect(skill).toContain("synced to the main repo checkout and pushed");
     expect(skill).toContain(
-      'quest complete q-N --items "..." --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md',
+      'quest complete q-N --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md',
     );
     expect(skill).toContain("Synced SHAs: sha1,sha2");
     expect(skill).toContain("Final Memory or the leader attaches those SHAs");
@@ -241,13 +241,15 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Only add a second port-specific comment");
     expect(skill).toContain("pass `quest complete ... --no-code`");
     expect(skill).toContain("only a local reminder switch");
-    expect(skill).toContain("no placeholder port notes, synced SHA lines, or automated-check results in the checklist");
+    expect(skill).toContain(
+      "Do not add placeholder Port notes, synced SHA lines, or automated-check results as checks",
+    );
     expect(skill).toContain("zero git-tracked changes");
     expect(skill).toContain(
       "Docs, skills, prompts, templates, and other text-only tracked-file edits are commit-producing work",
     );
     expect(skill).toContain("Do not use `--no-code` for these quests");
-    expect(skill).toContain("Verification items must be human-checkable acceptance items only");
+    expect(skill).toContain("User review checks are optional human-owned checks only");
     expect(skill).toContain(
       "Put what changed, why it matters, synced/ported status, and automated verification results",
     );

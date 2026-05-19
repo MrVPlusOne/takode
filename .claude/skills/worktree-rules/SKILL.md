@@ -107,9 +107,9 @@ If you are working on a quest from this worktree session, do **NOT** transition 
 
 If you are also the agent performing the verification handoff, attach the ordered synced SHAs when you submit:
 ```bash
-quest complete q-N --items "..." --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md
+quest complete q-N --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md
 ```
-Port is not final quest closure. For every non-cancelled quest, final Memory owns structured final debrief metadata, durable-state closure, and the memory statement after accepted tracked changes are synced. Port should still preserve the context Memory will need: user-facing result, important verification, synced commits when relevant, and residual risks.
+Port is not final quest closure. For every non-cancelled quest, final Memory owns final User review check settlement, structured final debrief metadata, durable-state closure, and the memory statement after accepted tracked changes are synced. Port should still preserve the context Memory will need: user-facing result, important verification, synced commits when relevant, and residual risks.
 
 Every port handoff must report the ordered synced SHAs explicitly so the later handoff can attach them. Put them on a dedicated `Synced SHAs: sha1,sha2` line so final Memory or the leader can copy them directly into `quest complete`. Include a concise accepted-state summary, `Final debrief draft:`, or `Debrief TLDR draft:` when Port has context final Memory will need; the TLDR draft should preserve self-contained quest-journey understanding, not routine port mechanics. If the port worker cannot or should not draft those from available evidence, say so and ask the leader to route final Memory with the right context. Do **not** rely on `/port-changes` logs being parsed after the fact.
 
@@ -117,7 +117,7 @@ Do not add routine `memory update not needed` statements during Port. Include me
 
 Documentation, skill, prompt, template, and other text-only tracked-file edits still count as commit-producing work. If they produced commits, they must be ported and attached to the quest with `quest complete ... --commit/--commits`; zero-tracked-change quests omit `port` from their explicit Journey plan when nothing was synced, but still end in `memory`.
 
-Do not put port status, synced SHAs, or automated post-port verification results into `quest complete --items`. Verification items are for human-checkable acceptance checks only; port details and automated verification belong in the worker report and, for Quest Journey work, the Port phase documentation entry.
+Do not put port status, synced SHAs, or automated post-port verification results into `quest complete --items`. User review checks are only for things the user still needs to inspect or do after completion; port details and automated verification belong in the worker report and, for Quest Journey work, the Port phase documentation entry. Empty User review checks are normal when no user action remains.
 
 For Quest Journey work, add or refresh the current Port phase documentation before reporting back: ordered synced SHAs, post-port verification, port anomalies, remaining sync risks, accepted-state context final Memory will need, and memory-specific evidence only when material. Prefer `quest feedback add q-N --text-file ... --tldr-file ... --kind phase-summary` with current-phase inference; use explicit `--phase port` or occurrence flags if inference is unavailable. Structured commit metadata should carry routine port information, so do not add a second long port-summary or commit-by-commit timeline unless the porting itself was exceptional and materially worth calling out. The later final Memory handoff should attach those SHAs with `quest complete ... --commits ...`, not leave them only in feedback comments.
 Keep routine commit hashes, branch names, command lists, and verification mechanics out of debrief TLDR drafts unless the exact detail is central to understanding the quest outcome.

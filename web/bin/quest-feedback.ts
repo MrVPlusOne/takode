@@ -132,7 +132,7 @@ export function completionHygieneWarnings(
     .filter(({ item }) => SELF_VERIFIABLE_RE.test(item.text));
   if (selfVerifiableItems.length > 0) {
     warnings.push(
-      `verification item(s) ${selfVerifiableItems.map(({ index }) => index).join(", ")} look self-verifiable; put automated verification results in the consolidated Summary: feedback comment and reserve quest verification items for human judgment.`,
+      `user review check(s) ${selfVerifiableItems.map(({ index }) => index).join(", ")} look self-verifiable; put automated verification results in phase docs, review evidence, or the consolidated Summary: feedback comment, and reserve user review checks for things the user needs to inspect.`,
     );
   }
   const implementationDetailItems = items
@@ -140,7 +140,7 @@ export function completionHygieneWarnings(
     .filter(({ item }) => IMPLEMENTATION_DETAIL_RE.test(item.text));
   if (implementationDetailItems.length > 0) {
     warnings.push(
-      `verification item(s) ${implementationDetailItems.map(({ index }) => index).join(", ")} look like implementation details or port metadata; put them in the consolidated Summary: feedback comment and use structured --commit/--commits metadata for synced SHAs.`,
+      `user review check(s) ${implementationDetailItems.map(({ index }) => index).join(", ")} look like implementation details or port metadata; put them in phase docs, Port notes, the consolidated Summary: feedback comment, and use structured --commit/--commits metadata for synced SHAs.`,
     );
   }
   return warnings;

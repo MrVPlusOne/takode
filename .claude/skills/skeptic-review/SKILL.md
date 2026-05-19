@@ -96,7 +96,7 @@ the fix in your verdict. Examples:
   --text "Summary: ..."` for short single-topic content, or write the full body
   first and use `quest feedback add <quest_id> --text-file /tmp/summary.md
   --tldr-file /tmp/summary-tldr.md` for long multi-topic content.
-- If a verification checklist item is already self-verified by evidence you
+- If a User review check is already self-verified by evidence you
   inspected, check it with `quest check <quest_id> <index>`.
 
 Only **CHALLENGE** on hygiene when the issue is ambiguous, unsupported by
@@ -121,12 +121,12 @@ critical worker misunderstanding.
    - If missing and you cannot write it without guessing, CHALLENGE: "Add or refresh the required quest summary comment describing what changed, why it matters, and what verification passed"
    - If the quest has multiple near-duplicated worker comments, CHALLENGE: "Consolidate the duplicated quest comments so the quest remains readable while preserving how human feedback was addressed"
 
-3. **Verification items are human-only?** Check each verification item in the quest:
-   - Items like "synced commit was pushed", "post-port typecheck passed", "tests pass", "typecheck clean", "no regressions", "code compiles" should NOT be in the checklist -- they are implementation details or checks the agent can verify itself
-   - Implementation details, synced SHAs, port status, and automated verification results belong in the consolidated `Summary:` quest feedback comment and structured commit metadata, not in verification items
-   - Only items requiring human judgment belong: UI appearance, UX feel, behavioral verification in browser, edge cases needing manual testing
+3. **User review checks are user-owned?** Check each final User review check in the quest:
+   - Items like "synced commit was pushed", "post-port typecheck passed", "tests pass", "typecheck clean", "no regressions", "code compiles", "Code Review passed", or "Port completed" should NOT be in the checklist -- they are implementation details, Journey evidence, or checks the agent can verify itself
+   - Implementation details, synced SHAs, port status, automated verification results, Execute evidence, Code Review, Port, push, post-port verification, and Memory closure belong in phase docs, review verdicts, artifacts, Port notes, the consolidated `Summary:` quest feedback comment, debriefs, and structured commit metadata, not in final User review checks
+   - Only items requiring post-completion user attention belong: UI appearance, UX feel, behavioral verification in browser, edge cases needing manual testing
    - If an item is self-verifiable and you have verified it, check it with `quest check <quest_id> <index>` yourself and mention that hygiene fix in the verdict
-   - If the checklist needs rewriting or you cannot verify the item yourself, CHALLENGE: "Verification item #N ('tests pass') can be verified by the agent -- remove it and only keep items requiring human judgment"
+   - If the checklist needs rewriting or you cannot verify the item yourself, CHALLENGE: "User review check #N ('tests pass') can be verified by the agent -- remove it and only keep checks requiring post-completion user attention"
 
 ### Step 3: Deliver Verdict
 

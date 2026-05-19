@@ -307,7 +307,7 @@ export function QuestStatusPanel({ sessionId }: { sessionId: string }) {
           <div className="mt-2 flex flex-wrap gap-1.5">
             {counts.verification && (
               <MetricPill
-                label="Verify"
+                label="User review checks"
                 value={`${counts.verification.checked}/${counts.verification.total}`}
                 tone={context.quest && isQuestUnderReview(context.quest) ? "attention" : "muted"}
               />

@@ -1121,10 +1121,10 @@ export function QuestDetailPanel() {
                 </div>
               )}
 
-              {/* Verification checklist */}
+              {/* User review checks */}
               {hasVerification && (
                 <div>
-                  <label className="block text-[11px] text-cc-muted mb-1">Verification</label>
+                  <label className="block text-[11px] text-cc-muted mb-1">User review checks</label>
                   <div className="space-y-0.5">
                     {quest.verificationItems.map((item: QuestVerificationItem, i: number) => (
                       <label

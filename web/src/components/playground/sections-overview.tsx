@@ -795,7 +795,7 @@ export function PlaygroundOverviewSections() {
           <Card label="Approved — AskUserQuestion with long text">
             <MessageBubble message={MSG_APPROVED_ASK_LONG} />
           </Card>
-          <Card label="Quest Claimed — with details, tags, and verification">
+          <Card label="Quest Claimed -- with details, tags, and User review checks">
             <MessageBubble message={MSG_QUEST_CLAIMED} />
           </Card>
           <Card label="Quest Claimed — minimal (no description)">
@@ -1684,7 +1684,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="Quest Title Styling"
-        description="Quest-named sessions show a checkbox prefix: ☐ for in-progress, ☑ for needs-verification."
+        description="Quest-named sessions show a checkbox prefix: unchecked for in-progress, checked for review-pending."
       >
         <div className="max-w-md">
           <Card label="In-progress vs completed quest titles">

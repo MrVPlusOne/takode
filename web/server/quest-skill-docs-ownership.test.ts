@@ -15,4 +15,16 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("quest reassign <id> --session <worker> --reason <text> [--json]");
     expect(docs).toContain("archived_owner_takeover");
   });
+
+  it("documents User review checks as optional Memory-settled user-owned checks", () => {
+    const docs = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "templates", "quest-skill-docs.md"),
+      "utf-8",
+    );
+
+    expect(docs).toContain("User review checks are optional human-owned checks only");
+    expect(docs).toContain("Final Memory is the normal owner of final `User review checks` settlement");
+    expect(docs).toContain("Empty User review checks are normal and preferred over invented checklist entries");
+    expect(docs).not.toContain("Verification items must be human-checkable acceptance items only");
+  });
 });

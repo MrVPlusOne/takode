@@ -27,7 +27,7 @@ Do not use `/quest-design` for routine quest operations:
 - `quest claim`
 - adding feedback to an existing quest
 - addressing feedback
-- completing a quest or checking verification items
+- completing a quest or checking User review checks
 - verification inbox moves
 - board updates
 - lifecycle/status bookkeeping after an already-approved workflow

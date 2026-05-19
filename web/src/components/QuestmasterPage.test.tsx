@@ -542,15 +542,15 @@ describe("QuestmasterPage status display", () => {
     expect(await screen.findAllByRole("columnheader", { name: "Quest" })).toHaveLength(1);
     expect(screen.getAllByRole("columnheader", { name: "Owner" })).toHaveLength(1);
     expect(screen.getAllByRole("columnheader", { name: "Leader" })).toHaveLength(1);
-    expect(screen.getAllByRole("columnheader", { name: "Verify" })).toHaveLength(1);
+    expect(screen.getAllByRole("columnheader", { name: "User review checks" })).toHaveLength(1);
     expect(screen.getAllByRole("table")).toHaveLength(1);
     expect(screen.queryByText("Review Inbox")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /q-1 Fresh verification quest/ })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /q-2 Regular verification quest/ })).toBeInTheDocument();
   });
 
-  it("shows Completed status without inbox text while verification stays in the Verify column", async () => {
-    // q-1034: status no longer encodes review inbox state; verification progress remains visible separately.
+  it("shows Completed status without inbox text while User review checks stay in their column", async () => {
+    // Status no longer encodes review inbox state; User review check progress remains visible separately.
     mockGetSettings.mockResolvedValueOnce({ questmasterViewMode: "compact" });
 
     renderQuestmaster({ isActive: true });

@@ -5,6 +5,7 @@ You are performing final non-project-tracked durable-state closure for a substan
 Boundary:
 - Confirm the accepted result is already substantively complete and synced when tracked project work required Port.
 - Settle final debrief metadata and debrief TLDR metadata, or provide concise drafts if the leader will complete the quest.
+- Settle final `User review checks`: leave the completion list empty when no user action remains, or provide concise checks only for things the user still needs to inspect or do after agent-owned evidence is complete.
 - Check quest-note hygiene: phase documentation should be useful, major human/reviewer feedback should be addressed or deliberately left open, and final handoff facts should be easy for future sessions to trust.
 - Triage durable memory: consistency with existing file-based memory, memory writes or explicit deferrals, stale-memory checks, and one memory statement.
 - Clean up or record non-project-tracked durable state: external artifact records, thread/timer/notification cleanup, dependency notes, current-state handoffs, and follow-up proposals when needed.
@@ -28,7 +29,7 @@ Phase documentation:
 - If context was compacted during this phase, or if memory confidence is low, reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 - Optional checkpoint: after a valuable nontrivial phase outcome is ready, you may run `takode worker-stream` so the leader can start reading while you finish required paperwork. This does not replace phase documentation, final debrief ownership, or stopping at the phase boundary.
 - When referencing repository files in quest feedback or phase documentation, prefer Takode file-link syntax such as `[QuestDetailPanel.tsx:42](file:web/src/components/QuestDetailPanel.tsx:42)`; standard Markdown file links are best-effort fallback only.
-- Document final debrief metadata status, quest hygiene changes, memory files inspected, memory update or deferral, external durable-state records, cleanup, follow-up routing, and residual risks.
+- Document final debrief metadata status, User review check settlement, quest hygiene changes, memory files inspected, memory update or deferral, external durable-state records, cleanup, follow-up routing, and residual risks.
 
 Deliverable:
-- Return final durable-state closure, memory statement, final debrief metadata status or drafts, any follow-up routing, and stop.
+- Return final durable-state closure, memory statement, User review check settlement, final debrief metadata status or drafts, any follow-up routing, and stop.

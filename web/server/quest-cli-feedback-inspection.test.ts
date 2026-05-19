@@ -258,8 +258,8 @@ describe("quest CLI feedback inspection", () => {
       expect(result.stderr).toContain("unaddressed human feedback remains at #1");
       expect(result.stderr).toContain("latest human feedback is newer than the latest agent summary");
       expect(result.stderr).toContain("commit-like SHA text exists");
-      expect(result.stderr).toContain("verification item(s) 0 look self-verifiable");
-      expect(result.stderr).toContain("automated verification results in the consolidated Summary: feedback comment");
+      expect(result.stderr).toContain("user review check(s) 0 look self-verifiable");
+      expect(result.stderr).toContain("reserve user review checks for things the user needs to inspect");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
@@ -292,14 +292,14 @@ describe("quest CLI feedback inspection", () => {
       expect(result.status).toBe(0);
       expect(parsed).toMatchObject({ questId: "q-6", status: "done" });
       expect(result.stderr).not.toContain("commit-like SHA text exists");
-      expect(result.stderr).toContain("verification item(s) 1 look self-verifiable");
-      expect(result.stderr).not.toContain("verification item(s) 0 look self-verifiable");
+      expect(result.stderr).toContain("user review check(s) 1 look self-verifiable");
+      expect(result.stderr).not.toContain("user review check(s) 0 look self-verifiable");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }
   });
 
-  it("warns when verification items are implementation logs instead of human acceptance items", async () => {
+  it("warns when user review checks are implementation logs instead of human acceptance items", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-complete-implementation-log-items-"));
     seedQuest(tmp, {
       id: "q-7-v2",
@@ -330,9 +330,9 @@ describe("quest CLI feedback inspection", () => {
 
       expect(result.status).toBe(0);
       expect(parsed).toMatchObject({ questId: "q-7", status: "done" });
-      expect(result.stderr).toContain("verification item(s) 0 look like implementation details or port metadata");
+      expect(result.stderr).toContain("user review check(s) 0 look like implementation details or port metadata");
       expect(result.stderr).toContain("use structured --commit/--commits metadata for synced SHAs");
-      expect(result.stderr).not.toContain("verification item(s) 1 look like implementation details");
+      expect(result.stderr).not.toContain("user review check(s) 1 look like implementation details");
     } finally {
       rmSync(tmp, { recursive: true, force: true });
     }

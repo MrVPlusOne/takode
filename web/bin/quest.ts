@@ -562,7 +562,7 @@ function formatStatusSummary(quest: QuestmasterTask, sessionMetadata?: Map<strin
   lines.push(`Status:      ${STATUS_LABELS[quest.status] ?? quest.status}`);
   lines.push(`Owner:       ${owner}`);
   lines.push(`Leader:      ${leader}`);
-  lines.push(`Verification:${verification}`);
+  lines.push(`User review checks: ${verification}`);
   lines.push(`Inbox:       ${inbox}`);
   lines.push(
     `Commits:     ${quest.commitShas?.length ?? 0}${quest.commitShas?.length ? ` (${quest.commitShas.join(", ")})` : ""}`,
@@ -1153,12 +1153,6 @@ async function cmdComplete(): Promise<void> {
       .filter(Boolean)
       .map((text) => ({ text, checked: false }));
   }
-  if (items.length === 0) {
-    console.error(
-      "Warning: quest submitted for verification without verification items. " +
-        "Consider adding --items for simple inline lists or --items-file <path> / --items-file - for richer input.",
-    );
-  }
   const currentQuest = await getQuest(id);
   if (currentQuest) {
     warnAll(completionHygieneWarnings(currentQuest, items, commitShas));
@@ -1175,7 +1169,7 @@ async function cmdComplete(): Promise<void> {
     if (jsonOutput) {
       out(serverQuest);
     } else {
-      console.log(`Completed ${serverQuest.questId} "${serverQuest.title}" with ${items.length} verification items`);
+      console.log(`Completed ${serverQuest.questId} "${serverQuest.title}" with ${items.length} user review checks`);
       console.log(formatCompletionReminder(serverQuest.questId, { noCode }));
     }
     warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
@@ -1199,7 +1193,7 @@ async function cmdComplete(): Promise<void> {
     if (jsonOutput) {
       out(quest);
     } else {
-      console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} verification items`);
+      console.log(`Completed ${quest.questId} "${quest.title}" with ${items.length} user review checks`);
       console.log(formatCompletionReminder(quest.questId, { noCode }));
     }
     warnAll(tldrWarningsForWrite("debrief", debriefOptions.debrief, debriefOptions.debriefTldr));
@@ -1213,7 +1207,7 @@ function formatCompletionReminder(questId: string, options: { noCode: boolean })
     `Reminder: keep one substantive user-oriented quest summary comment up to date with ` +
     `\`quest feedback ${questId} --text "Summary: <what changed, why it matters, and what verification passed>"\`` +
     ` before reporting that the quest is ready. Use \`--text-file <path>\` or \`--text-file -\`` +
-    ` when that summary includes copied logs, backticks, or other shell-like text. For long multi-topic summaries, write the full \`--text\`/\`--text-file\` body first and add \`--tldr\`/\`--tldr-file\` second, with each major topic preserved in concise scan text instead of incidental raw details. Put implementation details and automated verification results in that summary, not in \`quest complete --items\`. Avoid review/rework timelines unless essential. Every completed non-cancelled quest must also have final debrief metadata and debrief TLDR metadata; use \`--debrief-file\` plus \`--debrief-tldr-file\` on completion, or treat the handoff as incomplete until a leader or final Memory phase can supply both.`;
+    ` when that summary includes copied logs, backticks, or other shell-like text. For long multi-topic summaries, write the full \`--text\`/\`--text-file\` body first and add \`--tldr\`/\`--tldr-file\` second, with each major topic preserved in concise scan text instead of incidental raw details. Put implementation details, automated verification results, Code Review, Execute, Port, push, and post-port evidence in phase docs, review verdicts, Port notes, commit metadata, and the debrief, not in \`quest complete --items\`. Empty user review checks are normal when no user action remains. Avoid review/rework timelines unless essential. Every completed non-cancelled quest must also have final debrief metadata and debrief TLDR metadata; use \`--debrief-file\` plus \`--debrief-tldr-file\` on completion, or treat the handoff as incomplete until a leader or final Memory phase can supply both.`;
   if (options.noCode) {
     return (
       summaryLine +
@@ -1613,7 +1607,7 @@ async function cmdCheck(): Promise<void> {
   // Toggle: read current state and flip it
   const current = await getQuest(id);
   if (!current) die(`Quest ${id} not found`);
-  if (!("verificationItems" in current)) die("Quest has no verification items");
+  if (!("verificationItems" in current)) die("Quest has no User review checks");
   const items = (current as { verificationItems: { checked: boolean }[] }).verificationItems;
   if (index < 0 || index >= items.length) die(`Index ${index} out of range (0-${items.length - 1})`);
   const newChecked = !items[index].checked;

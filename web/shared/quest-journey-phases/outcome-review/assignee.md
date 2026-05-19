@@ -15,6 +15,7 @@ Boundary:
 - You may rerun only small bounded checks or repros needed to judge sufficiency; do not become the primary experiment owner, root-cause investigator, or repeated iteration loop.
 - If the evidence is insufficient, report the concrete gap and what kind of follow-up is needed.
 - If outcome evidence shows tracked docs, instructions, tests, fixtures, generated templates, changelog, or other tracked artifacts are missing or stale, report that as a routing gap. Do not edit tracked files in Outcome Review, and do not defer tracked fixes to final Memory.
+- Outcome Review judges evidence; it does not author final `User review checks`. If proposed checks are really agent-owned evidence such as tests, Execute results, review, Port, push, or post-port verification, report that quest-hygiene gap by direct judgment and leave final settlement to Memory.
 - Do not port or change quest status.
 
 Phase documentation:

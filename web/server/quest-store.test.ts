@@ -1499,10 +1499,10 @@ describe("checkVerificationItem", () => {
     await expect(questStore.checkVerificationItem("q-1", 5, true)).rejects.toThrow("out of range");
   });
 
-  it("throws when quest has no verification items", async () => {
+  it("throws when quest has no User review checks", async () => {
     await questStore.createQuest({ title: "No items" });
 
-    await expect(questStore.checkVerificationItem("q-1", 0, true)).rejects.toThrow("does not have verification items");
+    await expect(questStore.checkVerificationItem("q-1", 0, true)).rejects.toThrow("does not have User review checks");
   });
 });
 
@@ -1635,7 +1635,7 @@ describe("transition validation", () => {
     }
   });
 
-  it("allows done transition with empty verification items (auto-pass)", async () => {
+  it("allows done transition with empty User review checks (auto-pass)", async () => {
     // When a quest reaches done with no items, quest done should
     // succeed immediately — there's nothing to verify.
     await questStore.createQuest({ title: "Auto-pass done" });
@@ -1734,7 +1734,7 @@ describe("feedback", () => {
 
     // Rework cycle: back to in_progress
     await questStore.transitionQuest("q-1", { status: "in_progress", sessionId: "sess-1" });
-    // Agent submits again with new verification items — feedback thread persists
+    // Agent submits again with new User review checks; feedback thread persists.
     const result = await questStore.transitionQuest("q-1", {
       status: "done",
       verificationItems: [{ text: "New check", checked: false }],

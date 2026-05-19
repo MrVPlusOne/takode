@@ -101,7 +101,8 @@ describe("quest CLI help", () => {
     expect(result.stdout).toContain('complete <id> [--items "c1,c2" | --items-file <path>|-] [--session <sid>]');
     expect(result.stdout).toContain('[--debrief "..." | --debrief-file <path>|-]');
     expect(result.stdout).toContain('[--debrief-tldr "..." | --debrief-tldr-file <path>|-]');
-    expect(result.stdout).toContain("quest complete q-1 --items-file items.txt");
+    expect(result.stdout).toContain("quest complete q-1");
+    expect(result.stdout).toContain("quest complete q-1 --items-file user-review-checks.txt");
     expect(result.stdout).toContain(
       "quest done q-1 --debrief-file final-debrief.md --debrief-tldr-file final-debrief-tldr.md",
     );
@@ -113,7 +114,7 @@ describe("quest CLI help", () => {
     );
     expect(lines).toContain("  printf '%s\\n' 'Line 1' '`$(nope)`' | quest feedback q-1 --text-file -");
     expect(lines).toContain(
-      `  printf '%s\\n' 'Review comma-heavy item, "quotes", {braces}' | quest complete q-1 --items-file -`,
+      `  printf '%s\\n' 'User should review comma-heavy item, "quotes", {braces}' | quest complete q-1 --items-file -`,
     );
     expect(lines).toContain(
       `  printf '%s\\n' 'Superseded by q-2 with copied \`$(note)\` text' | quest cancel q-1 --notes-file -`,
@@ -801,7 +802,7 @@ describe("quest CLI safer rich-text inputs", () => {
     }
   });
 
-  it("reads verification items from --items-file line input with shell-fragile characters", async () => {
+  it("reads User review checks from --items-file line input with shell-fragile characters", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-complete-items-file-"));
     const authDir = getSessionAuthDir(tmp);
     mkdirSync(authDir, { recursive: true });
@@ -863,7 +864,7 @@ describe("quest CLI safer rich-text inputs", () => {
     }
   });
 
-  it("reads verification items from stdin via --items-file - using JSON array input", async () => {
+  it("reads User review checks from stdin via --items-file - using JSON array input", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-complete-items-stdin-"));
     const authDir = getSessionAuthDir(tmp);
     mkdirSync(authDir, { recursive: true });
@@ -924,7 +925,7 @@ describe("quest CLI safer rich-text inputs", () => {
     }
   });
 
-  it("reads verification items from --items-file JSON object arrays", async () => {
+  it("reads User review checks from --items-file JSON object arrays", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-complete-items-object-json-"));
     const authDir = getSessionAuthDir(tmp);
     mkdirSync(authDir, { recursive: true });
@@ -1671,14 +1672,12 @@ describe("quest CLI completion reminder", () => {
       );
 
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain('Completed q-1 "Quest" with 1 verification items');
+      expect(result.stdout).toContain('Completed q-1 "Quest" with 1 user review checks');
       expect(result.stdout).toContain("Reminder: keep one substantive user-oriented quest summary comment up to date");
       expect(result.stdout).toContain(
         'quest feedback q-1 --text "Summary: <what changed, why it matters, and what verification passed>"',
       );
-      expect(result.stdout).toContain(
-        "Put implementation details and automated verification results in that summary, not in `quest complete --items`",
-      );
+      expect(result.stdout).toContain("Empty user review checks are normal when no user action remains");
       expect(result.stdout).toContain("For long multi-topic summaries");
       expect(result.stdout).toContain("add `--tldr`/`--tldr-file` second");
       expect(result.stdout).toContain("Avoid review/rework timelines unless essential");
@@ -1686,6 +1685,69 @@ describe("quest CLI completion reminder", () => {
       expect(result.stdout).toContain(
         "including docs, skills, prompts, templates, and other text-only tracked-file commits",
       );
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
+  it("treats completion without User review checks as normal", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-complete-no-review-checks-http-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const seenBodies: JsonObject[] = [];
+
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/complete") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            questId: "q-1",
+            title: "Quest",
+            status: "done",
+            verificationItems: [],
+          }),
+        );
+        return;
+      }
+      if (req.method === "POST" && req.url === "/api/quests/_notify") {
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: true }));
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["complete", "q-1"],
+        {
+          ...process.env,
+          COMPANION_PORT: String(port),
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(seenBodies).toHaveLength(1);
+      expect(seenBodies[0]).toMatchObject({ verificationItems: [] });
+      expect(result.stdout).toContain('Completed q-1 "Quest" with 0 user review checks');
+      expect(result.stdout).toContain("Empty user review checks are normal when no user action remains");
+      expect(result.stderr).not.toContain("Warning: quest submitted");
+      expect(result.stderr).not.toContain("Consider adding --items");
     } finally {
       server.close();
       rmSync(tmp, { recursive: true, force: true });
@@ -1935,7 +1997,7 @@ describe("quest CLI completion reminder", () => {
       );
 
       expect(result.status).toBe(0);
-      expect(result.stdout).toContain('Completed q-1 "Quest" with 1 verification items');
+      expect(result.stdout).toContain('Completed q-1 "Quest" with 1 user review checks');
       expect(result.stdout).toContain("Reminder: keep one substantive user-oriented quest summary comment up to date");
       expect(result.stdout).toContain(
         'quest feedback q-1 --text "Summary: <what changed, why it matters, and what verification passed>"',

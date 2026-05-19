@@ -288,7 +288,7 @@ describe("TaskPanel", () => {
     expect(screen.getByText("q-42")).toBeInTheDocument();
     expect(screen.getByText("Verify right panel quest status")).toBeInTheDocument();
     expect(screen.getByText("Done")).toBeInTheDocument();
-    expect(screen.getByText("Verify")).toBeInTheDocument();
+    expect(screen.getByText("User review checks")).toBeInTheDocument();
     expect(screen.getByText("1/2")).toBeInTheDocument();
     expect(screen.getByText("unread")).toBeInTheDocument();
     expect(screen.getByText("1 open")).toBeInTheDocument();

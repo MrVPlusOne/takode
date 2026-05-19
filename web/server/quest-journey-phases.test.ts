@@ -183,7 +183,7 @@ describe("Quest Journey phase directory loading", () => {
     const userCheckpointPhase = phases.find((phase) => phase.id === "user-checkpoint");
 
     expect(userCheckpointPhase?.boardState).toBe("USER_CHECKPOINTING");
-    expect(userCheckpointPhase?.contract).toContain("required user decision");
+    expect(userCheckpointPhase?.contract).toContain("required mid-Journey user decision");
     expect(userCheckpointPhase?.contract).toContain("not treat this as a terminal phase");
     expect(userCheckpointPhase?.leaderBrief).toContain("findings, options, tradeoffs, and a recommendation");
     expect(userCheckpointPhase?.leaderBrief).toContain("takode notify needs-input");
@@ -212,6 +212,26 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase?.assigneeBrief).toContain("load `takode-orchestration`");
       expect(phase?.assigneeBrief).toContain("Query board state only when");
     }
+  });
+
+  it("seeds User review check ownership into Memory, Port, Review, and User Checkpoint briefs", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const phases = await loadBuiltInQuestJourneyPhases({ companionHome });
+    const memoryPhase = phases.find((phase) => phase.id === "memory");
+    const portPhase = phases.find((phase) => phase.id === "port");
+    const codeReviewPhase = phases.find((phase) => phase.id === "code-review");
+    const outcomeReviewPhase = phases.find((phase) => phase.id === "outcome-review");
+    const userCheckpointPhase = phases.find((phase) => phase.id === "user-checkpoint");
+
+    expect(memoryPhase?.leaderBrief).toContain("final `User review checks` settlement");
+    expect(memoryPhase?.assigneeBrief).toContain("Settle final `User review checks`");
+    expect(portPhase?.leaderBrief).toContain("Do not ask Port to author final `User review checks`");
+    expect(portPhase?.assigneeBrief).toContain("Do not author final `User review checks`");
+    expect(codeReviewPhase?.assigneeBrief).toContain("Treat proposed agent-owned final `User review checks`");
+    expect(outcomeReviewPhase?.assigneeBrief).toContain("does not author final `User review checks`");
+    expect(userCheckpointPhase?.leaderBrief).toContain("not final `User review checks`");
   });
 
   it("seeds Code Review briefs with comprehensive review and rework checkpoint guidance", async () => {

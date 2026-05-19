@@ -181,7 +181,7 @@ export function formatQuestDetail(
   if ("verificationItems" in q) {
     const items = (q as { verificationItems: { text: string; checked: boolean }[] }).verificationItems;
     const checked = items.filter((i) => i.checked).length;
-    lines.push(`Verification: ${checked}/${items.length}`);
+    lines.push(`User review checks: ${checked}/${items.length}`);
     lines.push(
       `Inbox:        ${hasQuestReviewMetadata(q) ? (isVerificationInboxUnreadQuest(q) ? "unread (Review Inbox)" : "acknowledged (under review)") : "n/a"}`,
     );

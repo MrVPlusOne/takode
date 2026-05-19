@@ -12,6 +12,7 @@ Leader actions:
 - Ask for an outcome judgment tied to concrete evidence.
 - Keep the reviewer scoped to judging sufficiency of the existing evidence, with only small bounded reruns or repros when needed for acceptance.
 - Require the reviewer to call out any tracked docs, instructions, tests, fixtures, generated templates, changelog, or other tracked-artifact gaps proven by the outcome evidence. Those gaps route to Implement/Code Review/Port or follow-up work; final Memory may route them but must not patch them.
+- Require the reviewer to call out proposed final `User review checks` that are really agent-owned evidence. Outcome Review should document evidence and acceptance judgment, not convert Execute, review, Port, push, or post-port verification into final user checks.
 - Require reviewers to judge phase documentation quality, not just presence: phase relevance, useful full detail, TLDR completeness when appropriate, and correct phase association when the phase-scoped primitive is available.
 - Require the reviewer to add or refresh documentation for the outcome-review phase before reporting back, using phase-scoped quest feedback with full agent-oriented detail plus TLDR metadata when working on a quest.
 - If this is the final substantive phase before a zero-tracked-change or no-Port quest enters Memory, final debrief evidence should be clear enough for the Memory owner to finish metadata. Ask the reviewer for `Final debrief draft:` and `Debrief TLDR draft:` when that context is otherwise likely to be lost.

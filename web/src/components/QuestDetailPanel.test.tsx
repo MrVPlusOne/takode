@@ -1113,12 +1113,13 @@ describe("QuestDetailPanel", () => {
     expect(text.indexOf("Initial quest description.")).toBeLessThan(text.indexOf("Debrief TLDR without full debrief."));
   });
 
-  it("renders verification items with correct checked state", () => {
+  it("renders User review checks with correct checked state", () => {
     const quest = makeVerificationQuest();
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
 
     render(<QuestDetailPanel />);
 
+    expect(screen.getByText("User review checks", { selector: "label" })).toBeTruthy();
     expect(screen.getByText("Sidebar no overflow on iPhone SE")).toBeTruthy();
     expect(screen.getByText("Scroll works")).toBeTruthy();
 
@@ -1517,8 +1518,7 @@ describe("QuestDetailPanel", () => {
     expect(screen.getAllByText("Idea").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByPlaceholderText("Leave feedback...")).toBeTruthy();
     expect(screen.getByText("Add Feedback")).toBeTruthy();
-    // No verification checklist section (the word "Verification" in dropdown doesn't count)
-    expect(screen.queryByText("Verification", { selector: "label" })).toBeNull();
+    expect(screen.queryByText("User review checks", { selector: "label" })).toBeNull();
     expect(screen.queryByText("Notes")).toBeNull();
   });
 
