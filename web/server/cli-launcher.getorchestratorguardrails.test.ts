@@ -473,7 +473,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
     expect(guardrails).toContain("Every completed non-cancelled quest ends in Memory");
     expect(guardrails).toContain(
-      "Completion without final Memory closure, final debrief metadata, and debrief TLDR metadata is incomplete",
+      "Completion without final Memory closure, final User review check settlement, final debrief metadata, and debrief TLDR metadata is incomplete",
     );
     expect(guardrails).toContain("omits `port` but still ends in `memory`");
     expect(guardrails).toContain("attach their synced SHAs before final Memory");
