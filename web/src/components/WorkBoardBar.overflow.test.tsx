@@ -104,13 +104,22 @@ function getPhaseColor(status: string): string | undefined {
 }
 
 function setMeasuredRailWidth(width: number, threadTabWidth = width) {
+  setMeasuredRailWidthWithThreadResolver(width, () => threadTabWidth);
+}
+
+function setMeasuredRailWidthByThreadKey(width: number, threadTabWidths: Record<string, number>) {
+  setMeasuredRailWidthWithThreadResolver(width, (threadKey) => threadTabWidths[threadKey] ?? width);
+}
+
+function setMeasuredRailWidthWithThreadResolver(width: number, threadTabWidthForKey: (threadKey: string) => number) {
   vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    const threadKey = this.getAttribute("data-thread-key");
     const measuredWidth =
       this.getAttribute("data-testid") === "thread-tab-strip" ||
       this.getAttribute("data-testid") === "thread-tabs-more-button"
         ? width
-        : this.getAttribute("data-thread-tab-width-source") === "true"
-          ? threadTabWidth
+        : this.getAttribute("data-thread-tab-width-source") === "true" && threadKey
+          ? threadTabWidthForKey(threadKey)
           : width;
     return {
       x: 0,
@@ -217,6 +226,49 @@ describe("WorkBoardBar overflow tabs", () => {
       expect(tab).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
       expect(tab).not.toHaveClass("flex-none");
     }
+  });
+
+  it("preserves each sortable tab width when hover freezes close target geometry", () => {
+    setMeasuredRailWidthByThreadKey(960, {
+      main: 241.5,
+      "q-1": 303.75,
+      "q-2": 287.25,
+    });
+
+    const view = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="q-1"
+        openThreadKeys={["q-1", "q-2"]}
+        onReorderThreadTabs={vi.fn()}
+        threadRows={THREAD_ROWS.slice(0, 2)}
+      />,
+    );
+
+    const strip = view.getByTestId("thread-tab-strip");
+    const mainTab = view.getByTestId("thread-main-tab");
+    const q1Tab = view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+    const q2Tab = view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-2")!;
+
+    expect(strip).toHaveAttribute("data-close-target-width-frozen", "false");
+    expect(q1Tab).toHaveAttribute("data-thread-tab-width-source", "true");
+
+    fireEvent.pointerEnter(strip, { pointerType: "mouse" });
+
+    expect(strip).toHaveAttribute("data-close-target-width-frozen", "true");
+    expect(strip.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 241.5px");
+    expect(mainTab.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 241.5px");
+    expect(q1Tab.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 303.75px");
+    expect(q2Tab.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 287.25px");
+    expect(q1Tab).toHaveClass("w-[var(--thread-tab-frozen-width)]", "flex-none");
+    expect(q2Tab).toHaveClass("w-[var(--thread-tab-frozen-width)]", "flex-none");
+
+    fireEvent.pointerLeave(strip, { pointerType: "mouse" });
+
+    expect(view.getByTestId("thread-tab-strip")).toHaveAttribute("data-close-target-width-frozen", "false");
+    expect(view.getAllByTestId("thread-tab")[0]?.getAttribute("style") ?? "").not.toContain(
+      "--thread-tab-frozen-width",
+    );
   });
 
   it("does not freeze tab widths for touch entry", () => {

@@ -84,6 +84,11 @@ const FLUID_THREAD_TAB_SIZE_CLASS = "min-w-[var(--thread-tab-width)] max-w-[14re
 const FROZEN_THREAD_TAB_SIZE_CLASS =
   "min-w-[var(--thread-tab-frozen-width)] w-[var(--thread-tab-frozen-width)] max-w-[var(--thread-tab-frozen-width)] flex-none";
 
+interface FrozenThreadTabGeometry {
+  fallbackWidth: number;
+  widthsByThreadKey: Record<string, number>;
+}
+
 export interface CompactThreadTabPartition<T> {
   visibleTabs: T[];
   hiddenTabs: T[];
@@ -173,6 +178,45 @@ function compactThreadTabWidthForRail(railWidth?: number | null): number {
   return COMPACT_DESKTOP_THREAD_TAB_WIDTH;
 }
 
+function readFrozenThreadTabGeometry(tabStrip: HTMLElement): FrozenThreadTabGeometry | null {
+  const widthSources = tabStrip.querySelectorAll<HTMLElement>("[data-thread-tab-width-source='true']");
+  const widthsByThreadKey: Record<string, number> = {};
+  let fallbackWidth: number | null = null;
+
+  for (const source of widthSources) {
+    const threadKey = normalizeThreadKey(source.dataset.threadKey ?? "");
+    if (!threadKey) continue;
+
+    const width = source.getBoundingClientRect().width;
+    if (width <= 0) continue;
+
+    fallbackWidth ??= width;
+    widthsByThreadKey[threadKey] = width;
+  }
+
+  if (!fallbackWidth) return null;
+  return { fallbackWidth, widthsByThreadKey };
+}
+
+function frozenThreadTabGeometryEqual(
+  left: FrozenThreadTabGeometry | null,
+  right: FrozenThreadTabGeometry | null,
+): boolean {
+  if (left === right) return true;
+  if (!left || !right) return false;
+  if (left.fallbackWidth !== right.fallbackWidth) return false;
+  const leftKeys = Object.keys(left.widthsByThreadKey);
+  const rightKeys = Object.keys(right.widthsByThreadKey);
+  return (
+    leftKeys.length === rightKeys.length &&
+    leftKeys.every((key) => right.widthsByThreadKey[key] === left.widthsByThreadKey[key])
+  );
+}
+
+function frozenThreadTabWidthValue(width: number): string {
+  return `${Number(width.toFixed(3))}px`;
+}
+
 function stringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<string>): boolean {
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
@@ -259,6 +303,7 @@ interface PrimaryThreadChip {
 function SortableThreadTabContainer({
   tab,
   className,
+  style: tabStyle,
   title,
   minLabel,
   activeOutput,
@@ -270,6 +315,7 @@ function SortableThreadTabContainer({
 }: {
   tab: PrimaryThreadChip;
   className: string;
+  style?: CSSProperties;
   title?: string;
   minLabel?: string;
   activeOutput: boolean;
@@ -285,6 +331,7 @@ function SortableThreadTabContainer({
 }) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({ id: tab.threadKey });
   const style: CSSProperties = {
+    ...tabStyle,
     transform: CSS.Transform.toString(constrainThreadTabTransformToHorizontal(transform)),
     transition,
     ...(isDragging ? { opacity: 0.78, zIndex: 30 } : {}),
@@ -307,6 +354,7 @@ function SortableThreadTabContainer({
       data-min-label={minLabel ?? tab.questId ?? tab.threadKey}
       data-closable={tab.canClose ? "true" : "false"}
       data-has-quest-hover={hoverQuest ? "true" : "false"}
+      data-thread-tab-width-source="true"
       data-reorderable="true"
       data-dragging={isDragging ? "true" : "false"}
     >
@@ -776,7 +824,7 @@ function ThreadTabRail({
   const hideQuestHoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const tabStripRef = useRef<HTMLDivElement | null>(null);
   const [railWidth, setRailWidth] = useState<number | null>(null);
-  const [frozenThreadTabWidth, setFrozenThreadTabWidth] = useState<number | null>(null);
+  const [frozenThreadTabGeometry, setFrozenThreadTabGeometry] = useState<FrozenThreadTabGeometry | null>(null);
   const [moreTabsOpen, setMoreTabsOpen] = useState(false);
   const [reorderMode, setReorderMode] = useState(false);
   const [draftReorderKeys, setDraftReorderKeys] = useState<string[]>([]);
@@ -905,16 +953,16 @@ function ThreadTabRail({
 
   function freezeCloseTargetGeometry(event: ReactPointerEvent<HTMLDivElement>) {
     if (event.pointerType !== "mouse") return;
-    const widthSource = tabStripRef.current?.querySelector<HTMLElement>("[data-thread-tab-width-source='true']");
-    if (!widthSource) return;
+    const tabStrip = tabStripRef.current;
+    if (!tabStrip) return;
 
-    const width = Math.floor(widthSource.getBoundingClientRect().width);
-    if (width <= 0) return;
-    setFrozenThreadTabWidth((existing) => (existing === width ? existing : width));
+    const geometry = readFrozenThreadTabGeometry(tabStrip);
+    if (!geometry) return;
+    setFrozenThreadTabGeometry((existing) => (frozenThreadTabGeometryEqual(existing, geometry) ? existing : geometry));
   }
 
   function releaseFrozenCloseTargetGeometry() {
-    setFrozenThreadTabWidth(null);
+    setFrozenThreadTabGeometry(null);
   }
 
   function releaseCloseTargetGeometry(event: ReactPointerEvent<HTMLDivElement>) {
@@ -947,11 +995,18 @@ function ThreadTabRail({
   const needsInputHidden = hiddenTabs.some((tab) => tab.needsInput);
   const blueNudgeHidden = hiddenTabs.some((tab) => tab.blueNudge);
   const showBlueNudgeHidden = blueNudgeHidden && !needsInputHidden;
-  const threadTabSizeClass = frozenThreadTabWidth ? FROZEN_THREAD_TAB_SIZE_CLASS : FLUID_THREAD_TAB_SIZE_CLASS;
+  const threadTabSizeClass = frozenThreadTabGeometry ? FROZEN_THREAD_TAB_SIZE_CLASS : FLUID_THREAD_TAB_SIZE_CLASS;
+  const frozenFallbackWidth = frozenThreadTabGeometry?.fallbackWidth;
   const tabStripStyle = {
     "--thread-tab-width": `${compactThreadTabWidthForRail(railWidth)}px`,
-    ...(frozenThreadTabWidth ? { "--thread-tab-frozen-width": `${frozenThreadTabWidth}px` } : {}),
+    ...(frozenFallbackWidth ? { "--thread-tab-frozen-width": frozenThreadTabWidthValue(frozenFallbackWidth) } : {}),
   } as CSSProperties;
+  const frozenThreadTabStyle = (threadKey: string): CSSProperties | undefined => {
+    if (!frozenThreadTabGeometry) return undefined;
+    const width =
+      frozenThreadTabGeometry.widthsByThreadKey[normalizeThreadKey(threadKey)] ?? frozenThreadTabGeometry.fallbackWidth;
+    return { "--thread-tab-frozen-width": frozenThreadTabWidthValue(width) } as CSSProperties;
+  };
 
   return (
     <div
@@ -969,8 +1024,8 @@ function ThreadTabRail({
         className="relative flex min-w-0 items-end gap-1 overflow-visible"
         data-testid="thread-tab-strip"
         data-overflow-mode="more-tabs"
-        data-close-target-width-frozen={frozenThreadTabWidth ? "true" : "false"}
-        data-frozen-thread-tab-width={frozenThreadTabWidth ?? ""}
+        data-close-target-width-frozen={frozenThreadTabGeometry ? "true" : "false"}
+        data-frozen-thread-tab-width={frozenFallbackWidth ?? ""}
         onPointerEnter={freezeCloseTargetGeometry}
         onPointerLeave={releaseCloseTargetGeometry}
         aria-label="Thread tabs"
@@ -986,6 +1041,7 @@ function ThreadTabRail({
                 : (mainState?.title ?? "Main Thread")
           }
           className={`relative inline-flex ${threadTabSizeClass} items-center gap-1.5 overflow-hidden rounded-t-md border px-2 py-1 text-[11px] font-medium transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-violet-100/70 focus-visible:ring-inset ${mainTone}`}
+          style={frozenThreadTabStyle(MAIN_THREAD_KEY)}
           data-testid="thread-main-tab"
           data-thread-key={MAIN_THREAD_KEY}
           data-thread-tab-width-source="true"
@@ -1076,6 +1132,7 @@ function ThreadTabRail({
                   key={tab.threadKey}
                   tab={tab}
                   className={className}
+                  style={frozenThreadTabStyle(tab.threadKey)}
                   title={title}
                   minLabel={displayQuestId ?? tab.threadKey}
                   activeOutput={activeOutput}
@@ -1093,6 +1150,7 @@ function ThreadTabRail({
                   onMouseEnter={mouseEnter}
                   onMouseLeave={hoverQuest ? scheduleQuestHoverHide : undefined}
                   className={className}
+                  style={frozenThreadTabStyle(tab.threadKey)}
                   data-testid="thread-tab"
                   data-thread-key={tab.threadKey}
                   data-thread-tab-width-source="true"
