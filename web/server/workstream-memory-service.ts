@@ -30,7 +30,7 @@ export class WorkstreamMemoryService {
     return resolveMemoryRepo(options);
   }
 
-  resolveSpaceOptions(input?: { serverSlug?: string; root?: string }) {
+  resolveSpaceOptions(input?: { serverSlug?: string; root?: string; expectedSessionSpaceSlugs?: string[] }) {
     return resolveMemoryOptionsForSpace(input);
   }
 

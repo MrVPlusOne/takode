@@ -16,6 +16,7 @@ export interface MemoryRepoOptions {
   serverId?: string;
   serverSlug?: string;
   sessionSpaceSlug?: string;
+  expectedSessionSpaceSlugs?: string[];
   readOnly?: boolean;
 }
 

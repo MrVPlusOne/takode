@@ -238,6 +238,64 @@ Takode-owned memory.
     expect(otherIndex).toEqual(expect.objectContaining({ sessionSpaceSlug: "Other", root: otherRoot }));
   });
 
+  it("discovers expected current-server session spaces without migrating sibling data", async () => {
+    delete process.env.COMPANION_MEMORY_DIR;
+    process.env.HOME = tempDir;
+    process.env.COMPANION_SERVER_ID = "same-server";
+    process.env.COMPANION_SERVER_SLUG = "prod";
+    process.env.COMPANION_MEMORY_SPACE_SLUG = "Takode";
+    const takodeRoot = join(tempDir, ".companion", "memory", "prod", "Takode");
+    const msiRoot = join(tempDir, ".companion", "memory", "prod", "MSI");
+
+    await memoryStore.ensureMemoryRepo();
+    await writeFile(
+      join(takodeRoot, "current", "takode.md"),
+      `---
+description: Takode data must stay put.
+source:
+  - q-1343
+---
+
+Takode-owned memory.
+`,
+      "utf-8",
+    );
+
+    const spaces = await memoryStore.listMemorySpaces({ expectedSessionSpaceSlugs: ["MSI"] });
+    expect(spaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slug: "prod",
+          root: msiRoot,
+          current: false,
+          initialized: false,
+          hasAuthoredData: false,
+          sessionSpaceSlug: "MSI",
+          serverId: "same-server",
+        }),
+      ]),
+    );
+
+    const options = await memoryStore.resolveMemoryOptionsForSpace({
+      root: msiRoot,
+      expectedSessionSpaceSlugs: ["MSI"],
+    });
+    expect(options).toEqual(
+      expect.objectContaining({
+        root: msiRoot,
+        serverSlug: "prod",
+        sessionSpaceSlug: "MSI",
+        readOnly: false,
+        serverId: "same-server",
+      }),
+    );
+
+    const msiRepo = await memoryStore.ensureMemoryRepo(options);
+    expect(msiRepo.root).toBe(msiRoot);
+    await expect(readFile(join(takodeRoot, "current", "takode.md"), "utf-8")).resolves.toContain("Takode-owned");
+    await expect(readFile(join(msiRoot, "current", "takode.md"), "utf-8")).rejects.toThrow();
+  });
+
   it("rejects rename to a non-empty slug without rewriting the server index", async () => {
     delete process.env.COMPANION_MEMORY_DIR;
     process.env.HOME = tempDir;

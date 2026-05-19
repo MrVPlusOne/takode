@@ -31,7 +31,12 @@ describe("memory routes", () => {
   async function makeApp() {
     const { createMemoryRoutes } = await import("./memory.js");
     const app = new Hono();
-    app.route("/", createMemoryRoutes({} as never));
+    app.route(
+      "/",
+      createMemoryRoutes({
+        launcher: { getMemorySessionSpaceSlug: () => "Takode" },
+      } as never),
+    );
     return app;
   }
 
@@ -92,6 +97,54 @@ source:
         }),
       ]),
     );
+  });
+
+  it("lists tree-group session spaces before their memory repo exists", async () => {
+    // Verifies Memory UI discovery includes current-server tree groups such as MSI,
+    // then initializes that repo only when the user explicitly opens the space.
+    const treeGroupsPath = join(home, "tree-groups.json");
+    const treeGroupStore = await import("../tree-group-store.js");
+    treeGroupStore._resetForTest(treeGroupsPath);
+    await treeGroupStore.setState({
+      groups: [
+        { id: "default", name: "Default" },
+        { id: "msi", name: "MSI" },
+      ],
+      assignments: { "session-1": "msi" },
+      nodeOrder: {},
+    });
+    await treeGroupStore._flushForTest();
+
+    const app = await makeApp();
+    const msiRoot = join(home, ".companion", "memory", "prod", "MSI");
+    const spacesRes = await app.request("/memory/spaces");
+
+    expect(spacesRes.status).toBe(200);
+    const spaces = await spacesRes.json();
+    expect(spaces.spaces).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          slug: "prod",
+          root: msiRoot,
+          current: false,
+          initialized: false,
+          hasAuthoredData: false,
+          sessionSpaceSlug: "MSI",
+          serverId: "server-test",
+        }),
+      ]),
+    );
+
+    const catalogRes = await app.request(`/memory/catalog?root=${encodeURIComponent(msiRoot)}`);
+    expect(catalogRes.status).toBe(200);
+    const catalog = await catalogRes.json();
+    expect(catalog.repo).toMatchObject({
+      root: msiRoot,
+      serverSlug: "prod",
+      sessionSpaceSlug: "MSI",
+      initialized: true,
+    });
+    expect(catalog.entries).toEqual([]);
   });
 
   it("returns catalog health, lock, dirty status, provenance, and recent commits", async () => {

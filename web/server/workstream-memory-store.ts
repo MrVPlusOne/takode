@@ -92,11 +92,11 @@ export function resolveMemoryRepo(options: MemoryRepoOptions = {}): MemoryRepoIn
 }
 
 export async function resolveMemoryOptionsForSpace(
-  input: { serverSlug?: string; root?: string } = {},
+  input: { serverSlug?: string; root?: string; expectedSessionSpaceSlugs?: string[] } = {},
 ): Promise<MemoryRepoOptions> {
   const requestedRoot = input.root?.trim();
   if (requestedRoot) {
-    const spaces = await listMemorySpaces();
+    const spaces = await listMemorySpaces({ expectedSessionSpaceSlugs: input.expectedSessionSpaceSlugs });
     const space = spaces.find((item) => resolve(item.root) === resolve(requestedRoot));
     if (!space) {
       throw new Error(`Unknown memory space root: ${requestedRoot}`);
@@ -112,7 +112,7 @@ export async function resolveMemoryOptionsForSpace(
     return { serverSlug: normalizedSlug };
   }
 
-  const spaces = await listMemorySpaces();
+  const spaces = await listMemorySpaces({ expectedSessionSpaceSlugs: input.expectedSessionSpaceSlugs });
   const sibling = spaces.find((space) => !space.current && normalizeServerSlug(space.slug) === normalizedSlug);
   if (!sibling) {
     return { serverSlug: normalizedSlug };
@@ -248,6 +248,29 @@ export async function listMemorySpaces(options: MemoryRepoOptions = {}): Promise
     index: currentIndex,
   });
 
+  for (const expectedSlug of options.expectedSessionSpaceSlugs ?? []) {
+    const sessionSpaceSlug = normalizeSessionSpaceSlug(expectedSlug);
+    const root = join(
+      resolved.baseRoot,
+      sanitizeSlugForPath(resolved.serverSlug),
+      sanitizeSlugForPath(sessionSpaceSlug),
+    );
+    const index = serverIndex.find(
+      (item) =>
+        resolve(item.root) === resolve(root) ||
+        (item.serverId === resolved.serverId &&
+          item.serverSlug === resolved.serverSlug &&
+          item.sessionSpaceSlug === sessionSpaceSlug),
+    );
+    await addSpace({
+      slug: index?.serverSlug || resolved.serverSlug,
+      root: index?.root || root,
+      current: resolve(index?.root || root) === resolve(currentRepo.root),
+      serverId: index?.serverId || resolved.serverId,
+      index,
+    });
+  }
+
   for (const entry of await safeReaddir(resolved.baseRoot)) {
     if (!entry.isDirectory() || entry.name.startsWith(".")) continue;
     const root = join(resolved.baseRoot, entry.name);
@@ -274,11 +297,12 @@ export async function listMemorySpaces(options: MemoryRepoOptions = {}): Promise
 }
 
 function memoryOptionsForSpace(space: MemorySpaceInfo): MemoryRepoOptions {
+  const current = resolveMemoryRepoInternal();
   return {
     root: space.root,
     serverSlug: space.slug,
     ...(space.sessionSpaceSlug ? { sessionSpaceSlug: space.sessionSpaceSlug } : {}),
-    readOnly: !space.current,
+    readOnly: space.serverId !== current.serverId,
     ...(space.serverId ? { serverId: space.serverId } : {}),
   };
 }

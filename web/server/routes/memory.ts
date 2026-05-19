@@ -1,5 +1,7 @@
 import { Hono } from "hono";
 import type { MemoryLintIssue } from "../workstream-memory-types.js";
+import { memorySessionSpaceSlugsForTreeGroups } from "../session-memory-space.js";
+import * as treeGroupStore from "../tree-group-store.js";
 import type { RouteContext } from "./context.js";
 
 interface MemoryIssueCounts {
@@ -46,20 +48,33 @@ function parseRecentLimit(value: string | undefined): number {
   return Math.min(Math.max(parsed, 1), 100);
 }
 
-async function resolveMemorySpaceOptions(c: { req: { query: (name: string) => string | undefined } }) {
+async function expectedSessionSpaceSlugs(ctx: RouteContext): Promise<string[]> {
+  return memorySessionSpaceSlugsForTreeGroups(
+    await treeGroupStore.getState(),
+    ctx.launcher.getMemorySessionSpaceSlug(),
+  );
+}
+
+async function resolveMemorySpaceOptions(
+  ctx: RouteContext,
+  c: { req: { query: (name: string) => string | undefined } },
+) {
   const { workstreamMemoryService } = await import("../workstream-memory-service.js");
   return workstreamMemoryService.resolveSpaceOptions({
     serverSlug: c.req.query("serverSlug"),
     root: c.req.query("root"),
+    expectedSessionSpaceSlugs: await expectedSessionSpaceSlugs(ctx),
   });
 }
 
-export function createMemoryRoutes(_ctx: RouteContext) {
+export function createMemoryRoutes(ctx: RouteContext) {
   const api = new Hono();
 
   api.get("/memory/spaces", async (c) => {
     const { workstreamMemoryService } = await import("../workstream-memory-service.js");
-    const spaces = await workstreamMemoryService.spaces();
+    const spaces = await workstreamMemoryService.spaces({
+      expectedSessionSpaceSlugs: await expectedSessionSpaceSlugs(ctx),
+    });
     const current = spaces.find((space) => space.current) ?? spaces[0] ?? null;
     return c.json({
       currentServerId: current?.serverId ?? "",
@@ -73,7 +88,7 @@ export function createMemoryRoutes(_ctx: RouteContext) {
     const { workstreamMemoryService } = await import("../workstream-memory-service.js");
     let options;
     try {
-      options = await resolveMemorySpaceOptions(c);
+      options = await resolveMemorySpaceOptions(ctx, c);
     } catch (error) {
       return c.json({ error: error instanceof Error ? error.message : String(error) }, 400);
     }
@@ -109,7 +124,7 @@ export function createMemoryRoutes(_ctx: RouteContext) {
 
     const { workstreamMemoryService } = await import("../workstream-memory-service.js");
     try {
-      const options = await resolveMemorySpaceOptions(c);
+      const options = await resolveMemorySpaceOptions(ctx, c);
       const record = await workstreamMemoryService.readRecord(path, options);
       const catalog = await workstreamMemoryService.catalog(options);
       return c.json({
@@ -130,7 +145,7 @@ export function createMemoryRoutes(_ctx: RouteContext) {
 
     const { workstreamMemoryService } = await import("../workstream-memory-service.js");
     try {
-      const options = await resolveMemorySpaceOptions(c);
+      const options = await resolveMemorySpaceOptions(ctx, c);
       const update = await workstreamMemoryService.commitDiff(options, sha);
       if (!update) return c.json({ error: "memory update not found" }, 404);
       return c.json(update);

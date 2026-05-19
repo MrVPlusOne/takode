@@ -79,8 +79,13 @@ const packageRoot = process.env.__COMPANION_PACKAGE_ROOT || resolve(__dirname, "
 
 import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD, RESTART_EXIT_CODE } from "./constants.js";
 import { createLogger, flushServerLogger, initServerLogger } from "./server-logger.js";
-import { initTreeGroupStoreForServer, reconcileSessionTreeGroups } from "./tree-group-store.js";
+import {
+  getState as getTreeGroupState,
+  initTreeGroupStoreForServer,
+  reconcileSessionTreeGroups,
+} from "./tree-group-store.js";
 import { initNewSessionDefaultsStoreForServer } from "./new-session-defaults-store.js";
+import { planSessionMemorySpaceBackfill } from "./session-memory-space.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
 const port = Number(process.env.PORT) || defaultPort;
@@ -186,13 +191,23 @@ await wsBridge.restoreFromDisk();
   const restoredSessions = (
     Array.from(bridgeAny.sessions.values()) as Array<{
       id: string;
-      state: { treeGroupId?: string };
+      state: { treeGroupId?: string; memorySessionSpaceSlug?: string };
     }>
   ).map((session) => ({
     sessionId: session.id,
     treeGroupId: session.state.treeGroupId,
+    memorySessionSpaceSlug: session.state.memorySessionSpaceSlug,
   }));
   const reconciliation = await reconcileSessionTreeGroups(restoredSessions);
+  const resolvedTreeGroups = await getTreeGroupState();
+  const memoryBackfillUpdates = planSessionMemorySpaceBackfill(
+    restoredSessions.map((session) => ({
+      ...session,
+      treeGroupId: reconciliation.resolvedGroups[session.sessionId] ?? session.treeGroupId,
+    })),
+    resolvedTreeGroups,
+    launcher.getMemorySessionSpaceSlug(),
+  );
   for (const update of reconciliation.sessionMetadataUpdates) {
     const session = wsBridge.getSession(update.sessionId);
     if (session) {
@@ -203,10 +218,24 @@ await wsBridge.restoreFromDisk();
     persisted.state.treeGroupId = update.treeGroupId;
     sessionStore.saveSync(persisted);
   }
-  if (reconciliation.changed || reconciliation.sessionMetadataUpdates.length > 0) {
+  for (const update of memoryBackfillUpdates) {
+    launcher.setMemorySessionSpaceSlug(update.sessionId, update.memorySessionSpaceSlug);
+    const session = wsBridge.getSession(update.sessionId);
+    if (session) {
+      session.state.treeGroupId = update.treeGroupId;
+      session.state.memorySessionSpaceSlug = update.memorySessionSpaceSlug;
+    }
+    const persisted = await sessionStore.load(update.sessionId);
+    if (!persisted) continue;
+    persisted.state.treeGroupId = update.treeGroupId;
+    persisted.state.memorySessionSpaceSlug = update.memorySessionSpaceSlug;
+    sessionStore.saveSync(persisted);
+  }
+  if (reconciliation.changed || reconciliation.sessionMetadataUpdates.length > 0 || memoryBackfillUpdates.length > 0) {
     serverLog.info(
       `Reconciled session tree groups for ${restoredSessions.length} session(s): ` +
         `metadataUpdates=${reconciliation.sessionMetadataUpdates.length}, ` +
+        `memorySpaceUpdates=${memoryBackfillUpdates.length}, ` +
         `legacyAssignments=${reconciliation.importedLegacyAssignments.length}, ` +
         `legacyGroups=${reconciliation.importedLegacyGroups.length}`,
     );
