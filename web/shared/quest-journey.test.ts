@@ -241,7 +241,7 @@ describe("Quest Journey phases", () => {
       expect.objectContaining({
         assigneeRole: "worker",
         boardState: "USER_CHECKPOINTING",
-        contract: expect.stringContaining("required user decision"),
+        contract: expect.stringContaining("required mid-Journey user decision"),
         nextLeaderAction: expect.stringContaining("notify the user"),
         aliases: expect.arrayContaining(["user-decision", "decision-checkpoint", "user-approval"]),
       }),

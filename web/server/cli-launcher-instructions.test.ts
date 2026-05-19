@@ -269,7 +269,7 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Bookkeeping is compatibility-only for targeted intermediate durable state");
     expect(result).toContain("Every completed non-cancelled quest ends in Memory");
     expect(result).toContain(
-      "Completion without final Memory closure, final debrief metadata, and debrief TLDR metadata is incomplete",
+      "Completion without final Memory closure, final User review check settlement, final debrief metadata, and debrief TLDR metadata is incomplete",
     );
     expect(result).toContain("omits `port` but still ends in `memory`");
     expect(result).toContain("attach their synced SHAs before final Memory");

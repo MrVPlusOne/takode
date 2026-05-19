@@ -162,7 +162,8 @@ describe("index startup skill registration", () => {
     expect(source).toContain("--debrief-file /tmp/final-debrief.md");
     expect(source).toContain("--debrief-tldr-file /tmp/final-debrief-tldr.md");
     expect(source).toContain("Port is not final quest closure");
-    expect(source).toContain("final Memory owns structured final debrief metadata");
+    expect(source).toContain("final Memory owns final User review check settlement");
+    expect(source).toContain("structured final debrief metadata");
     expect(source).toContain("Final debrief draft:");
     expect(source).toContain("Debrief TLDR draft:");
     expect(source).toContain("accepted-state summary");
