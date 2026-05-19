@@ -17,7 +17,13 @@ const mockTranscribe = vi.hoisted(() =>
 );
 const mockToggleRecording = vi.hoisted(() => vi.fn());
 const voiceOptions = vi.hoisted(() => ({ current: null as UseVoiceInputOptions | null }));
-const voiceState = vi.hoisted(() => ({ current: { isRecording: false } }));
+const voiceState = vi.hoisted(() => ({
+  current: {
+    isRecording: false,
+    volumeLevel: 0,
+    volumeHistory: [] as Array<{ time: number; level: number }>,
+  },
+}));
 
 vi.mock("../api.js", () => ({
   api: {
@@ -37,8 +43,8 @@ vi.mock("../hooks/useVoiceInput.js", () => ({
       isTranscribing: false,
       transcriptionPhase: null,
       error: null,
-      volumeLevel: 0,
-      volumeHistory: [],
+      volumeLevel: voiceState.current.volumeLevel,
+      volumeHistory: voiceState.current.volumeHistory,
       setIsTranscribing: vi.fn(),
       setTranscriptionPhase: vi.fn(),
       setError: vi.fn(),
@@ -78,6 +84,8 @@ describe("NeedsInputAnswerField", () => {
     mockToggleRecording.mockClear();
     voiceOptions.current = null;
     voiceState.current.isRecording = false;
+    voiceState.current.volumeLevel = 0;
+    voiceState.current.volumeHistory = [];
   });
 
   it("auto-expands textarea height up to a capped internal scroll area", () => {
@@ -141,6 +149,37 @@ describe("NeedsInputAnswerField", () => {
     );
     expect(insertTextAtSelection("ship later", "now", { value: "ship later", start: 5, end: 10 })).toBe("ship now");
     expect(insertTextAtSelection("changed", " later", { value: "stale", start: 5, end: 5 })).toBe("changed later");
+  });
+
+  it("shows composer-style recording feedback and an active stop button while recording", () => {
+    voiceState.current.isRecording = true;
+    voiceState.current.volumeLevel = 0.72;
+    voiceState.current.volumeHistory = [
+      { time: 1, level: 0.18 },
+      { time: 2, level: 0.42 },
+      { time: 3, level: 0.84 },
+    ];
+
+    render(
+      <NeedsInputAnswerField
+        sessionId="s1"
+        notification={notification}
+        question={question}
+        questionCount={1}
+        value="ship now"
+        onChange={vi.fn()}
+        placeholder="Your answer"
+      />,
+    );
+
+    const stopButton = screen.getByRole("button", { name: "Stop voice answer" });
+    expect(stopButton).toHaveAttribute("aria-pressed", "true");
+    expect(stopButton).toHaveAttribute("data-recording", "true");
+    expect(stopButton.className).toContain("bg-cc-primary");
+    expect(screen.getByTestId("needs-input-recording-status")).toHaveTextContent("Recording");
+    expect(screen.getByTestId("voice-level-waveform")).toBeInTheDocument();
+    expect(screen.getAllByTestId("voice-level-waveform-bar")).toHaveLength(40);
+    expect(screen.queryByText("Recording...")).not.toBeInTheDocument();
   });
 
   it("preserves the start-time selection baseline when stopping recording after the answer changes", async () => {

@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, type MouseEvent } from "react";
 import { api, type VoiceTranscriptionPhase } from "../api.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
+import type { VoiceLevelSample } from "./composer-voice-types.js";
 import type { SessionNotification } from "../types.js";
 import type { NeedsInputQuestionView } from "../utils/notification-questions.js";
+import { VoiceRecordingStatus } from "./VoiceRecordingStatus.js";
 import {
   buildNeedsInputVoiceFocusedContext,
   insertTextAtSelection,
@@ -75,6 +77,8 @@ export function NeedsInputAnswerField({
     setTranscriptionPhase,
     setError,
     toggleRecording,
+    volumeLevel,
+    volumeHistory,
   } = useVoiceInput({
     onAudioReady: (blob) => {
       void transcribeAnswer(blob);
@@ -169,9 +173,7 @@ export function NeedsInputAnswerField({
           ? "Enhancing transcript..."
           : isTranscribing
             ? "Transcribing..."
-            : isRecording
-              ? "Recording..."
-              : null;
+            : null;
   const voiceButtonTitle = isRecording
     ? "Stop voice answer"
     : voiceSupported
@@ -200,13 +202,14 @@ export function NeedsInputAnswerField({
           type="button"
           onClick={handleVoiceClick}
           disabled={isTranscribing || isPreparing}
+          data-recording={isRecording ? "true" : undefined}
           aria-label={voiceButtonTitle}
           aria-pressed={isRecording}
           aria-disabled={!voiceSupported || isTranscribing || isPreparing}
           title={voiceButtonTitle}
           className={`flex h-7 w-7 shrink-0 items-center justify-center rounded border transition-colors ${
             isRecording
-              ? "border-cc-attention-border bg-cc-attention-bg text-cc-attention"
+              ? "border-cc-primary bg-cc-primary text-white ring-2 ring-cc-primary/30"
               : isTranscribing || isPreparing
                 ? "cursor-wait border-cc-border/60 text-cc-muted opacity-70"
                 : voiceSupported
@@ -220,11 +223,30 @@ export function NeedsInputAnswerField({
           </svg>
         </button>
       </div>
+      {isRecording && <NeedsInputRecordingStatus volumeLevel={volumeLevel} volumeHistory={volumeHistory} />}
       {(phaseLabel || error) && (
         <div className={`mt-1 text-[10px] leading-snug ${error ? "text-cc-attention" : "text-cc-muted"}`}>
           {error ?? phaseLabel}
         </div>
       )}
     </div>
+  );
+}
+
+export function NeedsInputRecordingStatus({
+  volumeLevel,
+  volumeHistory,
+}: {
+  volumeLevel: number;
+  volumeHistory: VoiceLevelSample[];
+}) {
+  return (
+    <VoiceRecordingStatus
+      currentLevel={volumeLevel}
+      samples={volumeHistory}
+      testId="needs-input-recording-status"
+      className="mt-1.5 flex-wrap rounded-md border border-cc-primary/20 bg-cc-primary/5 px-2 py-1.5"
+      waveformClassName="min-w-[64px] max-w-[112px] flex-1"
+    />
   );
 }

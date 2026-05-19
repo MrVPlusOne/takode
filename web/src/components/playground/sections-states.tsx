@@ -15,6 +15,7 @@ import {
 import { HighlightedText } from "../HighlightedText.js";
 import { PawTrailAvatar } from "../PawTrail.js";
 import { UniversalSearchOverlay } from "../UniversalSearchOverlay.js";
+import { VoiceLevelWaveform } from "../VoiceRecordingStatus.js";
 import type { MessageSearchResponse } from "../../api.js";
 import type { ChatMessage, CreationProgressEvent, SdkSessionInfo } from "../../types.js";
 import { MOCK_SUBAGENT_TOOL_ITEMS, MOCK_TOOL_GROUP_ITEMS } from "./fixtures.js";
@@ -57,27 +58,8 @@ const PLAYGROUND_UNIVERSAL_SESSIONS: SdkSessionInfo[] = [
 const PLAYGROUND_VOICE_HISTORY = [0.08, 0.18, 0.35, 0.68, 0.82, 0.44, 0.16, 0.1, 0.28, 0.58, 0.72, 0.24];
 
 function PlaygroundVoiceHistory() {
-  const waveformLevels = [...PLAYGROUND_VOICE_HISTORY, 0.64];
-
-  return (
-    <div
-      aria-label="Current and recent input level"
-      className="relative flex h-4 w-[72px] sm:w-[112px] shrink-0 items-center gap-[1px] overflow-hidden rounded-[3px] border border-cc-primary/20 bg-cc-primary/5 px-[2px] py-[2px]"
-    >
-      {waveformLevels.map((level, index) => (
-        <span
-          key={index}
-          data-current-sample={index === waveformLevels.length - 1 ? "true" : undefined}
-          className="relative z-10 min-w-0 flex-1 rounded-full bg-cc-primary"
-          style={{
-            height: `${Math.max(2, Math.round(2 + level * 12))}px`,
-            opacity: Math.max(0.28, 0.38 + level * 0.62),
-          }}
-        />
-      ))}
-      <span className="pointer-events-none absolute left-[2px] right-[2px] top-1/2 h-px -translate-y-1/2 bg-cc-primary/20" />
-    </div>
-  );
+  const volumeHistory = PLAYGROUND_VOICE_HISTORY.map((level, index) => ({ time: index, level }));
+  return <VoiceLevelWaveform currentLevel={0.64} samples={volumeHistory} />;
 }
 
 const PLAYGROUND_UNIVERSAL_MESSAGE_RESPONSE: MessageSearchResponse = {
