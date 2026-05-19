@@ -99,13 +99,17 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("normal worker and reviewer sessions use ordinary assistant text");
     expect(result).toContain("After that text is visible, call `takode notify needs-input`");
     expect(result).toContain("Do not fire the notification before the detailed text is visible");
+    expect(result).toContain("Any user wait, including approvals, confirmations");
+    expect(result).toContain("never represent a user wait only with `Thread Waiting`");
+    expect(result).toContain("`Thread Waiting` or `takode notify waiting`");
     expect(result).toContain("one to three `--suggest <answer>` options");
     expect(result).toContain("never use suggestions instead of writing the full context in chat");
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");
     expect(result).toContain("global orchestration, worker-slot scheduling, shared resource safety");
     expect(result).toContain("`waiting`");
-    expect(result).toContain("Legacy CLI status for sessions that are parked on non-user work");
+    expect(result).toContain("Legacy CLI status for sessions that are parked on non-user work only");
     expect(result).toContain("Leader/orchestrator threads should prefer inline `Thread Waiting` markers");
+    expect(result).toContain("Use `Thread Waiting` only for non-user waits");
   });
 
   it("includes global resource lease guidance for shared dev-server and browser work", () => {
@@ -171,8 +175,11 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("route back deliberately: `implement`");
     expect(result).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(result).toContain("After that user-visible text exists, call `takode notify needs-input`");
+    expect(result).toContain("Any user wait, including approvals, confirmations");
+    expect(result).toContain("never represent a user wait only with `Thread Waiting`");
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");
     expect(result).toContain("Treat a prompt as global only when the visible question explicitly concerns");
+    expect(result).toContain("`Thread Waiting` is only for non-user waits such as workers, reviewers, timers");
     expect(result).toContain("Process herd events and continue unrelated quests normally");
     expect(result).toContain("## Memory-Aware Orchestration");
     expect(result).toContain("Use `memory catalog show` visibly");
@@ -200,6 +207,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("send the changed worktree back to Code Review only after that checkpoint exists");
     expect(result).toContain("does not apply to purely read-only follow-up review discussion");
     expect(result).toContain("blocks only the thread, quest, or board row it concerns");
+    expect(result).toContain("Any user wait, including approvals, confirmations");
+    expect(result).toContain("never represent a user wait only with `Thread Waiting`");
     expect(result).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
     expect(result).toContain("small bounded reruns or repros");
     expect(result).toContain("approval-gated runs");
