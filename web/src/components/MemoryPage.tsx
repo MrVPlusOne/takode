@@ -710,7 +710,10 @@ function UpdateDiffDetail({
 
           <section className="rounded-md border border-cc-border bg-cc-bg/30 p-3">
             <h3 className="text-xs font-semibold uppercase tracking-wide text-cc-muted">Diff</h3>
-            <div className="mt-3 min-w-0 overflow-hidden rounded-md border border-cc-border bg-cc-bg/50">
+            <div
+              className="mt-3 max-w-full min-w-0 overflow-x-auto rounded-md border border-cc-border bg-cc-bg/50"
+              data-testid="memory-update-diff-scroll"
+            >
               <DiffViewer
                 unifiedDiff={diff}
                 mode="full"

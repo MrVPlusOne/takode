@@ -246,6 +246,10 @@ function otherRecordResponse(): MemoryRecordResponse {
 }
 
 function updateDiffResponse(commit = recentCommit()): MemoryUpdateDiffResponse {
+  const longAddedLine =
+    "+Service X long diagnostic: " +
+    "alpha-beta-gamma-delta-epsilon-zeta-eta-theta-iota-kappa-lambda-mu-nu-xi-omicron-pi-rho-sigma-tau";
+
   return {
     repo: catalogResponse().repo,
     commit,
@@ -260,6 +264,7 @@ function updateDiffResponse(commit = recentCommit()): MemoryUpdateDiffResponse {
       " ---",
       "-Service X is started through an old command.",
       "+Service X is started through the updated command.",
+      longAddedLine,
       "",
     ].join("\n"),
   };
@@ -335,6 +340,12 @@ describe("MemoryPage", () => {
     expect(await screen.findByText("Selected update")).toBeInTheDocument();
     expect(screen.queryByText("Selected record")).not.toBeInTheDocument();
     expect(screen.getByTestId("memory-update-detail-body")).toBeInTheDocument();
+    // Long diff lines should scroll inside the diff frame instead of being clipped by its wrapper.
+    const diffScroll = screen.getByTestId("memory-update-diff-scroll");
+    expect(diffScroll).toHaveClass("min-w-0", "max-w-full", "overflow-x-auto");
+    expect(diffScroll).not.toHaveClass("overflow-hidden");
+    expect(diffScroll.querySelector(".diff-sticky-file-headers")).toBeTruthy();
+    expect(diffScroll.querySelector(".diff-gutter")).toBeTruthy();
     expect(screen.getAllByText("service-x.md").length).toBeGreaterThan(0);
     expect(
       (
@@ -343,6 +354,11 @@ describe("MemoryPage", () => {
         )
       ).length,
     ).toBeGreaterThan(0);
+    expect(
+      Array.from(diffScroll.querySelectorAll(".diff-content")).some((element) =>
+        element.textContent?.includes("alpha-beta-gamma-delta-epsilon"),
+      ),
+    ).toBe(true);
     await waitFor(() =>
       expect(mockGetMemoryUpdateDiff).toHaveBeenCalledWith({
         root: "/Users/test/.companion/memory/prod/Takode",
