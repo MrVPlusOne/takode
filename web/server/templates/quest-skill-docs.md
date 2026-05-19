@@ -139,7 +139,7 @@ Use value-based compression instead of hard length caps. High-value phase-note c
 
 For phase-note TLDRs, write 1-5 scan-friendly bullets or sentences after the full body. Preserve conclusions, decisions, evidence, blockers, risks, handoff facts, and phase-specific outcomes. Synced SHA lists, raw commit hashes, branch names, command transcripts, exact routine verification commands, raw paths, and routine file lists should stay out of TLDR space unless that exact detail is central to understanding the phase.
 
-Keep the memory boundary explicit. Quest phase notes should answer what happened in this phase and what the next phase needs. File-based memory should preserve durable cross-quest knowledge, procedures, decisions, references, and artifact manifests. A phase note normally needs only one memory outcome line or a pointer to the memory commit when memory matters.
+Keep the memory boundary explicit. Quest phase notes should answer what happened in this phase and what the next phase needs. File-based memory should preserve durable cross-quest knowledge, procedures, decisions, references, and artifact manifests. Non-Memory phases should not add routine `memory update not needed` statements. Include memory-specific evidence only when material, such as `memory updated`, `memory update deferred`, durable user decisions/preferences, memory files inspected for a reason, artifact manifests, or other facts final Memory needs.
 
 If your context was compacted during the phase, or if memory confidence is low, reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, use working memory and current artifacts instead of unnecessary session archaeology.
 
@@ -162,7 +162,7 @@ Write phase documentation for the phase that just ran:
 - Execute: approved action, monitor and stop conditions, outcome, deviations, artifact or log locations, cleanup or retention decisions, residual risks, and follow-up needs. Keep raw logs out unless the excerpt is the evidence.
 - Outcome Review: evidence judged, ACCEPT or insufficiency rationale, bounded reruns, residual risks, and follow-up routing. Avoid turning it into a second Execute transcript.
 - User Checkpoint: findings, options, tradeoffs, recommendation, required user answer, actual user decision when known, and Journey-revision implications.
-- Port: ordered synced SHAs, post-port verification categories, port anomalies, remaining sync risks, memory statement, and accepted-state context final Memory will need. Omit branch command transcripts unless recovery depended on them.
+- Port: ordered synced SHAs, post-port verification categories, port anomalies, remaining sync risks, accepted-state context final Memory will need, and memory-specific evidence only when material. Omit branch command transcripts unless recovery depended on them.
 - Memory: final debrief metadata status or drafts, quest hygiene changes, memory files inspected, memory update or deferral, external durable-state records, cleanup, follow-up routing, and residual risks.
 - Bookkeeping: records updated, superseded facts, external locations, durable handoff facts, and targeted memory updates or deferrals for legacy/intermediate flows. Avoid replaying the whole quest when a targeted consolidation or memory pointer is enough.
 

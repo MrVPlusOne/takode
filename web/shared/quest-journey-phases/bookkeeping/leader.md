@@ -9,7 +9,7 @@ Leader actions:
 - Include the exact assignee brief path in the instruction: `~/.companion/quest-journey-phases/bookkeeping/assignee.md`.
 - Define exactly which shared facts, locations, or handoff records must be updated.
 - When the durable state belongs in file-based memory, specify the intended memory responsibility (`current/`, `knowledge/`, `procedures/`, `decisions/`, `references/`, or `artifacts/`) plus any context-specific memory deltas the assignee cannot infer: relevant files or terms already inspected, source evidence, accepted decisions, freshness concerns, migration/audit constraints, or a required curator. The assignee brief owns the standard catalog-first reading, `memory catalog diff` freshness check, direct-file inspection, write-lock, lint, diff, commit, release, and no-init mechanics.
-- When memory is in scope, rely on the assignee brief for the single required memory statement. Override only with a context-specific expectation, such as a required durable write or known deferral owner.
+- When memory writing or durable-memory triage is in scope, rely on the assignee brief for the single required memory statement. Override only with a context-specific expectation, such as a required durable write or known deferral owner.
 - Use final Memory, not Bookkeeping, as the normal owner for final debrief metadata and debrief TLDR before completing a non-cancelled quest.
 - Treat superseded or stale facts as part of the bookkeeping scope.
 - Require the assignee to add or refresh phase documentation before the phase handoff. It should use phase-scoped quest feedback with full agent-oriented detail plus TLDR metadata when working on a quest, falling back to explicit `--phase bookkeeping` if current-phase inference is unavailable.

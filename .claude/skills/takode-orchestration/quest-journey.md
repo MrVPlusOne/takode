@@ -54,7 +54,7 @@ Use `--kind phase-finding` for exploration findings, `--kind review` for review 
 
 Use value-based compression for phase documentation instead of hard length caps. Keep phase-local decisions, blockers, recovery context, review judgments, user choices, external artifact state, residual risks, and next-phase handoff facts. Cut or compress file-by-file diff narration, exhaustive command transcripts, routine green test lists, branch hygiene narration, copied tool output, generic review checklists, and repeated commit metadata that Git or Questmaster already preserves. Include low-level detail only when it explains non-obvious risk, recovery, verification, or external state. If the actor's context was compacted during the phase, or if memory confidence is low, they should reconstruct relevant facts with `takode scan`, `takode peek`, `takode read`, quest feedback, and local artifacts before documenting. If context is intact, they should use working memory and current artifacts instead of unnecessary session archaeology.
 
-Keep the memory boundary explicit: quest phase notes say what happened in this phase and what the next phase needs; file-based memory stores durable cross-quest knowledge, procedures, decisions, references, and artifact manifests. A phase note usually needs only one memory outcome line or memory commit pointer when memory matters.
+Keep the memory boundary explicit: quest phase notes say what happened in this phase and what the next phase needs; file-based memory stores durable cross-quest knowledge, procedures, decisions, references, and artifact manifests. Non-Memory phases should not add routine `memory update not needed` statements. Include memory-specific evidence only when material, such as `memory updated`, `memory update deferred`, durable user decisions/preferences, memory files inspected for a reason, artifact manifests, or other facts final Memory needs.
 
 For valuable nontrivial phase outcomes, the assignee may run `takode worker-stream` once the substantive result is ready so the leader can start reading while required paperwork finishes. Treat worker-stream output as an early internal checkpoint only: it is optional, not mandatory ceremony, and it does not replace phase documentation, final debrief metadata, or leader-owned phase transitions.
 
@@ -67,7 +67,7 @@ Phase documentation should stay specific to the phase:
 - Execute: approved action, monitors, stop conditions, outcome, deviations, artifact or log locations, cleanup or retention decisions, residual risks, and follow-up needs. Keep raw logs out unless the excerpt is the evidence.
 - Outcome Review: evidence judged, ACCEPT or insufficiency rationale, bounded reruns, residual risks, and follow-up routing. Avoid turning it into a second Execute transcript.
 - User Checkpoint: findings, options, tradeoffs, recommendation, required user answer, actual user decision when known, and Journey-revision implications.
-- Port: ordered synced SHAs, post-port verification categories, port anomalies, remaining sync risks, memory statement, and accepted-state context final Memory will need. Omit branch command transcripts unless recovery depended on them.
+- Port: ordered synced SHAs, post-port verification categories, port anomalies, remaining sync risks, accepted-state context final Memory will need, and memory-specific evidence only when material. Omit branch command transcripts unless recovery depended on them.
 - Memory: final debrief metadata status or drafts, quest hygiene changes, memory files inspected, memory update or deferral, external durable-state records, cleanup, follow-up routing, and residual risks.
 - Bookkeeping: records updated, superseded facts, external locations, durable handoff facts, and targeted memory updates or deferrals for legacy/intermediate flows. Avoid replaying the whole quest when a targeted consolidation or memory pointer is enough.
 
@@ -77,7 +77,7 @@ Review phases must judge documentation quality, not just presence. Check phase r
 
 Takode memory is a Git-tracked Markdown repo scoped to the current server/session space. Normal `memory` commands auto-create the repo at `~/.companion/memory/<serverSlug>/<sessionSpace>` when needed, such as `~/.companion/memory/prod/Takode`, so agents do not need a separate init step. It is a shared aid for durable state, not a hidden instruction channel. After compaction or low-confidence recovery, recover session and quest context first. If durable memory may affect the work, leaders and workers should use visible reads: run `memory catalog show`, treat the catalog as the triage map, inspect plausible catalog-listed Markdown files directly, and use targeted `rg` under `$(memory repo path)` only when catalog or known context makes a match plausible. Use `memory catalog diff` as a freshness check for final Memory, and for Port or Outcome Review when memory matters for final handoff, debrief accuracy, durable decisions, or memory-writing choices; do not run it constantly, and do not treat it as a replacement for direct file inspection. If the catalog shows no plausible relevant topic, type, or source, skip blind repo-wide memory search and continue from session, quest, code, or artifact evidence. Use `memory repo path` and `memory --help` to rediscover the repo and command surface.
 
-Memory writes are explicit Journey responsibility. A phase actor may update memory when they learned durable shared facts, changed live coordination state, produced external artifacts, or accepted a decision/preference that should survive the quest. Final Memory is the normal owner for end-of-quest memory closure; if the update is useful but not synchronous, route it through Memory or an approved curator instead of blocking the current phase.
+Memory writes are explicit Journey responsibility. A phase actor may update memory when they learned durable shared facts, changed live coordination state, produced external artifacts, or accepted a decision/preference that should survive the quest. Final Memory is the normal owner for end-of-quest memory closure; if the update is useful but not synchronous, route it through Memory or an approved curator instead of blocking the current phase. Non-Memory phases should preserve material memory evidence, not routine no-op memory bookkeeping.
 
 Memory authoring uses one repo-level lock and direct file edits:
 
@@ -90,10 +90,12 @@ memory commit --message "..." --source "quest:q-N" --memory-id "<id>"
 memory lock release
 ```
 
-Every relevant phase report, Port handoff, or final debrief should include exactly one memory statement:
+Final Memory must include exactly one memory statement after catalog/direct-file triage:
 - `memory updated: <commit>`
 - `memory update deferred: <reason or curator>`
 - `memory update not needed: <reason>`
+
+Non-Memory phases should include `memory updated` or `memory update deferred` only when memory writing was explicitly assigned or the phase discovered a durable-memory candidate. Otherwise, preserve the accepted-state, artifact, user-decision, risk, and handoff facts final Memory needs without adding a routine `memory update not needed` line.
 
 ## Recommended Default
 

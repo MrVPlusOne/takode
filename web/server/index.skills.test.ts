@@ -129,6 +129,7 @@ describe("index startup skill registration", () => {
 
     expect(source).toContain("Memory command mechanics live in the relevant phase briefs");
     expect(source).toContain("include only memory-specific deltas");
+    expect(source).toContain("Non-Memory phases should not add routine `memory update not needed` statements");
     expect(source).toContain("The Port assignee brief owns the standard report shape");
     expect(source).toContain("Your handoff should add only context-dependent deltas");
     expect(source).toContain("Leader-specific deltas for this port");
@@ -165,6 +166,7 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Final debrief draft:");
     expect(source).toContain("Debrief TLDR draft:");
     expect(source).toContain("accepted-state summary");
+    expect(source).toContain("Do not add routine `memory update not needed` statements during Port");
     expect(source).toContain("self-contained quest-journey understanding");
     expect(source).toContain("Keep routine commit hashes, branch names, command lists");
   });

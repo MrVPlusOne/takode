@@ -75,9 +75,11 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("references/");
     expect(result).toContain("artifacts/");
     expect(result).toContain("memory lock acquire --owner");
+    expect(result).toContain("final Memory must include exactly one memory statement");
     expect(result).toContain("memory updated: <commit>");
     expect(result).toContain("memory update deferred: <reason or curator>");
     expect(result).toContain("memory update not needed: <reason>");
+    expect(result).toContain("Non-Memory phases should not add routine `memory update not needed` statements");
   });
 
   it("includes worktree guardrails when worktree is provided", () => {
@@ -154,6 +156,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("Use value-based compression instead of hard length caps");
     expect(result).toContain("file-by-file diff narration");
     expect(result).toContain("Keep the memory boundary explicit");
+    expect(result).toContain("Non-Memory phases should not add routine `memory update not needed` statements");
     expect(result).toContain("Provide only deltas the actor is unlikely to infer");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");
@@ -247,6 +250,7 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Use value-based compression instead of hard length caps");
     expect(result).toContain("file-by-file diff narration");
     expect(result).toContain("Keep the memory boundary explicit");
+    expect(result).toContain("include memory-specific evidence only when material");
     expect(result).toContain("Worker-stream checkpoints are optional early visibility");
     expect(result).toContain("takode worker-stream");
     expect(result).toContain("do not let it replace phase documentation");

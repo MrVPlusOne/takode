@@ -285,6 +285,11 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase.assigneeBrief).toContain("Use value-based compression instead of hard length caps");
       expect(phase.assigneeBrief).toContain("file-by-file diff narration");
       expect(phase.assigneeBrief).toContain("Keep the memory boundary explicit");
+      if (phase.id !== "memory" && phase.id !== "bookkeeping" && phase.id !== "port") {
+        expect(phase.assigneeBrief).toContain(
+          "Non-Memory phases should not add routine `memory update not needed` statements",
+        );
+      }
       expect(phase.assigneeBrief).toContain("current-phase inference");
       expect(phase.assigneeBrief).toContain("--no-phase");
       expect(phase.assigneeBrief).toContain("If context was compacted during this phase");
@@ -343,6 +348,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory updated: <commit>");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory update deferred: <reason or curator>");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory update not needed: <reason>");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("when memory writing or durable-memory triage was in scope");
   });
 
   it("seeds Memory briefs as mandatory final durable-state closure", async () => {
@@ -387,7 +393,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.leaderBrief).toContain("context-specific memory deltas");
     expect(portPhase?.leaderBrief).toContain("memory files or decisions already inspected");
     expect(portPhase?.leaderBrief).toContain("assignee brief owns the standard catalog-first reading");
-    expect(portPhase?.leaderBrief).toContain("memory-statement mechanics");
+    expect(portPhase?.leaderBrief).toContain("material memory-evidence rules");
     expect(portPhase?.leaderBrief).toContain("Keep durable memory writing out of normal Port");
     expect(portPhase?.leaderBrief).toContain("explicitly assign it");
     expect(portPhase?.leaderBrief).toContain("route a curator");
@@ -400,7 +406,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.assigneeBrief).toContain("inspect relevant memory files directly");
     expect(portPhase?.assigneeBrief).toContain("Port does not normally author durable memory");
     expect(portPhase?.assigneeBrief).toContain("memory update deferred: <Memory/curator/reason>");
-    expect(portPhase?.assigneeBrief).toContain("memory update not needed: <reason>");
+    expect(portPhase?.assigneeBrief).toContain("Do not add routine `memory update not needed` statements");
     expect(portPhase?.assigneeBrief).toContain("memory updated: <commit>");
     expect(portPhase?.assigneeBrief).toContain("only when memory writing was explicitly assigned to Port");
     expect(portPhase?.assigneeBrief).not.toContain("memory lock acquire");
@@ -409,7 +415,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.assigneeBrief).not.toContain("memory diff");
     expect(portPhase?.assigneeBrief).not.toContain("memory commit");
     expect(portPhase?.assigneeBrief).toContain("Document ordered synced SHAs");
-    expect(portPhase?.assigneeBrief).toContain("memory statement");
+    expect(portPhase?.assigneeBrief).toContain("accepted-state or memory-specific context");
   });
 
   it("seeds Port briefs with the strong code/test pre-push verification gate", async () => {
