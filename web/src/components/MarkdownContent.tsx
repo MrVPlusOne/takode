@@ -906,6 +906,15 @@ function FileMarkdownLink({
       }
       e.preventDefault();
       if (!resolvedTarget) return;
+      try {
+        const info = await resolveFileLinkAction(actionTarget);
+        if (info.isImage) {
+          setPreviewUrl(buildFileLinkPreviewUrl(actionTarget));
+          return;
+        }
+      } catch (error) {
+        console.warn("[MarkdownContent] Failed to resolve file link before preview; opening in editor.", error);
+      }
       let openTarget = resolvedTarget;
       if (resolvedTarget.fallbackAbsolutePath) {
         try {
@@ -923,7 +932,7 @@ function FileMarkdownLink({
         showEditorOpenError(error instanceof Error ? error.message : String(error));
       }
     },
-    [openEditorTarget, resolvedTarget],
+    [actionTarget, openEditorTarget, resolvedTarget],
   );
 
   const locationSuffix = formatFileLinkLocation(target);

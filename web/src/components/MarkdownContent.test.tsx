@@ -1081,6 +1081,91 @@ describe("MarkdownContent quest links", () => {
     });
   });
 
+  it("opens image file links in Takode preview on left click instead of the editor", async () => {
+    // Left-click should now use the same file-link preview behavior that was
+    // previously only reachable from the context menu for supported images.
+    mockResolveFileLinkAction.mockResolvedValue({
+      absolutePath: "/repo/artifacts/preview.png",
+      requestedPath: "artifacts/preview.png",
+      exists: true,
+      isFile: true,
+      isDirectory: false,
+      isImage: true,
+      mimeType: "image/png",
+      canRevealInFinder: true,
+      platform: "darwin",
+    });
+    setRepoSession();
+
+    render(<MarkdownContent text="[preview](file:artifacts/preview.png)" />);
+    fireEvent.click(screen.getByRole("link", { name: "preview" }));
+
+    const image = await screen.findByTestId("lightbox-image");
+    expect(image.getAttribute("src")).toContain("/api/fs/file-link/preview?");
+    expect(image.getAttribute("src")).toContain("path=artifacts%2Fpreview.png");
+    expect(image.getAttribute("src")).toContain("sessionId=s1");
+    expect(mockGetSettings).not.toHaveBeenCalled();
+    expect(mockOpenVsCodeRemoteFile).not.toHaveBeenCalled();
+  });
+
+  it("keeps non-image file-link left clicks on the editor-open path", async () => {
+    // Non-image links must preserve the established default even though click
+    // handling now asks the backend whether a target is previewable.
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-non-image" });
+    mockResolveFileLinkAction.mockResolvedValue({
+      absolutePath: "/repo/web/src/app.ts",
+      requestedPath: "web/src/app.ts",
+      exists: true,
+      isFile: true,
+      isDirectory: false,
+      isImage: false,
+      canRevealInFinder: false,
+      platform: "linux",
+    });
+    setRepoSession();
+
+    render(<MarkdownContent text="[app](file:web/src/app.ts)" />);
+    fireEvent.click(screen.getByRole("link", { name: "app" }));
+
+    await waitFor(() => {
+      expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+        absolutePath: "/repo/web/src/app.ts",
+        line: 1,
+        column: 1,
+      });
+    });
+    expect(screen.queryByTestId("lightbox-image")).toBeNull();
+  });
+
+  it("falls back to the editor-open path when file-link preview detection fails", async () => {
+    // Backend resolution is used to detect supported images, but a transient
+    // resolve failure should not strand normal file-link clicks.
+    window.history.replaceState({}, "", "/?takodeHost=vscode");
+    mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
+    mockOpenVsCodeRemoteFile.mockResolvedValue({ ok: true, sourceId: "window-a", commandId: "cmd-fallback" });
+    mockResolveFileLinkAction.mockRejectedValue(new Error("resolve unavailable"));
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    setRepoSession();
+
+    try {
+      render(<MarkdownContent text="[app](file:web/src/app.ts)" />);
+      fireEvent.click(screen.getByRole("link", { name: "app" }));
+
+      await waitFor(() => {
+        expect(mockOpenVsCodeRemoteFile).toHaveBeenCalledWith({
+          absolutePath: "/repo/web/src/app.ts",
+          line: 1,
+          column: 1,
+        });
+      });
+      expect(warnSpy).toHaveBeenCalled();
+    } finally {
+      warnSpy.mockRestore();
+    }
+  });
+
   it("parses GitHub-style line fragments on standard Markdown repo file links", async () => {
     window.history.replaceState({}, "", "/?takodeHost=vscode");
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "vscode-remote" } });
