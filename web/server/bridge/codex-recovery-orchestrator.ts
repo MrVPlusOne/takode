@@ -28,7 +28,12 @@ import {
 } from "./codex-turn-queue.js";
 import { requestCodexAutoRecovery as requestCodexAutoRecoveryController } from "./session-registry-controller.js";
 import { normalizeLeaderAssistantRouting } from "./thread-routing-reminder.js";
+import type { ThreadRouteMetadata } from "../thread-routing-metadata.js";
 import { isSessionPaused } from "../session-pause.js";
+import {
+  appendCodexLeaderRecoveryDiagnostic,
+  leaderRouteFromRecoveredAssistant,
+} from "./codex-leader-recovery-diagnostic.js";
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
 const CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP = 2;
 const CODEX_INIT_RETRY_BASE_DELAY_MS = 1_000;
@@ -1361,7 +1366,8 @@ export function reconcileCodexResumedTurn(
     retryPendingCodexTurn(session, pending, deps);
     return;
   }
-  const recoveredAgents = recoverAgentMessagesFromResumedTurn(session, lastTurn, pending, deps);
+  const recoveredAgentMessages = recoverAgentMessagesFromResumedTurn(session, lastTurn, pending, deps);
+  const recoveredAgents = recoveredAgentMessages.count;
   const synthesizedResults = deps.synthesizeCodexToolResultsFromResumedTurn(session, lastTurn, pending);
   if (lastTurn.status === "inProgress") {
     if (recoveredAgents > 0 || synthesizedResults > 0) {
@@ -1389,6 +1395,7 @@ export function reconcileCodexResumedTurn(
   if (recoveredAgents > 0 && hasIncompleteRecoveredMessagesWithoutTerminalEvidence(lastTurn, snapshot.threadStatus)) {
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
+    let leaderRecoveryDiagnosticRoute: ThreadRouteMetadata | null = null;
     if (hasInterruptedAssistantOnlyRecoveryWithoutTerminalEvidence(lastTurn, snapshot.threadStatus)) {
       const retryCount = (pending as any).assistantOnlyResumeRetries ?? 0;
       if (retryCount < CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP) {
@@ -1403,6 +1410,7 @@ export function reconcileCodexResumedTurn(
       console.warn(
         `[ws-bridge] Assistant-only resume retry cap (${CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP}) exhausted for session ${sessionTag(session.id)}; falling back to diagnostic`,
       );
+      leaderRecoveryDiagnosticRoute = recoveredAgentMessages.latestLeaderRoute;
     }
     completeRecoveredCodexTurnWithDiagnostic(
       session,
@@ -1410,6 +1418,7 @@ export function reconcileCodexResumedTurn(
       "codex_resume_incomplete_recovered_messages",
       "Codex disconnected mid-turn and recovered partial assistant/tool activity, but no final response was recovered. Automatic retry was skipped to avoid duplicate side effects.",
       deps,
+      { leaderDiagnosticRoute: leaderRecoveryDiagnosticRoute },
     );
     return;
   }
@@ -1546,10 +1555,12 @@ function completeRecoveredCodexTurnWithDiagnostic(
   reason: string,
   message: string,
   deps: CodexRecoveryOrchestratorDeps,
+  options: { leaderDiagnosticRoute?: ThreadRouteMetadata | null } = {},
 ): void {
   deps.completeCodexTurn(session, pending);
   clearGeneratingAfterRecoveredCompletedTurnIfIdle(session, reason, deps);
   reconcileRecoveredQueuedTurnLifecycle(session, reason, deps);
+  if (options.leaderDiagnosticRoute) appendCodexLeaderRecoveryDiagnostic(session, options.leaderDiagnosticRoute, deps);
   deps.dispatchQueuedCodexTurns(session, reason);
   reconcileRecoveredQueuedTurnLifecycle(session, `${reason}_dispatched`, deps);
   deps.maybeFlushQueuedCodexMessages(session, reason);
@@ -1684,8 +1695,10 @@ function recoverAgentMessagesFromResumedTurn(
   turn: CodexResumeTurnSnapshot,
   pending: CodexOutboundTurn,
   deps: CodexRecoveryOrchestratorDeps,
-): number {
+): { count: number; latestLeaderRoute: ThreadRouteMetadata | null } {
   let matchedOrRecovered = 0;
+  let latestLeaderRoute: ThreadRouteMetadata | null = null;
+  const isLeaderSession = isLeaderSessionForRecoveredAssistantRouting(session);
   const baseTs = pending.disconnectedAt ?? Date.now();
   for (let i = 0; i < turn.items.length; i++) {
     const item = turn.items[i];
@@ -1694,8 +1707,9 @@ function recoverAgentMessagesFromResumedTurn(
     if (!text.trim()) continue;
     const itemId = typeof item.id === "string" ? item.id : `${turn.id}-${i}`;
     const assistantId = `codex-agent-${itemId}`;
-    const alreadyExists = session.messageHistory.some((m) => m.type === "assistant" && m.message?.id === assistantId);
+    const alreadyExists = session.messageHistory.find((m) => m.type === "assistant" && m.message?.id === assistantId);
     if (alreadyExists) {
+      latestLeaderRoute = leaderRouteFromRecoveredAssistant(isLeaderSession, alreadyExists) ?? latestLeaderRoute;
       matchedOrRecovered++;
       continue;
     }
@@ -1732,9 +1746,10 @@ function recoverAgentMessagesFromResumedTurn(
     };
     session.messageHistory.push(assistant);
     deps.broadcastToBrowsers(session, assistant);
+    latestLeaderRoute = leaderRouteFromRecoveredAssistant(isLeaderSession, assistant) ?? latestLeaderRoute;
     matchedOrRecovered++;
   }
-  return matchedOrRecovered;
+  return { count: matchedOrRecovered, latestLeaderRoute };
 }
 export function reconcileRecoveredQueuedTurnLifecycle(
   session: CodexRecoveryOrchestratorSessionLike,

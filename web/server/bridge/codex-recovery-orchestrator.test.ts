@@ -660,9 +660,7 @@ describe("reconcileCodexResumedTurn", () => {
     expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(session, expect.objectContaining({ type: "error" }));
   });
 
-  it("falls back to diagnostic when assistant-only resume retry cap is exhausted", () => {
-    // q-1224: after the bounded retry cap is reached, fall through to the
-    // existing incomplete-turn diagnostic so the user gets visibility.
+  it("persists a routed leader diagnostic when assistant-only resume retry cap is exhausted", () => {
     const request = "prepare cartoon portrait icon variants from my reference images";
     const partial = "[thread:main] I read all three references and will frame this as a separate quest.";
     const session = makeSession([
@@ -710,6 +708,79 @@ describe("reconcileCodexResumedTurn", () => {
     );
 
     expect(deps.setGenerating).toHaveBeenCalledWith(session, false, "codex_resume_incomplete_recovered_messages");
+    const diagnostic = session.messageHistory.at(-1) as Extract<BrowserIncomingMessage, { type: "user_message" }>;
+    expect(diagnostic.type).toBe("user_message");
+    expect(diagnostic.threadKey).toBe("main");
+    expect(diagnostic.agentSource).toEqual({
+      sessionId: "system:codex-leader-recovery-diagnostic",
+      sessionLabel: "Codex Recovery Diagnostic",
+    });
+    expect(diagnostic.content).toContain("automatic recovery exhausted");
+    expect(diagnostic.content).toContain("No further automatic retry will run");
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(session, diagnostic);
+    expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "error",
+        message: expect.stringContaining("no final response was recovered"),
+      }),
+    );
+  });
+
+  it("does not persist the leader diagnostic for non-orchestrator retry-cap exhaustion", () => {
+    const request = "continue the work";
+    const partial = "Recovered partial worker text.";
+    const session = makeSession([{ id: "input-1", content: request, timestamp: 1_000, cancelable: false }]);
+    session.isGenerating = true;
+    const pending = makePendingTurn();
+    pending.userContent = request;
+    pending.turnId = "turn-interrupted";
+    pending.disconnectedAt = 2_000;
+    (pending as any).assistantOnlyResumeRetries = 2;
+    session.pendingCodexTurns = [pending];
+    const deps = makeRecoveryDeps({
+      completeCodexTurn: vi.fn(
+        (targetSession: CodexRecoveryOrchestratorSessionLike, turn: CodexOutboundTurn | null) => {
+          if (turn) turn.status = "completed";
+          targetSession.pendingCodexTurns = [];
+          return true;
+        },
+      ),
+    });
+
+    reconcileCodexResumedTurn(
+      session,
+      {
+        threadId: "thread-history",
+        turnCount: 1,
+        threadStatus: "idle",
+        turns: [],
+        lastTurn: {
+          id: "turn-interrupted",
+          status: "interrupted",
+          error: null,
+          items: [
+            { type: "userMessage", content: [{ type: "text", text: request }] },
+            { type: "agentMessage", id: "item-1", text: partial },
+          ],
+        },
+      } as CodexResumeSnapshot,
+      deps,
+    );
+
+    expect(session.messageHistory).not.toContainEqual(
+      expect.objectContaining({
+        type: "user_message",
+        agentSource: expect.objectContaining({ sessionId: "system:codex-leader-recovery-diagnostic" }),
+      }),
+    );
+    expect(deps.broadcastToBrowsers).not.toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({
+        type: "user_message",
+        agentSource: expect.objectContaining({ sessionId: "system:codex-leader-recovery-diagnostic" }),
+      }),
+    );
     expect(deps.broadcastToBrowsers).toHaveBeenCalledWith(
       session,
       expect.objectContaining({

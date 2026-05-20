@@ -83,7 +83,7 @@ function makeDeps() {
     reconcileReplayState: vi.fn(() => ({ clearedResidualState: false })),
     drainInlineQueuedClaudeTurns: vi.fn(() => false),
     markTurnInterrupted: vi.fn(),
-    getCurrentTurnTriggerSource: vi.fn(() => "user" as const),
+    getCurrentTurnTriggerSource: vi.fn((): "user" | "leader" | "system" | "unknown" => "user"),
     reconcileTerminalResultState: vi.fn(),
     finalizeOrphanedTerminalToolsOnResult: vi.fn(),
     refreshGitInfoThenRecomputeDiff: vi.fn(),
@@ -247,6 +247,39 @@ describe("result-message-controller", () => {
     expect(deps.validateLeaderThreadOutcomes).not.toHaveBeenCalled();
     expect(deps.onResultAttentionAndNotifications).not.toHaveBeenCalled();
     expect(deps.onTurnCompleted).toHaveBeenCalledWith(session);
+  });
+
+  it("keeps normal completed leader turns on the outcome validation path", () => {
+    const session = makeSession();
+    session.messageHistory.push({
+      type: "assistant",
+      message: {
+        id: "assistant-status",
+        type: "message",
+        role: "assistant",
+        model: "gpt-5.5",
+        content: [{ type: "text", text: "[thread:main] {[(Thread Ready: main | done)]}" }],
+        stop_reason: "end_turn",
+        usage: { input_tokens: 10, output_tokens: 5, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+      },
+      parent_tool_use_id: null,
+      timestamp: 1,
+      threadKey: "main",
+    } as BrowserIncomingMessage);
+    const deps = makeDeps();
+    deps.getCurrentTurnTriggerSource.mockReturnValue("leader");
+
+    handleResultMessage(session, makeResult({ uuid: "normal-completed-leader-result" }), deps);
+
+    const result = session.messageHistory.at(-1) as Extract<BrowserIncomingMessage, { type: "result" }>;
+    expect(result.type).toBe("result");
+    expect(result.interrupted).toBeUndefined();
+    expect(deps.validateLeaderThreadOutcomes).toHaveBeenCalledWith(session, "leader");
+    expect(deps.onResultAttentionAndNotifications).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ uuid: "normal-completed-leader-result" }),
+      "leader",
+    );
   });
 
   it("injects a synthetic thread-routing reminder after unrouted leader output", () => {
