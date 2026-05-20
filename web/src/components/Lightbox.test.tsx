@@ -53,6 +53,22 @@ describe("Lightbox", () => {
     expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
   });
 
+  it("consumes Escape before document-level handlers can also act on it", () => {
+    const documentKeyHandler = vi.fn();
+    document.addEventListener("keydown", documentKeyHandler);
+
+    try {
+      render(<Lightbox {...defaultProps} />);
+
+      fireEvent.keyDown(document, { key: "Escape" });
+
+      expect(defaultProps.onClose).toHaveBeenCalledTimes(1);
+      expect(documentKeyHandler).not.toHaveBeenCalled();
+    } finally {
+      document.removeEventListener("keydown", documentKeyHandler);
+    }
+  });
+
   it("does not call onClose when pressing other keys", () => {
     render(<Lightbox {...defaultProps} />);
 

@@ -602,6 +602,28 @@ describe("Composer image attachments", () => {
     });
   });
 
+  it("closes the attachment lightbox on Escape without cancelling active voice recording", async () => {
+    mockVoiceState.isRecordingOverride = true;
+    const { container } = render(<Composer sessionId="s1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+
+    fireEvent.change(fileInput, { target: { files: [makeImageFile("voice-preview.png")] } });
+
+    const thumbnail = await screen.findByAltText("voice-preview.png");
+    fireEvent.click(thumbnail);
+    expect(screen.getByTestId("lightbox-backdrop")).toBeTruthy();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId("lightbox-backdrop")).toBeNull();
+    });
+    expect(mockVoiceState.cancelRecording).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(document, { key: "Escape" });
+    expect(mockVoiceState.cancelRecording).toHaveBeenCalledTimes(1);
+  });
+
   it("attaches pasted images and prevents the browser paste default", async () => {
     const { container } = render(<Composer sessionId="s1" />);
     const textarea = container.querySelector("textarea")!;

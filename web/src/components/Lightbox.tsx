@@ -21,6 +21,9 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === "Escape") {
+        e.preventDefault();
+        e.stopPropagation();
+        e.stopImmediatePropagation();
         onClose();
       }
     },
@@ -28,12 +31,12 @@ export function Lightbox({ src, alt = "Full-size image", onClose }: LightboxProp
   );
 
   useEffect(() => {
-    document.addEventListener("keydown", handleKeyDown);
+    document.addEventListener("keydown", handleKeyDown, { capture: true });
     // Prevent body scroll while lightbox is open
     const prev = document.body.style.overflow;
     document.body.style.overflow = "hidden";
     return () => {
-      document.removeEventListener("keydown", handleKeyDown);
+      document.removeEventListener("keydown", handleKeyDown, { capture: true });
       document.body.style.overflow = prev;
     };
   }, [handleKeyDown]);
