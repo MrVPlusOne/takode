@@ -1,9 +1,10 @@
 import { useState, useRef, useCallback, useEffect } from "react";
 import type { VoiceLevelSample } from "../components/composer-voice-types.js";
+import type { VoiceRecordingTiming } from "../transcription-progress.js";
 
 export interface UseVoiceInputOptions {
   /** Called with the recorded audio blob when recording stops */
-  onAudioReady?: (blob: Blob) => void;
+  onAudioReady?: (blob: Blob, timing?: VoiceRecordingTiming) => void;
 }
 
 export type TranscriptionPhase =
@@ -192,6 +193,16 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
   const cancelledRef = useRef(false);
   const optionsRef = useRef(options);
   optionsRef.current = options;
+  const recordingTimingRef = useRef<{
+    startedAt: number;
+    recorderStartedAt?: number;
+    stopRequestedAt?: number;
+    firstDataAvailableAt?: number;
+    lastDataAvailableAt?: number;
+    chunkBytes: number;
+    chunkCount: number;
+    recorderOptions: MediaRecorderOptions;
+  } | null>(null);
 
   // Pre-warmed mic stream, kept alive between recordings to avoid getUserMedia latency
   const cachedStreamRef = useRef<MediaStream | null>(null);
@@ -322,6 +333,9 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state !== "inactive") {
+      if (recordingTimingRef.current && recordingTimingRef.current.stopRequestedAt === undefined) {
+        recordingTimingRef.current.stopRequestedAt = Date.now();
+      }
       recorderRef.current.stop();
     }
   }, []);
@@ -375,11 +389,26 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       // Start volume metering
       startVolumeMonitor(stream);
 
-      const recorder = new MediaRecorder(stream, resolveVoiceRecorderOptions());
+      const recorderOptions = resolveVoiceRecorderOptions();
+      const recorder = new MediaRecorder(stream, recorderOptions);
       recorderRef.current = recorder;
+      recordingTimingRef.current = {
+        startedAt: Date.now(),
+        chunkBytes: 0,
+        chunkCount: 0,
+        recorderOptions,
+      };
 
       recorder.ondataavailable = (e) => {
         if (e.data.size > 0) {
+          const now = Date.now();
+          const timing = recordingTimingRef.current;
+          if (timing) {
+            timing.firstDataAvailableAt ??= now;
+            timing.lastDataAvailableAt = now;
+            timing.chunkBytes += e.data.size;
+            timing.chunkCount += 1;
+          }
           chunksRef.current.push(e.data);
         }
       };
@@ -396,15 +425,51 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         // If cancelled, discard audio without triggering transcription
         if (cancelledRef.current) {
           chunksRef.current = [];
+          recordingTimingRef.current = null;
           cancelledRef.current = false;
           return;
         }
 
         if (chunksRef.current.length > 0) {
+          const blobBuildStartedAt = Date.now();
           const mimeType = resolveRecordedMimeType(recorder.mimeType, chunksRef.current);
           const blob = new Blob(chunksRef.current, { type: mimeType });
+          const blobReadyAt = Date.now();
+          const timing = recordingTimingRef.current;
+          const recordingTiming: VoiceRecordingTiming | undefined = timing
+            ? {
+                startedAt: timing.startedAt,
+                ...(timing.recorderStartedAt !== undefined ? { recorderStartedAt: timing.recorderStartedAt } : {}),
+                ...(timing.stopRequestedAt !== undefined ? { stopRequestedAt: timing.stopRequestedAt } : {}),
+                ...(timing.firstDataAvailableAt !== undefined
+                  ? { firstDataAvailableAt: timing.firstDataAvailableAt }
+                  : {}),
+                ...(timing.lastDataAvailableAt !== undefined
+                  ? { lastDataAvailableAt: timing.lastDataAvailableAt }
+                  : {}),
+                stopEventAt: blobBuildStartedAt,
+                blobReadyAt,
+                recordingDurationMs:
+                  (timing.stopRequestedAt ?? blobBuildStartedAt) - (timing.recorderStartedAt ?? timing.startedAt),
+                ...(timing.stopRequestedAt !== undefined
+                  ? { stopToBlobReadyMs: blobReadyAt - timing.stopRequestedAt }
+                  : {}),
+                blobBuildDurationMs: blobReadyAt - blobBuildStartedAt,
+                chunkCount: timing.chunkCount,
+                chunkBytes: timing.chunkBytes,
+                blobBytes: blob.size,
+                selectedMimeType: timing.recorderOptions.mimeType ?? null,
+                recorderMimeType: recorder.mimeType || null,
+                blobMimeType: blob.type || null,
+                ...(typeof timing.recorderOptions.audioBitsPerSecond === "number"
+                  ? { audioBitsPerSecond: timing.recorderOptions.audioBitsPerSecond }
+                  : {}),
+                ...(typeof document !== "undefined" ? { pageVisibility: document.visibilityState } : {}),
+              }
+            : undefined;
           chunksRef.current = [];
-          optionsRef.current.onAudioReady?.(blob);
+          recordingTimingRef.current = null;
+          optionsRef.current.onAudioReady?.(blob, recordingTiming);
         }
       };
 
@@ -416,9 +481,13 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
         streamRef.current?.getTracks().forEach((t) => t.stop());
         streamRef.current = null;
         recorderRef.current = null;
+        recordingTimingRef.current = null;
       };
 
       recorder.start();
+      if (recordingTimingRef.current) {
+        recordingTimingRef.current.recorderStartedAt = Date.now();
+      }
       setIsPreparing(false);
       setIsRecording(true);
     } catch (err) {
@@ -428,6 +497,7 @@ export function useVoiceInput(options: UseVoiceInputOptions = {}): UseVoiceInput
       } else {
         setError("Could not access microphone");
       }
+      recordingTimingRef.current = null;
     }
   }, [startVolumeMonitor, stopVolumeMonitor, support.isSupported, support.unsupportedMessage]);
 

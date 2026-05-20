@@ -1120,6 +1120,66 @@ export interface TranscriptionFrontendTimingEvent {
   uploadDurationMs?: number;
   sttDurationMs?: number;
   enhancementDurationMs?: number;
+  serverTiming?: TranscriptionServerTiming;
+}
+
+export interface TranscriptionServerTiming {
+  bodyReadDurationMs?: number;
+  contextBuildDurationMs?: number;
+  ssePhaseWriteDurationMs?: number;
+  sttCompleteWriteDurationMs?: number;
+  resultReadyDurationMs?: number;
+  resultWriteDurationMs?: number;
+  serverTotalDurationMs?: number;
+  uploadFormatMimeType?: string;
+  uploadFormatExtension?: string;
+}
+
+export interface TranscriptionRecordingTiming {
+  startedAt: number;
+  recorderStartedAt?: number;
+  stopRequestedAt?: number;
+  firstDataAvailableAt?: number;
+  lastDataAvailableAt?: number;
+  stopEventAt?: number;
+  blobReadyAt: number;
+  recordingDurationMs?: number;
+  stopToBlobReadyMs?: number;
+  blobBuildDurationMs?: number;
+  chunkCount: number;
+  chunkBytes: number;
+  blobBytes: number;
+  selectedMimeType?: string | null;
+  recorderMimeType?: string | null;
+  blobMimeType?: string | null;
+  audioBitsPerSecond?: number;
+  pageVisibility?: "visible" | "hidden" | "prerender";
+}
+
+export interface TranscriptionClientTiming {
+  transport: "raw" | "multipart";
+  requestConstructedAt: number;
+  fetchStartAt: number;
+  responseStartAt?: number;
+  firstChunkAt?: number;
+  resultEventAt?: number;
+  resultReturnedAt?: number;
+  responseStartDelayMs?: number;
+  firstChunkDelayMs?: number;
+  resultStreamDurationMs?: number;
+  requestBodyBytes: number;
+  audioMimeType?: string | null;
+  audioFileName?: string | null;
+}
+
+export interface TranscriptionUiTiming {
+  apiResolvedAt?: number;
+  applyStartedAt?: number;
+  applyCompletedAt?: number;
+  nextPaintAt?: number;
+  apiElapsedMs?: number;
+  applyDurationMs?: number;
+  applyToNextPaintMs?: number;
 }
 
 export interface TranscriptionFrontendTimingReport {
@@ -1132,6 +1192,9 @@ export interface TranscriptionFrontendTimingReport {
   totalElapsedMs: number;
   phaseDurationsMs: Partial<Record<Exclude<TranscriptionFrontendTimingPhase, "complete" | "error">, number>>;
   events: TranscriptionFrontendTimingEvent[];
+  recordingTiming?: TranscriptionRecordingTiming;
+  clientTiming?: TranscriptionClientTiming;
+  uiTiming?: TranscriptionUiTiming;
 }
 
 export interface TranscriptionFrontendTiming extends TranscriptionFrontendTimingReport {
@@ -1156,6 +1219,7 @@ export interface TranscriptionLogEntry {
   /** Source audio metadata for replaying/debugging the original transcription input. */
   audioMimeType: string | null;
   audioFileName: string | null;
+  serverTiming?: TranscriptionServerTiming;
   audioUrl: string;
   /** Enhancement phase (null if not attempted) */
   enhancement: {

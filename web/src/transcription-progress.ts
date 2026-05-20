@@ -15,6 +15,66 @@ export interface VoiceTranscriptionTiming {
   audioSizeBytes?: number;
   audioMimeType?: string | null;
   audioFileName?: string | null;
+  serverTiming?: VoiceTranscriptionServerTiming;
+}
+
+export interface VoiceTranscriptionServerTiming {
+  bodyReadDurationMs?: number;
+  contextBuildDurationMs?: number;
+  ssePhaseWriteDurationMs?: number;
+  sttCompleteWriteDurationMs?: number;
+  resultReadyDurationMs?: number;
+  resultWriteDurationMs?: number;
+  serverTotalDurationMs?: number;
+  uploadFormatMimeType?: string;
+  uploadFormatExtension?: string;
+}
+
+export interface VoiceRecordingTiming {
+  startedAt: number;
+  recorderStartedAt?: number;
+  stopRequestedAt?: number;
+  firstDataAvailableAt?: number;
+  lastDataAvailableAt?: number;
+  stopEventAt?: number;
+  blobReadyAt: number;
+  recordingDurationMs?: number;
+  stopToBlobReadyMs?: number;
+  blobBuildDurationMs?: number;
+  chunkCount: number;
+  chunkBytes: number;
+  blobBytes: number;
+  selectedMimeType?: string | null;
+  recorderMimeType?: string | null;
+  blobMimeType?: string | null;
+  audioBitsPerSecond?: number;
+  pageVisibility?: DocumentVisibilityState;
+}
+
+export interface VoiceTranscriptionClientTiming {
+  transport: "raw" | "multipart";
+  requestConstructedAt: number;
+  fetchStartAt: number;
+  responseStartAt?: number;
+  firstChunkAt?: number;
+  resultEventAt?: number;
+  resultReturnedAt?: number;
+  responseStartDelayMs?: number;
+  firstChunkDelayMs?: number;
+  resultStreamDurationMs?: number;
+  requestBodyBytes: number;
+  audioMimeType?: string | null;
+  audioFileName?: string | null;
+}
+
+export interface VoiceTranscriptionUiTiming {
+  apiResolvedAt?: number;
+  applyStartedAt?: number;
+  applyCompletedAt?: number;
+  nextPaintAt?: number;
+  apiElapsedMs?: number;
+  applyDurationMs?: number;
+  applyToNextPaintMs?: number;
 }
 
 export interface VoiceTranscriptionProgressEvent {
@@ -38,6 +98,7 @@ export interface VoiceTranscriptionFrontendTimingEvent {
   uploadDurationMs?: number;
   sttDurationMs?: number;
   enhancementDurationMs?: number;
+  serverTiming?: VoiceTranscriptionServerTiming;
 }
 
 export interface VoiceTranscriptionFrontendTimingReport {
@@ -50,6 +111,9 @@ export interface VoiceTranscriptionFrontendTimingReport {
   totalElapsedMs: number;
   phaseDurationsMs: Partial<Record<VoiceTranscriptionPhase, number>>;
   events: VoiceTranscriptionFrontendTimingEvent[];
+  recordingTiming?: VoiceRecordingTiming;
+  clientTiming?: VoiceTranscriptionClientTiming;
+  uiTiming?: VoiceTranscriptionUiTiming;
 }
 
 type TranscriptionProgressHandler = (event: VoiceTranscriptionProgressEvent) => void;

@@ -726,11 +726,13 @@ describe("transcribe", () => {
 
     const onPhase = vi.fn();
     const onProgress = vi.fn();
+    const onClientTiming = vi.fn();
     const pending = api.transcribe(new Blob([new Uint8Array([1, 2, 3, 4])], { type: "audio/mp4" }), {
       mode: "dictation",
       sessionId: "session-1",
       onPhase,
       onProgress,
+      onClientTiming,
     });
 
     await Promise.resolve();
@@ -772,6 +774,17 @@ describe("transcribe", () => {
         phase: "complete",
         source: "sse",
         timing: expect.objectContaining({ enhancementDurationMs: 1200 }),
+      }),
+    );
+    expect(onClientTiming).toHaveBeenCalledWith(
+      expect.objectContaining({
+        transport: "raw",
+        requestBodyBytes: 4,
+        responseStartDelayMs: expect.any(Number),
+        firstChunkDelayMs: expect.any(Number),
+        resultStreamDurationMs: expect.any(Number),
+        audioMimeType: "audio/mp4",
+        audioFileName: "recording.mp4",
       }),
     );
   });
@@ -956,6 +969,43 @@ describe("transcribe", () => {
           enhancementDurationMs: 2_100,
         },
       ],
+      recordingTiming: {
+        startedAt: 900,
+        recorderStartedAt: 910,
+        stopRequestedAt: 980,
+        blobReadyAt: 995,
+        stopToBlobReadyMs: 15,
+        chunkCount: 1,
+        chunkBytes: 4096,
+        blobBytes: 4096,
+        selectedMimeType: "audio/mp4",
+        recorderMimeType: "audio/mp4",
+        blobMimeType: "audio/mp4",
+      },
+      clientTiming: {
+        transport: "raw" as const,
+        requestConstructedAt: 1_000,
+        fetchStartAt: 1_001,
+        responseStartAt: 1_020,
+        firstChunkAt: 1_025,
+        resultEventAt: 8_390,
+        resultReturnedAt: 8_400,
+        responseStartDelayMs: 19,
+        firstChunkDelayMs: 5,
+        resultStreamDurationMs: 7_365,
+        requestBodyBytes: 4096,
+        audioMimeType: "audio/mp4",
+        audioFileName: "recording.mp4",
+      },
+      uiTiming: {
+        apiResolvedAt: 8_401,
+        applyStartedAt: 8_402,
+        applyCompletedAt: 8_403,
+        nextPaintAt: 8_420,
+        apiElapsedMs: 7_401,
+        applyDurationMs: 1,
+        applyToNextPaintMs: 17,
+      },
     };
     mockFetch.mockResolvedValueOnce(mockResponse({ ok: true, attached: true, logId: 3 }));
 

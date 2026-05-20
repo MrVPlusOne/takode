@@ -763,6 +763,15 @@ describe("POST /api/transcribe", () => {
         rawTranscript: "timed transcript",
         audioMimeType: "audio/wav",
         audioFileName: "recording.wav",
+        serverTiming: expect.objectContaining({
+          bodyReadDurationMs: expect.any(Number),
+          contextBuildDurationMs: expect.any(Number),
+          resultReadyDurationMs: expect.any(Number),
+          resultWriteDurationMs: expect.any(Number),
+          serverTotalDurationMs: expect.any(Number),
+          uploadFormatMimeType: "audio/wav",
+          uploadFormatExtension: "wav",
+        }),
         audioUrl: expect.stringMatching(/^\/api\/transcription-logs\/\d+\/audio$/),
       }),
     );
@@ -1039,6 +1048,42 @@ describe("POST /api/transcribe", () => {
           enhancementDurationMs: 2_100,
         },
       ],
+      recordingTiming: {
+        startedAt: 900,
+        stopRequestedAt: 980,
+        blobReadyAt: 995,
+        stopToBlobReadyMs: 15,
+        chunkCount: 1,
+        chunkBytes: 4096,
+        blobBytes: 4096,
+        selectedMimeType: "audio/mp4",
+        recorderMimeType: "audio/mp4",
+        blobMimeType: "audio/mp4",
+      },
+      clientTiming: {
+        transport: "raw",
+        requestConstructedAt: 1000,
+        fetchStartAt: 1001,
+        responseStartAt: 1025,
+        firstChunkAt: 1030,
+        resultEventAt: 8400,
+        resultReturnedAt: 8401,
+        responseStartDelayMs: 24,
+        firstChunkDelayMs: 5,
+        resultStreamDurationMs: 7370,
+        requestBodyBytes: 4096,
+        audioMimeType: "audio/mp4",
+        audioFileName: "recording.mp4",
+      },
+      uiTiming: {
+        apiResolvedAt: 8401,
+        applyStartedAt: 8402,
+        applyCompletedAt: 8403,
+        nextPaintAt: 8420,
+        apiElapsedMs: 7401,
+        applyDurationMs: 1,
+        applyToNextPaintMs: 17,
+      },
     };
 
     const timingRes = await app.request("/api/transcribe/frontend-timing", {
@@ -1058,6 +1103,18 @@ describe("POST /api/transcribe", () => {
           totalElapsedMs: 7400,
           phaseDurationsMs: expect.objectContaining({
             enhancing: 7000,
+          }),
+          recordingTiming: expect.objectContaining({
+            stopToBlobReadyMs: 15,
+            blobMimeType: "audio/mp4",
+          }),
+          clientTiming: expect.objectContaining({
+            transport: "raw",
+            responseStartDelayMs: 24,
+            resultStreamDurationMs: 7370,
+          }),
+          uiTiming: expect.objectContaining({
+            applyToNextPaintMs: 17,
           }),
           events: expect.arrayContaining([
             expect.objectContaining({

@@ -544,6 +544,19 @@ describe("useVoiceInput — onAudioReady", () => {
     expect(result.current.isRecording).toBe(false);
     expect(onAudioReady).toHaveBeenCalledTimes(1);
     expect(onAudioReady.mock.calls[0][0]).toBeInstanceOf(Blob);
+    expect(onAudioReady.mock.calls[0][1]).toEqual(
+      expect.objectContaining({
+        chunkCount: 1,
+        chunkBytes: 5,
+        blobBytes: 5,
+        selectedMimeType: "audio/mp4;codecs=mp4a.40.2",
+        recorderMimeType: "audio/mp4;codecs=mp4a.40.2",
+        blobMimeType: "audio/mp4;codecs=mp4a.40.2",
+        audioBitsPerSecond: 48_000,
+        stopToBlobReadyMs: expect.any(Number),
+        blobBuildDurationMs: expect.any(Number),
+      }),
+    );
   });
 
   it("does NOT fire onAudioReady when recording is cancelled", async () => {

@@ -41,9 +41,12 @@ import type { FailedTranscription, VoiceEditProposal } from "./composer-voice-ty
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import {
   api,
+  type VoiceRecordingTiming,
+  type VoiceTranscriptionClientTiming,
   type VoiceTranscriptionFrontendTimingEvent,
   type VoiceTranscriptionPhase,
   type VoiceTranscriptionProgressEvent,
+  type VoiceTranscriptionUiTiming,
 } from "../api.js";
 import { recordFrontendPerfEntry } from "../utils/frontend-perf-recorder.js";
 import {
@@ -96,6 +99,14 @@ function createVoiceTranscriptionRequestId(): string {
       ? crypto.randomUUID()
       : Math.random().toString(36).slice(2);
   return `voice-${Date.now()}-${random}`;
+}
+
+function afterNextPaint(): Promise<number> {
+  return new Promise((resolve) => {
+    const finish = () => resolve(Date.now());
+    if (typeof requestAnimationFrame === "function") requestAnimationFrame(finish);
+    else setTimeout(finish, 0);
+  });
 }
 
 function eventKeyIsOnlyPressedModifier(
@@ -240,7 +251,7 @@ export function Composer({
     cancelRecording,
     warmMicrophone,
   } = useVoiceInput({
-    onAudioReady: (blob) => {
+    onAudioReady: (blob, recordingTiming) => {
       performTranscription(
         blob,
         voiceCaptureModeRef.current,
@@ -250,6 +261,7 @@ export function Composer({
         },
         activeVoiceTranscriptionThreadKeyRef.current,
         activeVoiceTranscriptionThreadTitleRef.current,
+        recordingTiming,
       );
     },
   });
@@ -403,12 +415,42 @@ export function Composer({
     cursorContext: { before: string; after: string },
     contextThreadKey?: string,
     contextThreadTitle?: string,
+    recordingTiming?: VoiceRecordingTiming,
   ) {
     const requestId = createVoiceTranscriptionRequestId();
     const startedAt = nowMs();
     const startedAtTimestamp = Date.now();
     const frontendTimingEvents: VoiceTranscriptionFrontendTimingEvent[] = [];
+    let clientTiming: VoiceTranscriptionClientTiming | undefined;
+    const uiTiming: VoiceTranscriptionUiTiming = {};
     let status: "success" | "error" = "success";
+    if (recordingTiming) {
+      recordFrontendPerfEntry({
+        kind: "voice_recording_timing",
+        timestamp: recordingTiming.blobReadyAt,
+        sessionId,
+        requestId,
+        chunkCount: recordingTiming.chunkCount,
+        chunkBytes: recordingTiming.chunkBytes,
+        blobBytes: recordingTiming.blobBytes,
+        ...(recordingTiming.blobMimeType !== undefined ? { blobMimeType: recordingTiming.blobMimeType } : {}),
+        ...(recordingTiming.selectedMimeType !== undefined
+          ? { selectedMimeType: recordingTiming.selectedMimeType }
+          : {}),
+        ...(recordingTiming.recorderMimeType !== undefined
+          ? { recorderMimeType: recordingTiming.recorderMimeType }
+          : {}),
+        ...(recordingTiming.recordingDurationMs !== undefined
+          ? { recordingDurationMs: recordingTiming.recordingDurationMs }
+          : {}),
+        ...(recordingTiming.stopToBlobReadyMs !== undefined
+          ? { stopToBlobReadyMs: recordingTiming.stopToBlobReadyMs }
+          : {}),
+        ...(recordingTiming.blobBuildDurationMs !== undefined
+          ? { blobBuildDurationMs: recordingTiming.blobBuildDurationMs }
+          : {}),
+      });
+    }
     const recordProgress = (progress: VoiceTranscriptionProgressEvent) => {
       const clientTimestamp = Date.now();
       const elapsedMs = Math.max(0, nowMs() - startedAt);
@@ -425,6 +467,7 @@ export function Composer({
         ...(progress.timing?.enhancementDurationMs !== undefined
           ? { enhancementDurationMs: progress.timing.enhancementDurationMs }
           : {}),
+        ...(progress.timing?.serverTiming ? { serverTiming: progress.timing.serverTiming } : {}),
       });
       recordFrontendPerfEntry({
         kind: "voice_transcription_progress",
@@ -454,6 +497,22 @@ export function Composer({
       requestId,
       onPhase: (phase: VoiceTranscriptionPhase) => setTranscriptionPhase(phase),
       onProgress: recordProgress,
+      onClientTiming: (timing: VoiceTranscriptionClientTiming) => {
+        clientTiming = timing;
+      },
+    };
+    const markApiResolved = () => {
+      const apiResolvedAt = Date.now();
+      uiTiming.apiResolvedAt = apiResolvedAt;
+      uiTiming.apiElapsedMs = Math.max(0, nowMs() - startedAt);
+    };
+    const applyVoiceResult = (apply: () => void) => {
+      const applyStartedAt = Date.now();
+      uiTiming.applyStartedAt = applyStartedAt;
+      apply();
+      const applyCompletedAt = Date.now();
+      uiTiming.applyCompletedAt = applyCompletedAt;
+      uiTiming.applyDurationMs = applyCompletedAt - applyStartedAt;
     };
     setIsTranscribing(true);
     setTranscriptionPhase("preparing");
@@ -468,10 +527,13 @@ export function Composer({
           mode: "edit",
           composerText,
         });
-        setVoiceEditProposal({
-          originalText: composerText,
-          editedText,
-          instructionText: instructionText || rawText || "",
+        markApiResolved();
+        applyVoiceResult(() => {
+          setVoiceEditProposal({
+            originalText: composerText,
+            editedText,
+            instructionText: instructionText || rawText || "",
+          });
         });
       } else if (mode === "append") {
         const { text: appendText } = await api.transcribe(blob, {
@@ -479,18 +541,24 @@ export function Composer({
           mode: "append",
           composerText,
         });
+        markApiResolved();
         const { before, after } = cursorContext;
         const needsSpace = before.length > 0 && !/\s$/.test(before);
         const separator = needsSpace ? " " : "";
-        setText(before + separator + appendText + after);
-        setVoiceEditProposal(null);
+        applyVoiceResult(() => {
+          setText(before + separator + appendText + after);
+          setVoiceEditProposal(null);
+        });
       } else {
         const { text: transcript } = await api.transcribe(blob, {
           ...transcriptionOptions,
           mode: "dictation",
         });
-        setText(transcript);
-        setVoiceEditProposal(null);
+        markApiResolved();
+        applyVoiceResult(() => {
+          setText(transcript);
+          setVoiceEditProposal(null);
+        });
       }
     } catch (err) {
       status = "error";
@@ -511,17 +579,51 @@ export function Composer({
       setTranscriptionPhase(null);
       const reportTranscriptionFrontendTiming = api.reportTranscriptionFrontendTiming;
       if (typeof reportTranscriptionFrontendTiming === "function") {
-        void reportTranscriptionFrontendTiming({
-          requestId,
-          sessionId,
-          mode,
-          status,
-          startedAt: startedAtTimestamp,
-          completedAt,
-          totalElapsedMs,
-          phaseDurationsMs: calculateVoiceTranscriptionPhaseDurations(frontendTimingEvents, totalElapsedMs),
-          events: frontendTimingEvents,
-        }).catch(() => undefined);
+        void afterNextPaint()
+          .then((nextPaintAt) => {
+            uiTiming.nextPaintAt = nextPaintAt;
+            if (uiTiming.applyCompletedAt !== undefined) {
+              uiTiming.applyToNextPaintMs = nextPaintAt - uiTiming.applyCompletedAt;
+            }
+            if (clientTiming) {
+              recordFrontendPerfEntry({
+                kind: "voice_transcription_client_timing",
+                timestamp: clientTiming.resultReturnedAt ?? completedAt,
+                sessionId,
+                requestId,
+                transport: clientTiming.transport,
+                requestBodyBytes: clientTiming.requestBodyBytes,
+                ...(clientTiming.responseStartDelayMs !== undefined
+                  ? { responseStartDelayMs: clientTiming.responseStartDelayMs }
+                  : {}),
+                ...(clientTiming.firstChunkDelayMs !== undefined
+                  ? { firstChunkDelayMs: clientTiming.firstChunkDelayMs }
+                  : {}),
+                ...(clientTiming.resultStreamDurationMs !== undefined
+                  ? { resultStreamDurationMs: clientTiming.resultStreamDurationMs }
+                  : {}),
+                ...(uiTiming.apiElapsedMs !== undefined ? { apiElapsedMs: uiTiming.apiElapsedMs } : {}),
+                ...(uiTiming.applyToNextPaintMs !== undefined
+                  ? { applyToNextPaintMs: uiTiming.applyToNextPaintMs }
+                  : {}),
+              });
+            }
+            return reportTranscriptionFrontendTiming({
+              requestId,
+              sessionId,
+              mode,
+              status,
+              startedAt: startedAtTimestamp,
+              completedAt,
+              totalElapsedMs,
+              phaseDurationsMs: calculateVoiceTranscriptionPhaseDurations(frontendTimingEvents, totalElapsedMs),
+              events: frontendTimingEvents,
+              ...(recordingTiming ? { recordingTiming } : {}),
+              ...(clientTiming ? { clientTiming } : {}),
+              ...(Object.keys(uiTiming).length > 0 ? { uiTiming } : {}),
+            });
+          })
+          .catch(() => undefined);
       }
     }
   }

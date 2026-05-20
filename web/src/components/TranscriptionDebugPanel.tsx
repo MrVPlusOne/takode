@@ -278,6 +278,96 @@ export function TranscriptionDebugPanel() {
                       )}
                     </div>
 
+                    {(expandedEntry.serverTiming || expandedEntry.frontendTiming) && (
+                      <div className="text-xs text-cc-muted border-t border-cc-border pt-3 space-y-1">
+                        {expandedEntry.serverTiming && (
+                          <div>
+                            Server timing:
+                            {expandedEntry.serverTiming.bodyReadDurationMs !== undefined && (
+                              <span className="ml-2">
+                                Body{" "}
+                                <span className="text-cc-fg">
+                                  {formatDuration(expandedEntry.serverTiming.bodyReadDurationMs)}
+                                </span>
+                              </span>
+                            )}
+                            {expandedEntry.serverTiming.contextBuildDurationMs !== undefined && (
+                              <span className="ml-2">
+                                Context{" "}
+                                <span className="text-cc-fg">
+                                  {formatDuration(expandedEntry.serverTiming.contextBuildDurationMs)}
+                                </span>
+                              </span>
+                            )}
+                            {expandedEntry.serverTiming.resultWriteDurationMs !== undefined && (
+                              <span className="ml-2">
+                                Result write{" "}
+                                <span className="text-cc-fg">
+                                  {formatDuration(expandedEntry.serverTiming.resultWriteDurationMs)}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {expandedEntry.frontendTiming?.recordingTiming && (
+                          <div>
+                            Recording:
+                            {expandedEntry.frontendTiming.recordingTiming.stopToBlobReadyMs !== undefined && (
+                              <span className="ml-2">
+                                Stop to blob{" "}
+                                <span className="text-cc-fg">
+                                  {formatDuration(expandedEntry.frontendTiming.recordingTiming.stopToBlobReadyMs)}
+                                </span>
+                              </span>
+                            )}
+                            <span className="ml-2">
+                              Blob{" "}
+                              <span className="text-cc-fg">
+                                {formatBytes(expandedEntry.frontendTiming.recordingTiming.blobBytes)}
+                              </span>
+                            </span>
+                            {expandedEntry.frontendTiming.recordingTiming.blobMimeType && (
+                              <span className="ml-2 font-mono text-[10px] text-cc-fg">
+                                {expandedEntry.frontendTiming.recordingTiming.blobMimeType}
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {expandedEntry.frontendTiming?.clientTiming && (
+                          <div>
+                            Client:
+                            <span className="ml-2 text-cc-fg">
+                              {expandedEntry.frontendTiming.clientTiming.transport}
+                            </span>
+                            {expandedEntry.frontendTiming.clientTiming.responseStartDelayMs !== undefined && (
+                              <span className="ml-2">
+                                Response{" "}
+                                <span className="text-cc-fg">
+                                  {formatDuration(expandedEntry.frontendTiming.clientTiming.responseStartDelayMs)}
+                                </span>
+                              </span>
+                            )}
+                            {expandedEntry.frontendTiming.clientTiming.resultStreamDurationMs !== undefined && (
+                              <span className="ml-2">
+                                Stream result{" "}
+                                <span className="text-cc-fg">
+                                  {formatDuration(expandedEntry.frontendTiming.clientTiming.resultStreamDurationMs)}
+                                </span>
+                              </span>
+                            )}
+                          </div>
+                        )}
+                        {expandedEntry.frontendTiming?.uiTiming?.applyToNextPaintMs !== undefined && (
+                          <div>
+                            UI paint:{" "}
+                            <span className="text-cc-fg">
+                              {formatDuration(expandedEntry.frontendTiming.uiTiming.applyToNextPaintMs)}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+
                     <div>
                       <span className="text-[11px] uppercase tracking-wider text-cc-muted font-medium">
                         Raw Transcript (STT Output)

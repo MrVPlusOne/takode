@@ -15,8 +15,12 @@ import {
   attachTranscriptionFrontendTiming,
   applyVoiceEdit,
   applyVoiceAppend,
+  type TranscriptionClientTiming,
   type TranscriptionFrontendTimingEvent,
   type TranscriptionFrontendTimingReport,
+  type TranscriptionRecordingTiming,
+  type TranscriptionServerTiming,
+  type TranscriptionUiTiming,
 } from "../transcription-enhancer.js";
 import * as sessionNames from "../session-names.js";
 import { getSettings } from "../settings-manager.js";
@@ -46,13 +50,14 @@ type TranscriptionFrontendTimingPhase =
   | "complete"
   | "error";
 
-interface TranscriptionServerTiming {
+interface TranscriptionProgressTiming {
   uploadDurationMs?: number;
   sttDurationMs?: number;
   enhancementDurationMs?: number;
   audioSizeBytes?: number;
   audioMimeType?: string | null;
   audioFileName?: string | null;
+  serverTiming?: TranscriptionServerTiming;
 }
 
 const FRONTEND_TIMING_MAX_EVENTS = 100;
@@ -85,6 +90,29 @@ function normalizeFiniteMs(value: unknown): number | undefined {
 function normalizeTimestampMs(value: unknown): number | undefined {
   if (typeof value !== "number" || !Number.isFinite(value) || value < 0) return undefined;
   return Math.round(value);
+}
+
+function normalizeServerTiming(value: unknown): TranscriptionServerTiming | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const body = value as Record<string, unknown>;
+  const timing: TranscriptionServerTiming = {};
+  for (const key of [
+    "bodyReadDurationMs",
+    "contextBuildDurationMs",
+    "ssePhaseWriteDurationMs",
+    "sttCompleteWriteDurationMs",
+    "resultReadyDurationMs",
+    "resultWriteDurationMs",
+    "serverTotalDurationMs",
+  ] as const) {
+    const normalized = normalizeFiniteMs(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  const uploadFormatMimeType = normalizeStringField(body.uploadFormatMimeType);
+  if (uploadFormatMimeType) timing.uploadFormatMimeType = uploadFormatMimeType;
+  const uploadFormatExtension = normalizeStringField(body.uploadFormatExtension, 20);
+  if (uploadFormatExtension) timing.uploadFormatExtension = uploadFormatExtension;
+  return Object.keys(timing).length > 0 ? timing : undefined;
 }
 
 function normalizeFrontendTimingEvent(value: unknown): TranscriptionFrontendTimingEvent | null {
@@ -120,6 +148,8 @@ function normalizeFrontendTimingEvent(value: unknown): TranscriptionFrontendTimi
   if (sttDurationMs !== undefined) normalized.sttDurationMs = sttDurationMs;
   const enhancementDurationMs = normalizeFiniteMs(event.enhancementDurationMs);
   if (enhancementDurationMs !== undefined) normalized.enhancementDurationMs = enhancementDurationMs;
+  const serverTiming = normalizeServerTiming(event.serverTiming);
+  if (serverTiming) normalized.serverTiming = serverTiming;
   return normalized;
 }
 
@@ -136,6 +166,105 @@ function normalizeFrontendPhaseDurations(value: unknown): TranscriptionFrontendT
     }
   }
   return durations;
+}
+
+function normalizeStringField(value: unknown, maxLength = 200): string | null | undefined {
+  if (value === null) return null;
+  if (typeof value !== "string") return undefined;
+  return value.slice(0, maxLength);
+}
+
+function normalizeRecordingTiming(value: unknown): TranscriptionRecordingTiming | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const body = value as Record<string, unknown>;
+  const startedAt = normalizeTimestampMs(body.startedAt);
+  const blobReadyAt = normalizeTimestampMs(body.blobReadyAt);
+  const chunkCount = normalizeFiniteMs(body.chunkCount);
+  const chunkBytes = normalizeFiniteMs(body.chunkBytes);
+  const blobBytes = normalizeFiniteMs(body.blobBytes);
+  if (
+    startedAt === undefined ||
+    blobReadyAt === undefined ||
+    chunkCount === undefined ||
+    chunkBytes === undefined ||
+    blobBytes === undefined
+  ) {
+    return undefined;
+  }
+  const timing: TranscriptionRecordingTiming = { startedAt, blobReadyAt, chunkCount, chunkBytes, blobBytes };
+  for (const key of [
+    "recorderStartedAt",
+    "stopRequestedAt",
+    "firstDataAvailableAt",
+    "lastDataAvailableAt",
+    "stopEventAt",
+  ] as const) {
+    const normalized = normalizeTimestampMs(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  for (const key of [
+    "recordingDurationMs",
+    "stopToBlobReadyMs",
+    "blobBuildDurationMs",
+    "audioBitsPerSecond",
+  ] as const) {
+    const normalized = normalizeFiniteMs(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  for (const key of ["selectedMimeType", "recorderMimeType", "blobMimeType"] as const) {
+    const normalized = normalizeStringField(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  if (body.pageVisibility === "visible" || body.pageVisibility === "hidden" || body.pageVisibility === "prerender") {
+    timing.pageVisibility = body.pageVisibility;
+  }
+  return timing;
+}
+
+function normalizeClientTiming(value: unknown): TranscriptionClientTiming | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const body = value as Record<string, unknown>;
+  const transport = body.transport;
+  const requestConstructedAt = normalizeTimestampMs(body.requestConstructedAt);
+  const fetchStartAt = normalizeTimestampMs(body.fetchStartAt);
+  const requestBodyBytes = normalizeFiniteMs(body.requestBodyBytes);
+  if (
+    (transport !== "raw" && transport !== "multipart") ||
+    requestConstructedAt === undefined ||
+    fetchStartAt === undefined ||
+    requestBodyBytes === undefined
+  ) {
+    return undefined;
+  }
+  const timing: TranscriptionClientTiming = { transport, requestConstructedAt, fetchStartAt, requestBodyBytes };
+  for (const key of ["responseStartAt", "firstChunkAt", "resultEventAt", "resultReturnedAt"] as const) {
+    const normalized = normalizeTimestampMs(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  for (const key of ["responseStartDelayMs", "firstChunkDelayMs", "resultStreamDurationMs"] as const) {
+    const normalized = normalizeFiniteMs(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  const audioMimeType = normalizeStringField(body.audioMimeType);
+  if (audioMimeType !== undefined) timing.audioMimeType = audioMimeType;
+  const audioFileName = normalizeStringField(body.audioFileName);
+  if (audioFileName !== undefined) timing.audioFileName = audioFileName;
+  return timing;
+}
+
+function normalizeUiTiming(value: unknown): TranscriptionUiTiming | undefined {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const body = value as Record<string, unknown>;
+  const timing: TranscriptionUiTiming = {};
+  for (const key of ["apiResolvedAt", "applyStartedAt", "applyCompletedAt", "nextPaintAt"] as const) {
+    const normalized = normalizeTimestampMs(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  for (const key of ["apiElapsedMs", "applyDurationMs", "applyToNextPaintMs"] as const) {
+    const normalized = normalizeFiniteMs(body[key]);
+    if (normalized !== undefined) timing[key] = normalized;
+  }
+  return Object.keys(timing).length > 0 ? timing : undefined;
 }
 
 function normalizeFrontendTimingReport(value: unknown): TranscriptionFrontendTimingReport | null {
@@ -168,6 +297,9 @@ function normalizeFrontendTimingReport(value: unknown): TranscriptionFrontendTim
 
   const events = rawEvents.map(normalizeFrontendTimingEvent);
   if (events.some((event) => event === null)) return null;
+  const recordingTiming = normalizeRecordingTiming(body.recordingTiming);
+  const clientTiming = normalizeClientTiming(body.clientTiming);
+  const uiTiming = normalizeUiTiming(body.uiTiming);
 
   return {
     requestId,
@@ -179,6 +311,9 @@ function normalizeFrontendTimingReport(value: unknown): TranscriptionFrontendTim
     totalElapsedMs,
     phaseDurationsMs,
     events: events as TranscriptionFrontendTimingEvent[],
+    ...(recordingTiming ? { recordingTiming } : {}),
+    ...(clientTiming ? { clientTiming } : {}),
+    ...(uiTiming ? { uiTiming } : {}),
   };
 }
 
@@ -277,7 +412,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     requestId: string | undefined;
     phase: TranscriptionProgressPhase;
     mode?: TranscriptionMode;
-    timing?: TranscriptionServerTiming;
+    timing?: TranscriptionProgressTiming;
     error?: string;
   }): void {
     if (!sessionId || !requestId) return;
@@ -375,6 +510,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
   api.post("/transcribe", async (c) => {
     const requestStart = Date.now();
     const contentType = c.req.header("content-type") || "";
+    const bodyReadStartedAt = Date.now();
     let buf: Buffer;
     let audioMimeType: string | undefined;
     let audioFileName: string | undefined;
@@ -421,7 +557,9 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       transcriptionRequestId = c.req.query("requestId") || undefined;
     }
 
-    const uploadDurationMs = Date.now() - requestStart;
+    const bodyReadCompletedAt = Date.now();
+    const bodyReadDurationMs = bodyReadCompletedAt - bodyReadStartedAt;
+    const uploadDurationMs = bodyReadCompletedAt - requestStart;
     const mode = rawMode === "edit" ? "edit" : rawMode === "append" ? "append" : "dictation";
     const threadKey = normalizeTranscriptionThreadKey(rawThreadKey);
     const threadTitle = normalizeTranscriptionThreadTitle(rawThreadTitle);
@@ -464,12 +602,17 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
     }
 
     const uploadFormat = resolveAudioUploadFormat(buf, audioMimeType, audioFileName);
+    const serverTiming: TranscriptionServerTiming = {
+      bodyReadDurationMs,
+      uploadFormatMimeType: uploadFormat.mimeType,
+      uploadFormatExtension: uploadFormat.extension,
+    };
     emitTranscriptionProgress({
       sessionId,
       requestId: transcriptionRequestId,
       phase: "transcribing",
       mode,
-      timing: uploadTiming,
+      timing: { ...uploadTiming, serverTiming },
     });
 
     // The browser must finish sending the request body before we can open the SSE
@@ -479,17 +622,27 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
       try {
         // Send an immediate body chunk so the client can leave its pre-STT
         // waiting state as soon as the SSE stream is actually flowing.
+        const ssePhaseWriteStart = Date.now();
         await stream.writeSSE({
           event: "phase",
           data: JSON.stringify({ phase: "transcribing", mode }),
         });
+        serverTiming.ssePhaseWriteDurationMs = Date.now() - ssePhaseWriteStart;
 
         let rawText: string;
         const usedBackend = backend;
         let sttModel = "unknown";
+        const writeResultSSE = async (payload: Record<string, unknown>) => {
+          serverTiming.resultReadyDurationMs = Date.now() - requestStart;
+          const resultWriteStart = Date.now();
+          await stream.writeSSE({ event: "result", data: JSON.stringify(payload) });
+          serverTiming.resultWriteDurationMs = Date.now() - resultWriteStart;
+          serverTiming.serverTotalDurationMs = Date.now() - requestStart;
+        };
 
         // Build context-aware STT prompt (guides vocabulary recognition)
         // Get recent non-archived session names sorted by activity (most recent first)
+        const contextBuildStart = Date.now();
         const sessionContext = getTranscriptionSessionContext(sessionId, threadKey, threadTitle);
         let sttPrompt = "";
         if (sessionId) {
@@ -505,6 +658,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             customVocabulary: getSettings().transcriptionConfig.customVocabulary || undefined,
           });
         }
+        serverTiming.contextBuildDurationMs = Date.now() - contextBuildStart;
 
         const sttStart = Date.now();
 
@@ -565,6 +719,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             : willEnhanceDictation
               ? "enhancing"
               : "finalizing";
+        const sttCompleteWriteStart = Date.now();
         await stream.writeSSE({
           event: "stt_complete",
           data: JSON.stringify({
@@ -573,9 +728,10 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             willEnhance: willEnhanceDictation,
             nextPhase,
             mode,
-            timing: { ...uploadTiming, sttDurationMs },
+            timing: { ...uploadTiming, sttDurationMs, serverTiming },
           }),
         });
+        serverTiming.sttCompleteWriteDurationMs = Date.now() - sttCompleteWriteStart;
 
         if (willRunVoiceEdit) {
           const enhancementStart = Date.now();
@@ -584,7 +740,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             requestId: transcriptionRequestId,
             phase: "editing",
             mode,
-            timing: { ...uploadTiming, sttDurationMs },
+            timing: { ...uploadTiming, sttDurationMs, serverTiming },
           });
           const result = await applyVoiceEdit(
             rawText,
@@ -605,6 +761,23 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           );
           const enhancementDurationMs = Date.now() - enhancementStart;
 
+          emitTranscriptionProgress({
+            sessionId,
+            requestId: transcriptionRequestId,
+            phase: "complete",
+            mode,
+            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs, serverTiming },
+          });
+
+          await writeResultSSE({
+            mode,
+            text: result.text,
+            rawText,
+            instructionText: rawText,
+            backend: usedBackend,
+            enhanced: true,
+            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs, serverTiming },
+          });
           addTranscriptionLogEntry({
             sessionId: sessionId ?? null,
             requestId: transcriptionRequestId ?? null,
@@ -617,6 +790,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             audioSizeBytes: buf.length,
             audioMimeType: audioMimeType ?? uploadFormat.mimeType,
             audioFileName: audioFileName ?? null,
+            serverTiming,
             audioBytes: Buffer.from(buf),
             enhancement: {
               model: result._debug.model,
@@ -626,26 +800,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               durationMs: result._debug.durationMs,
               skipReason: result._debug.skipReason,
             },
-          });
-          emitTranscriptionProgress({
-            sessionId,
-            requestId: transcriptionRequestId,
-            phase: "complete",
-            mode,
-            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
-          });
-
-          await stream.writeSSE({
-            event: "result",
-            data: JSON.stringify({
-              mode,
-              text: result.text,
-              rawText,
-              instructionText: rawText,
-              backend: usedBackend,
-              enhanced: true,
-              timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
-            }),
           });
           return;
         }
@@ -658,7 +812,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             requestId: transcriptionRequestId,
             phase: "appending",
             mode,
-            timing: { ...uploadTiming, sttDurationMs },
+            timing: { ...uploadTiming, sttDurationMs, serverTiming },
           });
           const result = await applyVoiceAppend(
             rawText,
@@ -679,6 +833,22 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           );
           const enhancementDurationMs = Date.now() - enhancementStart;
 
+          emitTranscriptionProgress({
+            sessionId,
+            requestId: transcriptionRequestId,
+            phase: "complete",
+            mode,
+            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs, serverTiming },
+          });
+
+          await writeResultSSE({
+            mode,
+            text: result.text,
+            rawText,
+            backend: usedBackend,
+            enhanced: true,
+            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs, serverTiming },
+          });
           addTranscriptionLogEntry({
             sessionId: sessionId ?? null,
             requestId: transcriptionRequestId ?? null,
@@ -691,6 +861,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             audioSizeBytes: buf.length,
             audioMimeType: audioMimeType ?? uploadFormat.mimeType,
             audioFileName: audioFileName ?? null,
+            serverTiming,
             audioBytes: Buffer.from(buf),
             enhancement: {
               model: result._debug.model,
@@ -700,25 +871,6 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
               durationMs: result._debug.durationMs,
               skipReason: result._debug.skipReason,
             },
-          });
-          emitTranscriptionProgress({
-            sessionId,
-            requestId: transcriptionRequestId,
-            phase: "complete",
-            mode,
-            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
-          });
-
-          await stream.writeSSE({
-            event: "result",
-            data: JSON.stringify({
-              mode,
-              text: result.text,
-              rawText,
-              backend: usedBackend,
-              enhanced: true,
-              timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
-            }),
           });
           return;
         }
@@ -731,7 +883,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             requestId: transcriptionRequestId,
             phase: "enhancing",
             mode,
-            timing: { ...uploadTiming, sttDurationMs },
+            timing: { ...uploadTiming, sttDurationMs, serverTiming },
           });
           const result = await enhanceTranscript(
             rawText,
@@ -750,7 +902,22 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           );
           const enhancementDurationMs = Date.now() - enhancementStart;
 
-          // Log for debug panel
+          emitTranscriptionProgress({
+            sessionId,
+            requestId: transcriptionRequestId,
+            phase: "complete",
+            mode,
+            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs, serverTiming },
+          });
+
+          await writeResultSSE({
+            mode,
+            text: result.text,
+            rawText: result.rawText,
+            backend: usedBackend,
+            enhanced: result.enhanced,
+            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs, serverTiming },
+          });
           addTranscriptionLogEntry({
             sessionId: sessionId!,
             requestId: transcriptionRequestId ?? null,
@@ -763,6 +930,7 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
             audioSizeBytes: buf.length,
             audioMimeType: audioMimeType ?? uploadFormat.mimeType,
             audioFileName: audioFileName ?? null,
+            serverTiming,
             audioBytes: Buffer.from(buf),
             enhancement: result._debug
               ? {
@@ -775,35 +943,31 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
                 }
               : null,
           });
-          emitTranscriptionProgress({
-            sessionId,
-            requestId: transcriptionRequestId,
-            phase: "complete",
-            mode,
-            timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
-          });
-
-          await stream.writeSSE({
-            event: "result",
-            data: JSON.stringify({
-              mode,
-              text: result.text,
-              rawText: result.rawText,
-              backend: usedBackend,
-              enhanced: result.enhanced,
-              timing: { ...uploadTiming, sttDurationMs, enhancementDurationMs },
-            }),
-          });
           return;
         }
 
-        // Log STT-only call (no enhancement attempted)
+        // STT-only call (no enhancement attempted)
         emitTranscriptionProgress({
           sessionId,
           requestId: transcriptionRequestId,
           phase: "finalizing",
           mode,
-          timing: { ...uploadTiming, sttDurationMs },
+          timing: { ...uploadTiming, sttDurationMs, serverTiming },
+        });
+        emitTranscriptionProgress({
+          sessionId,
+          requestId: transcriptionRequestId,
+          phase: "complete",
+          mode,
+          timing: { ...uploadTiming, sttDurationMs, serverTiming },
+        });
+
+        await writeResultSSE({
+          mode,
+          text: rawText,
+          backend: usedBackend,
+          enhanced: false,
+          timing: { ...uploadTiming, sttDurationMs, serverTiming },
         });
         addTranscriptionLogEntry({
           sessionId: sessionId ?? null,
@@ -817,26 +981,9 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
           audioSizeBytes: buf.length,
           audioMimeType: audioMimeType ?? uploadFormat.mimeType,
           audioFileName: audioFileName ?? null,
+          serverTiming,
           audioBytes: Buffer.from(buf),
           enhancement: null,
-        });
-        emitTranscriptionProgress({
-          sessionId,
-          requestId: transcriptionRequestId,
-          phase: "complete",
-          mode,
-          timing: { ...uploadTiming, sttDurationMs },
-        });
-
-        await stream.writeSSE({
-          event: "result",
-          data: JSON.stringify({
-            mode,
-            text: rawText,
-            backend: usedBackend,
-            enhanced: false,
-            timing: { ...uploadTiming, sttDurationMs },
-          }),
         });
       } catch (e: unknown) {
         const msg = e instanceof Error ? e.message : String(e);

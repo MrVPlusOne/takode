@@ -89,6 +89,34 @@ export type FrontendPerfEntry =
       enhancementDurationMs?: number;
     }
   | {
+      kind: "voice_recording_timing";
+      timestamp: number;
+      sessionId: string;
+      requestId: string;
+      chunkCount: number;
+      chunkBytes: number;
+      blobBytes: number;
+      blobMimeType?: string | null;
+      selectedMimeType?: string | null;
+      recorderMimeType?: string | null;
+      recordingDurationMs?: number;
+      stopToBlobReadyMs?: number;
+      blobBuildDurationMs?: number;
+    }
+  | {
+      kind: "voice_transcription_client_timing";
+      timestamp: number;
+      sessionId: string;
+      requestId: string;
+      transport: "raw" | "multipart";
+      requestBodyBytes: number;
+      responseStartDelayMs?: number;
+      firstChunkDelayMs?: number;
+      resultStreamDurationMs?: number;
+      apiElapsedMs?: number;
+      applyToNextPaintMs?: number;
+    }
+  | {
       kind: "message_history_apply";
       timestamp: number;
       sessionId: string;
