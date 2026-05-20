@@ -368,20 +368,49 @@ describe("UniversalSearchOverlay", () => {
   it("keeps Message mode disabled and falls back to Quest mode when there is no current session context", async () => {
     renderOverlay({ currentSessionId: null, messages: [] });
 
-    expect(screen.queryByRole("button", { name: "Sessions" })).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Sessions" })).toBeEnabled();
     expect(screen.getByRole("button", { name: "Messages" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
     await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
     expect(mockSearchSessionMessages).not.toHaveBeenCalled();
   });
 
-  it("falls back from a persisted legacy Session mode to an available mode", async () => {
+  it("restores persisted Session mode even without a current session", async () => {
     localStorage.setItem("cc-universal-search-mode", "sessions");
     renderOverlay({ currentSessionId: null, currentThreadKey: null, messages: [] });
 
-    expect(screen.queryByRole("button", { name: "Sessions" })).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Quests" })).toHaveAttribute("aria-pressed", "true");
-    await waitFor(() => expect(mockListQuestPage).toHaveBeenCalled());
+    expect(screen.getByRole("button", { name: "Sessions" })).toHaveAttribute("aria-pressed", "true");
+    expect(await screen.findByText("New session")).toBeInTheDocument();
+    expect(mockListQuestPage).not.toHaveBeenCalled();
+  });
+
+  it("filters Session mode by name, branch, and path without running message-content search", async () => {
+    const sessionModeSessions: SdkSessionInfo[] = [
+      { ...sessions[0]!, name: "Planning worker", gitBranch: "feature/sidebar-overflow", cwd: "/repo/takode" },
+      { ...sessions[1]!, name: "Review thread", gitBranch: "main", cwd: "/repo/other" },
+    ];
+    renderOverlay({ sessions: sessionModeSessions });
+
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "sidebar overflow" } });
+    await advanceSearchDebounce();
+
+    expect(await screen.findByText("Planning worker")).toBeInTheDocument();
+    expect(screen.getByText("branch feature/sidebar-overflow")).toBeInTheDocument();
+    expect(screen.queryByText("Review thread")).not.toBeInTheDocument();
+    expect(mockListQuestPage).not.toHaveBeenCalled();
+    expect(mockSearchSessionMessages).toHaveBeenCalledTimes(1);
+  });
+
+  it("opens the selected Session mode result", async () => {
+    const callbacks = renderOverlay();
+
+    fireEvent.click(screen.getByRole("button", { name: "Sessions" }));
+    expect(await screen.findByText("New session")).toBeInTheDocument();
+    fireEvent.click(screen.getByText("Old session"));
+
+    expect(window.location.hash).toBe("#/session/s-old");
+    expect(callbacks.onClose).toHaveBeenCalledTimes(1);
   });
 
   it("searches whole-session Message mode for normal sessions without a thread route", async () => {

@@ -44,6 +44,11 @@ import {
   getHerdGroupLeaderId,
   type HerdGroupBadgeTheme,
 } from "../utils/herd-group-theme.js";
+import {
+  DEFAULT_GROUP_VISIBLE_SESSION_LIMIT,
+  readSidebarGroupVisibleLimits,
+  writeSidebarGroupVisibleLimits,
+} from "../utils/sidebar-group-overflow.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { getDocumentTitleAttentionCount } from "../utils/document-title-attention.js";
 
@@ -194,6 +199,10 @@ export function Sidebar() {
   const [bulkTargetGroupId, setBulkTargetGroupId] = useState("");
   const [bulkAssigning, setBulkAssigning] = useState(false);
   const [bulkSourceMenuOpen, setBulkSourceMenuOpen] = useState(false);
+  const [expandedOverflowGroups, setExpandedOverflowGroups] = useState<Set<string>>(new Set());
+  const [groupVisibleLimits, setGroupVisibleLimits] = useState<Map<string, number>>(() =>
+    readSidebarGroupVisibleLimits(),
+  );
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sessionScrollerRef = useRef<HTMLDivElement>(null);
   const route = parseHash(hash);
@@ -815,6 +824,31 @@ export function Sidebar() {
     [treeGroupIds, treeViewGroups, treeAssignments],
   );
 
+  const toggleGroupOverflow = useCallback((groupId: string) => {
+    setExpandedOverflowGroups((current) => {
+      const next = new Set(current);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  }, []);
+
+  const setGroupVisibleLimit = useCallback((groupId: string, limit: number) => {
+    setGroupVisibleLimits((current) => {
+      const next = new Map(current);
+      if (limit === DEFAULT_GROUP_VISIBLE_SESSION_LIMIT) next.delete(groupId);
+      else next.set(groupId, limit);
+      writeSidebarGroupVisibleLimits(next);
+      return next;
+    });
+    setExpandedOverflowGroups((current) => {
+      if (!current.has(groupId)) return current;
+      const next = new Set(current);
+      next.delete(groupId);
+      return next;
+    });
+  }, []);
+
   // Session-level DnD for cross-group moves in tree view.
   // Maps each root session ID to its group so we can detect cross-group drops.
   const sessionToGroupMap = useMemo(() => {
@@ -1379,6 +1413,12 @@ export function Sidebar() {
                                     }
                                   : undefined
                               }
+                              visibleSessionLimit={
+                                groupVisibleLimits.get(group.id) ?? DEFAULT_GROUP_VISIBLE_SESSION_LIMIT
+                              }
+                              overflowExpanded={expandedOverflowGroups.has(group.id)}
+                              onToggleOverflow={toggleGroupOverflow}
+                              onSetVisibleSessionLimit={setGroupVisibleLimit}
                               herdGroupBadgeThemes={herdGroupBadgeThemes}
                               bulkSelectionActive={bulkSelectionGroupId === group.id}
                               bulkSelectedSessionIds={bulkSelectedSessionIds}

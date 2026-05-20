@@ -51,6 +51,7 @@ const SCOPED_KEYS = [
   "cc-universal-search-mode",
   "cc-universal-search-query",
   "cc-universal-search-message-settings",
+  "cc-sidebar-group-visible-limits",
   "cc-last-session-creation-context",
   "cc-collapsed-tree-groups",
   "cc-collapsed-tree-nodes",

@@ -15,10 +15,11 @@ import { getHighlightParts } from "../utils/highlight.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { navigateToSession, navigateToSessionThread } from "../utils/routing.js";
 import { scopedGetItem, scopedSetItem } from "../utils/scoped-storage.js";
+import { compareSearchRanks, rankSearchFields, type SearchRank } from "../../shared/search-utils.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
 import { SessionInlineLink } from "./SessionInlineLink.js";
 
-export type UniversalSearchMode = "quests" | "messages";
+export type UniversalSearchMode = "quests" | "sessions" | "messages";
 
 type MessageFilter = "user" | "assistant" | "event";
 type MessageSearchSettings = {
@@ -28,6 +29,7 @@ type MessageSearchSettings = {
 
 type UniversalSearchResult =
   | { kind: "quest"; id: string; quest: QuestmasterTask }
+  | { kind: "session"; id: string; session: SdkSessionInfo; rank: SearchRank | null }
   | { kind: "message"; id: string; message: MessageSearchResult };
 
 type QuestResultAction =
@@ -55,6 +57,7 @@ const LAST_QUERY_STORAGE_KEY = "cc-universal-search-query";
 const MESSAGE_SETTINGS_STORAGE_KEY = "cc-universal-search-message-settings";
 const MODE_OPTIONS: Array<{ id: UniversalSearchMode; label: string }> = [
   { id: "quests", label: "Quests" },
+  { id: "sessions", label: "Sessions" },
   { id: "messages", label: "Messages" },
 ];
 
@@ -85,7 +88,7 @@ function useDebouncedValue(value: string, delayMs: number): string {
 }
 
 function isUniversalSearchMode(value: string | null): value is UniversalSearchMode {
-  return value === "quests" || value === "messages";
+  return value === "quests" || value === "sessions" || value === "messages";
 }
 
 function readLastMode(): UniversalSearchMode | null {
@@ -197,7 +200,7 @@ function formatRelativeTime(ts: number | undefined): string {
 }
 
 function getAvailableModes(messageModeAvailable: boolean): UniversalSearchMode[] {
-  return messageModeAvailable ? ["quests", "messages"] : ["quests"];
+  return messageModeAvailable ? ["quests", "sessions", "messages"] : ["quests", "sessions"];
 }
 
 function nextMode(current: UniversalSearchMode, direction: 1 | -1, messageModeAvailable: boolean): UniversalSearchMode {
@@ -239,6 +242,45 @@ function getQuestResultActions(quest: QuestmasterTask, sessions: SdkSessionInfo[
     });
   }
   return actions;
+}
+
+function sessionDisplayName(session: SdkSessionInfo): string {
+  return (
+    session.name?.trim() || (typeof session.sessionNum === "number" ? `#${session.sessionNum}` : session.sessionId)
+  );
+}
+
+function sessionSearchFields(session: SdkSessionInfo) {
+  return [
+    { rank: 0, text: sessionDisplayName(session) },
+    { rank: 1, text: typeof session.sessionNum === "number" ? `#${session.sessionNum}` : undefined },
+    { rank: 2, text: session.gitBranch },
+    { rank: 3, text: session.cwd },
+    { rank: 4, text: session.repoRoot },
+    { rank: 5, text: session.keywords?.join(" ") },
+  ];
+}
+
+function sessionRecency(session: SdkSessionInfo): number {
+  return session.lastActivityAt ?? session.lastUserMessageAt ?? session.createdAt;
+}
+
+function searchSessionsForOverlay(
+  sessions: SdkSessionInfo[],
+  query: string,
+): Array<{ session: SdkSessionInfo; rank: SearchRank | null }> {
+  const trimmed = query.trim();
+  const candidates = sessions.filter((session) => !session.archived);
+  if (!trimmed) {
+    return candidates
+      .map((session) => ({ session, rank: null }))
+      .sort((a, b) => sessionRecency(b.session) - sessionRecency(a.session));
+  }
+
+  return candidates
+    .map((session) => ({ session, rank: rankSearchFields(sessionSearchFields(session), trimmed) }))
+    .filter((item): item is { session: SdkSessionInfo; rank: SearchRank } => item.rank !== null)
+    .sort((a, b) => compareSearchRanks(a.rank, b.rank) || sessionRecency(b.session) - sessionRecency(a.session));
 }
 
 export function UniversalSearchOverlay({
@@ -295,6 +337,22 @@ export function UniversalSearchOverlay({
       : currentSessionId
         ? localMessageScopeLabel(currentSession?.sessionNum ?? null, effectiveMessageScope, currentThreadKey)
         : "Open a session to search messages";
+  const sessionResults = useMemo(
+    () =>
+      searchSessionsForOverlay(sessions, debouncedQuery)
+        .slice(0, visibleLimit)
+        .map(({ session, rank }) => ({
+          kind: "session" as const,
+          id: session.sessionId,
+          session,
+          rank,
+        })),
+    [debouncedQuery, sessions, visibleLimit],
+  );
+  const totalSessionResults = useMemo(
+    () => searchSessionsForOverlay(sessions, debouncedQuery).length,
+    [debouncedQuery, sessions],
+  );
 
   useEffect(() => {
     sessionByIdRef.current = sessionById;
@@ -458,14 +516,16 @@ export function UniversalSearchOverlay({
 
   const results = useMemo(() => {
     if (mode === "quests") return remoteState.mode === "quests" ? remoteState.results : [];
+    if (mode === "sessions") return sessionResults;
     return remoteState.mode === "messages" ? remoteState.results : [];
-  }, [mode, remoteState]);
+  }, [mode, remoteState, sessionResults]);
 
   const totalResults = useMemo(() => {
     if (mode === "quests" && remoteState.mode === "quests") return remoteState.total;
+    if (mode === "sessions") return totalSessionResults;
     if (mode === "messages" && remoteState.mode === "messages") return remoteState.total;
     return 0;
-  }, [mode, remoteState]);
+  }, [mode, remoteState, totalSessionResults]);
 
   const loading =
     (mode === "quests" || mode === "messages") && remoteState.mode === mode && remoteState.status === "loading";
@@ -505,6 +565,8 @@ export function UniversalSearchOverlay({
       if (!result) return;
       if (result.kind === "quest") {
         onOpenQuest(result.quest.questId, debouncedQuery.trim());
+      } else if (result.kind === "session") {
+        navigateToSession(result.session.sessionId);
       } else {
         onOpenMessage(
           result.message.sessionId,
@@ -646,9 +708,11 @@ export function UniversalSearchOverlay({
   const placeholder =
     mode === "quests"
       ? "Search quests..."
-      : messageModeAvailable
-        ? "Search messages..."
-        : "Open a session to search messages";
+      : mode === "sessions"
+        ? "Search sessions..."
+        : messageModeAvailable
+          ? "Search messages..."
+          : "Open a session to search messages";
 
   const fixedPresentation = presentation === "fixed";
 
@@ -915,6 +979,17 @@ function ResultRow({
       />
     );
   }
+  if (result.kind === "session") {
+    return (
+      <SessionResultRow
+        session={result.session}
+        query={query}
+        selected={selected}
+        onPointerMove={onPointerMove}
+        onOpen={onOpen}
+      />
+    );
+  }
   return (
     <MessageResultRow
       message={result.message}
@@ -1112,6 +1187,63 @@ function QuestResultRow({
             })}
           </div>
         )}
+      </div>
+    </ResultOption>
+  );
+}
+
+function SessionResultRow({
+  session,
+  query,
+  selected,
+  onPointerMove,
+  onOpen,
+}: {
+  session: SdkSessionInfo;
+  query: string;
+  selected: boolean;
+  onPointerMove: () => void;
+  onOpen: () => void;
+}) {
+  const displayName = sessionDisplayName(session);
+  const nameParts = getHighlightParts(displayName, query);
+  const metadata = [
+    session.gitBranch ? `branch ${session.gitBranch}` : null,
+    session.cwd || session.repoRoot || null,
+    session.backendType ?? null,
+  ].filter((item): item is string => Boolean(item));
+
+  return (
+    <ResultOption selected={selected} onPointerMove={onPointerMove} onOpen={onOpen}>
+      <div className="flex min-w-0 items-start justify-between gap-3">
+        <div className="min-w-0">
+          <div className="flex min-w-0 items-center gap-2">
+            <span className="shrink-0 rounded-md bg-cc-hover px-1.5 py-0.5 font-mono-code text-[10px] text-cc-muted">
+              {typeof session.sessionNum === "number" ? `#${session.sessionNum}` : "session"}
+            </span>
+            <span className="truncate text-sm font-medium text-cc-fg">
+              {nameParts.map((part, index) =>
+                part.matched ? (
+                  <mark key={`${part.text}-${index}`} className="rounded-[2px] bg-amber-300/25 px-0.5 text-amber-100">
+                    {part.text}
+                  </mark>
+                ) : (
+                  <span key={`${part.text}-${index}`}>{part.text}</span>
+                ),
+              )}
+            </span>
+          </div>
+          {metadata.length > 0 && (
+            <div className="mt-1 flex min-w-0 flex-wrap items-center gap-1.5 text-[11px] text-cc-muted">
+              {metadata.map((item) => (
+                <span key={item} className="max-w-[320px] truncate rounded-md border border-cc-border px-1.5 py-0.5">
+                  {item}
+                </span>
+              ))}
+            </div>
+          )}
+        </div>
+        <div className="shrink-0 text-[11px] text-cc-muted">{formatRelativeTime(sessionRecency(session))}</div>
       </div>
     </ResultOption>
   );
