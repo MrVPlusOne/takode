@@ -10,7 +10,6 @@ import {
   runAfterNotificationOwnerThreadSelected,
 } from "../utils/notification-thread.js";
 import { ALL_THREADS_KEY, MAIN_THREAD_KEY, normalizeThreadKey } from "../utils/thread-projection.js";
-import { useVisibleReviewNotificationAutoResolve } from "../hooks/useVisibleReviewNotificationAutoResolve.js";
 import { getNotificationSourceContext } from "../utils/notification-source-context.js";
 import { NeedsInputAnswerField } from "./NeedsInputAnswerField.js";
 
@@ -72,7 +71,6 @@ export function NotificationMarker({
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
   const canSendQuickReply =
     !!sessionId && !!notif && questionViews.length > 0 && questionViews.every((q) => answersByQuestion[q.key]?.trim());
-  const markerRef = useVisibleReviewNotificationAutoResolve<HTMLDivElement>({ sessionId, notification: notif });
 
   useEffect(() => {
     setAnswersByQuestion({});
@@ -219,7 +217,6 @@ export function NotificationMarker({
 
   return (
     <div
-      ref={markerRef}
       className={`inline-flex max-w-full flex-col items-start gap-1 mt-2 px-2 py-0.5 rounded-xl text-[11px] font-medium border transition-opacity ${
         questionViews.length > 0 ? "w-full sm:w-[min(30rem,100%)]" : ""
       } ${

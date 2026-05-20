@@ -86,6 +86,8 @@ function setNotificationSummary(
   summary: {
     notificationUrgency: "needs-input" | "review" | null;
     activeNotificationCount: number;
+    activeNeedsInputNotificationCount?: number;
+    activeReviewNotificationCount?: number;
     notificationStatusVersion: number;
     notificationStatusUpdatedAt?: number;
   },
@@ -251,28 +253,21 @@ describe("NotificationChip", () => {
     expect(screen.queryByText("Waiting on reviewer")).not.toBeInTheDocument();
   });
 
-  it("uses the theme-safe info color when review is the highest active urgency", () => {
-    // Review-only inboxes should render a single-height inline count + bell
-    // segment with explicit review copy.
+  it("renders no lower-right chip for review-only notifications", () => {
+    // Blue review state is owned by thread tabs, so a review-only inbox should
+    // not create a lower-right count or panel entry.
     setNotifications("s1", [
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
       { id: "review-2", category: "review", summary: "Also review", timestamp: Date.now(), done: true },
     ]);
-    render(<NotificationChip sessionId="s1" />);
+    const { container } = render(<NotificationChip sessionId="s1" />);
 
-    const chip = screen.getByRole("button", { name: "Notification inbox: 1 review notification" });
-    const badge = within(chip).getByTestId("notification-chip-review");
-    const bell = badge.querySelector("svg");
-    expect(chip).toHaveTextContent("1review");
-    expect(within(chip).queryByText("unreads")).not.toBeInTheDocument();
-    expect(bell?.className.baseVal ?? bell?.getAttribute("class")).toContain("text-cc-info");
-    expect(badge).toHaveTextContent("1");
-    expect(badge.className).not.toContain("rounded-full");
+    expect(container).toBeEmptyDOMElement();
   });
 
   it("prioritizes needs-input on the chip surface when needs-input and review are both active", () => {
-    // Mixed inboxes should show one attention bell, with review discoverable as
-    // secondary text instead of a competing info bell.
+    // Mixed inboxes should show only unresolved needs-input count. The review
+    // nudge remains visible on thread tabs instead of the lower-right chip.
     setNotifications("s1", [
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
       { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
@@ -281,16 +276,16 @@ describe("NotificationChip", () => {
     render(<NotificationChip sessionId="s1" />);
 
     const chip = screen.getByRole("button", {
-      name: "Notification inbox: 2 needs-input notifications, 1 review notification",
+      name: "Notification inbox: 2 needs-input notifications",
     });
     const needsInputBadge = within(chip).getByTestId("notification-chip-needs-input");
-    const reviewSecondary = within(chip).getByTestId("notification-chip-review-secondary");
     const needsInputBell = needsInputBadge.querySelector("svg");
-    expect(chip).toHaveTextContent("2needs input+1 review");
+    expect(chip).toHaveTextContent("2needs input");
+    expect(chip).not.toHaveTextContent("review");
     expect(needsInputBell?.className.baseVal ?? needsInputBell?.getAttribute("class")).toContain("text-cc-attention");
     expect(within(chip).queryByTestId("notification-chip-review")).not.toBeInTheDocument();
+    expect(within(chip).queryByTestId("notification-chip-review-secondary")).not.toBeInTheDocument();
     expect(needsInputBadge).toHaveTextContent("2");
-    expect(reviewSecondary).toHaveTextContent("+1 review");
     expect(within(chip).queryByText("unreads")).not.toBeInTheDocument();
   });
 
@@ -335,6 +330,25 @@ describe("NotificationChip", () => {
     expect(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" })).toBeInTheDocument();
   });
 
+  it("uses needs-input-specific summary counts when review notifications are also active", () => {
+    // Session activity snapshots still preserve total/review counts for other
+    // surfaces, but the lower-right chip must stay needs-input-only.
+    setNotificationSummary("s1", {
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 3,
+      activeNeedsInputNotificationCount: 1,
+      activeReviewNotificationCount: 2,
+      notificationStatusVersion: 9,
+      notificationStatusUpdatedAt: 9000,
+    });
+
+    render(<NotificationChip sessionId="s1" />);
+
+    const chip = screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" });
+    expect(chip).toHaveTextContent("1needs input");
+    expect(chip).not.toHaveTextContent("review");
+  });
+
   it("keeps a newer needs-input summary when stale clear state is still cached", () => {
     // Protects the observed transition: stale clear/review local notification
     // state must not override a newer authoritative needs-input summary.
@@ -353,13 +367,13 @@ describe("NotificationChip", () => {
   it("preserves popover behavior while using urgency color", () => {
     // Coloring the bell should not change the existing click-to-open inbox flow.
     setNotifications("s1", [
-      { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
+      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
     ]);
     render(<NotificationChip sessionId="s1" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
     expect(screen.getByRole("dialog", { name: "Notification inbox" })).toBeInTheDocument();
-    expect(screen.getByText("Needs review")).toBeInTheDocument();
+    expect(screen.getByText("Need answer")).toBeInTheDocument();
   });
 
   it("uses fully readable muted text for notification timestamps", () => {
@@ -536,14 +550,14 @@ describe("NotificationChip", () => {
     expect(screen.getAllByText("Confirm scope")).toHaveLength(1);
   });
 
-  it("switches to the notification owner thread before jumping to the message", () => {
+  it("switches to the needs-input owner thread before jumping to the message", () => {
     const onSelectThread = vi.fn();
     vi.useFakeTimers();
     setNotifications("s1", [
       {
-        id: "review-1",
-        category: "review",
-        summary: "q-977 ready for review",
+        id: "input-1",
+        category: "needs-input",
+        summary: "Answer q-977",
         timestamp: Date.now(),
         messageId: "msg-977",
         threadKey: "q-977",
@@ -554,8 +568,8 @@ describe("NotificationChip", () => {
 
     try {
       render(<NotificationChip sessionId="s1" currentThreadKey="main" onSelectThread={onSelectThread} />);
-      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
-      fireEvent.click(screen.getByRole("button", { name: /^q-977$/i }));
+      fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+      fireEvent.click(screen.getByRole("button", { name: /Answer q-977/i }));
 
       expect(onSelectThread).toHaveBeenCalledWith("q-977");
       expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
@@ -770,9 +784,9 @@ describe("NotificationChip", () => {
   it("hides answer actions for addressed needs-input notifications in the done section", () => {
     setNotifications("s1", [
       {
-        id: "active-review",
-        category: "review",
-        summary: "Ready for review",
+        id: "active-input",
+        category: "needs-input",
+        summary: "Confirm release?",
         timestamp: Date.now(),
         done: false,
       },
@@ -787,13 +801,16 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
     fireEvent.click(screen.getByRole("button", { name: "Done (1)" }));
 
-    expect(screen.getByText("Deploy now?")).not.toBeNull();
-    expect(screen.queryByTestId("notification-answer-actions")).toBeNull();
-    expect(screen.queryByRole("button", { name: "yes" })).toBeNull();
-    expect(screen.queryByRole("button", { name: "Use composer" })).toBeNull();
+    const doneRow = screen
+      .getAllByTestId("notification-inbox-row")
+      .find((row) => within(row).queryByText("Deploy now?"))!;
+    expect(doneRow).not.toBeNull();
+    expect(within(doneRow).queryByTestId("notification-answer-actions")).toBeNull();
+    expect(within(doneRow).queryByRole("button", { name: "yes" })).toBeNull();
+    expect(within(doneRow).queryByRole("button", { name: "Use composer" })).toBeNull();
   });
 
   it("renders multiple question blocks and keeps suggestions scoped to the chosen question", () => {
@@ -836,14 +853,8 @@ describe("NotificationChip", () => {
     expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
-  it("renders the quest mention as a quest link while keeping the row clickable for jump-to-message", () => {
-    setQuests([
-      {
-        id: "q-345-v1",
-        questId: "q-345",
-        title: "Compress herd events",
-      },
-    ]);
+  it("does not surface active review rows or clear them from the lower-right panel", () => {
+    const observer = installIntersectionObserverMock();
     setNotifications("s1", [
       {
         id: "review-1",
@@ -853,27 +864,28 @@ describe("NotificationChip", () => {
         messageId: "msg-123",
         done: false,
       },
+      {
+        id: "input-1",
+        category: "needs-input",
+        summary: "Confirm launch window",
+        timestamp: Date.now(),
+        messageId: "msg-124",
+        done: false,
+      },
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
 
-    const questLink = screen.getByRole("link", { name: "q-345" });
-    const rowButton = screen.getByRole("button", { name: /q-345: Compress herd events/i });
-    expect(questLink).toHaveAttribute("href", "#/?quest=q-345");
-    expect(rowButton).toBeInTheDocument();
-    expect(screen.queryByText(/ready for review/i)).toBeNull();
-
-    fireEvent.click(rowButton);
-    expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-123");
-    expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-123");
-
-    fireEvent.click(questLink);
-    expect(mockOpenQuestOverlay).toHaveBeenCalledWith("q-345");
-    expect(mockRequestScrollToMessage).toHaveBeenCalledTimes(1);
+    expect(screen.getAllByTestId("notification-inbox-row")).toHaveLength(1);
+    expect(screen.getByText("Confirm launch window")).toBeInTheDocument();
+    expect(screen.queryByText(/q-345/)).not.toBeInTheDocument();
+    expect(observer.observe).not.toHaveBeenCalled();
+    act(() => observer.trigger(true));
+    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "review-1", true);
   });
 
-  it("compacts multi-quest ready-for-review summaries in the inbox row", () => {
+  it("does not surface multi-quest review summaries in the lower-right panel", () => {
     setNotifications("s1", [
       {
         id: "review-batch-1",
@@ -882,22 +894,29 @@ describe("NotificationChip", () => {
         timestamp: Date.now(),
         done: false,
       },
+      {
+        id: "input-1",
+        category: "needs-input",
+        summary: "Choose validation path",
+        timestamp: Date.now(),
+        done: false,
+      },
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
 
-    expect(screen.getByText("q-345, q-346")).toBeInTheDocument();
+    expect(screen.queryByText("q-345, q-346")).not.toBeInTheDocument();
     expect(screen.queryByText(/2 quests ready for review/i)).toBeNull();
   });
 
   it("uses a full-width mobile popover shell while staying anchored above the feed chip", () => {
     setNotifications("s1", [
-      { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
+      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
 
     const dialog = screen.getByRole("dialog", { name: "Notification inbox" });
     expect(dialog.className).toContain("inset-x-3");
@@ -916,12 +935,12 @@ describe("NotificationChip", () => {
     const originalInnerHeight = window.innerHeight;
     Object.defineProperty(window, "innerHeight", { configurable: true, value: 800 });
     setNotifications("s1", [
-      { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
+      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
     ]);
 
     try {
       render(<NotificationChip sessionId="s1" />);
-      const chip = screen.getByRole("button", { name: "Notification inbox: 1 review notification" });
+      const chip = screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" });
       Object.defineProperty(chip, "getBoundingClientRect", {
         configurable: true,
         value: () => ({
@@ -949,7 +968,7 @@ describe("NotificationChip", () => {
     }
   });
 
-  it("does not show a message preview when hovering a notification row", () => {
+  it("does not show a hover card when hovering a needs-input notification row", () => {
     mockStoreState.messages = new Map([
       [
         "s1",
@@ -964,9 +983,9 @@ describe("NotificationChip", () => {
     ]);
     setNotifications("s1", [
       {
-        id: "review-1",
-        category: "review",
-        summary: "q-345 ready for review",
+        id: "input-1",
+        category: "needs-input",
+        summary: "Confirm scope",
         timestamp: Date.now(),
         messageId: "msg-123",
         done: false,
@@ -974,14 +993,14 @@ describe("NotificationChip", () => {
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
-    fireEvent.mouseEnter(screen.getByRole("button", { name: /^q-345$/i }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
+    fireEvent.mouseEnter(screen.getByRole("button", { name: /Confirm scope/i }));
 
-    expect(screen.queryByText("Hidden hover preview body")).toBeNull();
+    expect(screen.getByTestId("notification-source-context")).toHaveTextContent("Hidden hover preview body");
     expect(screen.queryByTestId("message-link-hover-card")).toBeNull();
   });
 
-  it("keeps the quest hover card behavior on the inline quest link", () => {
+  it("keeps review quest hover cards out of the needs-input-only panel", () => {
     setQuests([
       {
         id: "q-345-v1",
@@ -1002,15 +1021,13 @@ describe("NotificationChip", () => {
       },
     ]);
 
-    render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
-    fireEvent.mouseEnter(screen.getByRole("link", { name: "q-345" }));
+    const { container } = render(<NotificationChip sessionId="s1" />);
 
-    expect(screen.getByText("Compress herd events more aggressively")).toBeInTheDocument();
-    expect(within(screen.getByTestId("quest-hover-status-row")).getByText("Completed")).toBeInTheDocument();
+    expect(container).toBeEmptyDOMElement();
+    expect(screen.queryByRole("link", { name: "q-345" })).not.toBeInTheDocument();
   });
 
-  it("auto-resolves visible review rows in the notification popover", () => {
+  it("does not auto-resolve review notifications from the lower-right popover", () => {
     const observer = installIntersectionObserverMock();
     setNotifications("s1", [
       {
@@ -1020,14 +1037,21 @@ describe("NotificationChip", () => {
         timestamp: Date.now(),
         done: false,
       },
+      {
+        id: "needs-input-visible",
+        category: "needs-input",
+        summary: "Deploy now?",
+        timestamp: Date.now(),
+        done: false,
+      },
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 review notification" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
 
-    expect(observer.observe).toHaveBeenCalledTimes(1);
+    expect(observer.observe).not.toHaveBeenCalled();
     act(() => observer.trigger(true));
-    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "review-visible", true);
+    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "review-visible", true);
   });
 
   it("does not auto-resolve visible needs-input rows in the notification popover", () => {
@@ -1051,14 +1075,18 @@ describe("NotificationChip", () => {
 
   it("shows a Read All control and marks all active notifications done", () => {
     setNotifications("s1", [
+      { id: "input-1", category: "needs-input", summary: "Need answer", timestamp: Date.now(), done: false },
+      { id: "input-2", category: "needs-input", summary: "Need another answer", timestamp: Date.now(), done: false },
       { id: "review-1", category: "review", summary: "Needs review", timestamp: Date.now(), done: false },
-      { id: "review-2", category: "review", summary: "Another review", timestamp: Date.now(), done: false },
     ]);
 
     render(<NotificationChip sessionId="s1" />);
-    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 2 review notifications" }));
+    fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 2 needs-input notifications" }));
     fireEvent.click(screen.getByRole("button", { name: "Read All" }));
 
-    expect(mockMarkAllNotificationsDone).toHaveBeenCalledWith("s1", true);
+    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "input-1", true);
+    expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "input-2", true);
+    expect(mockMarkNotificationDone).not.toHaveBeenCalledWith("s1", "review-1", true);
+    expect(mockMarkAllNotificationsDone).not.toHaveBeenCalled();
   });
 });

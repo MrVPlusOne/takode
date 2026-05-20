@@ -324,6 +324,10 @@ export interface SdkSessionInfo {
   notificationUrgency?: "needs-input" | "review" | null;
   /** Number of unresolved Takode notifications for sidebar snapshots. */
   activeNotificationCount?: number;
+  /** Number of unresolved needs-input notifications for needs-input-only surfaces. */
+  activeNeedsInputNotificationCount?: number;
+  /** Number of unresolved review notifications for tab-scoped review surfaces. */
+  activeReviewNotificationCount?: number;
   /** Monotonic server-owned notification status version for stale update rejection. */
   notificationStatusVersion?: number;
   /** Epoch ms when notification status last changed on the server. */

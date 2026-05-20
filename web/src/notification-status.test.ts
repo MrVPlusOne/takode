@@ -168,6 +168,8 @@ describe("notification status attention freshness", () => {
     ]);
     expect(useStore.getState().sdkSessions[0]?.notificationUrgency).toBe("needs-input");
     expect(useStore.getState().sdkSessions[0]?.activeNotificationCount).toBe(1);
+    expect(useStore.getState().sdkSessions[0]?.activeNeedsInputNotificationCount).toBe(1);
+    expect(useStore.getState().sdkSessions[0]?.activeReviewNotificationCount).toBe(0);
   });
 
   it("clears cached notification state when only waiting markers arrive", () => {

@@ -28,6 +28,8 @@ export interface SidebarSessionItem {
   pendingTimerCount?: number;
   notificationUrgency?: "needs-input" | "review" | null;
   activeNotificationCount?: number;
+  activeNeedsInputNotificationCount?: number;
+  activeReviewNotificationCount?: number;
   notificationStatusVersion?: number;
   notificationStatusUpdatedAt?: number;
   pause?: import("../types.js").SessionPauseState | null;

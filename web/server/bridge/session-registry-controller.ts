@@ -1299,6 +1299,8 @@ export function getSessionActivitySnapshot(session: SessionLike): {
   pendingPermissionSummary: string | null;
   notificationUrgency: NotificationUrgency;
   activeNotificationCount: number;
+  activeNeedsInputNotificationCount: number;
+  activeReviewNotificationCount: number;
   notificationStatusVersion: number;
   notificationStatusUpdatedAt: number;
 } {

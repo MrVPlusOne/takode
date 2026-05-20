@@ -1044,6 +1044,8 @@ export type BrowserIncomingMessageBase =
         pendingPermissionSummary?: string | null;
         notificationUrgency?: NotificationUrgency;
         activeNotificationCount?: number;
+        activeNeedsInputNotificationCount?: number;
+        activeReviewNotificationCount?: number;
         notificationStatusVersion?: number;
         notificationStatusUpdatedAt?: number;
         leaderActivePhaseSummary?: LeaderActivePhaseSummarySegment[];

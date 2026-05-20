@@ -145,7 +145,7 @@ describe("MessageBubble notification markers", () => {
     expect(screen.queryByTitle("Reply to this notification")).toBeNull();
   });
 
-  it("does not auto-resolve review notifications before their inline marker is visible", () => {
+  it("does not auto-resolve review notifications from inline marker visibility", () => {
     const observer = installIntersectionObserverMock();
     const prevNotifications = useStore.getState().sessionNotifications;
     const notifications = new Map(prevNotifications);
@@ -172,14 +172,14 @@ describe("MessageBubble notification markers", () => {
         />,
       );
 
-      expect(observer.observe).toHaveBeenCalledTimes(1);
+      expect(observer.observe).not.toHaveBeenCalled();
       expect(markNotificationDoneMock).not.toHaveBeenCalled();
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }
   });
 
-  it("auto-resolves review notifications once their inline marker is visible", () => {
+  it("keeps review notifications unresolved when their inline marker becomes visible", () => {
     const observer = installIntersectionObserverMock();
     const prevNotifications = useStore.getState().sessionNotifications;
     const notifications = new Map(prevNotifications);
@@ -208,7 +208,8 @@ describe("MessageBubble notification markers", () => {
 
       act(() => observer.trigger(true));
 
-      expect(markNotificationDoneMock).toHaveBeenCalledWith("notify-session", "n-review-visible", true);
+      expect(observer.observe).not.toHaveBeenCalled();
+      expect(markNotificationDoneMock).not.toHaveBeenCalledWith("notify-session", "n-review-visible", true);
     } finally {
       useStore.setState({ sessionNotifications: prevNotifications });
     }

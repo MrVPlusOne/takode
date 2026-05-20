@@ -61,6 +61,7 @@ interface MockStoreState {
 let mockState: MockStoreState;
 const mockUnarchiveSession = vi.fn().mockResolvedValue({});
 const mockRelaunchSession = vi.fn().mockResolvedValue({});
+const mockMarkNotificationDone = vi.fn().mockResolvedValue({});
 const mockOpenQuestOverlay = vi.fn();
 const mockSendToSession = vi.fn((_sessionId: string, _msg: unknown) => true);
 function resetStore(overrides: Partial<MockStoreState> = {}) {
@@ -124,6 +125,7 @@ vi.mock("../api.js", () => ({
   api: {
     relaunchSession: (...args: unknown[]) => mockRelaunchSession(...args),
     unarchiveSession: (...args: unknown[]) => mockUnarchiveSession(...args),
+    markNotificationDone: (...args: unknown[]) => mockMarkNotificationDone(...args),
   },
 }));
 
@@ -406,6 +408,7 @@ beforeEach(() => {
   window.location.hash = "#/session/s1";
   mockUnarchiveSession.mockClear();
   mockRelaunchSession.mockClear();
+  mockMarkNotificationDone.mockClear();
   mockOpenQuestOverlay.mockClear();
   mockSendToSession.mockClear();
 });
@@ -688,6 +691,103 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Thread");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-941");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
+  });
+
+  it("clears tab-scoped review notifications when the owner thread is selected", async () => {
+    // Blue review status is now owned by the thread tab itself. Selecting the
+    // owner conversation should resolve the server-backed review notification
+    // without requiring the user to scroll to an older in-feed marker.
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m1",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 1,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "review-q941",
+              category: "review",
+              summary: "q-941 ready for review",
+              timestamp: 2,
+              messageId: null,
+              threadKey: "q-941",
+              questId: "q-941",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      quests: [{ questId: "q-941", title: "Quest thread MVP", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
+
+    fireEvent.click(scope.getByRole("button", { name: /q-941 quest thread mvp/i }));
+
+    await waitFor(() => expect(mockMarkNotificationDone).toHaveBeenCalledWith("s1", "review-q941", true));
+  });
+
+  it("does not clear review notifications when selecting aggregate All Threads", async () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      messages: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "m1",
+              role: "assistant",
+              content: "q-941 update",
+              timestamp: 1,
+              metadata: { threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }] },
+            },
+          ],
+        ],
+      ]),
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "review-q941",
+              category: "review",
+              summary: "q-941 ready for review",
+              timestamp: 2,
+              messageId: null,
+              threadKey: "q-941",
+              questId: "q-941",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      quests: [{ questId: "q-941", title: "Quest thread MVP", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    fireEvent.click(scope.getByTestId("mock-workboard-all"));
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "all"));
+    expect(mockMarkNotificationDone).not.toHaveBeenCalled();
   });
 
   it("passes shared attention records into the top workboard navigator", () => {

@@ -22,6 +22,8 @@ export type NotificationUrgency = "needs-input" | "review" | null;
 export interface NotificationStatusSnapshot {
   notificationUrgency: NotificationUrgency;
   activeNotificationCount: number;
+  activeNeedsInputNotificationCount: number;
+  activeReviewNotificationCount: number;
   notificationStatusVersion: number;
   notificationStatusUpdatedAt: number;
 }
@@ -114,18 +116,28 @@ function getActionableSessionNotifications(session: SessionLike): SessionNotific
 
 export function getNotificationStatusSnapshot(session: SessionLike): NotificationStatusSnapshot {
   let activeNotificationCount = 0;
+  let activeNeedsInputNotificationCount = 0;
+  let activeReviewNotificationCount = 0;
   let hasNeedsInput = false;
   let hasReview = false;
   const notifications = getActionableSessionNotifications(session);
   for (const notification of notifications) {
     if (notification.done) continue;
     activeNotificationCount += 1;
-    if (notification.category === "needs-input") hasNeedsInput = true;
-    if (notification.category === "review") hasReview = true;
+    if (notification.category === "needs-input") {
+      hasNeedsInput = true;
+      activeNeedsInputNotificationCount += 1;
+    }
+    if (notification.category === "review") {
+      hasReview = true;
+      activeReviewNotificationCount += 1;
+    }
   }
   return {
     notificationUrgency: hasNeedsInput ? "needs-input" : hasReview ? "review" : null,
     activeNotificationCount,
+    activeNeedsInputNotificationCount,
+    activeReviewNotificationCount,
     notificationStatusVersion: normalizeStatusNumber(session.notificationStatusVersion, 0),
     notificationStatusUpdatedAt: normalizeStatusNumber(
       session.notificationStatusUpdatedAt,

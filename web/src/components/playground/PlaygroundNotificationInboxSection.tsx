@@ -105,6 +105,8 @@ function seedSummaryOnlyNeedsInput() {
       archived: false,
       notificationUrgency: "needs-input",
       activeNotificationCount: 1,
+      activeNeedsInputNotificationCount: 1,
+      activeReviewNotificationCount: 0,
       notificationStatusVersion: 2,
       notificationStatusUpdatedAt: now,
     },
@@ -231,10 +233,10 @@ export function PlaygroundNotificationInboxSection() {
               </div>
             </div>
             <p className="text-[10px] text-cc-muted">
-              Click &quot;Seed notification data&quot; first. The inbox shows needs-input rows with one prompt title,
-              expandable source context, direct Send Response controls, voice-enabled long-answer fields, compact
-              quest-first review rows, and a collapsible Done section. On mobile, the modal stretches across the
-              viewport while staying scrollable and height-capped.
+              Click &quot;Seed notification data&quot; first. The lower-right inbox shows needs-input rows with one
+              prompt title, expandable source context, direct Send Response controls, voice-enabled long-answer fields,
+              and a collapsible Done section. Active review notifications stay out of this panel because blue review
+              status is represented on thread tabs.
             </p>
           </div>
         </Card>
@@ -270,7 +272,7 @@ export function PlaygroundNotificationInboxSection() {
               </div>
             </div>
             <p className="text-[10px] text-cc-muted">
-              Timer chip on the left, notification chip on the right -- mirrors FeedStatusPill layout.
+              Timer chip on the left, needs-input notification chip on the right -- mirrors FeedStatusPill layout.
             </p>
           </div>
         </Card>

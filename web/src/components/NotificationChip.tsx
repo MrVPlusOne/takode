@@ -21,7 +21,6 @@ import {
   resolveNotificationOwnerThreadKey,
   runAfterNotificationOwnerThreadSelected,
 } from "../utils/notification-thread.js";
-import { useVisibleReviewNotificationAutoResolve } from "../hooks/useVisibleReviewNotificationAutoResolve.js";
 import { getActionableNotificationMessageId } from "../utils/notification-targets.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
 import { NeedsInputSourceTarget } from "./NeedsInputSourceTarget.js";
@@ -81,9 +80,10 @@ function useNotificationPopoverLayout(anchor: HTMLElement | null) {
 function useNotifications(sessionId: string) {
   const all = useStore((s) => s.sessionNotifications?.get(sessionId)) ?? EMPTY;
   const actionable = useMemo(() => all.filter(isActionableSessionNotification), [all]);
-  const active = useMemo(() => actionable.filter((n) => !n.done), [actionable]);
-  const done = useMemo(() => actionable.filter((n) => n.done), [actionable]);
-  return { all: actionable, active, done };
+  const needsInput = useMemo(() => actionable.filter((n) => n.category === "needs-input"), [actionable]);
+  const active = useMemo(() => needsInput.filter((n) => !n.done), [needsInput]);
+  const done = useMemo(() => needsInput.filter((n) => n.done), [needsInput]);
+  return { all: needsInput, active, done };
 }
 
 function useNotificationSummary(sessionId: string): NotificationStatusSnapshot {
@@ -92,6 +92,12 @@ function useNotificationSummary(sessionId: string): NotificationStatusSnapshot {
   );
   const activeNotificationCount = useStore(
     (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.activeNotificationCount,
+  );
+  const activeNeedsInputNotificationCount = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.activeNeedsInputNotificationCount,
+  );
+  const activeReviewNotificationCount = useStore(
+    (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.activeReviewNotificationCount,
   );
   const notificationStatusVersion = useStore(
     (s) => s.sdkSessions.find((entry) => entry.sessionId === sessionId)?.notificationStatusVersion,
@@ -103,10 +109,19 @@ function useNotificationSummary(sessionId: string): NotificationStatusSnapshot {
     () => ({
       notificationUrgency,
       activeNotificationCount,
+      activeNeedsInputNotificationCount,
+      activeReviewNotificationCount,
       notificationStatusVersion,
       notificationStatusUpdatedAt,
     }),
-    [notificationUrgency, activeNotificationCount, notificationStatusVersion, notificationStatusUpdatedAt],
+    [
+      notificationUrgency,
+      activeNotificationCount,
+      activeNeedsInputNotificationCount,
+      activeReviewNotificationCount,
+      notificationStatusVersion,
+      notificationStatusUpdatedAt,
+    ],
   );
 }
 
@@ -129,10 +144,9 @@ function getNotificationBreakdown(notifications: ReadonlyArray<Pick<SessionNotif
 }
 
 function getSummaryBreakdown(summary: NotificationStatusSnapshot) {
-  const count = summary.activeNotificationCount ?? 0;
+  const count = summary.activeNeedsInputNotificationCount ?? summary.activeNotificationCount ?? 0;
   if (count <= 0) return { needsInput: 0, review: 0, waiting: 0 };
   if (summary.notificationUrgency === "needs-input") return { needsInput: count, review: 0, waiting: 0 };
-  if (summary.notificationUrgency === "review") return { needsInput: 0, review: count, waiting: 0 };
   return { needsInput: 0, review: 0, waiting: 0 };
 }
 
@@ -144,14 +158,18 @@ function getEffectiveNotificationBreakdown(
   const live = getNotificationBreakdown(notifications);
   const liveTotal = live.needsInput + live.review + live.waiting;
   const summaryCount = summary.activeNotificationCount ?? 0;
+  const summaryNeedsInputCount = summary.activeNeedsInputNotificationCount;
   const hasFreshSummary =
     summary.notificationStatusVersion !== undefined || summary.notificationStatusUpdatedAt !== undefined;
   const summaryUrgency = summary.notificationUrgency;
+  if (hasFreshSummary && summaryNeedsInputCount !== undefined && summaryNeedsInputCount !== live.needsInput) {
+    return { needsInput: summaryNeedsInputCount, review: 0, waiting: 0 };
+  }
   if (hasFreshSummary && summaryCount > 0 && summaryUrgency) {
     const liveDisagreesWithSummary =
       liveTotal !== summaryCount ||
       (summaryUrgency === "needs-input" && live.needsInput === 0) ||
-      (summaryUrgency === "review" && (live.needsInput > 0 || live.review === 0));
+      (summaryUrgency === "review" && live.needsInput > 0);
     if (liveDisagreesWithSummary) return getSummaryBreakdown(summary);
   }
   if (hasFreshSummary && summaryCount > 0 && summaryUrgency === null && liveTotal !== summaryCount) {
@@ -172,7 +190,6 @@ function formatChipAriaLabel({
   const parts: string[] = [];
   if (needsInput > 0)
     parts.push(`${needsInput} ${needsInput === 1 ? "needs-input notification" : "needs-input notifications"}`);
-  if (review > 0) parts.push(`${review} ${review === 1 ? "review notification" : "review notifications"}`);
   if (waiting > 0) parts.push(`${waiting} ${waiting === 1 ? "waiting status" : "waiting statuses"}`);
   return `Notification inbox: ${parts.join(", ")}`;
 }
@@ -393,7 +410,6 @@ function NotificationItem({
   const label = compactReviewSummary?.text || getNotificationTitle(notif);
   const questSummary = compactReviewSummary?.questSummary ?? null;
   const labelClassName = notif.done ? "text-cc-muted line-through" : "text-cc-fg/90";
-  const rowRef = useVisibleReviewNotificationAutoResolve<HTMLDivElement>({ sessionId, notification: notif });
   const sourceContext = useMemo(
     () => (isNeedsInput ? getNotificationSourceContext(notif, notificationTargetMessages, actionableMessageId) : null),
     [actionableMessageId, isNeedsInput, notif, notificationTargetMessages],
@@ -428,7 +444,6 @@ function NotificationItem({
 
   return (
     <div
-      ref={rowRef}
       className="flex items-start gap-2 px-3 py-2 hover:bg-cc-hover/40 transition-colors group"
       data-testid="notification-inbox-row"
       data-notification-id={notif.id}
@@ -580,8 +595,10 @@ function NotificationPopover({
   const popoverRef = useRef<HTMLDivElement>(null);
   const popoverLayoutStyle = useNotificationPopoverLayout(anchor);
   const markAllRead = useCallback(() => {
-    api.markAllNotificationsDone(sessionId).catch(() => {});
-  }, [sessionId]);
+    for (const notification of active) {
+      api.markNotificationDone(sessionId, notification.id, true).catch(() => {});
+    }
+  }, [active, sessionId]);
 
   // Escape to close
   useEffect(() => {
@@ -714,7 +731,7 @@ function NotificationPopover({
 
 // ─── Notification Chip (floating pill) ───────────────────────────────────────
 
-/** Floating pill for notification inbox. Renders nothing when no active notifications exist. */
+/** Floating pill for needs-input notifications. Review status is owned by thread tabs. */
 export function NotificationChip({
   sessionId,
   currentThreadKey,
@@ -734,12 +751,11 @@ export function NotificationChip({
   );
   const ariaLabel = useMemo(() => formatChipAriaLabel({ needsInput, review, waiting }), [needsInput, review, waiting]);
   const hasNeedsInput = needsInput > 0;
-  const hasReview = review > 0;
 
   const toggle = useCallback(() => setOpen((p) => !p), []);
   const close = useCallback(() => setOpen(false), []);
 
-  if (needsInput + review + waiting === 0) return null;
+  if (needsInput + waiting === 0) return null;
 
   return (
     <>
@@ -752,21 +768,7 @@ export function NotificationChip({
         <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
         <span className="relative inline-flex min-w-0 items-center gap-1 whitespace-nowrap">
           {hasNeedsInput ? (
-            <>
-              <NotificationCountInline category="needs-input" count={needsInput} labelText="needs input" />
-              {hasReview && (
-                <span
-                  data-testid="notification-chip-review-secondary"
-                  className="inline-flex items-center whitespace-nowrap text-cc-muted/85"
-                  aria-hidden="true"
-                  title={`Review: ${review}`}
-                >
-                  +{review} review
-                </span>
-              )}
-            </>
-          ) : hasReview ? (
-            <NotificationCountInline category="review" count={review} labelText="review" />
+            <NotificationCountInline category="needs-input" count={needsInput} labelText="needs input" />
           ) : (
             <NotificationCountInline category="waiting" count={waiting} labelText="status" />
           )}

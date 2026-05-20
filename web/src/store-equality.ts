@@ -237,6 +237,8 @@ function sdkSessionInfoEqual(a: SdkSessionInfo, b: SdkSessionInfo): boolean {
     a.pendingTimerCount === b.pendingTimerCount &&
     a.notificationUrgency === b.notificationUrgency &&
     a.activeNotificationCount === b.activeNotificationCount &&
+    a.activeNeedsInputNotificationCount === b.activeNeedsInputNotificationCount &&
+    a.activeReviewNotificationCount === b.activeReviewNotificationCount &&
     a.notificationStatusVersion === b.notificationStatusVersion &&
     a.notificationStatusUpdatedAt === b.notificationStatusUpdatedAt &&
     sessionPauseStateEqual(a.pause, b.pause) &&

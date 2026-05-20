@@ -87,6 +87,8 @@ export async function buildEnrichedSessionsSnapshot(
       let notificationSummary: NotificationStatusSnapshot = {
         notificationUrgency: null,
         activeNotificationCount: 0,
+        activeNeedsInputNotificationCount: 0,
+        activeReviewNotificationCount: 0,
         notificationStatusVersion: 0,
         notificationStatusUpdatedAt: 0,
       };

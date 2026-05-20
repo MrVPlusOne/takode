@@ -6,6 +6,8 @@ export type NotificationUrgency = "needs-input" | "review" | null;
 export interface NotificationStatusSnapshot {
   notificationUrgency?: NotificationUrgency;
   activeNotificationCount?: number;
+  activeNeedsInputNotificationCount?: number;
+  activeReviewNotificationCount?: number;
   notificationStatusVersion?: number;
   notificationStatusUpdatedAt?: number;
 }
@@ -24,18 +26,28 @@ function summarizeNotifications(
   notifications: ReadonlyArray<SessionNotification>,
 ): Required<NotificationStatusSnapshot> {
   let activeNotificationCount = 0;
+  let activeNeedsInputNotificationCount = 0;
+  let activeReviewNotificationCount = 0;
   let hasNeedsInput = false;
   let hasReview = false;
   for (const notification of notifications) {
     if (notification.done) continue;
     if (!isActionableSessionNotification(notification)) continue;
     activeNotificationCount += 1;
-    if (notification.category === "needs-input") hasNeedsInput = true;
-    if (notification.category === "review") hasReview = true;
+    if (notification.category === "needs-input") {
+      hasNeedsInput = true;
+      activeNeedsInputNotificationCount += 1;
+    }
+    if (notification.category === "review") {
+      hasReview = true;
+      activeReviewNotificationCount += 1;
+    }
   }
   return {
     notificationUrgency: hasNeedsInput ? "needs-input" : hasReview ? "review" : null,
     activeNotificationCount,
+    activeNeedsInputNotificationCount,
+    activeReviewNotificationCount,
     notificationStatusVersion: 0,
     notificationStatusUpdatedAt: 0,
   };
@@ -49,6 +61,8 @@ export function summarizeNotificationStatus(
   return {
     notificationUrgency: summary.notificationUrgency,
     activeNotificationCount: summary.activeNotificationCount,
+    activeNeedsInputNotificationCount: summary.activeNeedsInputNotificationCount,
+    activeReviewNotificationCount: summary.activeReviewNotificationCount,
     notificationStatusVersion: status.notificationStatusVersion,
     notificationStatusUpdatedAt: status.notificationStatusUpdatedAt,
   };
@@ -58,6 +72,8 @@ function hasNotificationStatus(snapshot: NotificationStatusSnapshot): boolean {
   return (
     snapshot.notificationUrgency !== undefined ||
     snapshot.activeNotificationCount !== undefined ||
+    snapshot.activeNeedsInputNotificationCount !== undefined ||
+    snapshot.activeReviewNotificationCount !== undefined ||
     snapshot.notificationStatusVersion !== undefined ||
     snapshot.notificationStatusUpdatedAt !== undefined
   );
@@ -68,6 +84,8 @@ function notificationStatusFromSession(session: SdkSessionInfo | undefined): Not
   return {
     notificationUrgency: session.notificationUrgency,
     activeNotificationCount: session.activeNotificationCount,
+    activeNeedsInputNotificationCount: session.activeNeedsInputNotificationCount,
+    activeReviewNotificationCount: session.activeReviewNotificationCount,
     notificationStatusVersion: session.notificationStatusVersion,
     notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
   };
@@ -117,6 +135,12 @@ function applyNotificationStatus(session: SdkSessionInfo, status: NotificationSt
     ...(status.notificationUrgency !== undefined ? { notificationUrgency: status.notificationUrgency } : {}),
     ...(status.activeNotificationCount !== undefined
       ? { activeNotificationCount: status.activeNotificationCount }
+      : {}),
+    ...(status.activeNeedsInputNotificationCount !== undefined
+      ? { activeNeedsInputNotificationCount: status.activeNeedsInputNotificationCount }
+      : {}),
+    ...(status.activeReviewNotificationCount !== undefined
+      ? { activeReviewNotificationCount: status.activeReviewNotificationCount }
       : {}),
     ...(status.notificationStatusVersion !== undefined
       ? { notificationStatusVersion: status.notificationStatusVersion }

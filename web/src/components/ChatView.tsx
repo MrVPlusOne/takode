@@ -56,6 +56,7 @@ import {
   normalizeThreadKey,
   isThreadAttachmentMarkerMessage,
 } from "../utils/thread-projection.js";
+import { resolveNotificationOwnerThreadKey } from "../utils/notification-thread.js";
 import {
   persistLeaderSelectedThreadKey,
   readLeaderSelectedThreadKey,
@@ -82,6 +83,7 @@ import type {
   LeaderProjectionSnapshot,
   QuestmasterTask,
   SessionAttentionRecord,
+  SessionNotification,
 } from "../types.js";
 
 export interface QuestThreadBannerRow {
@@ -106,6 +108,22 @@ type LeaderThreadRow = QuestThreadBannerRow & {
 const EMPTY_BOARD_ROWS: BoardRowData[] = [];
 const EMPTY_MESSAGES: ChatMessage[] = [];
 const EMPTY_ATTENTION_RECORDS: SessionAttentionRecord[] = [];
+
+function reviewNotificationIdsForSelectedThread(
+  notifications: ReadonlyArray<SessionNotification> | undefined,
+  selectedThreadKey: string,
+): string[] {
+  const selected = normalizeThreadKey(selectedThreadKey || MAIN_THREAD_KEY);
+  if (selected === ALL_THREADS_KEY) return [];
+
+  const ids: string[] = [];
+  for (const notification of notifications ?? []) {
+    if (notification.done || notification.category !== "review") continue;
+    if (resolveNotificationOwnerThreadKey(notification) !== selected) continue;
+    ids.push(notification.id);
+  }
+  return ids;
+}
 
 type LiveConnectionStatusBannerProps = {
   status:
@@ -1035,6 +1053,21 @@ export function ChatView({
     () => mergeAttentionThreadRows(threadRows, attentionRecords),
     [attentionRecords, threadRows],
   );
+  const reviewNotificationIdsToClear = useMemo(
+    () =>
+      !preview
+        ? reviewNotificationIdsForSelectedThread(
+            sessionNotifications,
+            isLeaderSession ? selectedThreadKey : MAIN_THREAD_KEY,
+          )
+        : [],
+    [isLeaderSession, preview, selectedThreadKey, sessionNotifications],
+  );
+  useEffect(() => {
+    for (const notificationId of reviewNotificationIdsToClear) {
+      api.markNotificationDone(sessionId, notificationId, true).catch(console.error);
+    }
+  }, [reviewNotificationIdsToClear, sessionId]);
   const composerThreadTitle = isLeaderSession
     ? threadTitleForTranscription(selectedThreadKey, navigationThreadRows)
     : undefined;

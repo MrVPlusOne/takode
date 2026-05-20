@@ -178,6 +178,8 @@ describe("session notification status metadata", () => {
     expect(getNotificationStatusSnapshot(session)).toMatchObject({
       notificationUrgency: "review",
       activeNotificationCount: 1,
+      activeNeedsInputNotificationCount: 0,
+      activeReviewNotificationCount: 1,
       notificationStatusUpdatedAt: 1001,
     });
   });
