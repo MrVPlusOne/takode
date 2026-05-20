@@ -114,7 +114,7 @@ source: [q-1220, session:1559]
     expect(catalog.status).toBe(0);
     expect(catalog.stdout).toContain(`Memory repo: ${join(tempDir, "memory")}`);
     expect(catalog.stdout).toContain(
-      "decisions/memory-schema.md Memory frontmatter is intentionally small and path-derived.",
+      "decisions/memory-schema.md: Memory frontmatter is intentionally small and path-derived.",
     );
     expect(catalog.stdout).not.toContain("[decisions]");
     expect(catalog.stdout).not.toContain("source: q-1220, session:1559");
@@ -149,7 +149,7 @@ source:
 
     const show = await runMemory(["catalog", "show"], scopedEnv);
     expect(show.status).toBe(0);
-    expect(show.stdout).toContain("decisions/first.md First catalog entry.");
+    expect(show.stdout).toContain("decisions/first.md: First catalog entry.");
 
     await writeMemoryFile(
       "decisions/first.md",
@@ -381,7 +381,7 @@ source:
 
     const catalog = await runMemory(["catalog"], env);
     expect(catalog.status).toBe(0);
-    expect(catalog.stdout).toContain("knowledge/dual-schema.md New schema description stays visible.");
+    expect(catalog.stdout).toContain("knowledge/dual-schema.md: New schema description stays visible.");
     expect(catalog.stdout).not.toContain("[knowledge]");
     expect(catalog.stdout).not.toContain("source: q-1220");
     expect(catalog.stdout).not.toContain("Obsolete memory frontmatter field");

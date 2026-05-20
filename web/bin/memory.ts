@@ -199,7 +199,7 @@ function printCatalog(catalog: Awaited<ReturnType<typeof workstreamMemoryService
     console.log("No memory files found.");
   }
   for (const entry of catalog.entries) {
-    console.log(`${entry.id} ${entry.description}`);
+    console.log(`${entry.id}: ${entry.description}`);
   }
   printIssues(filterNormalReadIssues(catalog.issues));
 }
