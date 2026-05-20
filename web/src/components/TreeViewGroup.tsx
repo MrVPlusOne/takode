@@ -10,6 +10,11 @@ import { useStore, countUserPermissions } from "../store.js";
 import { isTouchDevice } from "../utils/mobile.js";
 import { api } from "../api.js";
 import type { HerdGroupBadgeTheme } from "../utils/herd-group-theme.js";
+import {
+  DEFAULT_GROUP_VISIBLE_SESSION_LIMIT,
+  GROUP_VISIBLE_SESSION_LIMIT_OPTIONS,
+  normalizeGroupVisibleSessionLimit,
+} from "../utils/sidebar-group-overflow.js";
 
 // ─── Props ───────────────────────────────────────────────────────────────────
 
@@ -65,6 +70,10 @@ interface TreeViewGroupProps {
   };
   groupDragging?: boolean;
   onMobileReorderHandleActiveChange?: (active: boolean) => void;
+  visibleSessionLimit?: number;
+  overflowExpanded?: boolean;
+  onToggleOverflow?: (groupId: string) => void;
+  onSetVisibleSessionLimit?: (groupId: string, limit: number) => void;
 }
 
 // ─── Sortable wrapper ────────────────────────────────────────────────────────
@@ -149,6 +158,10 @@ export function TreeViewGroup({
   groupDragHandleProps,
   groupDragging,
   onMobileReorderHandleActiveChange,
+  visibleSessionLimit = DEFAULT_GROUP_VISIBLE_SESSION_LIMIT,
+  overflowExpanded = false,
+  onToggleOverflow,
+  onSetVisibleSessionLimit,
 }: TreeViewGroupProps) {
   const reorderMode = useStore((s) => s.reorderMode);
   const sessionSortMode = useStore((s) => s.sessionSortMode);
@@ -218,6 +231,11 @@ export function TreeViewGroup({
 
   // Root node IDs for drag-and-drop (leaders and standalone sessions)
   const rootNodeIds = group.nodes.map((n) => n.leader.id);
+  const normalizedVisibleLimit = normalizeGroupVisibleSessionLimit(visibleSessionLimit);
+  const hasOverflow = group.nodes.length > normalizedVisibleLimit;
+  const displayedNodes = hasOverflow && !overflowExpanded ? group.nodes.slice(0, normalizedVisibleLimit) : group.nodes;
+  const displayedNodeIds = displayedNodes.map((node) => node.leader.id);
+  const hiddenNodeCount = Math.max(0, group.nodes.length - displayedNodes.length);
   const bulkSelectedCount = rootNodeIds.filter((id) => bulkSelectedSessionIds?.has(id)).length;
   const allSelectableSessionsSelected = rootNodeIds.length > 0 && bulkSelectedCount === rootNodeIds.length;
 
@@ -425,7 +443,6 @@ export function TreeViewGroup({
         <button
           onClick={() => onToggleGroupCollapse(group.id)}
           onContextMenu={(e) => {
-            if (group.id === "default") return;
             e.preventDefault();
             setContextMenu({ x: e.clientX, y: e.clientY });
           }}
@@ -559,9 +576,9 @@ export function TreeViewGroup({
 
       {/* Tree node list -- DndContext lives in Sidebar for cross-group support */}
       {!isGroupCollapsed && group.nodes.length > 0 && (
-        <SortableContext items={rootNodeIds} strategy={verticalListSortingStrategy}>
+        <SortableContext items={displayedNodeIds} strategy={verticalListSortingStrategy}>
           <div className="space-y-0.5 mt-0.5">
-            {group.nodes.map((node) => (
+            {displayedNodes.map((node) => (
               <SortableTreeNode key={node.leader.id} id={node.leader.id} disabled={!isDraggable}>
                 {({ setNodeRef, style, listeners, attributes }) => (
                   <div
@@ -574,6 +591,20 @@ export function TreeViewGroup({
                 )}
               </SortableTreeNode>
             ))}
+            {hasOverflow && (
+              <button
+                type="button"
+                onClick={() => onToggleOverflow?.(group.id)}
+                className="w-full rounded-md border border-dashed border-cc-border/60 px-3 py-1.5 text-left text-[11px] font-medium text-cc-muted transition-colors hover:border-cc-primary/40 hover:bg-cc-hover hover:text-cc-fg"
+                aria-label={
+                  overflowExpanded
+                    ? `Show fewer sessions in ${group.name}`
+                    : `Show ${hiddenNodeCount} more sessions in ${group.name}`
+                }
+              >
+                {overflowExpanded ? "Show fewer" : `... ${hiddenNodeCount} more`}
+              </button>
+            )}
           </div>
         </SortableContext>
       )}
@@ -581,7 +612,7 @@ export function TreeViewGroup({
         <div className="px-4 py-2 text-[11px] text-cc-muted/50 italic">No sessions. Use + to create one.</div>
       )}
 
-      {/* Context menu for non-default groups */}
+      {/* Context menu for group preferences and non-default group management */}
       {contextMenu && (
         <div
           ref={contextMenuRef}
@@ -589,23 +620,43 @@ export function TreeViewGroup({
           className="fixed z-[100] bg-cc-card border border-cc-border rounded-lg shadow-lg py-1 min-w-[120px]"
           style={{ left: contextMenu.x, top: contextMenu.y }}
         >
-          <button
-            role="menuitem"
-            className="w-full px-3 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
-            onClick={() => {
-              setContextMenu(null);
-              startGroupRename();
-            }}
-          >
-            Rename
-          </button>
-          <button
-            role="menuitem"
-            className="w-full px-3 py-1.5 text-left text-[11px] text-red-400 hover:bg-cc-hover transition-colors cursor-pointer"
-            onClick={handleDeleteGroup}
-          >
-            Delete
-          </button>
+          <div className="px-3 py-1 text-[10px] font-semibold uppercase text-cc-muted/70">Visible sessions</div>
+          {GROUP_VISIBLE_SESSION_LIMIT_OPTIONS.map((limit) => (
+            <button
+              key={limit}
+              role="menuitem"
+              className="w-full px-3 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+              onClick={() => {
+                setContextMenu(null);
+                onSetVisibleSessionLimit?.(group.id, limit);
+              }}
+            >
+              {limit === normalizedVisibleLimit ? "* " : ""}
+              Show {limit}
+            </button>
+          ))}
+          {group.id !== "default" && (
+            <>
+              <div className="my-1 border-t border-cc-border/70" />
+              <button
+                role="menuitem"
+                className="w-full px-3 py-1.5 text-left text-[11px] text-cc-fg hover:bg-cc-hover transition-colors cursor-pointer"
+                onClick={() => {
+                  setContextMenu(null);
+                  startGroupRename();
+                }}
+              >
+                Rename
+              </button>
+              <button
+                role="menuitem"
+                className="w-full px-3 py-1.5 text-left text-[11px] text-red-400 hover:bg-cc-hover transition-colors cursor-pointer"
+                onClick={handleDeleteGroup}
+              >
+                Delete
+              </button>
+            </>
+          )}
         </div>
       )}
     </div>
