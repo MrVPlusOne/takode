@@ -789,6 +789,81 @@ describe("feed render model builders", () => {
     expect(model.messages.map((message) => message.id)).toContain("attention-ledger:notification:n-q1237");
   });
 
+  it("projects producer Journey lifecycle records into Main and the owner quest thread only", () => {
+    const journeyStarted = makeAttentionRecord({
+      id: "board-journey-started:q-1353:100",
+      type: "quest_journey_started",
+      source: { kind: "board", id: "q-1353", questId: "q-1353", signature: "started:100" },
+      questId: "q-1353",
+      threadKey: "q-1353",
+      title: "Journey started",
+      summary: "Add voice input to needs-input custom answers",
+      priority: "created",
+      state: "resolved",
+      createdAt: 100,
+      updatedAt: 100,
+      resolvedAt: 100,
+      route: { threadKey: "q-1353", questId: "q-1353" },
+      chipEligible: false,
+      dedupeKey: "board-journey-started:q-1353:100",
+    });
+    const journeyFinished = makeAttentionRecord({
+      id: "board-journey-finished:q-1353:200",
+      type: "quest_completed_recent",
+      source: { kind: "board", id: "q-1353", questId: "q-1353", signature: "finished:200" },
+      questId: "q-1353",
+      threadKey: "q-1353",
+      title: "Journey finished",
+      summary: "Add voice input to needs-input custom answers",
+      priority: "review",
+      state: "unresolved",
+      createdAt: 200,
+      updatedAt: 200,
+      route: { threadKey: "q-1353", questId: "q-1353" },
+      chipEligible: false,
+      dedupeKey: "board-journey-finished:q-1353:200",
+    });
+    const commonInput = {
+      allMessages: [
+        makeMessage({ id: "u-main", role: "user", content: "Coordinate active quests", timestamp: 50 }),
+        makeMessage({
+          id: "a-q1353",
+          role: "assistant",
+          content: "Quest-thread work update",
+          timestamp: 150,
+          metadata: {
+            threadRefs: [{ threadKey: "q-1353", questId: "q-1353", source: "explicit" }],
+          },
+        }),
+      ],
+      sessionNotifications: [],
+      sessionAttentionRecords: [journeyStarted, journeyFinished],
+    };
+
+    const main = buildMessageModel({ ...commonInput, threadKey: "main", selectedFeedWindowEnabled: false });
+    const ownerThread = buildMessageModel({
+      ...commonInput,
+      threadKey: "q-1353",
+      selectedFeedWindow: makeWindow({ thread_key: "q-1353" }),
+    });
+    const otherThread = buildMessageModel({
+      ...commonInput,
+      threadKey: "q-1354",
+      selectedFeedWindow: makeWindow({ thread_key: "q-1354" }),
+    });
+    const allThreads = buildMessageModel({ ...commonInput, threadKey: "all", selectedFeedWindowEnabled: false });
+
+    const ledgerIds = (model: ReturnType<typeof buildMessageModel>) =>
+      model.attentionLedgerMessages.map((message) => message.metadata?.attentionRecord?.id);
+
+    expect(ledgerIds(main)).toEqual(["board-journey-started:q-1353:100", "board-journey-finished:q-1353:200"]);
+    expect(ledgerIds(ownerThread)).toEqual(["board-journey-started:q-1353:100", "board-journey-finished:q-1353:200"]);
+    expect(ownerThread.attentionLedgerMessages[0]?.metadata?.attentionRecord?.journeyLifecycleStatus).toBe("completed");
+    expect(ownerThread.attentionLedgerMessages[1]?.metadata?.attentionRecord?.journeyLifecycleStatus).toBe("completed");
+    expect(ledgerIds(otherThread)).toEqual([]);
+    expect(ledgerIds(allThreads)).toEqual([]);
+  });
+
   it("derives bounded local section metadata separately from scroll/runtime behavior", () => {
     const turns = Array.from({ length: 8 }, (_, index) => makeTurn(`turn-${index + 1}`));
 

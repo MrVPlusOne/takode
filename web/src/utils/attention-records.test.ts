@@ -1,6 +1,11 @@
 import { describe, expect, it } from "vitest";
 import type { ChatMessage, SessionAttentionRecord, SessionNotification } from "../types.js";
-import { buildAttentionRecords, selectAttentionChipRecords, selectMainLedgerRecords } from "./attention-records.js";
+import {
+  buildAttentionLedgerMessages,
+  buildAttentionRecords,
+  selectAttentionChipRecords,
+  selectMainLedgerRecords,
+} from "./attention-records.js";
 
 function notification(overrides: Partial<SessionNotification> = {}): SessionNotification {
   return {
@@ -464,6 +469,67 @@ describe("attention records", () => {
     expect(records.find((record) => record.id === "started:second")).toMatchObject({
       journeyLifecycleStatus: "active",
     });
+  });
+
+  it("projects Journey lifecycle ledger rows into Main and the exact owner thread", () => {
+    const records = buildAttentionRecords({
+      leaderSessionId: "leader-1",
+      records: [
+        explicitRecord({
+          id: "started:q-984",
+          type: "quest_journey_started",
+          source: { kind: "board", id: "q-984", questId: "q-984", signature: "started:100" },
+          questId: "q-984",
+          threadKey: "q-984",
+          title: "Journey started",
+          priority: "created",
+          state: "resolved",
+          createdAt: 100,
+          updatedAt: 100,
+          route: { threadKey: "q-984", questId: "q-984" },
+          chipEligible: false,
+          dedupeKey: "started:q-984",
+        }),
+        explicitRecord({
+          id: "finished:q-984",
+          type: "quest_completed_recent",
+          source: { kind: "board", id: "q-984", questId: "q-984", signature: "finished:200" },
+          questId: "q-984",
+          threadKey: "q-984",
+          title: "Finished",
+          priority: "review",
+          state: "unresolved",
+          createdAt: 200,
+          updatedAt: 200,
+          route: { threadKey: "q-984", questId: "q-984" },
+          chipEligible: false,
+          dedupeKey: "finished:q-984",
+        }),
+        explicitRecord({
+          id: "started:q-985",
+          type: "quest_journey_started",
+          source: { kind: "board", id: "q-985", questId: "q-985", signature: "started:300" },
+          questId: "q-985",
+          threadKey: "q-985",
+          title: "Journey started",
+          priority: "created",
+          state: "resolved",
+          createdAt: 300,
+          updatedAt: 300,
+          route: { threadKey: "q-985", questId: "q-985" },
+          chipEligible: false,
+          dedupeKey: "started:q-985",
+        }),
+      ],
+    });
+
+    const recordIds = (threadKey: string) =>
+      buildAttentionLedgerMessages(records, threadKey).map((message) => message.metadata?.attentionRecord?.id);
+
+    expect(recordIds("main")).toEqual(["started:q-984", "finished:q-984", "started:q-985"]);
+    expect(recordIds("q-984")).toEqual(["started:q-984", "finished:q-984"]);
+    expect(recordIds("q-985")).toEqual(["started:q-985"]);
+    expect(recordIds("all")).toEqual([]);
   });
 
   it("keeps persisted thread-open records out of the visible Main ledger", () => {

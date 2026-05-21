@@ -153,8 +153,25 @@ function selectLedgerRecordsForThread(
   if (normalized === ALL_THREADS_KEY) return [];
 
   return records
-    .filter((record) => shouldRenderOwnerThreadNotificationRecord(record, normalized, options.availableMessageIds))
+    .filter((record) => shouldRenderOwnerThreadLedgerRecord(record, normalized, options.availableMessageIds))
     .sort(compareAttentionRecordsChronologically);
+}
+
+function shouldRenderOwnerThreadLedgerRecord(
+  record: AttentionRecord,
+  threadKey: string,
+  availableMessageIds?: ReadonlySet<string>,
+): boolean {
+  if (shouldRenderOwnerThreadLifecycleRecord(record, threadKey)) return true;
+  return shouldRenderOwnerThreadNotificationRecord(record, threadKey, availableMessageIds);
+}
+
+function shouldRenderOwnerThreadLifecycleRecord(record: AttentionRecord, threadKey: string): boolean {
+  if (!record.ledgerEligible) return false;
+  if (record.type !== "quest_journey_started" && record.type !== "quest_completed_recent") return false;
+
+  const targetThreadKey = normalizeThreadKey(record.route.threadKey || record.threadKey);
+  return targetThreadKey === threadKey;
 }
 
 function shouldRenderOwnerThreadNotificationRecord(
