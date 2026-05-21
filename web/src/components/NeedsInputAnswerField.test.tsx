@@ -31,31 +31,37 @@ vi.mock("../api.js", () => ({
   },
 }));
 
-vi.mock("../hooks/useVoiceInput.js", () => ({
-  useVoiceInput: (options: UseVoiceInputOptions) => {
-    voiceOptions.current = options;
-    return {
-      isRecording: voiceState.current.isRecording,
-      isPreparing: false,
-      isSupported: true,
-      unsupportedReason: null,
-      unsupportedMessage: null,
-      isTranscribing: false,
-      transcriptionPhase: null,
-      error: null,
-      volumeLevel: voiceState.current.volumeLevel,
-      volumeHistory: voiceState.current.volumeHistory,
-      setIsTranscribing: vi.fn(),
-      setTranscriptionPhase: vi.fn(),
-      setError: vi.fn(),
-      startRecording: vi.fn(),
-      stopRecording: vi.fn(),
-      cancelRecording: vi.fn(),
-      toggleRecording: mockToggleRecording,
-      warmMicrophone: vi.fn(),
-    };
-  },
-}));
+vi.mock("../hooks/useVoiceInput.js", async () => {
+  const React = await import("react");
+  return {
+    useVoiceInput: (options: UseVoiceInputOptions) => {
+      voiceOptions.current = options;
+      const [error, setError] = React.useState<string | null>(null);
+      const [isTranscribing, setIsTranscribing] = React.useState(false);
+      const [transcriptionPhase, setTranscriptionPhase] = React.useState<string | null>(null);
+      return {
+        isRecording: voiceState.current.isRecording,
+        isPreparing: false,
+        isSupported: true,
+        unsupportedReason: null,
+        unsupportedMessage: null,
+        isTranscribing,
+        transcriptionPhase,
+        error,
+        volumeLevel: voiceState.current.volumeLevel,
+        volumeHistory: voiceState.current.volumeHistory,
+        setIsTranscribing,
+        setTranscriptionPhase,
+        setError,
+        startRecording: vi.fn(),
+        stopRecording: vi.fn(),
+        cancelRecording: vi.fn(),
+        toggleRecording: mockToggleRecording,
+        warmMicrophone: vi.fn(),
+      };
+    },
+  };
+});
 
 import {
   autoResizeNeedsInputAnswerTextarea,
@@ -80,7 +86,13 @@ const question: NeedsInputQuestionView = {
 
 describe("NeedsInputAnswerField", () => {
   beforeEach(() => {
-    mockTranscribe.mockClear();
+    mockTranscribe.mockReset();
+    mockTranscribe.mockResolvedValue({
+      mode: "dictation" as const,
+      text: "Takode",
+      backend: "openai",
+      enhanced: true,
+    });
     mockToggleRecording.mockClear();
     voiceOptions.current = null;
     voiceState.current.isRecording = false;
@@ -215,5 +227,110 @@ describe("NeedsInputAnswerField", () => {
     voiceOptions.current?.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" }));
 
     await waitFor(() => expect(textarea).toHaveValue("manual editTakode"));
+  });
+
+  it("keeps failed voice audio retryable and retries with the original needs-input context", async () => {
+    const voiceBlob = new Blob(["voice"], { type: "audio/webm" });
+    const onChange = vi.fn();
+    mockTranscribe.mockRejectedValueOnce(new Error("Transcription timed out")).mockResolvedValueOnce({
+      mode: "dictation" as const,
+      text: "approved",
+      backend: "openai",
+      enhanced: true,
+    });
+
+    render(
+      <NeedsInputAnswerField
+        sessionId="s1"
+        notification={notification}
+        question={question}
+        questionCount={1}
+        value="ship later"
+        onChange={onChange}
+        placeholder="Your answer"
+        sourceContext="The canary is green."
+        threadKey="q-777"
+        threadTitle="q-777: Deploy service"
+      />,
+    );
+    const textarea = screen.getByLabelText("Answer for Approve deployment?") as HTMLTextAreaElement;
+    textarea.setSelectionRange(5, 10);
+
+    fireEvent.click(screen.getByRole("button", { name: "Voice answer" }));
+    voiceOptions.current?.onAudioReady?.(voiceBlob);
+
+    await waitFor(() => expect(screen.getByTestId("needs-input-transcription-failure")).toBeInTheDocument());
+    expect(screen.getByText("Transcription timed out")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(onChange).toHaveBeenCalledWith("ship approved"));
+    expect(mockTranscribe).toHaveBeenCalledTimes(2);
+    expect(mockTranscribe.mock.calls[1]?.[0]).toBe(voiceBlob);
+    expect(mockTranscribe.mock.calls[1]?.[1]).toEqual(
+      expect.objectContaining({
+        mode: "dictation",
+        sessionId: "s1",
+        threadKey: "q-777",
+        threadTitle: "q-777: Deploy service",
+        focusedContext: expect.stringContaining("Needs-input prompt: Approve deployment?"),
+      }),
+    );
+    expect(screen.queryByTestId("needs-input-transcription-failure")).not.toBeInTheDocument();
+  });
+
+  it("keeps retry available after a retry failure until dismissed", async () => {
+    mockTranscribe.mockRejectedValueOnce(new Error("First failure")).mockRejectedValueOnce(new Error("Still failing"));
+
+    render(
+      <NeedsInputAnswerField
+        sessionId="s1"
+        notification={notification}
+        question={question}
+        questionCount={1}
+        value="ship now"
+        onChange={vi.fn()}
+        placeholder="Your answer"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Voice answer" }));
+    voiceOptions.current?.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" }));
+
+    await waitFor(() => expect(screen.getByText("First failure")).toBeInTheDocument());
+    fireEvent.click(screen.getByRole("button", { name: "Try again" }));
+
+    await waitFor(() => expect(screen.getByText("Still failing")).toBeInTheDocument());
+    expect(screen.getByRole("button", { name: "Try again" })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByLabelText("Dismiss transcription error"));
+    expect(screen.queryByTestId("needs-input-transcription-failure")).not.toBeInTheDocument();
+  });
+
+  it("clears a retryable failure when starting a new recording", async () => {
+    mockTranscribe.mockRejectedValueOnce(new Error("Stale failure"));
+
+    render(
+      <NeedsInputAnswerField
+        sessionId="s1"
+        notification={notification}
+        question={question}
+        questionCount={1}
+        value="ship now"
+        onChange={vi.fn()}
+        placeholder="Your answer"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Voice answer" }));
+    voiceOptions.current?.onAudioReady?.(new Blob(["voice"], { type: "audio/webm" }));
+
+    await waitFor(() => expect(screen.getByText("Stale failure")).toBeInTheDocument());
+
+    fireEvent.click(screen.getByRole("button", { name: "Voice answer" }));
+
+    expect(screen.queryByTestId("needs-input-transcription-failure")).not.toBeInTheDocument();
+    expect(mockToggleRecording).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useLayoutEffect, useRef, type MouseEvent } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type MouseEvent } from "react";
 import { api, type VoiceTranscriptionPhase } from "../api.js";
 import { useVoiceInput } from "../hooks/useVoiceInput.js";
 import type { VoiceLevelSample } from "./composer-voice-types.js";
@@ -12,6 +12,14 @@ import {
 } from "../utils/needs-input-voice-context.js";
 
 export const NEEDS_INPUT_ANSWER_MAX_HEIGHT_PX = 132;
+
+interface FailedNeedsInputTranscription {
+  blob: Blob;
+  selection: TextSelectionRange | null;
+  focusedContext: string;
+  threadKey?: string;
+  threadTitle?: string;
+}
 
 export function autoResizeNeedsInputAnswerTextarea(
   textarea: HTMLTextAreaElement | null,
@@ -56,6 +64,7 @@ export function NeedsInputAnswerField({
   const textareaRef = useRef<HTMLTextAreaElement>(null);
   const valueRef = useRef(value);
   const selectionRef = useRef<TextSelectionRange | null>(null);
+  const [failedTranscription, setFailedTranscription] = useState<FailedNeedsInputTranscription | null>(null);
   const focusedContext = buildNeedsInputVoiceFocusedContext({
     notification,
     question,
@@ -90,10 +99,16 @@ export function NeedsInputAnswerField({
   }, [value]);
 
   useEffect(() => {
-    if (!error) return;
+    if (!error || failedTranscription) return;
     const timer = setTimeout(() => setError(null), 4000);
     return () => clearTimeout(timer);
-  }, [error, setError]);
+  }, [error, failedTranscription, setError]);
+
+  useEffect(() => {
+    setFailedTranscription(null);
+    setError(null);
+    selectionRef.current = null;
+  }, [notification.id, question.key, sessionId, setError]);
 
   const captureSelection = useCallback(() => {
     const textarea = textareaRef.current;
@@ -109,26 +124,45 @@ export function NeedsInputAnswerField({
     };
   }, []);
 
-  async function transcribeAnswer(blob: Blob) {
+  async function transcribeAnswer(blob: Blob, retryState?: FailedNeedsInputTranscription) {
+    const transcriptionState: FailedNeedsInputTranscription = retryState ?? {
+      blob,
+      selection: selectionRef.current,
+      focusedContext,
+      threadKey,
+      threadTitle,
+    };
     setIsTranscribing(true);
     setTranscriptionPhase("preparing");
     setError(null);
+    setFailedTranscription(null);
     try {
       const { text } = await api.transcribe(blob, {
         mode: "dictation",
         sessionId,
-        threadKey,
-        threadTitle,
-        focusedContext,
+        threadKey: transcriptionState.threadKey,
+        threadTitle: transcriptionState.threadTitle,
+        focusedContext: transcriptionState.focusedContext,
         onPhase: (phase: VoiceTranscriptionPhase) => setTranscriptionPhase(phase),
       });
-      onChange(insertTextAtSelection(valueRef.current, text, selectionRef.current));
+      onChange(insertTextAtSelection(valueRef.current, text, transcriptionState.selection));
     } catch (err) {
       setError(err instanceof Error && err.message ? err.message : "Transcription failed");
+      setFailedTranscription(transcriptionState);
     } finally {
       setIsTranscribing(false);
       setTranscriptionPhase(null);
     }
+  }
+
+  function retryTranscription() {
+    if (!failedTranscription || isTranscribing || isPreparing) return;
+    void transcribeAnswer(failedTranscription.blob, failedTranscription);
+  }
+
+  function dismissTranscriptionFailure() {
+    setFailedTranscription(null);
+    setError(null);
   }
 
   const handleVoiceClick = useCallback(
@@ -140,6 +174,7 @@ export function NeedsInputAnswerField({
         return;
       }
       if (!isRecording) {
+        setFailedTranscription(null);
         captureSelection();
       }
       toggleRecording();
@@ -226,11 +261,59 @@ export function NeedsInputAnswerField({
         </button>
       </div>
       {isRecording && <NeedsInputRecordingStatus volumeLevel={volumeLevel} volumeHistory={volumeHistory} />}
-      {(phaseLabel || error) && (
+      {error && failedTranscription && !isRecording && !isTranscribing ? (
+        <NeedsInputTranscriptionFailureStatus
+          message={error}
+          onRetry={retryTranscription}
+          onDismiss={dismissTranscriptionFailure}
+        />
+      ) : phaseLabel || error ? (
         <div className={`mt-1 text-[10px] leading-snug ${error ? "text-cc-attention" : "text-cc-muted"}`}>
           {error ?? phaseLabel}
         </div>
-      )}
+      ) : null}
+    </div>
+  );
+}
+
+export function NeedsInputTranscriptionFailureStatus({
+  message,
+  onRetry,
+  onDismiss,
+}: {
+  message: string;
+  onRetry: () => void;
+  onDismiss: () => void;
+}) {
+  return (
+    <div
+      role="status"
+      aria-live="polite"
+      data-testid="needs-input-transcription-failure"
+      className="mt-1.5 flex min-w-0 items-center gap-1.5 rounded-md border border-cc-warning/25 bg-cc-warning/10 px-2 py-1.5 text-[10px] leading-snug text-cc-warning"
+    >
+      <span className="mt-0.5 h-1.5 w-1.5 shrink-0 rounded-full bg-current opacity-80" />
+      <span className="min-w-0 flex-1 truncate" title={message}>
+        {message}
+      </span>
+      <button
+        type="button"
+        onClick={onRetry}
+        className="shrink-0 rounded-md bg-cc-primary px-2 py-0.5 text-[10px] font-medium text-white transition-colors hover:bg-cc-primary-hover cursor-pointer"
+      >
+        Try again
+      </button>
+      <button
+        type="button"
+        onClick={onDismiss}
+        className="shrink-0 text-cc-warning/70 transition-colors hover:text-cc-warning cursor-pointer"
+        aria-label="Dismiss transcription error"
+        title="Dismiss"
+      >
+        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="h-3 w-3">
+          <path d="M4 4l8 8M12 4l-8 8" />
+        </svg>
+      </button>
     </div>
   );
 }

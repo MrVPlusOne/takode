@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { NotificationMarker } from "../MessageBubble.js";
 import { BoardBlock } from "../BoardBlock.js";
-import { NeedsInputRecordingStatus } from "../NeedsInputAnswerField.js";
+import { NeedsInputRecordingStatus, NeedsInputTranscriptionFailureStatus } from "../NeedsInputAnswerField.js";
 import type { BoardRowData } from "../BoardTable.js";
 import { CatPawAvatar } from "../CatIcons.js";
 import { ReplyChip } from "../Composer.js";
@@ -87,6 +87,51 @@ function PlaygroundNeedsInputRecordingPreview() {
         </button>
       </div>
       <NeedsInputRecordingStatus volumeLevel={0.74} volumeHistory={PLAYGROUND_NEEDS_INPUT_RECORDING_HISTORY} />
+      <div className="mt-2 flex justify-end">
+        <button
+          type="button"
+          className="rounded border border-cc-attention-border bg-cc-attention-bg px-3 py-1 text-xs font-medium text-cc-attention"
+        >
+          Reply
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function PlaygroundNeedsInputTranscriptionFailurePreview() {
+  return (
+    <div className="rounded-lg border border-cc-attention-border/70 bg-cc-attention-bg/45 p-3">
+      <div className="mb-2 flex min-w-0 items-center gap-2 text-xs font-medium text-cc-attention">
+        <span className="h-2 w-2 rounded-full border border-current" />
+        <span className="min-w-0 truncate">Approve the rollout?</span>
+      </div>
+      <div className="flex min-w-0 items-end gap-1">
+        <textarea
+          readOnly
+          value="Continue after the smoke check passes."
+          rows={2}
+          aria-label="Answer for Approve the rollout?"
+          className="min-h-[30px] min-w-0 flex-1 resize-none rounded border border-cc-attention-border bg-cc-bg/70 px-2 py-1 text-xs text-cc-fg outline-none"
+          style={{ maxHeight: 132 }}
+        />
+        <button
+          type="button"
+          aria-label="Voice answer"
+          className="flex h-7 w-7 shrink-0 items-center justify-center rounded border border-cc-border/60 text-cc-muted"
+          title="Voice answer"
+        >
+          <svg viewBox="0 0 16 16" fill="currentColor" className="h-3.5 w-3.5">
+            <path d="M8 1a2.5 2.5 0 0 0-2.5 2.5v4a2.5 2.5 0 0 0 5 0v-4A2.5 2.5 0 0 0 8 1z" />
+            <path d="M3.5 7a.5.5 0 0 1 .5.5V8a4 4 0 0 0 8 0v-.5a.5.5 0 0 1 1 0V8a5 5 0 0 1-4.5 4.975V14.5h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8v-.5a.5.5 0 0 1 .5-.5z" />
+          </svg>
+        </button>
+      </div>
+      <NeedsInputTranscriptionFailureStatus
+        message="Transcription timed out"
+        onRetry={() => undefined}
+        onDismiss={() => undefined}
+      />
       <div className="mt-2 flex justify-end">
         <button
           type="button"
@@ -1100,6 +1145,13 @@ export function PlaygroundInteractiveSections() {
                 The mic button, status, and level meter share the composer recording language.
               </p>
               <PlaygroundNeedsInputRecordingPreview />
+            </div>
+          </Card>
+          <Card label="needs-input custom answer transcription failure">
+            <div className="text-cc-fg text-sm">
+              <p className="mb-1">A recorded answer failed to transcribe.</p>
+              <p className="text-cc-muted">The field keeps the answer in place and offers a compact retry path.</p>
+              <PlaygroundNeedsInputTranscriptionFailurePreview />
             </div>
           </Card>
           <Card label="needs-input with structured questions">
