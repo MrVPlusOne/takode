@@ -3,6 +3,8 @@ import { render, screen, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionState } from "../types.js";
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
+import type { BoardRowData } from "./BoardTable.js";
+import type { QuestmasterTask } from "../types.js";
 
 if (typeof globalThis.DOMRect === "undefined") {
   globalThis.DOMRect = class DOMRect {
@@ -52,6 +54,8 @@ const mockStoreState = {
     claudeTokenDetails?: { modelContextWindow?: number };
   }>,
   sessionNames: new Map<string, string>(),
+  quests: undefined as QuestmasterTask[] | undefined,
+  sessionBoards: undefined as Map<string, BoardRowData[]> | undefined,
 };
 
 vi.mock("../store.js", () => ({
@@ -84,6 +88,13 @@ function makeSession(overrides: Partial<SessionItemType> = {}): SessionItemType 
 }
 
 describe("SessionHoverCard", () => {
+  beforeEach(() => {
+    mockStoreState.sdkSessions = [];
+    mockStoreState.sessionNames = new Map();
+    mockStoreState.quests = undefined;
+    mockStoreState.sessionBoards = undefined;
+  });
+
   it("renders safely when the mocked store omits quests", () => {
     // q-425 follow-up: generic session hovers should not assume the store mock
     // includes a quests collection. Older tests and narrow mocks omit it.
@@ -623,7 +634,7 @@ describe("SessionHoverCard", () => {
     expect(screen.getByText("git worktree remove failed")).toBeInTheDocument();
   });
 
-  it("shows concise herding chips for leader sessions in the hover card", () => {
+  it("shows active board quests for leader sessions instead of herding chips or task history", () => {
     mockStoreState.sdkSessions = [
       {
         sessionId: "worker-1",
@@ -646,14 +657,51 @@ describe("SessionHoverCard", () => {
       ["worker-1", "Fix notification links"],
       ["worker-2", "Improve hover chips"],
     ]);
+    mockStoreState.quests = [
+      {
+        questId: "q-200",
+        title: "Fallback alignment title from Questmaster",
+        status: "refined",
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+        description: "",
+      } as QuestmasterTask,
+    ];
+    mockStoreState.sessionBoards = new Map([
+      [
+        "s1",
+        [
+          {
+            questId: "q-200",
+            status: "PLANNING",
+            updatedAt: Date.now(),
+            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "alignment" },
+          },
+          {
+            questId: "q-100",
+            title: "Implement the leader hover active quest list with a title long enough to truncate",
+            status: "IMPLEMENTING",
+            updatedAt: Date.now() - 60_000,
+            journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
+          },
+        ],
+      ],
+    ]);
 
     try {
       render(
         <SessionHoverCard
           session={makeSession({ isOrchestrator: true })}
           sessionName="Leader Session"
-          sessionPreview={undefined}
-          taskHistory={undefined}
+          sessionPreview="Latest leader coordination update"
+          taskHistory={[
+            {
+              title: "Legacy leader task that should not render",
+              action: "name",
+              timestamp: Date.now(),
+              triggerMessageId: "msg-legacy-leader-task",
+            },
+          ]}
           sessionState={undefined}
           cliSessionId="cli-1"
           anchorRect={new DOMRect(120, 80, 200, 40)}
@@ -662,15 +710,33 @@ describe("SessionHoverCard", () => {
         />,
       );
 
-      expect(screen.getByText("Herding")).toBeInTheDocument();
-      const section = screen.getByTestId("session-hover-herding");
-      expect(within(section).getByRole("button", { name: "#21" })).toBeInTheDocument();
-      expect(within(section).getByRole("button", { name: "#22" })).toBeInTheDocument();
-      expect(within(section).queryByText("Fix notification links")).toBeNull();
-      expect(within(section).queryByText("Improve hover chips")).toBeNull();
+      expect(screen.queryByText("Herding")).toBeNull();
+      expect(screen.queryByRole("button", { name: "#21" })).toBeNull();
+      expect(screen.queryByRole("button", { name: "#22" })).toBeNull();
+      expect(screen.queryByText("Tasks")).toBeNull();
+      expect(screen.queryByText("Legacy leader task that should not render")).toBeNull();
+
+      const section = screen.getByTestId("session-hover-active-quests");
+      expect(within(section).getByText("Active quests")).toBeInTheDocument();
+      const rows = within(section).getAllByTestId("session-hover-active-quest-row");
+      expect(rows).toHaveLength(2);
+      expect(rows[0]).toHaveAttribute("data-quest-id", "q-100");
+      expect(rows[0]).toHaveAttribute("data-phase-color", "green");
+      expect(within(rows[0]).getByText("Implement")).toBeInTheDocument();
+      expect(
+        within(rows[0]).getByText("Implement the leader hover active quest list with a title long enough to truncate"),
+      ).toHaveClass("truncate");
+      expect(rows[1]).toHaveAttribute("data-quest-id", "q-200");
+      expect(rows[1]).toHaveAttribute("data-phase-color", "emerald");
+      expect(within(rows[1]).getByText("Alignment")).toBeInTheDocument();
+      expect(within(rows[1]).getByText("Fallback alignment title from Questmaster")).toBeInTheDocument();
+      expect(screen.getByText("Last message")).toBeInTheDocument();
+      expect(screen.getByText("Latest leader coordination update")).toBeInTheDocument();
     } finally {
       mockStoreState.sdkSessions = [];
       mockStoreState.sessionNames = new Map();
+      mockStoreState.quests = undefined;
+      mockStoreState.sessionBoards = undefined;
     }
   });
 });

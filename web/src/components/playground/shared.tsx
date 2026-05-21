@@ -1216,16 +1216,36 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
         leaderSessionId: "playground-hover-leader",
         tags: ["ui", "quests", "links", "journey"],
       };
+      const leaderAlignmentQuest = {
+        id: "q-419-v1",
+        questId: "q-419",
+        version: 1,
+        title: "Align leader hover active quest details with the Journey summary",
+        status: "refined" as const,
+        description: "Playground fixture for leader hover active quest rows in different phases.",
+        createdAt: Date.now() - 210000,
+        leaderSessionId: "playground-hover-leader",
+        tags: ["ui", "leader-sessions", "journey"],
+      };
       const existingQuestIndex = nextQuests.findIndex((quest) => quest.questId === "q-418");
       if (existingQuestIndex >= 0) {
         nextQuests[existingQuestIndex] = { ...nextQuests[existingQuestIndex], ...hoverQuest };
       } else {
         nextQuests.push(hoverQuest);
       }
+      const existingAlignmentQuestIndex = nextQuests.findIndex((quest) => quest.questId === "q-419");
+      if (existingAlignmentQuestIndex >= 0) {
+        nextQuests[existingAlignmentQuestIndex] = {
+          ...nextQuests[existingAlignmentQuestIndex],
+          ...leaderAlignmentQuest,
+        };
+      } else {
+        nextQuests.push(leaderAlignmentQuest);
+      }
 
       const nextSessionBoards = new Map(state.sessionBoards);
       const leaderBoard = (nextSessionBoards.get("playground-hover-leader") ?? []).filter(
-        (row) => row.questId !== "q-418",
+        (row) => row.questId !== "q-418" && row.questId !== "q-419",
       );
       nextSessionBoards.set("playground-hover-leader", [
         {
@@ -1239,6 +1259,17 @@ export function PlaygroundHoverCrossLinkDemo({ text }: { text: string }) {
             mode: "active",
             phaseIds: ["alignment", "implement", "code-review"],
             currentPhaseId: "implement",
+          },
+        },
+        {
+          questId: "q-419",
+          title: leaderAlignmentQuest.title,
+          status: "PLANNING",
+          updatedAt: Date.now() - 30000,
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "implement", "code-review"],
+            currentPhaseId: "alignment",
           },
         },
         ...leaderBoard,

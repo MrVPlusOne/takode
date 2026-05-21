@@ -31,7 +31,7 @@ export function buildLeaderActivePhaseSummary(
     { count: number; tone: LeaderActivePhaseSummarySegment["tone"]; color?: string; colorName?: string }
   >();
 
-  for (const row of orderActiveRows(board)) {
+  for (const row of orderLeaderActivePhaseRows(board)) {
     const currentPhase = getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
     const presentation = getQuestJourneyPresentation(row.status);
     const label = currentPhase?.label ?? presentation?.label ?? row.status ?? "unknown";
@@ -55,7 +55,7 @@ export function buildLeaderActivePhaseSummary(
   }));
 }
 
-function orderActiveRows(board: readonly LeaderActivePhaseSummaryRow[]): LeaderActivePhaseSummaryRow[] {
+export function orderLeaderActivePhaseRows<Row extends LeaderActivePhaseSummaryRow>(board: readonly Row[]): Row[] {
   return [...board].sort((a, b) => {
     const byPriority = statusPriority(a.status) - statusPriority(b.status);
     if (byPriority !== 0) return byPriority;

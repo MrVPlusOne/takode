@@ -1,5 +1,6 @@
 import type { SidebarSessionItem as SessionItemType } from "../utils/sidebar-session-item.js";
 import type { SessionState, SessionTaskEntry } from "../../server/session-types.js";
+import type { BoardRowData } from "./BoardTable.js";
 import { useRef, useLayoutEffect, useMemo, useEffect } from "react";
 import { createPortal } from "react-dom";
 import { useStore } from "../store.js";
@@ -7,6 +8,14 @@ import { SessionNumChip } from "./SessionNumChip.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionPayloadStats } from "./SessionPayloadStats.js";
 import { QuestInlineLink } from "./QuestInlineLink.js";
+import {
+  getQuestJourneyCurrentPhaseId,
+  getQuestJourneyPhase,
+  getQuestJourneyPresentation,
+  type QuestJourneyPhase,
+} from "../../shared/quest-journey.js";
+import { orderLeaderActivePhaseRows } from "../../shared/leader-active-phase-summary.js";
+import { getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
 
 interface SessionHoverCardProps {
   session: SessionItemType;
@@ -22,6 +31,8 @@ interface SessionHoverCardProps {
   zIndexClassName?: string;
 }
 
+const EMPTY_BOARD_ROWS: readonly BoardRowData[] = [];
+
 /** Format model name for display (e.g. "claude-sonnet-4-5-20250929" → "claude-sonnet-4-5") */
 function formatModel(model: string): string {
   // Strip date suffixes like -20250929
@@ -31,6 +42,20 @@ function formatModel(model: string): string {
 function preferHistoryCount(live: number | undefined, fallback: number | undefined): number {
   if (live === 0 && typeof fallback === "number" && fallback > 0) return fallback;
   return live ?? fallback ?? 0;
+}
+
+function normalizeQuestId(questId: string): string {
+  return questId.toLowerCase();
+}
+
+function leaderQuestTitle(row: BoardRowData, questTitlesById: Map<string, string>): string {
+  const rowTitle = row.title?.trim();
+  if (rowTitle) return rowTitle;
+  return questTitlesById.get(normalizeQuestId(row.questId)) ?? row.questId;
+}
+
+function leaderQuestPhase(row: BoardRowData): QuestJourneyPhase | null {
+  return getQuestJourneyPhase(getQuestJourneyCurrentPhaseId(row.journey, row.status));
 }
 
 export function SessionHoverCard({
@@ -49,15 +74,13 @@ export function SessionHoverCard({
   const taskHistoryScrollRef = useRef<HTMLDivElement>(null);
   const zoomLevel = useStore((st) => st.zoomLevel ?? 1);
   const quests = useStore((st) => st.quests) ?? [];
+  const activeLeaderBoardRows =
+    useStore((st) => (s.isOrchestrator ? st.sessionBoards?.get(s.id) : undefined)) ?? EMPTY_BOARD_ROWS;
 
-  // For leader sessions: find which sessions this leader is herding
+  // For worker/reviewer sessions: find the leader that owns them.
   const sdkSessions = useStore((st) => st.sdkSessions);
   const sdkSessionMeta = useMemo(() => sdkSessions.find((sdk) => sdk.sessionId === s.id), [sdkSessions, s.id]);
   const effectiveBackendType = sessionState?.backend_type ?? sdkSessionMeta?.backendType ?? s.backendType;
-  const herdedSessions = useMemo(() => {
-    if (!s.isOrchestrator) return [];
-    return sdkSessions.filter((sdk) => sdk.herdedBy === s.id && !sdk.archived).map((sdk) => sdk.sessionId);
-  }, [s.isOrchestrator, s.id, sdkSessions]);
   const leaderSession = useMemo(() => {
     if (s.isOrchestrator || !s.herdedBy) return null;
     const leader = sdkSessions.find((sdk) => sdk.sessionId === s.herdedBy && !sdk.archived);
@@ -100,12 +123,34 @@ export function SessionHoverCard({
     ...task,
     title: task.title.trim(),
   }));
+  const questTitlesById = useMemo(
+    () => new Map(quests.map((quest) => [normalizeQuestId(quest.questId), quest.title.trim()])),
+    [quests],
+  );
+  const leaderActiveQuestRows = useMemo(() => {
+    if (!s.isOrchestrator) return [];
+    return orderLeaderActivePhaseRows(activeLeaderBoardRows).map((row) => {
+      const phase = leaderQuestPhase(row);
+      const presentation = phase ? null : getQuestJourneyPresentation(row.status);
+      const phaseColor = phase ? getQuestPhaseColorValue(phase.color) : undefined;
+      return {
+        questId: row.questId,
+        title: leaderQuestTitle(row, questTitlesById),
+        phaseLabel: phase?.label ?? presentation?.label ?? row.status ?? "Active",
+        phaseColor,
+        phaseColorName: phase?.color.name ?? "",
+      };
+    });
+  }, [activeLeaderBoardRows, questTitlesById, s.isOrchestrator]);
   const activeQuest = useMemo(
     () =>
-      quests.find((quest) => quest.status === "in_progress" && "sessionId" in quest && quest.sessionId === s.id) ??
-      null,
-    [quests, s.id],
+      s.isOrchestrator
+        ? null
+        : (quests.find((quest) => quest.status === "in_progress" && "sessionId" in quest && quest.sessionId === s.id) ??
+          null),
+    [quests, s.id, s.isOrchestrator],
   );
+  const showTaskHistory = !s.isOrchestrator && taskEntries.length > 0;
 
   // Stats from sessionState
   const turns = preferHistoryCount(
@@ -157,9 +202,9 @@ export function SessionHoverCard({
 
   useEffect(() => {
     const container = taskHistoryScrollRef.current;
-    if (!container || taskEntries.length === 0) return;
+    if (!container || !showTaskHistory) return;
     container.scrollTop = container.scrollHeight;
-  }, [taskHistory, s.id, taskEntries.length]);
+  }, [taskHistory, s.id, showTaskHistory, taskEntries.length]);
 
   // Render via portal to escape sidebar wrapper's overflow:hidden clipping.
   // The sidebar wrapper uses overflow-hidden for collapse animation, which
@@ -219,21 +264,6 @@ export function SessionHoverCard({
           )}
         </div>
 
-        {/* Herded sessions — shown for leader sessions */}
-        {herdedSessions.length > 0 && (
-          <div data-testid="session-hover-herding" className="px-4 py-2 border-t border-cc-border/50">
-            <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herding</span>
-            <div className="flex flex-wrap gap-1.5 mt-1">
-              {herdedSessions.map((hs) => (
-                <SessionNumChip
-                  key={hs}
-                  sessionId={hs}
-                  className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
-                />
-              ))}
-            </div>
-          </div>
-        )}
         {leaderSession && (
           <div data-testid="session-hover-herded-by" className="px-4 py-2 border-t border-cc-border/50">
             <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herded by</span>
@@ -242,6 +272,42 @@ export function SessionHoverCard({
                 sessionId={leaderSession}
                 className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
               />
+            </div>
+          </div>
+        )}
+        {s.isOrchestrator && leaderActiveQuestRows.length > 0 && (
+          <div data-testid="session-hover-active-quests" className="px-4 py-2 border-t border-cc-border/50">
+            <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Active quests</span>
+            <div className="mt-1 space-y-1.5">
+              {leaderActiveQuestRows.map((row) => {
+                const phaseStyle = row.phaseColor ? { color: row.phaseColor } : undefined;
+                return (
+                  <div
+                    key={row.questId}
+                    className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-2"
+                    aria-label={`${row.phaseLabel}: ${row.title}`}
+                    data-testid="session-hover-active-quest-row"
+                    data-quest-id={row.questId}
+                    data-phase-color={row.phaseColorName}
+                    data-title-color={row.phaseColor ?? ""}
+                  >
+                    <span
+                      className="min-w-0 truncate text-[12px] font-medium leading-snug text-cc-fg"
+                      style={phaseStyle}
+                      title={row.title}
+                    >
+                      {row.title}
+                    </span>
+                    <span
+                      className="shrink-0 text-[10px] font-medium text-cc-muted/70"
+                      style={phaseStyle}
+                      data-testid="session-hover-active-quest-phase"
+                    >
+                      {row.phaseLabel}
+                    </span>
+                  </div>
+                );
+              })}
             </div>
           </div>
         )}
@@ -262,7 +328,7 @@ export function SessionHoverCard({
         )}
 
         {/* Task history + last message preview */}
-        {taskEntries.length > 0 ? (
+        {showTaskHistory ? (
           <div className="px-4 py-2 border-t border-cc-border/50 space-y-1.5">
             <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Tasks</span>
             <div
@@ -289,7 +355,14 @@ export function SessionHoverCard({
           </div>
         ) : sessionPreview ? (
           <div className="px-4 py-2 border-t border-cc-border/50">
-            <p className="text-[12px] text-cc-muted leading-relaxed line-clamp-3 italic">
+            {s.isOrchestrator && (
+              <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Last message</span>
+            )}
+            <p
+              className={`text-[12px] text-cc-muted leading-relaxed line-clamp-3 italic ${
+                s.isOrchestrator ? "mt-0.5" : ""
+              }`}
+            >
               {sessionPreview.length >= 80 ? `${sessionPreview}...` : sessionPreview}
             </p>
           </div>
