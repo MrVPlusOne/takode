@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 
 const mockGetSessionNotifications = vi.fn(async (_sessionId: string): Promise<any[]> => []);
@@ -33,6 +33,10 @@ const mockStoreState: Record<string, any> = {
 vi.mock("../store.js", () => {
   const useStore: any = (selector: (state: any) => unknown) => selector(mockStoreState);
   useStore.getState = () => mockStoreState;
+  useStore.setState = (update: any) => {
+    const next = typeof update === "function" ? update(mockStoreState) : update;
+    if (next && next !== mockStoreState) Object.assign(mockStoreState, next);
+  };
   return { useStore };
 });
 
@@ -626,6 +630,76 @@ describe("GlobalNeedsInputMenu", () => {
 
     render(<GlobalNeedsInputMenu />);
 
-    await waitFor(() => expect(mockSetSessionNotifications).toHaveBeenCalledWith("s1", liveNotifications));
+    await waitFor(() => expect(mockStoreState.sessionNotifications.get("s1")).toEqual(liveNotifications));
+    expect(mockStoreState.sdkSessions[0]).toMatchObject({
+      notificationUrgency: "needs-input",
+      activeNotificationCount: 1,
+      activeNeedsInputNotificationCount: 1,
+      activeReviewNotificationCount: 0,
+      notificationStatusVersion: 2,
+    });
+  });
+
+  it("does not let a late global fetch revive notifications after a newer cleared summary", async () => {
+    // A lazy global fetch can be requested while the session summary is active,
+    // then resolve after the session has already broadcast a newer clear. The
+    // response must respect notification freshness instead of repopulating the
+    // global bell from stale full-inbox data.
+    let resolveNotifications!: (notifications: any[]) => void;
+    const request = new Promise<any[]>((resolve) => {
+      resolveNotifications = resolve;
+    });
+    const staleNotifications = [
+      {
+        id: "n-stale",
+        category: "needs-input",
+        summary: "Already answered",
+        timestamp: Date.now(),
+        messageId: "m1",
+        done: false,
+      },
+    ];
+    mockGetSessionNotifications.mockReturnValueOnce(request);
+    resetStore({
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 1,
+          notificationUrgency: "needs-input",
+          activeNotificationCount: 1,
+          activeNeedsInputNotificationCount: 1,
+          notificationStatusVersion: 2,
+          notificationStatusUpdatedAt: 2000,
+        },
+      ],
+    });
+
+    const { rerender } = render(<GlobalNeedsInputMenu />);
+    await waitFor(() => expect(mockGetSessionNotifications).toHaveBeenCalledWith("s1"));
+
+    resetStore({
+      sessionNotifications: new Map(),
+      sdkSessions: [
+        {
+          sessionId: "s1",
+          createdAt: 1,
+          notificationUrgency: null,
+          activeNotificationCount: 0,
+          activeNeedsInputNotificationCount: 0,
+          notificationStatusVersion: 3,
+          notificationStatusUpdatedAt: 3000,
+        },
+      ],
+    });
+    rerender(<GlobalNeedsInputMenu />);
+
+    await act(async () => {
+      resolveNotifications(staleNotifications);
+      await request;
+    });
+
+    expect(mockStoreState.sessionNotifications.get("s1")).toBeUndefined();
+    expect(mockSetSessionNotifications).not.toHaveBeenCalled();
+    expect(screen.queryByRole("button", { name: /unresolved needs-input/ })).not.toBeInTheDocument();
   });
 });

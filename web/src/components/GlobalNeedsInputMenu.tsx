@@ -5,6 +5,7 @@ import { api } from "../api.js";
 import { useStore } from "../store.js";
 import type { ChatMessage, SdkSessionInfo } from "../types.js";
 import { attentionLedgerMessageIdForNotificationId } from "../utils/attention-records.js";
+import { applySessionNotifications, type NotificationStatusSnapshot } from "../notification-status.js";
 import { formatNeedsInputResponse, getNeedsInputQuestionViews } from "../utils/notification-questions.js";
 import {
   getNotificationSourceContext,
@@ -28,6 +29,12 @@ const EMPTY_MESSAGES: ChatMessage[] = [];
 
 export { getGlobalNeedsInputEntries } from "../utils/global-needs-input.js";
 
+interface NeedsInputFetchRequest {
+  key: string;
+  sessionId: string;
+  status: NotificationStatusSnapshot;
+}
+
 function formatRelativeTime(ts: number): string {
   const diff = Date.now() - ts;
   if (diff < 60_000) return "just now";
@@ -36,7 +43,7 @@ function formatRelativeTime(ts: number): string {
   return `${Math.floor(diff / 86_400_000)}d ago`;
 }
 
-function needsInputFetchKeys(state: GlobalNeedsInputState): string[] {
+function needsInputFetchRequests(state: GlobalNeedsInputState): NeedsInputFetchRequest[] {
   return state.sdkSessions
     .filter(
       (session) =>
@@ -44,14 +51,21 @@ function needsInputFetchKeys(state: GlobalNeedsInputState): string[] {
         session.notificationUrgency === "needs-input" &&
         (session.activeNotificationCount ?? 0) > 0,
     )
-    .map(
-      (session) =>
-        `${session.sessionId}:${session.notificationStatusVersion ?? ""}:${session.notificationStatusUpdatedAt ?? ""}`,
-    );
-}
-
-function parseFetchKey(key: string): string {
-  return key.split(":")[0] ?? key;
+    .map((session) => {
+      const status: NotificationStatusSnapshot = {
+        notificationUrgency: session.notificationUrgency,
+        activeNotificationCount: session.activeNotificationCount,
+        activeNeedsInputNotificationCount: session.activeNeedsInputNotificationCount,
+        activeReviewNotificationCount: session.activeReviewNotificationCount,
+        notificationStatusVersion: session.notificationStatusVersion,
+        notificationStatusUpdatedAt: session.notificationStatusUpdatedAt,
+      };
+      return {
+        key: `${session.sessionId}:${session.notificationStatusVersion ?? ""}:${session.notificationStatusUpdatedAt ?? ""}`,
+        sessionId: session.sessionId,
+        status,
+      };
+    });
 }
 
 function jumpToNotification(entry: GlobalNeedsInputEntry, sdkSessions: SdkSessionInfo[]) {
@@ -346,22 +360,21 @@ export function GlobalNeedsInputMenu() {
     [sessionNotifications, sdkSessions, sessionNames],
   );
   const entries = useMemo(() => getGlobalNeedsInputEntries(state), [state]);
-  const fetchKeys = useMemo(() => needsInputFetchKeys(state), [state]);
+  const fetchRequests = useMemo(() => needsInputFetchRequests(state), [state]);
 
   useEffect(() => {
-    for (const key of fetchKeys) {
-      if (fetchedKeysRef.current.has(key)) continue;
-      fetchedKeysRef.current.add(key);
-      const sessionId = parseFetchKey(key);
+    for (const request of fetchRequests) {
+      if (fetchedKeysRef.current.has(request.key)) continue;
+      fetchedKeysRef.current.add(request.key);
       api
-        .getSessionNotifications(sessionId)
-        .then((notifications) => useStore.getState().setSessionNotifications(sessionId, notifications))
+        .getSessionNotifications(request.sessionId)
+        .then((notifications) => applySessionNotifications(request.sessionId, notifications, request.status))
         .catch((error) => {
           console.warn("Failed to load global needs-input notifications", error);
-          fetchedKeysRef.current.delete(key);
+          fetchedKeysRef.current.delete(request.key);
         });
     }
-  }, [fetchKeys]);
+  }, [fetchRequests]);
 
   const close = useCallback(() => setOpen(false), []);
   const count = entries.length;

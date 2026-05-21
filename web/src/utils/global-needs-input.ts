@@ -13,6 +13,24 @@ export interface GlobalNeedsInputState {
   sessionNames: Map<string, string>;
 }
 
+function hasFreshNotificationSummary(session: SdkSessionInfo): boolean {
+  return session.notificationStatusVersion !== undefined || session.notificationStatusUpdatedAt !== undefined;
+}
+
+function allowsActiveNeedsInput(session: SdkSessionInfo): boolean {
+  if (!hasFreshNotificationSummary(session)) return true;
+  if (session.activeNeedsInputNotificationCount !== undefined) {
+    return session.activeNeedsInputNotificationCount > 0;
+  }
+  if (session.notificationUrgency !== undefined) {
+    return session.notificationUrgency === "needs-input";
+  }
+  if (session.activeNotificationCount !== undefined) {
+    return session.activeNotificationCount > 0;
+  }
+  return true;
+}
+
 function getSessionLabel({
   sessionId,
   sdkSession,
@@ -34,7 +52,7 @@ export function getGlobalNeedsInputEntries(state: GlobalNeedsInputState): Global
 
   for (const [sessionId, notifications] of state.sessionNotifications) {
     const sdkSession = sdkById.get(sessionId);
-    if (!sdkSession || sdkSession.archived) continue;
+    if (!sdkSession || sdkSession.archived || !allowsActiveNeedsInput(sdkSession)) continue;
     const label = getSessionLabel({
       sessionId,
       sdkSession,
