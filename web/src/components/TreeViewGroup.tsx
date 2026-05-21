@@ -107,6 +107,30 @@ function SortableTreeNode({
   return <>{children({ setNodeRef, style, listeners, attributes, isDragging })}</>;
 }
 
+function treeNodeContainsSession(node: TreeNode, sessionId: string | null): boolean {
+  if (!sessionId) return false;
+  if (node.leader.id === sessionId) return true;
+  return (
+    node.workers.some((worker) => worker.id === sessionId) ||
+    node.reviewers.some((reviewer) => reviewer.id === sessionId)
+  );
+}
+
+function getDisplayedNodes(input: {
+  nodes: TreeNode[];
+  visibleLimit: number;
+  overflowExpanded: boolean;
+  currentSessionId: string | null;
+}): TreeNode[] {
+  if (input.nodes.length <= input.visibleLimit || input.overflowExpanded) return input.nodes;
+
+  const visibleNodes = input.nodes.slice(0, input.visibleLimit);
+  const activeNode = input.nodes.find((node) => treeNodeContainsSession(node, input.currentSessionId));
+  if (!activeNode || visibleNodes.includes(activeNode)) return visibleNodes;
+
+  return [...visibleNodes, activeNode];
+}
+
 // ─── Component ───────────────────────────────────────────────────────────────
 
 export function TreeViewGroup({
@@ -233,7 +257,12 @@ export function TreeViewGroup({
   const rootNodeIds = group.nodes.map((n) => n.leader.id);
   const normalizedVisibleLimit = normalizeGroupVisibleSessionLimit(visibleSessionLimit);
   const hasOverflow = group.nodes.length > normalizedVisibleLimit;
-  const displayedNodes = hasOverflow && !overflowExpanded ? group.nodes.slice(0, normalizedVisibleLimit) : group.nodes;
+  const displayedNodes = getDisplayedNodes({
+    nodes: group.nodes,
+    visibleLimit: normalizedVisibleLimit,
+    overflowExpanded,
+    currentSessionId,
+  });
   const displayedNodeIds = displayedNodes.map((node) => node.leader.id);
   const hiddenNodeCount = Math.max(0, group.nodes.length - displayedNodes.length);
   const bulkSelectedCount = rootNodeIds.filter((id) => bulkSelectedSessionIds?.has(id)).length;

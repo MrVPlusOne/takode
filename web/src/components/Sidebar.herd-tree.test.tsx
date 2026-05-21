@@ -295,6 +295,8 @@ beforeEach(() => {
   dndKitMockState.invalidSortableIds.length = 0;
   resetSessionGitStatusAutoRefreshForTest();
   mockApi.refreshSessionGitStatus.mockResolvedValue({ ok: true });
+  mockApi.getSettings.mockResolvedValue({ serverName: "" });
+  localStorage.clear();
   vi.stubGlobal("alert", vi.fn());
   Element.prototype.scrollIntoView = mockScrollIntoView;
   mockState = createMockState();
@@ -315,6 +317,42 @@ beforeEach(() => {
 });
 
 describe("Sidebar herd tree behavior", { timeout: 10000 }, () => {
+  it("uses the post-bootstrap server scope for sidebar group visible limits", async () => {
+    localStorage.setItem("cc-server-id", "server-a");
+    localStorage.setItem("server-a:cc-sidebar-group-visible-limits", '{"default":5}');
+    localStorage.setItem("server-b:cc-sidebar-group-visible-limits", '{"default":20}');
+    mockApi.getSettings.mockResolvedValue({ serverName: "", serverId: "server-b" });
+    const sessionIds = Array.from({ length: 12 }, (_, index) => `session-${index + 1}`);
+    mockState = createMockState({
+      sessions: new Map(sessionIds.map((id) => [id, makeSession(id, { model: id })])),
+      sdkSessions: sessionIds.map((id, index) => makeSdkSession(id, { sessionNum: index + 1, createdAt: index + 1 })),
+      sessionNames: new Map(sessionIds.map((id) => [id, id])),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map(sessionIds.map((id) => [id, "default"])),
+    });
+
+    render(<Sidebar />);
+
+    await waitFor(() => expect(localStorage.getItem("cc-server-id")).toBe("server-b"));
+    await waitFor(() => expect(screen.getByText("session-12")).toBeInTheDocument());
+    expect(screen.queryByRole("button", { name: /Show \d+ more sessions in Default/ })).not.toBeInTheDocument();
+  });
+
+  it("names the sidebar search clear button for assistive technology", () => {
+    mockState = createMockState({
+      sessions: new Map([["search-session", makeSession("search-session", { model: "search-model" })]]),
+      sdkSessions: [makeSdkSession("search-session", { sessionNum: 91, createdAt: 100 })],
+      sessionNames: new Map([["search-session", "Searchable Session"]]),
+      treeGroups: [{ id: "default", name: "Default" }],
+      treeAssignments: new Map([["search-session", "default"]]),
+    });
+
+    render(<Sidebar />);
+    fireEvent.change(screen.getByTitle("Search sessions"), { target: { value: "Searchable" } });
+
+    expect(screen.getByRole("button", { name: "Clear session search" })).toBeInTheDocument();
+  });
+
   it("places group sortables in the group context and updates group order on group drag", async () => {
     mockState = createMockState({
       sessions: new Map([

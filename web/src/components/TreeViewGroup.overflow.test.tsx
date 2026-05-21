@@ -137,6 +137,16 @@ describe("TreeViewGroup overflow", () => {
     expect(screen.getByRole("button", { name: "Show fewer sessions in Default" })).toBeInTheDocument();
   });
 
+  it("keeps the active session visible when it is below the folded limit", () => {
+    // The current session anchors user orientation, so folded overflow can add it beyond the configured top slice.
+    renderGroup({ currentSessionId: "s-12" });
+
+    expect(screen.getByTestId("session-row-s-10")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-row-s-11")).not.toBeInTheDocument();
+    expect(screen.getByTestId("session-row-s-12")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show 1 more sessions in Default" })).toBeInTheDocument();
+  });
+
   it("offers visible limit choices from the group context menu", () => {
     const onSetVisibleSessionLimit = vi.fn();
     renderGroup({ onSetVisibleSessionLimit });

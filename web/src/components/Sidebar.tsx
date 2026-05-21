@@ -200,9 +200,7 @@ export function Sidebar() {
   const [bulkAssigning, setBulkAssigning] = useState(false);
   const [bulkSourceMenuOpen, setBulkSourceMenuOpen] = useState(false);
   const [expandedOverflowGroups, setExpandedOverflowGroups] = useState<Set<string>>(new Set());
-  const [groupVisibleLimits, setGroupVisibleLimits] = useState<Map<string, number>>(() =>
-    readSidebarGroupVisibleLimits(),
-  );
+  const [groupVisibleLimits, setGroupVisibleLimits] = useState<Map<string, number>>(new Map());
   const searchInputRef = useRef<HTMLInputElement>(null);
   const sessionScrollerRef = useRef<HTMLDivElement>(null);
   const route = parseHash(hash);
@@ -316,6 +314,7 @@ export function Sidebar() {
               }
             }
           }
+          setGroupVisibleLimits(readSidebarGroupVisibleLimits());
         }
       })
       .catch(() => {});
@@ -1184,6 +1183,9 @@ export function Sidebar() {
               />
               {searchQuery && (
                 <button
+                  type="button"
+                  aria-label="Clear session search"
+                  title="Clear session search"
                   onClick={() => {
                     setSearchQuery("");
                     setSearchPreviewSessionId(null);
