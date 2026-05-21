@@ -198,6 +198,7 @@ import {
   getCancelablePendingCodexInputs as getCancelablePendingCodexInputsController,
   getPendingCodexInputsByIds as getPendingCodexInputsByIdsController,
   hydrateCodexResumedHistory as hydrateCodexResumedHistoryController,
+  markCodexIntentionalRelaunch as markCodexIntentionalRelaunchController,
   maybeFlushQueuedCodexMessages as maybeFlushQueuedCodexMessagesController,
   pokeStaleCodexPendingDelivery as pokeStaleCodexPendingDeliveryController,
   queueCodexPendingStartBatch as queueCodexPendingStartBatchController,
@@ -1181,13 +1182,15 @@ export function getBrowserRoutingDeps(host: any) {
       (() => {
         const session = targetSession as Session;
         const guardMs = Math.max(CODEX_INTENTIONAL_RELAUNCH_GUARD_MS, (delayMs ?? 0) + 5_000);
-        session.intentionalCodexRelaunchUntil = Date.now() + guardMs;
-        session.intentionalCodexRelaunchReason = reason;
+        const requestRelaunch = () => {
+          markCodexIntentionalRelaunchController(session, reason, guardMs);
+          host.onSessionRelaunchRequested?.(session.id);
+        };
         if ((delayMs ?? 0) > 0) {
-          setTimeout(() => host.onSessionRelaunchRequested?.(session.id), delayMs);
+          setTimeout(requestRelaunch, delayMs);
           return;
         }
-        host.onSessionRelaunchRequested?.(session.id);
+        requestRelaunch();
       })(),
     onPermissionModeChanged: host.onPermissionModeChanged
       ? (sessionId: string, newMode: string) => host.onPermissionModeChanged?.(sessionId, newMode)

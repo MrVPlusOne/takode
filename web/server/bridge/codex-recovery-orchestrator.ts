@@ -34,6 +34,8 @@ import {
   appendCodexLeaderRecoveryDiagnostic,
   leaderRouteFromRecoveredAssistant,
 } from "./codex-leader-recovery-diagnostic.js";
+import { consumeCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
+export { clearCodexIntentionalRelaunch, markCodexIntentionalRelaunch } from "./codex-intentional-relaunch.js";
 const CODEX_RETRY_SAFE_RESUME_ITEM_TYPES: ReadonlySet<string> = new Set(["reasoning", "contextCompaction"]);
 const CODEX_ASSISTANT_ONLY_RESUME_RETRY_CAP = 2;
 const CODEX_INIT_RETRY_BASE_DELAY_MS = 1_000;
@@ -382,15 +384,6 @@ export function clearCodexFreshTurnRequirement(
     `[ws-bridge] Codex fresh-turn requirement cleared for session ${sessionTag(session.id)} (${reason}${options?.completedTurnId ? `: ${options.completedTurnId}` : ""})`,
   );
   deps.persistSession(session);
-}
-
-export function markCodexIntentionalRelaunch(
-  session: CodexRecoveryOrchestratorSessionLike,
-  reason: string,
-  guardMs: number,
-): void {
-  (session as any).intentionalCodexRelaunchUntil = Date.now() + guardMs;
-  (session as any).intentionalCodexRelaunchReason = reason;
 }
 
 export function markSessionRelaunchPending(session: CodexRecoveryOrchestratorSessionLike): void {
@@ -1074,13 +1067,8 @@ export function registerCodexAdapterRecoveryLifecycle(
       pending.updatedAt = pending.disconnectedAt;
     }
     const now = Date.now();
-    const intentionalRelaunch =
-      (session as any).intentionalCodexRelaunchUntil !== null && now <= (session as any).intentionalCodexRelaunchUntil;
-    const intentionalReason = intentionalRelaunch ? (session as any).intentionalCodexRelaunchReason || "unknown" : null;
-    if ((session as any).intentionalCodexRelaunchUntil !== null) {
-      (session as any).intentionalCodexRelaunchUntil = null;
-      (session as any).intentionalCodexRelaunchReason = null;
-    }
+    const intentionalReason = consumeCodexIntentionalRelaunch(session, adapter, now);
+    const intentionalRelaunch = intentionalReason !== null;
     for (const [reqId] of (session as any).pendingPermissions) {
       deps.broadcastToBrowsers(session, { type: "permission_cancelled", request_id: reqId });
     }

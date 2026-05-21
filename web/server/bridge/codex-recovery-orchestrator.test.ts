@@ -4,6 +4,7 @@ import {
   commitPendingCodexInputs,
   handleCodexAdapterInitError,
   hydrateCodexResumedHistory,
+  markCodexIntentionalRelaunch,
   reconcileCodexResumedTurn,
   registerCodexAdapterRecoveryLifecycle,
   type CodexRecoveryOrchestratorSessionLike,
@@ -973,6 +974,36 @@ describe("registerCodexAdapterRecoveryLifecycle", () => {
     expect(deps.dispatchQueuedCodexTurns).toHaveBeenCalledWith(session, "codex_turn_steer_failed");
     expect(pending.status).toBe("dispatched");
     expect(pending.turnId).toBeNull();
+  });
+
+  it("does not let an old intentional relaunch marker suppress a later adapter EOF", () => {
+    vi.useFakeTimers();
+    try {
+      const session = makeSession([{ id: "input-1", content: "continue", timestamp: 1_000, cancelable: false }]);
+      prepareLifecycleSession(session);
+      session.isGenerating = true;
+      const pending = makePendingTurn();
+      pending.status = "backend_acknowledged";
+      pending.turnTarget = "current";
+      pending.turnId = "turn-new";
+      session.pendingCodexTurns = [pending];
+      const oldAdapter = makeLifecycleAdapter();
+      const newAdapter = makeLifecycleAdapter({ closeId: "new-close-id" });
+      const deps = makeLifecycleDeps();
+
+      session.codexAdapter = oldAdapter as any;
+      registerCodexAdapterRecoveryLifecycle(session.id, session, oldAdapter, deps);
+      markCodexIntentionalRelaunch(session, "relaunch", 15_000);
+
+      session.codexAdapter = newAdapter as any;
+      registerCodexAdapterRecoveryLifecycle(session.id, session, newAdapter, deps);
+      newAdapter.emitDisconnect();
+
+      expect(session.consecutiveAdapterFailures).toBe(1);
+      expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(session, "adapter_disconnect");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("correlates adapter disconnect diagnostics through process snapshot and recovery session_meta", () => {

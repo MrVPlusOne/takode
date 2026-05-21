@@ -138,6 +138,10 @@ import {
   sweepBoardStallWarnings as sweepBoardStallWarningsController,
 } from "./bridge/board-watchdog-controller.js";
 import {
+  buildCodexLeaderRecycleTokenUsage,
+  prepareCodexLeaderRecycleSession,
+} from "./bridge/codex-leader-recycle-controller.js";
+import {
   backendAttached as backendAttachedController,
   backendConnected as backendConnectedController,
   beginCodexRollback as beginCodexRollbackController,
@@ -199,6 +203,7 @@ import {
   addPendingCodexInput as addPendingCodexInputController,
   attachCodexAdapterLifecycle as attachCodexAdapterLifecycleController,
   armCodexFreshTurnRequirement as armCodexFreshTurnRequirementController,
+  clearCodexIntentionalRelaunch as clearCodexIntentionalRelaunchController,
   clearCodexFreshTurnRequirement as clearCodexFreshTurnRequirementController,
   commitPendingCodexInputs as commitPendingCodexInputsController,
   completeCodexTurnsForResult as completeCodexTurnsForResultController,
@@ -207,6 +212,7 @@ import {
   getCancelablePendingCodexInputs as getCancelablePendingCodexInputsController,
   getPendingCodexInputsByIds as getPendingCodexInputsByIdsController,
   hydrateCodexResumedHistory as hydrateCodexResumedHistoryController,
+  markCodexIntentionalRelaunch as markCodexIntentionalRelaunchController,
   maybeFlushQueuedCodexMessages as maybeFlushQueuedCodexMessagesController,
   pokeStaleCodexPendingDelivery as pokeStaleCodexPendingDeliveryController,
   queueCodexPendingStartBatch as queueCodexPendingStartBatchController,
@@ -1780,52 +1786,25 @@ export class WsBridge {
     if (launcherInfo.codexLeaderRecyclePending) return { ok: true };
     if (!this.launcher) return { ok: false, error: "Launcher unavailable" };
 
-    const tokenDetails = session.state.codex_token_details;
-    const tokenUsage =
-      tokenDetails || typeof session.state.context_used_percent === "number"
-        ? {
-            contextTokensUsed: tokenDetails?.contextTokensUsed,
-            contextUsedPercent: session.state.context_used_percent,
-            modelContextWindow: tokenDetails?.modelContextWindow,
-            inputTokens: tokenDetails?.inputTokens,
-            cachedInputTokens: tokenDetails?.cachedInputTokens,
-            outputTokens: tokenDetails?.outputTokens,
-            reasoningOutputTokens: tokenDetails?.reasoningOutputTokens,
-          }
-        : undefined;
-
+    const tokenUsage = buildCodexLeaderRecycleTokenUsage(session);
     const prepared = this.launcher.prepareCodexLeaderRecycle(sessionId, { trigger, tokenUsage });
     if (!prepared.ok) {
       return { ok: false, error: prepared.error || "Failed to prepare Codex leader recycle" };
     }
 
-    clearAllCodexToolResultWatchdogsController(session);
-    session.pendingMessages = [];
-    session.forceCompactPending = false;
-    session.pendingCodexTurns = [];
-    session.pendingCodexInputs = [];
-    session.pendingCodexRollback = null;
-    session.pendingCodexRollbackError = null;
-    session.pendingCodexRollbackWaiter = null;
-    session.pendingPermissions.clear();
-    session.pendingQuestCommands.clear();
-    session.codexFreshTurnRequiredUntilTurnId = null;
-    session.lastOutboundUserNdjson = null;
-    session.state.is_compacting = false;
-    replaceQueuedTurnLifecycleEntriesLifecycle(session, []);
-    session.interruptedDuringTurn = true;
-    session.interruptSourceDuringTurn = "system";
-    session.intentionalCodexRelaunchUntil = Date.now() + CODEX_INTENTIONAL_RELAUNCH_GUARD_MS;
-    session.intentionalCodexRelaunchReason = `leader_recycle:${trigger}`;
-    session.relaunchPending = true;
-    setGeneratingLifecycle(this.getGenerationLifecycleDeps(), session, false, "codex_leader_recycle");
-    this.persistSession(session);
-
+    prepareCodexLeaderRecycleSession(session, trigger, CODEX_INTENTIONAL_RELAUNCH_GUARD_MS, {
+      clearAllCodexToolResultWatchdogs: clearAllCodexToolResultWatchdogsController,
+      markCodexIntentionalRelaunch: markCodexIntentionalRelaunchController,
+      persistSession: (targetSession) => this.persistSession(targetSession),
+      replaceQueuedTurnLifecycleEntries: (targetSession) =>
+        replaceQueuedTurnLifecycleEntriesLifecycle(targetSession, []),
+      setGenerating: (targetSession, generating, reason) =>
+        setGeneratingLifecycle(this.getGenerationLifecycleDeps(), targetSession, generating, reason),
+    });
     const relaunch = await this.launcher.relaunch(sessionId);
     if (!relaunch.ok) {
       this.launcher.completeCodexLeaderRecycle(sessionId);
-      session.intentionalCodexRelaunchUntil = null;
-      session.intentionalCodexRelaunchReason = null;
+      clearCodexIntentionalRelaunchController(session);
       session.relaunchPending = false;
       this.persistSession(session);
       return { ok: false, error: relaunch.error || "Failed to relaunch Codex leader session" };

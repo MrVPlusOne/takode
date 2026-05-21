@@ -599,18 +599,17 @@ describe("Codex disconnect auto-relaunch", () => {
       }),
     );
 
+    vi.advanceTimersByTime(150);
+    expect(settingsRelaunchCb).toHaveBeenCalledWith(sid);
+
     // Simulate the disconnect from the intentional relaunch teardown.
     adapter.emitDisconnect();
-
     const session = bridge.getSession(sid)!;
     expect(session.consecutiveAdapterFailures).toBe(0);
     expect(crashRelaunchCb).not.toHaveBeenCalled();
 
     const capturedEvents: any[] = [];
     bridge.subscribeTakodeEvents(new Set([sid]), (evt) => capturedEvents.push(evt));
-
-    vi.advanceTimersByTime(150);
-    expect(settingsRelaunchCb).toHaveBeenCalledWith(sid);
 
     const calls = browser.send.mock.calls.map(([arg]: [string]) => JSON.parse(arg));
     expect(calls).toContainEqual(expect.objectContaining({ type: "backend_disconnected" }));

@@ -16,6 +16,7 @@ vi.mock("./bridge/settings-rule-matcher.js", async (importOriginal) => {
 });
 
 import { WsBridge, type SocketData } from "./ws-bridge.js";
+import { markCodexIntentionalRelaunch } from "./bridge/codex-recovery-orchestrator.js";
 import { SessionStore } from "./session-store.js";
 import { HerdEventDispatcher, isSessionIdleRuntime, renderHerdEventBatch } from "./herd-event-dispatcher.js";
 import {
@@ -592,8 +593,7 @@ describe("markCodexRelaunchIntentional (q-16 double-spawn fix)", () => {
 
     // Mark the upcoming disconnect as intentional (simulating what
     // cli-launcher.relaunch() does via onBeforeRelaunch callback)
-    session.intentionalCodexRelaunchUntil = Date.now() + 15_000;
-    session.intentionalCodexRelaunchReason = "relaunch";
+    markCodexIntentionalRelaunch(session as any, "relaunch", 15_000);
 
     // Simulate the disconnect from killing the old process
     adapter.emitDisconnect();
