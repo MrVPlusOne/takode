@@ -72,7 +72,11 @@ vi.mock("../ws.js", () => ({
 }));
 
 vi.mock("./MarkdownContent.js", () => ({
-  MarkdownContent: ({ text }: { text: string }) => <div>{text}</div>,
+  MarkdownContent: (props: { text: string; id?: string; className?: string; "data-testid"?: string }) => (
+    <div id={props.id} className={props.className} data-testid={props["data-testid"]}>
+      {props.text}
+    </div>
+  ),
 }));
 
 import { NotificationChip } from "./NotificationChip.js";
@@ -397,9 +401,9 @@ describe("NotificationChip", () => {
     expect(timestamp.className).not.toContain("text-cc-muted/60");
   });
 
-  it("uses theme-readable muted text for source context action labels", () => {
-    // Execute caught visible More and Preview labels when they resolved through
-    // low-contrast muted utilities on light and dark notification popovers.
+  it("uses theme-readable muted text for the source context expand action", () => {
+    // Execute caught the visible source-context controls when they resolved
+    // through low-contrast muted utilities on light and dark notification popovers.
     mockStoreState.messages = new Map([
       [
         "s1",
@@ -428,13 +432,10 @@ describe("NotificationChip", () => {
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
 
     const moreButton = screen.getByRole("button", { name: "More" });
-    const previewButton = screen.getByRole("button", { name: "Preview source message" });
     expect(moreButton).toHaveClass("cc-muted-readable");
-    expect(previewButton).toHaveClass("cc-muted-readable");
     expect(moreButton).not.toHaveClass("text-cc-muted");
-    expect(previewButton).not.toHaveClass("text-cc-muted");
     expect(moreButton.className).not.toContain("text-cc-muted/80");
-    expect(previewButton.className).not.toContain("text-cc-muted/80");
+    expect(screen.queryByRole("button", { name: "Preview source message" })).not.toBeInTheDocument();
   });
 
   it("sends a paused-session notification answer through the response API", async () => {
@@ -517,11 +518,14 @@ describe("NotificationChip", () => {
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
 
     expect(screen.getAllByText("Deploy now?")).toHaveLength(1);
-    expect(screen.getByTestId("notification-source-context")).toHaveTextContent("Rollback is ready");
+    const context = screen.getByTestId("notification-source-context");
+    expect(context).toHaveTextContent("Rollback is ready");
+    expect(context.className).toContain("line-clamp-3");
     expect(screen.queryByText("Jump")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Preview source message" })).not.toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "More" }));
-    expect(screen.getByTestId("notification-source-context").className).toContain("whitespace-pre-line");
+    expect(screen.getByTestId("notification-source-context").className).not.toContain("line-clamp-3");
     expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Open source message for Deploy now?" }));
@@ -922,9 +926,9 @@ describe("NotificationChip", () => {
     expect(dialog.className).toContain("inset-x-3");
     expect(dialog.className).toContain("bottom-[var(--notification-popover-bottom)]");
     expect(dialog.className).toContain("max-h-[min(60vh,28rem,var(--notification-popover-available-height))]");
-    expect(dialog.className).toContain("sm:w-[24rem]");
-    expect(dialog.className).toContain("md:w-[26rem]");
-    expect(dialog.className).toContain("sm:max-h-[min(50vh,var(--notification-popover-available-height))]");
+    expect(dialog.className).toContain("sm:w-[36rem]");
+    expect(dialog.className).toContain("md:w-[39rem]");
+    expect(dialog.className).toContain("sm:max-h-[min(60vh,34rem,var(--notification-popover-available-height))]");
     expect(dialog.style.getPropertyValue("--notification-popover-bottom")).toBe("56px");
   });
 

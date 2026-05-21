@@ -607,6 +607,8 @@ export function MarkdownContent({
   text,
   size = "default",
   variant = "full",
+  id,
+  "data-testid": dataTestId,
   sessionId,
   searchHighlight,
   enableChatSelectionMenu = false,
@@ -616,6 +618,8 @@ export function MarkdownContent({
   text: string;
   size?: "default" | "sm";
   variant?: "full" | "conservative";
+  id?: string;
+  "data-testid"?: string;
   sessionId?: string;
   searchHighlight?: { query: string; mode: "strict" | "fuzzy"; isCurrent: boolean } | null;
   enableChatSelectionMenu?: boolean;
@@ -648,6 +652,8 @@ export function MarkdownContent({
 
   return (
     <div
+      id={id}
+      data-testid={dataTestId}
       className={`markdown-body ${sizeClass} text-cc-fg leading-relaxed overflow-hidden break-words ${
         wrapLongContent ? "min-w-0 max-w-full [overflow-wrap:anywhere]" : ""
       } ${className}`}

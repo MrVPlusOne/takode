@@ -134,6 +134,8 @@ describe("GlobalNeedsInputMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: "2 unresolved needs-input notifications across sessions" }));
 
     const dialog = screen.getByRole("dialog", { name: "Global needs-input notifications" });
+    expect(dialog.className).toContain("w-[min(42rem,calc(100vw-1.5rem))]");
+    expect(dialog.className).toContain("max-h-[min(78vh,38rem)]");
     expect(within(dialog).getByText("#22 Worker")).toBeInTheDocument();
     expect(within(dialog).getByRole("button", { name: "Open source message for Choose rollout" })).toBeInTheDocument();
     expect(within(dialog).getByText("#21 Leader")).toBeInTheDocument();
@@ -171,13 +173,14 @@ describe("GlobalNeedsInputMenu", () => {
 
     const context = await screen.findByTestId("global-needs-input-source-context");
     expect(context).toHaveTextContent("Codex reads well at 18px");
+    expect(context.className).toContain("line-clamp-3");
     expect(screen.getAllByText("approve backend SVG logo candidates")).toHaveLength(1);
     expect(screen.queryByText("Jump")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Answer for approve backend SVG logo candidates")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: "More" }));
     expect(window.location.hash).toBe("#/session/current");
-    expect(screen.getByTestId("global-needs-input-source-context").className).toContain("whitespace-pre-line");
+    expect(screen.getByTestId("global-needs-input-source-context").className).not.toContain("line-clamp-3");
 
     fireEvent.click(
       screen.getByRole("button", { name: "Open source message for approve backend SVG logo candidates" }),
@@ -218,10 +221,10 @@ describe("GlobalNeedsInputMenu", () => {
     expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-main");
   });
 
-  it("removes the broad native tooltip and shows Markdown preview only from the preview affordance", async () => {
+  it("renders Markdown source context inline without the redundant preview affordance", async () => {
     window.location.hash = "#/session/current";
     mockFetchNotificationContext.mockResolvedValueOnce(
-      "Proposed quest and dispatch plan:\n\n**Goal / Scope**\nPersist the query.\n\n- Keep current mode.",
+      "Proposed quest and dispatch plan:\n\n**Goal / Scope**\nPersist the query.\n\n- Keep current mode.\n- Read the [docs](https://example.com/docs).",
     );
     resetStore({
       sessionNotifications: new Map([
@@ -254,15 +257,13 @@ describe("GlobalNeedsInputMenu", () => {
     fireEvent.mouseEnter(sourceTarget);
     expect(screen.queryByTestId("global-needs-input-source-preview")).not.toBeInTheDocument();
 
-    const previewTrigger = screen.getByRole("button", { name: "Preview source message" });
-    expect(previewTrigger).not.toHaveAttribute("title");
-    fireEvent.mouseEnter(previewTrigger);
+    expect(screen.queryByRole("button", { name: "Preview source message" })).not.toBeInTheDocument();
+    const context = screen.getByTestId("global-needs-input-source-context");
+    expect(context.querySelector("strong")).toHaveTextContent("Goal / Scope");
+    expect(within(context).getByText("Keep current mode.")).toBeInTheDocument();
+    const markdownLink = within(context).getByRole("link", { name: "docs" });
+    expect(markdownLink.closest("button")).toBeNull();
 
-    const preview = await screen.findByTestId("global-needs-input-source-preview");
-    expect(preview.querySelector("strong")).toHaveTextContent("Goal / Scope");
-    expect(within(preview).getByText("Keep current mode.")).toBeInTheDocument();
-
-    fireEvent.click(previewTrigger);
     expect(window.location.hash).toBe("#/session/current");
     expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
   });

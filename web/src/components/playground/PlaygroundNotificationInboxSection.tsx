@@ -68,7 +68,7 @@ function seedNotificationData() {
             id: "mock-msg-87",
             role: "assistant" as const,
             content:
-              "The image transport choice affects mobile screenshot upload size and how much artifact detail reviewers can inspect. JPEG q85 keeps edges readable; q75 is smaller but can blur dense UI text.",
+              "**Image transport decision**\n\n- JPEG q85 keeps dense UI text readable for reviewers.\n- JPEG q75 cuts upload size, but can blur mobile screenshots.\n- Browser validation should include the narrow approval path before Execute signs off.",
             timestamp: now - 130_000,
           },
         ],
@@ -165,7 +165,7 @@ function seedGlobalNeedsInputData() {
             id: "global-msg-1",
             role: "assistant" as const,
             content:
-              "The worker can start now if the reviewer only needs a scope pass. Waiting preserves reviewer bandwidth but delays the current handoff.",
+              "**Worker handoff options**\n\n- Dispatch now if the reviewer only needs a scope pass.\n- Wait for review if the implementation direction could still change.\n- Keep the needs-input answer short enough to route cleanly.",
             timestamp: now - 100_000,
           },
         ],
@@ -177,7 +177,7 @@ function seedGlobalNeedsInputData() {
             id: "global-msg-2",
             role: "assistant" as const,
             content:
-              "Validation coverage should include the desktop operator view plus the mobile approval path, because the notification panel sits close to feed controls on narrow screens.",
+              "**Validation coverage**\n\nInclude the desktop operator view plus the mobile approval path, because the notification panel sits close to feed controls on narrow screens.\n\n[q-1276](quest:q-1276) already covered source-message navigation.",
             timestamp: now - 45_000,
           },
         ],

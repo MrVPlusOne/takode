@@ -296,7 +296,7 @@ function GlobalNeedsInputPopover({
   return createPortal(
     <div
       ref={popoverRef}
-      className="fixed right-3 z-50 flex max-h-[min(72vh,32rem)] w-[min(28rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card/98 shadow-xl"
+      className="fixed right-3 z-50 flex max-h-[min(78vh,38rem)] w-[min(42rem,calc(100vw-1.5rem))] flex-col overflow-hidden rounded-lg border border-cc-border bg-cc-card/98 shadow-xl"
       style={{ top: MENU_TOP_PX }}
       role="dialog"
       aria-label="Global needs-input notifications"
