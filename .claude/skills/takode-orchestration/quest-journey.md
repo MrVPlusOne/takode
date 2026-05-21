@@ -68,7 +68,7 @@ Phase documentation should stay specific to the phase:
 - Outcome Review: evidence judged, ACCEPT or insufficiency rationale, bounded reruns, residual risks, and follow-up routing. Avoid turning it into a second Execute transcript.
 - User Checkpoint: findings, options, tradeoffs, recommendation, required user answer, actual user decision when known, and Journey-revision implications.
 - Port: ordered synced SHAs, post-port verification categories, port anomalies, remaining sync risks, accepted-state context final Memory will need, and memory-specific evidence only when material. Omit branch command transcripts unless recovery depended on them.
-- Memory: final debrief metadata status or drafts, quest hygiene changes, memory files inspected, memory update or deferral, external durable-state records, cleanup, follow-up routing, and residual risks.
+- Memory: final debrief metadata status or drafts, quest metadata reconciliation, quest hygiene changes, memory files inspected, memory update or deferral, external durable-state records, cleanup, follow-up routing, and residual risks.
 - Bookkeeping: records updated, superseded facts, external locations, durable handoff facts, and targeted memory updates or deferrals for legacy/intermediate flows. Avoid replaying the whole quest when a targeted consolidation or memory pointer is enough.
 
 Review phases must judge documentation quality, not just presence. Check phase relevance, useful full detail, TLDR completeness where appropriate, and correct phase association when the phase-scoped primitive is available.
@@ -89,6 +89,8 @@ memory diff
 memory commit --message "..." --source "quest:q-N" --memory-id "<id>"
 memory lock release
 ```
+
+Final Memory also reconciles quest metadata with accepted scope. Before completion, check whether the quest title, TLDR, and description still describe the delivered result. Clear final-scope drift can be refreshed during Memory; ambiguous, contentious, or intent-changing edits should route back to the leader or user. Do not use final Memory to rewrite active scope or unfinished quests.
 
 Final Memory must include exactly one memory statement after catalog/direct-file triage:
 - `memory updated: <commit>`
@@ -172,7 +174,7 @@ Rules:
 - **Resolve worker/reviewer file links before user-facing routing.** If a user-facing prompt, checkpoint, or summary should point at unported worker/reviewer worktree state, convert worker/reviewer relative paths or relative `file:` links with `takode file-resolve --session <worker-or-reviewer> <path-or-file-link>` and show the returned absolute `file:` link. Keep repo-relative links for post-Port/main state or intentional leader/main-checkout references.
 - **Workers and reviewers document, report, then stop at phase boundaries.** They do not self-review, self-port, self-transition, or self-complete unless explicitly instructed.
 - **Porting requires an explicit instruction.** Port syncs accepted tracked changes, verifies the main repo, reports synced SHAs and risks, then stops. After Port, advance to final Memory instead of completing the quest from Port.
-- **Every completed non-cancelled quest needs final Memory.** Completion without Memory closure, final User review check settlement, final debrief metadata, debrief TLDR metadata, and one memory statement is incomplete. A quest in `MEMORY` is downstream-unblocking because substantive work has been accepted and synced when applicable, but the row stays open until Memory finishes.
+- **Every completed non-cancelled quest needs final Memory.** Completion without Memory closure, final User review check settlement, final debrief metadata, debrief TLDR metadata, quest metadata reconciliation, and one memory statement is incomplete. A quest in `MEMORY` is downstream-unblocking because substantive work has been accepted and synced when applicable, but the row stays open until Memory finishes.
 
 ## Review Phases
 
@@ -204,7 +206,7 @@ Choose explicit phases that match the evidence you need, omitting `port` only wh
 
 Advancing from the final planned phase removes the row from the board. Git-tracked docs, skills, prompts, templates, and other text-only edits still count as tracked-change work and should include `port`.
 
-Omitting `port` does not omit final Memory. The leader must ensure the completed non-cancelled quest receives final User review check settlement, final debrief metadata, debrief TLDR metadata, and one memory statement through final Memory or leader-authored completion metadata.
+Omitting `port` does not omit final Memory. The leader must ensure the completed non-cancelled quest receives final User review check settlement, final debrief metadata, debrief TLDR metadata, quest metadata reconciliation, and one memory statement through final Memory or leader-authored completion metadata.
 
 ## Feedback Rework Loop
 

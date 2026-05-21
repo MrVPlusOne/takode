@@ -4,7 +4,7 @@
   "color": { "name": "cyan", "accent": "#22d3ee" },
   "boardState": "MEMORY",
   "assigneeRole": "worker",
-  "contract": "Finish non-project-tracked durable-state closure for a substantively accepted quest: final User review checks, final debrief metadata, quest-note hygiene, memory consistency checks, memory writes or deferrals, stale-memory checks, cleanup, external durable-state records, and follow-up routing. Memory must not edit tracked project files.",
-  "nextLeaderAction": "read the memory leader brief, assign the final Memory owner, then complete the quest only after User review checks, durable state, final debrief metadata, and the memory statement are settled",
+  "contract": "Finish non-project-tracked durable-state closure for a substantively accepted quest: final User review checks, final debrief metadata, quest metadata reconciliation, quest-note hygiene, memory consistency checks, memory writes or deferrals, stale-memory checks, cleanup, external durable-state records, and follow-up routing. Memory must not edit tracked project files.",
+  "nextLeaderAction": "read the memory leader brief, assign the final Memory owner, then complete the quest only after User review checks, quest metadata reconciliation, durable state, final debrief metadata, and the memory statement are settled",
   "aliases": ["final-memory", "memory-closure", "durable-closure"]
 }

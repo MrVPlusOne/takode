@@ -221,6 +221,9 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Do not rely on log parsing or memory");
     expect(skill).toContain("Every completed non-cancelled quest must include a final debrief and debrief TLDR");
     expect(skill).toContain("Completion without both is incomplete in the workflow");
+    expect(skill).toContain("Final Memory also reconciles quest metadata against accepted scope");
+    expect(skill).toContain("refresh clear final-scope drift");
+    expect(skill).toContain("not permission to rewrite active scope or unfinished quests");
     expect(skill).toContain("If Port is omitted");
     expect(skill).toContain("Do not leave commit info only in comments");
     expect(skill).toContain("one substantive quest-level prose summary");

@@ -396,6 +396,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(memoryPhase?.boardState).toBe("MEMORY");
     expect(memoryPhase?.contract).toContain("non-project-tracked durable-state closure");
     expect(memoryPhase?.contract).toContain("must not edit tracked project files");
+    expect(memoryPhase?.contract).toContain("quest metadata reconciliation");
     expect(memoryPhase?.leaderBrief).toContain("downstream-unblocking");
     expect(memoryPhase?.leaderBrief).toContain("worker or Port worker for routine closure");
     expect(memoryPhase?.leaderBrief).toContain(
@@ -403,7 +404,13 @@ describe("Quest Journey phase directory loading", () => {
     );
     expect(memoryPhase?.leaderBrief).toContain("leader or curator for dependency, timer, notification");
     expect(memoryPhase?.leaderBrief).toContain("Do not ask Memory to edit tracked project files");
+    expect(memoryPhase?.leaderBrief).toContain(
+      "quest title, TLDR, and description still match the accepted delivered scope",
+    );
+    expect(memoryPhase?.leaderBrief).toContain("ambiguous, contentious, or intent-changing edits should route back");
     expect(memoryPhase?.assigneeBrief).toContain("Run `memory catalog show` first");
+    expect(memoryPhase?.assigneeBrief).toContain("Reconcile quest metadata with the accepted delivered scope");
+    expect(memoryPhase?.assigneeBrief).toContain("This is not permission to rewrite active scope or unfinished quests");
     expect(memoryPhase?.assigneeBrief).toContain("memory catalog diff");
     expect(memoryPhase?.assigneeBrief).toContain("memory lock acquire");
     expect(memoryPhase?.assigneeBrief).toContain("memory updated: <commit>");
@@ -411,6 +418,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(memoryPhase?.assigneeBrief).toContain("memory update not needed: <reason>");
     expect(memoryPhase?.assigneeBrief).toContain("Do not edit tracked project files");
     expect(memoryPhase?.assigneeBrief).toContain("final debrief metadata status");
+    expect(memoryPhase?.assigneeBrief).toContain("quest metadata reconciliation status");
   });
 
   it("seeds Port briefs with narrow sync guidance before final Memory", async () => {
