@@ -679,11 +679,7 @@ export function SettingsPage({ embedded = false, isActive = true }: SettingsPage
   }
 
   async function onRestartServer() {
-    if (
-      !confirm(
-        "Restart the server? All browser connections will briefly disconnect. Sessions will reconnect automatically.",
-      )
-    )
+    if (!confirm("Restart server? Browsers briefly disconnect. Sessions reconnect on demand when work needs backend."))
       return;
 
     setRestarting(true);
