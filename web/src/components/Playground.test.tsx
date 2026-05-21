@@ -399,6 +399,7 @@ describe("Playground", () => {
     expect(within(banner).getByTestId("quest-thread-participant-strip")).toHaveClass("inline-flex");
     expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Implement");
     expect(within(banner).getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("note");
+    expect(screen.getByTestId("quest-thread-wait-pill")).toHaveTextContent("Waiting for #1801, q-1367, free worker");
 
     fireEvent.click(within(banner).getByTestId("quest-thread-journey-hover-target"));
     const hoverCard = screen.getByTestId("quest-thread-journey-hover-card");

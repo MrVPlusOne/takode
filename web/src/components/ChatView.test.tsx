@@ -1521,6 +1521,66 @@ describe("ChatView backend banners", () => {
     expect(scope.getAllByText("implement")).toHaveLength(1);
   });
 
+  it("shows queued Work Board wait reasons in the quest-thread banner", () => {
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "waiter-1801", sessionNum: 1801, state: "running", cliConnected: true }],
+      sessionBoards: new Map([
+        [
+          "s1",
+          [
+            {
+              questId: "q-968",
+              title: "Waiting banner",
+              status: "QUEUED",
+              waitFor: ["#1801", "q-1367", "free-worker"],
+              updatedAt: 4,
+              createdAt: 2,
+            },
+          ],
+        ],
+      ]),
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    fireEvent.click(scope.getByRole("button", { name: /q-968 waiting banner/i }));
+    const pill = scope.getByTestId("quest-thread-wait-pill");
+    expect(pill).toHaveTextContent("Waiting for #1801, q-1367, free worker");
+    expect(scope.getByText("#1801")).toHaveAttribute("href", "#session-1801");
+    expect(scope.getByText("q-1367")).toHaveAttribute("href", "#quest-q-1367");
+  });
+
+  it("shows user-input waits in the banner and clears them when the board row advances", () => {
+    const pausedRow = {
+      questId: "q-969",
+      title: "Input wait banner",
+      status: "USER_CHECKPOINTING",
+      waitForInput: ["n-430"],
+      updatedAt: 4,
+      createdAt: 2,
+    };
+    resetStore({
+      sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),
+      sdkSessions: [{ sessionId: "s1", archived: false, isOrchestrator: true }],
+      sessionBoards: new Map([["s1", [pausedRow]]]),
+      quests: [{ questId: "q-969", title: "Input wait banner", status: "in_progress" }],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    fireEvent.click(scope.getByRole("button", { name: /q-969 input wait banner/i }));
+    expect(scope.getByTestId("quest-thread-wait-pill")).toHaveTextContent("Waiting for user input 430");
+
+    mockState.sessionBoards = new Map([
+      ["s1", [{ ...pausedRow, status: "IMPLEMENTING", waitForInput: undefined, updatedAt: 5 }]],
+    ]);
+    view.rerender(<ChatView sessionId="s1" />);
+    expect(scope.queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
+  });
+
   it("keeps completed quest-thread context compact while preserving Journey and participant metadata", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null, isOrchestrator: true }]]),

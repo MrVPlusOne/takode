@@ -258,6 +258,24 @@ export function PlaygroundOverviewSections() {
       },
     },
     {
+      label: "Queued wait",
+      threadKey: "q-968",
+      row: {
+        threadKey: "q-968",
+        questId: "q-968",
+        title: "Show wait target in thread banner",
+        boardStatus: "QUEUED",
+        section: "active" as const,
+        boardRow: {
+          questId: "q-968",
+          title: "Show wait target in thread banner",
+          status: "QUEUED",
+          waitFor: ["#1801", "q-1367", "free-worker"],
+          updatedAt: 1,
+        },
+      },
+    },
+    {
       label: "Completed Journey",
       threadKey: "q-964",
       row: {

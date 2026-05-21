@@ -7,6 +7,7 @@ import {
   useLayoutEffect,
   type KeyboardEvent,
   type MouseEvent,
+  Fragment,
   type ReactNode,
 } from "react";
 import { createPortal } from "react-dom";
@@ -14,6 +15,7 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore } from "../store.js";
 import { api } from "../api.js";
 import { sendToSession } from "../ws.js";
+import { formatWaitForRefLabel, getWaitForRefKind } from "../../shared/quest-journey.js";
 import { MessageFeed } from "./MessageFeed.js";
 import { Composer } from "./Composer.js";
 import {
@@ -367,6 +369,7 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
 
 type QuestBannerVariant = "thread" | "session";
 type QuestBannerParticipantRole = "Worker" | "Reviewer" | "Leader";
+type QuestBannerWaitCondition = { kind: "queued"; refs: string[] } | { kind: "user-input"; refs: string[] };
 
 function questTimestamp(quest: QuestmasterTask): number {
   if ("completedAt" in quest && typeof quest.completedAt === "number") return quest.completedAt;
@@ -495,6 +498,90 @@ function QuestStatusFallbackPill({ status }: { status?: string }) {
     >
       <span className={`h-1.5 w-1.5 rounded-full ${statusTheme.dot}`} />
       {statusTheme.label}
+    </span>
+  );
+}
+
+function isQueuedBoardRowStatus(status?: string): boolean {
+  return (status ?? "").trim().toUpperCase() === "QUEUED";
+}
+
+function compactStringList(values: ReadonlyArray<string> | undefined): string[] {
+  return [...new Set((values ?? []).map((value) => value.trim()).filter(Boolean))];
+}
+
+function waitConditionForBoardRow(row?: BoardRowData): QuestBannerWaitCondition | null {
+  if (!row) return null;
+  if (isQueuedBoardRowStatus(row.status)) {
+    const refs = compactStringList(row.waitFor);
+    return refs.length > 0 ? { kind: "queued", refs } : null;
+  }
+  const refs = compactStringList(row.waitForInput);
+  return refs.length > 0 ? { kind: "user-input", refs } : null;
+}
+
+function waitForInputLabel(notificationId: string): string {
+  const match = /^n-(\d+)$/i.exec(notificationId);
+  return `user input ${match ? match[1] : notificationId}`;
+}
+
+function waitConditionTitle(condition: QuestBannerWaitCondition): string {
+  const labels =
+    condition.kind === "queued" ? condition.refs.map(formatWaitForRefLabel) : condition.refs.map(waitForInputLabel);
+  return `Waiting for ${labels.join(", ")}`;
+}
+
+function QuestBannerQueuedWaitRef({ depRef }: { depRef: string }) {
+  const kind = getWaitForRefKind(depRef);
+  if (kind === "session") {
+    const sessionNum = Number.parseInt(depRef.slice(1), 10);
+    const session = useStore((s) => s.sdkSessions.find((candidate) => candidate.sessionNum === sessionNum));
+    if (!session) return <span className="font-mono-code text-cc-attention">{depRef}</span>;
+    return (
+      <SessionInlineLink
+        sessionId={session.sessionId}
+        sessionNum={sessionNum}
+        className="font-mono-code text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
+        title={`Open waiting session #${sessionNum}`}
+      >
+        {depRef}
+      </SessionInlineLink>
+    );
+  }
+  if (kind === "quest") {
+    return (
+      <QuestInlineLink
+        questId={depRef}
+        className="font-mono-code text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
+      >
+        {depRef}
+      </QuestInlineLink>
+    );
+  }
+  return <span className="text-cc-attention">{formatWaitForRefLabel(depRef)}</span>;
+}
+
+function QuestBannerWaitRef({ condition, refValue }: { condition: QuestBannerWaitCondition; refValue: string }) {
+  if (condition.kind === "queued") return <QuestBannerQueuedWaitRef depRef={refValue} />;
+  return <span className="text-cc-attention">{waitForInputLabel(refValue)}</span>;
+}
+
+function QuestBannerWaitPill({ condition }: { condition: QuestBannerWaitCondition }) {
+  return (
+    <span
+      className="inline-flex min-h-5 min-w-0 max-w-full shrink flex-wrap items-center gap-x-1 gap-y-0.5 rounded-full border border-cc-attention/35 bg-cc-attention/10 px-1.5 py-0.5 text-[10px] leading-none text-cc-attention"
+      data-testid="quest-thread-wait-pill"
+      title={waitConditionTitle(condition)}
+    >
+      <span className="shrink-0 font-medium">Waiting for </span>
+      <span className="inline-flex min-w-0 flex-wrap items-center">
+        {condition.refs.map((refValue, index) => (
+          <Fragment key={`${condition.kind}-${refValue}`}>
+            {index > 0 && <span className="text-cc-muted/70">, </span>}
+            <QuestBannerWaitRef condition={condition} refValue={refValue} />
+          </Fragment>
+        ))}
+      </span>
     </span>
   );
 }
@@ -791,10 +878,11 @@ export function QuestThreadBanner({
   const questId = row?.questId ?? threadKey.toLowerCase();
   const title = row?.title;
   const isSessionBanner = variant === "session";
+  const waitCondition = waitConditionForBoardRow(row?.boardRow);
   const hasParticipantContext = isSessionBanner
     ? !!(row?.leaderSessionId || row?.rowStatus?.reviewer)
     : !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
-  const hasMeta = !!row?.journey || !!row?.status || hasParticipantContext;
+  const hasMeta = !!waitCondition || !!row?.journey || !!row?.status || hasParticipantContext;
   return (
     <div
       className="shrink-0 border-b border-cc-border/80 bg-cc-bg/95 px-2.5 py-1 sm:px-3"
@@ -832,6 +920,7 @@ export function QuestThreadBanner({
               </QuestJourneyHoverTarget>
             )}
             {!row?.journey && <QuestStatusFallbackPill status={row?.status} />}
+            {waitCondition && <QuestBannerWaitPill condition={waitCondition} />}
             {hasParticipantContext && (
               <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
                 {isSessionBanner ? (
