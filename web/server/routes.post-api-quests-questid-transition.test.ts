@@ -187,6 +187,7 @@ import * as serverLoggerModule from "./server-logger.js";
 import * as envManager from "./env-manager.js";
 import * as gitUtils from "./git-utils.js";
 import * as questStore from "./quest-store.js";
+import { QUEST_TLDR_WARNING_HEADER } from "./quest-tldr.js";
 import * as sessionNames from "./session-names.js";
 import * as settingsManager from "./settings-manager.js";
 import * as transcriptionEnhancer from "./transcription-enhancer.js";
@@ -705,6 +706,54 @@ describe("POST /api/quests/:questId/transition", () => {
     expect(questStore.transitionQuest).toHaveBeenCalledWith(
       "q-1",
       expect.objectContaining({ status: "done", debrief: "Final outcome.", debriefTldr: "Final TLDR." }),
+    );
+  });
+
+  it("warns authenticated agents when final debrief TLDR includes likely raw commit bookkeeping", async () => {
+    launcher.getSession.mockImplementation((sessionId: string) => ({
+      sessionId,
+      isOrchestrator: false,
+    }));
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v2",
+      questId: "q-1",
+      title: "Quest",
+      status: "in_progress",
+      createdAt: Date.now(),
+      claimedAt: Date.now(),
+      description: "Ready",
+      sessionId: "worker-1",
+    } as any);
+    vi.spyOn(questStore, "transitionQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      verificationItems: [],
+      completedAt: Date.now(),
+      debrief: "Final outcome.",
+      debriefTldr: "Synced commit 5f72a9c to the main repo.",
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/transition", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-companion-session-id": "worker-1",
+        "x-companion-auth-token": "tok",
+      },
+      body: JSON.stringify({
+        status: "done",
+        debrief: "Final outcome.",
+        debriefTldr: "Synced commit 5f72a9c to the main repo.",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get(QUEST_TLDR_WARNING_HEADER)).toContain(
+      "quest debrief TLDR appears to include raw commit/hash bookkeeping",
     );
   });
 

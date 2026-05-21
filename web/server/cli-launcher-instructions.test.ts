@@ -260,6 +260,9 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Every active phase needs durable quest documentation");
     expect(result).toContain("Phase-note TLDRs should be 1-5 scan-friendly bullets or sentences");
     expect(result).toContain("raw SHAs, branch names, exhaustive command lists");
+    expect(result).toContain("dedicated `Synced SHAs:` lines");
+    expect(result).toContain("Final debrief TLDRs and routine user-facing summaries should describe");
+    expect(result).toContain("without repeating raw commit hashes already carried");
     expect(result).toContain("Phase documentation should be useful, not ritual");
     expect(result).toContain("Use value-based compression instead of hard length caps");
     expect(result).toContain("file-by-file diff narration");

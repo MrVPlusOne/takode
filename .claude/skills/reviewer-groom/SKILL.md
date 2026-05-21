@@ -75,6 +75,9 @@ includes marking clearly resolved human feedback addressed with `quest address`,
 adding or refreshing a consolidated summary with `quest feedback add`, checking
 User review checks you personally verified with `quest check`, and correcting
 obvious structured metadata omissions when the current handoff supports it.
+Challenge TLDRs or routine user-facing summaries that repeat raw commits/hashes
+when structured commit metadata, a dedicated `Synced SHAs:` line, the full body,
+or verification sections already carry those exact identifiers.
 Challenge proposed final User review checks that are really agent-owned evidence,
 such as tests, Code Review, Execute, Port, push, post-port verification, or
 Memory closure; cite the concrete item text by judgment rather than classifiers.

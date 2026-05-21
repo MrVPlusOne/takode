@@ -411,6 +411,8 @@ describe("Quest Journey phase directory loading", () => {
     );
     expect(memoryPhase?.leaderBrief).toContain("ambiguous, contentious, or intent-changing edits should route back");
     expect(memoryPhase?.assigneeBrief).toContain("Run `memory catalog show` first");
+    expect(memoryPhase?.assigneeBrief).toContain("Final debrief TLDRs should not repeat raw commits/hashes");
+    expect(memoryPhase?.assigneeBrief).toContain("recorded in a Port `Synced SHAs:` line");
     expect(memoryPhase?.assigneeBrief).toContain("Reconcile quest metadata with the accepted delivered scope");
     expect(memoryPhase?.assigneeBrief).toContain("This is not permission to rewrite active scope or unfinished quests");
     expect(memoryPhase?.assigneeBrief).toContain("memory catalog diff");
@@ -486,6 +488,8 @@ describe("Quest Journey phase directory loading", () => {
     expect(portPhase?.assigneeBrief).toContain("before pushing");
     expect(portPhase?.assigneeBrief).toContain("skipped or failed full-suite evidence");
     expect(portPhase?.assigneeBrief).toContain("pre-push and post-push verification results");
+    expect(portPhase?.assigneeBrief).toContain("Keep the dedicated `Synced SHAs:` line");
+    expect(portPhase?.assigneeBrief).toContain("out of TLDR metadata");
   });
 
   it("seeds review phases with documentation quality checks", async () => {
@@ -502,7 +506,9 @@ describe("Quest Journey phase directory loading", () => {
       expect(phase?.assigneeBrief).toContain("TLDR metadata");
       expect(phase?.assigneeBrief).toContain("correctly phase-associated");
       expect(phase?.leaderBrief).toContain("Require reviewers to judge phase documentation quality");
+      expect(phase?.leaderBrief).toContain("no routine raw commit/hash bookkeeping");
     }
+    expect(codeReviewPhase?.assigneeBrief).toContain("keep routine raw commit/hash bookkeeping out of TLDRs");
   });
 
   it("seeds review phases with tracked documentation gate guidance", async () => {

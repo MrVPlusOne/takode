@@ -844,6 +844,58 @@ describe("POST /api/quests/:questId/feedback", () => {
     expect(feedbackWithTldr[0]).toMatchObject({ text: longText, tldr: "Short handoff summary" });
   });
 
+  it("warns non-blockingly when agent feedback TLDR includes likely raw commit bookkeeping", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "session-1",
+      state: "running",
+      cwd: "/test",
+      archived: false,
+    });
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v3",
+      questId: "q-1",
+      version: 3,
+      title: "Quest",
+      createdAt: Date.now(),
+      status: "in_progress",
+      description: "In progress",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      feedback: [],
+    } as any);
+    vi.spyOn(questStore, "patchQuest").mockImplementationOnce(
+      async (_id, patch) =>
+        ({
+          id: "q-1-v3",
+          questId: "q-1",
+          version: 3,
+          title: "Quest",
+          createdAt: Date.now(),
+          status: "in_progress",
+          description: "In progress",
+          sessionId: "session-1",
+          claimedAt: Date.now(),
+          feedback: (patch as any).feedback,
+        }) as any,
+    );
+
+    const res = await app.request("/api/quests/q-1/feedback", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        text: "Port completed.",
+        tldr: "Synced commit 5f72a9c to the main repo.",
+        author: "agent",
+        sessionId: "session-1",
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(res.headers.get(QUEST_TLDR_WARNING_HEADER)).toContain(
+      "quest feedback TLDR appears to include raw commit/hash bookkeeping",
+    );
+  });
+
   it("accepts authenticated caller identity for agent feedback when sessionId is omitted", async () => {
     launcher.getSession.mockImplementation((sid: string) =>
       sid === "session-1" ? { sessionId: "session-1", state: "running", cwd: "/test", archived: false } : undefined,

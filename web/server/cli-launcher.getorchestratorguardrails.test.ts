@@ -472,6 +472,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
     expect(guardrails).toContain("Phase-note TLDRs should be 1-5 scan-friendly bullets or sentences");
     expect(guardrails).toContain("raw SHAs, branch names, exhaustive command lists");
+    expect(guardrails).toContain("dedicated `Synced SHAs:` lines");
     expect(guardrails).toContain("Use value-based compression instead of hard length caps");
     expect(guardrails).toContain("file-by-file diff narration");
     expect(guardrails).toContain("Keep the memory boundary explicit");
@@ -484,12 +485,15 @@ describe("getOrchestratorGuardrails", () => {
       "Completion without final Memory closure, final User review check settlement, final debrief metadata, debrief TLDR metadata, and quest metadata reconciliation is incomplete",
     );
     expect(guardrails).toContain("title, TLDR, and description still match the accepted delivered scope");
+    expect(guardrails).toContain("Final debrief TLDRs and routine user-facing summaries should describe");
+    expect(guardrails).toContain("without repeating raw commit hashes already carried");
     expect(guardrails).toContain("ambiguous or intent-changing edits route back to the leader or user");
     expect(guardrails).toContain("omits `port` but still ends in `memory`");
     expect(guardrails).toContain("attach their synced SHAs before final Memory");
     expect(guardrails).toContain("A quest in `MEMORY` is downstream-unblocking");
     expect(guardrails).toContain("perform exactly the approved next phase, document the current phase on the quest");
     expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
+    expect(guardrails).toContain("no routine raw commit/hash bookkeeping in the human scan layer");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain(
       "Use `mental-simulation` when the question is whether a design, workflow, or responsibility split makes sense",
@@ -581,6 +585,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("quest feedback add q-N --text-file /tmp/phase.md --tldr-file /tmp/phase-tldr.md");
     expect(guardrails).toContain("Phase-note TLDRs should be 1-5 scan-friendly bullets or sentences");
     expect(guardrails).toContain("raw SHAs, branch names, exhaustive command lists");
+    expect(guardrails).toContain("dedicated `Synced SHAs:` lines");
     expect(guardrails).toContain("Use value-based compression instead of hard length caps");
     expect(guardrails).toContain("file-by-file diff narration");
     expect(guardrails).toContain("Keep the memory boundary explicit");
@@ -588,6 +593,7 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
     expect(guardrails).toContain("perform exactly the approved next phase, document the current phase on the quest");
     expect(guardrails).toContain("Reviewers should judge phase documentation quality, not just presence");
+    expect(guardrails).toContain("no routine raw commit/hash bookkeeping in the human scan layer");
     expect(guardrails).toContain("Do **not** tell the worker to port yet");
     expect(guardrails).toContain("Use `outcome-review` when a reviewer should make an acceptance judgment");
     expect(guardrails).toContain("small bounded reruns or repros");

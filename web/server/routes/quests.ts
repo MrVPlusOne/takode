@@ -578,6 +578,19 @@ export function createQuestRoutes(ctx: RouteContext) {
           body.description !== undefined ? body.description : "description" in quest ? quest.description : undefined;
         setDescriptionTldrWarningHeaderForAgentWrite(c, auth, warningDescription, warningTldr);
       }
+      if (body.debrief !== undefined || body.debriefTldr !== undefined) {
+        const warningDebrief =
+          body.debrief !== undefined ? body.debrief : quest.status === "done" ? quest.debrief : undefined;
+        const warningDebriefTldr =
+          body.debriefTldr !== undefined
+            ? body.debriefTldr
+            : body.debrief !== undefined
+              ? undefined
+              : quest.status === "done"
+                ? quest.debriefTldr
+                : undefined;
+        setDebriefTldrWarningHeaderForAgentWrite(c, auth, warningDebrief, warningDebriefTldr);
+      }
       return c.json(quest);
     } catch (e: unknown) {
       return c.json({ error: e instanceof Error ? e.message : String(e) }, 400);

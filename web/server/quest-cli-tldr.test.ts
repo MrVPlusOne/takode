@@ -356,6 +356,61 @@ describe("quest CLI TLDR metadata", () => {
     }
   });
 
+  it("warns when agent feedback TLDR includes likely raw commit bookkeeping", async () => {
+    const tmp = mkdtempSync(join(tmpdir(), "quest-feedback-hash-tldr-"));
+    const authDir = getSessionAuthDir(tmp);
+    mkdirSync(authDir, { recursive: true });
+    const authPath = centralAuthPath(tmp, tmp);
+    const seenBodies: JsonObject[] = [];
+    const server = createServer(async (req, res) => {
+      if (req.method === "POST" && req.url === "/api/quests/q-1/feedback") {
+        seenBodies.push(await readJson(req));
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(
+          JSON.stringify({
+            questId: "q-1",
+            title: "Quest",
+            status: "in_progress",
+            feedback: [{ author: "agent", text: "Port completed.", tldr: seenBodies.at(-1)?.tldr }],
+          }),
+        );
+        return;
+      }
+      res.writeHead(404, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "not found" }));
+    });
+    server.listen(0);
+    await once(server, "listening");
+    const port = (server.address() as AddressInfo).port;
+
+    writeFileSync(
+      authPath,
+      JSON.stringify({ sessionId: "session-file", authToken: "file-token", port, serverId: "test-server-id" }),
+      "utf-8",
+    );
+
+    try {
+      const result = await runQuest(
+        ["feedback", "q-1", "--text", "Port completed.", "--tldr", "Synced commit 5f72a9c to the main repo.", "--json"],
+        {
+          ...process.env,
+          COMPANION_SESSION_ID: undefined,
+          COMPANION_AUTH_TOKEN: undefined,
+          COMPANION_PORT: undefined,
+          HOME: tmp,
+        },
+        tmp,
+      );
+
+      expect(result.status).toBe(0);
+      expect(result.stderr).toContain("quest feedback TLDR appears to include raw commit/hash bookkeeping");
+      expect(seenBodies.at(-1)).toMatchObject({ tldr: "Synced commit 5f72a9c to the main repo." });
+    } finally {
+      server.close();
+      rmSync(tmp, { recursive: true, force: true });
+    }
+  });
+
   it("supports quest description TLDR flags and warns for long descriptions without TLDR", async () => {
     const tmp = mkdtempSync(join(tmpdir(), "quest-create-tldr-"));
     const descPath = join(tmp, "desc.md");

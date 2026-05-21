@@ -267,6 +267,41 @@ describe("ensureSkillSymlinks", () => {
     expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.codex/skills/quest-journey-porting");
   });
 
+  it("removes stale project-owned legacy Codex skill copies instead of migrating them", async () => {
+    // The generated quest skill is installed into .claude and .agents. A stale
+    // legacy .codex copy can otherwise keep obsolete guidance discoverable.
+    fsMocks.existsSync.mockImplementation((targetDir: string) => {
+      return ["/home/tester/.codex/skills", "/repo/.claude/skills", "/repo/.agents/skills"].includes(targetDir);
+    });
+    fsMocks.readdirSync.mockImplementation((targetDir?: string) => {
+      if (targetDir === "/home/tester/.codex/skills") {
+        return [
+          { name: "quest", isDirectory: () => true, isSymbolicLink: () => false },
+          { name: "third-party", isDirectory: () => true, isSymbolicLink: () => false },
+        ] as any[];
+      }
+      return [];
+    });
+    fsMocks.lstatSync.mockImplementation((targetDir: string) => {
+      if (targetDir === "/home/tester/.codex/skills/quest") {
+        return { isSymbolicLink: () => false };
+      }
+      throw missingPathError();
+    });
+
+    await ensureSkillSymlinks([]);
+
+    expect(fsMocks.rmSync).toHaveBeenCalledWith("/home/tester/.codex/skills/quest", { recursive: true });
+    expect(fsMocks.symlinkSync).toHaveBeenCalledWith(
+      "/home/tester/.codex/skills/third-party",
+      "/home/tester/.agents/skills/third-party",
+    );
+    expect(fsMocks.symlinkSync).not.toHaveBeenCalledWith(
+      "/home/tester/.codex/skills/quest",
+      "/home/tester/.agents/skills/quest",
+    );
+  });
+
   it("ignores repo-local legacy Codex skill directories for active installs", async () => {
     // Validates .codex/skills is compatibility-only; project-specific non-Claude
     // variants now come from .agents, then fall back to .claude.

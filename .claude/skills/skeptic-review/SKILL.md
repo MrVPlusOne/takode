@@ -114,9 +114,10 @@ critical worker misunderstanding.
 2. **Summary comment present?** Look for a final agent feedback entry that:
    - Summarizes what changed, why it matters, and what verification passed (not just "done" or "completed")
    - Is written for the human reader as an outcome note, not a review/rework timeline
-   - Includes PR links if changes were ported; routine commit hashes should usually be attached as structured quest metadata
+   - Includes PR links if changes were ported; routine commit hashes should usually be attached as structured quest metadata, not repeated in TLDRs or routine user-facing summary prose
    - Avoids duplicating another recent worker comment; prefer one consolidated summary/addressing comment when the content would otherwise be near-duplicate
    - This should already be part of the worker's normal completion flow; the skeptic review is confirming it happened, not inventing a new requirement
+   - Challenge summaries or TLDR metadata that repeat raw commits/hashes when structured commit metadata, a dedicated `Synced SHAs:` line, the full body, or verification sections already carry the exact identifiers
    - If missing but the worker report and diff give enough evidence, add or refresh it yourself with `quest feedback add <quest_id> --text "Summary: ..."` for short single-topic content, or `quest feedback add <quest_id> --text-file /tmp/summary.md --tldr-file /tmp/summary-tldr.md` for long multi-topic content, and mention that hygiene fix in the verdict
    - If missing and you cannot write it without guessing, CHALLENGE: "Add or refresh the required quest summary comment describing what changed, why it matters, and what verification passed"
    - If the quest has multiple near-duplicated worker comments, CHALLENGE: "Consolidate the duplicated quest comments so the quest remains readable while preserving how human feedback was addressed"

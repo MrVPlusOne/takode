@@ -55,7 +55,7 @@ import { formatQuestDetail, formatQuestLine, formatSessionLabel } from "./quest-
 import {
   normalizeTldr,
   preferredFeedbackPreview,
-  tldrWarningForContent,
+  tldrWarningsForContent,
   QUEST_TLDR_WARNING_HEADER,
 } from "../server/quest-tldr.js";
 import { QUEST_PHASE_DOCUMENTATION_WARNING_HEADER } from "../server/quest-phase-docs.js";
@@ -380,8 +380,7 @@ function warnAll(messages: string[]): void {
 }
 
 function tldrWarningsForWrite(kind: "description" | "feedback" | "debrief", text: unknown, tldr: unknown): string[] {
-  const warning = tldrWarningForContent(kind, text, tldr);
-  return warning ? [warning] : [];
+  return tldrWarningsForContent(kind, text, tldr);
 }
 
 function timeAgo(ts: number): string {

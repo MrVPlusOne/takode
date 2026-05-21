@@ -53,6 +53,7 @@ const DEPRECATED_PROJECT_SKILL_SLUGS = new Set([
   "quest-journey-reviewer-groom",
   "quest-journey-porting",
 ]);
+const LEGACY_CODEX_PROJECT_OWNED_SKILL_SLUGS = new Set(["quest"]);
 
 /**
  * Symlink repo skills into the global Claude and agent skill homes so all
@@ -71,6 +72,7 @@ export async function ensureSkillSymlinks(slugs: string[]): Promise<void> {
 
   migrateLegacyCodexSkillsToAgents();
   removeDeprecatedProjectSkillSymlinks();
+  removeLegacyCodexProjectOwnedSkillCopies();
 
   const allSlugs = discoverRepoSkillSlugs(slugs, repoClaudeSkillsHome, repoAgentsSkillsHome);
   for (const slug of allSlugs) {
@@ -119,10 +121,17 @@ function migrateLegacyCodexSkillsToAgents(): void {
   for (const entry of entries) {
     if (entry.name.startsWith(".")) continue;
     if (isDeprecatedProjectSkillSlug(entry.name)) continue;
+    if (isLegacyCodexProjectOwnedSkillSlug(entry.name)) continue;
     const legacyDir = join(LEGACY_CODEX_SKILLS_HOME, entry.name);
     const agentsDir = join(AGENTS_SKILLS_HOME, entry.name);
     if (existsSync(agentsDir)) continue; // sync-ok: startup cold path
     ensureSymlink(legacyDir, agentsDir);
+  }
+}
+
+function removeLegacyCodexProjectOwnedSkillCopies(): void {
+  for (const slug of LEGACY_CODEX_PROJECT_OWNED_SKILL_SLUGS) {
+    removeDeprecatedProjectSkillPath(join(LEGACY_CODEX_SKILLS_HOME, slug));
   }
 }
 
@@ -150,6 +159,10 @@ function removeDeprecatedProjectSkillPath(targetDir: string): void {
 
 export function isDeprecatedProjectSkillSlug(slug: string): boolean {
   return DEPRECATED_PROJECT_SKILL_SLUGS.has(slug);
+}
+
+export function isLegacyCodexProjectOwnedSkillSlug(slug: string): boolean {
+  return LEGACY_CODEX_PROJECT_OWNED_SKILL_SLUGS.has(slug);
 }
 
 function isMissingPathError(error: unknown): boolean {
