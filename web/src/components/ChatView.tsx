@@ -1005,6 +1005,23 @@ function stringArraysEqual(left: ReadonlyArray<string>, right: ReadonlyArray<str
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
+function shouldRepositionExistingOpenThreadFromEvent(
+  state: LeaderOpenThreadTabsState | undefined,
+  threadKey: string,
+  eventAt: number | undefined,
+): boolean {
+  if (!state || typeof eventAt !== "number" || !Number.isFinite(eventAt)) return false;
+  const normalized = normalizeThreadKey(threadKey);
+  return state.orderedOpenThreadKeys.includes(normalized) && eventAt > state.updatedAt;
+}
+
+type OpenThreadTabOptions = {
+  source?: "user" | "server_candidate";
+  eventAt?: number;
+  placement?: "first" | "last";
+  repositionExisting?: boolean;
+};
+
 export function ChatView({
   sessionId,
   preview = false,
@@ -1204,10 +1221,7 @@ export function ChatView({
     [sessionId],
   );
   const openThreadTab = useCallback(
-    (
-      threadKey: string,
-      options: { source?: "user" | "server_candidate"; eventAt?: number; placement?: "first" | "last" } = {},
-    ) => {
+    (threadKey: string, options: OpenThreadTabOptions = {}) => {
       const normalized = normalizeThreadKey(threadKey);
       if (!shouldPersistOpenThreadTab(normalized)) return;
       if (
@@ -1216,9 +1230,12 @@ export function ChatView({
       ) {
         return;
       }
-      if (openThreadTabKeysRef.current.includes(normalized)) return;
+      const existingOpenThreadKeys = openThreadTabKeysRef.current;
       const placement = options.placement ?? "first";
-      const nextOpenThreadTabKeys = placeOpenThreadTabKey(openThreadTabKeysRef.current, normalized, placement);
+      const nextOpenThreadTabKeys = placeOpenThreadTabKey(existingOpenThreadKeys, normalized, placement);
+      if (existingOpenThreadKeys.includes(normalized)) {
+        if (!options.repositionExisting || stringArraysEqual(existingOpenThreadKeys, nextOpenThreadTabKeys)) return;
+      }
       openThreadTabKeysRef.current = nextOpenThreadTabKeys;
       setOpenThreadTabKeys(nextOpenThreadTabKeys);
       sendLeaderThreadTabUpdate({
@@ -1232,6 +1249,9 @@ export function ChatView({
     [authoritativeLeaderOpenThreadTabs, sendLeaderThreadTabUpdate],
   );
   const lastManualThreadSelectionAtRef = useRef(0);
+  const locallySelectedRouteThreadKeyRef = useRef<string | null>(null);
+  const initializedActiveBoardThreadKeysRef = useRef(false);
+  const observedActiveBoardThreadKeysRef = useRef<Set<string>>(new Set());
   const initializedAttachmentMarkerKeysRef = useRef(false);
   const baselineAttachmentMarkersAfterHistoryLoadRef = useRef(false);
   const observedAttachmentMarkerKeysRef = useRef<Set<string>>(new Set());
@@ -1247,6 +1267,7 @@ export function ChatView({
       requestThreadViewportSnapshot(sessionId);
       setSelectedThreadKey(nextThreadKey);
       if (!preview) {
+        locallySelectedRouteThreadKeyRef.current = nextThreadKey;
         navigateToSessionThread(sessionId, nextThreadKey);
       }
     },
@@ -1278,6 +1299,9 @@ export function ChatView({
 
   useEffect(() => {
     initializedAttachmentMarkerKeysRef.current = false;
+    locallySelectedRouteThreadKeyRef.current = null;
+    initializedActiveBoardThreadKeysRef.current = false;
+    observedActiveBoardThreadKeysRef.current = new Set();
     baselineAttachmentMarkersAfterHistoryLoadRef.current = false;
     observedAttachmentMarkerKeysRef.current = new Set();
     lastManualThreadSelectionAtRef.current = 0;
@@ -1334,15 +1358,33 @@ export function ChatView({
 
   useEffect(() => {
     if (!isLeaderSession || preview) return;
+    const activeBoardThreadKeys = new Set<string>();
+    for (const row of activeBoard) {
+      const threadKey = normalizeThreadKey(row.questId);
+      if (threadKey) activeBoardThreadKeys.add(threadKey);
+    }
+
     // Front insertion stacks candidates, so reverse iteration preserves board order among newly opened rows.
     for (const row of [...activeBoard].reverse()) {
       const threadKey = normalizeThreadKey(row.questId);
       if (!shouldPersistOpenThreadTab(threadKey)) continue;
       if (questOrBoardRowIsCompleted(questStatusByKey.get(threadKey), row.status, row.completedAt)) continue;
-      if (openThreadTabKeysRef.current.includes(threadKey)) continue;
+      const newlySurfacedActiveRow =
+        initializedActiveBoardThreadKeysRef.current && !observedActiveBoardThreadKeysRef.current.has(threadKey);
+      const repositionExisting =
+        shouldRepositionExistingOpenThreadFromEvent(authoritativeLeaderOpenThreadTabs, threadKey, row.updatedAt) &&
+        newlySurfacedActiveRow;
+      if (openThreadTabKeysRef.current.includes(threadKey) && !repositionExisting) continue;
       if (!canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, threadKey, row.updatedAt)) continue;
-      openThreadTab(threadKey, { source: "server_candidate", eventAt: row.updatedAt, placement: "first" });
+      openThreadTab(threadKey, {
+        source: "server_candidate",
+        eventAt: row.updatedAt,
+        placement: "first",
+        repositionExisting,
+      });
     }
+    initializedActiveBoardThreadKeysRef.current = true;
+    observedActiveBoardThreadKeysRef.current = activeBoardThreadKeys;
   }, [activeBoard, authoritativeLeaderOpenThreadTabs, isLeaderSession, openThreadTab, preview, questStatusByKey]);
 
   useEffect(() => {
@@ -1393,7 +1435,11 @@ export function ChatView({
 
     const nextThreadKey = normalizeThreadKey(routeThreadKey);
     if (isAvailableLeaderThread(nextThreadKey, navigationThreadRows)) {
-      openThreadTab(nextThreadKey);
+      const localSelectionRoute = locallySelectedRouteThreadKeyRef.current === nextThreadKey;
+      if (localSelectionRoute) {
+        locallySelectedRouteThreadKeyRef.current = null;
+      }
+      openThreadTab(nextThreadKey, { repositionExisting: !localSelectionRoute });
       if (selectedThreadKey !== nextThreadKey) {
         setSelectedThreadKey(nextThreadKey);
       }
@@ -1480,8 +1526,21 @@ export function ChatView({
       const canOpenCandidate =
         !targetCompleted &&
         canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, targetThreadKey, marker.attachedAt);
+      const repositionExisting =
+        canOpenCandidate &&
+        shouldRepositionExistingOpenThreadFromEvent(
+          authoritativeLeaderOpenThreadTabs,
+          targetThreadKey,
+          marker.attachedAt,
+        );
       if (!wasOpen && canOpenCandidate) {
         openThreadTab(targetThreadKey, { source: "server_candidate", eventAt: marker.attachedAt });
+      } else if (repositionExisting) {
+        openThreadTab(targetThreadKey, {
+          source: "server_candidate",
+          eventAt: marker.attachedAt,
+          repositionExisting: true,
+        });
       }
 
       const manualNavigationAfterAttachment = lastManualThreadSelectionAtRef.current > marker.attachedAt;

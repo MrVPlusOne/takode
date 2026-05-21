@@ -86,6 +86,17 @@ describe("leader open thread tab state", () => {
     expect(opened.orderedOpenThreadKeys).toEqual(["q-4", "q-3", "q-1", "q-2"]);
   });
 
+  it("moves an already open first-position tab ahead of stale older tabs", () => {
+    const stale = {
+      ...createLeaderOpenThreadTabsState(10),
+      orderedOpenThreadKeys: ["q-old-a", "q-old-b", "q-new"],
+    };
+
+    const opened = applyLeaderThreadTabUpdate(stale, { type: "open", threadKey: "q-new", placement: "first" }, 20);
+
+    expect(opened.orderedOpenThreadKeys).toEqual(["q-new", "q-old-a", "q-old-b"]);
+  });
+
   it("preserves user closes as bounded tombstones and explicit user opens remove them", () => {
     const closed = applyLeaderThreadTabUpdate(
       { ...createLeaderOpenThreadTabsState(1), orderedOpenThreadKeys: ["q-1", "q-2"] },

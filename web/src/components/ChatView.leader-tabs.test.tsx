@@ -110,12 +110,12 @@ function resetStore(overrides: Partial<MockStoreState> = {}) {
   }
 }
 
-function leaderTabs(keys: string[], closed: LeaderOpenThreadTabsState["closedThreadTombstones"] = []) {
+function leaderTabs(keys: string[], closed: LeaderOpenThreadTabsState["closedThreadTombstones"] = [], updatedAt = 1) {
   return {
     version: 1,
     orderedOpenThreadKeys: keys,
     closedThreadTombstones: closed,
-    updatedAt: 1,
+    updatedAt,
   } satisfies LeaderOpenThreadTabsState;
 }
 
@@ -560,6 +560,44 @@ describe("ChatView leader open thread tabs", () => {
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-555,q-777,q-941");
   });
 
+  it("preserves manual order when a route-aware local tab click selects an already-open tab", async () => {
+    window.location.hash = "#/session/s1?thread=q-1376";
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-1376", "q-1350", "q-1361", "q-1360"])),
+      messages: new Map([
+        [
+          "s1",
+          [
+            threadMessage("q-1376", 1),
+            threadMessage("q-1350", 2),
+            threadMessage("q-1361", 3),
+            threadMessage("q-1360", 4),
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-1376", title: "First manually ordered tab", status: "in_progress" },
+        { questId: "q-1350", title: "Second manually ordered tab", status: "in_progress" },
+        { questId: "q-1361", title: "Clicked existing tab", status: "in_progress" },
+        { questId: "q-1360", title: "Fourth manually ordered tab", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<RouteAwareLeaderSession />);
+    const scope = within(view.container);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1376"));
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1376,q-1350,q-1361,q-1360");
+    mockSendToSession.mockClear();
+
+    fireEvent.click(scope.getByRole("button", { name: /q-1361 clicked existing tab/i }));
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1361"));
+    expect(window.location.hash).toBe("#/session/s1?thread=q-1361");
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1376,q-1350,q-1361,q-1360");
+    expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
   it("keeps newly opened tabs immediately after Main without reordering existing manual order", () => {
     resetStore({
       sessions: leaderSession(leaderTabs(["q-941", "q-777"])),
@@ -583,6 +621,50 @@ describe("ChatView leader open thread tabs", () => {
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "leader_thread_tabs_update",
       operation: { type: "open", threadKey: "q-555", placement: "first", source: "user" },
+    });
+  });
+
+  it("reapplies first placement when a route opens a stale hidden tab that is already persisted", async () => {
+    window.location.hash = "#/session/s1?thread=q-1376";
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-1361", "q-1360", "q-1350", "q-1339", "q-1202", "q-1156", "q-1376"])),
+      messages: new Map([
+        [
+          "s1",
+          [
+            threadMessage("q-1361", 1),
+            threadMessage("q-1360", 2),
+            threadMessage("q-1350", 3),
+            threadMessage("q-1339", 4),
+            threadMessage("q-1202", 5),
+            threadMessage("q-1156", 6),
+            threadMessage("q-1376", 7),
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-1361", title: "Older visible A", status: "in_progress" },
+        { questId: "q-1360", title: "Older visible B", status: "in_progress" },
+        { questId: "q-1350", title: "Older visible C", status: "in_progress" },
+        { questId: "q-1339", title: "Older visible D", status: "in_progress" },
+        { questId: "q-1202", title: "Older hidden A", status: "in_progress" },
+        { questId: "q-1156", title: "Older hidden B", status: "in_progress" },
+        { questId: "q-1376", title: "Newest hidden tab", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute routeThreadKey="q-1376" />);
+    const scope = within(view.container);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute(
+        "data-open-thread-keys",
+        "q-1376,q-1361,q-1360,q-1350,q-1339,q-1202,q-1156",
+      ),
+    );
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: { type: "open", threadKey: "q-1376", placement: "first", source: "user" },
     });
   });
 
@@ -780,6 +862,69 @@ describe("ChatView leader open thread tabs", () => {
     });
   });
 
+  it("reapplies first placement when a fresh board row surfaces an already-open stale tab", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-old-a", "q-old-b", "q-new"], [], 10)),
+      sessionBoards: new Map([["s1", []]]),
+      messages: new Map([
+        ["s1", [threadMessage("q-old-a", 1), threadMessage("q-old-b", 2), threadMessage("q-new", 30)]],
+      ]),
+      quests: [
+        { questId: "q-old-a", title: "Older tab A", status: "in_progress" },
+        { questId: "q-old-b", title: "Older tab B", status: "in_progress" },
+        { questId: "q-new", title: "Freshly surfaced quest", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-old-a,q-old-b,q-new");
+
+    mockState.sessionBoards = new Map([
+      ["s1", [{ questId: "q-new", status: "IMPLEMENTING", title: "Freshly surfaced quest", updatedAt: 30 }]],
+    ]);
+    view.rerender(<ChatView sessionId="s1" />);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-new,q-old-a,q-old-b"),
+    );
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-new",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: 30,
+      },
+    });
+  });
+
+  it("does not let an older board row undo a newer authoritative tab order", async () => {
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-old-a", "q-new", "q-old-b"], [], 40)),
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-new", status: "IMPLEMENTING", title: "Already ordered quest", updatedAt: 30 }]],
+      ]),
+      messages: new Map([
+        ["s1", [threadMessage("q-old-a", 1), threadMessage("q-old-b", 2), threadMessage("q-new", 30)]],
+      ]),
+      quests: [
+        { questId: "q-old-a", title: "Older tab A", status: "in_progress" },
+        { questId: "q-old-b", title: "Older tab B", status: "in_progress" },
+        { questId: "q-new", title: "Already ordered quest", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" />);
+    const scope = within(view.container);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-old-a,q-new,q-old-b"),
+    );
+    expect(mockSendToSession).not.toHaveBeenCalled();
+  });
+
   it("does not resurrect an active quest thread that the user explicitly closed", async () => {
     resetStore({
       sessions: leaderSession(leaderTabs([], [{ threadKey: "q-1231", closedAt: 20 }])),
@@ -847,6 +992,50 @@ describe("ChatView leader open thread tabs", () => {
 
     await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1006"));
     expect(readLeaderSelectedThreadKey("s1")).toBe("q-1006");
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-1006",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: attachedAt,
+      },
+    });
+  });
+
+  it("reapplies first placement when a fresh attachment marker surfaces an already-open stale tab", async () => {
+    const attachedAt = Date.now();
+    persistLeaderSelectedThreadKey("s1", "q-941");
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-941", "q-1006"], [], attachedAt - 10)),
+      messages: new Map([["s1", [threadMessage("q-941", attachedAt - 10), threadMessage("q-1006", attachedAt - 9)]]]),
+      quests: [
+        { questId: "q-941", title: "Source thread", status: "in_progress" },
+        { questId: "q-1006", title: "Target thread", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-941"));
+    mockSendToSession.mockClear();
+
+    mockState.messages = new Map([
+      [
+        "s1",
+        [
+          threadMessage("q-941", attachedAt - 5),
+          threadMessage("q-1006", attachedAt - 4),
+          movedUser("q-1006", attachedAt),
+          movedMarker("q-1006", attachedAt, { sourceThreadKey: "q-941", sourceQuestId: "q-941" }),
+        ],
+      ],
+    ]);
+    view.rerender(<ChatView sessionId="s1" hasThreadRoute={false} routeThreadKey={null} />);
+
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1006"));
+    expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1006,q-941");
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "leader_thread_tabs_update",
       operation: {
