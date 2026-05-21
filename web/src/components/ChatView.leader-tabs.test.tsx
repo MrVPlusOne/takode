@@ -664,8 +664,92 @@ describe("ChatView leader open thread tabs", () => {
     );
     expect(mockSendToSession).toHaveBeenCalledWith("s1", {
       type: "leader_thread_tabs_update",
-      operation: { type: "open", threadKey: "q-1376", placement: "first", source: "user" },
+      operation: { type: "open", threadKey: "q-1376", placement: "first", source: "route" },
     });
+  });
+
+  it("keeps a fresh creation tab first when the selected route is unchanged", async () => {
+    window.location.hash = "#/session/s1?thread=q-1391";
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-1391", "q-1376", "q-1361"], [], 100)),
+      sessionBoards: new Map([["s1", []]]),
+      messages: new Map([
+        [
+          "s1",
+          [
+            threadMessage("q-1391", 10),
+            threadMessage("q-1376", 20),
+            threadMessage("q-1361", 30),
+            threadMessage("q-1395", 200),
+          ],
+        ],
+      ]),
+      quests: [
+        { questId: "q-1391", title: "Older selected route", status: "done" },
+        { questId: "q-1376", title: "Older visible tab", status: "in_progress" },
+        { questId: "q-1361", title: "Older visible tab B", status: "in_progress" },
+        { questId: "q-1395", title: "Newly created follow-up", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<RouteAwareLeaderSession />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1391"));
+    mockSendToSession.mockClear();
+
+    mockState.sessionBoards = new Map([
+      ["s1", [{ questId: "q-1395", status: "ALIGNMENT", title: "Newly created follow-up", updatedAt: 200 }]],
+    ]);
+    view.rerender(<RouteAwareLeaderSession />);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute(
+        "data-open-thread-keys",
+        "q-1395,q-1391,q-1376,q-1361",
+      ),
+    );
+    expect(mockSendToSession).toHaveBeenCalledWith("s1", {
+      type: "leader_thread_tabs_update",
+      operation: {
+        type: "open",
+        threadKey: "q-1395",
+        placement: "first",
+        source: "server_candidate",
+        eventAt: 200,
+      },
+    });
+    expect(mockSendToSession).not.toHaveBeenCalledWith(
+      "s1",
+      expect.objectContaining({ operation: expect.objectContaining({ threadKey: "q-1391" }) }),
+    );
+  });
+
+  it("does not reassert an already processed route after authoritative tab updates", async () => {
+    window.location.hash = "#/session/s1?thread=q-1391";
+    resetStore({
+      sessions: leaderSession(leaderTabs(["q-1391", "q-1376"], [], 100)),
+      messages: new Map([
+        ["s1", [threadMessage("q-1391", 10), threadMessage("q-1376", 20), threadMessage("q-1395", 200)]],
+      ]),
+      quests: [
+        { questId: "q-1391", title: "Older selected route", status: "done" },
+        { questId: "q-1376", title: "Older visible tab", status: "in_progress" },
+        { questId: "q-1395", title: "Server-opened follow-up", status: "in_progress" },
+      ],
+    });
+
+    const view = render(<RouteAwareLeaderSession />);
+    const scope = within(view.container);
+    await waitFor(() => expect(scope.getByTestId("message-feed")).toHaveAttribute("data-thread-key", "q-1391"));
+    mockSendToSession.mockClear();
+
+    mockState.sessions = leaderSession(leaderTabs(["q-1395", "q-1391", "q-1376"], [], 200));
+    view.rerender(<RouteAwareLeaderSession />);
+
+    await waitFor(() =>
+      expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-1395,q-1391,q-1376"),
+    );
+    expect(mockSendToSession).not.toHaveBeenCalled();
   });
 
   it("migrates valid legacy localStorage only when no server state exists", async () => {

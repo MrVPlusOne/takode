@@ -1050,11 +1050,31 @@ function shouldRepositionExistingOpenThreadFromEvent(
 }
 
 type OpenThreadTabOptions = {
-  source?: "user" | "server_candidate";
+  intent?: "manual_select" | "external_route" | "server_candidate";
   eventAt?: number;
   placement?: "first" | "last";
   repositionExisting?: boolean;
 };
+
+function leaderThreadTabSourceForIntent(
+  intent: OpenThreadTabOptions["intent"],
+): Extract<LeaderThreadTabUpdate, { type: "open" }>["source"] {
+  if (intent === "server_candidate") return "server_candidate";
+  if (intent === "external_route") return "route";
+  return "user";
+}
+
+function shouldRepairRouteThreadOrder({
+  lastProcessedRouteThreadKey,
+  localSelectionRoute,
+  threadKey,
+}: {
+  lastProcessedRouteThreadKey: string | null;
+  localSelectionRoute: boolean;
+  threadKey: string;
+}): boolean {
+  return !localSelectionRoute && lastProcessedRouteThreadKey !== normalizeThreadKey(threadKey);
+}
 
 export function ChatView({
   sessionId,
@@ -1259,7 +1279,7 @@ export function ChatView({
       const normalized = normalizeThreadKey(threadKey);
       if (!shouldPersistOpenThreadTab(normalized)) return;
       if (
-        options.source === "server_candidate" &&
+        options.intent === "server_candidate" &&
         !canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, normalized, options.eventAt)
       ) {
         return;
@@ -1276,7 +1296,7 @@ export function ChatView({
         type: "open",
         threadKey: normalized,
         placement,
-        source: options.source ?? "user",
+        source: leaderThreadTabSourceForIntent(options.intent),
         ...(options.eventAt !== undefined ? { eventAt: options.eventAt } : {}),
       });
     },
@@ -1284,6 +1304,7 @@ export function ChatView({
   );
   const lastManualThreadSelectionAtRef = useRef(0);
   const locallySelectedRouteThreadKeyRef = useRef<string | null>(null);
+  const lastProcessedRouteThreadKeyRef = useRef<string | null>(null);
   const initializedActiveBoardThreadKeysRef = useRef(false);
   const observedActiveBoardThreadKeysRef = useRef<Set<string>>(new Set());
   const initializedAttachmentMarkerKeysRef = useRef(false);
@@ -1334,6 +1355,7 @@ export function ChatView({
   useEffect(() => {
     initializedAttachmentMarkerKeysRef.current = false;
     locallySelectedRouteThreadKeyRef.current = null;
+    lastProcessedRouteThreadKeyRef.current = null;
     initializedActiveBoardThreadKeysRef.current = false;
     observedActiveBoardThreadKeysRef.current = new Set();
     baselineAttachmentMarkersAfterHistoryLoadRef.current = false;
@@ -1411,7 +1433,7 @@ export function ChatView({
       if (openThreadTabKeysRef.current.includes(threadKey) && !repositionExisting) continue;
       if (!canServerCandidateOpenThread(authoritativeLeaderOpenThreadTabs, threadKey, row.updatedAt)) continue;
       openThreadTab(threadKey, {
-        source: "server_candidate",
+        intent: "server_candidate",
         eventAt: row.updatedAt,
         placement: "first",
         repositionExisting,
@@ -1431,6 +1453,7 @@ export function ChatView({
     const preserveMessageThreadRoute = hasMessageDeepLinkFromHash(liveHash) && routeThreadKey != null;
 
     if (!isLeaderSession) {
+      lastProcessedRouteThreadKeyRef.current = null;
       if (selectedThreadKey !== MAIN_THREAD_KEY) {
         setSelectedThreadKey(MAIN_THREAD_KEY);
       }
@@ -1441,6 +1464,7 @@ export function ChatView({
     }
 
     if (!hasThreadRoute) {
+      lastProcessedRouteThreadKeyRef.current = null;
       const restoredThreadKey = restorableSelectedThreadKey({
         threadKey: readLeaderSelectedThreadKey(sessionId),
         authoritativeLeaderOpenThreadTabs,
@@ -1460,6 +1484,7 @@ export function ChatView({
     }
 
     if (!routeThreadKey) {
+      lastProcessedRouteThreadKeyRef.current = null;
       if (selectedThreadKey !== MAIN_THREAD_KEY) {
         setSelectedThreadKey(MAIN_THREAD_KEY);
       }
@@ -1473,7 +1498,15 @@ export function ChatView({
       if (localSelectionRoute) {
         locallySelectedRouteThreadKeyRef.current = null;
       }
-      openThreadTab(nextThreadKey, { repositionExisting: !localSelectionRoute });
+      const repositionExisting = shouldRepairRouteThreadOrder({
+        lastProcessedRouteThreadKey: lastProcessedRouteThreadKeyRef.current,
+        localSelectionRoute,
+        threadKey: nextThreadKey,
+      });
+      if (repositionExisting) {
+        openThreadTab(nextThreadKey, { intent: "external_route", repositionExisting });
+      }
+      lastProcessedRouteThreadKeyRef.current = nextThreadKey;
       if (selectedThreadKey !== nextThreadKey) {
         setSelectedThreadKey(nextThreadKey);
       }
@@ -1485,6 +1518,7 @@ export function ChatView({
     }
 
     if (!historyLoading && hasKnownThreadSources) {
+      lastProcessedRouteThreadKeyRef.current = null;
       if (selectedThreadKey !== MAIN_THREAD_KEY) {
         setSelectedThreadKey(MAIN_THREAD_KEY);
       }
@@ -1568,10 +1602,10 @@ export function ChatView({
           marker.attachedAt,
         );
       if (!wasOpen && canOpenCandidate) {
-        openThreadTab(targetThreadKey, { source: "server_candidate", eventAt: marker.attachedAt });
+        openThreadTab(targetThreadKey, { intent: "server_candidate", eventAt: marker.attachedAt });
       } else if (repositionExisting) {
         openThreadTab(targetThreadKey, {
-          source: "server_candidate",
+          intent: "server_candidate",
           eventAt: marker.attachedAt,
           repositionExisting: true,
         });

@@ -27,7 +27,7 @@ export type LeaderThreadTabUpdate =
       type: "open";
       threadKey: string;
       placement?: "first" | "last";
-      source?: "user" | "server_candidate";
+      source?: "user" | "route" | "server_candidate";
       eventAt?: number;
     }
   | {
