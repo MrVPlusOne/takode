@@ -434,6 +434,12 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("quest feedback list --json");
     expect(guardrails).toContain("quest feedback list/latest/show");
     expect(guardrails).toContain("`commitShas`");
+    expect(guardrails).toContain("Leader File Links Across Worktrees");
+    expect(guardrails).toContain("takode file-resolve --session <worker-or-reviewer> <path-or-file-link>");
+    expect(guardrails).toContain(
+      "[CHANGELOG.md:7](file:/Users/jiayiwei/.companion/worktrees/companion/jiayi-wt-9146/CHANGELOG.md:7)",
+    );
+    expect(guardrails).toContain("Repo-relative links remain appropriate after Port/main-repo sync");
     expect(guardrails).toContain("Make every worker instruction phase-explicit");
     expect(guardrails).toContain("Initial dispatch authorizes **alignment only**");
     expect(guardrails).toContain("Initial Journey approval comes before dispatch");

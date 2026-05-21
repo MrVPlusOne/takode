@@ -73,6 +73,21 @@ describe("Quest Journey phase directory loading", () => {
     expect(refreshed).toBe(canonical);
   });
 
+  it("seeds User Checkpoint leader guidance for resolving worker worktree file links", async () => {
+    const companionHome = await makeCompanionHome();
+    await ensureBuiltInQuestJourneyPhaseData({ packageRoot: PACKAGE_ROOT, companionHome });
+
+    const leaderBrief = await readFile(
+      getQuestJourneyPhaseLeaderBriefPath("user-checkpoint", { companionHome }),
+      "utf-8",
+    );
+
+    expect(leaderBrief).toContain("worker/reviewer-originated relative paths");
+    expect(leaderBrief).toContain("takode file-resolve --session <worker-or-reviewer> <path-or-file-link>");
+    expect(leaderBrief).toContain("returned absolute `file:` link");
+    expect(leaderBrief).toContain("Repo-relative links remain appropriate after Port/main sync");
+  });
+
   it("removes stale installed planning phase data without deleting canonical phases", async () => {
     const companionHome = await makeCompanionHome();
     const dataRoot = getQuestJourneyPhaseDataRoot({ companionHome });
