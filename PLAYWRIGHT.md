@@ -14,7 +14,7 @@ Always use the **frontend port (5174)** for browser testing.
 
 1. **Install web dependencies if needed**:
    ```bash
-   bun install --cwd web
+   bun install --cwd web --frozen-lockfile
    ```
 
 2. **Start the dev server** (if not already running):

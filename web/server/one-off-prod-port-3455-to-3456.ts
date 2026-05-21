@@ -295,7 +295,7 @@ function buildRollbackScript(plan: OneOffProdPortMigrationPlan): string {
     "fi",
     "",
     `echo "Rollback restore complete."`,
-    `echo "From the repo root, restart the old 3455 server with: cd web && PORT=${plan.sourcePort} bun run start"`,
+    `echo "From the repo root, restart the old 3455 server with: cd web && PORT=${plan.sourcePort} bun --no-install run start"`,
   ];
   return `${lines.join("\n")}\n`;
 }

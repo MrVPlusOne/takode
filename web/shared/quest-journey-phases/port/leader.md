@@ -7,7 +7,7 @@ Leader actions:
 - Include the exact assignee brief path in the instruction: `~/.companion/quest-journey-phases/port/assignee.md`.
 - Send a separate explicit `/port-changes` instruction.
 - Require the assignee report to include `Synced SHAs: sha1,sha2`.
-- Require the strong Port verification gate for tracked code/test changes: focused affected tests plus full `bun run test`, `bun run typecheck`, and `bun run format:check` before push unless an explicit infeasibility exception is visible before final acceptance.
+- Require the strong Port verification gate for tracked code/test changes: focused affected tests plus full `bun --no-install run test`, `bun --no-install run typecheck`, and `bun --no-install run format:check` before push unless an explicit infeasibility exception is visible before final acceptance.
 - If the full suite fails and the failure is likely related to the current quest or port, route the worker back to fix it before the quest can be marked done. If the failure appears unrelated, open an immediate fix quest unless there is already an active quest for that failure being worked by another leader.
 - Treat Port as optional and narrow. Port syncs accepted tracked changes, verifies the main repo after sync, and reports synced SHAs and risks; it does not own final Memory closure.
 - Do not ask Port to author final `User review checks`. Port evidence belongs in the Port report, phase documentation, synced SHA handoff, post-port verification notes, and debrief draft context for Memory.

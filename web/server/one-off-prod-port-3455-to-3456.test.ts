@@ -105,7 +105,7 @@ describe("one-off-prod-port-3455-to-3456", () => {
     expect(rollbackScript).toContain('mkdir -p "$COMPANION_HOME/session-auth"');
     expect(rollbackScript).toContain('cp "$BACKUP_DIR"/target/session-auth/*.json "$COMPANION_HOME/session-auth/"');
     expect(rollbackScript).toContain('cp "$BACKUP_DIR"/source/session-auth/*.json "$COMPANION_HOME/session-auth/"');
-    expect(rollbackScript).toContain(`cd web && PORT=${sourcePort} bun run start`);
+    expect(rollbackScript).toContain(`cd web && PORT=${sourcePort} bun --no-install run start`);
   });
 
   it("refuses apply while the source port is still listening and leaves state untouched", async () => {

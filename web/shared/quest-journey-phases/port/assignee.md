@@ -4,7 +4,7 @@ You are syncing accepted git-tracked work back to the main repo.
 
 Boundary:
 - Port the accepted tracked changes and report ordered synced SHAs from the main repo.
-- For tracked code/test changes, use the strong Port verification gate by default: after the accepted changes are applied to the main repo and before pushing, run focused affected tests plus full `bun run test`, `bun run typecheck`, and `bun run format:check` unless an explicit infeasibility exception is visible before final acceptance.
+- For tracked code/test changes, use the strong Port verification gate by default: after the accepted changes are applied to the main repo and before pushing, run focused affected tests plus full `bun --no-install run test`, `bun --no-install run typecheck`, and `bun --no-install run format:check` unless an explicit infeasibility exception is visible before final acceptance.
 - After push/reset, run the required sync verification and any reruns the handoff or pre-push evidence makes necessary.
 - Do not invent port commentary for zero-tracked-change quests whose Journey omitted `port`.
 - Do not treat Port as final quest closure. Every non-cancelled quest should advance to final Memory after Port, where final debrief metadata and durable-state closure are settled.
@@ -12,7 +12,7 @@ Boundary:
 - Do not author final `User review checks`. Port-owned evidence belongs in Port phase documentation, synced SHA reporting, post-port verification notes, and debrief drafts for Memory.
 
 Verification failure routing:
-- If full `bun run test` fails and the failure is likely related to the current quest or port, the quest cannot be marked done until the worker fixes it and the gate is rerun.
+- If full `bun --no-install run test` fails and the failure is likely related to the current quest or port, the quest cannot be marked done until the worker fixes it and the gate is rerun.
 - If the full-suite failure appears unrelated to the current port, make the red-main risk explicit in the Port report. The leader should open an immediate fix quest unless there is already an active quest for that failure being worked by another leader.
 - Preserve proportional verification, but never let skipped or failed full-suite evidence be silent. A focused-only Port is acceptable only with an explicit infeasibility exception or a leader/user-approved non-code/test scope.
 
