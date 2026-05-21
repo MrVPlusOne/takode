@@ -16,13 +16,6 @@ Run these from the repository root unless noted otherwise.
     - `./scripts/dev-start.sh --status`
     - `./scripts/dev-start.sh --stop`
 
-- [`landing-start.sh`](./landing-start.sh)
-  - Idempotent startup/status/stop script for the `landing/` site.
-  - Supports:
-    - `./scripts/landing-start.sh`
-    - `./scripts/landing-start.sh --status`
-    - `./scripts/landing-start.sh --stop`
-
 - [`sync-codex-protocol.sh`](./sync-codex-protocol.sh)
   - Refreshes offline Codex protocol snapshots under
     `web/server/protocol/codex-upstream/` from upstream `openai/codex`.
@@ -73,8 +66,6 @@ Run these from the repository root unless noted otherwise.
 - "Bring up local app stack":
   - `bun install --cwd web` (first local setup, or after dependency changes)
   - `./scripts/dev-start.sh`
-- "Run landing page":
-  - `./scripts/landing-start.sh`
 - "Refresh Codex protocol snapshots for drift tests":
   - `./scripts/sync-codex-protocol.sh`
 - "Audit real protocol traces to identify parser/UI gaps":

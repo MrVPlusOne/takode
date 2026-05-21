@@ -69,11 +69,6 @@ cd web && bun run typecheck
 # Production build + serve
 cd web && bun run build && bun run start
 
-# Landing page (takode.sh) — idempotent: starts if down, no-op if up
-# IMPORTANT: Always use this script to run the landing page. Never cd into landing/ and run bun/vite manually.
-./scripts/landing-start.sh          # start
-./scripts/landing-start.sh --stop   # stop
-
 # Offline injected system prompt inspection, no live server required
 cd web && bun -e 'import { buildInjectedSystemPromptForDebug } from "./server/cli-launcher-instructions.ts"; console.log(buildInjectedSystemPromptForDebug({ sessionNum: 1, backend: "claude", isOrchestrator: true }))'
 ```
