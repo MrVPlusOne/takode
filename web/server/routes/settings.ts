@@ -1038,6 +1038,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       "codexLeaderRecycleThresholdTokens",
       "codexLeaderRecycleThresholdTokensByModel",
       "leaderProfilePools",
+      "shortcutSettings",
     ];
     if (!knownFields.some((f) => body[f] !== undefined)) {
       return c.json({ error: "At least one settings field is required" }, 400);

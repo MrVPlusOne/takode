@@ -2,6 +2,7 @@
 import { render, screen, fireEvent, waitFor, within } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { SessionNotification, SessionState, SdkSessionInfo } from "../types.js";
+import { setTouchDeviceForTest } from "./test-match-media.js";
 
 // ─── Mock setup ──────────────────────────────────────────────────────────────
 
@@ -287,24 +288,8 @@ beforeEach(() => {
   Element.prototype.scrollIntoView = mockScrollIntoView;
   mockState = createMockState();
   window.location.hash = "";
-  setTouchDevice(false);
+  setTouchDeviceForTest(false);
 });
-
-function setTouchDevice(enabled: boolean) {
-  Object.defineProperty(window, "matchMedia", {
-    writable: true,
-    value: vi.fn().mockImplementation((query: string) => ({
-      matches: enabled && query === "(hover: none) and (pointer: coarse)",
-      media: query,
-      onchange: null,
-      addListener: vi.fn(),
-      removeListener: vi.fn(),
-      addEventListener: vi.fn(),
-      removeEventListener: vi.fn(),
-      dispatchEvent: vi.fn(),
-    })),
-  });
-}
 
 function expectDocumentOrder(nodes: HTMLElement[]) {
   for (let i = 0; i < nodes.length - 1; i++) {
@@ -1243,7 +1228,7 @@ describe("Sidebar", { timeout: 10000 }, () => {
   });
 
   it("keeps the mobile session scroller vertically scrollable by default and locks it while a reorder handle is held", async () => {
-    setTouchDevice(true);
+    setTouchDeviceForTest(true);
     const session1 = makeSession("s1");
     const session2 = makeSession("s2");
     const sdk1 = makeSdkSession("s1");
