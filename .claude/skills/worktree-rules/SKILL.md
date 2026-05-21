@@ -115,6 +115,8 @@ Every port handoff must report the ordered synced SHAs explicitly so the later h
 
 Do not add routine `memory update not needed` statements during Port. Include memory-specific evidence only when material: a completed memory write explicitly assigned to Port, a deferral for final Memory or a curator, relevant memory files/decisions inspected, or accepted facts final Memory needs for durable-memory triage.
 
+If Port is explicitly assigned memory writing, memory record frontmatter `source` should use the quest ID (`q-N`) as primary provenance for quest-backed updates and should not routinely add `commit:*` or `session:*` sources. Use `session:<id>` only when no corresponding quest exists or the session itself is the durable source of truth, and preserve exceptional `commit:*` or `session:*` sources for non-quest updates where that provenance is genuinely authoritative.
+
 Documentation, skill, prompt, template, and other text-only tracked-file edits still count as commit-producing work. If they produced commits, they must be ported and attached to the quest with `quest complete ... --commit/--commits`; zero-tracked-change quests omit `port` from their explicit Journey plan when nothing was synced, but still end in `memory`.
 
 Do not put port status, synced SHAs, or automated post-port verification results into `quest complete --items`. User review checks are only for things the user still needs to inspect or do after completion; port details and automated verification belong in the worker report and, for Quest Journey work, the Port phase documentation entry. Empty User review checks are normal when no user action remains.

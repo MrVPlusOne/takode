@@ -75,6 +75,9 @@ describe("buildCompanionInstructions", () => {
     expect(result).toContain("references/");
     expect(result).toContain("artifacts/");
     expect(result).toContain("memory lock acquire --owner");
+    expect(result).toContain("For memory record frontmatter `source`");
+    expect(result).toContain("use the quest ID (`q-N`) as the primary source");
+    expect(result).toContain("Do not routinely add `commit:*` or `session:*` sources");
     expect(result).toContain("final Memory must include exactly one memory statement");
     expect(result).toContain("memory updated: <commit>");
     expect(result).toContain("memory update deferred: <reason or curator>");
@@ -161,6 +164,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("file-by-file diff narration");
     expect(result).toContain("Keep the memory boundary explicit");
     expect(result).toContain("Non-Memory phases should not add routine `memory update not needed` statements");
+    expect(result).toContain("quest-backed updates should use `q-N`");
+    expect(result).toContain("should not routinely add `commit:*` or `session:*` sources");
     expect(result).toContain("Provide only deltas the actor is unlikely to infer");
     expect(result).toContain("Alignment approval is leader-owned by default");
     expect(result).toContain("Escalate alignment back to the user only");

@@ -454,7 +454,7 @@ source:
         "--memory-id",
         "current/memory-foundation.md",
         "--source",
-        "quest:q-1205",
+        "q-1205",
         "--json",
       ],
       env,
@@ -480,7 +480,7 @@ source:
     );
 
     const noLock = await runMemory(
-      ["commit", "--message", "Missing lock", "--memory-id", "current/provenance.md", "--source", "quest:q-1205"],
+      ["commit", "--message", "Missing lock", "--memory-id", "current/provenance.md", "--source", "q-1205"],
       env,
     );
     expect(noLock.status).toBe(1);
@@ -493,7 +493,7 @@ source:
     expect(missingSource.stderr).toContain("at least one source trailer");
 
     const missingTraceability = await runMemory(
-      ["commit", "--message", "Missing traceability", "--source", "quest:q-1205"],
+      ["commit", "--message", "Missing traceability", "--source", "q-1205"],
       env,
     );
     expect(missingTraceability.status).toBe(1);
@@ -529,7 +529,9 @@ source:
     expect(help.stdout).toContain("Use catalog diff as a freshness check for memory-focused work");
     expect(help.stdout).not.toContain("Prefer catalog/direct file inspection for normal orientation.");
     expect(help.stdout).toContain("description: one or two sentences for catalog orientation");
-    expect(help.stdout).toContain("source: [q-1218, session:1476]");
+    expect(help.stdout).toContain("source: [q-1218]");
+    expect(help.stdout).toContain("For quest-backed records, use the quest id as the primary source");
+    expect(help.stdout).toContain("only when no quest exists or the session itself is the durable source of truth");
     expect(help.stdout).toContain("id and kind are derived from the repo-relative file path.");
     expect(help.stdout).toContain("Canonical health check");
     expect(help.stdout).toContain("memory catalog show");

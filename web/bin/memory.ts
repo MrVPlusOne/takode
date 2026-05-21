@@ -107,7 +107,9 @@ Memory files are authored directly under:
 
 Frontmatter schema:
   description: one or two sentences for catalog orientation
-  source: [q-1218, session:1476]
+  source: [q-1218]
+  For quest-backed records, use the quest id as the primary source. Use session:<id>
+  only when no quest exists or the session itself is the durable source of truth.
   id and kind are derived from the repo-relative file path.
 
 Common examples:

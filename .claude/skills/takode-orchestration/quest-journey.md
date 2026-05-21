@@ -79,6 +79,8 @@ Takode memory is a Git-tracked Markdown repo scoped to the current server/sessio
 
 Memory writes are explicit Journey responsibility. A phase actor may update memory when they learned durable shared facts, changed live coordination state, produced external artifacts, or accepted a decision/preference that should survive the quest. Final Memory is the normal owner for end-of-quest memory closure; if the update is useful but not synchronous, route it through Memory or an approved curator instead of blocking the current phase. Non-Memory phases should preserve material memory evidence, not routine no-op memory bookkeeping.
 
+For memory record frontmatter `source`, use the quest ID (`q-N`) as the primary source for quest-backed updates. Do not routinely add `commit:*` or `session:*` sources when the quest already records the relevant commits, sessions, reviews, and phase history. Include `session:<id>` only when there is no corresponding quest, or when the session itself is the durable source of truth. Preserve exceptional `commit:*` or `session:*` sources for non-quest memory updates where that provenance is genuinely the source of truth.
+
 Memory authoring uses one repo-level lock and direct file edits:
 
 ```bash
@@ -86,7 +88,7 @@ memory lock acquire --owner <session-or-role>
 # search/read/edit files directly under current/, knowledge/, procedures/, decisions/, references/, artifacts/
 memory lint
 memory diff
-memory commit --message "..." --source "quest:q-N" --memory-id "<id>"
+memory commit --message "..." --quest q-N --source q-N --memory-id "<id>"
 memory lock release
 ```
 

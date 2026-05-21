@@ -88,6 +88,8 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Standard Markdown file links to repo files may be opened best-effort");
     expect(skill).toContain("Quest Journey Phase Documentation");
     expect(skill).toContain("every active phase should leave durable quest feedback");
+    expect(skill).toContain("For memory record frontmatter `source`");
+    expect(skill).toContain("Do not routinely add `commit:*` or `session:*` sources");
     expect(skill).toContain("Maintain one current phase note per phase occurrence");
     expect(skill).toContain("quest feedback edit <id> <index>");
     expect(skill).toContain("instead of appending a near-duplicate note");

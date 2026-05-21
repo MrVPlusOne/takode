@@ -476,6 +476,8 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("file-by-file diff narration");
     expect(guardrails).toContain("Keep the memory boundary explicit");
     expect(guardrails).toContain("Non-Memory phases should not add routine `memory update not needed` statements");
+    expect(guardrails).toContain("quest-backed updates should use `q-N`");
+    expect(guardrails).toContain("should not routinely add `commit:*` or `session:*` sources");
     expect(guardrails).toContain("use explicit `--phase`, `--phase-position`, `--phase-occurrence`");
     expect(guardrails).toContain("Every completed non-cancelled quest ends in Memory");
     expect(guardrails).toContain(

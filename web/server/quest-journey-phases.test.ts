@@ -375,6 +375,8 @@ describe("Quest Journey phase directory loading", () => {
     expect(bookkeepingPhase?.assigneeBrief).toContain("use `memory catalog diff` as a freshness check");
     expect(bookkeepingPhase?.assigneeBrief).toContain("not a reason for blind repo-wide search");
     expect(bookkeepingPhase?.assigneeBrief).toContain("inspect relevant existing memory files directly");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("use the quest ID (`q-N`) as the primary source");
+    expect(bookkeepingPhase?.assigneeBrief).toContain("Do not routinely add `commit:*` or `session:*` sources");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory lock acquire");
     expect(bookkeepingPhase?.assigneeBrief).toContain("memory lint");
     expect(bookkeepingPhase?.assigneeBrief).not.toContain("memory doctor");
@@ -412,6 +414,9 @@ describe("Quest Journey phase directory loading", () => {
     expect(memoryPhase?.assigneeBrief).toContain("Reconcile quest metadata with the accepted delivered scope");
     expect(memoryPhase?.assigneeBrief).toContain("This is not permission to rewrite active scope or unfinished quests");
     expect(memoryPhase?.assigneeBrief).toContain("memory catalog diff");
+    expect(memoryPhase?.assigneeBrief).toContain("use the quest ID (`q-N`) as the primary source");
+    expect(memoryPhase?.assigneeBrief).toContain("Do not routinely add `commit:*` or `session:*` sources");
+    expect(memoryPhase?.assigneeBrief).toContain("Include `session:<id>` only when there is no corresponding quest");
     expect(memoryPhase?.assigneeBrief).toContain("memory lock acquire");
     expect(memoryPhase?.assigneeBrief).toContain("memory updated: <commit>");
     expect(memoryPhase?.assigneeBrief).toContain("memory update deferred: <reason or curator>");

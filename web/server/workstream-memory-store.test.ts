@@ -480,7 +480,7 @@ source:
       session: "1537",
       operation: "update",
       memoryIds: ["current/takode-memory.md"],
-      sources: ["quest:q-1205"],
+      sources: ["q-1205"],
     });
 
     expect(result.committed).toBe(true);
@@ -496,7 +496,7 @@ source:
     expect(stdout).toContain("Memory-Operation: update");
     expect(stdout).toContain("Memory-Id: current/takode-memory.md");
     expect(stdout).toContain("Quest: q-1205");
-    expect(stdout).toContain("Source: quest:q-1205");
+    expect(stdout).toContain("Source: q-1205");
   });
 
   it("rejects store-level commits without a non-stale memory lock", async () => {
@@ -513,7 +513,7 @@ source:
       memoryStore.commitMemory({
         message: "Try memory commit without lock",
         memoryIds: ["current/no-lock.md"],
-        sources: ["quest:q-1205"],
+        sources: ["q-1205"],
       }),
     ).rejects.toThrow("Acquire the memory repo lock before committing");
   });
@@ -533,7 +533,7 @@ source:
       memoryStore.commitMemory({
         message: "Try memory commit with stale lock",
         memoryIds: ["current/stale-lock.md"],
-        sources: ["quest:q-1205"],
+        sources: ["q-1205"],
       }),
     ).rejects.toThrow("Memory repo lock is stale");
   });
@@ -559,7 +559,7 @@ source:
     await expect(
       memoryStore.commitMemory({
         message: "Missing traceability",
-        sources: ["quest:q-1205"],
+        sources: ["q-1205"],
       }),
     ).rejects.toThrow("include quest, session, or at least one memory id");
   });
