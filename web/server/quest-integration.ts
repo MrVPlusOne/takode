@@ -1,4 +1,4 @@
-import { writeFileSync, mkdirSync, existsSync, unlinkSync, chmodSync } from "node:fs";
+import { writeFileSync, mkdirSync, existsSync, unlinkSync, chmodSync, lstatSync, rmSync } from "node:fs";
 import { readFile } from "node:fs/promises";
 import { join, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -192,9 +192,27 @@ exec grep "$\{grep_args[@]}" -- "$pattern" "$\{positional[@]:1}"
 }
 
 function writeAgentSkill(skillDir: string, content: string): void {
-  mkdirSync(skillDir, { recursive: true });
+  prepareGeneratedSkillDir(skillDir);
   const skillPath = join(skillDir, "SKILL.md");
   writeFileSync(skillPath, content, "utf-8"); // sync-ok: quest setup, not called during message handling
+}
+
+function prepareGeneratedSkillDir(skillDir: string): void {
+  try {
+    const stat = lstatSync(skillDir); // sync-ok: quest setup, not called during message handling
+    if (stat.isSymbolicLink()) {
+      unlinkSync(skillDir); // sync-ok: quest setup, not called during message handling
+    } else if (!stat.isDirectory()) {
+      rmSync(skillDir, { recursive: true, force: true }); // sync-ok: quest setup, not called during message handling
+    }
+  } catch (error) {
+    if (!isMissingPathError(error)) throw error;
+  }
+  mkdirSync(skillDir, { recursive: true });
+}
+
+function isMissingPathError(error: unknown): boolean {
+  return typeof error === "object" && error !== null && (error as { code?: string }).code === "ENOENT";
 }
 
 function cleanupOldFiles(): void {

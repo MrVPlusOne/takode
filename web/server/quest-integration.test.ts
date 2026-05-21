@@ -4,9 +4,17 @@ const fsMocks = vi.hoisted(() => ({
   writeFileSync: vi.fn(),
   mkdirSync: vi.fn(),
   existsSync: vi.fn(() => false),
+  lstatSync: vi.fn((_targetDir: string): any => {
+    throw missingPathError();
+  }),
   unlinkSync: vi.fn(),
+  rmSync: vi.fn(),
   chmodSync: vi.fn(),
 }));
+
+function missingPathError(): Error & { code: string } {
+  return Object.assign(new Error("ENOENT"), { code: "ENOENT" });
+}
 
 const execMock = vi.hoisted(() =>
   vi.fn((command: string, options: { cwd?: string }, callback: (error: Error | null, stdout: string) => void) => {
@@ -37,6 +45,9 @@ describe("ensureQuestmasterIntegration", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     fsMocks.existsSync.mockReturnValue(false);
+    fsMocks.lstatSync.mockImplementation((_targetDir: string) => {
+      throw missingPathError();
+    });
   });
 
   it("writes quest skill to Claude and agents skill homes", async () => {
@@ -58,6 +69,37 @@ describe("ensureQuestmasterIntegration", () => {
       "/home/tester/.codex/skills/quest/SKILL.md",
       expect.anything(),
       "utf-8",
+    );
+  });
+
+  it("replaces stale agents quest symlinks before writing the generated quest skill", async () => {
+    // Covers the legacy migration state where ~/.agents/skills/quest pointed at
+    // ~/.codex/skills/quest. The generated quest skill must become a real,
+    // current agents skill before legacy Codex cleanup can remove that target.
+    fsMocks.lstatSync.mockImplementation((targetDir: string) => {
+      if (targetDir === "/home/tester/.agents/skills/quest") {
+        return { isSymbolicLink: () => true, isDirectory: () => false };
+      }
+      throw missingPathError();
+    });
+
+    await ensureQuestmasterIntegration(3456, "/repo/web");
+
+    expect(fsMocks.unlinkSync).toHaveBeenCalledWith("/home/tester/.agents/skills/quest");
+    expect(fsMocks.mkdirSync).toHaveBeenCalledWith("/home/tester/.agents/skills/quest", { recursive: true });
+    expect(fsMocks.writeFileSync).toHaveBeenCalledWith(
+      "/home/tester/.agents/skills/quest/SKILL.md",
+      expect.stringContaining("name: quest"),
+      "utf-8",
+    );
+    const unlinkCallIndex = fsMocks.unlinkSync.mock.calls.findIndex(
+      (call) => call[0] === "/home/tester/.agents/skills/quest",
+    );
+    const writeCallIndex = fsMocks.writeFileSync.mock.calls.findIndex(
+      (call) => call[0] === "/home/tester/.agents/skills/quest/SKILL.md",
+    );
+    expect(fsMocks.unlinkSync.mock.invocationCallOrder[unlinkCallIndex]).toBeLessThan(
+      fsMocks.writeFileSync.mock.invocationCallOrder[writeCallIndex]!,
     );
   });
 
