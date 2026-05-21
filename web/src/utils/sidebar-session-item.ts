@@ -23,6 +23,8 @@ export interface SidebarSessionItem {
   archived: boolean;
   archivedAt?: number;
   backendType: "claude" | "codex" | "claude-sdk";
+  treeGroupId?: string | null;
+  memorySessionSpaceSlug?: string | null;
   repoRoot: string;
   permCount: number;
   pendingTimerCount?: number;

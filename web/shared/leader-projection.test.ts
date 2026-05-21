@@ -207,6 +207,58 @@ describe("leader projection summaries", () => {
     expect(rows[0]?.boardRow).not.toHaveProperty("completedAt");
   });
 
+  it("uses quest lifecycle status as authoritative for done and refined restart rows", () => {
+    const rows = buildLeaderThreadRowsFromSummaries({
+      threadSummaries: [
+        { threadKey: "q-587", questId: "q-587", messageCount: 3, firstMessageAt: 1 },
+        { threadKey: "q-601", questId: "q-601", messageCount: 2, firstMessageAt: 2 },
+      ],
+      quests: [
+        { questId: "q-587", title: "Completed artifact quest", status: "done", createdAt: 1 },
+        { questId: "q-601", title: "Refined follow-up", status: "refined", createdAt: 2 },
+      ],
+    });
+
+    expect(rows.find((row) => row.threadKey === "q-587")).toMatchObject({
+      status: "done",
+      section: "done",
+    });
+    expect(rows.find((row) => row.threadKey === "q-601")).toMatchObject({
+      status: "refined",
+      section: "active",
+    });
+  });
+
+  it("keeps a done quest completed even when active Journey metadata is still present", () => {
+    const rows = buildLeaderThreadRowsFromSummaries({
+      activeBoard: [
+        {
+          questId: "q-605",
+          title: "Done quest with active memory phase",
+          status: "MEMORY",
+          createdAt: 1,
+          updatedAt: 20,
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "explore", "memory"],
+            currentPhaseId: "memory",
+            activePhaseIndex: 2,
+          },
+        },
+      ],
+      threadSummaries: [{ threadKey: "q-605", questId: "q-605", messageCount: 2, firstMessageAt: 1 }],
+      quests: [{ questId: "q-605", title: "Done quest with active memory phase", status: "done", createdAt: 1 }],
+    });
+
+    expect(rows[0]).toMatchObject({
+      threadKey: "q-605",
+      status: "done",
+      boardStatus: "MEMORY",
+      section: "done",
+      journey: { currentPhaseId: "memory" },
+    });
+  });
+
   it("merges projection summaries with only post-projection live messages", () => {
     // Cold windows may overlap the projection's raw history. Only messages
     // appended after the projection source length should extend the summary.

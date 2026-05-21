@@ -116,6 +116,8 @@ export function buildSidebarVisibleSessions(input: SidebarVisibleSessionsInput):
         archived: sdkInfo?.archived ?? false,
         archivedAt: sdkInfo?.archivedAt,
         backendType: bridgeState?.backend_type || sdkInfo?.backendType || "claude",
+        treeGroupId: bridgeState?.treeGroupId ?? sdkInfo?.treeGroupId ?? null,
+        memorySessionSpaceSlug: bridgeState?.memorySessionSpaceSlug ?? sdkInfo?.memorySessionSpaceSlug ?? null,
         repoRoot: bridgeState?.repo_root || sdkInfo?.repoRoot || "",
         permCount: countUserPermissions(pendingPermissions.get(id)),
         pendingTimerCount: sdkInfo?.pendingTimerCount ?? 0,

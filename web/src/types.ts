@@ -306,6 +306,10 @@ export interface SdkSessionInfo {
   containerImage?: string;
   name?: string;
   backendType?: BackendType;
+  /** Durable session-space/group assignment. `default` means confirmed default; null means unknown. */
+  treeGroupId?: string | null;
+  /** Effective memory/session-space slug for this session, when known. */
+  memorySessionSpaceSlug?: string | null;
   gitBranch?: string;
   gitDefaultBranch?: string;
   diffBaseBranch?: string;

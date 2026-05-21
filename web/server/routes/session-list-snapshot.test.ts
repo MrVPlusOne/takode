@@ -354,6 +354,28 @@ describe("buildEnrichedSessionsSnapshot", () => {
     });
   });
 
+  it("exposes bridge-owned location metadata when launcher state is missing it", async () => {
+    const launcherSession = makeLauncherSession({
+      treeGroupId: null,
+      memorySessionSpaceSlug: null,
+    });
+    const bridgeSession = {
+      ...makeBridgeSession([]),
+      state: {
+        treeGroupId: "oai-group",
+        memorySessionSpaceSlug: "OAI",
+      },
+    };
+
+    const snapshot = await buildEnrichedSessionsSnapshot(makeDeps(launcherSession, bridgeSession));
+
+    expect(snapshot[0]).toMatchObject({
+      sessionId: "s1",
+      treeGroupId: "oai-group",
+      memorySessionSpaceSlug: "OAI",
+    });
+  });
+
   it("includes active Quest Journey phase summary metadata for leader sidebar rows", async () => {
     const launcherSession = makeLauncherSession({ isOrchestrator: true });
     const bridgeSession = {

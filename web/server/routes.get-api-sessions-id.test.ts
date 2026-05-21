@@ -548,6 +548,32 @@ describe("GET /api/sessions/:id", () => {
     expect(typeof json.isGenerating).toBe("boolean");
   });
 
+  it("returns bridge-owned location metadata when launcher location state is missing or stale", async () => {
+    launcher.getSession.mockReturnValue({
+      sessionId: "s1",
+      state: "connected",
+      cwd: "/test",
+      treeGroupId: null,
+      memorySessionSpaceSlug: "Takode",
+    });
+    ensureBridgeSession(bridge, "s1", {
+      state: {
+        treeGroupId: "oai-group",
+        memorySessionSpaceSlug: "OAI",
+      },
+    });
+
+    const res = await app.request("/api/sessions/s1", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({
+      sessionId: "s1",
+      treeGroupId: "oai-group",
+      memorySessionSpaceSlug: "OAI",
+    });
+  });
+
   it("returns 404 when session not found", async () => {
     launcher.getSession.mockReturnValue(undefined);
 

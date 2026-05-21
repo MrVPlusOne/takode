@@ -2,6 +2,9 @@ import type { SidebarSessionItem as SessionItem } from "./sidebar-session-item.j
 import type { TreeGroup } from "../types.js";
 import { deriveSessionStatus } from "../components/SessionStatusDot.js";
 
+export const PENDING_TREE_GROUP_ID = "__pending_session_location__";
+const PENDING_TREE_GROUP: TreeGroup = { id: PENDING_TREE_GROUP_ID, name: "Locating..." };
+
 // ─── Types ───────────────────────────────────────────────────────────────────
 
 export interface TreeNode {
@@ -73,6 +76,15 @@ export function buildTreeViewGroups(
   reviewerSessions?: SessionItem[],
 ): TreeViewGroupData[] {
   const assignments = treeAssignments ?? new Map<string, string>();
+  const validGroupIds = new Set(treeGroups.map((group) => group.id));
+  validGroupIds.add("default");
+  validGroupIds.add(PENDING_TREE_GROUP_ID);
+  const groupIdForSession = (session: SessionItem): string => {
+    const assigned = assignments.get(session.id);
+    if (assigned) return assigned;
+    if (session.treeGroupId) return session.treeGroupId;
+    return PENDING_TREE_GROUP_ID;
+  };
   // 1. Build lookup maps (include reviewer sessions for sessionByNum resolution)
   const sessionById = new Map<string, SessionItem>();
   const sessionByNum = new Map<number, SessionItem>();
@@ -110,7 +122,7 @@ export function buildTreeViewGroups(
   const leaderGroupMap = new Map<string, string>(); // leaderId -> groupId
   for (const s of nonReviewers) {
     if (s.isOrchestrator && !s.herdedBy) {
-      const groupId = assignments.get(s.id) || "default";
+      const groupId = groupIdForSession(s);
       leaderGroupMap.set(s.id, groupId);
     }
   }
@@ -123,17 +135,18 @@ export function buildTreeViewGroups(
   if (!groupBuckets.has("default")) {
     groupBuckets.set("default", []);
   }
+  groupBuckets.set(PENDING_TREE_GROUP_ID, []);
 
   for (const s of nonReviewers) {
     let groupId: string;
     if (s.herdedBy) {
       // Worker follows its leader's group
-      groupId = leaderGroupMap.get(s.herdedBy) || assignments.get(s.id) || "default";
+      groupId = leaderGroupMap.get(s.herdedBy) || groupIdForSession(s);
     } else {
-      groupId = assignments.get(s.id) || "default";
+      groupId = groupIdForSession(s);
     }
     // Ensure bucket exists (assignment might reference a deleted group)
-    if (!groupBuckets.has(groupId)) groupId = "default";
+    if (!validGroupIds.has(groupId) || !groupBuckets.has(groupId)) groupId = PENDING_TREE_GROUP_ID;
     groupBuckets.get(groupId)!.push(s);
   }
 
@@ -144,6 +157,9 @@ export function buildTreeViewGroups(
   const orderedGroups = [...treeGroups];
   if (!orderedGroups.some((g) => g.id === "default")) {
     orderedGroups.unshift({ id: "default", name: "Default" });
+  }
+  if ((groupBuckets.get(PENDING_TREE_GROUP_ID)?.length ?? 0) > 0) {
+    orderedGroups.push(PENDING_TREE_GROUP);
   }
 
   for (const group of orderedGroups) {

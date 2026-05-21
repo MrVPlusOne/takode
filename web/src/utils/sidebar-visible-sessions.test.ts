@@ -26,6 +26,7 @@ function makeSessionState(id: string, overrides: Partial<SessionState> = {}): Se
     git_behind: 0,
     total_lines_added: 0,
     total_lines_removed: 0,
+    treeGroupId: "default",
     ...overrides,
   };
 }
@@ -37,6 +38,7 @@ function makeSdkSession(id: string, overrides: Partial<SdkSessionInfo> = {}): Sd
     cwd: `/repo/${id}`,
     createdAt: 1,
     archived: false,
+    treeGroupId: "default",
     ...overrides,
   };
 }
@@ -183,6 +185,46 @@ describe("buildSidebarVisibleSessions", () => {
     });
 
     expect(result.orderedVisibleSessionIds).toEqual(["default-session"]);
+  });
+
+  it("uses snapshot treeGroupId while tree assignments are still hydrating", () => {
+    const sessions = new Map<string, SessionState>();
+    const sdkSessions: SdkSessionInfo[] = [
+      makeSdkSession("oai-leader", {
+        createdAt: 1,
+        sessionNum: 710,
+        isOrchestrator: true,
+        treeGroupId: "oai",
+        memorySessionSpaceSlug: "OAI",
+      }),
+    ];
+
+    const result = buildSidebarVisibleSessions({
+      sessions,
+      sdkSessions,
+      cliConnected: new Map(),
+      cliDisconnectReason: new Map(),
+      sessionStatus: new Map(),
+      pendingPermissions: new Map(),
+      askPermission: new Map(),
+      diffFileStats: new Map(),
+      treeGroups: [
+        { id: "default", name: "Default" },
+        { id: "oai", name: "OAI" },
+      ],
+      treeAssignments: new Map(),
+      treeNodeOrder: new Map(),
+      collapsedTreeGroups: new Set(),
+      expandedHerdNodes: new Set(),
+      sessionAttention: new Map(),
+      sessionSortMode: "created",
+      countUserPermissions: () => 0,
+    });
+
+    expect(result.treeViewGroups.find((group) => group.id === "default")?.nodes).toHaveLength(0);
+    expect(result.treeViewGroups.find((group) => group.id === "oai")?.nodes.map((node) => node.leader.id)).toEqual([
+      "oai-leader",
+    ]);
   });
 
   it("preserves completed quest review metadata from idle session snapshots", () => {

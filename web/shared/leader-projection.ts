@@ -74,6 +74,11 @@ export const MAIN_THREAD_KEY = "main";
 export const ALL_THREADS_KEY = "all";
 const JOURNEY_FINISHED_TITLE = "Journey finished";
 
+function isCompletedQuestStatus(status?: string | null): boolean {
+  const normalized = (status ?? "").trim().toLowerCase();
+  return normalized === "done" || normalized === "completed" || normalized === "needs_verification";
+}
+
 export function buildLeaderProjectionSnapshot(input: BuildLeaderProjectionInput): LeaderProjectionSnapshot {
   const routeIndex = usableThreadRouteIndex(input.threadRouteIndex, input.messageHistory);
   const threadSummaries = routeIndex
@@ -218,12 +223,19 @@ export function buildLeaderThreadRowsFromSummaries(input: BuildLeaderThreadRowsI
     const boardRow = partial.boardRow ?? existing?.boardRow ?? boardRowById.get(key);
     const messageCount = counts.get(key) ?? existing?.messageCount ?? 0;
     if (messageCount <= 0 && !boardRow) return;
-    const section = activeKeys.has(key) ? "active" : "done";
+    const status = partial.status ?? existing?.status ?? quest?.status;
+    const section = isCompletedQuestStatus(status)
+      ? "done"
+      : status
+        ? "active"
+        : activeKeys.has(key)
+          ? "active"
+          : "done";
     rows.set(key, {
       threadKey: key,
       questId: key,
       title: partial.title ?? existing?.title ?? quest?.title ?? questId,
-      status: partial.status ?? existing?.status ?? quest?.status,
+      status,
       boardStatus: partial.boardStatus ?? existing?.boardStatus,
       journey: partial.journey ?? existing?.journey,
       boardRow: boardRow as BoardRow | undefined,

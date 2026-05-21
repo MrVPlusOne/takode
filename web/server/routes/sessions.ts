@@ -1233,17 +1233,21 @@ export function createSessionsRoutes(ctx: RouteContext) {
     if (!session) return c.json({ error: "Session not found" }, 404);
     const bridgeSession = wsBridge.getSession(id);
     const { injectedSystemPrompt: _prompt, ...rest } = session;
+    const bridgeState = bridgeSession?.state;
     return c.json({
       ...rest,
-      pause: bridgeSession?.state.pause ?? null,
-      pausedInputQueueCount: bridgeSession?.state.pause?.queuedMessages.length ?? 0,
-      codexResultErrorAutoPause: bridgeSession?.state.codex_result_error_auto_pause ?? null,
+      treeGroupId: bridgeState?.treeGroupId ?? rest.treeGroupId ?? null,
+      memorySessionSpaceSlug: bridgeState?.memorySessionSpaceSlug ?? rest.memorySessionSpaceSlug ?? null,
+      ...(bridgeState?.leaderOpenThreadTabs ? { leaderOpenThreadTabs: bridgeState.leaderOpenThreadTabs } : {}),
+      pause: bridgeState?.pause ?? null,
+      pausedInputQueueCount: bridgeState?.pause?.queuedMessages.length ?? 0,
+      codexResultErrorAutoPause: bridgeState?.codex_result_error_auto_pause ?? null,
       codexAutoPausedInputCount:
-        bridgeSession?.state.codex_result_error_auto_pause?.heldInputs.reduce(
+        bridgeState?.codex_result_error_auto_pause?.heldInputs.reduce(
           (total, item) => total + Math.max(1, item.count),
           0,
         ) ?? 0,
-      sessionLifecycleEvents: bridgeSession?.state.lifecycle_events ?? [],
+      sessionLifecycleEvents: bridgeState?.lifecycle_events ?? [],
       isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
     });
   });

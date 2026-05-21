@@ -1,5 +1,5 @@
 import { describe, it, expect } from "vitest";
-import { buildTreeViewGroups, type TreeNode } from "./tree-grouping.js";
+import { PENDING_TREE_GROUP_ID, buildTreeViewGroups } from "./tree-grouping.js";
 import type { SidebarSessionItem as SessionItem } from "./sidebar-session-item.js";
 import type { TreeGroup } from "../types.js";
 
@@ -20,6 +20,7 @@ function makeSession(overrides: Partial<SessionItem> & { id: string }): SessionI
     createdAt: Date.now(),
     archived: false,
     backendType: "claude",
+    treeGroupId: "default",
     repoRoot: "/test",
     permCount: 0,
     ...overrides,
@@ -30,13 +31,37 @@ describe("buildTreeViewGroups", () => {
   const defaultGroups: TreeGroup[] = [{ id: "default", name: "Default" }];
   const emptyAssignments = new Map<string, string>();
 
-  it("places all sessions in default group when no assignments exist", () => {
+  it("places sessions in default group only when default is confirmed", () => {
     const sessions = [makeSession({ id: "s1", sessionNum: 1 }), makeSession({ id: "s2", sessionNum: 2 })];
 
     const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments);
     expect(result).toHaveLength(1);
     expect(result[0].id).toBe("default");
     expect(result[0].nodes).toHaveLength(2);
+  });
+
+  it("uses session snapshot group as a delayed tree-assignment fallback", () => {
+    const groups: TreeGroup[] = [
+      { id: "default", name: "Default" },
+      { id: "oai", name: "OAI" },
+    ];
+    const sessions = [makeSession({ id: "leader-oai", sessionNum: 1, isOrchestrator: true, treeGroupId: "oai" })];
+
+    const result = buildTreeViewGroups(sessions, groups, emptyAssignments);
+
+    expect(result.find((group) => group.id === "default")?.nodes).toHaveLength(0);
+    expect(result.find((group) => group.id === "oai")?.nodes.map((node) => node.leader.id)).toEqual(["leader-oai"]);
+  });
+
+  it("renders unknown session location in a pending group instead of silently defaulting", () => {
+    const sessions = [makeSession({ id: "unknown-location", sessionNum: 1, treeGroupId: null })];
+
+    const result = buildTreeViewGroups(sessions, defaultGroups, emptyAssignments);
+
+    expect(result.find((group) => group.id === "default")?.nodes).toHaveLength(0);
+    const pending = result.find((group) => group.id === PENDING_TREE_GROUP_ID);
+    expect(pending?.name).toBe("Locating...");
+    expect(pending?.nodes.map((node) => node.leader.id)).toEqual(["unknown-location"]);
   });
 
   it("groups leader with its workers", () => {
@@ -221,14 +246,15 @@ describe("buildTreeViewGroups", () => {
     expect(result[0].nodes[1].leader.id).toBe("older");
   });
 
-  it("assigns to default group when assignment references a deleted group", () => {
+  it("keeps sessions with deleted-group assignments in pending location instead of default", () => {
     const assignments = new Map([["s1", "deleted-group-id"]]);
     const sessions = [makeSession({ id: "s1", sessionNum: 1 })];
 
     const result = buildTreeViewGroups(sessions, defaultGroups, assignments);
-    expect(result).toHaveLength(1);
-    expect(result[0].id).toBe("default");
-    expect(result[0].nodes).toHaveLength(1);
+    expect(result.find((group) => group.id === "default")?.nodes).toHaveLength(0);
+    expect(result.find((group) => group.id === PENDING_TREE_GROUP_ID)?.nodes.map((node) => node.leader.id)).toEqual([
+      "s1",
+    ]);
   });
 
   it("preserves group order from treeGroups array", () => {

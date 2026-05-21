@@ -134,6 +134,8 @@ export async function buildEnrichedSessionsSnapshot(
             }
           : null;
         const model = bridge?.model || safeSession.model;
+        const treeGroupId = bridge?.treeGroupId ?? safeSession.treeGroupId ?? null;
+        const memorySessionSpaceSlug = bridge?.memorySessionSpaceSlug ?? safeSession.memorySessionSpaceSlug ?? null;
         const cliConnected = wsBridge.isBackendConnected(s.sessionId);
         const effectiveState = cliConnected && currentBridgeSession?.isGenerating ? "running" : safeSession.state;
         const codexLeaderRecycleThresholdTokens =
@@ -162,6 +164,8 @@ export async function buildEnrichedSessionsSnapshot(
           // (creation-time value, often empty for "default").
           model,
           state: effectiveState,
+          treeGroupId,
+          memorySessionSpaceSlug,
           sessionNum: launcher.getSessionNum(s.sessionId) ?? null,
           name: names[s.sessionId] ?? s.name,
           gitBranch: bridge?.git_branch || "",
