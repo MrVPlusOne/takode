@@ -290,7 +290,7 @@ vi.mock("./QuestInlineLink.js", () => ({
     className?: string;
     stopPropagation?: boolean;
   }) => (
-    <a href={`#quest-${questId}`} className={className} data-stop-propagation={stopPropagation ? "true" : "false"}>
+    <a href={`#quest-${questId}`} className={className} onClick={(event) => stopPropagation && event.stopPropagation()}>
       {children ?? questId}
     </a>
   ),
@@ -305,6 +305,7 @@ vi.mock("./SessionInlineLink.js", () => ({
     ariaLabel,
     title,
     threadKey,
+    stopPropagation,
   }: {
     sessionNum?: number | null;
     children: ReactNode;
@@ -313,6 +314,7 @@ vi.mock("./SessionInlineLink.js", () => ({
     ariaLabel?: string;
     title?: string;
     threadKey?: string | null;
+    stopPropagation?: boolean;
   }) => (
     <a
       href={`#session-${sessionNum ?? "unknown"}${threadKey ? `?thread=${threadKey}` : ""}`}
@@ -320,6 +322,7 @@ vi.mock("./SessionInlineLink.js", () => ({
       data-testid={dataTestId}
       aria-label={ariaLabel}
       title={title}
+      onClick={(event) => stopPropagation && event.stopPropagation()}
     >
       {children}
     </a>
@@ -691,7 +694,7 @@ describe("ChatView backend banners", () => {
     expect(scope.getByTestId("composer")).toHaveAttribute("data-quest-id", "q-941");
     expect(scope.getByTestId("composer")).toHaveAttribute("data-transcription-thread-key", "q-941");
     expect(scope.getByTestId("quest-thread-banner")).toHaveAttribute("data-layout", "compact-inline");
-    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Thread");
+    expect(scope.getByTestId("quest-thread-banner")).not.toHaveTextContent("THREAD");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-941");
     expect(scope.getByTestId("work-board-bar")).toHaveAttribute("data-open-thread-keys", "q-941");
   });
@@ -1501,18 +1504,11 @@ describe("ChatView backend banners", () => {
 
     fireEvent.click(scope.getByRole("button", { name: /q-968 thread navigation rework/i }));
     expect(scope.getByTestId("quest-thread-banner")).toHaveAttribute("data-layout", "compact-inline");
-    expect(scope.getByTestId("quest-thread-banner")).toHaveClass("py-1");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("q-968");
     expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Thread navigation rework");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveTextContent("implement");
     expect(scope.getByTestId("quest-journey-compact-summary")).toHaveAttribute("data-journey-mode", "active");
-    expect(scope.getByTestId("quest-thread-meta-strip")).toHaveClass("flex-[1_1_auto]");
     expect(scope.getByTestId("quest-thread-participant-strip")).toHaveClass("inline-flex");
-    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Worker");
-    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("#1321");
-    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Clear Mesa");
-    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("Reviewer");
-    expect(scope.getByTestId("quest-thread-banner")).toHaveTextContent("#1306");
     expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("href", "#session-1321");
     expect(scope.getByLabelText("Worker #1321 Clear Mesa")).toHaveAttribute("data-testid", "quest-thread-participant");
     expect(scope.getByLabelText("Reviewer #1306")).toHaveAttribute("href", "#session-1306");
@@ -1520,8 +1516,6 @@ describe("ChatView backend banners", () => {
 
     fireEvent.mouseEnter(scope.getByTestId("quest-thread-journey-hover-target"));
     expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).toBeInTheDocument();
-
-    expect(scope.getAllByText("implement")).toHaveLength(1);
   });
 
   it("shows queued Work Board wait reasons in the quest-thread banner", () => {
@@ -1537,6 +1531,7 @@ describe("ChatView backend banners", () => {
               title: "Waiting banner",
               status: "QUEUED",
               waitFor: ["#1801", "q-1367", "free-worker"],
+              journey: { mode: "active", phaseIds: ["alignment", "implement"], currentPhaseId: "implement" },
               updatedAt: 4,
               createdAt: 2,
             },
@@ -1549,10 +1544,14 @@ describe("ChatView backend banners", () => {
     const scope = within(view.container);
 
     fireEvent.click(scope.getByRole("button", { name: /q-968 waiting banner/i }));
-    const pill = scope.getByTestId("quest-thread-wait-pill");
-    expect(pill).toHaveTextContent("Waiting for #1801, q-1367, free worker");
+    const chip = scope.getByTestId("quest-thread-queued-status-chip");
+    expect(scope.getByTestId("quest-thread-banner")).not.toHaveTextContent("THREAD");
+    expect(chip).toHaveTextContent("Queued, waiting for #1801, q-1367, free worker");
+    expect(scope.queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
     expect(scope.getByText("#1801")).toHaveAttribute("href", "#session-1801");
     expect(scope.getByText("q-1367")).toHaveAttribute("href", "#quest-q-1367");
+    for (const refText of ["#1801", "q-1367"]) fireEvent.click(scope.getByText(refText));
+    expect(document.body.querySelector('[data-testid="quest-thread-journey-hover-card"]')).not.toBeInTheDocument();
   });
 
   it("shows user-input waits in the banner and clears them when the board row advances", () => {

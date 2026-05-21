@@ -399,7 +399,12 @@ describe("Playground", () => {
     expect(within(banner).getByTestId("quest-thread-participant-strip")).toHaveClass("inline-flex");
     expect(within(banner).getByTestId("quest-journey-compact-summary")).toHaveTextContent("Implement");
     expect(within(banner).getByTestId("quest-journey-compact-summary")).not.toHaveTextContent("note");
-    expect(screen.getByTestId("quest-thread-wait-pill")).toHaveTextContent("Waiting for #1801, q-1367, free worker");
+    const queuedBanner = screen.getAllByTestId("quest-thread-banner")[1];
+    expect(within(queuedBanner).getByTestId("quest-thread-queued-status-chip")).toHaveTextContent(
+      "Queued, waiting for #1801, q-1367, free worker",
+    );
+    expect(within(queuedBanner).queryByTestId("quest-thread-wait-pill")).not.toBeInTheDocument();
+    expect(within(queuedBanner).queryByTestId("quest-journey-compact-summary")).not.toBeInTheDocument();
 
     fireEvent.click(within(banner).getByTestId("quest-thread-journey-hover-target"));
     const hoverCard = screen.getByTestId("quest-thread-journey-hover-card");

@@ -366,6 +366,7 @@ function QuestJourneyHoverTarget({ row, children }: { row: QuestThreadBannerRow;
 type QuestBannerVariant = "thread" | "session";
 type QuestBannerParticipantRole = "Worker" | "Reviewer" | "Leader";
 type QuestBannerWaitCondition = { kind: "queued"; refs: string[] } | { kind: "user-input"; refs: string[] };
+type QuestBannerQueuedWaitCondition = Extract<QuestBannerWaitCondition, { kind: "queued" }>;
 
 function questTimestamp(quest: QuestmasterTask): number {
   if ("completedAt" in quest && typeof quest.completedAt === "number") return quest.completedAt;
@@ -527,6 +528,10 @@ function waitConditionTitle(condition: QuestBannerWaitCondition): string {
   return `Waiting for ${labels.join(", ")}`;
 }
 
+function queuedWaitStatusTitle(condition: QuestBannerQueuedWaitCondition): string {
+  return waitConditionTitle(condition).replace(/^Waiting for /, "Queued, waiting for ");
+}
+
 function QuestBannerQueuedWaitRef({ depRef }: { depRef: string }) {
   const kind = getWaitForRefKind(depRef);
   if (kind === "session") {
@@ -539,6 +544,7 @@ function QuestBannerQueuedWaitRef({ depRef }: { depRef: string }) {
         sessionNum={sessionNum}
         className="font-mono-code text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
         title={`Open waiting session #${sessionNum}`}
+        stopPropagation
       >
         {depRef}
       </SessionInlineLink>
@@ -549,6 +555,7 @@ function QuestBannerQueuedWaitRef({ depRef }: { depRef: string }) {
       <QuestInlineLink
         questId={depRef}
         className="font-mono-code text-cc-attention hover:text-cc-attention-strong hover:underline decoration-dotted underline-offset-2"
+        stopPropagation
       >
         {depRef}
       </QuestInlineLink>
@@ -570,6 +577,27 @@ function QuestBannerWaitPill({ condition }: { condition: QuestBannerWaitConditio
       title={waitConditionTitle(condition)}
     >
       <span className="shrink-0 font-medium">Waiting for </span>
+      <span className="inline-flex min-w-0 flex-wrap items-center">
+        {condition.refs.map((refValue, index) => (
+          <Fragment key={`${condition.kind}-${refValue}`}>
+            {index > 0 && <span className="text-cc-muted/70">, </span>}
+            <QuestBannerWaitRef condition={condition} refValue={refValue} />
+          </Fragment>
+        ))}
+      </span>
+    </span>
+  );
+}
+
+function QuestBannerQueuedStatusChip({ condition }: { condition: QuestBannerQueuedWaitCondition }) {
+  return (
+    <span
+      className="inline-flex min-h-5 min-w-0 max-w-full shrink flex-wrap items-center gap-x-1 gap-y-0.5 rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5 text-[10px] leading-none text-cc-fg"
+      data-testid="quest-thread-queued-status-chip"
+      title={queuedWaitStatusTitle(condition)}
+    >
+      <span className="h-2.5 w-2.5 shrink-0 rounded-full border border-cc-attention/45 bg-cc-attention/55" />
+      <span className="shrink-0 font-medium">Queued, waiting for </span>
       <span className="inline-flex min-w-0 flex-wrap items-center">
         {condition.refs.map((refValue, index) => (
           <Fragment key={`${condition.kind}-${refValue}`}>
@@ -875,6 +903,8 @@ export function QuestThreadBanner({
   const title = row?.title;
   const isSessionBanner = variant === "session";
   const waitCondition = waitConditionForBoardRow(row?.boardRow);
+  const queuedWaitCondition = waitCondition?.kind === "queued" ? waitCondition : null;
+  const inputWaitCondition = waitCondition?.kind === "user-input" ? waitCondition : null;
   const hasParticipantContext = isSessionBanner
     ? !!(row?.leaderSessionId || row?.rowStatus?.reviewer)
     : !!(row?.rowStatus?.worker || row?.boardRow?.worker || row?.rowStatus?.reviewer);
@@ -888,9 +918,9 @@ export function QuestThreadBanner({
     >
       <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-0.5 text-xs">
         <div className="inline-flex min-w-0 max-w-full flex-[1_1_16rem] items-baseline gap-1.5">
-          <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">
-            {isSessionBanner ? "Quest" : "Thread"}
-          </span>
+          {isSessionBanner && (
+            <span className="shrink-0 text-[10px] font-medium uppercase tracking-[0.08em] text-cc-muted/65">Quest</span>
+          )}
           <QuestInlineLink
             questId={questId}
             className="shrink-0 font-mono-code font-medium text-blue-300 hover:text-blue-200 hover:underline"
@@ -904,7 +934,15 @@ export function QuestThreadBanner({
             className="inline-flex min-w-0 flex-[1_1_auto] flex-wrap items-center gap-1.5 sm:flex-[0_1_auto] sm:justify-end"
             data-testid="quest-thread-meta-strip"
           >
-            {row?.journey && (
+            {queuedWaitCondition ? (
+              row?.journey ? (
+                <QuestJourneyHoverTarget row={row}>
+                  <QuestBannerQueuedStatusChip condition={queuedWaitCondition} />
+                </QuestJourneyHoverTarget>
+              ) : (
+                <QuestBannerQueuedStatusChip condition={queuedWaitCondition} />
+              )
+            ) : row?.journey ? (
               <QuestJourneyHoverTarget row={row}>
                 <QuestJourneyTimeline
                   journey={row.journey}
@@ -914,9 +952,9 @@ export function QuestThreadBanner({
                   className="rounded-full border border-cc-border/55 bg-cc-hover/20 px-1.5 py-0.5"
                 />
               </QuestJourneyHoverTarget>
-            )}
-            {!row?.journey && <QuestStatusFallbackPill status={row?.status} />}
-            {waitCondition && <QuestBannerWaitPill condition={waitCondition} />}
+            ) : null}
+            {!queuedWaitCondition && !row?.journey && <QuestStatusFallbackPill status={row?.status} />}
+            {inputWaitCondition && <QuestBannerWaitPill condition={inputWaitCondition} />}
             {hasParticipantContext && (
               <div className="inline-flex min-w-0 items-center gap-1.5" data-testid="quest-thread-participant-strip">
                 {isSessionBanner ? (

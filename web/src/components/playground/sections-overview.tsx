@@ -266,6 +266,11 @@ export function PlaygroundOverviewSections() {
         title: "Show wait target in thread banner",
         boardStatus: "QUEUED",
         section: "active" as const,
+        journey: {
+          mode: "active" as const,
+          phaseIds: ["alignment", "implement", "execute"],
+          currentPhaseId: "implement",
+        },
         boardRow: {
           questId: "q-968",
           title: "Show wait target in thread banner",
