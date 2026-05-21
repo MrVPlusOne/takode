@@ -1,5 +1,104 @@
 # Takode Changelog
 
+## 2026-05-20
+
+### Added
+
+- **Sidebar Session Space controls** -- Sidebar Session Spaces can show configurable session counts with a "more" overflow control, and Universal Search can find sessions directly
+
+### Fixed
+
+- **Image file-link previews** -- Markdown image file links now render previews by default
+- **Review and outcome notifications** -- Review notifications stay scoped to the correct tab, multi-quest review tabs clear more reliably, and thread outcome reminders preserve needs-input state
+- **Codex leader recovery diagnostics** -- Exhausted Codex leader recovery now surfaces a clearer failure state instead of disappearing into generic recovery noise
+
+### Changed
+
+- **Memory catalog output** -- `memory catalog show` output is more compact and separated for faster scanning
+
+## 2026-05-19
+
+### Added
+
+- **Voice answers for needs-input** -- Needs-input prompts can be answered with voice input, including recording state and transcription progress feedback
+
+### Fixed
+
+- **Voice transcription delivery** -- Voice results are delivered over WebSocket more reliably, lightbox Escape no longer triggers voice shortcuts, and transcription completion state is clearer
+- **Work Board stability** -- Completed quest history is preserved during cleanup, stale done rows are cleared, worker feed boundaries stay scoped, and tab hover geometry is steadier
+- **Memory browsing and defaults** -- Memory spaces are backfilled for existing sessions, default routing is more consistent, and diff panes scroll horizontally
+
+### Changed
+
+- **Quest review checkpoints** -- User review checks and memory handoff wording are clearer across Journey phases
+
+## 2026-05-18
+
+### Fixed
+
+- **Notification routing** -- Needs-input notifications keep thread ownership and fallback route inference more reliably
+- **Terminal file previews** -- File-read tool previews in terminal output are easier to inspect
+- **Codex orphan diagnostics** -- Orphaned custom-tool output is classified and preserved so multi-call failures are easier to recover
+
+## 2026-05-17
+
+### Fixed
+
+- **Universal search event results** -- Universal Search handles event-style results more reliably
+- **Offline composer tools** -- Local composer tools remain available while a session is disconnected
+- **Thread status display** -- Thread status chips sit in the turn footer with tighter spacing and more reliable collapse behavior
+- **Session recovery and navigation** -- Queued sends survive disconnects, startup recovery suppression has a fallback, and navigation can load older target messages
+- **Needs-input attention counts** -- Sidebar and document-title needs-input counts stay aligned
+
+## 2026-05-15
+
+### Fixed
+
+- **Codex resume behavior** -- User-only resume turns retry after stale disconnects, and merely opening a browser no longer triggers passive recovery
+- **Memory session defaults** -- Memory defaults follow the session group more consistently when sessions are created or replaced
+
+## 2026-05-13
+
+### Fixed
+
+- **Theme contrast** -- Notification chips, Quest panels, Work Board rows, and dense dark-theme surfaces have stronger contrast
+- **Codex recovery limits** -- Adapter recovery limits are clearer when a recovery path is exhausted
+
+## 2026-05-12
+
+### Fixed
+
+- **Work Board tab hover** -- Thread tabs stay stable when hovered
+- **Needs-input collapsed previews** -- Collapsed feed previews show needs-input context more clearly
+
+## 2026-05-11
+
+### Added
+
+- **Memory update diffs** -- The Memory view can inspect recent committed memory updates with file lists and inline diffs
+
+### Changed
+
+- **README orchestration overview** -- The README now leads with Takode orchestration, Quest Journeys, Memory, direct sessions, integrations, and updated product screenshots
+
+### Fixed
+
+- **Memory view chrome** -- Memory navigation and layout controls are cleaner, including a clearer sidebar icon
+- **Memory session-space defaults** -- Memory CLI, spawned sessions, and replacement sessions resolve session-space defaults more consistently
+- **Codex pending-turn recovery** -- Pending Codex turns recover more reliably after interrupted refreshes
+
+## 2026-05-10
+
+### Added
+
+- **Final Memory Journey phase** -- Quest Journeys now include a dedicated final Memory phase for durable handoff decisions
+
+### Fixed
+
+- **Thread status and windows** -- Thread status chips stay in feed flow, and leader thread windows survive history refresh and session removal more reliably
+- **Leader Work Board controls** -- Work Board controls and summaries are more polished and easier to scan
+- **Quest session links** -- Quest detail and search links route to the right session context
+
 ## 2026-05-09
 
 ### Added
