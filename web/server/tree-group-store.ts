@@ -3,6 +3,7 @@ import { join, dirname } from "node:path";
 import { homedir } from "node:os";
 import { randomUUID } from "node:crypto";
 import { DEFAULT_PORT_DEV, DEFAULT_PORT_PROD } from "./constants.js";
+import { normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
 import { getServerId } from "./settings-manager.js";
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -21,6 +22,7 @@ export interface TreeGroupState {
 export interface SessionTreeGroupSnapshot {
   sessionId: string;
   treeGroupId?: string | null;
+  memorySessionSpaceSlug?: string | null;
 }
 
 export interface ReconcileSessionTreeGroupsResult {
@@ -28,10 +30,22 @@ export interface ReconcileSessionTreeGroupsResult {
   importedLegacyGroups: string[];
   importedLegacyAssignments: string[];
   resolvedGroups: Record<string, string>;
+  conflicts: Array<{
+    sessionId: string;
+    metadataGroup?: string;
+    scopedAssignment?: string;
+    legacyAssignment?: string;
+    memorySessionSpaceSlug?: string;
+    matchingMemoryGroupId?: string;
+    nodeOrderGroupIds: string[];
+    resolvedGroup: string;
+    action: "auto_reconciled_stale_default" | "preserved_divergence";
+    reason: string;
+  }>;
   sessionMetadataUpdates: Array<{
     sessionId: string;
     treeGroupId: string;
-    source: "metadata" | "scoped_assignment" | "legacy_assignment" | "default";
+    source: "metadata" | "scoped_assignment" | "legacy_assignment" | "default" | "stale_default_conflict";
   }>;
 }
 
@@ -129,6 +143,37 @@ function cloneState(input: TreeGroupState): TreeGroupState {
     assignments: { ...input.assignments },
     nodeOrder,
   };
+}
+
+function removeSessionFromOtherNodeOrders(treeState: TreeGroupState, sessionId: string, assignedGroupId: string): void {
+  for (const [groupId, order] of Object.entries(treeState.nodeOrder)) {
+    if (groupId === assignedGroupId) continue;
+    const filtered = order.filter((id) => id !== sessionId);
+    if (filtered.length > 0) {
+      treeState.nodeOrder[groupId] = filtered;
+    } else {
+      delete treeState.nodeOrder[groupId];
+    }
+  }
+}
+
+function nodeOrderGroupIdsForSession(treeState: TreeGroupState, sessionId: string): string[] {
+  return Object.entries(treeState.nodeOrder)
+    .filter(([, order]) => order.includes(sessionId))
+    .map(([groupId]) => groupId);
+}
+
+function findSingleNonDefaultGroupForMemorySlug(
+  groups: TreeGroup[],
+  memorySessionSpaceSlug: string | null | undefined,
+): TreeGroup | undefined {
+  const rawSlug = memorySessionSpaceSlug?.trim();
+  if (!rawSlug) return undefined;
+  const normalizedSlug = normalizeMemorySessionSpaceSlug(rawSlug);
+  const matches = groups.filter(
+    (group) => group.id !== "default" && normalizeMemorySessionSpaceSlug(group.name) === normalizedSlug,
+  );
+  return matches.length === 1 ? matches[0] : undefined;
 }
 
 // ─── Load / Persist ──────────────────────────────────────────────────────────
@@ -256,6 +301,7 @@ export async function assignSession(sessionId: string, groupId: string): Promise
   const exists = state.groups.some((g) => g.id === groupId);
   if (!exists) return;
   state.assignments[sessionId] = groupId;
+  removeSessionFromOtherNodeOrders(state, sessionId, groupId);
   persist();
 }
 
@@ -316,6 +362,7 @@ export async function reconcileSessionTreeGroups(
   const importedLegacyGroups = new Set<string>();
   const importedLegacyAssignments = new Set<string>();
   const resolvedGroups: Record<string, string> = {};
+  const conflicts: ReconcileSessionTreeGroupsResult["conflicts"] = [];
   const sessionMetadataUpdates: ReconcileSessionTreeGroupsResult["sessionMetadataUpdates"] = [];
 
   const ensureGroupExists = (groupId: string): boolean => {
@@ -336,8 +383,45 @@ export async function reconcileSessionTreeGroups(
     const metadataGroup = normalizeSessionGroupId(candidate.treeGroupId);
     const scopedAssignment = normalizeSessionGroupId(scopedState.assignments[sessionId]);
     const legacyAssignment = normalizeSessionGroupId(legacyState?.assignments[sessionId]);
+    const rawMemorySlug = candidate.memorySessionSpaceSlug?.trim();
+    const memorySessionSpaceSlug = rawMemorySlug ? normalizeMemorySessionSpaceSlug(rawMemorySlug) : undefined;
+    const matchingMemoryGroup = findSingleNonDefaultGroupForMemorySlug(nextState.groups, rawMemorySlug);
+    const nodeOrderGroupIds = nodeOrderGroupIdsForSession(scopedState, sessionId);
+    const defaultEvidence = metadataGroup === "default" || scopedAssignment === "default";
     let resolvedGroup = metadataGroup;
     let source: ReconcileSessionTreeGroupsResult["sessionMetadataUpdates"][number]["source"] = "metadata";
+
+    if (defaultEvidence && matchingMemoryGroup) {
+      if (nodeOrderGroupIds.includes(matchingMemoryGroup.id)) {
+        resolvedGroup = matchingMemoryGroup.id;
+        source = "stale_default_conflict";
+        conflicts.push({
+          sessionId,
+          metadataGroup,
+          scopedAssignment,
+          legacyAssignment,
+          memorySessionSpaceSlug,
+          matchingMemoryGroupId: matchingMemoryGroup.id,
+          nodeOrderGroupIds,
+          resolvedGroup,
+          action: "auto_reconciled_stale_default",
+          reason: "default_tree_location_conflicts_with_matching_memory_slug_and_node_order",
+        });
+      } else if ((metadataGroup === "default" || scopedAssignment === "default") && memorySessionSpaceSlug) {
+        conflicts.push({
+          sessionId,
+          metadataGroup,
+          scopedAssignment,
+          legacyAssignment,
+          memorySessionSpaceSlug,
+          matchingMemoryGroupId: matchingMemoryGroup.id,
+          nodeOrderGroupIds,
+          resolvedGroup: resolvedGroup || "default",
+          action: "preserved_divergence",
+          reason: "default_tree_location_conflicts_with_memory_slug_without_node_order_evidence",
+        });
+      }
+    }
 
     if (!resolvedGroup) {
       if (scopedAssignment) {
@@ -368,6 +452,7 @@ export async function reconcileSessionTreeGroups(
     }
 
     nextState.assignments[sessionId] = resolvedGroup;
+    removeSessionFromOtherNodeOrders(nextState, sessionId, resolvedGroup);
     if (metadataGroup !== resolvedGroup) {
       sessionMetadataUpdates.push({ sessionId, treeGroupId: resolvedGroup, source });
     }
@@ -385,6 +470,7 @@ export async function reconcileSessionTreeGroups(
     importedLegacyGroups: [...importedLegacyGroups],
     importedLegacyAssignments: [...importedLegacyAssignments],
     resolvedGroups,
+    conflicts,
     sessionMetadataUpdates,
   };
 }

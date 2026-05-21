@@ -291,7 +291,7 @@ describe("tree-group-store", () => {
     expect(state.assignments["other-server-session"]).toBeUndefined();
   });
 
-  it("treats session metadata as canonical when reconciling startup state", async () => {
+  it("treats session metadata as canonical when there is no stale-default evidence", async () => {
     const group = await createGroup("Canonical");
     await assignSession("session-1", group.id);
     await _flushForTest();
@@ -304,6 +304,72 @@ describe("tree-group-store", () => {
 
     const rerun = await reconcileSessionTreeGroups([{ sessionId: "session-1", treeGroupId: "default" }]);
     expect(rerun.changed).toBe(false);
+  });
+
+  it("auto-reconciles a stale default assignment when memory slug matches old nodeOrder evidence", async () => {
+    const oai = await createGroup("OAI");
+    await setState({
+      groups: [{ id: "default", name: "Default" }, oai],
+      assignments: { "session-1": "default" },
+      nodeOrder: {
+        default: ["session-1", "default-neighbor"],
+        [oai.id]: ["oai-neighbor", "session-1"],
+      },
+    });
+
+    const result = await reconcileSessionTreeGroups([
+      { sessionId: "session-1", treeGroupId: "default", memorySessionSpaceSlug: "OAI" },
+    ]);
+    await _flushForTest();
+
+    expect(result.resolvedGroups["session-1"]).toBe(oai.id);
+    expect(result.sessionMetadataUpdates).toEqual([
+      { sessionId: "session-1", treeGroupId: oai.id, source: "stale_default_conflict" },
+    ]);
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({
+        sessionId: "session-1",
+        metadataGroup: "default",
+        scopedAssignment: "default",
+        memorySessionSpaceSlug: "OAI",
+        matchingMemoryGroupId: oai.id,
+        nodeOrderGroupIds: ["default", oai.id],
+        resolvedGroup: oai.id,
+        action: "auto_reconciled_stale_default",
+      }),
+    ]);
+
+    const state = await getState();
+    expect(state.assignments["session-1"]).toBe(oai.id);
+    expect(state.nodeOrder[oai.id]).toEqual(["oai-neighbor", "session-1"]);
+    expect(state.nodeOrder.default).toEqual(["default-neighbor"]);
+  });
+
+  it("preserves intentional cross-space divergence without nodeOrder evidence", async () => {
+    const oai = await createGroup("OAI");
+    await assignSession("session-1", "default");
+    await setNodeOrder(oai.id, ["other-session"]);
+
+    const result = await reconcileSessionTreeGroups([
+      { sessionId: "session-1", treeGroupId: "default", memorySessionSpaceSlug: "OAI" },
+    ]);
+    await _flushForTest();
+
+    expect(result.resolvedGroups["session-1"]).toBe("default");
+    expect(result.sessionMetadataUpdates).toEqual([]);
+    expect(result.conflicts).toEqual([
+      expect.objectContaining({
+        sessionId: "session-1",
+        metadataGroup: "default",
+        scopedAssignment: "default",
+        memorySessionSpaceSlug: "OAI",
+        matchingMemoryGroupId: oai.id,
+        nodeOrderGroupIds: [],
+        resolvedGroup: "default",
+        action: "preserved_divergence",
+      }),
+    ]);
+    expect(await getGroupForSession("session-1")).toBe("default");
   });
 
   it("sanitizes corrupt data on load", async () => {
@@ -377,5 +443,19 @@ describe("tree-group-store", () => {
     const state = await getState();
     expect(state.assignments["session-to-remove"]).toBeUndefined();
     expect(state.nodeOrder[group.id]).toEqual(["session-keep", "session-other"]);
+  });
+
+  it("assignSession cleans stale nodeOrder entries from other groups", async () => {
+    const source = await createGroup("Source");
+    const target = await createGroup("Target");
+    await setNodeOrder(source.id, ["s1", "moving-session", "s2"]);
+    await setNodeOrder(target.id, ["target-neighbor"]);
+
+    await assignSession("moving-session", target.id);
+
+    const state = await getState();
+    expect(state.assignments["moving-session"]).toBe(target.id);
+    expect(state.nodeOrder[source.id]).toEqual(["s1", "s2"]);
+    expect(state.nodeOrder[target.id]).toEqual(["target-neighbor"]);
   });
 });

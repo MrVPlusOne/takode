@@ -85,6 +85,7 @@ import {
   reconcileSessionTreeGroups,
 } from "./tree-group-store.js";
 import { initNewSessionDefaultsStoreForServer } from "./new-session-defaults-store.js";
+import { normalizeMemorySessionSpaceSlug } from "./memory-session-space.js";
 import { planSessionMemorySpaceBackfill } from "./session-memory-space.js";
 
 const defaultPort = process.env.NODE_ENV === "production" ? DEFAULT_PORT_PROD : DEFAULT_PORT_DEV;
@@ -188,16 +189,22 @@ launcher.setEnvResolver(async (slug) => {
 await launcher.restoreFromDisk();
 await wsBridge.restoreFromDisk();
 {
+  const defaultMemorySessionSpaceSlug = normalizeMemorySessionSpaceSlug(launcher.getMemorySessionSpaceSlug());
   const restoredSessions = (
     Array.from(bridgeAny.sessions.values()) as Array<{
       id: string;
       state: { treeGroupId?: string; memorySessionSpaceSlug?: string };
     }>
-  ).map((session) => ({
-    sessionId: session.id,
-    treeGroupId: session.state.treeGroupId,
-    memorySessionSpaceSlug: session.state.memorySessionSpaceSlug,
-  }));
+  ).map((session) => {
+    const launcherSession = launcher.getSession(session.id);
+    const memorySessionSpaceSlug = session.state.memorySessionSpaceSlug ?? launcherSession?.memorySessionSpaceSlug;
+    const normalizedMemorySlug = normalizeMemorySessionSpaceSlug(memorySessionSpaceSlug);
+    return {
+      sessionId: session.id,
+      treeGroupId: session.state.treeGroupId ?? launcherSession?.treeGroupId,
+      memorySessionSpaceSlug: normalizedMemorySlug === defaultMemorySessionSpaceSlug ? undefined : normalizedMemorySlug,
+    };
+  });
   const reconciliation = await reconcileSessionTreeGroups(restoredSessions);
   const resolvedTreeGroups = await getTreeGroupState();
   const memoryBackfillUpdates = planSessionMemorySpaceBackfill(
@@ -231,13 +238,33 @@ await wsBridge.restoreFromDisk();
     persisted.state.memorySessionSpaceSlug = update.memorySessionSpaceSlug;
     sessionStore.saveSync(persisted);
   }
-  if (reconciliation.changed || reconciliation.sessionMetadataUpdates.length > 0 || memoryBackfillUpdates.length > 0) {
+  if (reconciliation.conflicts.length > 0) {
+    const autoReconciled = reconciliation.conflicts.filter(
+      (conflict) => conflict.action === "auto_reconciled_stale_default",
+    );
+    const preserved = reconciliation.conflicts.filter((conflict) => conflict.action === "preserved_divergence");
+    serverLog.warn(
+      `Observed ${reconciliation.conflicts.length} session tree/memory location conflict(s): ` +
+        `autoReconciled=${autoReconciled.length}, preserved=${preserved.length}`,
+      {
+        conflicts: reconciliation.conflicts.slice(0, 20),
+        omittedConflictCount: Math.max(0, reconciliation.conflicts.length - 20),
+      },
+    );
+  }
+  if (
+    reconciliation.changed ||
+    reconciliation.sessionMetadataUpdates.length > 0 ||
+    memoryBackfillUpdates.length > 0 ||
+    reconciliation.conflicts.length > 0
+  ) {
     serverLog.info(
       `Reconciled session tree groups for ${restoredSessions.length} session(s): ` +
         `metadataUpdates=${reconciliation.sessionMetadataUpdates.length}, ` +
         `memorySpaceUpdates=${memoryBackfillUpdates.length}, ` +
         `legacyAssignments=${reconciliation.importedLegacyAssignments.length}, ` +
-        `legacyGroups=${reconciliation.importedLegacyGroups.length}`,
+        `legacyGroups=${reconciliation.importedLegacyGroups.length}, ` +
+        `conflicts=${reconciliation.conflicts.length}`,
     );
   }
 }
