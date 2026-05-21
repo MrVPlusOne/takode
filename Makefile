@@ -13,7 +13,7 @@ ensure-bun:
 	@test -n "$(BUN)" || (echo "bun not found. Install bun or add it to PATH." >&2; exit 127)
 
 dev: ensure-bun
-	PATH="$(dir $(BUN)):$$PATH"; export PATH; cd web && "$(BUN)" dev.ts
+	PATH="$(dir $(BUN)):$$PATH"; export PATH; cd web && "$(BUN)" --no-install dev.ts
 
 serve: ensure-bun
-	PATH="$(dir $(BUN)):$$PATH"; export PATH; cd web && "$(BUN)" serve.ts
+	PATH="$(dir $(BUN)):$$PATH"; export PATH; cd web && "$(BUN)" --no-install serve.ts

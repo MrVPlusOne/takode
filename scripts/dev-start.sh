@@ -9,7 +9,7 @@ set -euo pipefail
 #        ./scripts/dev-start.sh --status Check if running
 #
 # Starts the Bun backend and Vite frontend used by this helper script.
-# Requires installed web dependencies; run `bun install --cwd web` first.
+# Requires installed web dependencies; run `bun install --cwd web --frozen-lockfile` first.
 # Idempotent: safe to run N times. If servers are healthy, exits instantly.
 # =============================================================================
 
@@ -63,7 +63,7 @@ require_installed_web_dependencies() {
 
   die "Missing local web dependencies in $WEB_DIR.
 Expected install artifact not found: $missing_marker
-Run: bun install --cwd web
+Run: bun install --cwd web --frozen-lockfile
 Then start local dev with: make dev
 Or rerun this helper after install: ./scripts/dev-start.sh"
 }
@@ -241,7 +241,7 @@ cmd_start() {
     clean_stale_pid "$BACKEND_PID_FILE"
 
     step "Starting backend on port $BACKEND_PORT..."
-    start_detached "$BACKEND_LOG" bun server/index.ts > "$BACKEND_PID_FILE"
+    start_detached "$BACKEND_LOG" bun --no-install server/index.ts > "$BACKEND_PID_FILE"
 
     wait_for_port "$BACKEND_PORT" "Backend" "$BACKEND_PID_FILE" "$BACKEND_HEALTH_PATH"
     echo ""
@@ -261,7 +261,7 @@ cmd_start() {
     clean_stale_pid "$VITE_PID_FILE"
 
     step "Starting Vite dev server on port $VITE_PORT..."
-    start_detached "$VITE_LOG" bun run dev:vite > "$VITE_PID_FILE"
+    start_detached "$VITE_LOG" bun --no-install run dev:vite > "$VITE_PID_FILE"
 
     wait_for_port "$VITE_PORT" "Vite" "$VITE_PID_FILE" "$VITE_HEALTH_PATH"
     echo ""

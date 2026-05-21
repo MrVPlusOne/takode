@@ -8,6 +8,7 @@ fi
 
 TOOL="$1"
 shift
+ARGS_DISPLAY="${*:+ $*}"
 
 BUN_BIN="${npm_execpath:-${HOME}/.bun/bin/bun}"
 if [ ! -x "$BUN_BIN" ]; then
@@ -17,7 +18,19 @@ fi
 
 TOOL_PATH="./node_modules/.bin/${TOOL}"
 if [ ! -x "$TOOL_PATH" ]; then
-  "$BUN_BIN" install
+  if [ "${TAKODE_AUTO_INSTALL:-}" != "1" ]; then
+    cat >&2 <<EOF
+Required local tool is missing: $TOOL_PATH
+
+Run from web/ first:
+  bun install --frozen-lockfile
+
+Or rerun with explicit frozen auto-install:
+  TAKODE_AUTO_INSTALL=1 $0 $TOOL$ARGS_DISPLAY
+EOF
+    exit 1
+  fi
+  "$BUN_BIN" install --frozen-lockfile
 fi
 
-exec "$BUN_BIN" --bun "$TOOL_PATH" "$@"
+exec "$BUN_BIN" --no-install --bun "$TOOL_PATH" "$@"

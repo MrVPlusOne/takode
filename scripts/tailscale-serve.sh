@@ -172,7 +172,7 @@ serve_start_single() {
     echo "  cd ~/companion && ./scripts/dev-start.sh"
   else
     echo "Make sure the production server is running:"
-    echo "  cd ~/companion/web && bun run serve"
+    echo "  cd ~/companion/web && bun --no-install run serve"
   fi
 }
 
@@ -190,7 +190,7 @@ serve_start_both() {
 
   echo ""
   echo "Make sure both local servers are running:"
-  echo "  Prod: cd ~/companion/web && bun run serve"
+  echo "  Prod: cd ~/companion/web && bun --no-install run serve"
   echo "  Dev:  cd ~/companion && ./scripts/dev-start.sh"
 }
 

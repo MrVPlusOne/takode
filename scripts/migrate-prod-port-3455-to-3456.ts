@@ -3,13 +3,13 @@
  * One-off operator-run migration for this machine's persisted prod server state.
  *
  * Dry-run / preflight:
- *   bun run scripts/migrate-prod-port-3455-to-3456.ts
+ *   bun --no-install scripts/migrate-prod-port-3455-to-3456.ts
  *
  * Apply after stopping the live 3455 server:
- *   PORT_MIGRATION_APPLY=1 bun run scripts/migrate-prod-port-3455-to-3456.ts
+ *   PORT_MIGRATION_APPLY=1 bun --no-install scripts/migrate-prod-port-3455-to-3456.ts
  *
  * Optional verification override:
- *   COMPANION_HOME=/tmp/fixture bun run scripts/migrate-prod-port-3455-to-3456.ts
+ *   COMPANION_HOME=/tmp/fixture bun --no-install scripts/migrate-prod-port-3455-to-3456.ts
  */
 
 import {
@@ -69,7 +69,7 @@ try {
     console.log("\nNext steps:");
     console.log("1. Stop the live server on port 3455.");
     console.log("2. Re-run with PORT_MIGRATION_APPLY=1.");
-    console.log("3. Restart prod on 3456 with: cd web && PORT=3456 bun run start");
+    console.log("3. Restart prod on 3456 with: cd web && PORT=3456 bun --no-install run start");
     printValidationChecklist();
     process.exit(0);
   }
@@ -78,7 +78,7 @@ try {
   console.log(`Manifest: ${result.manifestPath}`);
   console.log(`Rollback script: ${result.rollbackScriptPath}`);
   console.log("\nOperator next steps:");
-  console.log("1. Restart prod on 3456 with: cd web && PORT=3456 bun run start");
+  console.log("1. Restart prod on 3456 with: cd web && PORT=3456 bun --no-install run start");
   printValidationChecklist();
 } catch (error) {
   const message = error instanceof Error ? error.message : String(error);

@@ -132,7 +132,7 @@ Also included:
 
 ```bash
 git clone https://github.com/MrVPlusOne/takode.git
-cd takode && bun install --cwd web
+cd takode && bun install --cwd web --frozen-lockfile
 make serve
 ```
 
@@ -155,26 +155,29 @@ Takode runs locally. There is no required third-party service besides the model 
 ```bash
 # Install web dependencies once before the first local dev run,
 # and rerun after pulling dependency changes
-bun install --cwd web
+bun install --cwd web --frozen-lockfile
 
 # Dev server (backend :3456 + Vite HMR :5174)
 make dev
 
 # Type checking and tests
-cd web && bun run typecheck && bun run test
+cd web && bun --no-install run typecheck && bun --no-install run test
 
 # Production build
-cd web && bun run build && bun run start
+cd web && bun --no-install run build && bun --no-install run start
 ```
 
 `make dev` assumes the `web/` dependencies are already installed. On a fresh
-clone or after dependency changes, run `bun install --cwd web` first.
+clone or after dependency changes, run `bun install --cwd web --frozen-lockfile`
+first. See [Dependency and Install Policy](docs/dependency-policy.md) for lockfile
+review, exact-version, and package update expectations.
 
 ## Documentation
 
 - [Changelog](CHANGELOG.md)
 - [WebSocket Protocol Reference](WEBSOCKET_PROTOCOL_REVERSED.md)
 - [Architecture & Contributor Guide](CLAUDE.md)
+- [Dependency and Install Policy](docs/dependency-policy.md)
 - [Feed and Thread Debugging Guardrails](docs/feed-thread-debugging.md)
 
 ## Name

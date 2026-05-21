@@ -13,6 +13,7 @@ import { RESTART_EXIT_CODE } from "./server/constants.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = resolve(__dirname);
+const bunExec = process.execPath;
 
 const procs: Subprocess[] = [];
 let shuttingDown = false;
@@ -36,7 +37,7 @@ function prefix(name: string, color: string, stream: ReadableStream<Uint8Array>)
 }
 
 function spawnBackend(): Subprocess {
-  const proc = spawn(["bun", "--watch", "server/index.ts"], {
+  const proc = spawn([bunExec, "--no-install", "--watch", "server/index.ts"], {
     cwd: webDir,
     stdout: "pipe",
     stderr: "pipe",
@@ -80,7 +81,7 @@ async function monitorBackend() {
 }
 
 // ── Vite (frontend HMR) ───────────────────────────────────────────
-const vite = spawn(["bun", "run", "dev:vite"], {
+const vite = spawn([bunExec, "--no-install", "run", "dev:vite"], {
   cwd: webDir,
   stdout: "pipe",
   stderr: "pipe",

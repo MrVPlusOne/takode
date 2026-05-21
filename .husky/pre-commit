@@ -3,7 +3,7 @@ cd web
 # Format-check only staged files (skip deleted files)
 STAGED_FILES=$(git --no-optional-locks diff --cached --name-only --diff-filter=d -- '*.ts' '*.tsx' '*.js' '*.jsx' '*.json' | sed 's|^web/||')
 if [ -n "$STAGED_FILES" ]; then
-  echo "$STAGED_FILES" | xargs bun biome format --no-errors-on-unmatched
+  echo "$STAGED_FILES" | xargs ./node_modules/.bin/biome format --no-errors-on-unmatched
 fi
 
-bun run check:staged-file-line-limit && bun run typecheck
+bun --no-install run check:staged-file-line-limit && bun --no-install run typecheck

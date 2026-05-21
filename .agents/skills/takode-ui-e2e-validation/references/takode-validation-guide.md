@@ -79,10 +79,10 @@ For isolated validation, use both a temp `HOME` and alternate ports:
 mkdir -p /tmp/takode-q-N/home
 
 # Terminal 1, from web/
-HOME=/tmp/takode-q-N/home PORT=3467 NODE_ENV=development bun server/index.ts
+HOME=/tmp/takode-q-N/home PORT=3467 NODE_ENV=development bun --no-install server/index.ts
 
 # Terminal 2, from web/
-HOME=/tmp/takode-q-N/home PORT=3467 bun run dev:vite -- --host 0.0.0.0 --port 5178
+HOME=/tmp/takode-q-N/home PORT=3467 bun --no-install run dev:vite -- --host 0.0.0.0 --port 5178
 ```
 
 Then browse:

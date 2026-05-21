@@ -4,6 +4,9 @@ dist/
 .DS_Store
 bun.lockb
 bun.lock
+!bun.lock
+!web/bun.lock
+!vscode/takode-panel-prototype/bun.lock
 package-lock.json
 test-live.ts
 web/dist/

@@ -8,9 +8,9 @@
  * - Gaps between protocol data and what the UI renders
  *
  * Usage:
- *   bun run scripts/audit-recordings.ts                 # all recordings
- *   bun run scripts/audit-recordings.ts --latest        # most recent only
- *   bun run scripts/audit-recordings.ts --session <id>  # specific session
+ *   bun --no-install scripts/audit-recordings.ts                 # all recordings
+ *   bun --no-install scripts/audit-recordings.ts --latest        # most recent only
+ *   bun --no-install scripts/audit-recordings.ts --session <id>  # specific session
  */
 
 import { readdirSync, readFileSync, statSync } from "node:fs";

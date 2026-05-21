@@ -9,8 +9,8 @@ Run these from the repository root unless noted otherwise.
 - [`dev-start.sh`](./dev-start.sh)
   - Idempotent local dev bootstrap for backend + frontend after the `web/`
     dependencies are installed.
-  - Fails fast with setup guidance when `bun install --cwd web` has not been
-    run yet.
+  - Fails fast with setup guidance when
+    `bun install --cwd web --frozen-lockfile` has not been run yet.
   - Supports:
     - `./scripts/dev-start.sh`
     - `./scripts/dev-start.sh --status`
@@ -27,16 +27,16 @@ Run these from the repository root unless noted otherwise.
   - Analyzes raw protocol recordings (`~/.companion/recordings/` by default).
   - Reports message/tool field coverage and protocol-vs-UI gaps.
   - Example:
-    - `bun run scripts/audit-recordings.ts`
-    - `bun run scripts/audit-recordings.ts --latest`
-    - `bun run scripts/audit-recordings.ts --session <session-id>`
+    - `bun --no-install run scripts/audit-recordings.ts`
+    - `bun --no-install run scripts/audit-recordings.ts --latest`
+    - `bun --no-install run scripts/audit-recordings.ts --session <session-id>`
 
 - [`migrate-prod-port-3455-to-3456.ts`](./migrate-prod-port-3455-to-3456.ts)
   - One-off operator-run migration for the current local prod state takeover from port `3455` to `3456`.
   - Dry-run / preflight:
-    - `bun run scripts/migrate-prod-port-3455-to-3456.ts`
+    - `bun --no-install run scripts/migrate-prod-port-3455-to-3456.ts`
   - Apply after stopping the live `3455` server:
-    - `PORT_MIGRATION_APPLY=1 bun run scripts/migrate-prod-port-3455-to-3456.ts`
+    - `PORT_MIGRATION_APPLY=1 bun --no-install run scripts/migrate-prod-port-3455-to-3456.ts`
   - Writes timestamped backups under `~/.companion/port-migrations/` and generates a rollback script alongside the manifest.
   - After restarting prod on `3456`, validate:
     - `3455` is down and `3456` is listening
@@ -64,15 +64,15 @@ Run these from the repository root unless noted otherwise.
 ## Typical maintenance workflows
 
 - "Bring up local app stack":
-  - `bun install --cwd web` (first local setup, or after dependency changes)
+  - `bun install --cwd web --frozen-lockfile` (first local setup, or after dependency changes)
   - `./scripts/dev-start.sh`
 - "Refresh Codex protocol snapshots for drift tests":
   - `./scripts/sync-codex-protocol.sh`
 - "Audit real protocol traces to identify parser/UI gaps":
-  - `bun run scripts/audit-recordings.ts --latest`
+  - `bun --no-install run scripts/audit-recordings.ts --latest`
 - "Prepare or run the one-off 3455 -> 3456 prod state migration":
-  - `bun run scripts/migrate-prod-port-3455-to-3456.ts`
-  - `PORT_MIGRATION_APPLY=1 bun run scripts/migrate-prod-port-3455-to-3456.ts`
+  - `bun --no-install run scripts/migrate-prod-port-3455-to-3456.ts`
+  - `PORT_MIGRATION_APPLY=1 bun --no-install run scripts/migrate-prod-port-3455-to-3456.ts`
 
 ## Adding a new script
 

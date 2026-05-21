@@ -47,7 +47,7 @@ Quest Journey phases are guided by the canonical phase briefs in `~/.companion/q
 ```bash
 # Install web dependencies once before the first local dev run,
 # and rerun after pulling dependency changes
-bun install --cwd web
+bun install --cwd web --frozen-lockfile
 
 # Dev server (Hono backend on :3456 + Vite HMR on :5174)
 make dev
@@ -61,17 +61,29 @@ takode lease renew dev-server:companion
 takode lease release dev-server:companion
 
 # Direct web runner
-cd web && bun run dev
+cd web && bun --no-install run dev
 
 # Type checking
-cd web && bun run typecheck
+cd web && bun --no-install run typecheck
 
 # Production build + serve
-cd web && bun run build && bun run start
+cd web && bun --no-install run build && bun --no-install run start
 
 # Offline injected system prompt inspection, no live server required
-cd web && bun -e 'import { buildInjectedSystemPromptForDebug } from "./server/cli-launcher-instructions.ts"; console.log(buildInjectedSystemPromptForDebug({ sessionNum: 1, backend: "claude", isOrchestrator: true }))'
+cd web && bun --no-install -e 'import { buildInjectedSystemPromptForDebug } from "./server/cli-launcher-instructions.ts"; console.log(buildInjectedSystemPromptForDebug({ sessionNum: 1, backend: "claude", isOrchestrator: true }))'
 ```
+
+## Dependency and Install Policy
+
+- Active package manifests pin the package manager with `packageManager: "bun@1.3.10"` and exact-pin direct dependencies/devDependencies.
+- Routine setup uses frozen installs: `bun install --cwd web --frozen-lockfile`. Use `bun install --frozen-lockfile` at the repo root only when root developer hooks are needed.
+- Dependency changes must review manifest and lockfile diffs together. Avoid plain `bun install` for routine work because it may refresh lockfiles or float direct ranges.
+- Before trusting lifecycle scripts introduced by dependency changes, run `bun pm untrusted` and review the package. Use focused trust decisions.
+- For dependency additions/updates, default to a 3-day minimum release age: `--minimum-release-age=259200`. Override only for urgent security fixes or extension/tooling compatibility, and document why.
+- Helper scripts should fail fast when dependencies are missing. Any convenience install path must be explicitly opted in with `TAKODE_AUTO_INSTALL=1` and must use `--frozen-lockfile`.
+- `@vscode/vsce` is trusted VS Code extension packaging tooling scoped to `vscode/takode-panel-prototype/`; keep it exact-pinned there, invoked through the local binary, and out of `web`/server runtime dependencies.
+
+See [Dependency and Install Policy](docs/dependency-policy.md) for the contributor-facing version.
 
 ## Codex Shell PATH Note
 
@@ -85,22 +97,22 @@ cd web && bun -e 'import { buildInjectedSystemPromptForDebug } from "./server/cl
 
 ```bash
 # Run tests
-cd web && bun run test
+cd web && bun --no-install run test
 
 # Watch mode
-cd web && bun run test:watch
+cd web && bun --no-install run test:watch
 
 # Current lint/format-equivalent gate
-cd web && bun run format:check
+cd web && bun --no-install run format:check
 ```
 
 - All new backend (`web/server/`) and frontend (`web/src/`) code **must** include tests when possible.
 - Tests use Vitest. Server tests live alongside source files (e.g. `routes.test.ts` next to `routes.ts`).
 - A husky pre-commit hook runs staged formatting, the staged file line-limit guard, and typecheck automatically before each commit. It does not run the full test suite.
 - For tracked code/test changes, the current full automated gate before merge, Port push, or final acceptance is:
-  - `cd web && bun run typecheck`
-  - `cd web && bun run test`
-  - `cd web && bun run format:check`
+  - `cd web && bun --no-install run typecheck`
+  - `cd web && bun --no-install run test`
+  - `cd web && bun --no-install run format:check`
 - `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
 - If a full run is infeasible, document the exception explicitly in your quest summary, review handoff, or other acceptance notes before asking for merge or final acceptance.
 - **Never remove or delete existing tests.** If a test is failing, fix the code or the test. If you believe a test should be removed, you must first explain to the user why and get explicit approval before removing it.

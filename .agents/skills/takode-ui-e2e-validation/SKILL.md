@@ -50,8 +50,8 @@ Example manual two-terminal pattern from `web/`:
 
 ```bash
 mkdir -p /tmp/takode-q-N/home
-HOME=/tmp/takode-q-N/home PORT=3467 NODE_ENV=development bun server/index.ts
-HOME=/tmp/takode-q-N/home PORT=3467 bun run dev:vite -- --port 5178
+HOME=/tmp/takode-q-N/home PORT=3467 NODE_ENV=development bun --no-install server/index.ts
+HOME=/tmp/takode-q-N/home PORT=3467 bun --no-install run dev:vite -- --port 5178
 ```
 
 Open `http://127.0.0.1:5178` in `agent-browser`. The Vite proxy will target the backend port from `PORT`.

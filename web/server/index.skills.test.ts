@@ -134,7 +134,7 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Your handoff should add only context-dependent deltas");
     expect(source).toContain("Leader-specific deltas for this port");
     expect(source).toContain("do not narrow below the strong Port verification gate");
-    expect(source).toContain("focused affected tests plus full `bun run test`");
+    expect(source).toContain("focused affected tests plus full `bun --no-install run test`");
     expect(source).toContain("route the worker back to fix it before the quest can be marked done");
     expect(source).toContain("open an immediate fix quest");
   });
@@ -155,7 +155,7 @@ describe("index startup skill registration", () => {
     expect(source).toContain("Run the required pre-push gate");
     expect(source).toContain("For tracked code/test changes, verify the main repo before pushing");
     expect(source).toContain("focused affected tests for the accepted change");
-    expect(source).toContain("cd <BASE_REPO>/web && bun run test");
+    expect(source).toContain("cd <BASE_REPO>/web && bun --no-install run test");
     expect(source).toContain("Do not silently narrow the gate to focused tests");
     expect(source).toContain("do not push");
     expect(source).toContain("open an immediate fix quest");
@@ -181,9 +181,9 @@ describe("index startup skill registration", () => {
 
     for (const doc of docs) {
       expect(doc).toContain("For tracked code/test changes");
-      expect(doc).toContain("cd web && bun run typecheck");
-      expect(doc).toContain("cd web && bun run test");
-      expect(doc).toContain("cd web && bun run format:check");
+      expect(doc).toContain("cd web && bun --no-install run typecheck");
+      expect(doc).toContain("cd web && bun --no-install run test");
+      expect(doc).toContain("cd web && bun --no-install run format:check");
       expect(doc).not.toContain("For refactor quests");
     }
   });

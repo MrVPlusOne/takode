@@ -32,8 +32,8 @@ Why this shape:
 
    ```bash
    cd web
-   bun run build
-   bun run start
+   bun --no-install run build
+   bun --no-install run start
    ```
 
 2. Launch desktop VS Code with this extension in development mode:
@@ -51,14 +51,14 @@ If you are inside a remote shell and `code` says `Ignoring option 'extensionDeve
 If your editor CLI does not support launching an extension development host, install the unpacked extension into your local editor extensions directory:
 
 ```bash
-/home/jiayiwei/.companion/worktrees/companion/jiayi-wt-7712/vscode/takode-panel-prototype/scripts/install-local.sh
+./vscode/takode-panel-prototype/scripts/install-local.sh
 ```
 
 Examples:
 
 ```bash
-/home/jiayiwei/.companion/worktrees/companion/jiayi-wt-7712/vscode/takode-panel-prototype/scripts/install-local.sh vscode
-/home/jiayiwei/.companion/worktrees/companion/jiayi-wt-7712/vscode/takode-panel-prototype/scripts/install-local.sh cursor
+./vscode/takode-panel-prototype/scripts/install-local.sh vscode
+./vscode/takode-panel-prototype/scripts/install-local.sh cursor
 ```
 
 Then reload the editor window and run `Takode: Open Panel`.
@@ -68,21 +68,29 @@ Then reload the editor window and run `Takode: Open Panel`.
 To build an installable VSIX into the repo's dedicated artifact directory:
 
 ```bash
-cd /home/jiayiwei/companion/vscode/takode-panel-prototype
-npm run package:vsix
+cd vscode/takode-panel-prototype
+bun install --frozen-lockfile
+bun --no-install run package:vsix
 ```
 
 That writes the package to:
 
 ```bash
-/home/jiayiwei/companion/build/vsix/takode-panel-prototype-0.0.15.vsix
+build/vsix/takode-panel-prototype-0.0.15.vsix
 ```
 
 Install it with:
 
 ```bash
-code --install-extension /home/jiayiwei/companion/build/vsix/takode-panel-prototype-0.0.15.vsix
+code --install-extension build/vsix/takode-panel-prototype-0.0.15.vsix
 ```
+
+## Packaging dependency policy
+
+`@vscode/vsce` is exact-pinned as a local dev dependency for this prototype. It
+is trusted VS Code extension packaging tooling, not a Takode server runtime
+dependency. Review and update it when changing extension packaging or bumping the
+VS Code engine so it stays compatible with marketplace requirements.
 
 ## Settings
 

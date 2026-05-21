@@ -2,13 +2,14 @@
 /**
  * Production server wrapper with restart support.
  *
- * Runs `bun run build` then starts the server. If the server exits with
+ * Runs `bun --no-install run build` then starts the server. If the server exits with
  * code 42 (restart requested via the UI), it rebuilds and restarts.
  * Any other exit code stops the wrapper.
  *
  * Usage: bun serve.ts          (or: bun run serve)
  */
 import { spawn } from "bun";
+import { existsSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { RESTART_EXIT_CODE } from "./server/constants.js";
@@ -16,23 +17,61 @@ import { RESTART_EXIT_CODE } from "./server/constants.js";
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const webDir = resolve(__dirname);
 const bunExec = process.execPath;
+const autoInstall = process.env.TAKODE_AUTO_INSTALL === "1";
+const dependencyMarkers = [
+  resolve(webDir, "node_modules/.bin/vite"),
+  resolve(webDir, "node_modules/hono/package.json"),
+  resolve(webDir, "node_modules/react/package.json"),
+];
 
 let shuttingDown = false;
 let serverProc: ReturnType<typeof spawn> | null = null;
 
-async function build(): Promise<boolean> {
-  // Install deps first — no-op when up to date, but catches new packages
-  // added by commits pulled between restarts (e.g. highlight.js).
-  console.log("\x1b[36m[serve] Installing dependencies...\x1b[0m");
-  const install = spawn([bunExec, "install"], {
+function missingDependencyMarker(): string | null {
+  return dependencyMarkers.find((marker) => !existsSync(marker)) ?? null;
+}
+
+async function ensureDependencies(): Promise<boolean> {
+  const missingMarker = missingDependencyMarker();
+  if (!missingMarker) return true;
+
+  if (!autoInstall) {
+    console.error(
+      [
+        "\x1b[31m[serve] Local web dependencies are missing.\x1b[0m",
+        `Expected install artifact not found: ${missingMarker}`,
+        "",
+        "Run from the repository root:",
+        "  bun install --cwd web --frozen-lockfile",
+        "",
+        "Or opt into explicit frozen auto-install:",
+        "  cd web && TAKODE_AUTO_INSTALL=1 bun --no-install run serve",
+      ].join("\n"),
+    );
+    return false;
+  }
+
+  console.log("\x1b[36m[serve] Installing dependencies with frozen lockfile...\x1b[0m");
+  const install = spawn([bunExec, "install", "--frozen-lockfile"], {
     cwd: webDir,
     stdout: "inherit",
     stderr: "inherit",
   });
-  await install.exited;
+  const code = await install.exited;
+  if (code !== 0) {
+    console.error(`\x1b[31m[serve] Install failed (exit ${code})\x1b[0m`);
+    return false;
+  }
+  return true;
+}
+
+async function build(): Promise<boolean> {
+  if (!(await ensureDependencies())) {
+    return false;
+  }
 
   console.log("\x1b[36m[serve] Building...\x1b[0m");
-  const proc = spawn([bunExec, "run", "build"], {
+  const proc = spawn([bunExec, "--no-install", "run", "build"], {
     cwd: webDir,
     stdout: "inherit",
     stderr: "inherit",
@@ -54,7 +93,7 @@ async function run() {
 
   while (true) {
     console.log("\x1b[36m[serve] Starting server...\x1b[0m");
-    serverProc = spawn([bunExec, "server/index.ts"], {
+    serverProc = spawn([bunExec, "--no-install", "server/index.ts"], {
       cwd: webDir,
       stdout: "inherit",
       stderr: "inherit",

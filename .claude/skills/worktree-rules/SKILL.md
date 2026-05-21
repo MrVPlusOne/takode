@@ -61,9 +61,9 @@ Run `git -C <BASE_REPO> log --oneline -5` to confirm the commits landed correctl
 
 For tracked code/test changes, verify the main repo before pushing with:
 - focused affected tests for the accepted change
-- `cd <BASE_REPO>/web && bun run test`
-- `cd <BASE_REPO>/web && bun run typecheck`
-- `cd <BASE_REPO>/web && bun run format:check`
+- `cd <BASE_REPO>/web && bun --no-install run test`
+- `cd <BASE_REPO>/web && bun --no-install run typecheck`
+- `cd <BASE_REPO>/web && bun --no-install run format:check`
 
 `format:check` is the current lint/format-equivalent gate in this repo; there is no separate `lint` script right now.
 
