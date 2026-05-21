@@ -11,7 +11,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy, useSortable, arrayMove } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { useStore, countUserPermissions, type PendingSession } from "../store.js";
+import { hydrateShortcutSettingsFromServer, useStore, countUserPermissions, type PendingSession } from "../store.js";
 import { api, type SessionSearchResult } from "../api.js";
 import { writeClipboardText } from "../utils/copy-utils.js";
 import { connectSession, disconnectSession } from "../ws.js";
@@ -316,6 +316,9 @@ export function Sidebar() {
           }
           setGroupVisibleLimits(readSidebarGroupVisibleLimits());
         }
+        hydrateShortcutSettingsFromServer(s).catch((err) => {
+          console.warn("[sidebar] shortcut settings hydration failed:", err);
+        });
       })
       .catch(() => {});
   }, []);

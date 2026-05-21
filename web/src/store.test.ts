@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 
 const mockListQuests = vi.fn();
+const mockUpdateSettings = vi.fn();
 
 // vi.hoisted runs before any imports, ensuring browser globals are available when store.ts initializes.
 vi.hoisted(() => {
@@ -54,11 +55,17 @@ vi.mock("./api.js", async (importOriginal) => {
     api: {
       ...actual.api,
       listQuests: (...args: unknown[]) => mockListQuests(...args),
+      updateSettings: (...args: unknown[]) => mockUpdateSettings(...args),
     },
   };
 });
 
-import { resetQuestRefreshStateForTests, reconcileQuestList, useStore } from "./store.js";
+import {
+  hydrateShortcutSettingsFromServer,
+  resetQuestRefreshStateForTests,
+  reconcileQuestList,
+  useStore,
+} from "./store.js";
 import { setSdkSessionsWithNotificationFreshness } from "./notification-status.js";
 import type {
   SessionState,
@@ -145,8 +152,76 @@ beforeEach(() => {
   useStore.getState().reset();
   resetQuestRefreshStateForTests();
   mockListQuests.mockReset();
+  mockUpdateSettings.mockReset();
+  mockUpdateSettings.mockResolvedValue({});
   localStorage.clear();
   localStorage.setItem("cc-server-id", "test-server");
+});
+
+describe("Shortcut settings hydration", () => {
+  it("uses explicit server shortcut settings and clears legacy browser storage", async () => {
+    localStorage.setItem(
+      "test-server:cc-shortcuts",
+      JSON.stringify({ enabled: true, preset: "vim-light", overrides: { search_session: "Alt+/" } }),
+    );
+
+    await hydrateShortcutSettingsFromServer({
+      shortcutSettings: {
+        enabled: true,
+        preset: "standard",
+        overrides: { search_session: "Ctrl+K" },
+      },
+    });
+
+    expect(useStore.getState().shortcutSettings).toEqual({
+      enabled: true,
+      preset: "standard",
+      overrides: { search_session: "Ctrl+K" },
+    });
+    expect(localStorage.getItem("test-server:cc-shortcuts")).toBeNull();
+    expect(mockUpdateSettings).not.toHaveBeenCalled();
+  });
+
+  it("imports legacy browser shortcut settings only when the server has none", async () => {
+    const legacySettings = {
+      enabled: true,
+      preset: "vscode-light" as const,
+      overrides: { search_session: "Ctrl+L", voice_stop: null },
+    };
+    localStorage.setItem("test-server:cc-shortcuts", JSON.stringify(legacySettings));
+    mockUpdateSettings.mockResolvedValueOnce({ shortcutSettings: legacySettings });
+
+    await hydrateShortcutSettingsFromServer({});
+
+    expect(mockUpdateSettings).toHaveBeenCalledWith({ shortcutSettings: legacySettings });
+    expect(useStore.getState().shortcutSettings).toEqual(legacySettings);
+    expect(localStorage.getItem("test-server:cc-shortcuts")).toBeNull();
+  });
+
+  it("keeps defaults local when neither server nor legacy shortcut settings exist", async () => {
+    await hydrateShortcutSettingsFromServer({});
+
+    expect(useStore.getState().shortcutSettings).toEqual({
+      enabled: false,
+      preset: "standard",
+      overrides: {},
+    });
+    expect(mockUpdateSettings).not.toHaveBeenCalled();
+  });
+
+  it("persists shortcut updates through server settings instead of browser storage", () => {
+    useStore.getState().setShortcutsEnabled(true);
+
+    expect(useStore.getState().shortcutSettings).toEqual({
+      enabled: true,
+      preset: "standard",
+      overrides: {},
+    });
+    expect(mockUpdateSettings).toHaveBeenCalledWith({
+      shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
+    });
+    expect(localStorage.getItem("test-server:cc-shortcuts")).toBeNull();
+  });
 });
 
 // ─── Session management ─────────────────────────────────────────────────────

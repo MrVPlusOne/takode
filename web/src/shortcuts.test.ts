@@ -39,6 +39,31 @@ describe("shortcuts", () => {
     expect(formatShortcut("Ctrl+`", "MacIntel")).toBe("Ctrl+`");
   });
 
+  it("uses Ctrl/Cmd+Shift+F for the Standard Universal Search shortcut", () => {
+    const settings = { enabled: true, preset: "standard" as const, overrides: {} };
+
+    expect(getShortcutHint(settings, "search_session", "MacIntel")).toBe("Cmd+Shift+F");
+    expect(getShortcutHint(settings, "search_session", "Linux x86_64")).toBe("Ctrl+Shift+F");
+    expect(
+      getMatchingShortcutAction(settings, {
+        key: "f",
+        metaKey: false,
+        ctrlKey: true,
+        altKey: false,
+        shiftKey: true,
+      }),
+    ).toBe("search_session");
+    expect(
+      getMatchingShortcutAction(settings, {
+        key: "f",
+        metaKey: false,
+        ctrlKey: true,
+        altKey: false,
+        shiftKey: false,
+      }),
+    ).toBeNull();
+  });
+
   it("includes voice start and stop in preset shortcuts", () => {
     const settings = { enabled: true, preset: "standard" as const, overrides: {} };
 

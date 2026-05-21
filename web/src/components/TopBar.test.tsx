@@ -765,7 +765,7 @@ describe("TopBar", () => {
     });
 
     render(<TopBar />);
-    expect(screen.getByTitle("Universal Search (Ctrl+F)")).toBeInTheDocument();
+    expect(screen.getByTitle("Universal Search (Ctrl+Shift+F)")).toBeInTheDocument();
   });
 
   it("opens the app-level Universal Search affordance", () => {

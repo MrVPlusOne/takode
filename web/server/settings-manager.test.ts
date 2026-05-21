@@ -73,6 +73,7 @@ describe("settings-manager", () => {
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
       leaderProfilePools: { tako: true, shmi: true },
+      shortcutSettings: undefined,
       updatedAt: expect.any(Number),
       codexLeaderRecycleThresholdTokensByModel: {},
     });
@@ -292,6 +293,59 @@ describe("settings-manager", () => {
     expect(getSettings().questmasterCompactSort).toEqual({ column: "updated", direction: "desc" });
   });
 
+  it("leaves shortcut settings unset until the server receives an explicit preference", () => {
+    expect(getSettings().shortcutSettings).toBeUndefined();
+  });
+
+  it("persists shortcut settings across reloads", async () => {
+    // Shortcut preferences are server-owned so browser reloads and tabs converge.
+    updateSettings({
+      shortcutSettings: {
+        enabled: true,
+        preset: "vscode-light",
+        overrides: { search_session: "Ctrl+L", voice_stop: null },
+      },
+    });
+
+    await _flushForTest();
+
+    const savedSettings = JSON.parse(await readFile(settingsPath, "utf-8"));
+    expect(savedSettings.shortcutSettings).toEqual({
+      enabled: true,
+      preset: "vscode-light",
+      overrides: { search_session: "Ctrl+L", voice_stop: null },
+    });
+
+    _resetForTest(settingsPath);
+
+    expect(getSettings().shortcutSettings).toEqual({
+      enabled: true,
+      preset: "vscode-light",
+      overrides: { search_session: "Ctrl+L", voice_stop: null },
+    });
+  });
+
+  it("normalizes invalid persisted shortcut settings", () => {
+    writeFileSync(
+      settingsPath,
+      JSON.stringify({
+        shortcutSettings: {
+          enabled: "yes",
+          preset: "unknown",
+          overrides: { search_session: "Ctrl+L", missing_action: "Ctrl+M", voice_stop: null, voice_start: 42 },
+        },
+      }),
+      "utf-8",
+    );
+    _resetForTest(settingsPath);
+
+    expect(getSettings().shortcutSettings).toEqual({
+      enabled: false,
+      preset: "standard",
+      overrides: { search_session: "Ctrl+L", voice_stop: null },
+    });
+  });
+
   it("loads existing settings from disk", () => {
     writeFileSync(
       settingsPath,
@@ -430,6 +484,7 @@ describe("settings-manager", () => {
       questmasterViewMode: "cards",
       questmasterCompactSort: { column: "updated", direction: "desc" },
       leaderProfilePools: { tako: true, shmi: true },
+      shortcutSettings: undefined,
       updatedAt: 0,
       codexLeaderRecycleThresholdTokensByModel: {},
     });

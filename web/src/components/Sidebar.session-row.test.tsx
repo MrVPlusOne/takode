@@ -245,7 +245,11 @@ vi.mock("../store.js", () => {
     }
     return count;
   };
-  return { useStore: useStoreFn, countUserPermissions };
+  return {
+    useStore: useStoreFn,
+    countUserPermissions,
+    hydrateShortcutSettingsFromServer: vi.fn().mockResolvedValue(undefined),
+  };
 });
 
 import { Sidebar } from "./Sidebar.js";

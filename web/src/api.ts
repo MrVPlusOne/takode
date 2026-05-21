@@ -17,6 +17,7 @@ import { normalizeHistoryMessageToChatMessages } from "./utils/history-message-n
 import { searchSessionMessages } from "./api/session-message-search.js";
 import { transcribe } from "./api/transcription.js";
 import type { VoiceTranscriptionFrontendTimingReport, VoiceTranscriptionTiming } from "./transcription-progress.js";
+import type { ShortcutSettings } from "./shortcuts.js";
 
 export type {
   MessageSearchCategory,
@@ -555,6 +556,7 @@ export interface AppSettings {
   leaderProfilePortraits: LeaderProfilePortrait[];
   leaderProfileFallbackPortrait: LeaderProfilePortrait;
   leaderProfilePoolOptions: LeaderProfilePool[];
+  shortcutSettings?: ShortcutSettings;
   restartSupported: boolean;
   logFile?: string | null;
   claudeDefaultModel?: string;
@@ -1296,6 +1298,7 @@ export const api = {
     codexLeaderRecycleThresholdTokens?: number;
     codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
     leaderProfilePools?: LeaderProfilePoolSettings;
+    shortcutSettings?: ShortcutSettings;
   }) => put<AppSettings>("/settings", data),
   updateLeaderProfilePortrait: (sessionId: string, portraitId: string) =>
     put<{

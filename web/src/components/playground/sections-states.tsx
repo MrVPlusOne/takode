@@ -1752,8 +1752,8 @@ diff --git a/src/routes/summary.ts b/src/routes/summary.ts
           <Card label="SearchBar states (description)">
             <div className="space-y-2 text-xs text-cc-muted px-1">
               <p>
-                <span className="font-medium text-cc-fg">Idle:</span> Hidden — activated via ⌘F / Ctrl+F keyboard
-                shortcut
+                <span className="font-medium text-cc-fg">Idle:</span> Hidden — activated via Cmd+Shift+F / Ctrl+Shift+F
+                keyboard shortcut
               </p>
               <p>
                 <span className="font-medium text-cc-fg">Open (no matches):</span> Input field with "0 of 0" counter,

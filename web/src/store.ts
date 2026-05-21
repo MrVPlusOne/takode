@@ -20,11 +20,17 @@ import { api, type PRStatusResponse, type CreationProgressEvent, type CreateSess
 import type { BoardRowData } from "./components/BoardTable.js";
 import {
   DEFAULT_SHORTCUT_SETTINGS,
+  normalizeShortcutSettings,
   shortcutsEqual,
   type ShortcutActionId,
   type ShortcutPresetId,
   type ShortcutSettings,
 } from "./shortcuts.js";
+import {
+  createShortcutSettingsHydrator,
+  getInitialShortcutSettings,
+  persistShortcutSettingsToServer,
+} from "./store-shortcuts.js";
 import {
   reconcileQuestList,
   sdkSessionListEqual,
@@ -108,31 +114,8 @@ function withOptionalMapEntry<K, V>(source: ReadonlyMap<K, V>, key: K, value: V 
   return next;
 }
 
-function getInitialShortcutSettings(): ShortcutSettings {
-  if (typeof window === "undefined") return DEFAULT_SHORTCUT_SETTINGS;
-  const stored = scopedGetItem("cc-shortcuts");
-  if (!stored) return DEFAULT_SHORTCUT_SETTINGS;
-  try {
-    const parsed = JSON.parse(stored) as Partial<ShortcutSettings> | null;
-    const preset = parsed?.preset;
-    const enabled = parsed?.enabled;
-    const overrides = parsed?.overrides;
-    return {
-      enabled: typeof enabled === "boolean" ? enabled : DEFAULT_SHORTCUT_SETTINGS.enabled,
-      preset:
-        preset === "standard" || preset === "vscode-light" || preset === "vim-light"
-          ? preset
-          : DEFAULT_SHORTCUT_SETTINGS.preset,
-      overrides: overrides && typeof overrides === "object" ? overrides : {},
-    };
-  } catch {
-    return DEFAULT_SHORTCUT_SETTINGS;
-  }
-}
-
-function persistShortcutSettings(settings: ShortcutSettings): void {
-  if (typeof window === "undefined") return;
-  scopedSetItem("cc-shortcuts", JSON.stringify(settings));
+function setShortcutSettingsFromServer(settings: ShortcutSettings): void {
+  useStore.setState({ shortcutSettings: normalizeShortcutSettings(settings) });
 }
 
 function persistSidePanelStringSet(storageKey: string, values: Set<string>): void {
@@ -482,14 +465,14 @@ export const useStore = create<AppState>((set, get) => ({
     set((s) => {
       const shortcutSettings = { ...s.shortcutSettings, enabled };
       if (shortcutsEqual(shortcutSettings, s.shortcutSettings)) return {};
-      persistShortcutSettings(shortcutSettings);
+      persistShortcutSettingsToServer(shortcutSettings, setShortcutSettingsFromServer);
       return { shortcutSettings };
     }),
   setShortcutPreset: (preset) =>
     set((s) => {
       const shortcutSettings = { ...s.shortcutSettings, preset };
       if (shortcutsEqual(shortcutSettings, s.shortcutSettings)) return {};
-      persistShortcutSettings(shortcutSettings);
+      persistShortcutSettingsToServer(shortcutSettings, setShortcutSettingsFromServer);
       return { shortcutSettings };
     }),
   setShortcutOverride: (actionId, binding) =>
@@ -502,14 +485,14 @@ export const useStore = create<AppState>((set, get) => ({
       }
       const shortcutSettings = { ...s.shortcutSettings, overrides };
       if (shortcutsEqual(shortcutSettings, s.shortcutSettings)) return {};
-      persistShortcutSettings(shortcutSettings);
+      persistShortcutSettingsToServer(shortcutSettings, setShortcutSettingsFromServer);
       return { shortcutSettings };
     }),
   resetShortcutOverrides: () =>
     set((s) => {
       const shortcutSettings = { ...s.shortcutSettings, overrides: {} };
       if (shortcutsEqual(shortcutSettings, s.shortcutSettings)) return {};
-      persistShortcutSettings(shortcutSettings);
+      persistShortcutSettingsToServer(shortcutSettings, setShortcutSettingsFromServer);
       return { shortcutSettings };
     }),
   setSidebarOpen: (v) => set({ sidebarOpen: v }),
@@ -1995,6 +1978,8 @@ export const useStore = create<AppState>((set, get) => ({
     });
   },
 }));
+
+export const hydrateShortcutSettingsFromServer = createShortcutSettingsHydrator(setShortcutSettingsFromServer);
 
 /** Count permissions that need user attention (excludes those being LLM-evaluated, queued, or auto-approved). */
 export function countUserPermissions(perms: Map<string, unknown> | undefined): number {

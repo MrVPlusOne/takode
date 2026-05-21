@@ -283,7 +283,11 @@ vi.mock("../store.js", () => {
   const useStoreFn = (selector: (state: MockStoreState) => unknown) => selector(mockState);
   useStoreFn.getState = () => mockState;
   const countUserPermissions = (perms: Map<string, unknown> | undefined): number => perms?.size ?? 0;
-  return { useStore: useStoreFn, countUserPermissions };
+  return {
+    useStore: useStoreFn,
+    countUserPermissions,
+    hydrateShortcutSettingsFromServer: vi.fn().mockResolvedValue(undefined),
+  };
 });
 
 import { Sidebar } from "./Sidebar.js";

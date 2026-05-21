@@ -267,7 +267,11 @@ vi.mock("../store.js", () => {
     return count;
   };
 
-  return { useStore: useStoreFn, countUserPermissions };
+  return {
+    useStore: useStoreFn,
+    countUserPermissions,
+    hydrateShortcutSettingsFromServer: vi.fn().mockResolvedValue(undefined),
+  };
 });
 
 // ─── Import component after mocks ───────────────────────────────────────────

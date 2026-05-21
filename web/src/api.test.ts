@@ -1230,6 +1230,22 @@ describe("settings", () => {
     expect(opts.method).toBe("PUT");
     expect(JSON.parse(opts.body)).toEqual({ heavyRepoModeEnabled: true });
   });
+
+  it("sends shortcut settings through PUT /api/settings", async () => {
+    const shortcutSettings = {
+      enabled: true,
+      preset: "standard" as const,
+      overrides: { search_session: "Ctrl+Shift+F" },
+    };
+    mockFetch.mockResolvedValueOnce(mockResponse({ serverName: "", serverId: "test-id", shortcutSettings }));
+
+    await api.updateSettings({ shortcutSettings });
+
+    const [url, opts] = mockFetch.mock.calls[0];
+    expect(url).toBe("/api/settings");
+    expect(opts.method).toBe("PUT");
+    expect(JSON.parse(opts.body)).toEqual({ shortcutSettings });
+  });
 });
 
 // ===========================================================================

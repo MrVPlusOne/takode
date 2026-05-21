@@ -363,27 +363,27 @@ describe("App hidden panels", () => {
     expect(screen.getByTestId("task-panel")).toBeInTheDocument();
   });
 
-  it("does not reserve the retired Search Everything shortcut", () => {
+  it("does not open Universal Search from the old Standard search shortcut", () => {
     resetStore({
       sidebarOpen: false,
       shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
     });
 
     render(<App />);
-    fireEvent.keyDown(document, { key: "F", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
 
     expect(screen.queryByTestId("sidebar")).toBeNull();
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
     expect(screen.queryByTestId("universal-search-overlay")).toBeNull();
   });
 
-  it("opens Universal Search from the existing configurable search shortcut", () => {
+  it("opens Universal Search from the Standard search shortcut", () => {
     resetStore({
       shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
     });
 
     render(<App />);
-    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true, shiftKey: true });
 
     expect(screen.getByTestId("universal-search-overlay")).toBeInTheDocument();
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
@@ -418,12 +418,13 @@ describe("App hidden panels", () => {
     });
 
     render(<App />);
-    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true, shiftKey: true });
     const input = screen.getByLabelText("Universal Search input");
     input.focus();
     const event = new KeyboardEvent("keydown", {
       key: "f",
       ctrlKey: true,
+      shiftKey: true,
       bubbles: true,
       cancelable: true,
     });
@@ -440,7 +441,7 @@ describe("App hidden panels", () => {
     window.location.hash = "#/session/s1";
 
     render(<App />);
-    fireEvent.keyDown(document, { key: "f", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "f", ctrlKey: true, shiftKey: true });
     fireEvent.click(screen.getByRole("button", { name: "Open quest result" }));
 
     expect(mockState.openQuestOverlay).toHaveBeenCalledWith("q-1272", "needle");
@@ -672,7 +673,7 @@ describe("App hidden panels", () => {
     expect(mockDisconnectSession).toHaveBeenCalledWith("s2");
   });
 
-  it("ignores the retired Search Everything chord inside inputs", () => {
+  it("ignores the old Standard search shortcut inside inputs", () => {
     resetStore({
       shortcutSettings: { enabled: true, preset: "standard", overrides: {} },
       sidebarOpen: false,
@@ -682,7 +683,7 @@ describe("App hidden panels", () => {
     const input = document.createElement("input");
     document.body.appendChild(input);
     input.focus();
-    fireEvent.keyDown(input, { key: "F", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(input, { key: "f", ctrlKey: true });
 
     expect(mockState.openSessionSearch).not.toHaveBeenCalled();
     expect(mockState.setSidebarOpen).not.toHaveBeenCalled();

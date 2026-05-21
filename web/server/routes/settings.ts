@@ -19,6 +19,7 @@ import {
   getCodexUserDefaultModel,
   QUESTMASTER_COMPACT_SORT_COLUMNS,
   DEFAULT_QUESTMASTER_COMPACT_SORT,
+  normalizeShortcutSettings,
   type NamerConfig,
   type TranscriptionConfig,
   type SttModel,
@@ -27,6 +28,7 @@ import {
   type QuestmasterViewMode,
   type QuestmasterCompactSort,
   type QuestmasterCompactSortColumn,
+  type ShortcutSettings,
 } from "../settings-manager.js";
 import { DEFAULT_PUSHOVER_EVENT_FILTERS, type PushoverEventFilters } from "../pushover.js";
 import { getLogPath } from "../server-logger.js";
@@ -716,6 +718,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
     };
   }
 
+  function parseShortcutSettingsFromBody(raw: Record<string, unknown>): ShortcutSettings {
+    return normalizeShortcutSettings(raw) ?? { enabled: false, preset: "standard", overrides: {} };
+  }
+
   function buildSettingsResponse(
     settings: ReturnType<typeof getSettings>,
     extras?: { claudeDefaultModel?: string; includeRuntimeInfo?: boolean },
@@ -751,6 +757,7 @@ export function createSettingsRoutes(ctx: RouteContext) {
       codexLeaderRecycleThresholdTokens: settings.codexLeaderRecycleThresholdTokens,
       codexLeaderRecycleThresholdTokensByModel: settings.codexLeaderRecycleThresholdTokensByModel ?? {},
       leaderProfilePools: normalizeLeaderProfilePoolSettings(settings.leaderProfilePools),
+      ...(settings.shortcutSettings ? { shortcutSettings: settings.shortcutSettings } : {}),
       leaderProfilePortraits: LEADER_PROFILE_PORTRAITS,
       leaderProfileFallbackPortrait: FALLBACK_LEADER_PROFILE_PORTRAIT,
       leaderProfilePoolOptions: LEADER_PROFILE_POOLS,
@@ -822,6 +829,14 @@ export function createSettingsRoutes(ctx: RouteContext) {
     }
     if (body.pushoverEnabled !== undefined && typeof body.pushoverEnabled !== "boolean") {
       return c.json({ error: "pushoverEnabled must be a boolean" }, 400);
+    }
+    if (
+      body.shortcutSettings !== undefined &&
+      (typeof body.shortcutSettings !== "object" ||
+        body.shortcutSettings === null ||
+        Array.isArray(body.shortcutSettings))
+    ) {
+      return c.json({ error: "shortcutSettings must be an object" }, 400);
     }
     if (body.pushoverEventFilters !== undefined) {
       if (
@@ -1084,6 +1099,10 @@ export function createSettingsRoutes(ctx: RouteContext) {
       leaderProfilePools:
         body.leaderProfilePools && typeof body.leaderProfilePools === "object"
           ? normalizeLeaderProfilePoolSettings(body.leaderProfilePools)
+          : undefined,
+      shortcutSettings:
+        body.shortcutSettings && typeof body.shortcutSettings === "object"
+          ? parseShortcutSettingsFromBody(body.shortcutSettings as Record<string, unknown>)
           : undefined,
       ...(normalizedServerSlug !== undefined ? { serverSlug: normalizedServerSlug } : {}),
     };

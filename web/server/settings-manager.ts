@@ -74,7 +74,25 @@ export interface CompanionSettings {
   codexLeaderRecycleThresholdTokensByModel?: Record<string, number>;
   /** Enabled built-in leader profile portrait pools. Optional for backward-compatible tests/mocks. */
   leaderProfilePools?: LeaderProfilePoolSettings;
+  /** User-configured keyboard shortcut settings. Undefined means no server-side shortcut preference exists yet. */
+  shortcutSettings?: ShortcutSettings;
   updatedAt: number;
+}
+
+export type ShortcutActionId =
+  | "search_session"
+  | "toggle_sidebar"
+  | "open_terminal"
+  | "previous_session"
+  | "next_session"
+  | "new_session"
+  | "voice_start"
+  | "voice_stop";
+export type ShortcutPresetId = "standard" | "vscode-light" | "vim-light";
+export interface ShortcutSettings {
+  enabled: boolean;
+  preset: ShortcutPresetId;
+  overrides: Partial<Record<ShortcutActionId, string | null>>;
 }
 
 export type QuestmasterViewMode = "cards" | "compact";
@@ -145,6 +163,18 @@ const DEFAULT_PATH = join(homedir(), ".companion", "settings.json");
 /** Shared legacy path — exported for tests only */
 export const LEGACY_PATH = DEFAULT_PATH;
 const DEFAULT_SECRETS_PATH = join(homedir(), ".companion", "settings-secrets.json");
+const SHORTCUT_ACTION_IDS = new Set<ShortcutActionId>([
+  "search_session",
+  "toggle_sidebar",
+  "open_terminal",
+  "previous_session",
+  "next_session",
+  "new_session",
+  "voice_start",
+  "voice_stop",
+]);
+const SHORTCUT_PRESET_IDS = new Set<ShortcutPresetId>(["standard", "vscode-light", "vim-light"]);
+const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = { enabled: false, preset: "standard", overrides: {} };
 
 let loaded = false;
 let secretsLoaded = false;
@@ -351,6 +381,30 @@ function normalizeEditorConfig(raw: Record<string, unknown> | null | undefined):
   return { editor: "none" };
 }
 
+export function normalizeShortcutSettings(raw: unknown): ShortcutSettings | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const candidate = raw as Record<string, unknown>;
+  const rawOverrides =
+    candidate.overrides && typeof candidate.overrides === "object" && !Array.isArray(candidate.overrides)
+      ? (candidate.overrides as Record<string, unknown>)
+      : {};
+  const overrides: ShortcutSettings["overrides"] = {};
+  for (const [actionId, binding] of Object.entries(rawOverrides)) {
+    if (!SHORTCUT_ACTION_IDS.has(actionId as ShortcutActionId)) continue;
+    if (binding === null || typeof binding === "string") {
+      overrides[actionId as ShortcutActionId] = binding;
+    }
+  }
+
+  return {
+    enabled: typeof candidate.enabled === "boolean" ? candidate.enabled : DEFAULT_SHORTCUT_SETTINGS.enabled,
+    preset: SHORTCUT_PRESET_IDS.has(candidate.preset as ShortcutPresetId)
+      ? (candidate.preset as ShortcutPresetId)
+      : DEFAULT_SHORTCUT_SETTINGS.preset,
+    overrides,
+  };
+}
+
 function normalizeSecrets(raw: Record<string, unknown> | null | undefined): CompanionSecrets {
   return {
     namerOpenAIApiKey: typeof raw?.namerOpenAIApiKey === "string" ? raw.namerOpenAIApiKey : "",
@@ -463,6 +517,7 @@ function normalize(raw: Partial<CompanionSettings> | null | undefined): Companio
       raw?.codexLeaderRecycleThresholdTokensByModel,
     ),
     leaderProfilePools: normalizeLeaderProfilePoolSettings(raw?.leaderProfilePools),
+    shortcutSettings: normalizeShortcutSettings(raw?.shortcutSettings),
     updatedAt: typeof raw?.updatedAt === "number" ? raw.updatedAt : 0,
   };
 }
@@ -566,6 +621,7 @@ export function updateSettings(
       | "codexLeaderRecycleThresholdTokens"
       | "codexLeaderRecycleThresholdTokensByModel"
       | "leaderProfilePools"
+      | "shortcutSettings"
       | "serverSlug"
     >
   >,

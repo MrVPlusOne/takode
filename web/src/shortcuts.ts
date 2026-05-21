@@ -93,6 +93,8 @@ const ACTION_ORDER: ShortcutActionId[] = [
 ];
 
 const APP_GLOBAL_SHORTCUT_ACTIONS = new Set<ShortcutActionId>(["open_terminal", "previous_session", "next_session"]);
+const SHORTCUT_ACTION_IDS = new Set<ShortcutActionId>(ACTION_ORDER);
+const SHORTCUT_PRESET_IDS = new Set<ShortcutPresetId>(["standard", "vscode-light", "vim-light"]);
 const TAP_BINDING_PREFIX = "Tap:";
 const DOUBLE_TAP_BINDING_PREFIX = "DoubleTap:";
 export const SHORTCUT_DOUBLE_TAP_WINDOW_MS = 400;
@@ -102,6 +104,30 @@ export const DEFAULT_SHORTCUT_SETTINGS: ShortcutSettings = {
   preset: "standard",
   overrides: {},
 };
+
+export function normalizeShortcutSettings(raw: Partial<ShortcutSettings> | null | undefined): ShortcutSettings {
+  if (!raw || typeof raw !== "object") return DEFAULT_SHORTCUT_SETTINGS;
+
+  const overrides: ShortcutSettings["overrides"] = {};
+  const rawOverrides =
+    raw.overrides && typeof raw.overrides === "object" && !Array.isArray(raw.overrides)
+      ? (raw.overrides as Record<string, unknown>)
+      : {};
+  for (const [actionId, binding] of Object.entries(rawOverrides)) {
+    if (!SHORTCUT_ACTION_IDS.has(actionId as ShortcutActionId)) continue;
+    if (binding === null || typeof binding === "string") {
+      overrides[actionId as ShortcutActionId] = binding;
+    }
+  }
+
+  return {
+    enabled: typeof raw.enabled === "boolean" ? raw.enabled : DEFAULT_SHORTCUT_SETTINGS.enabled,
+    preset: SHORTCUT_PRESET_IDS.has(raw.preset as ShortcutPresetId)
+      ? (raw.preset as ShortcutPresetId)
+      : DEFAULT_SHORTCUT_SETTINGS.preset,
+    overrides,
+  };
+}
 
 export const SHORTCUT_ACTIONS: ShortcutActionDefinition[] = [
   {
@@ -166,7 +192,7 @@ export const SHORTCUT_PRESET_OPTIONS: ShortcutPresetOption[] = [
 
 const PRESET_BINDINGS: Record<ShortcutPresetId, ShortcutBindingMap> = {
   standard: {
-    search_session: "Mod+F",
+    search_session: "Mod+Shift+F",
     toggle_sidebar: "Mod+B",
     open_terminal: "Mod+Shift+T",
     previous_session: "Mod+Shift+[",

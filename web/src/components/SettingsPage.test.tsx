@@ -297,6 +297,7 @@ describe("SettingsPage", () => {
     await waitForSettingsPage();
     expect(screen.getByLabelText("Preset")).toHaveValue("standard");
     expect(screen.getByText("Universal Search")).toBeInTheDocument();
+    expect(screen.getByText("Ctrl+Shift+F")).toBeInTheDocument();
   });
 
   it("records and clears a custom shortcut override", async () => {
