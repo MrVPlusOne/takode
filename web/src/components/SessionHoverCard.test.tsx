@@ -710,6 +710,7 @@ describe("SessionHoverCard", () => {
         />,
       );
 
+      expect(screen.getByTestId("session-hover-card")).toHaveStyle({ width: "425px" });
       expect(screen.queryByText("Herding")).toBeNull();
       expect(screen.queryByRole("button", { name: "#21" })).toBeNull();
       expect(screen.queryByRole("button", { name: "#22" })).toBeNull();
@@ -722,14 +723,22 @@ describe("SessionHoverCard", () => {
       expect(rows).toHaveLength(2);
       expect(rows[0]).toHaveAttribute("data-quest-id", "q-100");
       expect(rows[0]).toHaveAttribute("data-phase-color", "green");
-      expect(within(rows[0]).getByText("Implement")).toBeInTheDocument();
-      expect(
-        within(rows[0]).getByText("Implement the leader hover active quest list with a title long enough to truncate"),
-      ).toHaveClass("truncate");
+      expect(rows[0]).toHaveAttribute("data-title-color", "normal");
+      const implementPhase = within(rows[0]).getByTestId("session-hover-active-quest-phase");
+      expect(implementPhase).toHaveTextContent("Implement");
+      expect(implementPhase).toHaveAttribute("style", "color: var(--color-cc-phase-green, #4ade80);");
+      const implementTitle = within(rows[0]).getByText(
+        "Implement the leader hover active quest list with a title long enough to truncate",
+      );
+      expect(implementTitle).toHaveClass("truncate", "text-cc-fg");
+      expect(implementTitle).not.toHaveAttribute("style");
       expect(rows[1]).toHaveAttribute("data-quest-id", "q-200");
       expect(rows[1]).toHaveAttribute("data-phase-color", "emerald");
       expect(within(rows[1]).getByText("Alignment")).toBeInTheDocument();
-      expect(within(rows[1]).getByText("Fallback alignment title from Questmaster")).toBeInTheDocument();
+      expect(rows[1]).toHaveAttribute("data-title-color", "normal");
+      const fallbackTitle = within(rows[1]).getByText("Fallback alignment title from Questmaster");
+      expect(fallbackTitle).toHaveClass("text-cc-fg");
+      expect(fallbackTitle).not.toHaveAttribute("style");
       expect(screen.getByText("Last message")).toBeInTheDocument();
       expect(screen.getByText("Latest leader coordination update")).toBeInTheDocument();
     } finally {

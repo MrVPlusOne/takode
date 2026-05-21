@@ -174,7 +174,7 @@ export function SessionHoverCard({
 
   // Position: right of sidebar, vertically aligned with the hovered item
   // The sidebar is 260px wide. Position card to the right of the anchor.
-  const cardWidth = 340;
+  const cardWidth = 425;
   const gap = 4;
 
   // Initial position — will be corrected by useLayoutEffect for viewport clamping
@@ -289,12 +289,12 @@ export function SessionHoverCard({
                     data-testid="session-hover-active-quest-row"
                     data-quest-id={row.questId}
                     data-phase-color={row.phaseColorName}
-                    data-title-color={row.phaseColor ?? ""}
+                    data-title-color="normal"
                   >
                     <span
                       className="min-w-0 truncate text-[12px] font-medium leading-snug text-cc-fg"
-                      style={phaseStyle}
                       title={row.title}
+                      data-testid="session-hover-active-quest-title"
                     >
                       {row.title}
                     </span>
