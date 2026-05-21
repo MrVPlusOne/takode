@@ -244,6 +244,21 @@ export function SettingsServerDiagnosticsSection({
           CLI access: <code className="font-mono">takode logs --level warn,error --follow</code>
         </p>
 
+        <div>
+          <p className="text-sm font-medium text-cc-fg">Changelog</p>
+          <p className="mt-0.5 text-xs text-cc-muted">Repository release notes rendered from the local source file.</p>
+        </div>
+
+        <button
+          type="button"
+          onClick={() => {
+            window.location.hash = "#/changelog";
+          }}
+          className="px-3 py-2 rounded-lg text-sm font-medium bg-cc-hover text-cc-fg hover:bg-cc-active transition-colors cursor-pointer"
+        >
+          Open changelog
+        </button>
+
         <div className="border-t border-cc-border pt-3 space-y-3">
           <p className="text-xs text-cc-muted">
             Restart the server process. Useful after pulling new code. Sessions will reconnect automatically. If restart

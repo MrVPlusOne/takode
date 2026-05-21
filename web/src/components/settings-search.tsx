@@ -176,10 +176,11 @@ export const SETTINGS_SECTIONS: SettingsSectionMeta[] = [
   {
     id: "server",
     title: "Server & Diagnostics",
-    aliases: ["logs", "restart", "diagnostics", "server", "memory", "slug"],
+    aliases: ["logs", "changelog", "release notes", "restart", "diagnostics", "server", "memory", "slug"],
     items: [
       { id: "server-slug", text: "Server Slug memory repo session space path prod dev port Takode rename" },
       { id: "logs", text: "Log Viewer structured server runtime logs filtering Takode CLI" },
+      { id: "changelog", text: "Changelog release notes local repository markdown changes" },
       {
         id: "restart",
         text: "Restart Server process reconnect sessions interrupt restart blockers pending permission",

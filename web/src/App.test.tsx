@@ -226,6 +226,10 @@ vi.mock("./components/SettingsPage.js", () => ({
   SettingsPage: () => <div data-testid="settings-page" />,
 }));
 
+vi.mock("./components/ChangelogPage.js", () => ({
+  ChangelogPage: () => <div data-testid="changelog-page" />,
+}));
+
 vi.mock("./components/LogsPage.js", () => ({
   LogsPage: () => <div data-testid="logs-page" />,
 }));
@@ -455,6 +459,7 @@ describe("App hidden panels", () => {
   it("lets full-page routes own the top chrome instead of rendering session identity chrome", () => {
     for (const [hash, testId, label] of [
       ["#/memory", "memory-page", "Memory"],
+      ["#/changelog", "changelog-page", "Changelog"],
       ["#/terminal", "terminal-page", "Terminal"],
       ["#/scheduled", "active-timers-page", "Timers"],
       ["#/settings", "settings-page", "Settings"],

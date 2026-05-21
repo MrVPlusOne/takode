@@ -560,6 +560,11 @@ export interface AppSettings {
   claudeDefaultModel?: string;
 }
 
+export interface ChangelogResponse {
+  markdown: string;
+  sourcePath: string;
+}
+
 export interface PushoverEventFilters {
   needsInput: boolean;
   review: boolean;
@@ -1254,6 +1259,7 @@ export const api = {
 
   // Settings
   getSettings: () => get<AppSettings>("/settings"),
+  getChangelog: () => get<ChangelogResponse>("/changelog"),
   getCodexDefaultModel: () => get<{ model: string }>("/settings/codex-default-model"),
   getLogs: (query?: LogQuery) => {
     const qs = query ? encodeLogQuery(query) : "";

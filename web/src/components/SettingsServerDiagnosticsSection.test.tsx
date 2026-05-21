@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
+import { render, screen, fireEvent } from "@testing-library/react";
 import "@testing-library/jest-dom";
 import type { ReactNode } from "react";
 
@@ -219,5 +219,23 @@ describe("SettingsServerDiagnosticsSection", () => {
     expect(screen.getByText(/Codex recovery was requested/)).toBeInTheDocument();
     expect(screen.getByText(/backendState=connected/)).toBeInTheDocument();
     expect(screen.queryByText(/Blocker wait timed out/)).not.toBeInTheDocument();
+  });
+
+  it("opens the changelog view from Server and Diagnostics", () => {
+    window.location.hash = "#/settings";
+    render(
+      <SettingsServerDiagnosticsSection
+        logFile=""
+        {...serverSlugProps}
+        restartSupported
+        restartError=""
+        restarting={false}
+        onRestartServer={vi.fn()}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Open changelog" }));
+
+    expect(window.location.hash).toBe("#/changelog");
   });
 });

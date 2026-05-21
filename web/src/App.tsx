@@ -24,6 +24,7 @@ import { TaskPanel } from "./components/TaskPanel.js";
 import { DiffPanel } from "./components/DiffPanel.js";
 import { Playground } from "./components/Playground.js";
 import { SettingsPage } from "./components/SettingsPage.js";
+import { ChangelogPage } from "./components/ChangelogPage.js";
 import { LogsPage } from "./components/LogsPage.js";
 import { EnvManager } from "./components/EnvManager.js";
 import { ActiveTimersPage } from "./components/ActiveTimersPage.js";
@@ -152,24 +153,28 @@ export default function App() {
     [hash, route.page],
   );
   const isSettingsPage = route.page === "settings";
+  const isChangelogPage = route.page === "changelog";
   const isLogsPage = route.page === "logs";
   const isTerminalPage = route.page === "terminal";
   const isEnvironmentsPage = route.page === "environments";
   const isScheduledPage = route.page === "scheduled";
   const isQuestmasterPage = route.page === "questmaster";
   const isMemoryPage = route.page === "memory";
-  const isFullPageRoute = isSettingsPage || isTerminalPage || isScheduledPage || isQuestmasterPage || isMemoryPage;
+  const isFullPageRoute =
+    isSettingsPage || isChangelogPage || isTerminalPage || isScheduledPage || isQuestmasterPage || isMemoryPage;
   const fullPageRouteLabel = isMemoryPage
     ? "Memory"
-    : isTerminalPage
-      ? "Terminal"
-      : isScheduledPage
-        ? "Timers"
-        : isSettingsPage
-          ? "Settings"
-          : isQuestmasterPage
-            ? "Questmaster"
-            : undefined;
+    : isChangelogPage
+      ? "Changelog"
+      : isTerminalPage
+        ? "Terminal"
+        : isScheduledPage
+          ? "Timers"
+          : isSettingsPage
+            ? "Settings"
+            : isQuestmasterPage
+              ? "Questmaster"
+              : undefined;
   const isSessionView = route.page === "session" || route.page === "home";
   const routeSessionId = useMemo(
     () => (route.page === "session" ? resolveSessionIdFromRoute(route.sessionId, sdkSessions) : null),
@@ -662,9 +667,15 @@ export default function App() {
               <span className="text-xs text-red-400 font-medium">Server unreachable</span>
             </div>
           )}
-          {isSettingsPage && (
+          {(isSettingsPage || isChangelogPage) && (
+            <div className={`absolute inset-0 ${isSettingsPage ? "" : "hidden"}`}>
+              <SettingsPage embedded isActive={isSettingsPage} />
+            </div>
+          )}
+
+          {isChangelogPage && (
             <div className="absolute inset-0">
-              <SettingsPage embedded isActive={true} />
+              <ChangelogPage />
             </div>
           )}
 

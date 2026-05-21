@@ -45,6 +45,11 @@ describe("parseHash", () => {
     expect(parseHash("#/settings")).toEqual({ page: "settings" });
   });
 
+  it("parses changelog route", () => {
+    // The changelog viewer has a dedicated route so Settings state can be restored via normal Back navigation.
+    expect(parseHash("#/changelog")).toEqual({ page: "changelog" });
+  });
+
   it("parses logs route", () => {
     // The dedicated log viewer lives at its own top-level route so settings deep-links stay stable.
     expect(parseHash("#/logs")).toEqual({ page: "logs" });

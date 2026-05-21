@@ -6,6 +6,7 @@ export type Route =
   | { page: "home" }
   | { page: "session"; sessionId: string; messageIndex?: number; messageId?: string }
   | { page: "settings" }
+  | { page: "changelog" }
   | { page: "logs" }
   | { page: "terminal" }
   | { page: "environments" }
@@ -53,6 +54,7 @@ function normalizePlaygroundSectionId(raw: string | null): string | null {
 export function parseHash(hash: string): Route {
   const { path } = splitHash(hash);
   if (path === "#/settings") return { page: "settings" };
+  if (path === "#/changelog") return { page: "changelog" };
   if (path === "#/logs") return { page: "logs" };
   if (path === "#/terminal") return { page: "terminal" };
   if (path === "#/environments") return { page: "environments" };
