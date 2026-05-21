@@ -36,15 +36,26 @@ vi.mock("../store.js", () => ({
   useStore: (selector: (state: typeof storeState) => unknown) => selector(storeState),
 }));
 vi.mock("./SessionItem.js", () => ({
-  SessionItem: ({ session }: { session: SidebarSessionItem }) => (
-    <div data-testid={`session-row-${session.id}`}>{session.model}</div>
+  SessionItem: ({
+    session,
+    reviewerSession,
+  }: {
+    session: SidebarSessionItem;
+    reviewerSession?: SidebarSessionItem;
+  }) => (
+    <div data-testid={`session-row-${session.id}`}>
+      {session.model}
+      {reviewerSession ? (
+        <span data-testid={`session-reviewer-${reviewerSession.id}`}>{reviewerSession.model}</span>
+      ) : null}
+    </div>
   ),
   StatusCountDots: () => null,
 }));
 
 import { TreeViewGroup } from "./TreeViewGroup.js";
 
-function session(id: string): SidebarSessionItem {
+function session(id: string, overrides: Partial<SidebarSessionItem> = {}): SidebarSessionItem {
   return {
     id,
     model: id,
@@ -63,6 +74,7 @@ function session(id: string): SidebarSessionItem {
     backendType: "claude",
     repoRoot: "/repo",
     permCount: 0,
+    ...overrides,
   };
 }
 
@@ -78,6 +90,63 @@ function group(count: number): TreeViewGroupData {
       workers: [],
       reviewers: [],
     })),
+  };
+}
+
+function groupWithHerdUnit(): TreeViewGroupData {
+  return {
+    id: "default",
+    name: "Default",
+    runningCount: 0,
+    permCount: 0,
+    unreadCount: 0,
+    nodes: [
+      {
+        leader: session("leader-1", { sessionNum: 1, isOrchestrator: true }),
+        workers: [
+          session("worker-1", { sessionNum: 2, herdedBy: "leader-1" }),
+          session("worker-2", { sessionNum: 3, herdedBy: "leader-1" }),
+        ],
+        reviewers: [session("reviewer-1", { sessionNum: 4, reviewerOf: 1 })],
+      },
+      {
+        leader: session("standalone-2"),
+        workers: [],
+        reviewers: [],
+      },
+      {
+        leader: session("standalone-3"),
+        workers: [],
+        reviewers: [],
+      },
+    ],
+  };
+}
+
+function groupWithHiddenHerdUnit(): TreeViewGroupData {
+  return {
+    id: "default",
+    name: "Default",
+    runningCount: 0,
+    permCount: 0,
+    unreadCount: 0,
+    nodes: [
+      {
+        leader: session("standalone-1"),
+        workers: [],
+        reviewers: [],
+      },
+      {
+        leader: session("standalone-2"),
+        workers: [],
+        reviewers: [],
+      },
+      {
+        leader: session("leader-hidden", { sessionNum: 10, isOrchestrator: true }),
+        workers: [session("worker-hidden", { sessionNum: 11, herdedBy: "leader-hidden" })],
+        reviewers: [session("reviewer-hidden", { sessionNum: 12, reviewerOf: 10 })],
+      },
+    ],
   };
 }
 
@@ -116,6 +185,11 @@ function renderGroup(props: Partial<ComponentProps<typeof TreeViewGroup>> = {}) 
 }
 
 describe("TreeViewGroup overflow", () => {
+  beforeEach(() => {
+    storeState.expandedHerdNodes.clear();
+    vi.clearAllMocks();
+  });
+
   it("folds groups past the visible limit and exposes a more control", () => {
     // Large groups should keep the sidebar scannable by rendering the configured top slice first.
     const onToggleOverflow = vi.fn();
@@ -145,6 +219,63 @@ describe("TreeViewGroup overflow", () => {
     expect(screen.queryByTestId("session-row-s-11")).not.toBeInTheDocument();
     expect(screen.getByTestId("session-row-s-12")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Show 1 more sessions in Default" })).toBeInTheDocument();
+  });
+
+  it("counts a leader with workers and reviewers as one folded overflow unit", () => {
+    // The visible limit applies to root nodes, so herd members and reviewer chips do not consume extra slots.
+    storeState.expandedHerdNodes.add("leader-1");
+    renderGroup({ group: groupWithHerdUnit(), visibleSessionLimit: 2 });
+
+    expect(screen.getByTestId("session-row-leader-1")).toBeInTheDocument();
+    expect(screen.getByTestId("session-row-worker-1")).toBeInTheDocument();
+    expect(screen.getByTestId("session-row-worker-2")).toBeInTheDocument();
+    expect(screen.getByTestId("session-reviewer-reviewer-1")).toBeInTheDocument();
+    expect(screen.getByTestId("session-row-standalone-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-row-standalone-3")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show 1 more sessions in Default" })).toBeInTheDocument();
+  });
+
+  it("hides a leader with workers and reviewers as one folded overflow unit", () => {
+    // A root node past the limit should disappear as a whole unit, including expanded workers and reviewer chips.
+    storeState.expandedHerdNodes.add("leader-hidden");
+    renderGroup({ group: groupWithHiddenHerdUnit(), visibleSessionLimit: 2 });
+
+    expect(screen.getByTestId("session-row-standalone-1")).toBeInTheDocument();
+    expect(screen.getByTestId("session-row-standalone-2")).toBeInTheDocument();
+    expect(screen.queryByTestId("session-row-leader-hidden")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-row-worker-hidden")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("session-reviewer-reviewer-hidden")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Show 1 more sessions in Default" })).toBeInTheDocument();
+  });
+
+  it("keeps a hidden leader unit visible when an active worker is inside it", () => {
+    // The active-session exception should find the worker inside the hidden unit and render that whole unit.
+    storeState.expandedHerdNodes.add("leader-hidden");
+    renderGroup({
+      group: groupWithHiddenHerdUnit(),
+      visibleSessionLimit: 2,
+      currentSessionId: "worker-hidden",
+    });
+
+    expect(screen.getByTestId("session-row-standalone-1")).toBeInTheDocument();
+    expect(screen.getByTestId("session-row-standalone-2")).toBeInTheDocument();
+    expect(screen.getByTestId("session-row-leader-hidden")).toBeInTheDocument();
+    expect(screen.getByTestId("session-row-worker-hidden")).toBeInTheDocument();
+    expect(screen.getByTestId("session-reviewer-reviewer-hidden")).toBeInTheDocument();
+  });
+
+  it("keeps a hidden leader unit visible when an active reviewer is inside it", () => {
+    // Reviewers render as chips on their parent unit, but they should still pull that unit into the folded view.
+    renderGroup({
+      group: groupWithHiddenHerdUnit(),
+      visibleSessionLimit: 2,
+      currentSessionId: "reviewer-hidden",
+    });
+
+    expect(screen.getByTestId("session-row-standalone-1")).toBeInTheDocument();
+    expect(screen.getByTestId("session-row-standalone-2")).toBeInTheDocument();
+    expect(screen.getByTestId("session-row-leader-hidden")).toBeInTheDocument();
+    expect(screen.getByTestId("session-reviewer-reviewer-hidden")).toBeInTheDocument();
   });
 
   it("offers visible limit choices from the group context menu", () => {
