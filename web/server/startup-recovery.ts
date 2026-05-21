@@ -7,7 +7,6 @@ export type StartupRecoveryReason =
   | "pending_codex_turns"
   | "pending_codex_recovery"
   | "pending_herd_delivery"
-  | "active_dead_backend"
   | "due_timer";
 
 export interface StartupRecoveryLauncherSession {
@@ -62,8 +61,6 @@ export interface StartupRecoveryDeps {
   timerManager?: StartupRecoveryTimerManager;
   restartContinuationSessionIds?: string[];
   alreadyRequestedRelaunchSessionIds?: Iterable<string>;
-  activeRecoveryLimit?: number;
-  activeRecoverySpacingMs?: number;
   now?: number;
   log?: (message: string, data?: Record<string, unknown>) => void;
 }
@@ -72,12 +69,9 @@ export interface StartupRecoverySessionResult {
   sessionId: string;
   reasons: StartupRecoveryReason[];
   requestedRelaunch: boolean;
-  requestedRelaunchDelayMs?: number;
   clearedIdleKilled: boolean;
   skippedReason?:
-    | "active_recovery_limit"
     | "already_connected"
-    | "idle_killed"
     | "no_relaunch_callback"
     | "relaunch_already_requested"
     | "recovery_suppressed"
@@ -89,19 +83,8 @@ export interface StartupRecoveryResult {
   timerSweep: TimerSweepResult | null;
 }
 
-type ActiveDeadBackendEligibilityDeps = Pick<
-  StartupRecoveryDeps,
-  "getSession" | "isBackendAttached" | "isBackendConnected" | "isSessionPaused"
->;
-
 export interface StartupRecoveryRelaunchExecutionDeps {
-  getLauncherSession: (sessionId: string) => StartupRecoveryLauncherSession | undefined;
-  getSession: (sessionId: string) => StartupRecoverySession | undefined;
-  isBackendConnected: (sessionId: string) => boolean;
-  isBackendAttached?: (sessionId: string) => boolean;
-  isSessionPaused?: (sessionId: string) => boolean;
   requestCliRelaunch?: (sessionId: string) => void;
-  requestCodexAutoRecovery?: (session: StartupRecoverySession, reason: string) => boolean;
 }
 
 export function requestStartupRecoveryRelaunch(
@@ -110,17 +93,6 @@ export function requestStartupRecoveryRelaunch(
   deps: StartupRecoveryRelaunchExecutionDeps,
 ): void {
   const requestRecovery = () => {
-    if (request?.reason === "active_dead_backend") {
-      const launcherSession = deps.getLauncherSession(sessionId);
-      if (!launcherSession || !isActiveDeadBackendCandidate(launcherSession, deps)) return;
-      const session = deps.getSession(sessionId);
-      if (session?.backendType === "codex") {
-        if (deps.requestCodexAutoRecovery) {
-          deps.requestCodexAutoRecovery(session, "startup_active_dead_backend");
-          return;
-        }
-      }
-    }
     deps.requestCliRelaunch?.(sessionId);
   };
 
@@ -137,8 +109,6 @@ export async function runStartupRecovery(deps: StartupRecoveryDeps): Promise<Sta
   const timerSweep = deps.timerManager ? await deps.timerManager.sweepDueTimersNow(now) : null;
   const restartContinuationSessionIds = new Set(deps.restartContinuationSessionIds ?? []);
   const alreadyRequestedRelaunchSessionIds = new Set(deps.alreadyRequestedRelaunchSessionIds ?? []);
-  const activeDeadBackendSessionIds = selectActiveDeadBackendSessionIds(deps);
-  let activeDeadBackendRequestIndex = 0;
 
   const recovered: StartupRecoverySessionResult[] = [];
   for (const launcherSession of deps.listLauncherSessions()) {
@@ -150,7 +120,6 @@ export async function runStartupRecovery(deps: StartupRecoveryDeps): Promise<Sta
     const reasons = collectStartupRecoveryReasons(session, {
       hasDueTimer: dueTimerSessionIds.has(launcherSession.sessionId),
       hasRestartContinuation: restartContinuationSessionIds.has(launcherSession.sessionId),
-      hasActiveDeadBackend: activeDeadBackendSessionIds.has(launcherSession.sessionId),
     });
     if (reasons.length === 0) continue;
 
@@ -192,24 +161,11 @@ export async function runStartupRecovery(deps: StartupRecoveryDeps): Promise<Sta
     }
 
     if (launcherSession.killedByIdleManager) {
-      if (reasons.length === 1 && reasons[0] === "active_dead_backend") {
-        result.skippedReason = "idle_killed";
-        recovered.push(result);
-        continue;
-      }
       launcherSession.killedByIdleManager = false;
       result.clearedIdleKilled = true;
     }
 
-    const activeDeadOnly = reasons.length === 1 && reasons[0] === "active_dead_backend";
-    const delayMs = activeDeadOnly ? activeDeadBackendRequestIndex * (deps.activeRecoverySpacingMs ?? 1500) : 0;
-    if (activeDeadOnly) {
-      deps.requestCliRelaunch(launcherSession.sessionId, { delayMs, reason: "active_dead_backend" });
-    } else {
-      deps.requestCliRelaunch(launcherSession.sessionId);
-    }
-    if (delayMs > 0) result.requestedRelaunchDelayMs = delayMs;
-    if (activeDeadOnly) activeDeadBackendRequestIndex++;
+    deps.requestCliRelaunch(launcherSession.sessionId);
     result.requestedRelaunch = true;
     recovered.push(result);
   }
@@ -227,13 +183,12 @@ export async function runStartupRecovery(deps: StartupRecoveryDeps): Promise<Sta
 
 export function collectStartupRecoveryReasons(
   session: StartupRecoverySession,
-  options: { hasActiveDeadBackend?: boolean; hasDueTimer?: boolean; hasRestartContinuation?: boolean } = {},
+  options: { hasDueTimer?: boolean; hasRestartContinuation?: boolean } = {},
 ): StartupRecoveryReason[] {
   const reasons = new Set<StartupRecoveryReason>();
 
   if (options.hasRestartContinuation) reasons.add("restart_continuation");
   if (options.hasDueTimer) reasons.add("due_timer");
-  if (options.hasActiveDeadBackend) reasons.add("active_dead_backend");
 
   const pendingMessages = session.pendingMessages ?? [];
   if (pendingMessages.length > 0) reasons.add("pending_messages");
@@ -249,40 +204,6 @@ export function collectStartupRecoveryReasons(
   if (hasDurablePendingHerdDelivery(session)) reasons.add("pending_herd_delivery");
 
   return [...reasons];
-}
-
-function selectActiveDeadBackendSessionIds(deps: StartupRecoveryDeps): Set<string> {
-  const limit = deps.activeRecoveryLimit ?? 0;
-  if (limit <= 0) return new Set();
-
-  const candidates = deps
-    .listLauncherSessions()
-    .filter((launcherSession) => isActiveDeadBackendCandidate(launcherSession, deps))
-    .sort(
-      (left, right) => (right.lastActivityAt ?? right.createdAt ?? 0) - (left.lastActivityAt ?? left.createdAt ?? 0),
-    )
-    .slice(0, limit)
-    .map((launcherSession) => launcherSession.sessionId);
-
-  return new Set(candidates);
-}
-
-function isActiveDeadBackendCandidate(
-  launcherSession: StartupRecoveryLauncherSession,
-  deps: ActiveDeadBackendEligibilityDeps,
-): boolean {
-  if (launcherSession.archived || launcherSession.killedByIdleManager) return false;
-  if (launcherSession.backendType !== "codex") return false;
-  if (launcherSession.state !== "exited" || launcherSession.exitCode !== -1) return false;
-  if (deps.isBackendConnected(launcherSession.sessionId)) return false;
-  if (deps.isBackendAttached?.(launcherSession.sessionId)) return false;
-  if (deps.isSessionPaused?.(launcherSession.sessionId)) return false;
-  const session = deps.getSession(launcherSession.sessionId);
-  if (!session) return false;
-  if (session.state?.backend_state === "broken" || session.state?.backend_state === "recovery_suppressed") {
-    return false;
-  }
-  return true;
 }
 
 function hasDurablePendingHerdDelivery(session: StartupRecoverySession): boolean {

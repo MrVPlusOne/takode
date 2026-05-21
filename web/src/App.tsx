@@ -798,7 +798,7 @@ export default function App() {
           <div className="bg-cc-card border border-cc-border rounded-xl p-6 text-center max-w-sm">
             <div className="animate-spin w-8 h-8 border-2 border-cc-primary border-t-transparent rounded-full mx-auto mb-4" />
             <h2 className="text-sm font-semibold text-cc-fg">Server Restarting</h2>
-            <p className="mt-2 text-xs text-cc-muted">Sessions will automatically reconnect when the server is back.</p>
+            <p className="mt-2 text-xs text-cc-muted">Sessions reconnect on demand after the server is back.</p>
           </div>
         </div>
       )}

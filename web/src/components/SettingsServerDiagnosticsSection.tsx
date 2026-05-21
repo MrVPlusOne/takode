@@ -261,9 +261,9 @@ export function SettingsServerDiagnosticsSection({
 
         <div className="border-t border-cc-border pt-3 space-y-3">
           <p className="text-xs text-cc-muted">
-            Restart the server process. Useful after pulling new code. Sessions will reconnect automatically. If restart
-            readiness is blocked by active turns or pending permission dialogs, restart prep interrupts active blockers
-            first and reports anything still unresolved.
+            Restart the server process. Useful after pulling new code. Sessions reconnect on demand when queued work or
+            a response needs a backend. If restart readiness is blocked by active turns or pending permission dialogs,
+            restart prep interrupts active blockers first and reports anything still unresolved.
           </p>
 
           {!restartSupported && (

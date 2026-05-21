@@ -235,7 +235,8 @@ describe("startup-recovery", () => {
 
       finishRelaunch();
       await Promise.resolve();
-      await vi.advanceTimersByTimeAsync(11);
+      vi.advanceTimersByTime(11);
+      await Promise.resolve();
 
       expect(runRelaunch).toHaveBeenCalledTimes(1);
     } finally {
@@ -276,7 +277,10 @@ describe("startup-recovery", () => {
     ]);
   });
 
-  it("requests bounded startup relaunch for newest active dead Codex sessions", async () => {
+  it("does not reconnect idle active dead Codex sessions at startup", async () => {
+    // Disconnected Codex sessions can remain useful for browser/server-local
+    // work. Startup recovery should wake durable deliverables, not every
+    // previously active dead backend.
     const launcherSessions: StartupRecoveryLauncherSession[] = [
       {
         sessionId: "old-codex",
@@ -316,50 +320,53 @@ describe("startup-recovery", () => {
       getSession: (sessionId) => sessions.get(sessionId),
       isBackendConnected: () => false,
       requestCliRelaunch,
-      activeRecoveryLimit: 2,
-      activeRecoverySpacingMs: 250,
     });
 
-    expect(requestCliRelaunch).toHaveBeenCalledTimes(2);
-    expect(requestCliRelaunch).toHaveBeenNthCalledWith(1, "new-codex", {
-      delayMs: 0,
-      reason: "active_dead_backend",
-    });
-    expect(requestCliRelaunch).toHaveBeenNthCalledWith(2, "middle-codex", {
-      delayMs: 250,
-      reason: "active_dead_backend",
-    });
-    expect(result.recovered).toEqual([
-      {
-        sessionId: "new-codex",
-        reasons: ["active_dead_backend"],
-        requestedRelaunch: true,
-        clearedIdleKilled: false,
-      },
-      {
-        sessionId: "middle-codex",
-        reasons: ["active_dead_backend"],
-        requestedRelaunch: true,
-        requestedRelaunchDelayMs: 250,
-        clearedIdleKilled: false,
-      },
-    ]);
+    expect(requestCliRelaunch).not.toHaveBeenCalled();
+    expect(result.recovered).toEqual([]);
   });
 
-  it("excludes inactive or suppressed dead Codex sessions from startup active recovery", async () => {
+  it("still reconnects dead sessions with startup deliverables", async () => {
+    // The on-demand policy only removes active-session eagerness. Durable
+    // queued work still needs a live backend and must not silently stall.
     const launcherSessions: StartupRecoveryLauncherSession[] = [
-      { sessionId: "idle-killed", backendType: "codex", state: "exited", exitCode: -1, killedByIdleManager: true },
-      { sessionId: "paused", backendType: "codex", state: "exited", exitCode: -1 },
-      { sessionId: "suppressed", backendType: "codex", state: "exited", exitCode: -1 },
-      { sessionId: "claude", backendType: "claude", state: "exited", exitCode: -1 },
-      { sessionId: "clean-exit", backendType: "codex", state: "exited", exitCode: 0 },
+      {
+        sessionId: "codex-with-user-message",
+        backendType: "codex",
+        state: "exited",
+        exitCode: -1,
+        lastActivityAt: 30,
+      },
+      {
+        sessionId: "codex-with-turn",
+        backendType: "codex",
+        state: "exited",
+        exitCode: -1,
+        lastActivityAt: 20,
+      },
+      {
+        sessionId: "codex-idle",
+        backendType: "codex",
+        state: "exited",
+        exitCode: -1,
+        lastActivityAt: 10,
+      },
     ];
     const sessions = new Map<string, StartupRecoverySession>([
-      ["idle-killed", { backendType: "codex", state: { backend_state: "disconnected" } }],
-      ["paused", { backendType: "codex", state: { backend_state: "disconnected" } }],
-      ["suppressed", { backendType: "codex", state: { backend_state: "recovery_suppressed" } }],
-      ["claude", { backendType: "claude", state: { backend_state: "disconnected" } }],
-      ["clean-exit", { backendType: "codex", state: { backend_state: "disconnected" } }],
+      [
+        "codex-with-user-message",
+        { backendType: "codex", state: { backend_state: "disconnected" }, pendingMessages: [userMessage()] },
+      ],
+      [
+        "codex-with-turn",
+        {
+          backendType: "codex",
+          state: { backend_state: "disconnected" },
+          pendingCodexInputs: [{ id: "u1" }],
+          pendingCodexTurns: [{ status: "queued", userMessageId: "u1" }],
+        },
+      ],
+      ["codex-idle", { backendType: "codex", state: { backend_state: "disconnected" } }],
     ]);
     const requestCliRelaunch = vi.fn();
 
@@ -367,97 +374,71 @@ describe("startup-recovery", () => {
       listLauncherSessions: () => launcherSessions,
       getSession: (sessionId) => sessions.get(sessionId),
       isBackendConnected: () => false,
-      isSessionPaused: (sessionId) => sessionId === "paused",
       requestCliRelaunch,
-      activeRecoveryLimit: 10,
+    });
+
+    expect(requestCliRelaunch).toHaveBeenCalledTimes(2);
+    expect(requestCliRelaunch).toHaveBeenNthCalledWith(1, "codex-with-user-message");
+    expect(requestCliRelaunch).toHaveBeenNthCalledWith(2, "codex-with-turn");
+    expect(result.recovered).toEqual([
+      {
+        sessionId: "codex-with-user-message",
+        reasons: ["pending_messages"],
+        requestedRelaunch: true,
+        clearedIdleKilled: false,
+      },
+      {
+        sessionId: "codex-with-turn",
+        reasons: ["pending_codex_inputs", "pending_codex_turns"],
+        requestedRelaunch: true,
+        clearedIdleKilled: false,
+      },
+    ]);
+  });
+
+  it("does not reconnect archived sessions even when they have startup deliverables", async () => {
+    const launcherSessions: StartupRecoveryLauncherSession[] = [
+      { sessionId: "archived-with-work", archived: true, backendType: "codex", state: "exited", exitCode: -1 },
+    ];
+    const sessions = new Map<string, StartupRecoverySession>([
+      [
+        "archived-with-work",
+        { backendType: "codex", state: { backend_state: "disconnected" }, pendingMessages: [userMessage()] },
+      ],
+    ]);
+    const requestCliRelaunch = vi.fn();
+
+    const result = await runStartupRecovery({
+      listLauncherSessions: () => launcherSessions,
+      getSession: (sessionId) => sessions.get(sessionId),
+      isBackendConnected: () => false,
+      requestCliRelaunch,
     });
 
     expect(requestCliRelaunch).not.toHaveBeenCalled();
     expect(result.recovered).toEqual([]);
   });
 
-  it("does not fall back to raw relaunch when Codex startup auto-recovery refuses", () => {
-    const session: StartupRecoverySession = { backendType: "codex", state: { backend_state: "disconnected" } };
-    const requestCodexAutoRecovery = vi.fn(() => false);
-    const requestCliRelaunch = vi.fn();
-
-    requestStartupRecoveryRelaunch(
-      "codex",
-      { reason: "active_dead_backend" },
-      {
-        getLauncherSession: (sessionId) =>
-          sessionId === "codex" ? { sessionId, backendType: "codex", state: "exited", exitCode: -1 } : undefined,
-        getSession: (sessionId) => (sessionId === "codex" ? session : undefined),
-        isBackendConnected: () => false,
-        isBackendAttached: () => false,
-        isSessionPaused: () => false,
-        requestCodexAutoRecovery,
-        requestCliRelaunch,
-      },
-    );
-
-    expect(requestCodexAutoRecovery).toHaveBeenCalledWith(session, "startup_active_dead_backend");
-    expect(requestCliRelaunch).not.toHaveBeenCalled();
-  });
-
-  it("falls back to raw relaunch when no Codex startup auto-recovery implementation is available", () => {
-    const session: StartupRecoverySession = { backendType: "codex", state: { backend_state: "disconnected" } };
-    const requestCliRelaunch = vi.fn();
-
-    requestStartupRecoveryRelaunch(
-      "codex",
-      { reason: "active_dead_backend" },
-      {
-        getLauncherSession: (sessionId) =>
-          sessionId === "codex" ? { sessionId, backendType: "codex", state: "exited", exitCode: -1 } : undefined,
-        getSession: (sessionId) => (sessionId === "codex" ? session : undefined),
-        isBackendConnected: () => false,
-        isBackendAttached: () => false,
-        isSessionPaused: () => false,
-        requestCliRelaunch,
-      },
-    );
-
-    expect(requestCliRelaunch).toHaveBeenCalledWith("codex");
-  });
-
-  it("revalidates delayed active-dead recovery before requesting recovery", () => {
+  it("honors delayed relaunch requests for explicit startup deliverables", () => {
     vi.useFakeTimers();
     try {
-      const launcherSessions = new Map<string, StartupRecoveryLauncherSession>([
-        ["connected", { sessionId: "connected", backendType: "codex", state: "exited", exitCode: -1 }],
-        ["paused", { sessionId: "paused", backendType: "codex", state: "exited", exitCode: -1 }],
-      ]);
-      const sessions = new Map<string, StartupRecoverySession>([
-        ["connected", { backendType: "codex", state: { backend_state: "disconnected" } }],
-        ["paused", { backendType: "codex", state: { backend_state: "disconnected" } }],
-      ]);
-      const requestCodexAutoRecovery = vi.fn(() => true);
       const requestCliRelaunch = vi.fn();
-      const connected = new Set<string>();
-      const paused = new Set<string>();
 
-      const deps = {
-        getLauncherSession: (sessionId: string) => launcherSessions.get(sessionId),
-        getSession: (sessionId: string) => sessions.get(sessionId),
-        isBackendConnected: (sessionId: string) => connected.has(sessionId),
-        isBackendAttached: (sessionId: string) => connected.has(sessionId),
-        isSessionPaused: (sessionId: string) => paused.has(sessionId),
-        requestCodexAutoRecovery,
-        requestCliRelaunch,
-      };
+      requestStartupRecoveryRelaunch("codex", { delayMs: 250, reason: "pending_messages" }, { requestCliRelaunch });
 
-      requestStartupRecoveryRelaunch("connected", { delayMs: 250, reason: "active_dead_backend" }, deps);
-      requestStartupRecoveryRelaunch("paused", { delayMs: 250, reason: "active_dead_backend" }, deps);
-
-      connected.add("connected");
-      paused.add("paused");
-      vi.advanceTimersByTime(250);
-
-      expect(requestCodexAutoRecovery).not.toHaveBeenCalled();
       expect(requestCliRelaunch).not.toHaveBeenCalled();
+      vi.advanceTimersByTime(250);
+      expect(requestCliRelaunch).toHaveBeenCalledWith("codex");
     } finally {
       vi.useRealTimers();
     }
+  });
+
+  it("relaunches explicit startup deliverables immediately by default", () => {
+    const requestCliRelaunch = vi.fn();
+
+    requestStartupRecoveryRelaunch("codex", { reason: "pending_messages" }, { requestCliRelaunch });
+
+    expect(requestCliRelaunch).toHaveBeenCalledWith("codex");
   });
 });

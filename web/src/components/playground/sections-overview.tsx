@@ -644,7 +644,7 @@ export function PlaygroundOverviewSections() {
               <ChatView sessionId={PLAYGROUND_RESUMING_SESSION_ID} />
             </div>
           </Card>
-          <Card label="Session disconnected">
+          <Card label="Recoverable disconnected session">
             <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
               <ChatView sessionId={PLAYGROUND_DISCONNECTED_SESSION_ID} />
             </div>

@@ -176,11 +176,7 @@ function LiveConnectionStatusBanner({
   isResumeMissingRolloutError = false,
   onRelaunch,
 }: LiveConnectionStatusBannerProps) {
-  const isWarning =
-    status === "server-unreachable" ||
-    status === "broken" ||
-    status === "recovery-suppressed" ||
-    (status === "cli-disconnected" && !idlePaused);
+  const isWarning = status === "server-unreachable" || status === "broken" || status === "recovery-suppressed";
   const message =
     status === "server-unreachable"
       ? "Server unreachable"
@@ -193,7 +189,7 @@ function LiveConnectionStatusBanner({
             : status === "cli-disconnected"
               ? idlePaused
                 ? "Session paused to stay within keep-alive limit"
-                : "Session disconnected"
+                : "Keep working here. Takode reconnects when delivery needs the backend."
               : backendState === "recovering"
                 ? "Recovering session..."
                 : backendState === "resuming" || hasEverConnected

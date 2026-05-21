@@ -988,21 +988,12 @@ await captureStartupInjectedRelaunches(async () => {
     isSessionPaused: (sessionId) => wsBridge.isSessionPaused(sessionId),
     requestCliRelaunch: (sessionId, request) => {
       requestStartupRecoveryRelaunch(sessionId, request, {
-        getLauncherSession: (targetSessionId) => launcher.getSession(targetSessionId),
-        getSession: (targetSessionId) => wsBridge.getSession(targetSessionId),
-        isBackendConnected: (targetSessionId) => wsBridge.isBackendConnected(targetSessionId),
-        isBackendAttached: (targetSessionId) => wsBridge.isBackendAttached(targetSessionId),
-        isSessionPaused: (targetSessionId) => wsBridge.isSessionPaused(targetSessionId),
         requestCliRelaunch: (targetSessionId) => wsBridge.onCLIRelaunchNeeded?.(targetSessionId),
-        requestCodexAutoRecovery: (targetSession, reason) =>
-          bridgeAny.requestCodexAutoRecovery?.(targetSession, reason) ?? false,
       });
     },
     timerManager,
     restartContinuationSessionIds,
     alreadyRequestedRelaunchSessionIds: startupInjectedRelaunchSessionIds,
-    activeRecoveryLimit: getSettings().maxKeepAlive > 0 ? getSettings().maxKeepAlive : 4,
-    activeRecoverySpacingMs: 1500,
     log: (message, data) => serverLog.info(message, data),
   });
   if (recovery.recovered.length > 0) {
