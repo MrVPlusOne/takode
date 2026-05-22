@@ -17,6 +17,10 @@ import { TimerChip } from "./TimerWidget.js";
 import { formatElapsed, formatTokens, getFooterFeedBlockId, getPendingCodexFeedBlockId } from "./message-feed-utils.js";
 import { formatReplyContentForPreview } from "../utils/reply-context.js";
 import { normalizeThreadKey } from "../utils/thread-projection.js";
+import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
+
+const FLOATING_FEED_CHIP_CLASS =
+  "relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden rounded-[18px] border border-cc-border bg-cc-card/95 px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md";
 
 export function ElapsedTimer({
   sessionId,
@@ -120,8 +124,6 @@ export function ElapsedTimer({
       : "text-cc-primary animate-pulse";
   const canNavigateActiveTurn =
     variant === "floating" && !!onSelectThread && !!activeTurnNavigationTarget && !isStuck && !streamingPauseStartedAt;
-  const floatingChipClassName =
-    "relative inline-flex max-w-[min(18rem,calc(100vw-2.75rem))] items-center gap-1.5 overflow-hidden rounded-[18px] border border-cc-border bg-cc-card/95 px-2.5 py-1 text-[11px] text-cc-muted font-mono-code shadow-[0_10px_30px_rgba(0,0,0,0.22)] backdrop-blur-md";
   const floatingChipContents = (
     <>
       <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
@@ -152,7 +154,7 @@ export function ElapsedTimer({
           <button
             type="button"
             onClick={() => onSelectThread(targetThreadKey)}
-            className={`${floatingChipClassName} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
+            className={`${FLOATING_FEED_CHIP_CLASS} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
             data-active-turn-target={targetThreadKey}
             aria-label={`Jump to active thread ${targetThreadKey}`}
             title={`Jump to active thread ${targetThreadKey}`}
@@ -165,7 +167,7 @@ export function ElapsedTimer({
 
     return (
       <div ref={rootRef} className="pointer-events-auto">
-        <div className={`${floatingChipClassName} cursor-default`} data-active-turn-target="">
+        <div className={`${FLOATING_FEED_CHIP_CLASS} cursor-default`} data-active-turn-target="">
           {floatingChipContents}
         </div>
       </div>
@@ -212,6 +214,75 @@ export function ElapsedTimer({
   );
 }
 
+export function RecoverableConnectionChip({ sessionId }: { sessionId: string }) {
+  const [hoverOpen, setHoverOpen] = useState(false);
+  const [pinnedOpen, setPinnedOpen] = useState(false);
+  const connectionStatus = useStore((s) => s.connectionStatus?.get(sessionId) ?? "disconnected");
+  const session = useStore((s) => s.sessions?.get(sessionId));
+  const cliConnected = useStore((s) => s.cliConnected?.get(sessionId) ?? false);
+  const cliEverConnected = useStore((s) => s.cliEverConnected?.get(sessionId) ?? false);
+  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason?.get(sessionId) ?? null);
+  const serverReachable = useStore((s) => s.serverReachable ?? true);
+  const presentation = getRecoverableSessionConnectionPresentation({
+    backendState: session?.backend_state,
+    browserConnectionStatus: connectionStatus,
+    cliConnected,
+    cliEverConnected,
+    idlePaused: cliDisconnectReason === "idle_limit",
+    serverReachable,
+  });
+
+  if (!presentation) return null;
+
+  const detailOpen = hoverOpen || pinnedOpen;
+  const dotClassName = presentation.kind === "reconnecting" ? "bg-cc-primary animate-pulse" : "bg-cc-muted";
+
+  function handleResume() {
+    api.relaunchSession(sessionId).catch(() => {});
+  }
+
+  return (
+    <div
+      className="pointer-events-auto relative"
+      onMouseEnter={() => setHoverOpen(true)}
+      onMouseLeave={() => setHoverOpen(false)}
+    >
+      <button
+        type="button"
+        className={`${FLOATING_FEED_CHIP_CLASS} cursor-pointer text-left transition-colors hover:border-white/14 hover:bg-white/[0.06] focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70`}
+        aria-expanded={detailOpen}
+        aria-controls={`recoverable-connection-detail-${sessionId}`}
+        title={presentation.detail}
+        data-testid="recoverable-connection-chip"
+        onClick={() => setPinnedOpen((open) => !open)}
+      >
+        <span className="pointer-events-none absolute inset-0 bg-cc-hover/20" />
+        <span className={`relative h-2 w-2 shrink-0 rounded-full ${dotClassName}`} aria-hidden="true" />
+        <span className="relative truncate text-cc-fg/90">{presentation.label}</span>
+      </button>
+
+      {detailOpen && (
+        <div
+          id={`recoverable-connection-detail-${sessionId}`}
+          data-testid="recoverable-connection-detail"
+          className="absolute bottom-full left-0 z-20 mb-2 w-[min(19rem,calc(100vw-1rem))] rounded-lg border border-cc-border bg-cc-card p-3 text-left shadow-xl"
+          role="status"
+        >
+          <div className="text-[11px] font-medium text-cc-fg">{presentation.label}</div>
+          <div className="mt-1 text-[11px] leading-snug text-cc-muted">{presentation.detail}</div>
+          <button
+            type="button"
+            className="mt-2 inline-flex items-center rounded-md border border-cc-border px-2 py-1 text-[11px] font-medium text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+            onClick={handleResume}
+          >
+            {presentation.actionLabel}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export function FeedStatusPill({
   sessionId,
   currentThreadKey = "main",
@@ -250,8 +321,9 @@ export function FeedStatusPill({
       <div
         ref={leftStackRef}
         data-testid="feed-status-pill-left"
-        className="pointer-events-none absolute bottom-2 left-2 z-10 sm:bottom-3 sm:left-3"
+        className="pointer-events-none absolute bottom-2 left-2 z-10 flex max-w-[calc(100vw-1rem)] flex-col items-start gap-1.5 sm:bottom-3 sm:left-3"
       >
+        <RecoverableConnectionChip sessionId={sessionId} />
         <ElapsedTimer
           sessionId={sessionId}
           variant="floating"

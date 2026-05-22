@@ -631,7 +631,7 @@ export function PlaygroundOverviewSections() {
 
       <Section
         title="ChatView Recovery States"
-        description="Live connection and recovery banners stay inside the chat surface near the composer instead of becoming page-level obstructions."
+        description="Recoverable disconnects use the lower-left feed chip, while blocking recovery failures keep the prominent chat-surface banner."
       >
         <div className="space-y-4">
           <Card label="Fresh session starting">
@@ -639,17 +639,17 @@ export function PlaygroundOverviewSections() {
               <ChatView sessionId={PLAYGROUND_STARTING_SESSION_ID} />
             </div>
           </Card>
-          <Card label="Codex session recovering">
+          <Card label="Recoverable reconnecting chip">
             <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
               <ChatView sessionId={PLAYGROUND_RECOVERING_SESSION_ID} />
             </div>
           </Card>
-          <Card label="Codex session resuming">
+          <Card label="Recoverable resuming chip">
             <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
               <ChatView sessionId={PLAYGROUND_RESUMING_SESSION_ID} />
             </div>
           </Card>
-          <Card label="Recoverable disconnected session">
+          <Card label="Recoverable disconnected chip">
             <div className="border border-cc-border rounded-xl overflow-hidden bg-cc-card h-[260px]">
               <ChatView sessionId={PLAYGROUND_DISCONNECTED_SESSION_ID} />
             </div>

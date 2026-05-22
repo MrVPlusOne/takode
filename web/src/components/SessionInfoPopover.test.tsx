@@ -39,6 +39,7 @@ interface MockStoreState {
       total_lines_added?: number;
       total_lines_removed?: number;
       repo_root?: string;
+      backend_state?: string;
     }
   >;
   sdkSessions: Array<{
@@ -89,6 +90,10 @@ interface MockStoreState {
   sessionTaskHistory: Map<string, Array<{ title: string; source?: "quest"; questId?: string }>>;
   sessionNames: Map<string, string>;
   connectionStatus: Map<string, string>;
+  cliConnected: Map<string, boolean>;
+  cliEverConnected: Map<string, boolean>;
+  cliDisconnectReason: Map<string, "idle_limit" | "broken" | "recovery_suppressed" | null>;
+  serverReachable: boolean;
   updateSdkSession: ReturnType<typeof vi.fn>;
 }
 
@@ -121,6 +126,10 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
     sessionTaskHistory: new Map([["s1", taskHistory]]),
     sessionNames: new Map(),
     connectionStatus: new Map([["s1", "connected"]]),
+    cliConnected: new Map([["s1", true]]),
+    cliEverConnected: new Map([["s1", true]]),
+    cliDisconnectReason: new Map([["s1", null]]),
+    serverReachable: true,
     updateSdkSession: vi.fn(),
   };
 }
@@ -157,6 +166,7 @@ vi.mock("../api.js", () => ({
   api: {
     getSettings: vi.fn(),
     listSessions: vi.fn(),
+    relaunchSession: vi.fn(),
     updateLeaderProfilePortrait: vi.fn(),
   },
 }));
@@ -188,6 +198,8 @@ describe("SessionInfoPopover", () => {
     >);
     vi.mocked(api.listSessions).mockReset();
     vi.mocked(api.listSessions).mockResolvedValue([]);
+    vi.mocked(api.relaunchSession).mockReset();
+    vi.mocked(api.relaunchSession).mockResolvedValue({} as Awaited<ReturnType<typeof api.relaunchSession>>);
     vi.mocked(api.updateLeaderProfilePortrait).mockReset();
     vi.mocked(openPathWithEditorPreference).mockReset();
     vi.mocked(openPathWithEditorPreference).mockResolvedValue(true);
@@ -239,6 +251,25 @@ describe("SessionInfoPopover", () => {
     expect(screen.getByRole("dialog", { name: "Leader profile" })).toBeInTheDocument();
     expect(screen.getAllByText("Tako 1.1")).toHaveLength(2);
     expect(screen.getByText("Tako")).toBeInTheDocument();
+  });
+
+  it("shows recoverable disconnected detail and manual resume in session info", () => {
+    resetStore([]);
+    const session = storeState.sessions.get("s1");
+    storeState.sessions.set("s1", { ...(session ?? {}), backend_state: "connected" });
+    storeState.cliConnected = new Map([["s1", false]]);
+    storeState.cliEverConnected = new Map([["s1", true]]);
+
+    render(<SessionInfoPopover sessionId="s1" onClose={() => {}} />);
+
+    const detail = screen.getByTestId("session-info-recoverable-connection");
+    expect(within(detail).getByText("Disconnected")).toBeInTheDocument();
+    expect(detail).toHaveTextContent(
+      "You can keep working normally. Takode reconnects automatically when backend delivery is needed.",
+    );
+
+    fireEvent.click(within(detail).getByRole("button", { name: "Resume" }));
+    expect(api.relaunchSession).toHaveBeenCalledWith("s1");
   });
 
   it("does not close when clicking inside the leader profile picker portal", () => {

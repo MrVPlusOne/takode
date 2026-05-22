@@ -20,6 +20,7 @@ import { api, type EditorKind } from "../api.js";
 import type { SdkSessionInfo, SessionLifecycleEvent } from "../types.js";
 import { openPathWithEditorPreference } from "../utils/vscode-bridge.js";
 import { LeaderProfilePortraitButton } from "./LeaderProfilePortraitButton.js";
+import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
 
 const POPOVER_MARGIN = 12;
 const POPOVER_GAP = 8;
@@ -101,7 +102,12 @@ export function SessionInfoPopover({
     container.scrollTop = container.scrollHeight;
   }, [sessionId, taskHistory]);
 
-  const isConnected = useStore((s) => s.connectionStatus.get(sessionId) === "connected");
+  const browserConnectionStatus = useStore((s) => s.connectionStatus.get(sessionId) ?? "disconnected");
+  const isConnected = browserConnectionStatus === "connected";
+  const cliConnected = useStore((s) => s.cliConnected.get(sessionId) ?? false);
+  const cliEverConnected = useStore((s) => s.cliEverConnected.get(sessionId) ?? false);
+  const cliDisconnectReason = useStore((s) => s.cliDisconnectReason.get(sessionId) ?? null);
+  const serverReachable = useStore((s) => s.serverReachable);
   const codexReasoningEffort = session?.codex_reasoning_effort || "";
   const [showModelDropdown, setShowModelDropdown] = useState(false);
   const [showReasoningDropdown, setShowReasoningDropdown] = useState(false);
@@ -216,6 +222,14 @@ export function SessionInfoPopover({
           ? "Configure an editor in Settings to open this directory."
           : "";
   const canOpenWorkingDirectory = !!cwd && !!editorKind && editorKind !== "none" && !editorConfigError;
+  const recoverableConnectionPresentation = getRecoverableSessionConnectionPresentation({
+    backendState: session?.backend_state,
+    browserConnectionStatus,
+    cliConnected,
+    cliEverConnected,
+    idlePaused: cliDisconnectReason === "idle_limit",
+    serverReachable,
+  });
   const leaderProfilePortrait = effectiveSdkSession?.isOrchestrator ? effectiveSdkSession.leaderProfilePortrait : null;
   const popoverStyle = useMemo(() => {
     if (typeof window === "undefined") return undefined;
@@ -346,6 +360,34 @@ export function SessionInfoPopover({
               </>
             )}
           </div>
+          {recoverableConnectionPresentation && (
+            <div
+              className="rounded-lg border border-cc-border/70 bg-cc-hover/20 px-2.5 py-2"
+              data-testid="session-info-recoverable-connection"
+            >
+              <div className="flex items-center gap-2">
+                <span
+                  className={`h-2 w-2 shrink-0 rounded-full ${
+                    recoverableConnectionPresentation.kind === "reconnecting"
+                      ? "bg-cc-primary animate-pulse"
+                      : "bg-cc-muted"
+                  }`}
+                  aria-hidden="true"
+                />
+                <span className="text-[11px] font-medium text-cc-fg">{recoverableConnectionPresentation.label}</span>
+              </div>
+              <div className="mt-1 text-[11px] leading-snug text-cc-muted">
+                {recoverableConnectionPresentation.detail}
+              </div>
+              <button
+                type="button"
+                className="mt-2 inline-flex items-center rounded-md border border-cc-border px-2 py-1 text-[11px] font-medium text-cc-fg transition-colors hover:border-cc-primary/40 hover:bg-cc-hover focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-primary/70"
+                onClick={() => api.relaunchSession(sessionId).catch(console.error)}
+              >
+                {recoverableConnectionPresentation.actionLabel}
+              </button>
+            </div>
+          )}
           {isCodexSession && (
             <div className="flex items-center gap-1.5">
               <span className="text-[11px] text-cc-muted/60">Reasoning</span>

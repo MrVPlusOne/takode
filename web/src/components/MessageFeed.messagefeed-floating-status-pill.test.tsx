@@ -29,6 +29,7 @@ beforeAll(() => {
 });
 
 import { render, screen, fireEvent, act, within } from "@testing-library/react";
+import "@testing-library/jest-dom";
 import type { ChatMessage } from "../types.js";
 import type { FeedEntry, Turn } from "../hooks/use-feed-model.js";
 
@@ -55,9 +56,16 @@ const mockCollapseAllTurnActivity = vi.fn();
 const mockClearBottomAlignOnNextUserMessage = vi.fn();
 const mockSetComposerDraft = vi.fn();
 const mockSendToSession: any = vi.fn(() => true);
+const mockRelaunchSession = vi.fn().mockResolvedValue({});
 
 vi.mock("../ws.js", () => ({
   sendToSession: (sessionId: string, msg: any) => mockSendToSession(sessionId, msg),
+}));
+
+vi.mock("../api.js", () => ({
+  api: {
+    relaunchSession: (...args: unknown[]) => mockRelaunchSession(...args),
+  },
 }));
 
 vi.mock("../store.js", () => {
@@ -79,6 +87,11 @@ vi.mock("../store.js", () => {
       sessionStatus: mockStoreValues.sessionStatus ?? new Map(),
       sessionStuck: mockStoreValues.sessionStuck ?? new Map(),
       sessions: mockStoreValues.sessions ?? new Map(),
+      connectionStatus: mockStoreValues.connectionStatus ?? new Map(),
+      cliConnected: mockStoreValues.cliConnected ?? new Map(),
+      cliEverConnected: mockStoreValues.cliEverConnected ?? new Map(),
+      cliDisconnectReason: mockStoreValues.cliDisconnectReason ?? new Map(),
+      serverReachable: mockStoreValues.serverReachable ?? true,
       toolProgress: mockStoreValues.toolProgress ?? new Map(),
       toolResults: mockStoreValues.toolResults ?? new Map(),
       toolStartTimestamps: mockStoreValues.toolStartTimestamps ?? new Map(),
@@ -313,6 +326,29 @@ function setStoreSessionState(sessionId: string, session: Record<string, unknown
   mockStoreValues.sessions = map;
 }
 
+function setStoreConnectionState(
+  sessionId: string,
+  {
+    browser = "connected",
+    cliConnected = false,
+    cliEverConnected = true,
+    cliDisconnectReason = null,
+    serverReachable = true,
+  }: {
+    browser?: "connecting" | "connected" | "disconnected";
+    cliConnected?: boolean;
+    cliEverConnected?: boolean;
+    cliDisconnectReason?: "idle_limit" | "broken" | "recovery_suppressed" | null;
+    serverReachable?: boolean;
+  } = {},
+) {
+  mockStoreValues.connectionStatus = new Map([[sessionId, browser]]);
+  mockStoreValues.cliConnected = new Map([[sessionId, cliConnected]]);
+  mockStoreValues.cliEverConnected = cliEverConnected ? new Map([[sessionId, true]]) : new Map();
+  mockStoreValues.cliDisconnectReason = new Map([[sessionId, cliDisconnectReason]]);
+  mockStoreValues.serverReachable = serverReachable;
+}
+
 function setStoreStreamingStartedAt(sessionId: string, startedAt: number | undefined) {
   const map = new Map();
   if (startedAt !== undefined) map.set(sessionId, startedAt);
@@ -402,6 +438,8 @@ function resetStore() {
   mockSetComposerDraft.mockReset();
   mockSendToSession.mockReset();
   mockSendToSession.mockReturnValue(true);
+  mockRelaunchSession.mockReset();
+  mockRelaunchSession.mockResolvedValue({});
   mockStoreValues.messages = new Map();
   mockStoreValues.messageFrozenCounts = new Map();
   mockStoreValues.messageFrozenRevisions = new Map();
@@ -414,6 +452,11 @@ function resetStore() {
   mockStoreValues.streamingPauseStartedAt = new Map();
   mockStoreValues.sessionStatus = new Map();
   mockStoreValues.sessions = new Map();
+  mockStoreValues.connectionStatus = new Map();
+  mockStoreValues.cliConnected = new Map();
+  mockStoreValues.cliEverConnected = new Map();
+  mockStoreValues.cliDisconnectReason = new Map();
+  mockStoreValues.serverReachable = true;
   mockStoreValues.toolProgress = new Map();
   mockStoreValues.toolResults = new Map();
   mockStoreValues.toolStartTimestamps = new Map();
@@ -515,6 +558,120 @@ describe("MessageFeed - floating status pill", () => {
     expect(screen.getByText("Purring...")).toBeTruthy();
     expect(screen.getByText("10s")).toBeTruthy();
     expect(screen.getByText(/2\.5k/)).toBeTruthy();
+  });
+
+  it("renders a recoverable disconnected chip with click/tap detail and manual resume", () => {
+    const sid = "test-feed-disconnected-chip";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Idle session" })]);
+    setStoreSessionState(sid, { backend_state: "connected" });
+    setStoreConnectionState(sid);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByTestId("live-connection-status-banner")).toBeNull();
+    const chip = screen.getByTestId("recoverable-connection-chip");
+    expect(chip).toHaveTextContent("Disconnected");
+
+    fireEvent.click(chip);
+
+    expect(screen.getByTestId("recoverable-connection-detail")).toHaveTextContent(
+      "You can keep working normally. Takode reconnects automatically when backend delivery is needed.",
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Resume" }));
+    expect(mockRelaunchSession).toHaveBeenCalledWith(sid);
+  });
+
+  it("renders the recoverable disconnected chip over an empty feed state", () => {
+    const sid = "test-feed-empty-disconnected-chip";
+    setStoreSessionState(sid, { backend_state: "connected" });
+    setStoreConnectionState(sid);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Start a conversation")).toBeTruthy();
+    const chip = screen.getByTestId("recoverable-connection-chip");
+    expect(chip).toHaveTextContent("Disconnected");
+  });
+
+  it("reserves empty-state clearance for the lower-left recoverable chip", () => {
+    const sid = "test-feed-empty-disconnected-chip-clearance";
+    setStoreSessionState(sid, { backend_state: "connected" });
+    setStoreConnectionState(sid);
+
+    const getBoundingClientRectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockImplementation(function (this: HTMLElement) {
+        if (this.getAttribute("data-testid") === "feed-status-pill-left") {
+          return makeDomRect(27, 116);
+        }
+        return makeDomRect(0, 0);
+      });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByTestId("message-feed-centered-state").style.paddingBottom).toBe("91px");
+    expect(screen.getByTestId("recoverable-connection-chip")).toHaveTextContent("Disconnected");
+
+    getBoundingClientRectSpy.mockRestore();
+  });
+
+  it("renders the recoverable reconnecting chip over a loading feed state", () => {
+    const sid = "test-feed-loading-reconnecting-chip";
+    setStoreHistoryLoading(sid, true);
+    setStoreSessionState(sid, { backend_state: "recovering" });
+    setStoreConnectionState(sid);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Loading conversation...")).toBeTruthy();
+    const chip = screen.getByTestId("recoverable-connection-chip");
+    expect(chip).toHaveTextContent("Reconnecting");
+  });
+
+  it("opens recoverable connection detail on hover for pointer users", () => {
+    const sid = "test-feed-disconnected-hover-chip";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Idle session" })]);
+    setStoreSessionState(sid, { backend_state: "connected" });
+    setStoreConnectionState(sid);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const chip = screen.getByTestId("recoverable-connection-chip");
+    fireEvent.mouseEnter(chip.parentElement ?? chip);
+
+    expect(screen.getByTestId("recoverable-connection-detail")).toHaveTextContent(
+      "You can keep working normally. Takode reconnects automatically when backend delivery is needed.",
+    );
+
+    fireEvent.mouseLeave(chip.parentElement ?? chip);
+    expect(screen.queryByTestId("recoverable-connection-detail")).toBeNull();
+  });
+
+  it("renders reconnecting as the same unobtrusive feed affordance", () => {
+    const sid = "test-feed-reconnecting-chip";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Recovering session" })]);
+    setStoreSessionState(sid, { backend_state: "recovering" });
+    setStoreConnectionState(sid);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    const chip = screen.getByTestId("recoverable-connection-chip");
+    expect(chip).toHaveTextContent("Reconnecting");
+    fireEvent.click(chip);
+    expect(screen.getByTestId("recoverable-connection-detail")).toHaveTextContent(
+      "Takode is reconnecting this session. You can keep working while backend delivery catches up.",
+    );
+  });
+
+  it("does not render the recoverable chip for unrecoverable broken sessions", () => {
+    const sid = "test-feed-broken-no-chip";
+    setStoreMessages(sid, [makeMessage({ role: "assistant", content: "Broken session" })]);
+    setStoreSessionState(sid, { backend_state: "broken" });
+    setStoreConnectionState(sid, { cliDisconnectReason: "broken" });
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.queryByTestId("recoverable-connection-chip")).toBeNull();
   });
 
   it("shows all four mobile nav buttons with touch spacing and lifts them above the floating notification chip stack", () => {

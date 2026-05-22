@@ -83,6 +83,7 @@ import {
   type LeaderOpenThreadTabsState,
   type LeaderThreadTabUpdate,
 } from "../../shared/leader-open-thread-tabs.js";
+import { getRecoverableSessionConnectionPresentation } from "../utils/recoverable-session-connection.js";
 import type {
   BoardRowSessionStatus,
   ChatMessage,
@@ -1685,10 +1686,20 @@ export function ChatView({
     prevOtherPermsCount.current = otherPerms.length;
   }, [otherPerms.length]);
 
+  const recoverableConnectionPresentation = getRecoverableSessionConnectionPresentation({
+    backendState,
+    browserConnectionStatus: connStatus,
+    cliConnected,
+    cliEverConnected,
+    idlePaused: cliDisconnectReason === "idle_limit",
+    serverReachable,
+  });
   const showStartingBanner =
     connStatus === "connected" &&
     !cliConnected &&
     backendState !== "broken" &&
+    backendState !== "recovery_suppressed" &&
+    !recoverableConnectionPresentation &&
     (backendState === "initializing" ||
       backendState === "resuming" ||
       backendState === "recovering" ||
@@ -1706,6 +1717,7 @@ export function ChatView({
           : connStatus === "connected" &&
               !cliConnected &&
               cliEverConnected &&
+              !recoverableConnectionPresentation &&
               backendState !== "initializing" &&
               backendState !== "resuming" &&
               backendState !== "recovering"

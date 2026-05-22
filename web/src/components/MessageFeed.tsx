@@ -108,6 +108,7 @@ export {
 const LIVE_ACTIVITY_RAIL_DWELL_MS = 5_000;
 const FEED_EXTRA_SCROLL_SLACK_PX = 12;
 const FLOATING_STATUS_SPACER_MARGIN_PX = 4;
+const CENTERED_FEED_STATUS_CLEARANCE_GAP_PX = 64;
 const FLOATING_STATUS_MOBILE_BOTTOM_PX = 8;
 const MOBILE_NAV_BASE_BOTTOM_PX = 12;
 const MOBILE_NAV_STATUS_CLEARANCE_GAP_PX = 8;
@@ -1740,27 +1741,47 @@ export function MessageFeed({
     normalizedThreadKey,
   });
 
+  const centeredFeedStatusClearancePx =
+    floatingStatusHeight > 0 ? floatingStatusHeight + CENTERED_FEED_STATUS_CLEARANCE_GAP_PX : 0;
+  const renderCenteredFeedState = (content: ReactNode) => (
+    <div className="relative flex-1 min-h-0 overflow-hidden">
+      <div
+        data-testid="message-feed-centered-state"
+        className="flex h-full flex-col items-center justify-center gap-4 select-none px-6"
+        style={centeredFeedStatusClearancePx > 0 ? { paddingBottom: centeredFeedStatusClearancePx } : undefined}
+      >
+        {content}
+      </div>
+      <FeedStatusPill
+        sessionId={sessionId}
+        onVisibleHeightChange={setFloatingStatusHeight}
+        currentThreadKey={threadKey}
+        onSelectThread={onSelectThread}
+      />
+    </div>
+  );
+
   if (showConversationLoading || showSelectedWindowLoading) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 select-none px-6">
+    return renderCenteredFeedState(
+      <>
         <YarnBallSpinner className="w-5 h-5 text-cc-primary" />
         <div className="text-center">
           <p className="text-sm text-cc-fg font-medium mb-1">Loading conversation...</p>
           <p className="text-xs text-cc-muted leading-relaxed">Restoring recent history for this session.</p>
         </div>
-      </div>
+      </>,
     );
   }
 
   if (messages.length === 0 && pendingUserUploads.length === 0 && pendingCodexInputs.length === 0 && !streamingText) {
-    return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 select-none px-6">
+    return renderCenteredFeedState(
+      <>
         <SleepingCat className="w-20 h-14" />
         <div className="text-center">
           <p className="text-sm text-cc-fg font-medium mb-1">Start a conversation</p>
           <p className="text-xs text-cc-muted leading-relaxed">Send a message to begin working with The Companion.</p>
         </div>
-      </div>
+      </>,
     );
   }
 

@@ -491,7 +491,7 @@ describe("ChatView backend banners", () => {
     expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
   });
 
-  it("shows a recovering banner instead of the generic disconnected banner during auto-relaunch", () => {
+  it("does not show a full-width banner for recoverable auto-relaunch", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "recovering", backend_error: null }]]),
       cliConnected: new Map([["s1", false]]),
@@ -502,9 +502,10 @@ describe("ChatView backend banners", () => {
 
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
-    expect(scope.getByText("Recovering session...")).toBeInTheDocument();
+    expect(scope.queryByTestId("live-connection-status-banner")).not.toBeInTheDocument();
+    expect(scope.getByTestId("message-feed")).toBeInTheDocument();
+    expect(scope.getByTestId("composer")).toBeInTheDocument();
     expect(scope.queryByText("Session disconnected")).not.toBeInTheDocument();
-    expectLiveBannerBetweenFeedAndComposer(view.container);
   });
 
   it("shows the recovery-suppressed banner and manual resume action", () => {
@@ -526,7 +527,7 @@ describe("ChatView backend banners", () => {
     expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
   });
 
-  it("renders ordinary backend disconnects as subtle recoverable information", () => {
+  it("keeps ordinary backend disconnects out of the prominent banner path", () => {
     resetStore({
       sessions: new Map([["s1", { backend_state: "connected", backend_error: null }]]),
       cliConnected: new Map([["s1", false]]),
@@ -537,13 +538,9 @@ describe("ChatView backend banners", () => {
 
     const view = render(<ChatView sessionId="s1" />);
     const scope = within(view.container);
-    const banner = scope.getByTestId("live-connection-status-banner");
-    expect(scope.getByText(/Keep working here.*delivery needs the backend/)).toBeInTheDocument();
-    expect(banner).toHaveClass("border-cc-border", "bg-cc-border/30");
-    expect(banner).not.toHaveClass("border-cc-warning/25", "bg-cc-warning/10");
-    expectLiveBannerBetweenFeedAndComposer(view.container);
-    fireEvent.click(scope.getByRole("button", { name: "Resume" }));
-    expect(mockRelaunchSession).toHaveBeenCalledWith("s1");
+    expect(scope.queryByTestId("live-connection-status-banner")).not.toBeInTheDocument();
+    expect(scope.getByTestId("message-feed")).toBeInTheDocument();
+    expect(scope.getByTestId("composer")).toBeInTheDocument();
   });
 
   it("renders the WebSocket reconnect banner near the composer", () => {
