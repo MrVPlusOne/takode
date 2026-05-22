@@ -420,7 +420,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("recommended, not mandatory");
     expect(guardrails).toContain("ask what it contributes over merging that work into a later phase");
     expect(guardrails).toContain("`implement` includes normal investigation, root-cause analysis");
-    expect(guardrails).toContain("routine `explore -> implement`");
+    expect(guardrails).toContain("Never propose adjacent `explore -> implement`");
+    expect(guardrails).toContain("Use `implement` directly for normal bug fixes");
+    expect(guardrails).toContain("`explore -> user-checkpoint -> implement`");
     expect(guardrails).toContain("User Checkpoint is an intermediate user-participation stop");
     expect(guardrails).toContain("write the approved Journey to the board before or with dispatch");
     expect(guardrails).toContain("Do not use sleep-based waits");
