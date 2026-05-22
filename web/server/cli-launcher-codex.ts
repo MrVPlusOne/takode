@@ -1134,7 +1134,7 @@ export async function prepareCodexSpawn(
   try {
     let binary = options.codexBinary || "codex";
     if (!isContainerized) {
-      const resolved = await timing.step("resolve Codex binary", () => resolveBinary(binary));
+      const resolved = timing.stepSync("resolve Codex binary", () => resolveBinary(binary));
       if (!resolved) {
         throw new MissingCodexBinaryError(`Binary "${binary}" not found in PATH`);
       }

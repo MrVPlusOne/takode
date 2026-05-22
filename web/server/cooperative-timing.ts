@@ -55,6 +55,23 @@ export class CooperativeTiming {
     }
   }
 
+  stepSync<T>(name: string, fn: () => T): T {
+    const startedAt = this.now();
+    let failed = false;
+    try {
+      return fn();
+    } catch (error) {
+      failed = true;
+      throw error;
+    } finally {
+      const ms = this.now() - startedAt;
+      this.steps.push({ name, ms, failed });
+      if (ms >= this.stepWarnThresholdMs) {
+        this.logger.warn(`[timing] ${this.options.label}: slow step ${name} ${Math.round(ms)}ms`);
+      }
+    }
+  }
+
   async yieldIfDue(reason: string): Promise<boolean> {
     const elapsedSinceYield = this.now() - this.lastYieldAt;
     if (elapsedSinceYield < this.yieldEveryMs) return false;

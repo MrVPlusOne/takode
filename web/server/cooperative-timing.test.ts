@@ -47,4 +47,25 @@ describe("CooperativeTiming", () => {
     expect(yieldFn).toHaveBeenCalledTimes(1);
     expect(timing.recordedYieldCountForTest).toBe(1);
   });
+
+  it("records synchronous steps without forcing an async yield boundary", () => {
+    let now = 0;
+    const logger = { info: vi.fn(), warn: vi.fn() };
+    const timing = new CooperativeTiming({
+      label: "test launch prep",
+      logger,
+      now: () => now,
+      stepWarnThresholdMs: 20,
+    });
+
+    const result = timing.stepSync("resolve binary", () => {
+      now += 21;
+      return "/opt/bin/codex";
+    });
+    timing.finish();
+
+    expect(result).toBe("/opt/bin/codex");
+    expect(logger.warn).toHaveBeenCalledWith("[timing] test launch prep: slow step resolve binary 21ms");
+    expect(logger.info).toHaveBeenCalledWith("[timing] test launch prep: total=21ms | resolve binary=21ms");
+  });
 });
