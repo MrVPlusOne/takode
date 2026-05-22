@@ -24,6 +24,7 @@ import {
   stripInheritedTelemetryEnv,
   withNonInteractiveGitEditorEnv,
 } from "./cli-launcher-env.js";
+import { CooperativeTiming } from "./cooperative-timing.js";
 import { resolveBinary, getEnrichedPath, captureUserShellEnv } from "./path-resolver.js";
 import { sessionTag } from "./session-tag.js";
 import { isDeprecatedProjectSkillSlug } from "./skill-symlink.js";
@@ -638,8 +639,9 @@ async function findLatestCachedCodexArtifact(): Promise<string | null> {
   return candidates[0]?.path ?? null;
 }
 
-async function prepareDotslashCache(dotslashCache: string): Promise<void> {
+async function prepareDotslashCache(dotslashCache: string, timing?: CooperativeTiming): Promise<void> {
   await mkdir(dotslashCache, { recursive: true });
+  await timing?.yieldIfDue("prepare dotslash cache mkdir");
 
   let existingEntries: string[] = [];
   try {
@@ -661,6 +663,7 @@ async function prepareDotslashCache(dotslashCache: string): Promise<void> {
           force: false,
           errorOnExist: false,
         });
+        await timing?.yieldIfDue("seed dotslash cache entry");
       }
       return;
     } catch (error) {
@@ -699,7 +702,7 @@ async function findLegacyCodexRolloutPath(threadId: string): Promise<string | nu
   return newest?.path ?? null;
 }
 
-async function seedCodexResumeRollout(codexHome: string, threadId?: string): Promise<void> {
+async function seedCodexResumeRollout(codexHome: string, threadId?: string, timing?: CooperativeTiming): Promise<void> {
   if (!threadId) return;
   const rolloutPath = await findLegacyCodexRolloutPath(threadId);
   if (!rolloutPath) return;
@@ -710,20 +713,27 @@ async function seedCodexResumeRollout(codexHome: string, threadId?: string): Pro
 
   const destPath = join(codexHome, "sessions", relativeRolloutPath);
   await mkdir(dirname(destPath), { recursive: true });
+  await timing?.yieldIfDue("prepare resume rollout directory");
   await copyFile(rolloutPath, destPath);
+  await timing?.yieldIfDue("copy resume rollout");
 }
 
 function resolveSymlinkTargetPath(linkPath: string, targetPath: string): string {
   return resolve(dirname(linkPath), targetPath);
 }
 
-async function syncSeededDirectory(src: string, dest: string): Promise<"missing" | "unchanged" | "created"> {
+async function syncSeededDirectory(
+  src: string,
+  dest: string,
+  timing?: CooperativeTiming,
+): Promise<"missing" | "unchanged" | "created"> {
   if (!(await fileExists(src))) return "missing";
 
   const srcStat = await lstat(src).catch(() => null);
   if (!srcStat) {
     if (await fileExists(dest)) return "unchanged";
     await cp(src, dest, { recursive: true });
+    await timing?.yieldIfDue("copy Codex seed directory");
     return "created";
   }
 
@@ -742,11 +752,13 @@ async function syncSeededDirectory(src: string, dest: string): Promise<"missing"
 
     await rm(dest, { recursive: true, force: true }).catch(() => {});
     await symlink(desiredTarget, dest);
+    await timing?.yieldIfDue("link Codex seed directory");
     return "created";
   }
 
   if (await fileExists(dest)) return "unchanged";
   await cp(src, dest, { recursive: true });
+  await timing?.yieldIfDue("copy Codex seed directory");
   return "created";
 }
 
@@ -770,7 +782,7 @@ function isExcludedSeedPath(path: string, excludedRelativePaths: Set<string>): b
 async function mergeSkillDirectory(
   src: string,
   dest: string,
-  options: { overwriteExisting: boolean; excludedRelativePaths?: Set<string> },
+  options: { overwriteExisting: boolean; excludedRelativePaths?: Set<string>; timing?: CooperativeTiming },
 ): Promise<"missing" | "unchanged" | "created"> {
   if (!(await fileExists(src))) return "missing";
 
@@ -790,9 +802,10 @@ async function mergeSkillDirectory(
     if (options.overwriteExisting) {
       await rm(entryDest, { recursive: true, force: true }).catch(() => {});
     }
-    if (await copySeedEntry(entrySrc, entryDest, sourceRoot, options.excludedRelativePaths)) {
+    if (await copySeedEntry(entrySrc, entryDest, sourceRoot, options.excludedRelativePaths, options.timing)) {
       copied = true;
     }
+    await options.timing?.yieldIfDue("merge Codex skill entry");
   }
 
   return copied ? "created" : "unchanged";
@@ -811,6 +824,7 @@ async function copySeedEntry(
   entryDest: string,
   sourceRoot: string,
   excludedRelativePaths?: Set<string>,
+  timing?: CooperativeTiming,
 ): Promise<boolean> {
   const entryStat = await lstat(entrySrc).catch(() => null);
   if (entryStat?.isSymbolicLink() && !(await fileExists(entrySrc))) {
@@ -819,6 +833,7 @@ async function copySeedEntry(
   }
   if (!entryStat || !entryStat.isDirectory() || entryStat.isSymbolicLink()) {
     await cp(entrySrc, entryDest, { recursive: true });
+    await timing?.yieldIfDue("copy Codex skill entry");
     return true;
   }
 
@@ -847,14 +862,16 @@ async function copySeedEntry(
       }
 
       await cp(childSrc, childDest, { recursive: true });
+      await timing?.yieldIfDue("copy Codex skill child entry");
     }
+    await timing?.yieldIfDue("copy Codex skill directory");
   }
   return true;
 }
 
 async function migrateLegacyCodexSkillsToAgentsHome(
   sourceHome: string,
-  options?: { filterImagegenSkill?: boolean },
+  options?: { filterImagegenSkill?: boolean; timing?: CooperativeTiming },
 ): Promise<void> {
   const dest = agentsSkillsHome;
   const excludedRelativePaths = options?.filterImagegenSkill ? new Set([imagegenSkillRelativePath]) : new Set<string>();
@@ -873,7 +890,9 @@ async function migrateLegacyCodexSkillsToAgentsHome(
     await mergeSkillDirectory(legacySkillsHome, dest, {
       overwriteExisting: false,
       excludedRelativePaths,
+      timing: options?.timing,
     });
+    await options?.timing?.yieldIfDue("migrate legacy Codex skill directory");
   }
 }
 
@@ -887,9 +906,10 @@ async function prepareCodexHome(
   codexHome: string,
   resumeCliSessionId?: string,
   seedSourceHome?: string,
-  options?: { filterImagegenSkill?: boolean; allowLegacyAuthFallback?: boolean },
+  options?: { filterImagegenSkill?: boolean; allowLegacyAuthFallback?: boolean; timing?: CooperativeTiming },
 ): Promise<void> {
   await mkdir(codexHome, { recursive: true });
+  await options?.timing?.yieldIfDue("prepare Codex home directory");
 
   const sourceHome = resolve(seedSourceHome || getLegacyCodexHome());
   const canSeedSourceHome = sourceHome !== resolve(codexHome) && (await fileExists(sourceHome));
@@ -931,6 +951,7 @@ async function prepareCodexHome(
         if (!(await fileExists(dest))) {
           await copyFile(src, dest);
         }
+        await options?.timing?.yieldIfDue(`seed Codex ${name}`);
       } catch (error) {
         console.warn(`[cli-launcher] Failed to bootstrap ${name} from legacy home:`, error);
       }
@@ -943,7 +964,8 @@ async function prepareCodexHome(
       try {
         const src = join(sourceHome, name);
         const dest = join(codexHome, name);
-        await syncSeededDirectory(src, dest);
+        await syncSeededDirectory(src, dest, options?.timing);
+        await options?.timing?.yieldIfDue(`seed Codex ${name}/`);
       } catch (error) {
         console.warn(`[cli-launcher] Failed to bootstrap ${name}/ from legacy home:`, error);
       }
@@ -952,13 +974,17 @@ async function prepareCodexHome(
 
   try {
     await removeDeprecatedCodexHomeSkills(codexHome);
-    await migrateLegacyCodexSkillsToAgentsHome(sourceHome, { filterImagegenSkill: options?.filterImagegenSkill });
+    await options?.timing?.yieldIfDue("remove deprecated Codex home skills");
+    await migrateLegacyCodexSkillsToAgentsHome(sourceHome, {
+      filterImagegenSkill: options?.filterImagegenSkill,
+      timing: options?.timing,
+    });
   } catch (error) {
     console.warn(`[cli-launcher] Failed to migrate legacy Codex skills into ~/.agents/skills:`, error);
   }
 
   try {
-    await seedCodexResumeRollout(codexHome, resumeCliSessionId);
+    await seedCodexResumeRollout(codexHome, resumeCliSessionId, options?.timing);
   } catch (error) {
     console.warn(`[cli-launcher] Failed to seed resume rollout for ${resumeCliSessionId}:`, error);
   }
@@ -985,6 +1011,7 @@ async function ensureCodexSessionConfig(
     nonLeaderAutoCompactThresholdPercent?: number;
     model?: string;
     modelCatalogConfigPath?: string;
+    timing?: CooperativeTiming;
   },
 ): Promise<{ configToml: string; modelCatalogJson?: string }> {
   const configPath = join(codexHome, "config.toml");
@@ -994,6 +1021,7 @@ async function ensureCodexSessionConfig(
   } catch {
     current = "";
   }
+  await options?.timing?.yieldIfDue("read Codex session config");
 
   let next = upsertBooleanSettingInSection(current, codexFeaturesHeader, codexMultiAgentFeature, true);
   if (usesMaiLitellmProvider(next)) {
@@ -1012,6 +1040,7 @@ async function ensureCodexSessionConfig(
     modelCatalogJson = override.catalogJson;
     next = upsertTopLevelNumberSetting(next, "model_context_window", leaderContextWindowOverrideTokens);
     next = upsertTopLevelNumberSetting(next, "model_auto_compact_token_limit", leaderContextWindowOverrideTokens);
+    await options?.timing?.yieldIfDue("prepare Codex leader config override");
   } else if (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0) {
     const override = await ensureCodexNonLeaderModelCatalogOverride(
       codexHome,
@@ -1024,9 +1053,11 @@ async function ensureCodexSessionConfig(
     );
     next = override.configToml;
     modelCatalogJson = override.catalogJson;
+    await options?.timing?.yieldIfDue("prepare Codex auto-compact config override");
   }
   if (next !== current) {
     await writeFile(configPath, next, "utf-8");
+    await options?.timing?.yieldIfDue("write Codex session config");
   }
   return { configToml: next, modelCatalogJson };
 }
@@ -1060,6 +1091,7 @@ async function resolveHostCodexLaunchBinary(
   sessionId: string,
   binary: string,
   codexHomeRoot: string,
+  timing?: CooperativeTiming,
 ): Promise<{ binary: string; dotslashCache?: string }> {
   const kind = await detectHostCodexBinaryKind(binary);
   if (kind === "native") return { binary };
@@ -1084,7 +1116,7 @@ async function resolveHostCodexLaunchBinary(
   }
 
   const dotslashCache = join(codexHomeRoot, "dotslash-cache");
-  await prepareDotslashCache(dotslashCache);
+  await prepareDotslashCache(dotslashCache, timing);
   return { binary: selectedBinary, dotslashCache };
 }
 
@@ -1097,168 +1129,198 @@ export async function prepareCodexSpawn(
   const isContainerized = !!options.containerId;
   const codexHomeRoot = resolveCompanionCodexHome(options.codexHome);
   const leaderLaunch = isCodexLeaderLaunch(info, options);
+  const timing = new CooperativeTiming({ label: `Codex spawn prep ${sessionTag(sessionId)}` });
 
-  let binary = options.codexBinary || "codex";
-  if (!isContainerized) {
-    const resolved = resolveBinary(binary);
-    if (!resolved) {
-      throw new MissingCodexBinaryError(`Binary "${binary}" not found in PATH`);
+  try {
+    let binary = options.codexBinary || "codex";
+    if (!isContainerized) {
+      const resolved = await timing.step("resolve Codex binary", () => resolveBinary(binary));
+      if (!resolved) {
+        throw new MissingCodexBinaryError(`Binary "${binary}" not found in PATH`);
+      }
+      binary = resolved;
     }
-    binary = resolved;
-  }
 
-  let dotslashCache: string | undefined;
-  if (!isContainerized) {
-    const hostLaunchBinary = await resolveHostCodexLaunchBinary(sessionId, binary, codexHomeRoot);
-    binary = hostLaunchBinary.binary;
-    dotslashCache = hostLaunchBinary.dotslashCache;
-  }
+    let dotslashCache: string | undefined;
+    if (!isContainerized) {
+      const hostLaunchBinary = await timing.step("resolve Codex host launch binary", () =>
+        resolveHostCodexLaunchBinary(sessionId, binary, codexHomeRoot, timing),
+      );
+      binary = hostLaunchBinary.binary;
+      dotslashCache = hostLaunchBinary.dotslashCache;
+    }
 
-  const approvalPolicy = mapCodexApprovalPolicy(options.permissionMode, options.askPermission);
-  const sandboxMode = resolveCodexSandbox(options.permissionMode, options.codexSandbox);
+    const approvalPolicy = mapCodexApprovalPolicy(options.permissionMode, options.askPermission);
+    const sandboxMode = resolveCodexSandbox(options.permissionMode, options.codexSandbox);
 
-  const codexHome = resolveCompanionCodexSessionHome(sessionId, codexHomeRoot);
-  const maiWrapperHostSpec = !isContainerized ? await resolveMaiWrapperHostSpec(binary) : null;
-  const shellEnvVars = Object.keys(options.env || {}).filter(
-    (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
-  );
-  const leaderContextWindowOverrideTokens = leaderLaunch ? options.codexLeaderContextWindowOverrideTokens : undefined;
-  const nonLeaderAutoCompactThresholdPercent = !leaderLaunch
-    ? options.codexNonLeaderAutoCompactThresholdPercent || defaultCodexNonLeaderAutoCompactThresholdPercent
-    : undefined;
-  let containerLeaderConfigToml: string | undefined;
-  let containerModelCatalogJson: string | undefined;
-  const containerModelCatalogPath = leaderLaunch
-    ? "/root/.codex/takode-leader-model-catalog.json"
-    : "/root/.codex/takode-model-catalog.json";
-
-  if (!isContainerized) {
-    await prepareCodexHome(
-      codexHome,
-      options.resumeCliSessionId || info.cliSessionId,
-      maiWrapperHostSpec?.hostCodexHome,
-      {
-        allowLegacyAuthFallback: !maiWrapperHostSpec,
-        filterImagegenSkill: !!maiWrapperHostSpec,
-      },
+    const codexHome = resolveCompanionCodexSessionHome(sessionId, codexHomeRoot);
+    const maiWrapperHostSpec = await timing.step("resolve MAI wrapper host", () =>
+      !isContainerized ? resolveMaiWrapperHostSpec(binary) : null,
     );
-    await ensureCodexSessionConfig(codexHome, shellEnvVars, {
-      leaderContextWindowOverrideTokens,
-      nonLeaderAutoCompactThresholdPercent,
-      model: options.model,
-    });
-  } else if (
-    (leaderContextWindowOverrideTokens && leaderContextWindowOverrideTokens > 0) ||
-    (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0)
-  ) {
-    await prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId);
-    const containerConfig = await ensureCodexSessionConfig(codexHome, shellEnvVars, {
-      leaderContextWindowOverrideTokens,
-      nonLeaderAutoCompactThresholdPercent,
-      model: options.model,
-      modelCatalogConfigPath: containerModelCatalogPath,
-    });
-    containerLeaderConfigToml = containerConfig.configToml;
-    containerModelCatalogJson = containerConfig.modelCatalogJson;
-  }
+    const shellEnvVars = Object.keys(options.env || {}).filter(
+      (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
+    );
+    const leaderContextWindowOverrideTokens = leaderLaunch ? options.codexLeaderContextWindowOverrideTokens : undefined;
+    const nonLeaderAutoCompactThresholdPercent = !leaderLaunch
+      ? options.codexNonLeaderAutoCompactThresholdPercent || defaultCodexNonLeaderAutoCompactThresholdPercent
+      : undefined;
+    let containerLeaderConfigToml: string | undefined;
+    let containerModelCatalogJson: string | undefined;
+    const containerModelCatalogPath = leaderLaunch
+      ? "/root/.codex/takode-leader-model-catalog.json"
+      : "/root/.codex/takode-model-catalog.json";
 
-  const maiWrapperLaunchSpec =
-    !isContainerized && leaderLaunch && maiWrapperHostSpec
-      ? await resolveMaiWrapperSessionLaunchSpec(maiWrapperHostSpec, sessionId, codexHome, options)
-      : null;
-  const args: string[] = [];
-  args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
-  if (options.codexReasoningEffort) {
-    args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
-  }
-  if (options.permissionMode === "codex-auto-review") {
-    args.push("-c", "approvals_reviewer=auto_review");
-  }
-  if (approvalPolicy) {
-    args.push("-a", approvalPolicy);
-  }
-  if (sandboxMode) {
-    args.push("-s", sandboxMode);
-  }
-  args.push("app-server");
-
-  if (isContainerized) {
-    const dockerArgs = ["docker", "exec", "-i"];
-    const containerEnv = withNonInteractiveGitEditorEnv(options.env ?? {});
-    for (const [key, value] of Object.entries(containerEnv)) {
-      dockerArgs.push("-e", `${key}=${value}`);
-    }
-    dockerArgs.push("-e", "CLAUDECODE=");
-    dockerArgs.push("-e", "CODEX_HOME=/root/.codex");
-    dockerArgs.push(options.containerId!);
-    const innerCmd = [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" ");
-    const shellCommands: string[] = [renderContainerCodexAuthRefresh()];
-    if (containerModelCatalogJson) {
-      shellCommands.push(
-        renderContainerCodexFileWrite(
-          containerModelCatalogPath,
-          containerModelCatalogJson,
-          "__COMPANION_CODEX_MODEL_CATALOG__",
+    if (!isContainerized) {
+      await timing.step("prepare Codex home", () =>
+        prepareCodexHome(
+          codexHome,
+          options.resumeCliSessionId || info.cliSessionId,
+          maiWrapperHostSpec?.hostCodexHome,
+          {
+            allowLegacyAuthFallback: !maiWrapperHostSpec,
+            filterImagegenSkill: !!maiWrapperHostSpec,
+            timing,
+          },
         ),
       );
+      await timing.step("ensure Codex session config", () =>
+        ensureCodexSessionConfig(codexHome, shellEnvVars, {
+          leaderContextWindowOverrideTokens,
+          nonLeaderAutoCompactThresholdPercent,
+          model: options.model,
+          timing,
+        }),
+      );
+    } else if (
+      (leaderContextWindowOverrideTokens && leaderContextWindowOverrideTokens > 0) ||
+      (nonLeaderAutoCompactThresholdPercent && nonLeaderAutoCompactThresholdPercent > 0)
+    ) {
+      await timing.step("prepare container Codex home", () =>
+        prepareCodexHome(codexHome, options.resumeCliSessionId || info.cliSessionId, undefined, { timing }),
+      );
+      const containerConfig = await timing.step("ensure container Codex session config", () =>
+        ensureCodexSessionConfig(codexHome, shellEnvVars, {
+          leaderContextWindowOverrideTokens,
+          nonLeaderAutoCompactThresholdPercent,
+          model: options.model,
+          modelCatalogConfigPath: containerModelCatalogPath,
+          timing,
+        }),
+      );
+      containerLeaderConfigToml = containerConfig.configToml;
+      containerModelCatalogJson = containerConfig.modelCatalogJson;
     }
-    if (containerLeaderConfigToml) {
-      shellCommands.push(renderContainerCodexConfigWrite(containerLeaderConfigToml));
+
+    const maiWrapperLaunchSpec = await timing.step("resolve MAI wrapper launch", () =>
+      !isContainerized && leaderLaunch && maiWrapperHostSpec
+        ? resolveMaiWrapperSessionLaunchSpec(maiWrapperHostSpec, sessionId, codexHome, options)
+        : null,
+    );
+    const args: string[] = [];
+    args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
+    if (options.codexReasoningEffort) {
+      args.push("-c", `model_reasoning_effort=${options.codexReasoningEffort}`);
     }
-    shellCommands.push(`exec ${innerCmd}`);
-    dockerArgs.push("bash", "-lc", shellCommands.join("\n"));
+    if (options.permissionMode === "codex-auto-review") {
+      args.push("-c", "approvals_reviewer=auto_review");
+    }
+    if (approvalPolicy) {
+      args.push("-a", approvalPolicy);
+    }
+    if (sandboxMode) {
+      args.push("-s", sandboxMode);
+    }
+    args.push("app-server");
+
+    if (isContainerized) {
+      const dockerArgs = ["docker", "exec", "-i"];
+      const containerEnv = withNonInteractiveGitEditorEnv(options.env ?? {});
+      for (const [key, value] of Object.entries(containerEnv)) {
+        dockerArgs.push("-e", `${key}=${value}`);
+      }
+      dockerArgs.push("-e", "CLAUDECODE=");
+      dockerArgs.push("-e", "CODEX_HOME=/root/.codex");
+      dockerArgs.push(options.containerId!);
+      const innerCmd = [binary, ...args].map((arg) => `'${arg.replace(/'/g, "'\\''")}'`).join(" ");
+      const shellCommands: string[] = [renderContainerCodexAuthRefresh()];
+      if (containerModelCatalogJson) {
+        shellCommands.push(
+          renderContainerCodexFileWrite(
+            containerModelCatalogPath,
+            containerModelCatalogJson,
+            "__COMPANION_CODEX_MODEL_CATALOG__",
+          ),
+        );
+      }
+      if (containerLeaderConfigToml) {
+        shellCommands.push(renderContainerCodexConfigWrite(containerLeaderConfigToml));
+      }
+      shellCommands.push(`exec ${innerCmd}`);
+      dockerArgs.push("bash", "-lc", shellCommands.join("\n"));
+      const containerSpawnPath = await timing.step("build container Codex spawn PATH", () =>
+        getEnrichedPath({ serverId }),
+      );
+
+      return {
+        spawnCmd: dockerArgs,
+        spawnEnv: { ...process.env, PATH: containerSpawnPath },
+        spawnCwd: undefined,
+        sandboxMode,
+      };
+    }
+
+    const binaryDir = resolve(binary, "..");
+    const siblingNode = join(binaryDir, "node");
+    const companionBinDir = join(homedir(), ".companion", "bin");
+    const localBinDir = join(homedir(), ".local", "bin");
+    const bunBinDir = join(homedir(), ".bun", "bin");
+    const enrichedPath = await timing.step("build Codex spawn PATH", () => getEnrichedPath({ serverId }));
+    const spawnPath = mergePathStrings([
+      maiWrapperLaunchSpec?.hostnameShimDir,
+      binaryDir,
+      companionBinDir,
+      localBinDir,
+      bunBinDir,
+      enrichedPath,
+    ]);
+
+    const spawnCmd = await timing.step("select Codex invocation", async () => {
+      if ((await fileExists(siblingNode)) && (await shouldInvokeCodexWithSiblingNode(binary))) {
+        let codexScript: string;
+        try {
+          codexScript = await realpath(binary);
+        } catch {
+          codexScript = binary;
+        }
+        return [siblingNode, codexScript, ...args];
+      }
+      return [binary, ...args];
+    });
+
+    const shellEnv = await timing.step("load warmed Codex shell env", () =>
+      captureUserShellEnv([...hostCodexShellEnvVars], { allowShellSpawn: false }),
+    );
 
     return {
-      spawnCmd: dockerArgs,
-      spawnEnv: { ...process.env, PATH: getEnrichedPath({ serverId }) },
-      spawnCwd: undefined,
+      spawnCmd,
+      spawnEnv: withNonInteractiveGitEditorEnv({
+        ...stripInheritedTelemetryEnv(process.env),
+        ...shellEnv,
+        CLAUDECODE: undefined,
+        MAI_CODEX_DEBUG_WRAPPER: "1",
+        ...options.env,
+        CODEX_HOME: codexHome,
+        ...(dotslashCache ? { DOTSLASH_CACHE: dotslashCache } : {}),
+        PATH: spawnPath,
+      }),
+      spawnCwd: info.cwd,
       sandboxMode,
     };
+  } finally {
+    timing.finish({
+      backend: "codex",
+      container: isContainerized,
+      leader: leaderLaunch,
+    });
   }
-
-  const binaryDir = resolve(binary, "..");
-  const siblingNode = join(binaryDir, "node");
-  const companionBinDir = join(homedir(), ".companion", "bin");
-  const localBinDir = join(homedir(), ".local", "bin");
-  const bunBinDir = join(homedir(), ".bun", "bin");
-  const enrichedPath = getEnrichedPath({ serverId });
-  const spawnPath = mergePathStrings([
-    maiWrapperLaunchSpec?.hostnameShimDir,
-    binaryDir,
-    companionBinDir,
-    localBinDir,
-    bunBinDir,
-    enrichedPath,
-  ]);
-
-  let spawnCmd: string[];
-  if ((await fileExists(siblingNode)) && (await shouldInvokeCodexWithSiblingNode(binary))) {
-    let codexScript: string;
-    try {
-      codexScript = await realpath(binary);
-    } catch {
-      codexScript = binary;
-    }
-    spawnCmd = [siblingNode, codexScript, ...args];
-  } else {
-    spawnCmd = [binary, ...args];
-  }
-
-  const shellEnv = captureUserShellEnv([...hostCodexShellEnvVars], { allowShellSpawn: false });
-
-  return {
-    spawnCmd,
-    spawnEnv: withNonInteractiveGitEditorEnv({
-      ...stripInheritedTelemetryEnv(process.env),
-      ...shellEnv,
-      CLAUDECODE: undefined,
-      MAI_CODEX_DEBUG_WRAPPER: "1",
-      ...options.env,
-      CODEX_HOME: codexHome,
-      ...(dotslashCache ? { DOTSLASH_CACHE: dotslashCache } : {}),
-      PATH: spawnPath,
-    }),
-    spawnCwd: info.cwd,
-    sandboxMode,
-  };
 }
