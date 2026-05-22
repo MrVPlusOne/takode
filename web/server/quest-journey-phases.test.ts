@@ -184,7 +184,7 @@ describe("Quest Journey phase directory loading", () => {
     expect(explorePhase?.leaderBrief).toContain("major findings, newly discovered ambiguities or blockers");
     expect(explorePhase?.leaderBrief).toContain("investigation is the deliverable");
     expect(explorePhase?.leaderBrief).toContain("Do not insert `EXPLORE -> IMPLEMENT`");
-    expect(explorePhase?.leaderBrief).toContain("plan or revise to `USER_CHECKPOINTING`");
+    expect(explorePhase?.leaderBrief).toContain("plan or revise to `EXPLORE -> USER_CHECKPOINTING -> IMPLEMENTING`");
     expect(explorePhase?.assigneeBrief).toContain("major findings");
     expect(explorePhase?.assigneeBrief).toContain("evidence that may justify leader-owned Journey revision");
     expect(explorePhase?.assigneeBrief).toContain("routing decision point");
