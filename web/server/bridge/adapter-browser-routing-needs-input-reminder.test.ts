@@ -547,6 +547,48 @@ describe("direct user needs-input reminders", () => {
     expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
   });
 
+  it("requests recovery when a normal text Codex input queues behind a disconnected adapter", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.codexAdapter = {
+      getCurrentTurnId: () => null,
+      isConnected: () => false,
+      sendBrowserMessage: vi.fn(() => false),
+    };
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+    deps.requestCodexAutoRecovery = vi.fn(() => true);
+
+    const routed = routeAdapterBrowserMessage(session, userMessage({ content: "Please continue" }), null, deps);
+
+    expect(routed).toBe(true);
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs[0]).toMatchObject({ content: "Please continue" });
+    expect(deps.queueCodexPendingStartBatch).toHaveBeenCalledWith(session, "browser_user_message");
+    expect(deps.requestCodexAutoRecovery).toHaveBeenCalledWith(session, "queued_user_message_adapter_missing");
+  });
+
+  it("does not wake disconnected Codex for non-model-bound Takode metadata messages", () => {
+    const session = makeSession();
+    session.backendType = "codex";
+    session.codexAdapter = {
+      getCurrentTurnId: () => null,
+      isConnected: () => false,
+      sendBrowserMessage: vi.fn(() => false),
+    };
+    const deps = makeDeps({ isOrchestrator: true });
+
+    const routed = routeAdapterBrowserMessage(session, { type: "set_codex_ui_mode", uiMode: "plan" }, null, deps);
+
+    expect(routed).toBe(true);
+    expect(deps.handleCodexSetUiMode).toHaveBeenCalledWith(session, "plan");
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(deps.queueCodexPendingStartBatch).not.toHaveBeenCalled();
+    expect(deps.requestCodexAutoRecovery).not.toHaveBeenCalled();
+  });
+
   it("queues Codex herd inputs as a fresh pending batch instead of steering into an active turn", () => {
     // Herd events are delivered when the leader is idle, or force-delivered by
     // recovery when the active turn is stale. They should wake the leader with

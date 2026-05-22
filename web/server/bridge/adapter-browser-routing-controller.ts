@@ -1690,6 +1690,21 @@ function queueAdapterMessage(session: AdapterBrowserRoutingSessionLike, raw: str
     session.pendingMessages.push(raw);
   }
 }
+
+function shouldWakeCodexForQueuedModelInput(
+  session: AdapterBrowserRoutingSessionLike,
+  pendingInputId: string | undefined,
+): boolean {
+  // Only Codex user_message routes create PendingCodexInput records. Takode-only
+  // events such as skills/changed, metadata refreshes, and passive browser
+  // viewing do not produce model-bound pending input and cannot satisfy this.
+  if (!pendingInputId) return false;
+  if (session.state.backend_state === "recovering") return false;
+  if (session.state.backend_state === "broken") return false;
+  if (session.state.backend_state === "recovery_suppressed") return false;
+  return session.codexAdapter?.isConnected?.() === false;
+}
+
 export function routeAdapterBrowserMessage(
   session: AdapterBrowserRoutingSessionLike,
   msg: BrowserOutgoingMessage,
@@ -1889,22 +1904,16 @@ export function routeAdapterBrowserMessage(
           message: "Codex recovery is paused. Your message was queued and will run after manual Resume.",
         });
       }
-      const adapterDisconnected = session.codexAdapter?.isConnected?.() === false;
+      const queuedModelInputId = ingested.historyEntry.id;
       if (!session.codexAdapter) {
         console.log(
           `[ws-bridge] Codex adapter not yet attached for session ${sessionTag(session.id)}, queued user_message`,
         );
         maybeRequestAdapterRelaunchForUserMessage(session, deps);
-      } else if (
-        msg.type === "user_message" &&
-        (isHerdEvent || userImageRefs?.length) &&
-        adapterDisconnected &&
-        session.state.backend_state !== "recovering" &&
-        session.state.backend_state !== "broken" &&
-        session.state.backend_state !== "recovery_suppressed"
-      ) {
-        const reason = isHerdEvent ? "herd event" : "image send";
-        console.log(`[ws-bridge] Codex ${reason} queued during reconnect window for session ${sessionTag(session.id)}`);
+      } else if (msg.type === "user_message" && shouldWakeCodexForQueuedModelInput(session, queuedModelInputId)) {
+        console.log(
+          `[ws-bridge] Codex model-bound pending input queued during reconnect window for session ${sessionTag(session.id)}`,
+        );
         maybeRequestAdapterRelaunchForUserMessage(session, deps);
       }
       return true;
