@@ -722,7 +722,7 @@ describe("board stall warnings", () => {
     });
   }
 
-  function setupCodexLeaderBoardStallHarness() {
+  function setupCodexLeaderBoardStallHarness(opts: { status?: string } = {}) {
     const leaderId = "orch-board-stall-codex";
     const workerId = "worker-board-stall-codex";
     const now = Date.now();
@@ -777,11 +777,11 @@ describe("board stall warnings", () => {
       title: "Investigate delayed stall drop",
       worker: workerId,
       workerNum: 12,
-      status: "IMPLEMENTING",
+      status: opts.status ?? "IMPLEMENTING",
       updatedAt: now - 5 * 60_000,
     });
 
-    return { leaderId, dispatcher, adapter };
+    return { leaderId, workerId, dispatcher, adapter };
   }
 
   it("emits a one-shot herd warning for a stalled implementing row", async () => {
@@ -899,6 +899,80 @@ describe("board stall warnings", () => {
     expect(sessionAfterReconnect.pendingCodexInputs).toHaveLength(1);
     expect(sessionAfterReconnect.pendingCodexTurns[0]).toMatchObject({
       status: "dispatched",
+      userContent: expect.stringContaining("board_stalled"),
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("requests recovery when a disconnected Codex leader queues a worker turn_end herd event", async () => {
+    const { leaderId, workerId, dispatcher } = setupCodexLeaderBoardStallHarness();
+    const relaunchSpy = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchSpy);
+    // Worker completion and board-stall fallback share the same herd injection path;
+    // this completion event must wake a disconnected Codex leader after it is queued.
+    const turnEnd = {
+      id: 1,
+      event: "turn_end",
+      sessionId: workerId,
+      sessionNum: 12,
+      sessionName: workerId,
+      ts: Date.now(),
+      data: {
+        reason: "result",
+        duration_ms: 60_000,
+        threadKey: "q-1",
+        questId: "q-1",
+      },
+    } as any;
+    const rendered = renderHerdEventBatch([turnEnd]);
+
+    const delivery = bridge.injectUserMessage(
+      leaderId,
+      rendered.content,
+      {
+        sessionId: "herd-events",
+        sessionLabel: "Herd Events",
+      },
+      {
+        events: [turnEnd],
+        renderedLines: rendered.renderedLines,
+      },
+    );
+    await Promise.resolve();
+
+    expect(delivery).toBe("queued");
+    expect(relaunchSpy).toHaveBeenCalledWith(leaderId);
+    const leaderSession = bridge.getSession(leaderId)!;
+    expect(leaderSession.state.backend_state).toBe("recovering");
+    expect(leaderSession.pendingCodexInputs[0]?.content).toContain("turn_end");
+    expect(leaderSession.pendingCodexTurns[0]).toMatchObject({
+      status: "queued",
+      userContent: expect.stringContaining("turn_end"),
+    });
+
+    dispatcher.destroy();
+  });
+
+  it("wakes a disconnected Codex leader for a stalled PLANNING board row", async () => {
+    const { leaderId, dispatcher } = setupCodexLeaderBoardStallHarness({ status: "PLANNING" });
+    const relaunchSpy = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchSpy);
+
+    // Alignment/Planning handoffs are worker-owned rows too, so the watchdog
+    // fallback must be treated as deliverable backend demand for a Codex leader.
+    bridge.startStuckSessionWatchdog();
+    vi.advanceTimersByTime(61_000);
+    await Promise.resolve();
+
+    expect(relaunchSpy).toHaveBeenCalledWith(leaderId);
+    const leaderSession = bridge.getSession(leaderId)!;
+    expect(leaderSession.state.backend_state).toBe("recovering");
+    expect(leaderSession.pendingCodexInputs).toHaveLength(1);
+    expect(leaderSession.pendingCodexInputs[0]?.content).toContain("board_stalled");
+    expect(leaderSession.pendingCodexInputs[0]?.content).toContain("PLANNING");
+    expect(leaderSession.pendingCodexTurns[0]).toMatchObject({
+      status: "queued",
       userContent: expect.stringContaining("board_stalled"),
     });
 

@@ -1889,6 +1889,7 @@ export function routeAdapterBrowserMessage(
           message: "Codex recovery is paused. Your message was queued and will run after manual Resume.",
         });
       }
+      const adapterDisconnected = session.codexAdapter?.isConnected?.() === false;
       if (!session.codexAdapter) {
         console.log(
           `[ws-bridge] Codex adapter not yet attached for session ${sessionTag(session.id)}, queued user_message`,
@@ -1896,15 +1897,14 @@ export function routeAdapterBrowserMessage(
         maybeRequestAdapterRelaunchForUserMessage(session, deps);
       } else if (
         msg.type === "user_message" &&
-        userImageRefs?.length &&
-        !session.codexAdapter.isConnected() &&
+        (isHerdEvent || userImageRefs?.length) &&
+        adapterDisconnected &&
         session.state.backend_state !== "recovering" &&
         session.state.backend_state !== "broken" &&
         session.state.backend_state !== "recovery_suppressed"
       ) {
-        console.log(
-          `[ws-bridge] Codex image send queued during reconnect window for session ${sessionTag(session.id)}`,
-        );
+        const reason = isHerdEvent ? "herd event" : "image send";
+        console.log(`[ws-bridge] Codex ${reason} queued during reconnect window for session ${sessionTag(session.id)}`);
         maybeRequestAdapterRelaunchForUserMessage(session, deps);
       }
       return true;
