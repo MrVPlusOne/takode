@@ -1154,9 +1154,9 @@ export async function prepareCodexSpawn(
     const sandboxMode = resolveCodexSandbox(options.permissionMode, options.codexSandbox);
 
     const codexHome = resolveCompanionCodexSessionHome(sessionId, codexHomeRoot);
-    const maiWrapperHostSpec = await timing.step("resolve MAI wrapper host", () =>
-      !isContainerized ? resolveMaiWrapperHostSpec(binary) : null,
-    );
+    const maiWrapperHostSpec = !isContainerized
+      ? await timing.step("resolve MAI wrapper host", () => resolveMaiWrapperHostSpec(binary))
+      : null;
     const shellEnvVars = Object.keys(options.env || {}).filter(
       (name) => name.startsWith("COMPANION_") || name.startsWith("TAKODE_"),
     );
@@ -1211,11 +1211,12 @@ export async function prepareCodexSpawn(
       containerModelCatalogJson = containerConfig.modelCatalogJson;
     }
 
-    const maiWrapperLaunchSpec = await timing.step("resolve MAI wrapper launch", () =>
+    const maiWrapperLaunchSpec =
       !isContainerized && leaderLaunch && maiWrapperHostSpec
-        ? resolveMaiWrapperSessionLaunchSpec(maiWrapperHostSpec, sessionId, codexHome, options)
-        : null,
-    );
+        ? await timing.step("resolve MAI wrapper launch", () =>
+            resolveMaiWrapperSessionLaunchSpec(maiWrapperHostSpec, sessionId, codexHome, options),
+          )
+        : null;
     const args: string[] = [];
     args.push("-c", `tools.webSearch=${options.codexInternetAccess === true ? "true" : "false"}`);
     if (options.codexReasoningEffort) {
@@ -1257,7 +1258,7 @@ export async function prepareCodexSpawn(
       }
       shellCommands.push(`exec ${innerCmd}`);
       dockerArgs.push("bash", "-lc", shellCommands.join("\n"));
-      const containerSpawnPath = await timing.step("build container Codex spawn PATH", () =>
+      const containerSpawnPath = timing.stepSync("build container Codex spawn PATH", () =>
         getEnrichedPath({ serverId }),
       );
 
@@ -1274,7 +1275,7 @@ export async function prepareCodexSpawn(
     const companionBinDir = join(homedir(), ".companion", "bin");
     const localBinDir = join(homedir(), ".local", "bin");
     const bunBinDir = join(homedir(), ".bun", "bin");
-    const enrichedPath = await timing.step("build Codex spawn PATH", () => getEnrichedPath({ serverId }));
+    const enrichedPath = timing.stepSync("build Codex spawn PATH", () => getEnrichedPath({ serverId }));
     const spawnPath = mergePathStrings([
       maiWrapperLaunchSpec?.hostnameShimDir,
       binaryDir,
@@ -1297,7 +1298,7 @@ export async function prepareCodexSpawn(
       return [binary, ...args];
     });
 
-    const shellEnv = await timing.step("load warmed Codex shell env", () =>
+    const shellEnv = timing.stepSync("load warmed Codex shell env", () =>
       captureUserShellEnv([...hostCodexShellEnvVars], { allowShellSpawn: false }),
     );
 

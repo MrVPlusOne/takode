@@ -862,6 +862,7 @@ describe("relaunch", () => {
     try {
       const relaunchPromise = launcher.relaunch("stubborn-codex");
       await vi.advanceTimersByTimeAsync(2_100);
+      await vi.runOnlyPendingTimersAsync();
 
       const result = await relaunchPromise;
       expect(result).toEqual({ ok: true });
