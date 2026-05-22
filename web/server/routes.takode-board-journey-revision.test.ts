@@ -619,6 +619,207 @@ describe("Takode server-authoritative auth", () => {
       ],
     ]);
   }
+
+  it("rejects adjacent Explore to Implement in direct board-setting paths", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["alignment", "explore", "implement", "code-review"],
+        presetId: "invalid-explore",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("adjacent `explore -> implement`"),
+    });
+  });
+
+  it("rejects adjacent Explore to Implement when drafting proposed Journey rows", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        journeyMode: "proposed",
+        phases: ["alignment", "explore", "implement", "code-review"],
+        presetId: "invalid-proposal",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("adjacent `explore -> implement`"),
+    });
+  });
+
+  it("allows Explore paths that route through a User Checkpoint before Implement", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["alignment", "explore", "user-checkpoint", "implement", "code-review"],
+        presetId: "explore-checkpoint",
+        phaseNoteEdits: [{ index: 2, note: "Present findings before implementation." }],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          journey: {
+            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "code-review"],
+            phaseNotes: {
+              "2": "Present findings before implementation.",
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  it("rejects optional User Checkpoints without a concrete skip-condition note", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["alignment", "explore", "user-checkpoint", "implement"],
+        presetId: "optional-checkpoint",
+        phaseNoteEdits: [{ index: 2, note: "Optional checkpoint." }],
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Optional User Checkpoints require"),
+    });
+  });
+
+  it("accepts may-be-skipped optional User Checkpoint notes with a concrete condition", async () => {
+    setupTakodeSessions();
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["alignment", "explore", "user-checkpoint", "implement"],
+        presetId: "optional-checkpoint",
+        phaseNoteEdits: [
+          { index: 2, note: "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff." },
+        ],
+      }),
+    });
+
+    expect(res.status).toBe(200);
+    expect(await res.json()).toMatchObject({
+      board: [
+        {
+          questId: "q-9",
+          journey: {
+            phaseNotes: {
+              "2": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
+            },
+          },
+        },
+      ],
+    });
+  });
+
+  it("rejects removing an earlier mandatory repeated User Checkpoint while preserving a later one", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "PLANNING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            mode: "active",
+            phaseIds: ["alignment", "user-checkpoint", "implement", "user-checkpoint", "port"],
+            activePhaseIndex: 0,
+            currentPhaseId: "alignment",
+            phaseNotes: {
+              "3": "Optional: skip if the follow-up review finds no user-facing tradeoff.",
+            },
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        phases: ["alignment", "implement", "user-checkpoint", "port"],
+        presetId: "remove-first-checkpoint",
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("Optional User Checkpoints require"),
+    });
+  });
+
+  it("rejects direct board-setting skips over optional User Checkpoints without a recorded reason", async () => {
+    setupTakodeSessions();
+    bridge._sessions["orch-1"].board = new Map([
+      [
+        "q-9",
+        {
+          questId: "q-9",
+          title: "Implement board lifecycle",
+          status: "EXPLORING",
+          createdAt: 1,
+          updatedAt: 1,
+          journey: {
+            mode: "active",
+            phaseIds: ["explore", "user-checkpoint", "implement"],
+            activePhaseIndex: 0,
+            currentPhaseId: "explore",
+            phaseNotes: {
+              "1": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
+            },
+          },
+        },
+      ],
+    ]);
+
+    const res = await app.request("/api/sessions/orch-1/board", {
+      method: "POST",
+      headers: authHeaders("orch-1", "tok-1"),
+      body: JSON.stringify({
+        questId: "q-9",
+        status: "IMPLEMENTING",
+        activePhaseIndex: 2,
+      }),
+    });
+
+    expect(res.status).toBe(400);
+    expect(await res.json()).toMatchObject({
+      error: expect.stringContaining("without recording"),
+    });
+  });
+
   it("preserves completed phases and records revision metadata without requiring a reason", async () => {
     setupTakodeSessions();
     bridge._sessions["orch-1"].board = new Map([
@@ -1055,9 +1256,12 @@ describe("Takode server-authoritative auth", () => {
         questId: "q-9",
         journeyMode: "proposed",
         status: "PROPOSED",
-        phases: ["alignment", "explore", "implement", "port"],
+        phases: ["alignment", "explore", "user-checkpoint", "implement", "port"],
         presetId: "revised-draft",
-        phaseNoteEdits: [{ index: 1, note: "Explore the draft before implementation" }],
+        phaseNoteEdits: [
+          { index: 1, note: "Explore the draft before implementation" },
+          { index: 2, note: "Present findings before implementation." },
+        ],
       }),
     });
 
@@ -1069,9 +1273,10 @@ describe("Takode server-authoritative auth", () => {
           status: "PROPOSED",
           journey: {
             mode: "proposed",
-            phaseIds: ["alignment", "explore", "implement", "port"],
+            phaseIds: ["alignment", "explore", "user-checkpoint", "implement", "port"],
             phaseNotes: {
               "1": "Explore the draft before implementation",
+              "2": "Present findings before implementation.",
             },
           },
         },

@@ -8,12 +8,16 @@ import {
   getQuestJourneyPhaseIndices,
   getInvalidQuestJourneyPhaseIds,
   getQuestJourneyProposalSignature,
+  isQuestJourneyOptionalUserCheckpoint,
   isValidQuestId,
   isValidWaitForRef,
   normalizeQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
   rebaseQuestJourneyPhaseNotes,
   validateQuestJourneyCompletedPrefixRevision,
+  validateQuestJourneyPhaseSequence,
+  validateQuestJourneyUserCheckpointNotes,
+  validateQuestJourneyUserCheckpointRemoval,
   type QuestJourneyLifecycleMode,
   type QuestJourneyPhaseId,
   type QuestJourneyPhaseNoteRebaseWarning,
@@ -138,6 +142,28 @@ function findPreservedPhaseIndex(
   if (matches.length === 0) return undefined;
   if (previousIndex === undefined) return matches.length === 1 ? matches[0] : undefined;
   return matches.find((index) => index >= previousIndex) ?? matches[matches.length - 1];
+}
+
+function validateExplicitUserCheckpointSkips(
+  phaseIds: readonly QuestJourneyPhaseId[],
+  phaseNotes: Record<string, string> | undefined,
+  phaseSkipReasons: Record<string, string> | undefined,
+  currentPhaseIndex: number | undefined,
+  nextActivePhaseIndex: number | undefined,
+): string | undefined {
+  if (currentPhaseIndex === undefined || nextActivePhaseIndex === undefined) return undefined;
+  if (nextActivePhaseIndex <= currentPhaseIndex + 1) return undefined;
+
+  for (let index = currentPhaseIndex + 1; index < nextActivePhaseIndex; index += 1) {
+    if (phaseIds[index] !== "user-checkpoint") continue;
+    if (!isQuestJourneyOptionalUserCheckpoint(phaseIds, phaseNotes, index)) {
+      return "Cannot skip a mandatory User Checkpoint. User Checkpoints are mandatory by default unless the approved phase note makes that checkpoint optional with a concrete skip condition.";
+    }
+    if (!phaseSkipReasons?.[String(index)]?.trim()) {
+      return "Cannot skip an optional User Checkpoint without recording that its approved skip condition is satisfied. Use `takode board advance --skip-optional-checkpoint <reason>` from the preceding phase.";
+    }
+  }
+  return undefined;
 }
 
 function parseNotificationNumericId(notificationId: string): number | null {
@@ -449,6 +475,8 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         return c.json({ error: `Invalid Quest Journey phase(s): ${invalid.join(", ")}` }, 400);
       }
       typedPhaseIds = normalizeQuestJourneyPhaseIds(phaseIds) as QuestJourneyPhaseId[];
+      const sequenceError = validateQuestJourneyPhaseSequence(typedPhaseIds);
+      if (sequenceError) return c.json({ error: sequenceError }, 400);
       firstPlannedPhaseState = getQuestJourneyPhase(typedPhaseIds[0])?.boardState;
       const existingCurrentPhaseId = getQuestJourneyPhase(existingJourney?.currentPhaseId)?.id;
       if (
@@ -476,6 +504,16 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const resolvedPhaseIds = typedPhaseIds ?? existingPhaseIds;
+    const resolvedSequenceError = validateQuestJourneyPhaseSequence(resolvedPhaseIds);
+    if (resolvedSequenceError) return c.json({ error: resolvedSequenceError }, 400);
+    if (typedPhaseIds && existingJourney && existingMode === "active") {
+      const removalError = validateQuestJourneyUserCheckpointRemoval(
+        existingPhaseIds,
+        typedPhaseIds,
+        existingJourney.phaseNotes,
+      );
+      if (removalError) return c.json({ error: removalError }, 400);
+    }
     if (requestedMode === "active" && (!existingRow || existingMode !== "proposed" || existingPhaseIds.length === 0)) {
       return c.json(
         {
@@ -552,6 +590,8 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
         return c.json({ error: error instanceof Error ? error.message : "Invalid phase note update." }, 400);
       }
     }
+    const checkpointNoteError = validateQuestJourneyUserCheckpointNotes(resolvedPhaseIds, phaseNotes);
+    if (checkpointNoteError) return c.json({ error: checkpointNoteError }, 400);
 
     let activePhaseIndex: number | undefined;
     if (targetMode === "active" && resolvedPhaseIds.length > 0) {
@@ -604,6 +644,16 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
           nextActivePhaseIndex: activePhaseIndex,
         });
         if (historyError) return c.json({ error: historyError }, 400);
+      }
+      if (existingJourney && existingMode === "active" && (explicitActivePhaseIndex !== null || explicitStatusPhase)) {
+        const skipError = validateExplicitUserCheckpointSkips(
+          resolvedPhaseIds,
+          phaseNotes,
+          existingJourney.phaseSkipReasons,
+          existingCurrentPhaseIndex,
+          activePhaseIndex,
+        );
+        if (skipError) return c.json({ error: skipError }, 400);
       }
     }
 
@@ -821,8 +871,27 @@ export function registerTakodeBoardRoutes(api: Hono, deps: TakodeBoardRoutesDeps
     }
 
     const bridgeSession = wsBridge.getSession(id);
+    const body = await c.req.json().catch(() => undefined);
+    const skipOptionalUserCheckpointReason =
+      body &&
+      typeof body === "object" &&
+      !Array.isArray(body) &&
+      typeof (body as { skipOptionalUserCheckpointReason?: unknown }).skipOptionalUserCheckpointReason === "string"
+        ? (body as { skipOptionalUserCheckpointReason: string }).skipOptionalUserCheckpointReason.trim()
+        : undefined;
+    if (
+      body &&
+      typeof body === "object" &&
+      !Array.isArray(body) &&
+      "skipOptionalUserCheckpointReason" in body &&
+      !skipOptionalUserCheckpointReason
+    ) {
+      return c.json({ error: "skipOptionalUserCheckpointReason must be a non-empty string when provided" }, 400);
+    }
     const result = bridgeSession
-      ? advanceBoardRowController(bridgeSession, questId, QUEST_JOURNEY_STATES, workBoardStateDeps)
+      ? advanceBoardRowController(bridgeSession, questId, QUEST_JOURNEY_STATES, workBoardStateDeps, {
+          ...(skipOptionalUserCheckpointReason ? { skipOptionalUserCheckpointReason } : {}),
+        })
       : null;
     if (!result) return c.json({ error: "Quest not found on board" }, 404);
     if ("error" in result) return c.json({ error: result.error }, 409);

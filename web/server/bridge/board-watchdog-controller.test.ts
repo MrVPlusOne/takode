@@ -122,6 +122,101 @@ describe("Quest Journey board phase timing", () => {
     });
   });
 
+  it("advances into User Checkpoint by default", () => {
+    const session = createSession();
+    const deps = createDeps();
+
+    upsertBoardRow(
+      session,
+      {
+        questId: "q-1040",
+        status: "EXPLORING",
+        journey: {
+          phaseIds: ["explore", "user-checkpoint", "implement"],
+          activePhaseIndex: 0,
+        },
+      },
+      deps,
+    );
+
+    const advanced = advanceBoardRow(session, "q-1040", QUEST_JOURNEY_STATES, deps);
+
+    expect(advanced).toEqual(
+      expect.objectContaining({ removed: false, previousState: "EXPLORING", newState: "USER_CHECKPOINTING" }),
+    );
+    expect(getBoard(session)[0]?.journey).toMatchObject({
+      activePhaseIndex: 1,
+      currentPhaseId: "user-checkpoint",
+    });
+  });
+
+  it("enters an optional User Checkpoint unless the skip condition is explicitly satisfied", () => {
+    const session = createSession();
+    const deps = createDeps();
+
+    upsertBoardRow(
+      session,
+      {
+        questId: "q-1041",
+        status: "EXPLORING",
+        journey: {
+          phaseIds: ["explore", "user-checkpoint", "implement"],
+          activePhaseIndex: 0,
+          phaseNotes: {
+            "1": "Optional: skip if Explore confirms implementation has no user-visible tradeoff.",
+          },
+        },
+      },
+      deps,
+    );
+
+    const advanced = advanceBoardRow(session, "q-1041", QUEST_JOURNEY_STATES, deps);
+
+    expect(advanced).toEqual(
+      expect.objectContaining({ removed: false, previousState: "EXPLORING", newState: "USER_CHECKPOINTING" }),
+    );
+    expect(getBoard(session)[0]?.journey).toMatchObject({
+      activePhaseIndex: 1,
+      currentPhaseId: "user-checkpoint",
+    });
+  });
+
+  it("records the satisfied skip condition when skipping an optional User Checkpoint", () => {
+    const session = createSession();
+    const deps = createDeps();
+
+    upsertBoardRow(
+      session,
+      {
+        questId: "q-1042",
+        status: "EXPLORING",
+        journey: {
+          phaseIds: ["explore", "user-checkpoint", "implement"],
+          activePhaseIndex: 0,
+          phaseNotes: {
+            "1": "May be skipped if Explore confirms implementation has no user-visible tradeoff.",
+          },
+        },
+      },
+      deps,
+    );
+
+    const advanced = advanceBoardRow(session, "q-1042", QUEST_JOURNEY_STATES, deps, {
+      skipOptionalUserCheckpointReason: "Explore found no user-visible tradeoff.",
+    });
+
+    expect(advanced).toEqual(
+      expect.objectContaining({ removed: false, previousState: "EXPLORING", newState: "IMPLEMENTING" }),
+    );
+    expect(getBoard(session)[0]?.journey).toMatchObject({
+      activePhaseIndex: 2,
+      currentPhaseId: "implement",
+      phaseSkipReasons: {
+        "1": "Explore found no user-visible tradeoff.",
+      },
+    });
+  });
+
   it("rebases the current open timing when a revision inserts a phase before the current phase", () => {
     // The old Implement timing must move to the revised Implement position;
     // otherwise the inserted Explore phase would display time the board never spent there.

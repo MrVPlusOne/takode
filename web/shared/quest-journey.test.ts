@@ -18,12 +18,16 @@ import {
   isQuestWaitForBlockingState,
   isValidQuestId,
   isValidWaitForRef,
+  isQuestJourneyOptionalUserCheckpoint,
   normalizeQuestJourneyPhaseIds,
   normalizeQuestJourneyPlan,
   QUEST_JOURNEY_PHASES,
   DEFAULT_QUEST_JOURNEY_PHASE_IDS,
   QUEST_JOURNEY_HINTS,
   validateQuestJourneyCompletedPrefixRevision,
+  validateQuestJourneyPhaseSequence,
+  validateQuestJourneyUserCheckpointNotes,
+  validateQuestJourneyUserCheckpointRemoval,
   rebaseQuestJourneyPhaseNotes,
   type QuestJourneyPhaseId,
 } from "./quest-journey.js";
@@ -122,6 +126,90 @@ describe("phase alias compatibility", () => {
         "implementation",
       ]),
     ).toEqual(["alignment", "implement", "code-review", "code-review", "port", "implement"]);
+  });
+
+  it("rejects adjacent Explore to Implement while preserving other Explore routes", () => {
+    expect(validateQuestJourneyPhaseSequence(["alignment", "explore", "implement"])).toContain(
+      "adjacent `explore -> implement`",
+    );
+    expect(validateQuestJourneyPhaseSequence(["alignment", "implement", "code-review"])).toBeUndefined();
+    expect(validateQuestJourneyPhaseSequence(["explore", "user-checkpoint", "implement"])).toBeUndefined();
+    expect(validateQuestJourneyPhaseSequence(["explore", "execute", "outcome-review"])).toBeUndefined();
+  });
+
+  it("requires concrete optional User Checkpoint notes before allowing skip semantics", () => {
+    expect(
+      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], undefined),
+    ).toBeUndefined();
+    expect(
+      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], {
+        "1": "Optional checkpoint.",
+      }),
+    ).toContain("Optional User Checkpoints require");
+    expect(
+      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], {
+        "1": "Optional: skip if Explore confirms the fix is mechanical and no user tradeoff remains.",
+      }),
+    ).toBeUndefined();
+    expect(
+      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], {
+        "1": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
+      }),
+    ).toBeUndefined();
+    expect(
+      validateQuestJourneyUserCheckpointNotes(["explore", "user-checkpoint", "implement"], {
+        "1": "User explicitly requested this checkpoint; optional if findings are small.",
+      }),
+    ).toContain("User Checkpoints are mandatory by default");
+    expect(
+      isQuestJourneyOptionalUserCheckpoint(
+        ["explore", "user-checkpoint", "implement"],
+        {
+          "1": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
+        },
+        1,
+      ),
+    ).toBe(true);
+  });
+
+  it("rejects removing mandatory User Checkpoints but allows explicitly optional ones", () => {
+    expect(
+      validateQuestJourneyUserCheckpointRemoval(
+        ["alignment", "explore", "user-checkpoint", "implement"],
+        ["alignment", "explore", "implement"],
+        undefined,
+      ),
+    ).toContain("Optional User Checkpoints require");
+    expect(
+      validateQuestJourneyUserCheckpointRemoval(
+        ["alignment", "explore", "user-checkpoint", "implement"],
+        ["alignment", "explore", "implement"],
+        {
+          "2": "Optional: skip if Explore confirms there are no user-visible tradeoffs.",
+        },
+      ),
+    ).toBeUndefined();
+  });
+
+  it("rejects removing an earlier mandatory User Checkpoint while preserving a later checkpoint", () => {
+    expect(
+      validateQuestJourneyUserCheckpointRemoval(
+        ["explore", "user-checkpoint", "implement", "user-checkpoint", "port"],
+        ["explore", "implement", "user-checkpoint", "port"],
+        {
+          "3": "Optional: skip if the follow-up review finds no user-facing tradeoff.",
+        },
+      ),
+    ).toContain("Optional User Checkpoints require");
+    expect(
+      validateQuestJourneyUserCheckpointRemoval(
+        ["explore", "user-checkpoint", "implement", "user-checkpoint", "port"],
+        ["explore", "implement", "user-checkpoint", "port"],
+        {
+          "1": "This User Checkpoint may be skipped if Explore finds no user-facing tradeoff.",
+        },
+      ),
+    ).toBeUndefined();
   });
 });
 

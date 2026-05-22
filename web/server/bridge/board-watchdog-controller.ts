@@ -6,6 +6,7 @@ import {
   getQuestJourneyPhaseIndices,
   getQuestJourneyPhaseForState,
   getWaitForRefKind,
+  isQuestJourneyOptionalUserCheckpoint,
   isQuestWaitForBlockingState,
   normalizeQuestJourneyPlan,
   normalizeQuestJourneyPhaseIds,
@@ -93,6 +94,10 @@ export interface WorkBoardStateDeps {
   notifyReview: (sessionId: string, summary: string) => void;
 }
 
+export interface AdvanceBoardRowOptions {
+  skipOptionalUserCheckpointReason?: string;
+}
+
 type BoardSessionsLike = Map<string, SessionLike>;
 
 const LEGACY_NO_CODE_COMPAT_PHASE_IDS = [
@@ -151,6 +156,30 @@ function isQueuedBoardRowStatus(status: string | undefined): boolean {
 
 function isProposedBoardRowStatus(status: string | undefined): boolean {
   return (status || "").trim().toUpperCase() === "PROPOSED";
+}
+
+function getNextBoardJourneyPhaseAdvance(
+  phaseIds: readonly QuestJourneyPhaseId[],
+  phaseNotes: Record<string, string> | undefined,
+  currentPhaseIndex: number,
+  options: AdvanceBoardRowOptions = {},
+): { nextPhaseIndex: number; skippedPhaseIndex?: number; skipReason?: string } | { error: string } {
+  const nextIndex = currentPhaseIndex + 1;
+  const skipReason = options.skipOptionalUserCheckpointReason?.trim();
+  if (skipReason && nextIndex >= phaseIds.length) {
+    return { error: "Cannot skip an optional User Checkpoint because there is no next Journey phase." };
+  }
+  if (nextIndex < phaseIds.length - 1 && isQuestJourneyOptionalUserCheckpoint(phaseIds, phaseNotes, nextIndex)) {
+    if (skipReason) return { nextPhaseIndex: nextIndex + 1, skippedPhaseIndex: nextIndex, skipReason };
+    return { nextPhaseIndex: nextIndex };
+  }
+  if (skipReason) {
+    return {
+      error:
+        "Cannot skip an optional User Checkpoint because the next Journey phase is not an optional User Checkpoint with an approved concrete skip-condition note.",
+    };
+  }
+  return { nextPhaseIndex: nextIndex };
 }
 
 function normalizeBoardWaitForInput(waitForInput: string[] | undefined): string[] | undefined {
@@ -440,6 +469,7 @@ function cloneBoardRowForTiming(row: BoardRow): BoardRow {
       ...row.journey,
       phaseIds: [...row.journey.phaseIds],
       ...(row.journey.phaseNotes ? { phaseNotes: { ...row.journey.phaseNotes } } : {}),
+      ...(row.journey.phaseSkipReasons ? { phaseSkipReasons: { ...row.journey.phaseSkipReasons } } : {}),
       ...(row.journey.phaseTimings ? { phaseTimings: { ...row.journey.phaseTimings } } : {}),
     };
   }
@@ -790,6 +820,7 @@ export function advanceBoardRow(
   questId: string,
   states: readonly string[],
   deps: WorkBoardStateDeps,
+  options: AdvanceBoardRowOptions = {},
 ):
   | { board: BoardRow[]; removed: boolean; previousState?: string; newState?: string }
   | { error: string; previousState?: string }
@@ -853,17 +884,37 @@ export function advanceBoardRow(
     (currentPhaseMatches.length === 1 ? currentPhaseMatches[0] : -1);
 
   if (currentPhaseIdx >= 0 && currentPhaseIdx >= plannedPhaseIds.length - 1) {
+    if (options.skipOptionalUserCheckpointReason?.trim()) {
+      return {
+        error: "Cannot skip an optional User Checkpoint because the Journey is already at its final planned phase.",
+        previousState,
+      };
+    }
     const { board } = completeBoardRow(session, questId, deps);
     return { board, removed: true, previousState, newState: undefined };
   }
 
   if (row.status === "QUEUED" || currentPhaseIdx >= 0) {
     const previousRowForTiming = cloneBoardRowForTiming(row);
-    const nextPhaseId = plannedPhaseIds[currentPhaseIdx + 1] ?? plannedPhaseIds[0];
+    const advanceDecision =
+      currentPhaseIdx >= 0
+        ? getNextBoardJourneyPhaseAdvance(plannedPhaseIds, normalizedJourney.phaseNotes, currentPhaseIdx, options)
+        : options.skipOptionalUserCheckpointReason?.trim()
+          ? { error: "Cannot skip an optional User Checkpoint before the first Journey phase has started." }
+          : { nextPhaseIndex: 0 };
+    if ("error" in advanceDecision) return { error: advanceDecision.error, previousState };
+    const nextPhaseIndex = advanceDecision.nextPhaseIndex;
+    const nextPhaseId = plannedPhaseIds[nextPhaseIndex] ?? plannedPhaseIds[0];
     const nextPhase = getQuestJourneyPhase(nextPhaseId);
     if (nextPhase) {
       const now = Date.now();
       row.status = nextPhase.boardState;
+      const phaseSkipReasons = {
+        ...(row.journey?.phaseSkipReasons ?? {}),
+        ...(advanceDecision.skippedPhaseIndex !== undefined && advanceDecision.skipReason
+          ? { [String(advanceDecision.skippedPhaseIndex)]: advanceDecision.skipReason }
+          : {}),
+      };
       row.journey = normalizeBoardRowJourneyPlan(
         {
           noCode: row.noCode,
@@ -871,9 +922,10 @@ export function advanceBoardRow(
             presetId: row.journey?.presetId,
             mode: "active",
             phaseIds: plannedPhaseIds,
-            activePhaseIndex: currentPhaseIdx >= 0 ? currentPhaseIdx + 1 : 0,
+            activePhaseIndex: nextPhaseIndex,
             currentPhaseId: nextPhase.id,
             phaseNotes: row.journey?.phaseNotes,
+            phaseSkipReasons: Object.keys(phaseSkipReasons).length > 0 ? phaseSkipReasons : undefined,
             phaseTimings: row.journey?.phaseTimings,
             revisionReason: row.journey?.revisionReason,
             revisedAt: row.journey?.revisedAt,
@@ -933,13 +985,14 @@ export function advanceBoardRowForSession(
   questId: string,
   states: readonly string[],
   deps: WorkBoardStateDeps,
+  options: AdvanceBoardRowOptions = {},
 ):
   | { board: BoardRow[]; removed: boolean; previousState?: string; newState?: string }
   | { error: string; previousState?: string }
   | null {
   const session = sessions.get(sessionId);
   if (!session) return null;
-  return advanceBoardRow(session, questId, states, deps);
+  return advanceBoardRow(session, questId, states, deps, options);
 }
 
 export function getBoardQueueWarnings(session: SessionLike, deps: BoardWatchdogDeps): BoardQueueWarning[] {

@@ -97,7 +97,7 @@ When the quest is a true follow-up to earlier work, the approval surface must al
 
 The approval surface can be a natural leader response. It should still be concrete enough that the approved phases and scheduling plan can be written to the board immediately afterward. If a proposed board row already exists, revise that same row with `takode board propose ...` or `takode board propose --spec-file ...` so it remains the draft carrier; `takode board present` is available when you want an explicit rendered proposal artifact.
 
-Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` are self-explanatory unless the user or quest adds unusual work for that phase. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or compatibility `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase.
+Omit notes for standard phases by default: `alignment`, `implement`, `code-review`, `port`, and final `memory` are self-explanatory unless the user or quest adds unusual work for that phase. Add concise notes for non-standard phases such as `explore`, `user-checkpoint`, `execute`, `outcome-review`, `mental-simulation`, or compatibility `bookkeeping`; state why the phase is needed and what evidence, user decision, scenario, outcome, or durable state it covers. For every extra phase, ask what it contributes over merging the same work into a later phase. If a `user-checkpoint` is optional, the note must explicitly say it is optional and give the concrete skip condition; do not mark a user-requested checkpoint optional.
 
 When a proposal includes multiple non-standard phase notes, format them as bullets keyed by phase, for example `- Execute: ...` and `- Outcome Review: ...`. Keep the phase list, phase notes, and scheduling plan visually separate so the approval surface is easy to scan before the user confirms.
 
@@ -111,7 +111,7 @@ Do not present only the phase list and silently decide the worker or queueing me
 
 Examples:
 - **Simple immediate dispatch:** `Journey`: alignment -> implement -> code-review -> port -> memory. `Scheduling`: spawn a fresh worker and dispatch immediately if approved.
-- **Queued for context:** `Journey`: alignment -> explore -> implement -> code-review -> port -> memory. `Scheduling`: keep it queued with `--wait-for #12` because that worker's active context is materially useful; if that context stops mattering, revise to a fresh spawn.
+- **Queued for context:** `Journey`: alignment -> implement -> code-review -> port -> memory. `Scheduling`: keep it queued with `--wait-for #12` because that worker's active context is materially useful; if that context stops mattering, revise to a fresh spawn.
 - **Capacity-tight immediate dispatch:** `Journey`: alignment -> implement -> code-review -> port -> memory. `Scheduling`: dispatch immediately if approved; if worker slots are still `5/5` only because completed workers are reclaimable, replace one completed worktree worker with `takode spawn --replace-worktree-worker <session> ...` when the replacement belongs in the same repo/base-branch worktree; if replacement is ineligible, archive one completed worker and spawn fresh.
 
 ## Dispatch Steps
@@ -244,7 +244,8 @@ The proposal should:
 - name the built-in phases you intend to put on the board first
 - explain non-standard phases concisely: why each is needed and what evidence, scenario, outcome, or durable state it covers
 - avoid routine `explore -> implement` for normal bug-fix, docs-change, config-change, prompt-change, or artifact-change work; `implement` includes the investigation, root-cause analysis, code/design reading, and test planning needed to complete those changes
-- use `user-checkpoint` when findings/options/tradeoffs/recommendation must be presented to the user before the Journey continues
+- never propose adjacent `explore -> implement`; use `explore -> user-checkpoint -> implement` when Explore may lead to implementation but findings/options/tradeoffs/recommendation may need user steering first
+- treat `user-checkpoint` as mandatory by default; mark it optional only when the approval surface includes a phase note saying it may be skipped and giving the concrete skip condition; after Explore, skip it only when the condition has been evaluated as satisfied and the skip reason is recorded
 - make it explicit that the first worker dispatch will enter the `alignment` phase (`PLANNING` on the board) only after approval
 - omit notes for standard phases unless unusual phase-specific handling is required
 - treat the default tracked-code path as recommended, not mandatory; if the user changes the phase list, follow or confirm the tradeoff

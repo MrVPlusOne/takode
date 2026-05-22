@@ -34,6 +34,7 @@ Use `--spec-file` when composing a full proposal with phase notes and presentati
   "phases": [
     { "id": "alignment" },
     { "id": "explore", "note": "Classify the noisy log source before changing severity handling." },
+    { "id": "user-checkpoint", "note": "Present severity options before implementation." },
     { "id": "implement" }
   ],
   "presentation": {
@@ -42,6 +43,8 @@ Use `--spec-file` when composing a full proposal with phase notes and presentati
   }
 }
 ```
+
+Do not propose adjacent `explore -> implement`. Use `implement` directly for normal bug fixes, docs changes, config changes, prompt changes, and artifact changes; Implement includes ordinary investigation, reproduction, root-cause analysis, code/design reading, and test planning. Use `explore -> user-checkpoint -> implement` only when Explore findings may need user steering before implementation. A User Checkpoint is mandatory by default; mark it optional only with an approved phase note that says it may be skipped and gives the concrete skip condition. After Explore, skip an optional User Checkpoint only when the condition has been evaluated as satisfied and the skip reason is recorded, for example with `takode board advance q-N --skip-optional-checkpoint "Explore found no user-facing tradeoff"`.
 
 ### `takode board present <quest-id> [--summary "proposal summary"] [--wait-for-input 3,4 | --clear-wait-for-input]`
 
@@ -78,7 +81,7 @@ Add or update a row.
 
 Built-in phase IDs are:
 
-`alignment`, `explore`, `implement`, `code-review`, `mental-simulation`, `execute`, `outcome-review`, `port`, `memory`, `bookkeeping`
+`alignment`, `explore`, `user-checkpoint`, `implement`, `code-review`, `mental-simulation`, `execute`, `outcome-review`, `port`, `memory`, `bookkeeping`
 
 Use `takode phases` for the read-only phase catalog, including descriptions, source metadata, and exact leader/assignee brief paths.
 
@@ -94,6 +97,8 @@ Examples:
   `takode board propose q-12 --spec-file /tmp/q-12-proposal.json`
 - Promote that same proposal after approval:
   `takode board promote q-12 --worker 5`
+- Explore with user steering before implementation:
+  `takode board set q-12 --worker 5 --phases alignment,explore,user-checkpoint,implement,code-review,port,memory --preset explore-checkpoint`
 - Expensive or approval-gated run:
   `takode board set q-12 --worker 5 --phases alignment,explore,execute,outcome-review,memory --preset ops-investigation`
 - Zero-tracked-change evidence review:

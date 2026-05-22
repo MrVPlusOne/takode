@@ -217,6 +217,8 @@ export interface QuestJourneyPlanState {
   phaseNotes?: Record<string, string>;
   /** Wall-clock timing keyed by zero-based phase position. */
   phaseTimings?: Record<string, QuestJourneyPhaseTiming>;
+  /** Explicit skip rationale keyed by zero-based phase position. */
+  phaseSkipReasons?: Record<string, string>;
   /** Presentation metadata for proposed Journey approval reviews. */
   presentation?: QuestJourneyProposalPresentation;
   /** Cached next leader action for board/reminder display. */
@@ -280,6 +282,12 @@ export interface QuestJourneyCompletedPrefixRevision {
   nextActivePhaseIndex?: number;
 }
 
+export const EXPLORE_TO_IMPLEMENT_JOURNEY_ERROR =
+  "Quest Journey phases cannot contain adjacent `explore -> implement`. Implement already includes ordinary investigation, reproduction, root-cause analysis, code/design reading, and test planning. Use `implement` directly for normal fixes, or `explore -> user-checkpoint -> implement` when Explore may need user steering.";
+
+export const OPTIONAL_USER_CHECKPOINT_NOTE_ERROR =
+  "Optional User Checkpoints require an explicit phase note with a concrete skip condition. User Checkpoints are mandatory by default; if the user explicitly asked for a User Checkpoint, do not mark it optional.";
+
 export const QUEST_JOURNEY_PHASE_BY_ID: Record<QuestJourneyPhaseId, QuestJourneyPhase> = Object.fromEntries(
   QUEST_JOURNEY_PHASES.map((phase) => [phase.id, phase]),
 ) as Record<QuestJourneyPhaseId, QuestJourneyPhase>;
@@ -322,6 +330,108 @@ export function isQuestJourneyPhaseId(value: string): value is QuestJourneyPhase
 
 export function getInvalidQuestJourneyPhaseIds(values: readonly string[]): string[] {
   return values.filter((value) => canonicalizeQuestJourneyPhaseId(value) === null);
+}
+
+export function validateQuestJourneyPhaseSequence(values: readonly string[]): string | undefined {
+  const phaseIds = normalizeQuestJourneyPhaseIds(values);
+  for (let index = 0; index < phaseIds.length - 1; index += 1) {
+    if (phaseIds[index] === "explore" && phaseIds[index + 1] === "implement") {
+      return EXPLORE_TO_IMPLEMENT_JOURNEY_ERROR;
+    }
+  }
+  return undefined;
+}
+
+export function validateQuestJourneyUserCheckpointNotes(
+  phaseIds: readonly QuestJourneyPhaseId[],
+  phaseNotes: Record<string, string> | undefined,
+): string | undefined {
+  for (const [index, phaseId] of phaseIds.entries()) {
+    if (phaseId !== "user-checkpoint") continue;
+    const note = phaseNotes?.[String(index)];
+    const validation = validateOptionalUserCheckpointNote(note);
+    if (validation) return validation;
+  }
+  return undefined;
+}
+
+export function validateQuestJourneyUserCheckpointRemoval(
+  existingPhaseIds: readonly QuestJourneyPhaseId[],
+  nextPhaseIds: readonly QuestJourneyPhaseId[],
+  existingPhaseNotes: Record<string, string> | undefined,
+): string | undefined {
+  const preservedIndices = mapQuestJourneyPreservedPhaseIndices(existingPhaseIds, nextPhaseIds);
+  for (const [index, phaseId] of existingPhaseIds.entries()) {
+    if (phaseId !== "user-checkpoint") continue;
+    if (preservedIndices.has(index)) continue;
+
+    const note = existingPhaseNotes?.[String(index)];
+    const validation = validateOptionalUserCheckpointNote(note, { requireOptional: true });
+    if (validation) return validation;
+  }
+  return undefined;
+}
+
+export function isQuestJourneyOptionalUserCheckpoint(
+  phaseIds: readonly QuestJourneyPhaseId[],
+  phaseNotes: Record<string, string> | undefined,
+  phaseIndex: number,
+): boolean {
+  if (phaseIds[phaseIndex] !== "user-checkpoint") return false;
+  return validateOptionalUserCheckpointNote(phaseNotes?.[String(phaseIndex)], { requireOptional: true }) === undefined;
+}
+
+function mapQuestJourneyPreservedPhaseIndices(
+  existingPhaseIds: readonly QuestJourneyPhaseId[],
+  nextPhaseIds: readonly QuestJourneyPhaseId[],
+): Map<number, number> {
+  const lengths = Array.from({ length: existingPhaseIds.length + 1 }, () =>
+    Array.from({ length: nextPhaseIds.length + 1 }, () => 0),
+  );
+
+  for (let existingIndex = existingPhaseIds.length - 1; existingIndex >= 0; existingIndex -= 1) {
+    for (let nextIndex = nextPhaseIds.length - 1; nextIndex >= 0; nextIndex -= 1) {
+      lengths[existingIndex][nextIndex] =
+        existingPhaseIds[existingIndex] === nextPhaseIds[nextIndex]
+          ? 1 + lengths[existingIndex + 1][nextIndex + 1]
+          : Math.max(lengths[existingIndex + 1][nextIndex], lengths[existingIndex][nextIndex + 1]);
+    }
+  }
+
+  const preserved = new Map<number, number>();
+  let existingIndex = 0;
+  let nextIndex = 0;
+  while (existingIndex < existingPhaseIds.length && nextIndex < nextPhaseIds.length) {
+    if (existingPhaseIds[existingIndex] === nextPhaseIds[nextIndex]) {
+      preserved.set(existingIndex, nextIndex);
+      existingIndex += 1;
+      nextIndex += 1;
+      continue;
+    }
+    if (lengths[existingIndex + 1][nextIndex] >= lengths[existingIndex][nextIndex + 1]) {
+      existingIndex += 1;
+    } else {
+      nextIndex += 1;
+    }
+  }
+  return preserved;
+}
+
+function validateOptionalUserCheckpointNote(
+  note: string | undefined,
+  options: { requireOptional?: boolean } = {},
+): string | undefined {
+  const normalized = note?.trim() ?? "";
+  const mentionsOptionalSkip = /\b(optional|skips?|skipped|skipping|skippable)\b/i.test(normalized);
+  if (!options.requireOptional && !mentionsOptionalSkip) return undefined;
+  if (!normalized || !mentionsOptionalSkip) return OPTIONAL_USER_CHECKPOINT_NOTE_ERROR;
+  if (/\buser\b.{0,40}\b(explicitly\s+)?(asked|requested|required|mandated)\b/i.test(normalized)) {
+    return OPTIONAL_USER_CHECKPOINT_NOTE_ERROR;
+  }
+  if (!/\b(if|when|unless|provided|only if|as long as)\b/i.test(normalized)) {
+    return OPTIONAL_USER_CHECKPOINT_NOTE_ERROR;
+  }
+  return undefined;
 }
 
 export function getQuestJourneyPhase(phaseId?: string | null): QuestJourneyPhase | null {
@@ -515,6 +625,13 @@ function normalizeQuestJourneyPhaseNotes(
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
 }
 
+function normalizeQuestJourneyPhaseSkipReasons(
+  phaseSkipReasons: Record<string, unknown> | undefined,
+  phaseCount: number,
+): Record<string, string> | undefined {
+  return normalizeQuestJourneyPhaseNotes(phaseSkipReasons, phaseCount);
+}
+
 function normalizeQuestJourneyTimestamp(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : undefined;
 }
@@ -683,6 +800,10 @@ export function normalizeQuestJourneyPlan(
   const mode = canonicalizeQuestJourneyLifecycleMode(plan?.mode) ?? "active";
   const normalizedStatus = typeof status === "string" ? status.trim().toUpperCase() : "";
   const phaseNotes = normalizeQuestJourneyPhaseNotes(plan?.phaseNotes, nonEmptyPhaseIds.length);
+  const phaseSkipReasons = normalizeQuestJourneyPhaseSkipReasons(
+    plan?.phaseSkipReasons as Record<string, unknown> | undefined,
+    nonEmptyPhaseIds.length,
+  );
   const phaseTimings = normalizeQuestJourneyPhaseTimings(
     plan?.phaseTimings as Record<string, unknown> | undefined,
     nonEmptyPhaseIds.length,
@@ -706,6 +827,7 @@ export function normalizeQuestJourneyPlan(
     ...(activePhaseIndex !== undefined ? { activePhaseIndex } : {}),
     ...(currentPhaseId ? { currentPhaseId } : {}),
     ...(phaseNotes ? { phaseNotes } : {}),
+    ...(phaseSkipReasons ? { phaseSkipReasons } : {}),
     ...(phaseTimings ? { phaseTimings } : {}),
     ...(presentation ? { presentation } : {}),
     ...(nextLeaderAction ? { nextLeaderAction } : {}),

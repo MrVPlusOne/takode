@@ -155,8 +155,13 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("ask what it contributes over merging that work into a later phase");
     expect(result).toContain("`implement` includes normal investigation, root-cause analysis");
     expect(result).toContain("Explore is for investigation deliverables or unknown routing");
-    expect(result).toContain("routine `explore -> implement`");
+    expect(result).toContain("Never propose adjacent `explore -> implement`");
+    expect(result).toContain("`explore -> user-checkpoint -> implement`");
     expect(result).toContain("User Checkpoint is an intermediate user-participation stop");
+    expect(result).toContain("User Checkpoints are mandatory by default");
+    expect(result).toContain(
+      "skip it only when that condition has been evaluated as satisfied and the skip reason is recorded",
+    );
     expect(result).toContain("notify the user and wait");
     expect(result).toContain("Omit notes for standard phases by default");
     expect(result).toContain("Phase documentation should be useful, not ritual");

@@ -86,10 +86,11 @@ describe("takode board set --worker auto-clears waitFor", () => {
       if (req.method === "POST" && req.url?.startsWith("/api/sessions/leader-1/board")) {
         const body = await readJson(req);
         capturedBodies.push(body);
+        const questId = typeof body.questId === "string" ? body.questId : "q-1";
         res.writeHead(200, { "content-type": "application/json" });
         res.end(
           JSON.stringify({
-            board: [{ questId: body.questId, status: body.status ?? "PLANNING" }],
+            board: [{ questId, status: body.status ?? "PLANNING" }],
             ...(nextBoardResponse ?? {}),
           }),
         );
@@ -259,6 +260,21 @@ describe("takode board set --worker auto-clears waitFor", () => {
     });
   });
 
+  it("rejects adjacent Explore to Implement before posting board phases", async () => {
+    const result = await runTakode(
+      ["board", "set", "q-1", "--phases", "alignment,explore,implement,code-review", "--port", String(port)],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("adjacent `explore -> implement`");
+    expect(capturedBodies).toHaveLength(0);
+  });
+
   it("posts proposed Journey spec files as one batch phase and note update", async () => {
     const dir = mkdtempSync(join(tmpdir(), "takode-board-spec-"));
     const specPath = join(dir, "proposal.json");
@@ -270,6 +286,7 @@ describe("takode board set --worker auto-clears waitFor", () => {
         phases: [
           { id: "alignment" },
           { id: "explore", note: "Classify the noisy log source before implementation." },
+          { id: "user-checkpoint", note: "Present classification options before implementation." },
           { id: "implement" },
           { id: "code-review", note: "" },
           { id: "port" },
@@ -296,15 +313,16 @@ describe("takode board set --worker auto-clears waitFor", () => {
       title: "Draft proposal workflow",
       journeyMode: "proposed",
       status: "PROPOSED",
-      phases: ["alignment", "explore", "implement", "code-review", "port"],
+      phases: ["alignment", "explore", "user-checkpoint", "implement", "code-review", "port"],
       presetId: "proposal-flow",
       revisionReason: "Batch draft",
       phaseNoteEdits: [
         { index: 0, note: null },
         { index: 1, note: "Classify the noisy log source before implementation." },
-        { index: 2, note: null },
+        { index: 2, note: "Present classification options before implementation." },
         { index: 3, note: null },
         { index: 4, note: null },
+        { index: 5, note: null },
       ],
       presentation: {
         summary: "Proposed Journey for approval",
@@ -313,6 +331,70 @@ describe("takode board set --worker auto-clears waitFor", () => {
     });
 
     rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("rejects optional User Checkpoint spec notes without concrete skip conditions", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "takode-board-spec-"));
+    const specPath = join(dir, "proposal.json");
+    writeFileSync(
+      specPath,
+      JSON.stringify({
+        phases: [
+          { id: "alignment" },
+          { id: "explore" },
+          { id: "user-checkpoint", note: "Optional checkpoint." },
+          { id: "implement" },
+        ],
+      }),
+    );
+
+    const result = await runTakode(["board", "propose", "q-1", "--spec-file", specPath, "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("Optional User Checkpoints require");
+    expect(capturedBodies).toHaveLength(0);
+
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("posts an explicit optional User Checkpoint skip reason when advancing", async () => {
+    const result = await runTakode(
+      [
+        "board",
+        "advance",
+        "q-1",
+        "--skip-optional-checkpoint",
+        "Explore found no user-facing tradeoff.",
+        "--port",
+        String(port),
+      ],
+      {
+        ...process.env,
+        COMPANION_SESSION_ID: "leader-1",
+        COMPANION_AUTH_TOKEN: "auth-1",
+      },
+    );
+
+    expect(result.status).toBe(0);
+    expect(capturedBodies[0]).toEqual({
+      skipOptionalUserCheckpointReason: "Explore found no user-facing tradeoff.",
+    });
+  });
+
+  it("rejects optional User Checkpoint skip attempts without a reason", async () => {
+    const result = await runTakode(["board", "advance", "q-1", "--skip-optional-checkpoint", "--port", String(port)], {
+      ...process.env,
+      COMPANION_SESSION_ID: "leader-1",
+      COMPANION_AUTH_TOKEN: "auth-1",
+    });
+
+    expect(result.status).toBe(1);
+    expect(result.stderr).toContain("--skip-optional-checkpoint requires a reason");
+    expect(capturedBodies).toHaveLength(0);
   });
 
   it("presents proposed Journey drafts as explicit proposal review output", async () => {

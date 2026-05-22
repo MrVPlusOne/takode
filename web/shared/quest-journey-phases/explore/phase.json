@@ -4,7 +4,7 @@
   "color": { "name": "amber", "accent": "#fbbf24" },
   "boardState": "EXPLORING",
   "assigneeRole": "worker",
-  "contract": "Investigate when the investigation is the deliverable or when routing is genuinely unknown; do not use Explore as routine pre-implementation looking around for normal bug-fix, docs, or config work.",
-  "nextLeaderAction": "read the explore leader brief, then wait for the findings summary and decide whether to revise the Journey, advance, add a user-checkpoint, or stop",
+  "contract": "Investigate when the investigation is the deliverable or when routing is genuinely unknown; do not use Explore as routine pre-implementation looking around for normal bug-fix, docs, or config work, and do not follow Explore immediately with Implement.",
+  "nextLeaderAction": "read the explore leader brief, then wait for the findings summary and decide whether to revise the Journey, advance to a planned user-checkpoint, route to execute/outcome-review/memory, or stop",
   "aliases": []
 }

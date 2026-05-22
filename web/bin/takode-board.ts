@@ -25,8 +25,11 @@ import {
   getWaitForRefKind,
   isValidQuestId,
   isValidWaitForRef,
+  type QuestJourneyPhaseId,
   type QuestJourneyPhaseNoteRebaseWarning,
   type QuestJourneyPlanState,
+  validateQuestJourneyPhaseSequence,
+  validateQuestJourneyUserCheckpointNotes,
 } from "../shared/quest-journey.ts";
 
 export const BOARD_HELP = `Usage: takode board [show|detail|set|propose|present|promote|note|advance|rm] ...
@@ -60,6 +63,7 @@ Examples:
   takode board set q-12 --status IMPLEMENTING --wait-for-input 3,4
   takode board set q-12 --clear-wait-for-input
   takode board set q-12 --worker 5 --wait-for q-7,#9
+  takode board advance q-12 --skip-optional-checkpoint "Explore found no user-visible tradeoffs"
   takode board advance q-12
   takode board rm q-12
 `;
@@ -75,18 +79,20 @@ export const BOARD_SET_HELP = `Usage: takode board set <quest-id> [--worker <ses
 Add or update a board row for a quest.
 
 Quest Journey phases:
-  --phases planning,explore,implement,code-review,mental-simulation,execute,outcome-review,port,memory,bookkeeping
+  --phases planning,explore,user-checkpoint,implement,code-review,mental-simulation,execute,outcome-review,port,memory,bookkeeping
   --preset <id> labels the planned phase sequence; use with --phases
   --active-phase-position <n> pins the active occurrence for repeated phases using a 1-based phase position
   --wait-for-input links active rows to same-session needs-input notifications by ID (for example 3 or n-3)
   --clear-wait-for-input removes any existing linked needs-input wait state
+
+Do not use adjacent \`explore -> implement\`; use \`implement\` directly for normal fixes, or \`explore -> user-checkpoint -> implement\` when Explore may need user steering. User Checkpoints are mandatory by default; optional checkpoints still require an approved phase note and a recorded skip reason after the condition is satisfied.
 
 Zero-tracked-change work uses the same board model: choose explicit phases that omit \`port\` but still end in \`memory\` instead of using a special no-code board flag.
 `;
 
 export const BOARD_PROPOSE_HELP = `Usage: takode board propose <quest-id> [--title <title>] (--phases <ids> | --spec-file <path|->) [--preset <id>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--full|--verbose] [--json]
 
-Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates; omit standard-phase notes unless unusual phase-specific handling is needed.
+Draft or revise a proposed pre-dispatch Journey row. Proposed rows stay board-owned and can wait on user approval without pretending they are generic queue rows. Use --spec-file for batch phase and note updates; omit standard-phase notes unless unusual phase-specific handling is needed. Optional User Checkpoints require a user-checkpoint phase note with a concrete skip condition; skipping one later requires recording why the condition is satisfied.
 `;
 
 export const BOARD_PRESENT_HELP = `Usage: takode board present <quest-id> [--summary <text>] [--wait-for-input <id,id...> | --clear-wait-for-input] [--json]
@@ -104,9 +110,11 @@ export const BOARD_NOTE_HELP = `Usage: takode board note <quest-id> <phase-posit
 Add or clear a lightweight per-phase Journey note. Phase positions are 1-based in CLI usage.
 `;
 
-export const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--full|--verbose] [--json]
+export const BOARD_ADVANCE_HELP = `Usage: takode board advance <quest-id> [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]
 
 Advance a quest to the next Quest Journey state. Advancing from the final planned phase removes the row, even when that Journey never included \`port\`.
+
+Use --skip-optional-checkpoint only when the next phase is a User Checkpoint with an approved optional phase note and the concrete skip condition has been satisfied. The reason is recorded on the board row.
 `;
 
 export const BOARD_RM_HELP = `Usage: takode board rm <quest-id> [<quest-id> ...] [--full|--verbose] [--json]
@@ -220,6 +228,17 @@ function normalizeBoardProposalSpec(raw: unknown): BoardProposalSpec {
   if (invalid.length > 0) {
     err(`Invalid Quest Journey phase(s) in proposal spec: ${invalid.join(", ")}`);
   }
+  const normalizedPhaseIds = normalizeQuestJourneyPhaseIds(phases.map((phase) => phase.id));
+  const sequenceError = validateQuestJourneyPhaseSequence(normalizedPhaseIds);
+  if (sequenceError) err(sequenceError);
+  const phaseNotes = Object.fromEntries(
+    phases.flatMap((phase, index) => (phase.note ? [[String(index), phase.note]] : [])),
+  );
+  const checkpointNoteError = validateQuestJourneyUserCheckpointNotes(
+    normalizedPhaseIds,
+    Object.keys(phaseNotes).length > 0 ? phaseNotes : undefined,
+  );
+  if (checkpointNoteError) err(checkpointNoteError);
 
   const presentation =
     spec.presentation && typeof spec.presentation === "object" && !Array.isArray(spec.presentation)
@@ -304,6 +323,19 @@ function formatBoardPhaseNoteLines(row: BoardRow): string[] {
       const phaseId = row.journey?.phaseIds?.[index];
       const phaseLabel = getQuestJourneyPhase(phaseId)?.label ?? phaseId ?? "Unknown";
       return `note[${index + 1}] ${phaseLabel}: ${note}`;
+    })
+    .filter((line): line is string => line !== null);
+  return entries;
+}
+
+function formatBoardPhaseSkipReasonLines(row: BoardRow): string[] {
+  const entries = Object.entries(row.journey?.phaseSkipReasons ?? {})
+    .map(([rawIndex, reason]) => {
+      const index = Number.parseInt(rawIndex, 10);
+      if (!Number.isInteger(index) || index < 0) return null;
+      const phaseId = row.journey?.phaseIds?.[index];
+      const phaseLabel = getQuestJourneyPhase(phaseId)?.label ?? phaseId ?? "Unknown";
+      return `skip[${index + 1}] ${phaseLabel}: ${reason}`;
     })
     .filter((line): line is string => line !== null);
   return entries;
@@ -429,6 +461,7 @@ function printBoardDetailText(
   });
   const journeyPathLine = formatBoardJourneyPathLine(row);
   const noteLines = formatBoardPhaseNoteLines(row);
+  const skipLines = formatBoardPhaseSkipReasonLines(row);
   const timingLines = formatBoardPhaseTimingLines(row);
   const rowStatus = opts?.rowSessionStatuses?.[row.questId];
 
@@ -441,6 +474,10 @@ function printBoardDetailText(
   if (noteLines.length > 0) {
     console.log("notes:");
     for (const line of noteLines) console.log(`  ${line}`);
+  }
+  if (skipLines.length > 0) {
+    console.log("skips:");
+    for (const line of skipLines) console.log(`  ${line}`);
   }
   if (timingLines.length > 0) {
     console.log("history:");
@@ -832,10 +869,12 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
       const invalid = getInvalidQuestJourneyPhaseIds(phases);
       if (invalid.length > 0) {
         err(
-          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- use planning, explore, implement, code-review, mental-simulation, execute, outcome-review, port, memory, or bookkeeping`,
+          `Invalid Quest Journey phase(s): ${invalid.join(", ")} -- use planning, explore, user-checkpoint, implement, code-review, mental-simulation, execute, outcome-review, port, memory, or bookkeeping`,
         );
       }
       body.phases = normalizeQuestJourneyPhaseIds(phases);
+      const sequenceError = validateQuestJourneyPhaseSequence(body.phases as QuestJourneyPhaseId[]);
+      if (sequenceError) err(sequenceError);
       if (typeof flags.preset === "string" && flags.preset.trim()) {
         body.presetId = flags.preset.trim();
       }
@@ -1078,14 +1117,23 @@ export async function handleBoard(base: string, args: string[]): Promise<void> {
 
   if (sub === "advance") {
     const questId = args[1];
-    const usage = "Usage: takode board advance <quest-id> [--full|--verbose] [--json]";
+    const usage =
+      "Usage: takode board advance <quest-id> [--skip-optional-checkpoint <reason>] [--full|--verbose] [--json]";
     if (!questId) err(usage);
     if (!isValidQuestId(questId)) err(`Invalid quest ID "${questId}": must match q-NNN format (e.g., q-1, q-42)`);
     const flags = parseFlags(args.slice(2));
+    if (flags["skip-optional-checkpoint"] === true) {
+      err("--skip-optional-checkpoint requires a reason explaining why the approved skip condition is satisfied.");
+    }
+    const advanceBody =
+      typeof flags["skip-optional-checkpoint"] === "string" && flags["skip-optional-checkpoint"].trim()
+        ? { skipOptionalUserCheckpointReason: flags["skip-optional-checkpoint"].trim() }
+        : undefined;
 
     const result = (await apiPost(
       base,
       `/sessions/${encodeURIComponent(selfId)}/board/${encodeURIComponent(questId)}/${sub}`,
+      advanceBody,
     )) as {
       board: BoardRow[];
       removed: boolean;
