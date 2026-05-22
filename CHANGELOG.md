@@ -1,19 +1,53 @@
 # Takode Changelog
 
+## 2026-05-22
+
+### Fixed
+
+- **Recoverable disconnects** -- Recoverable backend disconnects now appear as quieter feed and Session Info status controls with Resume/Retry actions
+- **Codex queued input wakeups** -- Disconnected Codex sessions now wake for queued model-bound inputs, including leader herd events and board-stall warnings
+
+## 2026-05-21
+
+### Added
+
+- **Server-backed shortcut settings** -- Keyboard shortcut settings now persist through the server, migrate from legacy browser storage, and keep the standard search shortcut clear of browser find
+- **Leader hover active quests** -- Leader session hover cards now show active quest rows and phase labels for faster orchestration triage
+
+### Fixed
+
+- **Needs-input voice retry** -- Failed needs-input voice answers keep their recording context and offer a compact retry/dismiss path
+- **Global needs-input menu** -- Cross-session needs-input details are easier to read and stale cached notifications are reconciled before prompts stay visible
+- **Leader quest tabs** -- Leader quest-thread tabs preserve order during route repair, active-row updates, and repeated route processing
+- **Queued wait status** -- Active thread banners integrate queued wait status more consistently
+- **Mobile feed stability** -- Mobile chat feed and Work Board overflow animations avoid layout jumps
+- **Codex launch reliability** -- Codex launch and relaunch paths preserve preflight checks, timing, and intentional-relaunch state more consistently
+
+### Changed
+
+- **Quest Journey guardrails** -- Board and Journey tooling now enforces User Checkpoint skip rules and makes Memory, source, and TLDR handoff guidance clearer
+
 ## 2026-05-20
 
 ### Added
 
 - **Sidebar Session Space controls** -- Sidebar Session Spaces can show configurable session counts with a "more" overflow control, and Universal Search can find sessions directly
+- **Changelog viewer** -- Settings can open the repository changelog in-app from the server diagnostics section
 
 ### Fixed
 
+- **Worker file-link routing** -- Worker file links are resolved before phase handoff text is shown to users
+- **Quest Journey lifecycle rows** -- Quest tabs show Journey started and completed lifecycle rows in the owner thread
+- **Quest thread wait banners** -- Quest thread banners show board wait targets, including queued sessions, quests, and user-input references
+- **Server restart recovery** -- Restart recovery now reconnects sessions on demand when queued work or backend delivery needs a backend
 - **Image file-link previews** -- Markdown image file links now render previews by default
 - **Review and outcome notifications** -- Review notifications stay scoped to the correct tab, multi-quest review tabs clear more reliably, and thread outcome reminders preserve needs-input state
 - **Codex leader recovery diagnostics** -- Exhausted Codex leader recovery now surfaces a clearer failure state instead of disappearing into generic recovery noise
 
 ### Changed
 
+- **Landing page cleanup** -- The obsolete standalone landing site was removed from the app repository
+- **Dependency security** -- The Anthropic SDK dependency was updated to remediate its advisory
 - **Memory catalog output** -- `memory catalog show` output is more compact and separated for faster scanning
 
 ## 2026-05-19
