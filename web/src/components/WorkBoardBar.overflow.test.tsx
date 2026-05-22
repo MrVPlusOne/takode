@@ -181,6 +181,12 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(sourceTabs.map((tab) => tab.threadKey)).toEqual(["q-1", "q-2", "q-3", "q-4", "q-5"]);
   });
 
+  it("marks the thread tab strip for mobile animation-stability overrides", () => {
+    render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} threadRows={THREAD_ROWS} />);
+
+    expect(screen.getByTestId("thread-tab-strip")).toHaveClass("mobile-scroll-stable-surface");
+  });
+
   it("freezes visible tab widths while the mouse remains over the tab strip after a close", () => {
     setMeasuredRailWidth(960, 180);
 

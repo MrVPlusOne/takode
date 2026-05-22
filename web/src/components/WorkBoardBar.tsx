@@ -1021,7 +1021,7 @@ function ThreadTabRail({
       <div
         ref={tabStripRef}
         style={tabStripStyle}
-        className="relative flex min-w-0 items-end gap-1 overflow-visible"
+        className="mobile-scroll-stable-surface relative flex min-w-0 items-end gap-1 overflow-visible"
         data-testid="thread-tab-strip"
         data-overflow-mode="more-tabs"
         data-close-target-width-frozen={frozenThreadTabGeometry ? "true" : "false"}

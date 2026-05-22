@@ -1776,7 +1776,7 @@ export function MessageFeed({
           onScroll={handleScroll}
           onWheel={handleWheel}
           data-testid="message-feed-scroll-container"
-          className="h-full overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 sm:py-6"
+          className="mobile-scroll-stable-surface h-full overflow-y-auto overflow-x-hidden px-3 sm:px-4 py-4 sm:py-6"
           style={{ overscrollBehavior: "contain" }}
         >
           <PawScrollProvider scrollRef={containerRef}>

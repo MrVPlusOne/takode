@@ -681,6 +681,15 @@ describe("MessageFeed section windowing", () => {
     expect(findVisibleSectionEndIndex(sections, 1, 2)).toBe(Math.min(expectedSectionCount, 3));
   });
 
+  it("marks the feed scroll surface for mobile animation-stability overrides", () => {
+    const sid = "test-feed-mobile-animation-stability";
+    setStoreMessages(sid, makeSectionedMessages(1, 2));
+
+    const { container } = render(<MessageFeed sessionId={sid} sectionTurnCount={2} />);
+
+    expect(getScrollContainer(container).classList.contains("mobile-scroll-stable-surface")).toBe(true);
+  });
+
   it("clamps target window selection for section-aware jumps", () => {
     const sections = buildFeedSections(makeSectionTurns(200), 50);
 

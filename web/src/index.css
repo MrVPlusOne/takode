@@ -135,6 +135,13 @@ html, body {
   animation: spin-slow 3s linear infinite;
 }
 
+@media (hover: none) and (pointer: coarse) {
+  .mobile-scroll-stable-surface .animate-\[fadeSlideIn_0\.2s_ease-out\],
+  .mobile-scroll-stable-surface .thread-tab-pop {
+    animation: none !important;
+  }
+}
+
 @keyframes fadeIn {
   from { opacity: 0; }
   to { opacity: 1; }
