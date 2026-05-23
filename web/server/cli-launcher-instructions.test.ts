@@ -151,6 +151,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(result).toContain("quest create ... --follow-up-of q-N");
     expect(result).toContain("initial Journey proposal-and-approval contract");
     expect(result).toContain("durable board recording");
+    expect(result).toContain("visible chat approval surface is for the user's decision, not worker grounding");
+    expect(result).toContain("Do not paste or mirror the full worker-facing quest body into chat by default");
+    expect(result).toContain("scope, evidence, acceptance criteria, constraints, and related context");
     expect(result).toContain("Standard phases are recommended defaults, not mandates");
     expect(result).toContain("ask what it contributes over merging that work into a later phase");
     expect(result).toContain("`implement` includes normal investigation, root-cause analysis");
@@ -244,6 +247,9 @@ describe("buildInjectedSystemPromptForDebug", () => {
     expect(result).toContain("Use `/leader-dispatch` before dispatching a fresh or newly refined quest");
     expect(result).toContain("Use `Goal / Acceptance` as the source of truth for the requested work");
     expect(result).toContain("do not restate the same work again as a separate quest description");
+    expect(result).toContain("full quest-body paste");
+    expect(result).toContain("The visible chat approval surface is for the user's decision, not worker grounding");
+    expect(result).toContain("the quest record should hold detailed worker grounding");
     expect(result).toContain("optional `Context / Evidence`");
     expect(result).toContain("`Invariants / Must Preserve`");
     expect(result).toContain("quest-design-only requests");

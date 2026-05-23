@@ -404,6 +404,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/leader.md`");
     expect(guardrails).toContain("`~/.companion/quest-journey-phases/alignment/assignee.md`");
     expect(guardrails).toContain("one confirmation can approve quest text, Journey, and dispatch plan");
+    expect(guardrails).toContain("visible chat approval surface is for the user's decision, not worker grounding");
+    expect(guardrails).toContain("Do not paste or mirror the full worker-facing quest body into chat by default");
+    expect(guardrails).toContain("scope, evidence, acceptance criteria, constraints, and related context");
     expect(guardrails).toContain("board-owned draft-or-active state for the quest");
     expect(guardrails).toContain("Work Board");
     // Spawn backend default note
@@ -459,6 +462,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("Zero-tracked-change quests still use explicit Journey phases");
     expect(guardrails).toContain("zero git-tracked changes");
     expect(guardrails).toContain("Initial pre-dispatch approval is a combined contract");
+    expect(guardrails).toContain(
+      "approval surface concise and decision-oriented rather than pasting the full quest body",
+    );
     expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
     expect(guardrails).toContain("spawn fresh and dispatch immediately if approved");
     expect(guardrails).toContain(
@@ -577,6 +583,9 @@ describe("getOrchestratorGuardrails", () => {
     expect(guardrails).toContain("board-owned draft-or-active state for the quest");
     expect(guardrails).toContain("point the worker at the exact prior messages, quests, or discussions");
     expect(guardrails).toContain("Initial pre-dispatch approval is a combined contract");
+    expect(guardrails).toContain(
+      "approval surface concise and decision-oriented rather than pasting the full quest body",
+    );
     expect(guardrails).toContain("expected worker choice or fresh-spawn intent");
     expect(guardrails).toContain("spawn fresh and dispatch immediately if approved");
     expect(guardrails).toContain("Leaders do not own worker quests");

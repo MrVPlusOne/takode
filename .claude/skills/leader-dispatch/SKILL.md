@@ -44,6 +44,8 @@ This skill covers leader discipline and the step-by-step dispatch process. Invok
 
 If the user clearly asked for a quest to be created and dispatched, optimize for a single combined confirmation round. Use this compact shape:
 
+The chat approval surface is for the user's decision, not for worker grounding. Keep it concise and decision-oriented: concise goals, Journey, scheduling, and only risks, assumptions, ambiguity, out-of-scope boundaries, costly execution, external effects, or user-visible tradeoffs that could affect approval. Do not paste or mirror the full worker-facing quest body into chat by default; preserve that detail in the quest record so workers still have scope, evidence, acceptance criteria, constraints, and related context.
+
 ### Proposed Quest
 
 - Title: ...
@@ -83,7 +85,7 @@ If meaningful clarification is needed, ask those questions with the quest framin
 
 Use one source of truth for the requested work. Prefer a single `Goal / Acceptance` section that serves as both your understanding and the proposed quest's acceptance criteria. If you already wrote a concise understanding, either make that text the `Goal / Acceptance` section or replace it with one expanded `Goal / Acceptance`; do not restate the same work again elsewhere.
 
-Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Open questions and assumptions are optional and should only cover decisions not already implied by `Goal / Acceptance` or the user's stated facts.
+Add separate sections only when they carry non-overlapping approval information, such as `Relationship`, `Context / Evidence`, `Out Of Scope`, `Open Questions`, `Invariants / Must Preserve`, `Journey`, non-standard phase notes, and `Scheduling`. Open questions and assumptions are optional and should only cover decisions not already implied by `Goal / Acceptance` or the user's stated facts. Omit optional sections when they do not affect the user's decision; do not expand the proposal just to expose all worker-facing quest details.
 
 For quest-design-only requests, use the same compact spirit but omit `Journey` and `Scheduling`: `Proposed Quest`, `Goal / Acceptance`, and only the optional sections that add new approval value. For dispatch-only requests where the quest already exists, reference the quest instead of re-describing its accepted scope, then present `Journey` and `Scheduling` with any narrow `Context / Evidence` or `Open Questions` needed for dispatch.
 

@@ -197,10 +197,15 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain("Out Of Scope");
     expect(skill).toContain("Open Questions");
     expect(skill).toContain("omit this section entirely when nothing meaningful is unclear");
+    expect(skill).toContain("visible chat confirmation is for the user's decision, not for worker grounding");
+    expect(skill).toContain("Do not paste or mirror the full worker-facing quest body into chat by default");
+    expect(skill).toContain("scope, evidence, acceptance criteria, constraints, and related context");
     expect(skill).toContain("combine the `/quest-design` and `/leader-dispatch` approval surfaces");
     expect(skill).toContain("one user confirmation can approve quest text, Journey, and dispatch plan together");
     expect(skill).toContain("do not restate the same work again as a separate quest description");
     expect(skill).toContain("default `Expected Output / Acceptance` section");
+    expect(skill).toContain("full quest-body paste");
+    expect(skill).toContain("Omit optional sections when they do not affect the user's decision");
     expect(skill).toContain("`Invariants / Must Preserve`");
     expect(skill).toContain("quest-design-only requests");
     expect(skill).toContain("dispatch-only requests where a quest already exists");
