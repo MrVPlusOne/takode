@@ -892,6 +892,129 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     });
   });
 
+  it("drains swept browser-origin automatic Codex backlog exactly once without reusing processed client ids", async () => {
+    const sid = "s-codex-auto-pause-browser-backlog";
+    const session = bridge.getOrCreateSession(sid, "codex");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-browser-backlog" });
+
+    const clientMsgId = "browser-auto-client-1";
+    const content = "browser queued automatic follow-up";
+    const now = Date.now();
+    session.processedClientMessageIds.push(clientMsgId);
+    session.processedClientMessageIdSet.add(clientMsgId);
+    session.state.codex_result_error_auto_pause = {
+      family: "model_backend_stream_error",
+      fingerprint: "model_backend_stream_error:responses",
+      streak: 2,
+      threshold: 3,
+      pausedAt: null,
+      lastError:
+        "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+      lastErrorAt: now,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 2,
+      heldInputs: [],
+    };
+    session.pendingCodexInputs.push({
+      id: "queued-browser-auto-input",
+      clientMsgId,
+      content,
+      timestamp: now + 1,
+      cancelable: true,
+    });
+    session.pendingCodexTurns.push({
+      adapterMsg: {
+        type: "codex_start_pending",
+        pendingInputIds: ["queued-browser-auto-input"],
+        inputs: [{ content }],
+      },
+      userMessageId: "queued-browser-auto-input",
+      pendingInputIds: ["queued-browser-auto-input"],
+      userContent: content,
+      historyIndex: -1,
+      status: "queued",
+      dispatchCount: 0,
+      createdAt: now + 1,
+      updatedAt: now + 1,
+      acknowledgedAt: null,
+      turnTarget: null,
+      lastError: null,
+      turnId: null,
+      disconnectedAt: null,
+      resumeConfirmedAt: null,
+      autoPauseSourceKind: "automatic",
+    });
+    adapter.sendBrowserMessage.mockClear();
+
+    await (bridge as any).handleCodexResultErrorAutoPause(
+      session,
+      {
+        type: "result",
+        subtype: "error",
+        is_error: true,
+        result:
+          "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "failed",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        session_id: sid,
+        codex_turn_id: "active-auto-turn",
+        uuid: "browser-backlog-error",
+      },
+      { autoPauseSourceKind: "automatic" },
+    );
+
+    const heldMessage = session.state.codex_result_error_auto_pause?.heldInputs[0]?.message as any;
+    expect(heldMessage?.content).toBe(content);
+    expect(heldMessage?.client_msg_id).toBeUndefined();
+    expect(session.pendingCodexInputs).toHaveLength(0);
+    expect(session.pendingCodexTurns).toHaveLength(0);
+
+    await (bridge as any).handleCodexResultErrorAutoPause(
+      session,
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "ok",
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        session_id: sid,
+        codex_turn_id: "manual-turn",
+        uuid: "manual-browser-backlog-result",
+      },
+      { autoPauseSourceKind: "manual" },
+    );
+    await flushAsync();
+
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledTimes(1);
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "codex_start_pending",
+        inputs: [expect.objectContaining({ content })],
+      }),
+    );
+    expect(session.pendingCodexInputs.filter((input: any) => input.content === content)).toHaveLength(1);
+    expect(session.pendingCodexInputs[0]?.clientMsgId).toBeUndefined();
+
+    adapter.emitTurnStarted("drained-browser-backlog-turn");
+    const committedUserEntries = session.messageHistory.filter(
+      (entry: any) => entry.type === "user_message" && entry.content === content,
+    );
+    expect(committedUserEntries).toHaveLength(1);
+    expect(session.pendingCodexInputs.filter((input: any) => input.content === content)).toHaveLength(0);
+  });
+
   it("manual Codex success clears result-error auto-pause and drains coalesced held inputs deliberately", async () => {
     const sid = "s-codex-auto-pause-drain";
     const relaunchCb = vi.fn();

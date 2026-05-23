@@ -292,7 +292,9 @@ function pendingCodexInputToAutoPauseMessage(input: PendingCodexInput): BrowserU
   return {
     type: "user_message",
     content: input.content,
-    ...(input.clientMsgId ? { client_msg_id: input.clientMsgId } : {}),
+    // The original browser message id was recorded before Codex deferred
+    // history commit. Reusing it during drain would trip ingress idempotency
+    // and drop this uncommitted pending input.
     ...(input.imageRefs?.length ? { imageRefs: input.imageRefs } : {}),
     ...(input.deliveryContent ? { deliveryContent: input.deliveryContent } : {}),
     ...(input.replyContext ? { replyContext: input.replyContext } : {}),
