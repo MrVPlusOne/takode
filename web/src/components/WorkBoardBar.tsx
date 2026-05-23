@@ -951,7 +951,7 @@ function ThreadTabRail({
     setReorderMode(false);
   }
 
-  function freezeCloseTargetGeometry(event: ReactPointerEvent<HTMLDivElement>) {
+  function freezeCloseTargetGeometry(event: ReactPointerEvent<HTMLElement>) {
     if (event.pointerType !== "mouse") return;
     const tabStrip = tabStripRef.current;
     if (!tabStrip) return;
@@ -1021,12 +1021,11 @@ function ThreadTabRail({
       <div
         ref={tabStripRef}
         style={tabStripStyle}
-        className="mobile-scroll-stable-surface relative flex min-w-0 items-end gap-1 overflow-visible"
+        className="mobile-scroll-stable-surface relative flex w-full min-w-0 items-end gap-1 overflow-visible"
         data-testid="thread-tab-strip"
         data-overflow-mode="more-tabs"
         data-close-target-width-frozen={frozenThreadTabGeometry ? "true" : "false"}
         data-frozen-thread-tab-width={frozenFallbackWidth ?? ""}
-        onPointerEnter={freezeCloseTargetGeometry}
         onPointerLeave={releaseCloseTargetGeometry}
         aria-label="Thread tabs"
       >
@@ -1114,6 +1113,7 @@ function ThreadTabRail({
                       data-testid="thread-tab-close"
                       data-compact-close="true"
                       data-selected={selected ? "true" : "false"}
+                      onPointerEnter={freezeCloseTargetGeometry}
                       onClick={(event) => {
                         event.stopPropagation();
                         onCloseThreadTab(tab.threadKey);

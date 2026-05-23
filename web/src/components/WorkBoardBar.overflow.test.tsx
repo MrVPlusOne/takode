@@ -55,6 +55,7 @@ vi.mock("../store.js", () => ({
       setExpandAllInTurn: vi.fn(),
     }),
   }),
+  countUserPermissions: (permissions: Map<string, unknown> | undefined) => permissions?.size ?? 0,
 }));
 
 vi.mock("./BoardTable.js", async (importOriginal) => {
@@ -184,10 +185,10 @@ describe("WorkBoardBar overflow tabs", () => {
   it("marks the thread tab strip for mobile animation-stability overrides", () => {
     render(<WorkBoardBar sessionId="s1" currentThreadKey="q-1" openThreadKeys={["q-1"]} threadRows={THREAD_ROWS} />);
 
-    expect(screen.getByTestId("thread-tab-strip")).toHaveClass("mobile-scroll-stable-surface");
+    expect(screen.getByTestId("thread-tab-strip")).toHaveClass("mobile-scroll-stable-surface", "w-full");
   });
 
-  it("freezes visible tab widths while the mouse remains over the tab strip after a close", () => {
+  it("freezes visible tab widths from the close affordance while the mouse remains over the tab strip", () => {
     setMeasuredRailWidth(960, 180);
 
     const view = render(
@@ -195,12 +196,16 @@ describe("WorkBoardBar overflow tabs", () => {
         sessionId="s1"
         currentThreadKey="q-1"
         openThreadKeys={["q-1", "q-2", "q-3"]}
+        onCloseThreadTab={vi.fn()}
         threadRows={THREAD_ROWS.slice(0, 3)}
       />,
     );
 
     const strip = view.getByTestId("thread-tab-strip");
-    fireEvent.pointerEnter(strip, { pointerType: "mouse" });
+    const selectedClose = within(
+      view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!,
+    ).getByTestId("thread-tab-close");
+    fireEvent.pointerEnter(selectedClose, { pointerType: "mouse" });
 
     expect(strip).toHaveAttribute("data-close-target-width-frozen", "true");
     expect(strip).toHaveAttribute("data-frozen-thread-tab-width", "180");
@@ -214,6 +219,7 @@ describe("WorkBoardBar overflow tabs", () => {
         sessionId="s1"
         currentThreadKey="q-2"
         openThreadKeys={["q-2", "q-3"]}
+        onCloseThreadTab={vi.fn()}
         threadRows={THREAD_ROWS.slice(0, 3)}
       />,
     );
@@ -246,6 +252,7 @@ describe("WorkBoardBar overflow tabs", () => {
         sessionId="s1"
         currentThreadKey="q-1"
         openThreadKeys={["q-1", "q-2"]}
+        onCloseThreadTab={vi.fn()}
         onReorderThreadTabs={vi.fn()}
         threadRows={THREAD_ROWS.slice(0, 2)}
       />,
@@ -259,7 +266,7 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(strip).toHaveAttribute("data-close-target-width-frozen", "false");
     expect(q1Tab).toHaveAttribute("data-thread-tab-width-source", "true");
 
-    fireEvent.pointerEnter(strip, { pointerType: "mouse" });
+    fireEvent.pointerEnter(within(q1Tab).getByTestId("thread-tab-close"), { pointerType: "mouse" });
 
     expect(strip).toHaveAttribute("data-close-target-width-frozen", "true");
     expect(strip.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 241.5px");
@@ -277,6 +284,61 @@ describe("WorkBoardBar overflow tabs", () => {
     );
   });
 
+  it("keeps quest hover cards from freezing or shrinking the tab strip", async () => {
+    setMeasuredRailWidthByThreadKey(960, {
+      main: 240,
+      "q-1": 300,
+      "q-2": 280,
+    });
+    resetStore({
+      sessionBoards: new Map([
+        ["s1", [{ questId: "q-1", title: "Atlas hover target", status: "IMPLEMENTING", updatedAt: 1 }]],
+      ]),
+      quests: [
+        {
+          id: "q-1-v1",
+          questId: "q-1",
+          version: 1,
+          title: "Atlas hover target",
+          description: "Hovering this tab should only open the quest card.",
+          status: "in_progress",
+          tags: [],
+          createdAt: 1,
+          updatedAt: 1,
+          statusChangedAt: 1,
+          sessionId: "worker-q-1",
+          claimedAt: 1,
+        },
+      ],
+    });
+
+    const view = render(
+      <WorkBoardBar
+        sessionId="s1"
+        currentThreadKey="main"
+        openThreadKeys={["q-2"]}
+        onCloseThreadTab={vi.fn()}
+        threadRows={[{ threadKey: "q-2", questId: "q-2", title: "Closable background thread", messageCount: 2 }]}
+      />,
+    );
+
+    const strip = view.getByTestId("thread-tab-strip");
+    const hoverTab = view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!;
+
+    fireEvent.pointerEnter(strip, { pointerType: "mouse" });
+    fireEvent.mouseEnter(hoverTab);
+
+    expect(await screen.findByTestId("quest-hover-card")).toHaveTextContent("Atlas hover target");
+    expect(strip).toHaveAttribute("data-close-target-width-frozen", "false");
+    expect(strip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
+    expect(hoverTab).toHaveClass("min-w-[var(--thread-tab-width)]", "flex-[1_1_var(--thread-tab-width)]");
+    expect(hoverTab).not.toHaveClass("flex-none");
+    expect(view.getByTestId("thread-main-tab")).toHaveClass(
+      "min-w-[var(--thread-tab-width)]",
+      "flex-[1_1_var(--thread-tab-width)]",
+    );
+  });
+
   it("does not freeze tab widths for touch entry", () => {
     setMeasuredRailWidth(960, 180);
 
@@ -285,11 +347,15 @@ describe("WorkBoardBar overflow tabs", () => {
         sessionId="s1"
         currentThreadKey="q-1"
         openThreadKeys={["q-1", "q-2"]}
+        onCloseThreadTab={vi.fn()}
         threadRows={THREAD_ROWS.slice(0, 2)}
       />,
     );
 
-    fireEvent.pointerEnter(getByTestId("thread-tab-strip"), { pointerType: "touch" });
+    const closeButton = within(
+      getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!,
+    ).getByTestId("thread-tab-close");
+    fireEvent.pointerEnter(closeButton, { pointerType: "touch" });
 
     expect(getByTestId("thread-tab-strip")).toHaveAttribute("data-close-target-width-frozen", "false");
     expect(getByTestId("thread-tab-strip").getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
@@ -314,7 +380,12 @@ describe("WorkBoardBar overflow tabs", () => {
     );
 
     const strip = screen.getByTestId("thread-tab-strip");
-    fireEvent.pointerEnter(strip, { pointerType: "mouse" });
+    fireEvent.pointerEnter(
+      within(
+        screen.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!,
+      ).getByTestId("thread-tab-close"),
+      { pointerType: "mouse" },
+    );
     expect(strip).toHaveAttribute("data-close-target-width-frozen", "true");
     expect(strip.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 76px");
 
@@ -327,7 +398,12 @@ describe("WorkBoardBar overflow tabs", () => {
     expect(strip).toHaveAttribute("data-close-target-width-frozen", "false");
     expect(strip.getAttribute("style") ?? "").not.toContain("--thread-tab-frozen-width");
 
-    fireEvent.pointerEnter(strip, { pointerType: "mouse" });
+    fireEvent.pointerEnter(
+      within(
+        screen.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!,
+      ).getByTestId("thread-tab-close"),
+      { pointerType: "mouse" },
+    );
     fireEvent.click(screen.getByTestId("thread-tabs-more-button"));
     const q4Row = screen
       .getAllByTestId("thread-tabs-more-row")
@@ -351,6 +427,7 @@ describe("WorkBoardBar overflow tabs", () => {
         sessionId="s1"
         currentThreadKey="q-5"
         openThreadKeys={["q-1", "q-2", "q-3", "q-4", "q-5"]}
+        onCloseThreadTab={vi.fn()}
         threadRows={THREAD_ROWS}
       />,
     );
@@ -364,7 +441,12 @@ describe("WorkBoardBar overflow tabs", () => {
     ]);
 
     const strip = view.getByTestId("thread-tab-strip");
-    fireEvent.pointerEnter(strip, { pointerType: "mouse" });
+    fireEvent.pointerEnter(
+      within(
+        view.getAllByTestId("thread-tab").find((tab) => tab.getAttribute("data-thread-key") === "q-1")!,
+      ).getByTestId("thread-tab-close"),
+      { pointerType: "mouse" },
+    );
 
     expect(strip).toHaveAttribute("data-close-target-width-frozen", "true");
     expect(strip.getAttribute("style") ?? "").toContain("--thread-tab-frozen-width: 76px");
@@ -374,6 +456,7 @@ describe("WorkBoardBar overflow tabs", () => {
         sessionId="s1"
         currentThreadKey="q-5"
         openThreadKeys={["q-1", "q-2", "q-4", "q-5"]}
+        onCloseThreadTab={vi.fn()}
         threadRows={THREAD_ROWS}
       />,
     );
