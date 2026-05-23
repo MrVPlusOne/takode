@@ -730,6 +730,41 @@ describe("Composer basic rendering", () => {
     expect(screen.queryByText("Type a message...")).toBeNull();
   });
 
+  it("keeps collapsed mobile mode labels out of the action bar and insets controls from the screen edge", () => {
+    setViewportWidth(500);
+    mediaState.touchDevice = true;
+    setupMockStore({
+      session: {
+        permissionMode: "plan",
+        uiMode: "plan",
+      },
+    });
+
+    render(<Composer sessionId="s1" />);
+
+    expect(screen.getByText("Type a message...")).toBeTruthy();
+
+    const safeAreaShell = screen.getByTestId("collapsed-composer-safe-area-shell");
+    expect(safeAreaShell.textContent).not.toContain("Agent");
+    expect(safeAreaShell.textContent).not.toContain("Plan");
+    expect(safeAreaShell.className).toContain("safe-area-inset-right");
+    expect(within(safeAreaShell).getByLabelText("Upload image")).toBeTruthy();
+    expect(within(safeAreaShell).getByLabelText("Voice input")).toBeTruthy();
+  });
+
+  it("uses the existing image upload input from the collapsed mobile composer", () => {
+    setViewportWidth(500);
+    mediaState.touchDevice = true;
+
+    const { container } = render(<Composer sessionId="s1" />);
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    const fileInputClick = vi.spyOn(fileInput, "click").mockImplementation(() => undefined);
+
+    fireEvent.click(screen.getByLabelText("Upload image"));
+
+    expect(fileInputClick).toHaveBeenCalledTimes(1);
+  });
+
   it("keeps the voice button visible on mobile even when voice input is unavailable", () => {
     setViewportWidth(500);
     mediaState.touchDevice = true;

@@ -177,31 +177,17 @@ export function PlaygroundStateSections() {
           </Card>
           <div className="mt-4" />
           <Card label="Mobile collapsed bar while streaming">
-            <div className="border-t border-cc-border bg-cc-card px-4 py-3">
+            <div className="border-t border-cc-border bg-cc-card py-3 pl-4 pr-6">
               <div className="max-w-3xl mx-auto flex items-center gap-2">
-                <div className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 bg-cc-input-bg border border-cc-border rounded-[14px] cursor-text">
-                  <span className="flex items-center gap-1 text-[11px] font-medium text-cc-muted shrink-0">
-                    <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                      <path
-                        d="M2.5 4l4 4-4 4"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                      <path
-                        d="M8.5 4l4 4-4 4"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
-                        fill="none"
-                      />
-                    </svg>
-                    Agent
-                  </span>
+                <div className="flex-1 min-w-0 flex items-center px-3 py-2.5 bg-cc-input-bg border border-cc-border rounded-[14px] cursor-text">
                   <span className="flex-1 text-sm text-cc-muted text-left truncate">Type a message...</span>
+                </div>
+                <div className="flex items-center justify-center w-10 h-10 rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer shrink-0">
+                  <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
+                    <rect x="2" y="2" width="12" height="12" rx="2" />
+                    <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
+                    <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
+                  </svg>
                 </div>
                 <div className="flex items-center justify-center w-10 h-10 rounded-lg text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer shrink-0">
                   <svg viewBox="0 0 16 16" fill="currentColor" className="w-5 h-5">

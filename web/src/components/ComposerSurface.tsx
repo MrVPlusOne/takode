@@ -4,8 +4,10 @@ import { Lightbox } from "./Lightbox.js";
 export function CollapsedComposerBar({
   isCollapsed,
   expandComposer,
-  isPlan,
   onVoiceButton,
+  onOpenFilePicker,
+  imageUploadDisabled,
+  imageUploadTitle,
   compactVoiceButtonDisabled,
   voiceSupported,
   isPreparing,
@@ -16,8 +18,10 @@ export function CollapsedComposerBar({
 }: {
   isCollapsed: boolean;
   expandComposer: () => void;
-  isPlan: boolean;
   onVoiceButton: () => void;
+  onOpenFilePicker: () => void;
+  imageUploadDisabled: boolean;
+  imageUploadTitle: string;
   compactVoiceButtonDisabled: boolean;
   voiceSupported: boolean;
   isPreparing: boolean;
@@ -28,40 +32,33 @@ export function CollapsedComposerBar({
 }) {
   if (!isCollapsed) return null;
   return (
-    <div className="px-2 py-2">
+    <div
+      className="py-2 pl-2 [padding-right:max(1.25rem,calc(env(safe-area-inset-right,0px)+0.5rem))]"
+      data-testid="collapsed-composer-safe-area-shell"
+    >
       <div className="max-w-3xl mx-auto flex items-center gap-2">
         <button
           onClick={expandComposer}
-          className="flex-1 min-w-0 flex items-center gap-2 px-3 py-2.5 bg-cc-input-bg border border-cc-border rounded-[14px] cursor-text"
+          className="flex min-w-0 flex-1 items-center px-3 py-2.5 bg-cc-input-bg border border-cc-border rounded-[14px] cursor-text"
         >
-          <span className="flex items-center gap-1 text-[11px] font-medium text-cc-muted shrink-0">
-            {isPlan ? (
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                <path d="M2 3.5h12v1H2zm0 4h8v1H2zm0 4h10v1H2z" />
-              </svg>
-            ) : (
-              <svg viewBox="0 0 16 16" fill="currentColor" className="w-3 h-3">
-                <path
-                  d="M2.5 4l4 4-4 4"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                />
-                <path
-                  d="M8.5 4l4 4-4 4"
-                  stroke="currentColor"
-                  strokeWidth="2"
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  fill="none"
-                />
-              </svg>
-            )}
-            {isPlan ? "Plan" : "Agent"}
-          </span>
           <span className="flex-1 text-sm text-cc-muted text-left truncate">Type a message...</span>
+        </button>
+        <button
+          onClick={onOpenFilePicker}
+          disabled={imageUploadDisabled}
+          aria-label="Upload image"
+          className={`flex h-10 w-10 shrink-0 items-center justify-center rounded-lg transition-colors ${
+            imageUploadDisabled
+              ? "text-cc-muted opacity-30 cursor-not-allowed"
+              : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover cursor-pointer"
+          }`}
+          title={imageUploadTitle}
+        >
+          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" strokeWidth="1.5" className="w-5 h-5">
+            <rect x="2" y="2" width="12" height="12" rx="2" />
+            <circle cx="5.5" cy="5.5" r="1" fill="currentColor" stroke="none" />
+            <path d="M2 11l3-3 2 2 3-4 4 5" strokeLinecap="round" strokeLinejoin="round" />
+          </svg>
         </button>
         <button
           onClick={onVoiceButton}

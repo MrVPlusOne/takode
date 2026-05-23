@@ -1778,7 +1778,6 @@ export function Composer({
       <CollapsedComposerBar
         isCollapsed={isCollapsed}
         expandComposer={expandComposer}
-        isPlan={isPlan}
         onVoiceButton={() => {
           if (!voiceSupported) {
             toggleVoiceUnsupportedInfo(true);
@@ -1787,6 +1786,9 @@ export function Composer({
           setComposerExpanded(true);
           handleMicClick();
         }}
+        onOpenFilePicker={() => fileInputRef.current?.click()}
+        imageUploadDisabled={imageUploadDisabled}
+        imageUploadTitle={imageUploadTitle}
         compactVoiceButtonDisabled={compactVoiceButtonDisabled}
         voiceSupported={voiceSupported}
         isPreparing={isPreparing}

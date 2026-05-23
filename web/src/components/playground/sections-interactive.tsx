@@ -205,7 +205,7 @@ export function PlaygroundInteractiveSections() {
                           fill="none"
                         />
                       </svg>
-                      <span>Agent</span>
+                      <span>Full access</span>
                     </div>
                     <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                       <span className="truncate font-mono-code">jiayi</span>
@@ -345,7 +345,7 @@ export function PlaygroundInteractiveSections() {
                           fill="none"
                         />
                       </svg>
-                      <span>Agent</span>
+                      <span>Full access</span>
                     </div>
                     <div className="flex min-w-0 items-center gap-2 overflow-hidden">
                       <span className="truncate font-mono-code">jiayi</span>
@@ -490,7 +490,7 @@ export function PlaygroundInteractiveSections() {
                           fill="none"
                         />
                       </svg>
-                      <span>Agent</span>
+                      <span>Full access</span>
                     </div>
                   </div>
                   <div className="flex items-center gap-1">
