@@ -544,6 +544,37 @@ describe("leader mode segment-local needs-input preview selection", () => {
     );
   });
 
+  it("keeps a later status-only needs-input segment visible after an earlier proposal segment", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "open two approval prompts", timestamp: 1 }),
+      makeMessage({
+        id: "a-proposal-1",
+        role: "assistant",
+        content:
+          "Proposed Quest\n\n- Title: First preview case\n- Goal / Acceptance: keep this proposal visible near the first notification.",
+        timestamp: 2,
+      }),
+      makeNotifyToolMessage("a-notify-1", 3),
+      makeVisibleLeaderMessage("a-bookkeeping-1", "Created approval notification `41` for the first proposal.", 4),
+      makeNotifyToolMessage("a-notify-2", 5),
+      makeVisibleLeaderMessage("a-bookkeeping-2", "Created approval notification `42` for the second decision.", 6),
+    ];
+
+    const model = buildFeedModel(messages, true, 0, ["a-notify-1", "a-notify-2"]);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual([
+      "a-proposal-1",
+      "a-notify-1",
+      "activity",
+      "a-notify-2",
+      "a-bookkeeping-2",
+    ]);
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-notify-1", "a-notify-2", "a-bookkeeping-2"]);
+    expect(entryIds(turn.agentEntries)).toContain("a-bookkeeping-1");
+    expect(entryIds(turn.agentEntries)).not.toContain("a-bookkeeping-2");
+  });
+
   it("falls back to the existing short status when the segment has no substantive proposal", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "open a decision prompt", timestamp: 1 }),

@@ -714,7 +714,7 @@ function filterCollapsedVisibleEntriesForNeedsInputBookkeeping(
   const retainedVisibleEntryKeys = new Set<string>();
   let hiddenEntries: FeedEntry[] = [];
   let previousVisibleEntry: FeedEntry | null = null;
-  let hasNeedsInputPreview = false;
+  let previousVisibleNeedsInputSegmentHasPreview = false;
 
   for (const entry of rawAgentEntries) {
     const key = getEntryId(entry);
@@ -725,16 +725,20 @@ function filterCollapsedVisibleEntriesForNeedsInputBookkeeping(
 
     const segmentPreview = chooseNeedsInputSegmentPreview(hiddenEntries, previousVisibleEntry, entry);
     const hasCurrentNeedsInputPreview = segmentPreview !== null;
-    if (isApprovalCreatedBookkeepingEntry(entry) && (hasNeedsInputPreview || hasCurrentNeedsInputPreview)) {
-      if (hasCurrentNeedsInputPreview) hasNeedsInputPreview = true;
+    const followsNeedsInputSegmentWithPreview =
+      previousVisibleNeedsInputSegmentHasPreview && entryHasNeedsInputSignal(previousVisibleEntry);
+    if (
+      isApprovalCreatedBookkeepingEntry(entry) &&
+      (hasCurrentNeedsInputPreview || followsNeedsInputSegmentWithPreview)
+    ) {
       hiddenEntries.push(entry);
       continue;
     }
 
-    if (hasCurrentNeedsInputPreview) hasNeedsInputPreview = true;
     retainedVisibleEntryKeys.add(key);
     hiddenEntries = [];
     previousVisibleEntry = entry;
+    previousVisibleNeedsInputSegmentHasPreview = entryHasNeedsInputSignal(entry) && hasCurrentNeedsInputPreview;
   }
 
   return visibleEntries.filter((entry) => retainedVisibleEntryKeys.has(getEntryId(entry)));
