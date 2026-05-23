@@ -129,7 +129,7 @@ describe("Codex result-error auto-pause", () => {
     expect(materializeCodexAutoPausedInputsForDrain(state.heldInputs)[0]?.content).toContain("2 similar automatic");
   });
 
-  it("treats composer and explicit operator sends as manual, while herd, timers, system, and anonymous programmatic sends are automatic", () => {
+  it("treats only composer and explicit manual overrides as manual while background sources are automatic", () => {
     expect(determineUserMessageSourceKind({ type: "user_message", content: "hi", inputSource: "composer" })).toBe(
       "manual",
     );
@@ -137,9 +137,17 @@ describe("Codex result-error auto-pause", () => {
       determineUserMessageSourceKind({
         type: "user_message",
         content: "from takode send",
+        autoPauseSourceKind: "manual",
         agentSource: { sessionId: "operator-session" },
       }),
     ).toBe("manual");
+    expect(
+      determineUserMessageSourceKind({
+        type: "user_message",
+        content: "internal",
+        agentSource: { sessionId: "resource-lease:agent-browser" },
+      }),
+    ).toBe("automatic");
     expect(
       determineUserMessageSourceKind({
         type: "user_message",

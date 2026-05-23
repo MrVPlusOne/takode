@@ -71,7 +71,7 @@ export function prepareProgrammaticCodexAutoPauseDelivery(
     threadRoute: input.threadRoute,
     options: effectiveOptions,
   });
-  if (!autoPause || !isAutomaticCodexAutoPauseInput(message) || input.options?.bypassPause) {
+  if (!autoPause || !isAutomaticCodexAutoPauseInput(message)) {
     return { status: "deliver", options: effectiveOptions };
   }
 
@@ -85,12 +85,12 @@ function resolveProgrammaticAutoPauseOptions(
   options: ProgrammaticUserMessageOptions | undefined,
   agentSource: { sessionId: string; sessionLabel?: string } | undefined,
 ): ProgrammaticUserMessageOptions | undefined {
-  if (!options && agentSource) return undefined;
+  if (!options) return undefined;
+  if (!agentSource && options.bypassPause && !options.autoPauseSourceKind) {
+    return { ...options, autoPauseSourceKind: "manual" };
+  }
   return {
     ...options,
-    ...(!agentSource && !options?.autoPauseSourceKind
-      ? { autoPauseSourceKind: options?.bypassPause ? ("manual" as const) : ("automatic" as const) }
-      : {}),
   };
 }
 

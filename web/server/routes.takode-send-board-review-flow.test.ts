@@ -663,6 +663,7 @@ describe("Takode server-authoritative auth", () => {
       { sessionId: "orch-1" },
       undefined,
       undefined,
+      { autoPauseSourceKind: "manual" },
     );
   });
 

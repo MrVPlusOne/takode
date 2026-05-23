@@ -1096,8 +1096,16 @@ export function createTakodeRoutes(ctx: RouteContext) {
         return c.json({ error: "Session is herded — only its leader can send messages" }, 403);
       }
     }
+    const manualAutoPauseOptions = { autoPauseSourceKind: "manual" as const };
     if (isSessionPaused(wsBridge.getSession(id))) {
-      const delivery = wsBridge.injectUserMessage(id, body.content, agentSource, undefined, threadRoute);
+      const delivery = wsBridge.injectUserMessage(
+        id,
+        body.content,
+        agentSource,
+        undefined,
+        threadRoute,
+        manualAutoPauseOptions,
+      );
       return c.json({
         ok: true,
         sessionId: id,
@@ -1106,7 +1114,14 @@ export function createTakodeRoutes(ctx: RouteContext) {
         diagnostic: `Session is paused; message held until unpause (${getPauseState(wsBridge.getSession(id))?.queuedMessages.length ?? 0} held).`,
       });
     }
-    const delivery = wsBridge.injectUserMessage(id, body.content, agentSource, undefined, threadRoute);
+    const delivery = wsBridge.injectUserMessage(
+      id,
+      body.content,
+      agentSource,
+      undefined,
+      threadRoute,
+      manualAutoPauseOptions,
+    );
     if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
     return c.json({ ok: true, sessionId: id, delivery });
   });
@@ -1576,7 +1591,7 @@ export function createTakodeRoutes(ctx: RouteContext) {
         },
         undefined,
         threadRouteForTarget(target.threadKey ?? "main"),
-        { bypassPause: true },
+        { bypassPause: true, autoPauseSourceKind: "manual" },
       );
       if (delivery === "no_session") return c.json({ error: "Session not found in bridge" }, 404);
       markNotificationDoneController(session, target.notification_id, true, notificationPersistDeps);

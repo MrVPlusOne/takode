@@ -107,6 +107,7 @@ describe("takode cross-session message routing", () => {
       { sessionId: "orch-1" },
       undefined,
       expect.objectContaining({ threadKey: "q-1009", questId: "q-1009" }),
+      { autoPauseSourceKind: "manual" },
     );
   });
 
@@ -127,6 +128,7 @@ describe("takode cross-session message routing", () => {
       { sessionId: "orch-1" },
       undefined,
       undefined,
+      { autoPauseSourceKind: "manual" },
     );
   });
 

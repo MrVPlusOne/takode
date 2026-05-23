@@ -701,7 +701,7 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     });
   });
 
-  it("holds automatic injected Codex messages during result-error auto-pause but lets explicit operator sends through", () => {
+  it("holds internal injected Codex messages during result-error auto-pause but lets explicit operator sends through", () => {
     const sid = "s-codex-auto-paused";
     const relaunchCb = vi.fn();
     bridge.onCLIRelaunchNeededCallback(relaunchCb);
@@ -726,20 +726,27 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
       heldInputs: [],
     };
 
-    const automaticDelivery = bridge.injectUserMessage(sid, "board wake", {
-      sessionId: "herd-events",
-      sessionLabel: "Herd Events",
+    const automaticDelivery = bridge.injectUserMessage(sid, "lease acquired", {
+      sessionId: "resource-lease:agent-browser",
+      sessionLabel: "Resource Lease",
     });
-    const manualDelivery = bridge.injectUserMessage(sid, "operator test", {
-      sessionId: "operator-session",
-      sessionLabel: "Operator",
-    });
+    const manualDelivery = bridge.injectUserMessage(
+      sid,
+      "operator test",
+      {
+        sessionId: "operator-session",
+        sessionLabel: "Operator",
+      },
+      undefined,
+      undefined,
+      { autoPauseSourceKind: "manual" },
+    );
 
     expect(automaticDelivery).toBe("paused_queued");
     expect(manualDelivery).toBe("queued");
     expect(session.state.codex_result_error_auto_pause.heldInputs).toHaveLength(1);
     expect(session.pendingCodexInputs.map((input: any) => input.content)).toContain("operator test");
-    expect(session.pendingCodexInputs.map((input: any) => input.content)).not.toContain("board wake");
+    expect(session.pendingCodexInputs.map((input: any) => input.content)).not.toContain("lease acquired");
     expect(session.state.backend_state).not.toBe("recovery_suppressed");
     expect(relaunchCb).toHaveBeenCalledWith(sid);
   });

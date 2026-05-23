@@ -78,10 +78,10 @@ export function determineUserMessageSourceKind(msg: BrowserUserMessage): CodexAu
   if (msg.inputSource === "composer") return "manual";
   if (msg.takodeHerdBatch) return "automatic";
   if (isTimerReminderContent(msg.content)) return "automatic";
-  if (!msg.agentSource) return msg.inputSource === "programmatic" ? "automatic" : "automatic";
+  if (!msg.agentSource) return "automatic";
   if (isSystemSourceTag(msg.agentSource) || isTimerSourceTag(msg.agentSource)) return "automatic";
   if (msg.agentSource.sessionId === "herd-events") return "automatic";
-  return "manual";
+  return "automatic";
 }
 
 export function isAutomaticCodexAutoPauseInput(msg: BrowserUserMessage): boolean {
