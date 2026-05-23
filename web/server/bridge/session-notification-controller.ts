@@ -58,6 +58,13 @@ type NotificationDoneDeps = PersistNotificationDeps & {
   broadcastBoard?: (session: SessionLike, board: BoardRow[], completedBoard: BoardRow[]) => void;
 };
 
+type ResolutionNoticeMode = "pending" | "delivered";
+
+type NotificationDoneOptions = {
+  resolutionNotice?: ResolutionNoticeMode;
+  resolutionNoticeSource?: "manual" | "response";
+};
+
 export function setAttention(
   session: SessionLike,
   reason: AttentionReason,
@@ -397,6 +404,7 @@ export function markNotificationDone(
   notifId: string,
   done: boolean,
   deps: NotificationDoneDeps,
+  options: NotificationDoneOptions = {},
 ): boolean {
   const notif = session.notifications.find((entry: SessionNotification) => entry.id === notifId);
   if (!notif) return false;
@@ -405,6 +413,7 @@ export function markNotificationDone(
     return true;
   }
   notif.done = done;
+  updateResolutionNoticeForDoneChange(notif, done, options);
   touchNotificationStatus(session);
   const clearedBoardWaits =
     done && notif.category === "needs-input" ? removeNotificationLinksFromBoardRows(session, notifId) : false;
@@ -424,18 +433,25 @@ export function markNotificationDoneBySessionId(
   notifId: string,
   done: boolean,
   deps: NotificationDoneDeps,
+  options: NotificationDoneOptions = {},
 ): boolean {
   const session = sessions.get(sessionId);
   if (!session) return false;
-  return markNotificationDone(session, notifId, done, deps);
+  return markNotificationDone(session, notifId, done, deps, options);
 }
 
-export function markAllNotificationsDone(session: SessionLike, done: boolean, deps: NotificationDoneDeps): number {
+export function markAllNotificationsDone(
+  session: SessionLike,
+  done: boolean,
+  deps: NotificationDoneDeps,
+  options: NotificationDoneOptions = {},
+): number {
   let count = 0;
   let clearedBoardWaits = false;
   for (const notif of session.notifications) {
     if (notif.done === done) continue;
     notif.done = done;
+    updateResolutionNoticeForDoneChange(notif, done, options);
     if (done && notif.category === "needs-input") {
       clearedBoardWaits = removeNotificationLinksFromBoardRows(session, notif.id) || clearedBoardWaits;
     }
@@ -461,10 +477,11 @@ export function markAllNotificationsDoneBySessionId(
   sessionId: string,
   done: boolean,
   deps: NotificationDoneDeps,
+  options: NotificationDoneOptions = {},
 ): number {
   const session = sessions.get(sessionId);
   if (!session) return -1;
-  return markAllNotificationsDone(session, done, deps);
+  return markAllNotificationsDone(session, done, deps, options);
 }
 
 export function clearActionAttentionIfNoNotifications(session: SessionLike, deps: BrowserNotificationDeps): void {
@@ -502,4 +519,24 @@ function getNotificationAnchor(entry: BrowserIncomingMessage | undefined):
     return { id: entry.id, message: entry };
   }
   return undefined;
+}
+
+function updateResolutionNoticeForDoneChange(
+  notification: SessionNotification,
+  done: boolean,
+  options: NotificationDoneOptions,
+): void {
+  if (notification.category !== "needs-input") return;
+  if (!done) {
+    delete notification.resolutionNotice;
+    return;
+  }
+  if (!options.resolutionNotice) return;
+  const resolvedAt = Date.now();
+  notification.resolutionNotice = {
+    status: options.resolutionNotice,
+    source: options.resolutionNoticeSource ?? "manual",
+    resolvedAt,
+    ...(options.resolutionNotice === "delivered" ? { deliveredAt: resolvedAt } : {}),
+  };
 }

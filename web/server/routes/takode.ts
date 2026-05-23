@@ -1935,7 +1935,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const done = body.done !== false;
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
-    const ok = markNotificationDoneController(session, notifId, done, notificationPersistDeps);
+    const ok = markNotificationDoneController(session, notifId, done, notificationPersistDeps, {
+      ...(done ? { resolutionNotice: "pending" as const, resolutionNoticeSource: "manual" as const } : {}),
+    });
     if (!ok) return c.json({ error: "Notification not found" }, 404);
     return c.json({ ok: true });
   });
@@ -1947,7 +1949,9 @@ export function createTakodeRoutes(ctx: RouteContext) {
     const done = body.done !== false;
     const session = wsBridge.getSession(id);
     if (!session) return c.json({ error: "Session not found" }, 404);
-    const count = markAllNotificationsDoneController(session, done, notificationPersistDeps);
+    const count = markAllNotificationsDoneController(session, done, notificationPersistDeps, {
+      ...(done ? { resolutionNotice: "pending" as const, resolutionNoticeSource: "manual" as const } : {}),
+    });
     return c.json({ ok: true, count });
   });
 

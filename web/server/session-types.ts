@@ -435,6 +435,8 @@ export interface PendingCodexInput {
   deliveryContent?: string;
   replyContext?: ReplyContext;
   needsInputReminderText?: string;
+  needsInputResolutionNoticeText?: string;
+  needsInputResolutionNoticeIds?: string[];
   agentSource?: { sessionId: string; sessionLabel?: string };
   takodeHerdBatch?: TakodeHerdBatchSnapshot;
   vscodeSelection?: VsCodeSelectionMetadata;
@@ -1332,6 +1334,13 @@ export interface SessionNotification {
   questId?: string;
   threadRefs?: ThreadRef[];
   done: boolean;
+  resolutionNotice?: {
+    status: "pending" | "queued" | "delivered";
+    source: "manual" | "response";
+    resolvedAt: number;
+    queuedInputId?: string;
+    deliveredAt?: number;
+  };
 }
 
 export type CodexLeaderRecycleTrigger = "threshold" | "manual_compact" | "context_window_exhausted";

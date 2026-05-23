@@ -6,7 +6,7 @@ import {
   type AdapterBrowserRoutingSessionLike,
 } from "./adapter-browser-routing-controller.js";
 import { deriveActiveTurnRoute } from "./browser-transport-controller.js";
-import { commitPendingCodexInputs } from "./codex-recovery-orchestrator.js";
+import { commitPendingCodexInputs, removePendingCodexInput } from "./codex-recovery-orchestrator.js";
 import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
@@ -123,6 +123,26 @@ function needsInput(id: string, summary: string, timestamp: number, done = false
     timestamp,
     messageId: null,
     done,
+  };
+}
+
+function externallyResolvedNeedsInput(
+  id: string,
+  summary: string,
+  timestamp: number,
+  threadKey = "main",
+): SessionNotification {
+  return {
+    ...needsInput(id, summary, timestamp, true),
+    threadKey,
+    ...(threadKey !== "main"
+      ? { questId: threadKey, threadRefs: [{ threadKey, questId: threadKey, source: "explicit" }] }
+      : {}),
+    resolutionNotice: {
+      status: "pending",
+      source: "manual",
+      resolvedAt: timestamp + 50,
+    },
   };
 }
 
@@ -329,6 +349,73 @@ describe("direct user needs-input reminders", () => {
     expect(cliContent).toContain(
       "Unresolved same-session same-thread needs-input notifications (main): 4. Showing newest 3.",
     );
+  });
+
+  it("delivers and consumes deferred resolution notices with the next direct user message", async () => {
+    const session = makeSession([externallyResolvedNeedsInput("n-2", "Already handled", 200)]);
+    const deps = makeDeps({ isOrchestrator: true });
+
+    await handleUserMessage(session, userMessage(), deps);
+
+    expect(session.messageHistory).toHaveLength(2);
+    expect(session.messageHistory[0]).toMatchObject({
+      content: expect.stringContaining("[Needs-input resolution notice]"),
+      agentSource: {
+        sessionId: "system:needs-input-resolution",
+        sessionLabel: "Needs Input Resolution",
+      },
+    });
+    expect(sentCliContent(deps)).toContain("2. Already handled -- dismissed or resolved outside the agent.");
+    expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "delivered" });
+
+    await handleUserMessage(session, userMessage({ content: "Another direct user message" }), deps);
+    expect(
+      session.messageHistory.filter((entry: any) => entry.id?.startsWith("needs-input-resolution-notice-")),
+    ).toHaveLength(1);
+  });
+
+  it("keeps unresolved reminders and deferred resolution notices separate in mixed cases", async () => {
+    const session = makeSession([
+      externallyResolvedNeedsInput("n-2", "Already handled", 200),
+      needsInput("n-3", "Still pending", 300),
+    ]);
+    const deps = makeDeps({ isOrchestrator: true });
+
+    await handleUserMessage(session, userMessage(), deps);
+
+    expect(session.messageHistory[0]).toMatchObject({
+      content: expect.stringContaining("[Needs-input resolution notice]"),
+    });
+    expect(session.messageHistory[1]).toMatchObject({
+      content: expect.stringContaining("[Needs-input reminder]"),
+    });
+    const cliContent = sentCliContent(deps);
+    expect(cliContent.indexOf("[Needs-input resolution notice]")).toBeLessThan(
+      cliContent.indexOf("[Needs-input reminder]"),
+    );
+    expect(cliContent).toContain("2. Already handled");
+    expect(cliContent).toContain("3. Still pending");
+  });
+
+  it("does not deliver resolution notices on programmatic or interrupted-generation turns", async () => {
+    const session = makeSession([externallyResolvedNeedsInput("n-2", "Already handled", 200)]);
+    const deps = makeDeps({ isOrchestrator: true });
+
+    await handleUserMessage(
+      session,
+      userMessage({ agentSource: { sessionId: "system:test", sessionLabel: "System Test" } }),
+      deps,
+    );
+    expect(sentCliContent(deps)).not.toContain("[Needs-input resolution notice]");
+    expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "pending" });
+
+    const interruptedSession = makeSession([externallyResolvedNeedsInput("n-4", "Interrupt handled", 400)]);
+    interruptedSession.isGenerating = true;
+    const interruptedDeps = makeDeps({ isOrchestrator: true });
+    await handleUserMessage(interruptedSession, userMessage({ content: "Interrupting message" }), interruptedDeps);
+
+    expect(sentCliContent(interruptedDeps)).not.toContain("[Needs-input resolution notice]");
+    expect(interruptedSession.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "pending" });
   });
 
   it("filters direct user reminders to pending needs-input notifications from the same quest thread", async () => {
@@ -545,6 +632,62 @@ describe("direct user needs-input reminders", () => {
       },
     });
     expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
+  });
+
+  it("carries deferred resolution notices through Codex pending inputs and consumes them on commit", () => {
+    const session = makeSession([externallyResolvedNeedsInput("n-2", "Already handled", 200)]);
+    session.backendType = "codex";
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    routeAdapterBrowserMessage(session, userMessage(), null, deps);
+
+    expect(session.pendingCodexInputs[0]).toMatchObject({
+      needsInputResolutionNoticeText: expect.stringContaining("[Needs-input resolution notice]"),
+      needsInputResolutionNoticeIds: ["n-2"],
+      deliveryContent: expect.stringContaining("[Needs-input resolution notice]"),
+    });
+    expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({
+      status: "queued",
+      queuedInputId: session.pendingCodexInputs[0]?.id,
+    });
+
+    commitPendingCodexInputs(session as any, [session.pendingCodexInputs[0]!.id], {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      onUserMessage: vi.fn(),
+    } as any);
+
+    expect(session.messageHistory[0]).toMatchObject({
+      content: expect.stringContaining("[Needs-input resolution notice]"),
+      agentSource: {
+        sessionId: "system:needs-input-resolution",
+        sessionLabel: "Needs Input Resolution",
+      },
+    });
+    expect(session.messageHistory[1]).toMatchObject({ type: "user_message", content: "Fresh user message" });
+    expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "delivered" });
+  });
+
+  it("restores queued Codex resolution notices when their pending input is cancelled", () => {
+    const session = makeSession([externallyResolvedNeedsInput("n-2", "Already handled", 200)]);
+    session.backendType = "codex";
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    routeAdapterBrowserMessage(session, userMessage(), null, deps);
+    removePendingCodexInput(session as any, session.pendingCodexInputs[0]!.id, {
+      broadcastPendingCodexInputs: vi.fn(),
+      persistSession: vi.fn(),
+    });
+
+    expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "pending" });
   });
 
   it("requests recovery when a normal text Codex input queues behind a disconnected adapter", () => {

@@ -58,6 +58,10 @@ export function registerTakodeNotificationResponseRoute(
       notificationId: notification.id,
       previewText,
     };
+    markNotificationDoneController(session, notifId, true, notificationPersistDeps, {
+      resolutionNotice: "pending",
+      resolutionNoticeSource: "response",
+    });
     const delivery = wsBridge.injectUserMessage(id, body.content, undefined, undefined, threadRoute, {
       deliveryContent: formatReplyContentForAssistant(body.content, replyContext),
       replyContext,
@@ -66,11 +70,10 @@ export function registerTakodeNotificationResponseRoute(
     });
 
     if (delivery !== "sent" && delivery !== "queued") {
+      markNotificationDoneController(session, notifId, false, notificationPersistDeps);
       return c.json({ error: "Response could not be delivered", delivery }, 503);
     }
 
-    const ok = markNotificationDoneController(session, notifId, true, notificationPersistDeps);
-    if (!ok) return c.json({ error: "Notification not found" }, 404);
     return c.json({ ok: true, sessionId: id, notificationId: notifId, delivery, changed: true });
   });
 }

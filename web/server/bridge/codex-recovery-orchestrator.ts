@@ -16,6 +16,8 @@ import { sessionTag } from "../session-tag.js";
 import type { UserDispatchTurnTarget } from "./generation-lifecycle.js";
 import {
   buildNeedsInputReminderHistoryEntry,
+  commitQueuedNeedsInputResolutionNoticeHistoryEntry,
+  restoreQueuedNeedsInputResolutionNotices,
   shouldCommitNeedsInputReminderHistoryEntry,
 } from "./adapter-browser-routing-needs-input-reminder.js";
 import { isRecoverableCodexInitError } from "../codex-adapter-utils.js";
@@ -1236,6 +1238,7 @@ function commitPendingCodexInput(
     session.messageHistory.push(reminderHistoryEntry);
     deps.broadcastToBrowsers(session, reminderHistoryEntry);
   }
+  commitQueuedNeedsInputResolutionNoticeHistoryEntry(session, pending, deps);
   const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
     type: "user_message",
     content: pending.content,
@@ -1271,6 +1274,7 @@ export function removePendingCodexInput(
   const idx = session.pendingCodexInputs.findIndex((item) => item.id === id);
   if (idx < 0) return null;
   const [removed] = session.pendingCodexInputs.splice(idx, 1);
+  if (removed) restoreQueuedNeedsInputResolutionNotices(session, removed.id);
   deps.broadcastPendingCodexInputs(session);
   deps.persistSession(session);
   return removed;

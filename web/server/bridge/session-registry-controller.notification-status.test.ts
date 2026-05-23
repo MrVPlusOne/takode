@@ -167,6 +167,35 @@ describe("session notification status metadata", () => {
     expect(deps.persistSession).toHaveBeenCalledWith(session);
   });
 
+  it("records external needs-input resolution notice state only when requested", () => {
+    const session = makeSession({
+      notifications: [
+        { id: "n-1", category: "needs-input", summary: "Need answer", timestamp: 1000, done: false },
+        { id: "n-2", category: "review", summary: "Review", timestamp: 1001, done: false },
+      ],
+    });
+    const deps = makeDeps();
+
+    expect(
+      markNotificationDone(session, "n-1", true, deps, {
+        resolutionNotice: "pending",
+        resolutionNoticeSource: "manual",
+      }),
+    ).toBe(true);
+    expect(session.notifications[0]).toMatchObject({
+      done: true,
+      resolutionNotice: { status: "pending", source: "manual" },
+    });
+
+    markNotificationDone(session, "n-1", false, deps);
+    markNotificationDone(session, "n-2", true, deps, {
+      resolutionNotice: "pending",
+      resolutionNoticeSource: "manual",
+    });
+    expect(session.notifications[0]?.resolutionNotice).toBeUndefined();
+    expect(session.notifications[1]?.resolutionNotice).toBeUndefined();
+  });
+
   it("excludes legacy waiting markers from server notification status snapshots", () => {
     const session = makeSession({
       notifications: [

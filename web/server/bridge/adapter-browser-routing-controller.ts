@@ -13,8 +13,12 @@ import {
 import {
   buildNeedsInputReminderHistoryEntry,
   buildNeedsInputReminderTextForDirectUserMessage,
-  prependNeedsInputReminderToContent,
+  buildNeedsInputResolutionNoticeForDirectUserMessage,
+  commitNeedsInputResolutionNoticeHistoryEntry,
+  markNeedsInputResolutionNoticesQueued,
+  prependNeedsInputNoticesToContent,
 } from "./adapter-browser-routing-needs-input-reminder.js";
+import { applyUserMessageDeliveryPrefix } from "./adapter-browser-routing-delivery-content.js";
 import {
   handleCodexSetModel,
   handleCodexSetPermissionMode,
@@ -105,6 +109,8 @@ type IngestedUserMessage = {
   historyIndex: number;
   imageRefs?: ImageRef[];
   needsInputReminderText?: string;
+  needsInputResolutionNoticeText?: string;
+  needsInputResolutionNoticeIds?: string[];
   wasGenerating: boolean;
 };
 type SessionNotificationDeps = {
@@ -1351,6 +1357,9 @@ export function ingestUserMessage(
       : undefined;
   const finalize = (imageRefs?: ImageRef[]): IngestedUserMessage => {
     const wasGenerating = session.isGenerating;
+    const resolutionNotice = wasGenerating
+      ? null
+      : buildNeedsInputResolutionNoticeForDirectUserMessage(session, msg, deps);
     const userHistoryEntry: Extract<BrowserIncomingMessage, { type: "user_message" }> = {
       type: "user_message",
       content: msg.content,
@@ -1367,6 +1376,7 @@ export function ingestUserMessage(
     };
     let userMsgHistoryIdx = -1;
     if (commit) {
+      commitNeedsInputResolutionNoticeHistoryEntry(session, resolutionNotice, ts, deps);
       if (needsInputReminderText) {
         const reminderHistoryEntry = buildNeedsInputReminderHistoryEntry(
           needsInputReminderText,
@@ -1395,6 +1405,12 @@ export function ingestUserMessage(
       historyIndex: userMsgHistoryIdx,
       imageRefs,
       ...(needsInputReminderText ? { needsInputReminderText } : {}),
+      ...(resolutionNotice
+        ? {
+            needsInputResolutionNoticeText: resolutionNotice.text,
+            needsInputResolutionNoticeIds: resolutionNotice.notificationIds,
+          }
+        : {}),
       wasGenerating,
     };
   };
@@ -1402,23 +1418,6 @@ export function ingestUserMessage(
     return finalize(msg.imageRefs);
   }
   return finalize();
-}
-
-function applyUserMessageDeliveryPrefix(content: string | unknown[], prefix: string): string | unknown[] {
-  if (!prefix) return content;
-  if (typeof content === "string") return prefix + content;
-  const firstTextIndex = content.findIndex(
-    (block): block is { type: "text"; text: string } =>
-      !!block &&
-      typeof block === "object" &&
-      (block as { type?: unknown }).type === "text" &&
-      typeof (block as { text?: unknown }).text === "string",
-  );
-  if (firstTextIndex < 0) return [{ type: "text", text: prefix.trimEnd() }, ...content];
-  const next = content.slice();
-  const firstText = next[firstTextIndex] as { type: "text"; text: string };
-  next[firstTextIndex] = { ...firstText, text: prefix + firstText.text };
-  return next;
 }
 
 function buildUserMessageDeliveryPrefix(
@@ -1485,10 +1484,18 @@ export async function handleUserMessage(
       : msg.content;
   }
   if (typeof content === "string") {
-    const contentWithReminder = prependNeedsInputReminderToContent(content, ingested.needsInputReminderText) as string;
-    content = buildUserMessageDeliveryPrefix(session, ingested, msg, contentWithReminder, deps) + contentWithReminder;
+    const contentWithNotice = prependNeedsInputNoticesToContent(
+      content,
+      ingested.needsInputResolutionNoticeText,
+      ingested.needsInputReminderText,
+    ) as string;
+    content = buildUserMessageDeliveryPrefix(session, ingested, msg, contentWithNotice, deps) + contentWithNotice;
   } else {
-    content = prependNeedsInputReminderToContent(content, ingested.needsInputReminderText);
+    content = prependNeedsInputNoticesToContent(
+      content,
+      ingested.needsInputResolutionNoticeText,
+      ingested.needsInputReminderText,
+    );
     content = applyUserMessageDeliveryPrefix(
       content,
       buildUserMessageDeliveryPrefix(session, ingested, msg, undefined, deps),
@@ -1820,8 +1827,9 @@ export function routeAdapterBrowserMessage(
       if (ingested.historyEntry.id) {
         let deliveryContent: string | undefined;
         if (adapterMsg.type === "user_message" && typeof adapterMsg.content === "string") {
-          const contentWithReminder = prependNeedsInputReminderToContent(
+          const contentWithReminder = prependNeedsInputNoticesToContent(
             adapterMsg.content,
+            ingested.needsInputResolutionNoticeText,
             ingested.needsInputReminderText,
           ) as string;
           const sourcePrefix =
@@ -1840,6 +1848,12 @@ export function routeAdapterBrowserMessage(
           ...(deliveryContent ? { deliveryContent } : {}),
           ...(msg.replyContext ? { replyContext: msg.replyContext } : {}),
           ...(ingested.needsInputReminderText ? { needsInputReminderText: ingested.needsInputReminderText } : {}),
+          ...(ingested.needsInputResolutionNoticeText
+            ? { needsInputResolutionNoticeText: ingested.needsInputResolutionNoticeText }
+            : {}),
+          ...(ingested.needsInputResolutionNoticeIds
+            ? { needsInputResolutionNoticeIds: ingested.needsInputResolutionNoticeIds }
+            : {}),
           ...(msg.agentSource ? { agentSource: msg.agentSource } : {}),
           ...(msg.takodeHerdBatch ? { takodeHerdBatch: msg.takodeHerdBatch } : {}),
           ...(msg.vscodeSelection ? { vscodeSelection: msg.vscodeSelection } : {}),
@@ -1847,6 +1861,11 @@ export function routeAdapterBrowserMessage(
           ...(ingested.historyEntry.questId ? { questId: ingested.historyEntry.questId } : {}),
           ...(ingested.historyEntry.threadRefs ? { threadRefs: ingested.historyEntry.threadRefs } : {}),
         });
+        markNeedsInputResolutionNoticesQueued(
+          session,
+          ingested.needsInputResolutionNoticeIds,
+          ingested.historyEntry.id,
+        );
       }
       const currentTurnId = session.codexAdapter?.getCurrentTurnId() ?? null;
       const isHerdEvent = deps.isHerdEventSource(msg.agentSource);
@@ -1924,8 +1943,9 @@ export function routeAdapterBrowserMessage(
     if (msg.type === "user_message" && typeof (adapterMsg as { content?: unknown }).content === "string") {
       const msgTs = ingested?.timestamp ?? Date.now();
       const typed = adapterMsg as { content: string };
-      const contentWithReminder = prependNeedsInputReminderToContent(
+      const contentWithReminder = prependNeedsInputNoticesToContent(
         typed.content,
+        ingested?.needsInputResolutionNoticeText,
         ingested?.needsInputReminderText,
       ) as string;
       const sourceThreadKey =
