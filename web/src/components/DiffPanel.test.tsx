@@ -154,15 +154,18 @@ describe("DiffPanel", () => {
 
   it("fetches diff when a file is selected", async () => {
     // Validates that file diffs are fetched and rendered, with the base branch selector in the header.
+    // Long full-mode diff rows must get their horizontal scroll owner from DiffViewer itself,
+    // so the mobile session Diff tab cannot accidentally make the whole page/panel the x-scroller.
     // Phase 1 fetches lightweight diff (no includeContents), then Phase 2 fetches
     // full contents for files visible in the viewport.
+    const longLineEnd = "SESSION-DIFF-LONG-LINE-END";
     const diffOutput = `diff --git a/src/app.ts b/src/app.ts
 --- a/src/app.ts
 +++ b/src/app.ts
 @@ -1,3 +1,3 @@
  line1
 -old line
-+new line
++new line with a deliberately long unwrapped token ${"segment-".repeat(18)}${longLineEnd}
  line3`;
 
     mockApi.getFileDiff.mockResolvedValue({ path: "/repo/src/app.ts", diff: diffOutput, baseBranch: "main" });
@@ -188,8 +191,15 @@ describe("DiffPanel", () => {
     await waitFor(() => {
       expect(container.querySelector(".diff-line-add")).toBeTruthy();
     });
+    const fileContainer = container.querySelector("[data-file-path='/repo/src/app.ts']");
+    expect(fileContainer?.querySelector(".diff-scroll-frame")).toBeTruthy();
     expect(container.querySelector(".diff-sticky-file-headers")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Collapse file" })).toBeTruthy();
+    expect(
+      Array.from(container.querySelectorAll(".diff-content")).some((element) =>
+        element.textContent?.includes(longLineEnd),
+      ),
+    ).toBe(true);
     // Base branch selector should show the resolved default
     const select = container.querySelector("select") as HTMLSelectElement;
     expect(select).toBeTruthy();

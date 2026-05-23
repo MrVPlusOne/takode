@@ -340,11 +340,14 @@ describe("MemoryPage", () => {
     expect(await screen.findByText("Selected update")).toBeInTheDocument();
     expect(screen.queryByText("Selected record")).not.toBeInTheDocument();
     expect(screen.getByTestId("memory-update-detail-body")).toBeInTheDocument();
-    // Long diff lines should scroll inside the diff frame instead of being clipped by its wrapper.
+    // Long diff lines should scroll inside the shared diff frame instead of being clipped by a caller wrapper.
     const diffScroll = screen.getByTestId("memory-update-diff-scroll");
     expect(diffScroll).toHaveClass("min-w-0", "max-w-full", "overflow-x-auto");
     expect(diffScroll).not.toHaveClass("overflow-hidden");
+    const sharedScrollFrame = diffScroll.querySelector(".diff-scroll-frame");
+    expect(sharedScrollFrame).toBeTruthy();
     expect(diffScroll.querySelector(".diff-sticky-file-headers")).toBeTruthy();
+    expect(sharedScrollFrame?.querySelector(".diff-file-body")).toBeTruthy();
     expect(diffScroll.querySelector(".diff-gutter")).toBeTruthy();
     expect(screen.getAllByText("service-x.md").length).toBeGreaterThan(0);
     expect(

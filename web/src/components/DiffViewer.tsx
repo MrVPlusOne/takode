@@ -14,7 +14,7 @@ export interface DiffViewerProps {
   fileName?: string;
   /** Optional stats text shown in the file header (e.g. +10 -2) */
   fileStatsLabel?: string;
-  /** compact = inline in chat (capped height, no line numbers), full = panel (scrollable, line numbers) */
+  /** compact = inline in chat (capped height, no line numbers), full = panel (scroll-contained, line numbers) */
   mode?: "compact" | "full";
   /** Explicit control over line numbers. When omitted, defaults to true for "full" mode, false for "compact". */
   showLineNumbers?: boolean;
@@ -24,7 +24,7 @@ export interface DiffViewerProps {
   headerActions?: ReactNode;
   /** Optional callback for rendering file-specific header actions. */
   renderHeaderActions?: (fileName: string) => ReactNode;
-  /** Keep file headers pinned when a parent container handles scrolling. */
+  /** Keep file headers pinned while each full diff body owns horizontal scrolling. */
   stickyFileHeaders?: boolean;
   /** Allow each rendered file section to be collapsed locally. */
   collapsibleFiles?: boolean;
@@ -704,6 +704,74 @@ export const DiffViewer = memo(function DiffViewer({
         const resolvedHeaderActions = renderHeaderActions ? renderHeaderActions(resolvedFileName) : headerActions;
         const fileCollapseKey = `${fi}:${resolvedFileName}`;
         const isFileCollapsed = !!collapsedFiles[fileCollapseKey];
+        const renderedBlocks = blocks.map((block) => {
+          if (block.type === "hunk") {
+            return (
+              <HunkBlock
+                key={`${fi}-${block.key}`}
+                hunk={block.hunk}
+                showLineNumbers={showLineNumbers}
+                highlighted={highlighted}
+              />
+            );
+          }
+
+          const gapId = `${fi}-${block.key}`;
+          const expandedCount = expandedGaps[gapId] ?? 0;
+          const visibleCount = Math.min(expandedCount, block.lines.length);
+          const remainingCount = block.lines.length - visibleCount;
+          const nextChunkCount = Math.min(GAP_EXPAND_CHUNK, remainingCount);
+
+          if (visibleCount === 0) {
+            return (
+              <div key={gapId} className="diff-gap-row">
+                <button
+                  type="button"
+                  className="diff-gap-btn"
+                  onClick={() => {
+                    setExpandedGaps((prev) => ({
+                      ...prev,
+                      [gapId]: Math.min(block.lines.length, (prev[gapId] ?? 0) + GAP_EXPAND_CHUNK),
+                    }));
+                  }}
+                >
+                  Show {nextChunkCount} unchanged line{nextChunkCount === 1 ? "" : "s"}
+                </button>
+              </div>
+            );
+          }
+
+          return (
+            <div key={gapId} className="diff-gap-expanded">
+              {block.lines.slice(0, visibleCount).map((line) => (
+                <DiffLineRow
+                  key={`${gapId}-${line.oldLineNo}-${line.newLineNo}`}
+                  line={line}
+                  showLineNumbers={showLineNumbers}
+                  highlightedHtml={getLineHtml(line, highlighted)}
+                />
+              ))}
+              {remainingCount > 0 && (
+                <div className="diff-gap-row">
+                  <button
+                    type="button"
+                    className="diff-gap-btn"
+                    onClick={() => {
+                      setExpandedGaps((prev) => ({
+                        ...prev,
+                        [gapId]: Math.min(block.lines.length, (prev[gapId] ?? 0) + GAP_EXPAND_CHUNK),
+                      }));
+                    }}
+                  >
+                    Show {nextChunkCount} more unchanged line{nextChunkCount === 1 ? "" : "s"} ({remainingCount}{" "}
+                    remaining)
+                  </button>
+                </div>
+              )}
+            </div>
+          );
+        });
+
         return (
           <div key={fi} className={`diff-file ${isFileCollapsed ? "diff-file-collapsed" : ""}`}>
             {resolvedFileName && (
@@ -717,73 +785,13 @@ export const DiffViewer = memo(function DiffViewer({
               />
             )}
             {!isFileCollapsed &&
-              blocks.map((block) => {
-                if (block.type === "hunk") {
-                  return (
-                    <HunkBlock
-                      key={`${fi}-${block.key}`}
-                      hunk={block.hunk}
-                      showLineNumbers={showLineNumbers}
-                      highlighted={highlighted}
-                    />
-                  );
-                }
-
-                const gapId = `${fi}-${block.key}`;
-                const expandedCount = expandedGaps[gapId] ?? 0;
-                const visibleCount = Math.min(expandedCount, block.lines.length);
-                const remainingCount = block.lines.length - visibleCount;
-                const nextChunkCount = Math.min(GAP_EXPAND_CHUNK, remainingCount);
-
-                if (visibleCount === 0) {
-                  return (
-                    <div key={gapId} className="diff-gap-row">
-                      <button
-                        type="button"
-                        className="diff-gap-btn"
-                        onClick={() => {
-                          setExpandedGaps((prev) => ({
-                            ...prev,
-                            [gapId]: Math.min(block.lines.length, (prev[gapId] ?? 0) + GAP_EXPAND_CHUNK),
-                          }));
-                        }}
-                      >
-                        Show {nextChunkCount} unchanged line{nextChunkCount === 1 ? "" : "s"}
-                      </button>
-                    </div>
-                  );
-                }
-
-                return (
-                  <div key={gapId} className="diff-gap-expanded">
-                    {block.lines.slice(0, visibleCount).map((line) => (
-                      <DiffLineRow
-                        key={`${gapId}-${line.oldLineNo}-${line.newLineNo}`}
-                        line={line}
-                        showLineNumbers={showLineNumbers}
-                        highlightedHtml={getLineHtml(line, highlighted)}
-                      />
-                    ))}
-                    {remainingCount > 0 && (
-                      <div className="diff-gap-row">
-                        <button
-                          type="button"
-                          className="diff-gap-btn"
-                          onClick={() => {
-                            setExpandedGaps((prev) => ({
-                              ...prev,
-                              [gapId]: Math.min(block.lines.length, (prev[gapId] ?? 0) + GAP_EXPAND_CHUNK),
-                            }));
-                          }}
-                        >
-                          Show {nextChunkCount} more unchanged line{nextChunkCount === 1 ? "" : "s"} ({remainingCount}{" "}
-                          remaining)
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              (isCompact ? (
+                renderedBlocks
+              ) : (
+                <div className="diff-scroll-frame">
+                  <div className="diff-file-body">{renderedBlocks}</div>
+                </div>
+              ))}
           </div>
         );
       })}

@@ -1299,6 +1299,7 @@ export function PlaygroundStateSections() {
 -router.get("/sessions/:id/diff", async (req, res) => loadDiff(req.params.id).then(res.json));
 +router.get("/sessions/:id/diff", async (req, res) => {
 +  const diff = await loadDiff(req.params.id, { includeContents: true, preserveWhitespace: true, expandRenames: true });
++  const longLineProbe = "session-diff-horizontal-scroll-" + "${"segment-".repeat(18)}" + "END";
 +  res.json(diff);
 +});
  export default router;

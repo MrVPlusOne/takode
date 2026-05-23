@@ -114,11 +114,14 @@ diff --git a/src/b.ts b/src/b.ts
     expect(container.querySelector(".diff-line-add")).toBeTruthy();
   });
 
-  it("marks full diff viewers that delegate scrolling to a parent for sticky file headers", () => {
+  it("wraps full diff bodies in a shared horizontal scroll frame for sticky file headers", () => {
     const { container } = render(
       <DiffViewer oldText="old" newText="new" mode="full" fileName="src/app.ts" stickyFileHeaders />,
     );
 
+    const scrollFrame = container.querySelector(".diff-scroll-frame");
+    expect(scrollFrame).toBeTruthy();
+    expect(scrollFrame?.querySelector(".diff-file-body")).toBeTruthy();
     expect(container.querySelector(".diff-sticky-file-headers")).toBeTruthy();
   });
 

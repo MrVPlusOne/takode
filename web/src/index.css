@@ -617,6 +617,13 @@ select {
   background: var(--color-cc-code-bg);
   color: var(--color-cc-code-fg);
 }
+.diff-scroll-frame {
+  max-width: 100%;
+  min-width: 0;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  -webkit-overflow-scrolling: touch;
+}
 .diff-compact {
   position: relative;
   max-height: 280px;
@@ -624,7 +631,7 @@ select {
   overflow-x: hidden;
 }
 .diff-full {
-  overflow: auto;
+  overflow: visible;
 }
 .diff-full.diff-sticky-file-headers {
   overflow: visible;
@@ -637,16 +644,16 @@ select {
   background: var(--color-cc-card);
 }
 .diff-file {
+  width: 100%;
+  min-width: 0;
+}
+.diff-file-body {
   /* Size to the widest line so ALL rows (including short add/del lines)
-     extend to the full scrollable width — their background colors then
+     extend to the full scrollable width -- their background colors then
      cover the entire horizontal scroll area instead of clipping at
      each line's own content edge. */
   width: max-content;
   min-width: 100%;
-}
-.diff-compact .diff-file {
-  width: 100%;
-  min-width: 0;
 }
 .diff-file + .diff-file {
   border-top: 1px solid var(--color-cc-border);
@@ -901,6 +908,7 @@ select {
 }
 .diff-modal-body .diff-viewer {
   height: 100%;
+  overflow-y: auto;
 }
 
 /* Hide hover card on touch-only devices */
