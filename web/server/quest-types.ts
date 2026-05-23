@@ -176,6 +176,8 @@ interface QuestBase {
   leaderSessionId?: string;
   /** Ordered synced commit SHAs associated with this quest's verification handoff. */
   commitShas?: string[];
+  /** Ordered memory repo commit SHAs associated with this quest's Memory handoff. */
+  memoryCommitShas?: string[];
   /** Explicit quest relationships. Supplemental backlinks are derived at read time. */
   relationships?: QuestRelationships;
   /** Read-only summary for CLI/UI inspection. Not persisted. */
@@ -323,6 +325,8 @@ export interface QuestTransitionInput {
   verificationItems?: (QuestVerificationItem | string)[];
   /** Ordered synced commit SHAs to attach at verification handoff. */
   commitShas?: string[];
+  /** Ordered memory repo commit SHAs to attach at Memory handoff. */
+  memoryCommitShas?: string[];
   /** Explicit quest relationships to carry into this new status version. */
   relationships?: QuestRelationships;
   /** Review inbox state for done quests that are awaiting/under human review. */

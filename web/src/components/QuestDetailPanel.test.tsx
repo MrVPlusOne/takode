@@ -13,6 +13,7 @@ const mockEditQuestFeedback = vi.fn();
 const mockDeleteQuestFeedback = vi.fn();
 const mockGetQuestHistory = vi.fn();
 const mockGetQuestCommit = vi.fn();
+const mockGetQuestMemoryCommit = vi.fn();
 const mockGetSettings = vi.fn();
 const mockMarkNotificationDone = vi.fn();
 const mockMarkAllNotificationsDone = vi.fn();
@@ -35,6 +36,7 @@ vi.mock("../api.js", () => ({
     deleteQuestFeedback: (...args: unknown[]) => mockDeleteQuestFeedback(...args),
     getQuestHistory: (...args: unknown[]) => mockGetQuestHistory(...args),
     getQuestCommit: (...args: unknown[]) => mockGetQuestCommit(...args),
+    getQuestMemoryCommit: (...args: unknown[]) => mockGetQuestMemoryCommit(...args),
     markNotificationDone: (...args: unknown[]) => mockMarkNotificationDone(...args),
     markAllNotificationsDone: (...args: unknown[]) => mockMarkAllNotificationsDone(...args),
   },
@@ -147,6 +149,9 @@ describe("QuestDetailPanel", () => {
     mockDeleteQuestFeedback.mockReset();
     mockGetQuestHistory.mockReset();
     mockGetQuestCommit.mockReset();
+    mockGetQuestCommit.mockResolvedValue({ sha: "unknown", available: false, reason: "commit_not_available" });
+    mockGetQuestMemoryCommit.mockReset();
+    mockGetQuestMemoryCommit.mockResolvedValue({ sha: "unknown", available: false, reason: "commit_not_available" });
     mockGetSettings.mockReset();
     mockGetSettings.mockResolvedValue({ editorConfig: { editor: "none" } });
     mockMarkNotificationDone.mockReset();
@@ -1686,37 +1691,37 @@ describe("QuestDetailPanel", () => {
     const secondSha = "deadbeeffeedcafe";
     const quest = makeVerificationQuest({ commitShas: [firstSha, secondSha] } as Partial<QuestmasterTask>);
     useStore.setState({ quests: [quest], questOverlayId: "q-42" });
-    mockGetQuestCommit
-      .mockResolvedValueOnce({
-        sha: firstSha,
-        shortSha: firstSha.slice(0, 7),
-        message: "First ported commit",
-        timestamp: Date.now(),
-        additions: 12,
-        deletions: 4,
-        diff: `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`,
+    mockGetQuestCommit.mockImplementation((_id: string, sha: string, options?: { includeDiff?: boolean }) => {
+      const base = {
+        sha,
+        shortSha: sha.slice(0, 7),
+        message: sha === firstSha ? "First ported commit" : "Second ported commit",
+        timestamp: sha === firstSha ? 1000 : 2000,
         available: true,
-      })
-      .mockResolvedValueOnce({
-        sha: secondSha,
-        shortSha: secondSha.slice(0, 7),
-        message: "Second ported commit",
-        timestamp: Date.now(),
-        additions: 3,
-        deletions: 1,
-        diff: `diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-before\n+after\n`,
-        available: true,
+      };
+      if (options?.includeDiff === false) return Promise.resolve(base);
+      return Promise.resolve({
+        ...base,
+        additions: sha === firstSha ? 12 : 3,
+        deletions: sha === firstSha ? 4 : 1,
+        diff:
+          sha === firstSha
+            ? `diff --git a/file.ts b/file.ts\n--- a/file.ts\n+++ b/file.ts\n@@ -1 +1 @@\n-old\n+new\n`
+            : `diff --git a/other.ts b/other.ts\n--- a/other.ts\n+++ b/other.ts\n@@ -1 +1 @@\n-before\n+after\n`,
       });
+    });
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText(`Open commit ${firstSha.slice(0, 7)}`));
+    expect(await screen.findByText("First ported commit")).toBeTruthy();
+    expect(screen.getAllByText("Second ported commit").length).toBeGreaterThanOrEqual(1);
+    fireEvent.click(screen.getByLabelText(`Open code commit ${firstSha.slice(0, 7)}`));
 
     await waitFor(() => {
       expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", firstSha);
     });
     expect(screen.getByTestId("quest-commit-modal")).toBeTruthy();
-    expect(screen.getByText("First ported commit")).toBeTruthy();
+    expect(screen.getAllByText("First ported commit").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("+12 additions")).toBeTruthy();
     expect(screen.getByText("-4 deletions")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Collapse file" })).toBeTruthy();
@@ -1726,7 +1731,7 @@ describe("QuestDetailPanel", () => {
     await waitFor(() => {
       expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", secondSha);
     });
-    expect(screen.getByText("Second ported commit")).toBeTruthy();
+    expect(screen.getAllByText("Second ported commit").length).toBeGreaterThanOrEqual(1);
     expect(screen.getByText("+3 additions")).toBeTruthy();
     expect(screen.getByText("-1 deletions")).toBeTruthy();
 
@@ -1747,12 +1752,64 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByLabelText(`Open commit ${sha.slice(0, 7)}`));
+    fireEvent.click(screen.getByLabelText(`Open code commit ${sha.slice(0, 7)}`));
 
     await waitFor(() => {
-      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", sha);
+      expect(mockGetQuestCommit).toHaveBeenCalledWith("q-42", sha, { includeDiff: false });
     });
     expect(screen.getByText("Commit not available")).toBeTruthy();
     expect(screen.getByText("This commit is no longer available in local git history.")).toBeTruthy();
+  });
+
+  it("renders separate readable memory commit evidence and opens memory diffs", async () => {
+    const codeSha = "1111111abcdef00";
+    const memorySha = "2222222abcdef00";
+    const quest = makeVerificationQuest({
+      commitShas: [codeSha],
+      memoryCommitShas: [memorySha],
+    } as Partial<QuestmasterTask>);
+    useStore.setState({ quests: [quest], questOverlayId: "q-42" });
+    mockGetQuestCommit.mockResolvedValue({
+      sha: codeSha,
+      shortSha: codeSha.slice(0, 7),
+      message: "Port quest detail UI",
+      timestamp: 2000,
+      available: true,
+    });
+    mockGetQuestMemoryCommit.mockImplementation((_id: string, sha: string, options?: { includeDiff?: boolean }) => {
+      const base = {
+        sha,
+        shortSha: sha.slice(0, 7),
+        message: "Record memory handoff",
+        timestamp: 1000,
+        available: true,
+      };
+      if (options?.includeDiff === false) return Promise.resolve(base);
+      return Promise.resolve({
+        ...base,
+        diff: `diff --git a/current/state.md b/current/state.md\n--- a/current/state.md\n+++ b/current/state.md\n@@ -1 +1 @@\n-old\n+new\n`,
+        sourceFiles: [{ path: "current/state.md", oldText: "old\n", newText: "new\n" }],
+      });
+    });
+
+    render(<QuestDetailPanel />);
+
+    expect(await screen.findByText("Record memory handoff")).toBeTruthy();
+    expect(screen.getByText("Port quest detail UI")).toBeTruthy();
+    const evidenceButtons = screen.getAllByRole("button", { name: /Open (memory|code) commit/ });
+    expect(evidenceButtons.map((button) => button.textContent)).toEqual([
+      expect.stringContaining("Record memory handoff"),
+      expect.stringContaining("Port quest detail UI"),
+    ]);
+
+    fireEvent.click(screen.getByLabelText(`Open memory commit ${memorySha.slice(0, 7)}`));
+
+    await waitFor(() => {
+      expect(mockGetQuestMemoryCommit).toHaveBeenCalledWith("q-42", memorySha);
+    });
+    expect(screen.getByTestId("quest-commit-modal")).toBeTruthy();
+    expect(screen.getByText("Memory Commit")).toBeTruthy();
+    expect(screen.getAllByText("Record memory handoff").length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByRole("button", { name: "Collapse file" })).toBeTruthy();
   });
 });

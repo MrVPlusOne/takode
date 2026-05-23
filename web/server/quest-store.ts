@@ -25,6 +25,11 @@ import {
   getActiveSessionId,
   getLeaderSessionId,
   getPreviousOwnerSessionIds,
+  commitShaField,
+  currentCommitShaFields,
+  escapeRegExp,
+  formatQuestIdList,
+  nextVersionId,
   normalizeCommitShas,
   normalizeQuestOwnership,
   normalizeVerificationItems,
@@ -817,10 +822,6 @@ async function writeQuest(quest: QuestmasterTask): Promise<void> {
   await updateLatestSnapshotWithQuest(normalized);
 }
 
-function escapeRegExp(text: string): string {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
 async function listQuestVersionFiles(questId: string): Promise<{ file: string; version: number }[]> {
   await ensureDir();
   const matcher = new RegExp(`^${escapeRegExp(questId)}-v(\\d+)\\.json$`);
@@ -856,11 +857,6 @@ async function readLatestQuestVersionForId(questId: string): Promise<Questmaster
     if (quest) return quest;
   }
   return null;
-}
-
-/** Build the next version ID for a questId. */
-function nextVersionId(questId: string, currentVersion: number): string {
-  return `${questId}-v${currentVersion + 1}`;
 }
 
 async function listQuestVersionFilesInDir(dir: string, questId?: string): Promise<QuestVersionFile[]> {
@@ -1080,11 +1076,6 @@ async function prepareLiveQuestStoreMigrationForSource(options: {
   };
 }
 
-function formatQuestIdList(questIds: string[], limit = 10): string {
-  if (questIds.length <= limit) return questIds.join(", ");
-  return `${questIds.slice(0, limit).join(", ")} (+${questIds.length - limit} more)`;
-}
-
 function normalizeBootstrapLiveStore(store: LiveQuestStore, legacyBackupDir: string): LiveQuestStore {
   return normalizeLiveQuestStore({
     ...store,
@@ -1301,6 +1292,7 @@ function buildTransitionedQuest(
     !input.sessionId &&
     !input.verificationItems &&
     !input.commitShas &&
+    !input.memoryCommitShas &&
     input.relationships === undefined &&
     !input.notes &&
     input.debrief === undefined &&
@@ -1339,18 +1331,22 @@ function buildTransitionedQuest(
     ...(current.parentId ? { parentId: current.parentId } : {}),
     ...(current.images?.length ? { images: current.images } : {}),
     ...(leaderSessionId ? { leaderSessionId } : {}),
-    ...(current.commitShas?.length ? { commitShas: current.commitShas } : {}),
+    ...currentCommitShaFields(current),
     ...(relationships ? { relationships } : {}),
     ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
     ...(ownershipEvents?.length ? { ownershipEvents } : {}),
     ...(currentJourneyRuns?.length ? { journeyRuns: currentJourneyRuns } : {}),
     ...(currentFeedback?.length ? { feedback: currentFeedback } : {}),
   };
-  if (input.commitShas !== undefined && targetStatus !== "done") {
-    throw new Error("commitShas can only be set when completing a quest");
+  if ((input.commitShas !== undefined || input.memoryCommitShas !== undefined) && targetStatus !== "done") {
+    throw new Error("commit SHAs can only be set when completing a quest");
   }
   const inputCommitShas =
     input.commitShas && input.commitShas.length > 0 ? normalizeCommitShas(input.commitShas) : undefined;
+  const inputMemoryCommitShas =
+    input.memoryCommitShas && input.memoryCommitShas.length > 0
+      ? normalizeCommitShas(input.memoryCommitShas)
+      : undefined;
 
   let quest: QuestmasterTask;
   switch (targetStatus) {
@@ -1445,11 +1441,8 @@ function buildTransitionedQuest(
         claimedAt: "claimedAt" in current ? (current as QuestInProgress).claimedAt : now,
         verificationItems,
         ...(previousOwners.length ? { previousOwnerSessionIds: previousOwners } : {}),
-        ...(inputCommitShas?.length
-          ? { commitShas: normalizeCommitShas([...(current.commitShas ?? []), ...inputCommitShas]) }
-          : current.commitShas?.length
-            ? { commitShas: current.commitShas }
-            : {}),
+        ...commitShaField("commitShas", current.commitShas, inputCommitShas),
+        ...commitShaField("memoryCommitShas", current.memoryCommitShas, inputMemoryCommitShas),
         completedAt: now,
         ...(input.verificationInboxUnread !== undefined
           ? { verificationInboxUnread: input.verificationInboxUnread }
@@ -1772,7 +1765,13 @@ export async function claimQuest(
 export async function completeQuest(
   questId: string,
   items: QuestVerificationItem[],
-  opts?: { commitShas?: string[]; sessionId?: string; debrief?: string; debriefTldr?: string },
+  opts?: {
+    commitShas?: string[];
+    memoryCommitShas?: string[];
+    sessionId?: string;
+    debrief?: string;
+    debriefTldr?: string;
+  },
 ): Promise<QuestmasterTask | null> {
   return transitionQuest(questId, {
     status: "done",
@@ -1780,6 +1779,7 @@ export async function completeQuest(
     verificationInboxUnread: true,
     ...(opts?.sessionId ? { sessionId: opts.sessionId } : {}),
     ...(opts?.commitShas?.length ? { commitShas: opts.commitShas } : {}),
+    ...(opts?.memoryCommitShas?.length ? { memoryCommitShas: opts.memoryCommitShas } : {}),
     ...(opts?.debrief !== undefined ? { debrief: opts.debrief } : {}),
     ...(opts?.debriefTldr !== undefined ? { debriefTldr: opts.debriefTldr } : {}),
   });

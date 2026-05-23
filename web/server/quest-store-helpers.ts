@@ -55,6 +55,37 @@ export function normalizeCommitShas(items: unknown[]): string[] {
   return result;
 }
 
+export function commitShaField(
+  key: "commitShas" | "memoryCommitShas",
+  current: string[] | undefined,
+  input: string[] | undefined,
+): Partial<Pick<QuestmasterTask, "commitShas" | "memoryCommitShas">> {
+  const next = input?.length ? normalizeCommitShas([...(current ?? []), ...input]) : current;
+  return next?.length ? { [key]: next } : {};
+}
+
+export function currentCommitShaFields(
+  quest: QuestmasterTask,
+): Partial<Pick<QuestmasterTask, "commitShas" | "memoryCommitShas">> {
+  return {
+    ...(quest.commitShas?.length ? { commitShas: quest.commitShas } : {}),
+    ...(quest.memoryCommitShas?.length ? { memoryCommitShas: quest.memoryCommitShas } : {}),
+  };
+}
+
+export function formatQuestIdList(questIds: string[], limit = 10): string {
+  if (questIds.length <= limit) return questIds.join(", ");
+  return `${questIds.slice(0, limit).join(", ")} (+${questIds.length - limit} more)`;
+}
+
+export function nextVersionId(questId: string, currentVersion: number): string {
+  return `${questId}-v${currentVersion + 1}`;
+}
+
+export function escapeRegExp(text: string): string {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
 export function getActiveSessionId(quest: QuestmasterTask): string | undefined {
   if (!("sessionId" in quest) || typeof quest.sessionId !== "string") return undefined;
   const sid = quest.sessionId.trim();

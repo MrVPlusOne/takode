@@ -52,6 +52,7 @@ import { applyQuestListFilters } from "../server/quest-list-filters.js";
 import { grepQuests } from "../server/quest-grep.js";
 import { getName } from "../server/session-names.js";
 import { formatQuestDetail, formatQuestLine, formatSessionLabel } from "./quest-format.js";
+import { parseCommitShas } from "./quest-commit-flags.js";
 import {
   normalizeTldr,
   preferredFeedbackPreview,
@@ -471,24 +472,15 @@ function guessMimeType(filePath: string): string {
   }
 }
 
-function parseCommitShasFromFlags(): string[] {
-  const raw = [
-    ...options("commit"),
-    ...options("commits").flatMap((group) => group.split(",").map((value) => value.trim())),
-  ].filter(Boolean);
-
-  const seen = new Set<string>();
-  const result: string[] = [];
-  for (const value of raw) {
-    const sha = value.trim().toLowerCase();
-    if (!/^[0-9a-f]{7,40}$/.test(sha)) {
-      die(`Invalid commit SHA: ${value}`);
-    }
-    if (seen.has(sha)) continue;
-    seen.add(sha);
-    result.push(sha);
+function parseCommitShasFromFlags(flagName = "commit", pluralFlagName = "commits"): string[] {
+  try {
+    return parseCommitShas([
+      ...options(flagName),
+      ...options(pluralFlagName).flatMap((group) => group.split(",").map((value) => value.trim())),
+    ]);
+  } catch (error) {
+    die(error instanceof Error ? error.message : String(error));
   }
-  return result;
 }
 
 function parsePositiveIntegerFlag(name: string, fallback: number, label: string): number {
@@ -566,6 +558,9 @@ function formatStatusSummary(quest: QuestmasterTask, sessionMetadata?: Map<strin
   lines.push(
     `Commits:     ${quest.commitShas?.length ?? 0}${quest.commitShas?.length ? ` (${quest.commitShas.join(", ")})` : ""}`,
   );
+  lines.push(
+    `Memory Commits: ${quest.memoryCommitShas?.length ?? 0}${quest.memoryCommitShas?.length ? ` (${quest.memoryCommitShas.join(", ")})` : ""}`,
+  );
   lines.push(`Human Feedback: ${humanEntries.length}`);
   lines.push(`Unaddressed: ${unaddressed.length ? formatFeedbackIndices(unaddressed) : "none"}`);
   lines.push(
@@ -595,6 +590,8 @@ function statusSummaryForJson(quest: QuestmasterTask): Record<string, unknown> {
     inbox: hasQuestReviewMetadata(quest) ? (isQuestReviewInboxUnread(quest) ? "unread" : "acknowledged") : null,
     commitCount: quest.commitShas?.length ?? 0,
     commitShas: quest.commitShas ?? [],
+    memoryCommitCount: quest.memoryCommitShas?.length ?? 0,
+    memoryCommitShas: quest.memoryCommitShas ?? [],
     humanFeedbackCount: humanEntries.length,
     unaddressedHumanFeedbackIndices: unaddressed.map((entry) => entry.index),
     latestSummary: latestSummary
@@ -1099,6 +1096,8 @@ async function cmdComplete(): Promise<void> {
     "items-file",
     "commit",
     "commits",
+    "memory-commit",
+    "memory-commits",
     "no-code",
     "session",
     "debrief",
@@ -1113,7 +1112,7 @@ async function cmdComplete(): Promise<void> {
   if (!id) {
     die(
       'Usage: quest complete <questId> [--items "check1,check2" | --items-file <path>|-] ' +
-        '[--no-code] [--session <sid>] [--commit <sha>] [--commits "sha1,sha2"] ' +
+        '[--no-code] [--session <sid>] [--commit <sha>] [--commits "sha1,sha2"] [--memory-commit <sha>] [--memory-commits "sha1,sha2"] ' +
         '[--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-]',
     );
   }
@@ -1125,9 +1124,10 @@ async function cmdComplete(): Promise<void> {
     die("--items-file requires a path or '-' for stdin");
   }
   const commitShas = parseCommitShasFromFlags();
+  const memoryCommitShas = parseCommitShasFromFlags("memory-commit", "memory-commits");
   const noCode = flag("no-code");
-  if (noCode && commitShas.length > 0) {
-    die("--no-code cannot be combined with --commit/--commits");
+  if (noCode && (commitShas.length > 0 || memoryCommitShas.length > 0)) {
+    die("--no-code cannot be combined with --commit/--commits or --memory-commit/--memory-commits");
   }
   const inlineItems = option("items");
   const itemsFile = option("items-file");
@@ -1161,6 +1161,7 @@ async function cmdComplete(): Promise<void> {
     verificationItems: items,
     ...(targetSessionId ? { sessionId: targetSessionId } : {}),
     ...(commitShas.length > 0 ? { commitShas } : {}),
+    ...(memoryCommitShas.length > 0 ? { memoryCommitShas } : {}),
     ...(override.force ? { force: true, reason: override.reason } : {}),
     ...debriefOptions,
   });
@@ -1183,8 +1184,13 @@ async function cmdComplete(): Promise<void> {
     const quest = await completeQuest(
       id,
       items,
-      commitShas.length > 0 || targetSessionId || Object.keys(debriefOptions).length > 0
-        ? { commitShas, ...(targetSessionId ? { sessionId: targetSessionId } : {}), ...debriefOptions }
+      commitShas.length > 0 || memoryCommitShas.length > 0 || targetSessionId || Object.keys(debriefOptions).length > 0
+        ? {
+            commitShas,
+            memoryCommitShas,
+            ...(targetSessionId ? { sessionId: targetSessionId } : {}),
+            ...debriefOptions,
+          }
         : undefined,
     );
     if (!quest) die(`Quest ${id} not found`);
@@ -1329,6 +1335,8 @@ async function cmdTransition(): Promise<void> {
     "session",
     "commit",
     "commits",
+    "memory-commit",
+    "memory-commits",
     "debrief",
     "debrief-file",
     "debrief-tldr",
@@ -1367,9 +1375,10 @@ async function cmdTransition(): Promise<void> {
   const debriefOptions = await readOptionalDebriefOptions();
   const sessionId = option("session") || currentSessionId;
   const commitShas = parseCommitShasFromFlags();
+  const memoryCommitShas = parseCommitShasFromFlags("memory-commit", "memory-commits");
   const override = parseQuestStatusMutationOverride(statusMutationCommandDeps());
-  if (commitShas.length > 0 && status !== "done") {
-    die("--commit/--commits can only be used when completing a quest");
+  if ((commitShas.length > 0 || memoryCommitShas.length > 0) && status !== "done") {
+    die("commit metadata flags can only be used when completing a quest");
   }
   if (Object.keys(debriefOptions).length > 0 && status !== "done") {
     die("--debrief/--debrief-file and --debrief-tldr/--debrief-tldr-file can only be used with --status done");
@@ -1382,6 +1391,7 @@ async function cmdTransition(): Promise<void> {
       ...(tldr !== undefined ? { tldr: normalizedTldr ?? "" } : {}),
       ...(sessionId ? { sessionId } : {}),
       ...(commitShas.length > 0 ? { commitShas } : {}),
+      ...(memoryCommitShas.length > 0 ? { memoryCommitShas } : {}),
       ...debriefOptions,
     };
     const serverQuest = await postQuestStatusMutation(statusMutationCommandDeps(), id, "transition", {

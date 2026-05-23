@@ -190,8 +190,14 @@ export function formatQuestDetail(
     }
   }
   if (q.commitShas?.length) {
-    lines.push(`Commits:     ${q.commitShas.length}`);
+    lines.push(`Code Commits: ${q.commitShas.length}`);
     for (const sha of q.commitShas) {
+      lines.push(`  ${sha}`);
+    }
+  }
+  if (q.memoryCommitShas?.length) {
+    lines.push(`Memory Commits: ${q.memoryCommitShas.length}`);
+    for (const sha of q.memoryCommitShas) {
       lines.push(`  ${sha}`);
     }
   }

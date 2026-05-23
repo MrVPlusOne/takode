@@ -169,6 +169,13 @@ vi.mock("./usage-limits.js", () => ({
   getUsageLimits: mockGetUsageLimits,
 }));
 
+const mockMemoryCommitDiff = vi.hoisted(() => vi.fn());
+vi.mock("./workstream-memory-service.js", () => ({
+  workstreamMemoryService: {
+    commitDiff: (...args: unknown[]) => mockMemoryCommitDiff(...args),
+  },
+}));
+
 import { Hono } from "hono";
 import { execSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
@@ -210,6 +217,7 @@ function createMockLauncher() {
     removeSession: vi.fn(),
     getOrchestratorGuardrails: vi.fn(() => "# Takode — Cross-Session Orchestration\n..."),
     getPort: vi.fn(() => 3456),
+    getMemorySessionSpaceSlug: vi.fn(() => "Takode"),
     verifySessionAuthToken: vi.fn(() => true),
     herdSessions: vi.fn(() => ({ herded: [], notFound: [], conflicts: [], reassigned: [], leaders: [] })),
     unherdSession: vi.fn(() => false),
@@ -619,5 +627,144 @@ describe("GET /api/quests/:questId/commits/:sha", () => {
       available: false,
       reason: "commit_not_available",
     });
+  });
+
+  it("can return code commit metadata without loading the patch", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      sessionId: "session-1",
+      claimedAt: Date.now(),
+      verificationItems: [{ text: "verify", checked: false }],
+      commitShas: ["abc1234"],
+    } as any);
+    launcher.getSession.mockReturnValue({
+      sessionId: "session-1",
+      cwd: "/repo/worktree",
+      repoRoot: "/repo",
+    } as any);
+    vi.mocked(execSync).mockImplementation((cmd: string) => {
+      if (cmd.includes('rev-parse --verify "abc1234^')) return "abc1234567890abcdef\n";
+      if (cmd.includes('show -s --format="%H%x00%h%x00%s%x00%ct"')) {
+        return ["abc1234567890abcdef", "abc1234", "Readable title", "1713292534"].join("\0") + "\n";
+      }
+      throw new Error(`Unmocked: ${cmd}`);
+    });
+
+    const res = await app.request("/api/quests/q-1/commits/abc1234?includeDiff=false", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    const json = await res.json();
+    expect(json).toMatchObject({
+      sha: "abc1234567890abcdef",
+      shortSha: "abc1234",
+      message: "Readable title",
+      available: true,
+    });
+    expect(json.diff).toBeUndefined();
+    expect(vi.mocked(execSync)).not.toHaveBeenCalledWith(expect.stringContaining("show --format= --patch"));
+  });
+});
+
+describe("GET /api/quests/:questId/memory-commits/:sha", () => {
+  it("returns memory commit details for a SHA attached to the quest", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      claimedAt: Date.now(),
+      verificationItems: [{ text: "verify", checked: false }],
+      memoryCommitShas: ["abc1234"],
+    } as any);
+    mockMemoryCommitDiff.mockResolvedValueOnce({
+      repo: { root: "/memory", serverId: "s", serverSlug: "prod", sessionSpaceSlug: "Takode", initialized: true },
+      commit: {
+        sha: "abc1234567890abcdef",
+        shortSha: "abc1234",
+        timestamp: 1713292534000,
+        message: "Record memory decision",
+        authorName: "Takode",
+        authorEmail: "takode-memory@local",
+        actor: null,
+        quest: "q-1",
+        session: null,
+        sources: ["q-1"],
+        changedFiles: [{ status: "M", path: "decisions/example.md" }],
+      },
+      diff: "diff --git a/decisions/example.md b/decisions/example.md\n",
+      sourceFiles: [
+        {
+          status: "M",
+          path: "decisions/example.md",
+          oldText: "old\n",
+          newText: "new\n",
+        },
+      ],
+    });
+
+    const res = await app.request("/api/quests/q-1/memory-commits/abc1234", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toMatchObject({
+      sha: "abc1234567890abcdef",
+      shortSha: "abc1234",
+      message: "Record memory decision",
+      diff: expect.stringContaining("diff --git"),
+      sourceFiles: [{ path: "decisions/example.md", oldText: "old\n", newText: "new\n" }],
+      available: true,
+    });
+    expect(mockMemoryCommitDiff).toHaveBeenCalledWith({ sessionSpaceSlug: "Takode" }, "abc1234");
+  });
+
+  it("rejects memory commits that are not attached to the quest", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      memoryCommitShas: ["abc1234"],
+    } as any);
+
+    const res = await app.request("/api/quests/q-1/memory-commits/deadbee", { method: "GET" });
+
+    expect(res.status).toBe(404);
+    await expect(res.json()).resolves.toMatchObject({ error: "Memory commit not attached to this quest" });
+    expect(mockMemoryCommitDiff).not.toHaveBeenCalled();
+  });
+
+  it("reports attached memory commits as unavailable when the local memory repo cannot resolve them", async () => {
+    vi.spyOn(questStore, "getQuest").mockResolvedValueOnce({
+      id: "q-1-v4",
+      questId: "q-1",
+      title: "Quest",
+      status: "done",
+      createdAt: Date.now(),
+      description: "Ready",
+      claimedAt: Date.now(),
+      verificationItems: [],
+      memoryCommitShas: ["abc1234"],
+    } as any);
+    mockMemoryCommitDiff.mockResolvedValueOnce(null);
+
+    const res = await app.request("/api/quests/q-1/memory-commits/abc1234", { method: "GET" });
+
+    expect(res.status).toBe(200);
+    await expect(res.json()).resolves.toEqual({
+      sha: "abc1234",
+      available: false,
+      reason: "commit_not_available",
+    });
+    expect(mockMemoryCommitDiff).toHaveBeenCalledWith({ sessionSpaceSlug: "Takode" }, "abc1234");
   });
 });

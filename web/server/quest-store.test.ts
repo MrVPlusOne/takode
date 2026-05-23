@@ -1308,6 +1308,24 @@ describe("completeQuest", () => {
     expect(completed?.commitShas).toEqual(["beef1234", "deadbeefcafebabe"]);
   });
 
+  it("stores memory commit SHAs separately from code commits", async () => {
+    await questStore.createQuest({ title: "Attach memory commits" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Ready",
+    });
+    await questStore.claimQuest("q-1", "sess-1");
+
+    const completed = await questStore.completeQuest("q-1", [{ text: "Human verifies memory", checked: false }], {
+      commitShas: ["BEEF1234"],
+      memoryCommitShas: ["ABC1234", "abc1234", "deadbeefcafebabe"],
+    });
+
+    expect(completed?.status).toBe("done");
+    expect(completed?.commitShas).toEqual(["beef1234"]);
+    expect(completed?.memoryCommitShas).toEqual(["abc1234", "deadbeefcafebabe"]);
+  });
+
   it("uses an explicit worker session when a leader completes a refined quest", async () => {
     // Leader sessions can submit a worker-owned quest after removing it from the board.
     // The handoff must still persist the worker session so the quest is reviewable.
@@ -1585,7 +1603,7 @@ describe("transition validation", () => {
         sessionId: "sess-1",
         commitShas: ["abc1234"],
       }),
-    ).rejects.toThrow("commitShas can only be set when completing a quest");
+    ).rejects.toThrow("commit SHAs can only be set when completing a quest");
   });
 
   it("preserves and appends commit SHAs on a re-submitted verification handoff", async () => {
@@ -1613,6 +1631,32 @@ describe("transition validation", () => {
 
     expect(resubmitted?.status).toBe("done");
     expect(resubmitted?.commitShas).toEqual(["abc1234", "deadbeef", "cafebabe"]);
+  });
+
+  it("preserves and appends memory commit SHAs on a re-submitted verification handoff", async () => {
+    await questStore.createQuest({ title: "Append memory handoff SHAs" });
+    await questStore.transitionQuest("q-1", {
+      status: "refined",
+      description: "Ready",
+    });
+    await questStore.claimQuest("q-1", "sess-1");
+    await questStore.completeQuest("q-1", [{ text: "Verify v1", checked: false }], {
+      memoryCommitShas: ["abc1234", "deadbeef"],
+    });
+    await questStore.transitionQuest("q-1", {
+      status: "in_progress",
+      sessionId: "sess-1",
+    });
+
+    const resubmitted = await questStore.transitionQuest("q-1", {
+      status: "done",
+      sessionId: "sess-1",
+      verificationItems: [{ text: "Verify v2", checked: false }],
+      memoryCommitShas: ["DEADBEEF", "cafebabe"],
+    });
+
+    expect(resubmitted?.status).toBe("done");
+    expect(resubmitted?.memoryCommitShas).toEqual(["abc1234", "deadbeef", "cafebabe"]);
   });
 
   it("allows done transition from in_progress when verificationItems are provided", async () => {

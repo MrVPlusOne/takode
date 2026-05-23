@@ -32,6 +32,14 @@ import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
 import { DiffViewer } from "./DiffViewer.js";
 import { isCompletedJourneyPresentationStatus, QuestJourneyTimeline } from "./QuestJourneyTimeline.js";
 import { QuestDetailTextSections } from "./QuestDetailTextSections.js";
+import {
+  commitLookupKey,
+  commitTitle,
+  QuestCommitEvidenceList,
+  shortCommitSha,
+  sortedCommitEntries,
+  type QuestCommitEntry,
+} from "./QuestCommitEvidence.js";
 import { buildQuestAssignDraft } from "./quest-assign.js";
 import { buildQuestReworkDraft } from "./quest-rework.js";
 import { summarizeQuestPhaseDocumentation } from "../../shared/quest-phase-documentation-summary.js";
@@ -111,9 +119,9 @@ export function QuestDetailPanel() {
   const [assignPickerForId, setAssignPickerForId] = useState<string | null>(null);
   const [lightboxSrc, setLightboxSrc] = useState<string | null>(null);
   const [historyForId, setHistoryForId] = useState<string | null>(null);
-  const [activeCommitIndex, setActiveCommitIndex] = useState<number | null>(null);
-  const [commitLookupBySha, setCommitLookupBySha] = useState<Record<string, QuestCommitLookup>>({});
-  const [commitLookupLoadingSha, setCommitLookupLoadingSha] = useState<string | null>(null);
+  const [activeCommitKey, setActiveCommitKey] = useState<string | null>(null);
+  const [commitLookupByKey, setCommitLookupByKey] = useState<Record<string, QuestCommitLookup>>({});
+  const [commitLookupLoadingKey, setCommitLookupLoadingKey] = useState<string | null>(null);
   const [commitLookupError, setCommitLookupError] = useState("");
 
   // Reset local state when quest changes
@@ -130,9 +138,9 @@ export function QuestDetailPanel() {
     setAssignPickerForId(null);
     setLightboxSrc(null);
     setHistoryForId(null);
-    setActiveCommitIndex(null);
-    setCommitLookupBySha({});
-    setCommitLookupLoadingSha(null);
+    setActiveCommitKey(null);
+    setCommitLookupByKey({});
+    setCommitLookupLoadingKey(null);
     setCommitLookupError("");
     setEditorHashtagQuery("");
     setEditorAutocompleteTarget(null);
@@ -164,8 +172,8 @@ export function QuestDetailPanel() {
     function handleKey(e: KeyboardEvent) {
       if (e.key !== "Escape") return;
       if (lightboxSrc) return; // Lightbox has its own Escape handler
-      if (activeCommitIndex !== null) {
-        setActiveCommitIndex(null);
+      if (activeCommitKey !== null) {
+        setActiveCommitKey(null);
         setCommitLookupError("");
         return;
       }
@@ -189,7 +197,7 @@ export function QuestDetailPanel() {
   }, [
     questOverlayId,
     lightboxSrc,
-    activeCommitIndex,
+    activeCommitKey,
     assignPickerForId,
     confirmDeleteFeedback,
     editingFeedback,
@@ -382,13 +390,13 @@ export function QuestDetailPanel() {
     setHistoryForId(historyForId === questId ? null : questId);
   }
 
-  const openCommitModal = useCallback((index: number) => {
-    setActiveCommitIndex(index);
+  const openCommitModal = useCallback((entry: QuestCommitEntry) => {
+    setActiveCommitKey(commitLookupKey(entry.kind, entry.sha));
     setCommitLookupError("");
   }, []);
 
   const closeCommitModal = useCallback(() => {
-    setActiveCommitIndex(null);
+    setActiveCommitKey(null);
     setCommitLookupError("");
   }, []);
 
@@ -501,19 +509,72 @@ export function QuestDetailPanel() {
     }
   }
 
+  const storedCommitEntries = useMemo<QuestCommitEntry[]>(() => {
+    if (!quest) return [];
+    const codeEntries = (quest.commitShas ?? []).map((sha, storedIndex) => ({
+      kind: "code" as const,
+      sha,
+      storedIndex,
+    }));
+    const memoryOffset = codeEntries.length;
+    const memoryEntries = (quest.memoryCommitShas ?? []).map((sha, index) => ({
+      kind: "memory" as const,
+      sha,
+      storedIndex: memoryOffset + index,
+    }));
+    return [...codeEntries, ...memoryEntries];
+  }, [quest]);
+
+  const commitEntries = useMemo(
+    () => sortedCommitEntries(storedCommitEntries, commitLookupByKey),
+    [storedCommitEntries, commitLookupByKey],
+  );
+
   useEffect(() => {
-    if (!quest || activeCommitIndex === null) return;
-    const sha = quest.commitShas?.[activeCommitIndex];
-    if (!sha || commitLookupBySha[sha]) return;
+    if (!quest || storedCommitEntries.length === 0) return;
+    let cancelled = false;
+    for (const entry of storedCommitEntries) {
+      const key = commitLookupKey(entry.kind, entry.sha);
+      if (commitLookupByKey[key]) continue;
+      const lookup =
+        entry.kind === "memory"
+          ? api.getQuestMemoryCommit(quest.questId, entry.sha, { includeDiff: false })
+          : api.getQuestCommit(quest.questId, entry.sha, { includeDiff: false });
+      lookup
+        .then((details) => {
+          if (cancelled) return;
+          setCommitLookupByKey((prev) => (prev[key] ? prev : { ...prev, [key]: details }));
+        })
+        .catch(() => {
+          if (cancelled) return;
+          setCommitLookupByKey((prev) =>
+            prev[key] ? prev : { ...prev, [key]: { sha: entry.sha, available: false, reason: "commit_not_available" } },
+          );
+        });
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [quest, storedCommitEntries, commitLookupByKey]);
+
+  useEffect(() => {
+    if (!quest || !activeCommitKey) return;
+    const activeEntry = commitEntries.find((entry) => commitLookupKey(entry.kind, entry.sha) === activeCommitKey);
+    if (!activeEntry) return;
+    const cached = commitLookupByKey[activeCommitKey];
+    if (cached && (!cached.available || cached.diff)) return;
 
     let cancelled = false;
-    setCommitLookupLoadingSha(sha);
+    setCommitLookupLoadingKey(activeCommitKey);
     setCommitLookupError("");
-    api
-      .getQuestCommit(quest.questId, sha)
+    const lookup =
+      activeEntry.kind === "memory"
+        ? api.getQuestMemoryCommit(quest.questId, activeEntry.sha)
+        : api.getQuestCommit(quest.questId, activeEntry.sha);
+    lookup
       .then((details) => {
         if (cancelled) return;
-        setCommitLookupBySha((prev) => (prev[sha] ? prev : { ...prev, [sha]: details }));
+        setCommitLookupByKey((prev) => ({ ...prev, [activeCommitKey]: details }));
       })
       .catch((e) => {
         if (cancelled) return;
@@ -521,13 +582,13 @@ export function QuestDetailPanel() {
       })
       .finally(() => {
         if (cancelled) return;
-        setCommitLookupLoadingSha((prev) => (prev === sha ? null : prev));
+        setCommitLookupLoadingKey((prev) => (prev === activeCommitKey ? null : prev));
       });
 
     return () => {
       cancelled = true;
     };
-  }, [quest, activeCommitIndex, commitLookupBySha]);
+  }, [quest, activeCommitKey, commitEntries, commitLookupByKey]);
 
   async function handleAddFeedback(questId: string, text: string) {
     if (!text.trim() && feedbackImages.length === 0) return;
@@ -780,9 +841,11 @@ export function QuestDetailPanel() {
   const feedbackEntries = phaseDocumentationSummary.hasPhaseDocumentation
     ? phaseDocumentationSummary.unscopedFeedback
     : indexedFeedbackEntries;
-  const questCommitShas = quest.commitShas ?? [];
-  const activeCommitSha = activeCommitIndex !== null ? (questCommitShas[activeCommitIndex] ?? null) : null;
-  const activeCommitDetails = activeCommitSha ? commitLookupBySha[activeCommitSha] : undefined;
+  const activeCommitIndex = activeCommitKey
+    ? commitEntries.findIndex((entry) => commitLookupKey(entry.kind, entry.sha) === activeCommitKey)
+    : -1;
+  const activeCommitEntry = activeCommitIndex >= 0 ? commitEntries[activeCommitIndex] : null;
+  const activeCommitDetails = activeCommitKey ? commitLookupByKey[activeCommitKey] : undefined;
   const unaddressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && !e.addressed).length;
   const addressedFeedbackCount = feedbackEntries.filter((e) => e.author === "human" && e.addressed).length;
 
@@ -881,23 +944,11 @@ export function QuestDetailPanel() {
                 ))}
               </div>
             )}
-            {questCommitShas.length > 0 && (
-              <div className="flex flex-wrap items-center gap-1.5 mt-2">
-                <span className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">Commits</span>
-                {questCommitShas.map((sha, index) => (
-                  <button
-                    key={sha}
-                    type="button"
-                    onClick={() => openCommitModal(index)}
-                    className="text-[10px] font-mono-code px-2 py-0.5 rounded-full bg-cc-hover text-cc-fg border border-cc-border hover:border-cc-primary/30 hover:text-cc-primary transition-colors cursor-pointer"
-                    title={sha}
-                    aria-label={`Open commit ${sha.slice(0, 7)}`}
-                  >
-                    {sha.slice(0, 7)}
-                  </button>
-                ))}
-              </div>
-            )}
+            <QuestCommitEvidenceList
+              entries={commitEntries}
+              lookupByKey={commitLookupByKey}
+              onOpenCommit={openCommitModal}
+            />
           </div>
           <button
             type="button"
@@ -1594,7 +1645,7 @@ export function QuestDetailPanel() {
         </div>
       </div>
 
-      {activeCommitSha && (
+      {activeCommitEntry && (
         <div
           className="fixed inset-0 z-[55] flex items-center justify-center bg-black/70 p-4"
           onClick={closeCommitModal}
@@ -1604,48 +1655,48 @@ export function QuestDetailPanel() {
             onClick={(e) => e.stopPropagation()}
             role="dialog"
             aria-modal="true"
-            aria-label={`Commit ${activeCommitSha.slice(0, 7)}`}
+            aria-label={`Commit ${shortCommitSha(activeCommitEntry.sha)}`}
             data-testid="quest-commit-modal"
           >
             <div className="flex items-start justify-between gap-3 px-3 py-2 border-b border-cc-border">
               <div className="min-w-0 flex-1">
                 <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">Synced Commit</span>
-                  <span className="text-sm font-semibold text-cc-fg font-mono-code">
-                    {activeCommitDetails?.shortSha || activeCommitSha.slice(0, 7)}
+                  <span className="text-[10px] uppercase tracking-[0.08em] text-cc-muted/60">
+                    {activeCommitEntry.kind === "memory" ? "Memory Commit" : "Code Commit"}
                   </span>
-                  <span className="text-[10px] text-cc-muted">
-                    {activeCommitIndex !== null ? `${activeCommitIndex + 1}/${questCommitShas.length}` : ""}
+                  <span className="text-sm font-semibold text-cc-fg">
+                    {commitTitle(activeCommitEntry, activeCommitDetails)}
                   </span>
-                  {activeCommitDetails?.timestamp && (
+                  <span className="font-mono-code text-[10px] text-cc-muted">
+                    {activeCommitDetails?.shortSha || shortCommitSha(activeCommitEntry.sha)}
+                  </span>
+                  <span className="text-[10px] text-cc-muted">{`${activeCommitIndex + 1}/${commitEntries.length}`}</span>
+                  {activeCommitDetails?.timestamp ? (
                     <span className="text-[10px] text-cc-muted">{timeAgo(activeCommitDetails.timestamp)}</span>
-                  )}
-                  {activeCommitDetails?.message && (
-                    <span className="min-w-[12rem] flex-1 truncate text-sm text-cc-fg">
-                      {activeCommitDetails.message}
-                    </span>
-                  )}
-                  {activeCommitDetails?.available && (
-                    <span className="flex items-center gap-3 text-[11px]">
-                      <span className="text-green-500">+{activeCommitDetails.additions ?? 0} additions</span>
-                      <span className="text-red-400">-{activeCommitDetails.deletions ?? 0} deletions</span>
-                    </span>
-                  )}
+                  ) : null}
+                  {activeCommitDetails?.available &&
+                    typeof activeCommitDetails.additions === "number" &&
+                    typeof activeCommitDetails.deletions === "number" && (
+                      <span className="flex items-center gap-3 text-[11px]">
+                        <span className="text-green-500">+{activeCommitDetails.additions ?? 0} additions</span>
+                        <span className="text-red-400">-{activeCommitDetails.deletions ?? 0} deletions</span>
+                      </span>
+                    )}
                 </div>
                 <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
-                  {questCommitShas.map((sha, index) => (
+                  {commitEntries.map((entry) => (
                     <button
-                      key={sha}
+                      key={commitLookupKey(entry.kind, entry.sha)}
                       type="button"
-                      onClick={() => openCommitModal(index)}
-                      className={`text-[10px] font-mono-code px-2 py-0.5 rounded-full border transition-colors cursor-pointer ${
-                        sha === activeCommitSha
+                      onClick={() => openCommitModal(entry)}
+                      className={`max-w-[12rem] truncate rounded-full border px-2 py-0.5 text-[10px] transition-colors cursor-pointer ${
+                        commitLookupKey(entry.kind, entry.sha) === activeCommitKey
                           ? "bg-cc-primary/15 text-cc-primary border-cc-primary/30"
                           : "bg-cc-hover text-cc-fg border-cc-border hover:border-cc-primary/30 hover:text-cc-primary"
                       }`}
-                      title={sha}
+                      title={entry.sha}
                     >
-                      {sha.slice(0, 7)}
+                      {entry.kind === "memory" ? "Memory" : "Code"} {shortCommitSha(entry.sha)}
                     </button>
                   ))}
                 </div>
@@ -1653,20 +1704,23 @@ export function QuestDetailPanel() {
               <div className="flex items-center gap-2 shrink-0">
                 <button
                   type="button"
-                  onClick={() => setActiveCommitIndex((prev) => (prev && prev > 0 ? prev - 1 : prev))}
-                  disabled={activeCommitIndex === null || activeCommitIndex <= 0}
+                  onClick={() => {
+                    const previous = activeCommitIndex > 0 ? commitEntries[activeCommitIndex - 1] : null;
+                    if (previous) setActiveCommitKey(commitLookupKey(previous.kind, previous.sha));
+                  }}
+                  disabled={activeCommitIndex <= 0}
                   className="px-2 py-1 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   Previous
                 </button>
                 <button
                   type="button"
-                  onClick={() =>
-                    setActiveCommitIndex((prev) =>
-                      prev !== null && prev < questCommitShas.length - 1 ? prev + 1 : prev,
-                    )
-                  }
-                  disabled={activeCommitIndex === null || activeCommitIndex >= questCommitShas.length - 1}
+                  onClick={() => {
+                    const next =
+                      activeCommitIndex < commitEntries.length - 1 ? commitEntries[activeCommitIndex + 1] : null;
+                    if (next) setActiveCommitKey(commitLookupKey(next.kind, next.sha));
+                  }}
+                  disabled={activeCommitIndex >= commitEntries.length - 1}
                   className="px-2 py-1 text-[11px] rounded-lg bg-cc-hover text-cc-fg border border-cc-border disabled:opacity-40 disabled:cursor-not-allowed cursor-pointer"
                 >
                   Next
@@ -1685,7 +1739,8 @@ export function QuestDetailPanel() {
             </div>
 
             <div className="flex-1 overflow-auto p-4 bg-cc-bg/40">
-              {commitLookupLoadingSha === activeCommitSha && !activeCommitDetails ? (
+              {commitLookupLoadingKey === activeCommitKey &&
+              (!activeCommitDetails || (activeCommitDetails.available && !activeCommitDetails.diff)) ? (
                 <div className="h-full min-h-48 flex items-center justify-center text-sm text-cc-muted">
                   Loading commit diff...
                 </div>
@@ -1698,7 +1753,9 @@ export function QuestDetailPanel() {
                   <div className="text-sm font-medium text-cc-fg">Commit not available</div>
                   <div className="text-sm text-cc-muted max-w-md">
                     {activeCommitDetails.reason === "repo_unavailable"
-                      ? "The quest no longer has an available session checkout to read this commit from."
+                      ? activeCommitEntry.kind === "memory"
+                        ? "The configured local memory repo is not available."
+                        : "The quest no longer has an available session checkout to read this commit from."
                       : "This commit is no longer available in local git history."}
                   </div>
                 </div>
@@ -1711,6 +1768,12 @@ export function QuestDetailPanel() {
                   )}
                   <DiffViewer
                     unifiedDiff={activeCommitDetails.diff}
+                    sourceFiles={activeCommitDetails.sourceFiles?.map((sourceFile) => ({
+                      fileName: sourceFile.path,
+                      ...(sourceFile.previousPath ? { previousFileName: sourceFile.previousPath } : {}),
+                      oldText: sourceFile.oldText,
+                      newText: sourceFile.newText,
+                    }))}
                     fileName={activeCommitDetails.shortSha}
                     mode="full"
                     showLineNumbers

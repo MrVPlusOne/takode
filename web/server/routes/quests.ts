@@ -44,6 +44,26 @@ function parseNumstatTotals(output: string): { additions: number; deletions: num
   return { additions, deletions };
 }
 
+function shouldIncludeCommitDiff(c: Context): boolean {
+  return c.req.query("includeDiff") !== "false";
+}
+
+function memoryRepoOptions(launcher: RouteContext["launcher"]): { sessionSpaceSlug?: string } {
+  return { sessionSpaceSlug: launcher.getMemorySessionSpaceSlug() };
+}
+
+function memoryDiffSourceFiles(
+  sourceFiles: import("../workstream-memory-types.js").MemoryCommitSourceFile[] | undefined,
+) {
+  return (sourceFiles ?? []).map((sourceFile) => ({
+    status: sourceFile.status,
+    path: sourceFile.path,
+    ...(sourceFile.previousPath ? { previousPath: sourceFile.previousPath } : {}),
+    oldText: sourceFile.oldText,
+    newText: sourceFile.newText,
+  }));
+}
+
 function isAgentSummaryFeedback(text: string): boolean {
   const normalized = text.trimStart().toLowerCase();
   return SUMMARY_FEEDBACK_PREFIXES.some((prefix) => normalized.startsWith(prefix));
@@ -426,6 +446,7 @@ export function createQuestRoutes(ctx: RouteContext) {
     if (!quest) return c.json({ error: "Quest not found" }, 404);
 
     const sha = normalizeRequestedCommitSha(c.req.param("sha"));
+    const includeDiff = shouldIncludeCommitDiff(c);
     if (!sha) return c.json({ error: "Invalid commit SHA" }, 400);
     if (!quest.commitShas?.some((storedSha) => storedSha.toLowerCase() === sha)) {
       return c.json({ error: "Commit not attached to this quest" }, 404);
@@ -447,15 +468,17 @@ export function createQuestRoutes(ctx: RouteContext) {
           repoRoot,
         );
         if (!metadata.trim()) continue;
-        const numstat = await execCaptureStdoutAsync(
-          `${SERVER_GIT_CMD} show --format= --numstat --no-renames "${fullSha}"`,
-          repoRoot,
-        );
-        let diff = await execCaptureStdoutAsync(
-          `${SERVER_GIT_CMD} show --format= --patch --no-color "${fullSha}"`,
-          repoRoot,
-          { maxBuffer: DIFF_MAX_BUFFER },
-        );
+        const numstat = includeDiff
+          ? await execCaptureStdoutAsync(
+              `${SERVER_GIT_CMD} show --format= --numstat --no-renames "${fullSha}"`,
+              repoRoot,
+            )
+          : "";
+        let diff = includeDiff
+          ? await execCaptureStdoutAsync(`${SERVER_GIT_CMD} show --format= --patch --no-color "${fullSha}"`, repoRoot, {
+              maxBuffer: DIFF_MAX_BUFFER,
+            })
+          : "";
         let truncated = false;
         if (Buffer.byteLength(diff, "utf-8") > MAX_DIFF_BYTES) {
           diff = Buffer.from(diff, "utf-8").subarray(0, MAX_DIFF_BYTES).toString("utf-8");
@@ -470,9 +493,13 @@ export function createQuestRoutes(ctx: RouteContext) {
           shortSha: shortSha || fullSha.slice(0, 7),
           message: message || "",
           timestamp: Number.parseInt(ts || "0", 10) * 1000,
-          additions: totals.additions,
-          deletions: totals.deletions,
-          diff,
+          ...(includeDiff
+            ? {
+                additions: totals.additions,
+                deletions: totals.deletions,
+                diff,
+              }
+            : {}),
           truncated,
           available: true,
         });
@@ -482,6 +509,38 @@ export function createQuestRoutes(ctx: RouteContext) {
     }
 
     return c.json({ sha, available: false, reason: "commit_not_available" });
+  });
+
+  api.get("/quests/:questId/memory-commits/:sha", async (c) => {
+    const quest = await questStore.getQuest(c.req.param("questId"));
+    if (!quest) return c.json({ error: "Quest not found" }, 404);
+
+    const sha = normalizeRequestedCommitSha(c.req.param("sha"));
+    if (!sha) return c.json({ error: "Invalid commit SHA" }, 400);
+    if (!quest.memoryCommitShas?.some((storedSha) => storedSha.toLowerCase() === sha)) {
+      return c.json({ error: "Memory commit not attached to this quest" }, 404);
+    }
+
+    const includeDiff = shouldIncludeCommitDiff(c);
+    const { workstreamMemoryService } = await import("../workstream-memory-service.js");
+    const update = await workstreamMemoryService.commitDiff(memoryRepoOptions(launcher), sha);
+    if (!update) {
+      return c.json({ sha, available: false, reason: "commit_not_available" });
+    }
+
+    return c.json({
+      sha: update.commit.sha,
+      shortSha: update.commit.shortSha,
+      message: update.commit.message,
+      timestamp: update.commit.timestamp,
+      ...(includeDiff
+        ? {
+            diff: update.diff,
+            sourceFiles: memoryDiffSourceFiles(update.sourceFiles),
+          }
+        : {}),
+      available: true,
+    });
   });
 
   api.get("/quests/:questId/version/:versionId", async (c) => {
@@ -809,8 +868,10 @@ export function createQuestRoutes(ctx: RouteContext) {
           ? currentQuest.sessionId
           : "";
       const commitShas = Array.isArray(body.commitShas) ? body.commitShas : undefined;
+      const memoryCommitShas = Array.isArray(body.memoryCommitShas) ? body.memoryCommitShas : undefined;
       const quest = await questStore.completeQuest(c.req.param("questId"), items, {
         commitShas,
+        memoryCommitShas,
         ...(targetSessionId ? { sessionId: targetSessionId } : {}),
         ...(typeof body.debrief === "string" ? { debrief: body.debrief } : {}),
         ...(typeof body.debriefTldr === "string" ? { debriefTldr: body.debriefTldr } : {}),

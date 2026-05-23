@@ -473,6 +473,7 @@ export interface QuestCommitLookup {
   additions?: number;
   deletions?: number;
   diff?: string;
+  sourceFiles?: MemoryUpdateDiffSourceFile[];
   truncated?: boolean;
   available: boolean;
   reason?: "repo_unavailable" | "commit_not_available";
@@ -1567,8 +1568,14 @@ export const api = {
   getQuest: (id: string) => get<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}`),
   getQuestHistory: (id: string) =>
     get<import("./types.js").QuestHistoryView>(`/quests/${encodeURIComponent(id)}/history`),
-  getQuestCommit: (id: string, sha: string) =>
-    get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}`),
+  getQuestCommit: (id: string, sha: string, options?: { includeDiff?: boolean }) => {
+    const qs = options?.includeDiff === false ? "?includeDiff=false" : "";
+    return get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}${qs}`);
+  },
+  getQuestMemoryCommit: (id: string, sha: string, options?: { includeDiff?: boolean }) => {
+    const qs = options?.includeDiff === false ? "?includeDiff=false" : "";
+    return get<QuestCommitLookup>(`/quests/${encodeURIComponent(id)}/memory-commits/${encodeURIComponent(sha)}${qs}`);
+  },
   createQuest: (input: import("./types.js").QuestCreateInput) =>
     post<import("./types.js").QuestmasterTask>("/quests", input),
   patchQuest: (id: string, body: import("./types.js").QuestPatchInput) =>
@@ -1584,10 +1591,12 @@ export const api = {
     commitShas?: string[],
     debrief?: string,
     debriefTldr?: string,
+    memoryCommitShas?: string[],
   ) =>
     post<import("./types.js").QuestmasterTask>(`/quests/${encodeURIComponent(id)}/complete`, {
       verificationItems,
       ...(commitShas?.length ? { commitShas } : {}),
+      ...(memoryCommitShas?.length ? { memoryCommitShas } : {}),
       ...(debrief !== undefined ? { debrief } : {}),
       ...(debriefTldr !== undefined ? { debriefTldr } : {}),
     }),
