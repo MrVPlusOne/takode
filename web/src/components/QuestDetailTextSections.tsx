@@ -21,6 +21,7 @@ interface QuestDetailTextSectionsProps {
   journeyStatus?: string | null;
   searchHighlight?: string | null;
   sessionId?: string;
+  onSessionNavigate?: () => void;
 }
 
 export function QuestDetailTextSections({
@@ -30,6 +31,7 @@ export function QuestDetailTextSections({
   journeyStatus,
   searchHighlight,
   sessionId,
+  onSessionNavigate,
 }: QuestDetailTextSectionsProps) {
   const description = getQuestDescription(quest);
   const questTldr = getQuestTldr(quest);
@@ -68,6 +70,7 @@ export function QuestDetailTextSections({
                     sessionId={sessionId}
                     searchHighlight={detailSearchHighlight}
                     wrapLongContent
+                    onSessionNavigate={onSessionNavigate}
                   />
                 </QuestDetailTldrCard>
               )}
@@ -79,6 +82,7 @@ export function QuestDetailTextSections({
                     sessionId={sessionId}
                     searchHighlight={detailSearchHighlight}
                     wrapLongContent
+                    onSessionNavigate={onSessionNavigate}
                   />
                 </QuestDetailTldrCard>
               )}
@@ -93,6 +97,7 @@ export function QuestDetailTextSections({
                 sessionId={sessionId}
                 searchHighlight={detailSearchHighlight}
                 wrapLongContent
+                onSessionNavigate={onSessionNavigate}
               />
               <QuestTextImagePreviews
                 text={description}
@@ -109,6 +114,7 @@ export function QuestDetailTextSections({
               sessionId={sessionId}
               searchHighlight={detailSearchHighlight}
               wrapLongContent
+              onSessionNavigate={onSessionNavigate}
             />
             <QuestTextImagePreviews
               text={questDebrief ?? ""}
@@ -130,6 +136,7 @@ export function QuestDetailTextSections({
                     sessionId={sessionId}
                     searchHighlight={detailSearchHighlight}
                     wrapLongContent
+                    onSessionNavigate={onSessionNavigate}
                   />
                 </QuestDetailTldrCard>
               )}
@@ -140,6 +147,7 @@ export function QuestDetailTextSections({
                   sessionId={sessionId}
                   searchHighlight={detailSearchHighlight}
                   wrapLongContent
+                  onSessionNavigate={onSessionNavigate}
                 />
               )}
             </div>
@@ -154,6 +162,7 @@ export function QuestDetailTextSections({
                   sessionId={sessionId}
                   searchHighlight={detailSearchHighlight}
                   wrapLongContent
+                  onSessionNavigate={onSessionNavigate}
                 />
               </QuestDetailTldrCard>
             </div>
@@ -167,6 +176,7 @@ export function QuestDetailTextSections({
             summary={phaseDocumentationSummary}
             searchHighlight={searchHighlight}
             sessionId={sessionId}
+            onSessionNavigate={onSessionNavigate}
           />
         </div>
       )}

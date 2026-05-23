@@ -53,11 +53,45 @@ describe("QuestClaimBlock", () => {
     fireEvent.click(screen.getByRole("button", { name: /Quest Claimed/i }));
 
     expect(screen.getByText("Leader")).toBeInTheDocument();
-    const leaderChip = screen.getByRole("button", { name: "#42" });
+    const leaderChip = screen.getByRole("link", { name: "#42" });
     expect(leaderChip).toBeInTheDocument();
 
     fireEvent.click(leaderChip);
 
+    expect(window.location.hash).toBe("#/session/42?thread=q-78");
+  });
+
+  it("closes the local details modal when the leader chip navigates", () => {
+    useStore.getState().setSdkSessions([
+      {
+        sessionId: "leader-1",
+        sessionNum: 42,
+        state: "running",
+        cwd: "/repo",
+        createdAt: Date.now(),
+        isOrchestrator: true,
+      } as any,
+    ]);
+
+    render(
+      <QuestClaimBlock
+        quest={{
+          questId: "q-78",
+          title: "Leader attribution test",
+          status: "in_progress",
+          leaderSessionId: "leader-1",
+        }}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /Quest Claimed/i }));
+    fireEvent.click(screen.getByRole("button", { name: "View" }));
+
+    expect(screen.getByRole("dialog", { name: /Quest details: Leader attribution test/i })).toBeInTheDocument();
+
+    fireEvent.click(within(screen.getByRole("dialog")).getByRole("link", { name: "#42" }));
+
+    expect(screen.queryByRole("dialog", { name: /Quest details: Leader attribution test/i })).toBeNull();
     expect(window.location.hash).toBe("#/session/42?thread=q-78");
   });
 

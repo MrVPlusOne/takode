@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestImageThumbnail } from "./QuestImageThumbnail.js";
-import { SessionNumChip } from "./SessionNumChip.js";
+import { CompactSessionLink } from "./CompactSessionLink.js";
 import { getQuestStatusTheme } from "../utils/quest-status-theme.js";
 import type { QuestImage, QuestVerificationItem } from "../types.js";
 
@@ -68,7 +68,11 @@ export function QuestClaimBlock({
         {quest.leaderSessionId && (
           <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
             <span>Leader</span>
-            <SessionNumChip sessionId={quest.leaderSessionId} threadKey={quest.questId} />
+            <CompactSessionLink
+              sessionId={quest.leaderSessionId}
+              threadKey={quest.questId}
+              onNavigate={() => setDetailsOpen(false)}
+            />
           </span>
         )}
       </div>

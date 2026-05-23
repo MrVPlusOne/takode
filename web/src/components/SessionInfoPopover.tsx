@@ -13,7 +13,7 @@ import { formatModel, getModelsForBackend, CODEX_REASONING_EFFORTS } from "../ut
 import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
 import { navigateTo } from "../utils/navigation.js";
 import { sendToSession } from "../ws.js";
-import { SessionNumChip } from "./SessionNumChip.js";
+import { CompactSessionLink } from "./CompactSessionLink.js";
 import { SessionPathSummary } from "./SessionPathSummary.js";
 import { SessionPayloadStats } from "./SessionPayloadStats.js";
 import { api, type EditorKind } from "../api.js";
@@ -514,10 +514,11 @@ export function SessionInfoPopover({
                 <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herding</span>
                 <div className="mt-1 flex flex-wrap gap-1.5">
                   {herdedSessions.map((hs) => (
-                    <SessionNumChip
+                    <CompactSessionLink
                       key={hs}
                       sessionId={hs}
                       className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
+                      onNavigate={onClose}
                     />
                   ))}
                 </div>
@@ -527,9 +528,10 @@ export function SessionInfoPopover({
               <div data-testid="session-info-herded-by">
                 <span className="text-[10px] uppercase tracking-wider text-cc-muted/60">Herded by</span>
                 <div className="mt-1">
-                  <SessionNumChip
+                  <CompactSessionLink
                     sessionId={leaderSession}
                     className="text-[11px] font-mono px-2 py-0.5 rounded-full bg-amber-500/10 text-amber-400 hover:bg-amber-500/20 cursor-pointer transition-colors"
+                    onNavigate={onClose}
                   />
                 </div>
               </div>

@@ -89,10 +89,14 @@ interface MockStoreState {
   }>;
   sessionTaskHistory: Map<string, Array<{ title: string; source?: "quest"; questId?: string }>>;
   sessionNames: Map<string, string>;
+  sessionPreviews: Map<string, string>;
   connectionStatus: Map<string, string>;
   cliConnected: Map<string, boolean>;
   cliEverConnected: Map<string, boolean>;
   cliDisconnectReason: Map<string, "idle_limit" | "broken" | "recovery_suppressed" | null>;
+  sessionStatus: Map<string, string | null>;
+  pendingPermissions: Map<string, unknown>;
+  askPermission: Map<string, unknown>;
   serverReachable: boolean;
   updateSdkSession: ReturnType<typeof vi.fn>;
 }
@@ -125,16 +129,21 @@ function resetStore(taskHistory: Array<{ title: string; source?: "quest"; questI
     sdkSessions: [{ sessionId: "s1", cwd: "/repo", backendType: "codex" }],
     sessionTaskHistory: new Map([["s1", taskHistory]]),
     sessionNames: new Map(),
+    sessionPreviews: new Map(),
     connectionStatus: new Map([["s1", "connected"]]),
     cliConnected: new Map([["s1", true]]),
     cliEverConnected: new Map([["s1", true]]),
     cliDisconnectReason: new Map([["s1", null]]),
+    sessionStatus: new Map(),
+    pendingPermissions: new Map(),
+    askPermission: new Map(),
     serverReachable: true,
     updateSdkSession: vi.fn(),
   };
 }
 
 vi.mock("../store.js", () => ({
+  countUserPermissions: () => 0,
   useStore: (selector: (s: MockStoreState) => unknown) => selector(storeState),
 }));
 
@@ -525,7 +534,7 @@ describe("SessionInfoPopover", () => {
 
     expect(screen.getByText("Herded by")).toBeInTheDocument();
     expect(screen.getByTestId("session-info-herded-by")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "#7" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "#7" })).toBeInTheDocument();
   });
 
   it("shows concise herding chips for leader sessions in the info panel", () => {
@@ -565,10 +574,41 @@ describe("SessionInfoPopover", () => {
 
     expect(screen.getByText("Herding")).toBeInTheDocument();
     const section = screen.getByTestId("session-info-herding");
-    expect(within(section).getByRole("button", { name: "#21" })).toBeInTheDocument();
-    expect(within(section).getByRole("button", { name: "#22" })).toBeInTheDocument();
+    expect(within(section).getByRole("link", { name: "#21" })).toBeInTheDocument();
+    expect(within(section).getByRole("link", { name: "#22" })).toBeInTheDocument();
     expect(within(section).queryByText("Fix notification links")).toBeNull();
     expect(within(section).queryByText("Improve hover chips")).toBeNull();
+  });
+
+  it("closes when herd relationship chips navigate", () => {
+    resetStore([]);
+    const onClose = vi.fn();
+    const session = storeState.sessions.get("s1");
+    if (!session) throw new Error("missing session fixture");
+    session.cwd = "/repo/worker";
+    storeState.sdkSessions = [
+      {
+        sessionId: "leader-1",
+        cwd: "/repo",
+        backendType: "codex",
+        sessionNum: 7,
+        isOrchestrator: true,
+      },
+      {
+        sessionId: "s1",
+        cwd: "/repo/worker",
+        backendType: "codex",
+        sessionNum: 11,
+        herdedBy: "leader-1",
+      },
+    ];
+
+    render(<SessionInfoPopover sessionId="s1" onClose={onClose} />);
+
+    fireEvent.click(screen.getByRole("link", { name: "#7" }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+    expect(window.location.hash).toBe("#/session/leader-1");
   });
 
   it("shows the max context window rounded to whole K tokens", () => {

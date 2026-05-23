@@ -5,20 +5,22 @@ import {
 } from "../../shared/quest-phase-documentation-summary.js";
 import { timeAgo } from "../utils/quest-helpers.js";
 import { getQuestPhaseBorderStyle, getQuestPhaseColorValue } from "../utils/quest-phase-theme.js";
+import { CompactSessionLink } from "./CompactSessionLink.js";
 import { MarkdownContent } from "./MarkdownContent.js";
 import { QuestPhaseNoteImages } from "./QuestPhaseNoteImages.js";
-import { SessionNumChip } from "./SessionNumChip.js";
 
 interface QuestPhaseDocumentationTimelineProps {
   summary: QuestPhaseDocumentationSummary;
   searchHighlight?: string | null;
   sessionId?: string;
+  onSessionNavigate?: () => void;
 }
 
 export function QuestPhaseDocumentationTimeline({
   summary,
   searchHighlight,
   sessionId,
+  onSessionNavigate,
 }: QuestPhaseDocumentationTimelineProps) {
   const groups = summary.groups.filter((group) => group.entries.length > 0 || group.phaseStatus !== "pending");
   if (groups.length === 0) return null;
@@ -95,6 +97,7 @@ export function QuestPhaseDocumentationTimeline({
                           preview={preview}
                           searchHighlight={searchHighlight}
                           sessionId={sessionId}
+                          onSessionNavigate={onSessionNavigate}
                         />
                       );
                     })}
@@ -131,11 +134,13 @@ function PhaseDocumentationEntry({
   preview,
   searchHighlight,
   sessionId,
+  onSessionNavigate,
 }: {
   entry: QuestPhaseDocumentationSummary["groups"][number]["entries"][number];
   preview: string;
   searchHighlight?: string | null;
   sessionId?: string;
+  onSessionNavigate?: () => void;
 }) {
   const highlight = searchHighlight ? { query: searchHighlight, mode: "fuzzy" as const, isCurrent: false } : null;
 
@@ -147,9 +152,10 @@ function PhaseDocumentationEntry({
       <div className="mb-1 flex min-w-0 flex-wrap items-center gap-1.5">
         <span className="shrink-0 font-mono-code text-[10px] text-cc-muted">#{entry.index}</span>
         {entry.authorSessionId ? (
-          <SessionNumChip
+          <CompactSessionLink
             sessionId={entry.authorSessionId}
             className="text-[10px] font-medium font-mono text-cc-primary hover:text-cc-primary-hover"
+            onNavigate={onSessionNavigate}
           />
         ) : (
           <span className="text-[10px] font-medium text-cc-muted">{entry.author}</span>
@@ -158,7 +164,14 @@ function PhaseDocumentationEntry({
         <span className="text-[10px] text-cc-muted/60">{timeAgo(entry.ts)}</span>
       </div>
       <div className="min-w-0 max-w-full overflow-hidden text-xs text-cc-fg">
-        <MarkdownContent text={preview} size="sm" sessionId={sessionId} searchHighlight={highlight} wrapLongContent />
+        <MarkdownContent
+          text={preview}
+          size="sm"
+          sessionId={sessionId}
+          searchHighlight={highlight}
+          wrapLongContent
+          onSessionNavigate={onSessionNavigate}
+        />
       </div>
       <QuestPhaseNoteImages text={entry.text} sessionId={sessionId} />
       <details className="mt-1 min-w-0 max-w-full overflow-hidden text-xs text-cc-muted">
@@ -170,6 +183,7 @@ function PhaseDocumentationEntry({
             sessionId={sessionId}
             searchHighlight={highlight}
             wrapLongContent
+            onSessionNavigate={onSessionNavigate}
           />
         </div>
       </details>

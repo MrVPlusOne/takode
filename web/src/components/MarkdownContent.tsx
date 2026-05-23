@@ -614,6 +614,8 @@ export function MarkdownContent({
   enableChatSelectionMenu = false,
   wrapLongContent = false,
   className = "",
+  onSessionNavigate,
+  stopLinkPropagation = false,
 }: {
   text: string;
   size?: "default" | "sm";
@@ -625,6 +627,8 @@ export function MarkdownContent({
   enableChatSelectionMenu?: boolean;
   wrapLongContent?: boolean;
   className?: string;
+  onSessionNavigate?: () => void;
+  stopLinkPropagation?: boolean;
 }) {
   const sizeClass =
     size === "sm"
@@ -692,7 +696,11 @@ export function MarkdownContent({
             const questId = parseQuestIdFromHref(href);
             if (questId) {
               return (
-                <QuestMarkdownLink questId={questId} wrapLongContent={wrapLongContent}>
+                <QuestMarkdownLink
+                  questId={questId}
+                  wrapLongContent={wrapLongContent}
+                  stopPropagation={stopLinkPropagation}
+                >
                   {children}
                 </QuestMarkdownLink>
               );
@@ -704,6 +712,8 @@ export function MarkdownContent({
                   sessionNum={sessionLink.sessionNum}
                   messageIndex={sessionLink.messageIndex}
                   wrapLongContent={wrapLongContent}
+                  onNavigate={onSessionNavigate}
+                  stopPropagation={stopLinkPropagation}
                 >
                   {children}
                 </SessionMarkdownLink>
@@ -712,7 +722,12 @@ export function MarkdownContent({
             const fileTarget = parseFileLinkFromHref(href);
             if (fileTarget) {
               return (
-                <FileMarkdownLink target={fileTarget} sessionId={sessionId} wrapLongContent={wrapLongContent}>
+                <FileMarkdownLink
+                  target={fileTarget}
+                  sessionId={sessionId}
+                  wrapLongContent={wrapLongContent}
+                  stopPropagation={stopLinkPropagation}
+                >
                   {children}
                 </FileMarkdownLink>
               );
@@ -720,7 +735,12 @@ export function MarkdownContent({
             const standardFileTarget = parseStandardFileLinkFromHref(href);
             if (standardFileTarget) {
               return (
-                <FileMarkdownLink target={standardFileTarget} sessionId={sessionId} wrapLongContent={wrapLongContent}>
+                <FileMarkdownLink
+                  target={standardFileTarget}
+                  sessionId={sessionId}
+                  wrapLongContent={wrapLongContent}
+                  stopPropagation={stopLinkPropagation}
+                >
                   {children}
                 </FileMarkdownLink>
               );
@@ -730,6 +750,7 @@ export function MarkdownContent({
                 href={href}
                 target="_blank"
                 rel="noopener noreferrer"
+                onClick={stopLinkPropagation ? (e) => e.stopPropagation() : undefined}
                 className={`text-cc-primary hover:underline ${
                   wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""
                 }`}
@@ -790,14 +811,16 @@ function QuestMarkdownLink({
   questId,
   children,
   wrapLongContent,
+  stopPropagation,
 }: {
   questId: string;
   children: ReactNode;
   wrapLongContent: boolean;
+  stopPropagation: boolean;
 }) {
   const className = `text-cc-primary hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`;
   return (
-    <QuestInlineLink questId={questId} className={className}>
+    <QuestInlineLink questId={questId} className={className} stopPropagation={stopPropagation}>
       {children}
     </QuestInlineLink>
   );
@@ -808,11 +831,15 @@ function SessionMarkdownLink({
   messageIndex,
   children,
   wrapLongContent,
+  onNavigate,
+  stopPropagation,
 }: {
   sessionNum: number;
   messageIndex?: number;
   children: ReactNode;
   wrapLongContent: boolean;
+  onNavigate?: () => void;
+  stopPropagation: boolean;
 }) {
   const sdkSessions = useStore((s) => s.sdkSessions);
   const sessionId = useMemo(
@@ -826,6 +853,8 @@ function SessionMarkdownLink({
       sessionNum={sessionNum}
       messageIndex={messageIndex}
       className={`text-cc-primary hover:underline ${wrapLongContent ? "break-words [overflow-wrap:anywhere]" : ""}`}
+      onNavigate={onNavigate}
+      stopPropagation={stopPropagation}
     >
       {children}
     </SessionInlineLink>
@@ -837,11 +866,13 @@ function FileMarkdownLink({
   sessionId,
   children,
   wrapLongContent,
+  stopPropagation,
 }: {
   target: FileLinkTarget;
   sessionId?: string;
   children: ReactNode;
   wrapLongContent: boolean;
+  stopPropagation: boolean;
 }) {
   const currentSessionId = useStore((s) => s.currentSessionId);
   const sessions = useStore((s) => s.sessions);
@@ -905,6 +936,7 @@ function FileMarkdownLink({
 
   const onClick = useCallback(
     async (e: MouseEvent<HTMLAnchorElement>) => {
+      if (stopPropagation) e.stopPropagation();
       if (longPressTriggeredRef.current) {
         longPressTriggeredRef.current = false;
         e.preventDefault();
@@ -938,7 +970,7 @@ function FileMarkdownLink({
         showEditorOpenError(error instanceof Error ? error.message : String(error));
       }
     },
-    [actionTarget, openEditorTarget, resolvedTarget],
+    [actionTarget, openEditorTarget, resolvedTarget, stopPropagation],
   );
 
   const locationSuffix = formatFileLinkLocation(target);

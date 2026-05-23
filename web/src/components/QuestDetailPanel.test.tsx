@@ -46,6 +46,10 @@ const mockNavigateToSessionThread = vi.fn();
 vi.mock("../utils/routing.js", () => ({
   navigateToSession: (...args: unknown[]) => mockNavigateToSession(...args),
   navigateToSessionThread: (...args: unknown[]) => mockNavigateToSessionThread(...args),
+  routeSessionRefForId: (sessionId: string) => sessionId,
+  sessionHash: (sessionId: string | number) => `#/session/${sessionId}`,
+  sessionThreadHash: (sessionId: string | number, threadKey?: string | null) =>
+    threadKey ? `#/session/${sessionId}?thread=${threadKey}` : `#/session/${sessionId}`,
   withoutQuestIdInHash: (hash: string) => hash.replace(/[?&]quest=[^&]+/, ""),
   withQuestIdInHash: (_hash: string, questId: string) => `#/?quest=${questId}`,
 }));
@@ -191,7 +195,7 @@ describe("QuestDetailPanel", () => {
 
     render(<QuestDetailPanel />);
 
-    fireEvent.click(screen.getByRole("button", { name: "#777" }));
+    fireEvent.click(screen.getByRole("link", { name: "#777" }));
 
     expect(mockNavigateToSessionThread).toHaveBeenCalledWith("leader-42", "q-42", false, 777);
     expect(mockNavigateToSession).not.toHaveBeenCalled();
@@ -226,7 +230,7 @@ describe("QuestDetailPanel", () => {
     expect(screen.getByText("Worker")).toBeInTheDocument();
     expect(screen.getByText("Leader")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "#123" }));
+    fireEvent.click(screen.getByRole("link", { name: "#123" }));
 
     expect(mockNavigateToSession).toHaveBeenCalledWith("worker-42");
     expect(mockNavigateToSessionThread).not.toHaveBeenCalled();

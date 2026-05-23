@@ -23,7 +23,7 @@ import {
   getQuestLeaderSessionId,
   CopyableQuestId,
 } from "../utils/quest-helpers.js";
-import { SessionNumChip } from "./SessionNumChip.js";
+import { CompactSessionLink } from "./CompactSessionLink.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
 import { Lightbox } from "./Lightbox.js";
 import { MarkdownContent } from "./MarkdownContent.js";
@@ -824,13 +824,13 @@ export function QuestDetailPanel() {
               {questSessionId && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
                   <span>Worker</span>
-                  <SessionNumChip sessionId={questSessionId} />
+                  <CompactSessionLink sessionId={questSessionId} onNavigate={closePanel} />
                 </span>
               )}
               {leaderSessionId && (
                 <span className="inline-flex items-center gap-1 text-[10px] text-cc-muted">
                   <span>Leader</span>
-                  <SessionNumChip sessionId={leaderSessionId} threadKey={quest.questId} />
+                  <CompactSessionLink sessionId={leaderSessionId} threadKey={quest.questId} onNavigate={closePanel} />
                 </span>
               )}
               {vProgress && (
@@ -1104,6 +1104,7 @@ export function QuestDetailPanel() {
                 journeyStatus={journeyStatus}
                 searchHighlight={searchHighlight}
                 sessionId={questMarkdownSessionId}
+                onSessionNavigate={closePanel}
               />
 
               {/* Images (read-only) */}
@@ -1179,9 +1180,10 @@ export function QuestDetailPanel() {
                               >
                                 <div className="flex items-center gap-1.5 mb-0.5">
                                   {feedbackSessionId ? (
-                                    <SessionNumChip
+                                    <CompactSessionLink
                                       sessionId={feedbackSessionId}
                                       className="text-xs font-medium font-mono text-cc-primary hover:text-cc-primary-hover cursor-pointer"
+                                      onNavigate={closePanel}
                                     />
                                   ) : (
                                     <span
@@ -1342,6 +1344,7 @@ export function QuestDetailPanel() {
                                             size="sm"
                                             sessionId={questMarkdownSessionId}
                                             wrapLongContent
+                                            onSessionNavigate={closePanel}
                                           />
                                         </div>
                                         <details className="min-w-0 max-w-full overflow-hidden text-xs text-cc-muted">
@@ -1352,6 +1355,7 @@ export function QuestDetailPanel() {
                                               size="sm"
                                               sessionId={questMarkdownSessionId}
                                               wrapLongContent
+                                              onSessionNavigate={closePanel}
                                             />
                                           </div>
                                         </details>
@@ -1362,6 +1366,7 @@ export function QuestDetailPanel() {
                                         size="sm"
                                         sessionId={questMarkdownSessionId}
                                         wrapLongContent
+                                        onSessionNavigate={closePanel}
                                       />
                                     )}
                                     {entry.images && entry.images.length > 0 && (
@@ -1449,7 +1454,13 @@ export function QuestDetailPanel() {
               {/* Notes */}
               {questNotes && (
                 <div className="min-w-0 max-w-full overflow-hidden px-3 py-2 text-xs bg-cc-input-bg border border-cc-border rounded-lg">
-                  <MarkdownContent text={questNotes} size="sm" sessionId={questMarkdownSessionId} wrapLongContent />
+                  <MarkdownContent
+                    text={questNotes}
+                    size="sm"
+                    sessionId={questMarkdownSessionId}
+                    wrapLongContent
+                    onSessionNavigate={closePanel}
+                  />
                 </div>
               )}
 
@@ -1465,7 +1476,9 @@ export function QuestDetailPanel() {
                 </button>
               </div>
 
-              {historyForId === quest.questId && <QuestVersionHistory questId={quest.questId} />}
+              {historyForId === quest.questId && (
+                <QuestVersionHistory questId={quest.questId} onNavigate={closePanel} />
+              )}
 
               {/* Action bar */}
               <div className="flex items-start justify-between gap-2 flex-wrap pt-1">
@@ -1774,7 +1787,7 @@ export function QuestDetailPanel() {
 
 // ─── QuestVersionHistory ───────────────────────────────────────────────────
 
-function QuestVersionHistory({ questId }: { questId: string }) {
+function QuestVersionHistory({ questId, onNavigate }: { questId: string; onNavigate: () => void }) {
   const [historyView, setHistoryView] = useState<QuestHistoryView | null>(null);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -1804,29 +1817,33 @@ function QuestVersionHistory({ questId }: { questId: string }) {
     };
   }, [questId]);
 
-  const handleVersionClick = useCallback((ver: QuestmasterTask) => {
-    const sessionId = "sessionId" in ver && typeof ver.sessionId === "string" ? ver.sessionId : undefined;
-    if (!sessionId) return;
+  const handleVersionClick = useCallback(
+    (ver: QuestmasterTask) => {
+      const sessionId = "sessionId" in ver && typeof ver.sessionId === "string" ? ver.sessionId : undefined;
+      if (!sessionId) return;
 
-    const variant = isQuestUnderReview(ver) ? "quest_submitted" : "quest_claimed";
-    const prefix = `${variant}-${ver.questId}-`;
+      const variant = isQuestUnderReview(ver) ? "quest_submitted" : "quest_claimed";
+      const prefix = `${variant}-${ver.questId}-`;
 
-    const messages = useStore.getState().messages.get(sessionId) ?? [];
-    const candidates = messages.filter((m) => m.id.startsWith(prefix));
-    const match =
-      candidates.length > 0
-        ? candidates.reduce((best, m) => {
-            const bestDist = Math.abs((best.timestamp ?? 0) - ver.createdAt);
-            const mDist = Math.abs((m.timestamp ?? 0) - ver.createdAt);
-            return mDist < bestDist ? m : best;
-          })
-        : undefined;
+      const messages = useStore.getState().messages.get(sessionId) ?? [];
+      const candidates = messages.filter((m) => m.id.startsWith(prefix));
+      const match =
+        candidates.length > 0
+          ? candidates.reduce((best, m) => {
+              const bestDist = Math.abs((best.timestamp ?? 0) - ver.createdAt);
+              const mDist = Math.abs((m.timestamp ?? 0) - ver.createdAt);
+              return mDist < bestDist ? m : best;
+            })
+          : undefined;
 
-    if (match) {
-      useStore.getState().requestScrollToMessage(sessionId, match.id);
-    }
-    navigateToSession(sessionId);
-  }, []);
+      if (match) {
+        useStore.getState().requestScrollToMessage(sessionId, match.id);
+      }
+      navigateToSession(sessionId);
+      onNavigate();
+    },
+    [onNavigate],
+  );
 
   if (loading) return <div className="text-[10px] text-cc-muted py-1">Loading history...</div>;
   if (err) return <div className="text-[10px] text-red-400 py-1">{err}</div>;
@@ -1858,6 +1875,7 @@ function QuestVersionHistory({ questId }: { questId: string }) {
             onKeyDown={
               hasSession
                 ? (e) => {
+                    if (e.target !== e.currentTarget) return;
                     if (e.key === "Enter" || e.key === " ") {
                       e.preventDefault();
                       handleVersionClick(ver);
@@ -1878,7 +1896,7 @@ function QuestVersionHistory({ questId }: { questId: string }) {
             <div className="mt-1 text-cc-fg">{ver.title}</div>
             {verDescription && (
               <div className="mt-0.5">
-                <MarkdownContent text={verDescription} size="sm" />
+                <MarkdownContent text={verDescription} size="sm" onSessionNavigate={onNavigate} stopLinkPropagation />
               </div>
             )}
           </div>
