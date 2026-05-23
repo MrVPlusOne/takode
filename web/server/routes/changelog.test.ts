@@ -1,4 +1,4 @@
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { Hono } from "hono";
@@ -45,5 +45,13 @@ describe("changelog routes", () => {
 
     expect(res.status).toBe(404);
     expect(json).toEqual({ error: "Changelog file not found" });
+  });
+
+  it("keeps the repository changelog bounded to the Takode baseline", async () => {
+    const markdown = await readFile(new URL("../../../CHANGELOG.md", import.meta.url), "utf8");
+
+    expect(markdown).toContain("## 2026-04-10");
+    expect(markdown).not.toContain("## [0.46.0]");
+    expect(markdown).not.toContain("the-companion-v0");
   });
 });

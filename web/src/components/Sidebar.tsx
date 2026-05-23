@@ -23,6 +23,7 @@ import { TreeViewGroup } from "./TreeViewGroup.js";
 import { SessionItem, type ArchiveConfirmationState } from "./SessionItem.js";
 import { ContextMenu, type ContextMenuItem } from "./ContextMenu.js";
 import { SessionHoverCard } from "./SessionHoverCard.js";
+import { SidebarBuildLabel } from "./SidebarBuildLabel.js";
 import { SidebarUsageBar } from "./SidebarUsageBar.js";
 import { YarnBallSpinner } from "./CatIcons.js";
 import type { SdkSessionInfo } from "../types.js";
@@ -1688,16 +1689,14 @@ export function Sidebar() {
             </svg>
           </button>
         </div>
-        <div className="text-[10px] text-cc-muted text-center select-none" title={__BUILD_TIME__}>
-          {`Built ${new Date(__BUILD_TIME__).toLocaleString("en-US", {
-            month: "short",
-            day: "numeric",
-            hour: "numeric",
-            minute: "2-digit",
-            hour12: true,
-            timeZone: "America/Los_Angeles",
-          })} PT`}
-        </div>
+        <SidebarBuildLabel
+          buildTime={__BUILD_TIME__}
+          onOpenChangelog={() => {
+            if (!isDesktopLayout) {
+              useStore.getState().setSidebarOpen(false);
+            }
+          }}
+        />
       </div>
       {/* Context menu */}
       {contextMenu &&
