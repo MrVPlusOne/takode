@@ -232,7 +232,8 @@ export function usePlaygroundSeed() {
       label: "Thread Waiting",
       threadKey: "q-962",
       questId: "q-962",
-      summary: "waiting for q-961 to finish",
+      summary:
+        "waiting for q-961 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",
       messageId: "playground-thread-status-batch",
       timestamp: threadStatusTimestamp,
       updatedAt: threadStatusTimestamp,

@@ -573,6 +573,51 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.queryByText(/\{\[\(Thread Waiting:/)).toBeNull();
   });
 
+  it("keeps narrow thread status chips readable without truncating long wait notes", () => {
+    const sid = "test-thread-status-mobile-wrap";
+    const status = {
+      kind: "waiting" as const,
+      label: "Thread Waiting" as const,
+      threadKey: "q-1409",
+      questId: "q-1409",
+      summary:
+        "waiting on collapsed composer safe-area quest, reviewer availability, and the mobile add-to-home-screen screenshot follow-up",
+      messageId: "status-mobile",
+      timestamp: 1_700_000_000_000,
+      updatedAt: 1_700_000_000_000,
+    };
+    setStoreSessionState(sid, { leaderThreadStatuses: { "q-1409": status } });
+    setStoreMessages(sid, [
+      makeMessage({
+        id: "status-mobile",
+        role: "assistant",
+        content: "",
+        metadata: {
+          threadStatusMarkers: [status],
+          threadRefs: [{ threadKey: "q-1409", questId: "q-1409", source: "explicit" }],
+        },
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} threadKey="q-1409" />);
+
+    const chip = screen.getByLabelText(
+      "Thread Waiting for thread:q-1409: waiting on collapsed composer safe-area quest, reviewer availability, and the mobile add-to-home-screen screenshot follow-up",
+    );
+    const destination = within(chip).getByTestId("thread-status-destination");
+    const summary = within(chip).getByTestId("thread-status-summary");
+
+    // Mobile status chips should show the short destination while preserving full accessible thread metadata.
+    expect(destination.textContent).toBe("q-1409");
+    expect(destination.textContent).not.toContain("thread:");
+    // The wait note owns a full mobile row and wraps instead of using the old truncation treatment.
+    expect(summary.className).toContain("basis-full");
+    expect(summary.className).toContain("whitespace-normal");
+    expect(summary.className).toContain("break-words");
+    expect(summary.className).not.toContain("truncate");
+    expect(summary.textContent).toContain("mobile add-to-home-screen screenshot follow-up");
+  });
+
   it("renders only the current thread status", () => {
     const sid = "test-thread-status-latest-anchor";
     const oldStatus = {

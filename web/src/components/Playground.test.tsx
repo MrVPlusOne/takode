@@ -171,6 +171,11 @@ describe("Playground", () => {
     expect(marker).not.toHaveTextContent("activities in thread:");
     expect(within(marker).queryByText("Jump")).toBeNull();
     expect(within(marker).getByRole("button", { name: "thread:q-962" })).toBeTruthy();
+    expect(
+      screen.getByText(
+        "waiting for q-961 to finish before mobile status chip wrapping can be visually checked on the narrow add-to-home-screen layout",
+      ),
+    ).toBeTruthy();
   });
 
   it("documents Journey finished as green while completed Journey starts stay quiet", () => {

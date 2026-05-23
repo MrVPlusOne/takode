@@ -309,28 +309,38 @@ function ThreadStatusMetadata({
         const normalizedCurrentThread = normalizeThreadKey(currentThreadKey || "main");
         const selectable =
           !!onSelectThread && !isAllThreadsKey(normalizedCurrentThread) && status.threadKey !== normalizedCurrentThread;
-        const label = status.threadKey === "main" ? "Main" : `thread:${status.threadKey}`;
+        const destinationLabel = status.threadKey === "main" ? "Main" : status.threadKey;
+        const accessibleDestinationLabel = status.threadKey === "main" ? "Main" : `thread:${status.threadKey}`;
         const content = (
           <>
             <span
-              className={`h-1.5 w-1.5 rounded-full ${status.kind === "ready" ? "bg-green-400/70" : "bg-amber-300/70"}`}
+              className={`h-1.5 w-1.5 shrink-0 rounded-full ${
+                status.kind === "ready" ? "bg-green-400/70" : "bg-amber-300/70"
+              }`}
               aria-hidden="true"
             />
-            <span className="font-medium text-cc-fg/75">{status.label}</span>
-            <span className="text-cc-muted/60">{label}</span>
-            <span className="max-w-[min(30rem,70vw)] truncate text-cc-muted/80">{status.summary}</span>
+            <span className="shrink-0 font-medium text-cc-fg/75">{status.label}</span>
+            <span className="shrink-0 text-cc-muted/60" data-testid="thread-status-destination">
+              {destinationLabel}
+            </span>
+            <span
+              className="min-w-0 basis-full whitespace-normal break-words text-cc-muted/80 sm:basis-auto"
+              data-testid="thread-status-summary"
+            >
+              {status.summary}
+            </span>
           </>
         );
         const className =
-          "inline-flex max-w-full items-center gap-1.5 rounded-full border border-cc-border/60 bg-cc-card/70 px-2.5 py-1 text-[11px] leading-none shadow-[0_8px_20px_rgba(0,0,0,0.18)]";
+          "inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-full border border-cc-border/60 bg-cc-card/70 px-2.5 py-1 text-[11px] leading-tight shadow-[0_8px_20px_rgba(0,0,0,0.18)]";
         return selectable ? (
           <button
             key={`${status.threadKey}:${status.messageId}:${status.kind}:${status.updatedAt ?? status.timestamp}`}
             type="button"
             className={`${className} cursor-pointer hover:bg-cc-hover/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cc-primary/50`}
             onClick={() => onSelectThread?.(status.threadKey)}
-            title={`Open ${label}`}
-            aria-label={`${status.label} for ${label}: ${status.summary}. Open thread.`}
+            title={`Open ${accessibleDestinationLabel}`}
+            aria-label={`${status.label} for ${accessibleDestinationLabel}: ${status.summary}. Open thread.`}
           >
             {content}
           </button>
@@ -339,7 +349,7 @@ function ThreadStatusMetadata({
             key={`${status.threadKey}:${status.messageId}:${status.kind}:${status.updatedAt ?? status.timestamp}`}
             className={className}
             role="status"
-            aria-label={`${status.label} for ${label}: ${status.summary}`}
+            aria-label={`${status.label} for ${accessibleDestinationLabel}: ${status.summary}`}
           >
             {content}
           </div>
