@@ -26,10 +26,9 @@ import * as sessionNames from "../session-names.js";
 import { getSettings } from "../settings-manager.js";
 import type { RouteContext } from "./context.js";
 import type { BrowserIncomingMessage } from "../session-types.js";
-import { buildThreadWindowSync } from "../../shared/thread-window.js";
+import { buildProjectedThreadEntries } from "../../shared/thread-window.js";
 import { normalizeThreadTarget } from "../../shared/thread-routing.js";
 
-const TRANSCRIPTION_THREAD_CONTEXT_TURNS = 12;
 const TRANSCRIPTION_FOCUSED_CONTEXT_MAX_CHARS = 4000;
 type TranscriptionMode = "dictation" | "edit" | "append";
 type TranscriptionProgressPhase =
@@ -382,15 +381,9 @@ export function createTranscriptionRoutes(ctx: RouteContext) {
   ): BrowserIncomingMessage[] | null {
     if (!history || !threadKey) return history;
 
-    const sync = buildThreadWindowSync({
-      messageHistory: history,
-      threadKey,
-      fromItem: -1,
-      itemCount: TRANSCRIPTION_THREAD_CONTEXT_TURNS,
-      sectionItemCount: 1,
-      visibleItemCount: TRANSCRIPTION_THREAD_CONTEXT_TURNS,
-    });
-    return sync.entries.map((entry) => entry.message);
+    // Let the prompt builder apply its own hint budget after filtering tool-only
+    // and system-noise entries; a recent thread window can contain no hint text.
+    return buildProjectedThreadEntries(history, threadKey).map((entry) => entry.message);
   }
 
   function getTranscriptionSessionContext(

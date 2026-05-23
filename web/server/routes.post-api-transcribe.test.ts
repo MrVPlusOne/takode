@@ -1472,6 +1472,74 @@ describe("POST /api/transcribe", () => {
     expect(sttPrompt).not.toContain("QuestOnlyTerm");
   });
 
+  it("keeps active Main-thread history available when recent Main activity has no transcription hints", async () => {
+    mockVoiceSettings({ enhancementEnabled: false });
+    const recentNonHintMainActivity = Array.from({ length: 14 }, (_, index) => [
+      {
+        type: "user_message",
+        content: `[Needs-input reminder]\nReminder ${index} contains SystemNoiseOnly${index}.`,
+        threadKey: "main",
+      },
+      {
+        type: "assistant",
+        message: {
+          content: [
+            {
+              type: "tool_use",
+              id: `tool-main-${index}`,
+              name: "Bash",
+              input: { command: `echo ${index}` },
+            },
+          ],
+        },
+        threadKey: "main",
+      },
+      { type: "result", data: { is_error: false }, threadKey: "main" },
+    ]).flat();
+    ensureBridgeSession(bridge, "session-1", {
+      messageHistory: [
+        { type: "user_message", content: "Older active Main history mentions MainOlderOnlyTerm.", threadKey: "main" },
+        {
+          type: "assistant",
+          message: { content: [{ type: "text", text: "MainOlderOnlyTerm assistant spelling context." }] },
+          threadKey: "main",
+        },
+        { type: "result", data: { is_error: false }, threadKey: "main" },
+        {
+          type: "user_message",
+          content: "Quest tab vocabulary is QuestLeakOnlyTerm.",
+          threadKey: "q-1210",
+          questId: "q-1210",
+          threadRefs: [{ threadKey: "q-1210", questId: "q-1210", source: "explicit" }],
+        },
+        ...recentNonHintMainActivity,
+      ],
+    });
+    vi.mocked(fetch).mockResolvedValueOnce(
+      new Response(JSON.stringify({ text: "main scoped transcript" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+
+    const res = await app.request("/api/transcribe?backend=openai&mode=dictation&sessionId=session-1&threadKey=main", {
+      method: "POST",
+      headers: {
+        "Content-Type": "audio/wav",
+        "X-Companion-Audio-Filename": "recording.wav",
+      },
+      body: new Uint8Array([0x52, 0x49, 0x46, 0x46]),
+    });
+
+    expect(res.status).toBe(200);
+    await res.text();
+    const [, sttInit] = vi.mocked(fetch).mock.calls[0] as [string, RequestInit];
+    const sttPrompt = String((sttInit.body as FormData).get("prompt"));
+    expect(sttPrompt).toContain("<VOCABULARY_REFERENCE>");
+    expect(sttPrompt).toContain("MainOlderOnlyTerm");
+    expect(sttPrompt).not.toContain("QuestLeakOnlyTerm");
+  });
+
   it("preserves legacy raw session context when no selected thread is provided", async () => {
     mockVoiceSettings({ enhancementEnabled: false });
     ensureBridgeSession(bridge, "session-1", {
