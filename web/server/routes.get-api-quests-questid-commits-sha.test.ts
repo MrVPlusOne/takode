@@ -720,7 +720,7 @@ describe("GET /api/quests/:questId/memory-commits/:sha", () => {
       sourceFiles: [{ path: "decisions/example.md", oldText: "old\n", newText: "new\n" }],
       available: true,
     });
-    expect(mockMemoryCommitDiff).toHaveBeenCalledWith({ sessionSpaceSlug: "Takode" }, "abc1234");
+    expect(mockMemoryCommitDiff).toHaveBeenCalledWith({ sessionSpaceSlug: "Takode", readOnly: true }, "abc1234");
   });
 
   it("rejects memory commits that are not attached to the quest", async () => {
@@ -765,6 +765,6 @@ describe("GET /api/quests/:questId/memory-commits/:sha", () => {
       available: false,
       reason: "commit_not_available",
     });
-    expect(mockMemoryCommitDiff).toHaveBeenCalledWith({ sessionSpaceSlug: "Takode" }, "abc1234");
+    expect(mockMemoryCommitDiff).toHaveBeenCalledWith({ sessionSpaceSlug: "Takode", readOnly: true }, "abc1234");
   });
 });

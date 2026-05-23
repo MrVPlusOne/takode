@@ -20,6 +20,7 @@ import {
   type QuestBoardRowCandidate,
 } from "../quest-phase-docs.js";
 import { evaluateQuestStatusMutationGuard, getQuestStatusOwnerSessionIds } from "../quest-status-guard.js";
+import type { MemoryRepoOptions } from "../workstream-memory-types.js";
 
 const DIFF_MAX_BUFFER = 10 * 1024 * 1024;
 const MAX_DIFF_BYTES = 512 * 1024;
@@ -48,8 +49,8 @@ function shouldIncludeCommitDiff(c: Context): boolean {
   return c.req.query("includeDiff") !== "false";
 }
 
-function memoryRepoOptions(launcher: RouteContext["launcher"]): { sessionSpaceSlug?: string } {
-  return { sessionSpaceSlug: launcher.getMemorySessionSpaceSlug() };
+function memoryRepoOptions(launcher: RouteContext["launcher"]): MemoryRepoOptions {
+  return { sessionSpaceSlug: launcher.getMemorySessionSpaceSlug(), readOnly: true };
 }
 
 function memoryDiffSourceFiles(

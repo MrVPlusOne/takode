@@ -264,6 +264,9 @@ describe("ensureQuestmasterIntegration", () => {
     expect(skill).toContain(
       'quest complete q-N --commits "sha1,sha2" --debrief-file /tmp/final-debrief.md --debrief-tldr-file /tmp/final-debrief-tldr.md',
     );
+    expect(skill).toContain("[--memory-commit <sha>] [--memory-commits");
+    expect(skill).toContain("Attach one memory repo commit SHA");
+    expect(skill).toContain("Keep these separate from code repo commits");
     expect(skill).toContain("Synced SHAs: sha1,sha2");
     expect(skill).toContain("Final Memory or the leader attaches those SHAs");
     expect(skill).toContain("Final debrief draft:");

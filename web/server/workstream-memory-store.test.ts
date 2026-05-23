@@ -48,6 +48,13 @@ describe("file-based memory store", () => {
     await expect(readFile(join(tempDir, "memory", ".git", "HEAD"), "utf-8")).resolves.toContain("ref:");
   });
 
+  it("does not initialize a missing repo for read-only memory commit diff lookup", async () => {
+    const result = await memoryStore.memoryCommitDiff({ readOnly: true }, "abc1234");
+
+    expect(result).toBeNull();
+    await expect(readFile(join(tempDir, "memory", ".git", "HEAD"), "utf-8")).rejects.toThrow();
+  });
+
   it("migrates an existing server-id memory repo to the server slug path", async () => {
     delete process.env.COMPANION_MEMORY_DIR;
     process.env.HOME = tempDir;

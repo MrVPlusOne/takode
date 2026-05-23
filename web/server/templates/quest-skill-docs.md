@@ -82,10 +82,10 @@ quest tags   [--json]                                         List all existing 
 quest create [<title> | --title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--status idea|refined] [--tags "t1,t2"] [--follow-up-of "q-1,q-2"] [--image <path>] [--images "p1,p2"] [--json] Create a quest (auto-assigns ID)
 quest claim  <id> [--session <sid>] [--force --reason <text>] [--json]  Claim for your session; force is explicit, audited, and server-auth only
 quest reassign <id> --session <worker> --reason <text> [--json]         Leader-only audited quest ownership reassignment
-quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--session <sid>] [--commit <sha>] [--commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]  Mark done and submit optional User review checks
+quest complete <id> [--items "c1,c2" | --items-file <path>|-] [--no-code] [--session <sid>] [--commit <sha>] [--commits "c1,c2"] [--memory-commit <sha>] [--memory-commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]  Mark done and submit optional User review checks
 quest done   <id> [--notes "..." | --notes-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--cancelled] [--force --reason <text>] [--json]      Mark as done/cancelled
 quest cancel <id> [--notes "reason" | --notes-file <path>|-] [--force --reason <text>] [--json]                Cancel from any status
-quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]    Change status
+quest transition <id> --status <s> [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--commit <sha>] [--commits "c1,c2"] [--memory-commit <sha>] [--memory-commits "c1,c2"] [--debrief "..." | --debrief-file <path>|-] [--debrief-tldr "..." | --debrief-tldr-file <path>|-] [--force --reason <text>] [--json]    Change status
 quest later  <id> [--json]                                    Move review-pending quest out of inbox
 quest inbox  <id> [--json]                                    Move review-pending quest back to inbox
 quest edit   <id> [--title "..." | --title-file <path>|-] [--desc "..." | --desc-file <path>|-] [--tldr "..." | --tldr-file <path>|-] [--tags "t1,t2"] [--follow-up-of "q-1,q-2" | --clear-follow-up-of] [--json]     Edit in place (NEVER use to create)
@@ -347,8 +347,10 @@ printf '%s\n' 'Port summary: commit abc123 ...' 'Treat `foo $(bar)` as literal t
 | `--items-file <path>` | Read User review checks from a file, or use `-` to read from stdin. Supports one item per line or a JSON array of strings / `{ "text": "..." }` objects. Omit this when no user action remains. |
 | `--no-code` | Local CLI reminder switch for zero-code / artifact-only handoffs; it suppresses port-noise reminders but does not persist quest metadata |
 | `--session <sid>` | Complete on behalf of a specific worker session. Leader sessions should use this when submitting a worker-owned quest for verification. |
-| `--commit <sha>` | Attach one synced commit SHA (repeatable) |
-| `--commits "s1,s2"` | Attach multiple synced commit SHAs in order |
+| `--commit <sha>` | Attach one code repo commit SHA (repeatable). Use this for synced code/docs/template commits, not memory repo commits. |
+| `--commits "s1,s2"` | Attach multiple code repo commit SHAs in order. Keep these separate from memory repo commits. |
+| `--memory-commit <sha>` | Attach one memory repo commit SHA (repeatable). Use this for file-based memory commits, not code repo commits. |
+| `--memory-commits "s1,s2"` | Attach multiple memory repo commit SHAs in order. Keep these separate from code repo commits. |
 | `--debrief "..."` | Final user-facing outcome debrief |
 | `--debrief-file <path>` | Read final debrief text from a file, or use `-` to read from stdin |
 | `--debrief-tldr "..."` | Human-readable TLDR metadata for long final debriefs |

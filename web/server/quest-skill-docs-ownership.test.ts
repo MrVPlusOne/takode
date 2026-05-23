@@ -27,4 +27,20 @@ describe("quest skill ownership docs", () => {
     expect(docs).toContain("Empty User review checks are normal and preferred over invented checklist entries");
     expect(docs).not.toContain("Verification items must be human-checkable acceptance items only");
   });
+
+  it("documents memory commit metadata as separate from code commit metadata", () => {
+    const docs = readFileSync(
+      join(dirname(fileURLToPath(import.meta.url)), "templates", "quest-skill-docs.md"),
+      "utf-8",
+    );
+
+    expect(docs).toContain("[--memory-commit <sha>] [--memory-commits");
+    expect(docs).toContain(
+      "| `--commit <sha>` | Attach one code repo commit SHA (repeatable). Use this for synced code/docs/template commits, not memory repo commits. |",
+    );
+    expect(docs).toContain(
+      "| `--memory-commit <sha>` | Attach one memory repo commit SHA (repeatable). Use this for file-based memory commits, not code repo commits. |",
+    );
+    expect(docs).toContain("Keep these separate from code repo commits.");
+  });
 });
