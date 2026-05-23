@@ -817,6 +817,11 @@ export class WsBridge {
   ): Promise<void> | void {
     return handleCodexResultErrorAutoPauseDelivery(session, msg, completedTurn, {
       broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
+      broadcastPendingCodexInputs: (targetSession) =>
+        this.broadcastToBrowsers(targetSession, {
+          type: "codex_pending_inputs",
+          inputs: targetSession.pendingCodexInputs,
+        }),
       persistSession: (targetSession) => this.persistSession(targetSession),
       getBrowserTransportDeps: () => this.getBrowserTransportDeps(),
     });

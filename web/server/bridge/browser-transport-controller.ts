@@ -625,6 +625,7 @@ export function injectUserMessage(
     ...(options?.replyContext ? { replyContext: options.replyContext } : {}),
     ...(options?.sessionId ? { session_id: options.sessionId } : {}),
     ...(options?.vscodeSelection ? { vscodeSelection: options.vscodeSelection } : {}),
+    ...(options?.autoPauseSourceKind ? { autoPauseSourceKind: options.autoPauseSourceKind } : {}),
     ...(agentSource ? { agentSource } : {}),
     ...(takodeHerdBatch ? { takodeHerdBatch } : {}),
     ...(threadRoute ? { threadKey: threadRoute.threadKey } : {}),

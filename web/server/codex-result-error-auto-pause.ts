@@ -4,10 +4,12 @@ import {
   isTimerSourceTag,
 } from "./bridge/adapter-browser-routing-source-tags.js";
 import type {
+  BrowserIncomingMessage,
   BrowserOutgoingMessage,
   CLIResultMessage,
   CodexAutoPauseHeldInput,
   CodexAutoPauseInputSourceKind,
+  CodexPendingBatchInput,
   CodexOutboundTurn,
   CodexResultErrorAutoPauseState,
   CodexResultErrorFamily,
@@ -29,6 +31,11 @@ export interface ClassifiedCodexResultError {
 
 export interface CodexResultErrorAutoPauseSessionLike {
   state: Pick<SessionState, "codex_result_error_auto_pause">;
+}
+
+export interface CodexAutoPausedQueuedBacklogSessionLike extends CodexResultErrorAutoPauseSessionLike {
+  pendingCodexInputs: PendingCodexInput[];
+  pendingCodexTurns: CodexOutboundTurn[];
 }
 
 export function classifyCodexResultError(msg: CLIResultMessage): ClassifiedCodexResultError | null {
@@ -206,6 +213,58 @@ export function materializeCodexAutoPausedInputsForDrain(
   });
 }
 
+export function sweepCodexAutoPausedQueuedBacklog(
+  session: CodexAutoPausedQueuedBacklogSessionLike,
+  now = Date.now(),
+): { changed: boolean; heldInputCount: number; heldInputIds: string[] } {
+  if (!getActiveCodexResultErrorAutoPause(session)) {
+    return { changed: false, heldInputCount: 0, heldInputIds: [] };
+  }
+
+  const heldInputIds: string[] = [];
+  const remainingInputs: PendingCodexInput[] = [];
+  for (const input of session.pendingCodexInputs) {
+    if (isEligibleQueuedAutomaticCodexInput(input)) {
+      queueCodexAutoPausedInput(session, "programmatic", pendingCodexInputToAutoPauseMessage(input), now);
+      heldInputIds.push(input.id);
+      continue;
+    }
+    remainingInputs.push(input);
+  }
+
+  let changed = heldInputIds.length > 0;
+  if (changed) {
+    session.pendingCodexInputs = remainingInputs;
+  }
+  const prunedQueuedTurns = pruneHeldQueuedCodexStartPendingTurns(session);
+  changed ||= prunedQueuedTurns;
+
+  return {
+    changed,
+    heldInputCount: heldInputIds.length,
+    heldInputIds,
+  };
+}
+
+export function holdCodexAutoPausedQueuedBacklog<TSession extends CodexAutoPausedQueuedBacklogSessionLike>(
+  session: TSession,
+  deps: {
+    broadcastPendingCodexInputs: (session: TSession) => void;
+    broadcastToBrowsers: (session: TSession, msg: BrowserIncomingMessage) => void;
+    persistSession: (session: TSession) => void;
+  },
+): boolean {
+  const swept = sweepCodexAutoPausedQueuedBacklog(session);
+  if (!swept.changed) return false;
+  deps.broadcastPendingCodexInputs(session);
+  deps.broadcastToBrowsers(session, {
+    type: "session_update",
+    session: { codex_result_error_auto_pause: session.state.codex_result_error_auto_pause ?? null },
+  });
+  deps.persistSession(session);
+  return true;
+}
+
 function clearCodexResultErrorAutoPauseAfterSuccess(
   session: CodexResultErrorAutoPauseSessionLike,
   sourceKind: CodexAutoPauseInputSourceKind,
@@ -223,6 +282,83 @@ function clearCodexResultErrorAutoPauseAfterSuccess(
     resumedNow: !!existing.pausedAt,
     ...(heldInputs.length ? { heldInputs } : {}),
   };
+}
+
+function isEligibleQueuedAutomaticCodexInput(input: PendingCodexInput): boolean {
+  return input.cancelable && determineCodexInputSourceKind(input) === "automatic";
+}
+
+function pendingCodexInputToAutoPauseMessage(input: PendingCodexInput): BrowserUserMessage {
+  return {
+    type: "user_message",
+    content: input.content,
+    ...(input.clientMsgId ? { client_msg_id: input.clientMsgId } : {}),
+    ...(input.imageRefs?.length ? { imageRefs: input.imageRefs } : {}),
+    ...(input.deliveryContent ? { deliveryContent: input.deliveryContent } : {}),
+    ...(input.replyContext ? { replyContext: input.replyContext } : {}),
+    ...(input.vscodeSelection ? { vscodeSelection: input.vscodeSelection } : {}),
+    ...(input.agentSource ? { agentSource: input.agentSource } : {}),
+    ...(input.takodeHerdBatch ? { takodeHerdBatch: input.takodeHerdBatch } : {}),
+    ...(input.threadKey ? { threadKey: input.threadKey } : {}),
+    ...(input.questId ? { questId: input.questId } : {}),
+    ...(input.threadRefs ? { threadRefs: input.threadRefs } : {}),
+    ...(input.autoPauseSourceKind ? { autoPauseSourceKind: input.autoPauseSourceKind } : {}),
+  };
+}
+
+function pruneHeldQueuedCodexStartPendingTurns(session: CodexAutoPausedQueuedBacklogSessionLike): boolean {
+  const pendingById = new Map(session.pendingCodexInputs.map((input) => [input.id, input]));
+  let changed = false;
+
+  for (let idx = session.pendingCodexTurns.length - 1; idx >= 0; idx--) {
+    const turn = session.pendingCodexTurns[idx];
+    if (!turn || !isQueuedCodexStartPendingTurn(turn)) continue;
+    const ids = turn.pendingInputIds ?? [turn.userMessageId];
+    const retainedInputs = ids.map((id) => pendingById.get(id)).filter((input): input is PendingCodexInput => !!input);
+    if (retainedInputs.length === ids.length) continue;
+
+    changed = true;
+    if (retainedInputs.length === 0) {
+      session.pendingCodexTurns.splice(idx, 1);
+      continue;
+    }
+
+    turn.adapterMsg = {
+      type: "codex_start_pending",
+      pendingInputIds: retainedInputs.map((input) => input.id),
+      inputs: buildQueuedCodexBatchMessageInputs(retainedInputs),
+    };
+    turn.userMessageId = retainedInputs[0].id;
+    turn.pendingInputIds = retainedInputs.map((input) => input.id);
+    turn.userContent = buildQueuedCodexPendingBatchText(retainedInputs);
+    turn.autoPauseSourceKind = determineCodexTurnSourceKind(retainedInputs);
+    turn.updatedAt = Date.now();
+    turn.lastError = null;
+  }
+
+  return changed;
+}
+
+function isQueuedCodexStartPendingTurn(turn: CodexOutboundTurn): boolean {
+  return (
+    (turn.status === "queued" || turn.status === "blocked_broken_session") &&
+    turn.turnId == null &&
+    turn.adapterMsg.type === "codex_start_pending"
+  );
+}
+
+function buildQueuedCodexBatchMessageInputs(inputs: PendingCodexInput[]): CodexPendingBatchInput[] {
+  return inputs.map((input) => ({
+    content: input.deliveryContent || input.content,
+    ...(input.vscodeSelection ? { vscodeSelection: input.vscodeSelection } : {}),
+  }));
+}
+
+function buildQueuedCodexPendingBatchText(inputs: PendingCodexInput[]): string {
+  return inputs
+    .map((input) => input.deliveryContent || input.content)
+    .filter(Boolean)
+    .join("\n\n");
 }
 
 function codexAutoPauseCoalesceKey(source: PausedInboundSource, message: BrowserUserMessage): string {

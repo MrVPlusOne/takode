@@ -1,9 +1,11 @@
 import {
+  buildCodexAutoPauseDiagnostic,
   getActiveCodexResultErrorAutoPause,
   isAutomaticCodexAutoPauseInput,
   materializeCodexAutoPausedInputsForDrain,
   noteCodexResultForAutoPause,
   queueCodexAutoPausedInput,
+  sweepCodexAutoPausedQueuedBacklog,
 } from "../codex-result-error-auto-pause.js";
 import type {
   BrowserIncomingMessage,
@@ -25,6 +27,7 @@ type ProgrammaticUserMessage = Extract<BrowserOutgoingMessage, { type: "user_mes
 
 interface CodexAutoPauseDeliveryDeps {
   broadcastToBrowsers: (session: Session, msg: BrowserIncomingMessage) => void;
+  broadcastPendingCodexInputs: (session: Session) => void;
   persistSession: (session: Session) => void;
   getBrowserTransportDeps: () => BrowserTransportDeps;
 }
@@ -46,9 +49,17 @@ export function handleCodexResultErrorAutoPause(
   if (session.backendType !== "codex") return;
   const outcome = noteCodexResultForAutoPause(session, msg, completedTurn);
   if (!outcome.changed) return;
+  const swept = sweepCodexAutoPausedQueuedBacklog(session);
+  if (swept.changed) {
+    deps.broadcastPendingCodexInputs(session);
+  }
   broadcastCodexResultErrorAutoPauseUpdate(session, deps);
   if (outcome.diagnostic) {
-    deps.broadcastToBrowsers(session, { type: "error", message: outcome.diagnostic });
+    const state = getActiveCodexResultErrorAutoPause(session);
+    deps.broadcastToBrowsers(session, {
+      type: "error",
+      message: state ? buildCodexAutoPauseDiagnostic(state) : outcome.diagnostic,
+    });
   }
   deps.persistSession(session);
   if (!outcome.resumedNow || !outcome.heldInputs?.length) return;

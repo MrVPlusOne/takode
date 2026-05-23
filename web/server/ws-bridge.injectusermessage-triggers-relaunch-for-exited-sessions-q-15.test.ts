@@ -141,6 +141,9 @@ function makeCodexAdapterMock() {
       currentTurnId = turnId;
       onTurnStartedCb?.(turnId);
     },
+    setCurrentTurnId: (turnId: string | null) => {
+      currentTurnId = turnId;
+    },
     emitTurnSteered: (turnId: string, pendingInputIds: string[]) => {
       onTurnSteeredCb?.(turnId, pendingInputIds);
     },
@@ -749,6 +752,144 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     expect(session.pendingCodexInputs.map((input: any) => input.content)).not.toContain("lease acquired");
     expect(session.state.backend_state).not.toBe("recovery_suppressed");
     expect(relaunchCb).toHaveBeenCalledWith(sid);
+  });
+
+  it("moves queued automatic Codex backlog into auto-pause before dispatching after the threshold", async () => {
+    const sid = "s-codex-auto-pause-queued-backlog";
+    const session = bridge.getOrCreateSession(sid, "codex");
+    const adapter = makeCodexAdapterMock();
+    bridge.attachCodexAdapter(sid, adapter as any);
+    emitCodexSessionReady(adapter, { cliSessionId: "thread-queued-backlog" });
+
+    const now = Date.now();
+    session.state.codex_result_error_auto_pause = {
+      family: "model_backend_stream_error",
+      fingerprint: "model_backend_stream_error:responses",
+      streak: 2,
+      threshold: 3,
+      pausedAt: null,
+      lastError:
+        "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+      lastErrorAt: now,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 2,
+      heldInputs: [],
+    };
+    session.isGenerating = true;
+    session.pendingCodexInputs.push({
+      id: "queued-auto-input",
+      content: "queued resource lease follow-up",
+      timestamp: now + 1,
+      cancelable: true,
+      agentSource: { sessionId: "resource-lease:agent-browser", sessionLabel: "Resource Lease" },
+    });
+    session.pendingCodexTurns.push(
+      {
+        adapterMsg: {
+          type: "codex_start_pending",
+          pendingInputIds: ["active-auto-input"],
+          inputs: [{ content: "active automatic turn" }],
+        },
+        userMessageId: "active-auto-input",
+        pendingInputIds: ["active-auto-input"],
+        userContent: "active automatic turn",
+        historyIndex: -1,
+        status: "backend_acknowledged",
+        dispatchCount: 1,
+        createdAt: now,
+        updatedAt: now,
+        acknowledgedAt: now,
+        turnTarget: "current",
+        lastError: null,
+        turnId: "active-auto-turn",
+        disconnectedAt: null,
+        resumeConfirmedAt: null,
+        autoPauseSourceKind: "automatic",
+      },
+      {
+        adapterMsg: {
+          type: "codex_start_pending",
+          pendingInputIds: ["queued-auto-input"],
+          inputs: [{ content: "queued resource lease follow-up" }],
+        },
+        userMessageId: "queued-auto-input",
+        pendingInputIds: ["queued-auto-input"],
+        userContent: "queued resource lease follow-up",
+        historyIndex: -1,
+        status: "queued",
+        dispatchCount: 0,
+        createdAt: now + 1,
+        updatedAt: now + 1,
+        acknowledgedAt: null,
+        turnTarget: null,
+        lastError: null,
+        turnId: null,
+        disconnectedAt: null,
+        resumeConfirmedAt: null,
+        autoPauseSourceKind: "automatic",
+      },
+    );
+    adapter.sendBrowserMessage.mockClear();
+
+    await adapter.emitBrowserMessage({
+      type: "result",
+      data: {
+        type: "result",
+        subtype: "error",
+        is_error: true,
+        result:
+          "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "failed",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        session_id: sid,
+        codex_turn_id: "active-auto-turn",
+        uuid: "queued-backlog-result",
+      },
+    });
+    await flushAsync();
+
+    expect(session.state.codex_result_error_auto_pause?.pausedAt).toBeTruthy();
+    expect(session.state.codex_result_error_auto_pause?.heldInputs.map((item: any) => item.message.content)).toContain(
+      "queued resource lease follow-up",
+    );
+    expect(session.pendingCodexInputs.map((input: any) => input.content)).not.toContain(
+      "queued resource lease follow-up",
+    );
+    expect(session.pendingCodexTurns).toHaveLength(0);
+    expect(adapter.sendBrowserMessage).not.toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "codex_start_pending",
+        pendingInputIds: ["queued-auto-input"],
+      }),
+    );
+
+    adapter.sendBrowserMessage.mockClear();
+    adapter.setCurrentTurnId(null);
+    session.isGenerating = false;
+    const manualDelivery = bridge.injectUserMessage(
+      sid,
+      "operator recovery check",
+      { sessionId: "operator-session", sessionLabel: "Operator" },
+      undefined,
+      undefined,
+      { autoPauseSourceKind: "manual" },
+    );
+    await flushAsync();
+
+    expect(manualDelivery).toBe("sent");
+    expect(adapter.sendBrowserMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        type: "codex_start_pending",
+        inputs: [expect.objectContaining({ content: "operator recovery check" })],
+      }),
+    );
+    expect(session.pendingCodexInputs.find((input: any) => input.content === "operator recovery check")).toMatchObject({
+      autoPauseSourceKind: "manual",
+    });
   });
 
   it("manual Codex success clears result-error auto-pause and drains coalesced held inputs deliberately", async () => {

@@ -22,7 +22,7 @@ import {
 } from "./adapter-browser-routing-needs-input-reminder.js";
 import { isRecoverableCodexInitError } from "../codex-adapter-utils.js";
 import { isActualHumanUserInput, isActualHumanUserMessage } from "../user-message-classification.js";
-import { determineCodexTurnSourceKind } from "../codex-result-error-auto-pause.js";
+import { determineCodexTurnSourceKind, holdCodexAutoPausedQueuedBacklog } from "../codex-result-error-auto-pause.js";
 import {
   armCodexFreshTurnRequirement as armCodexFreshTurnRequirementState,
   clearCodexFreshTurnRequirement as clearCodexFreshTurnRequirementState,
@@ -398,10 +398,15 @@ export function dispatchQueuedCodexTurns(
   reason: string,
   deps: Pick<
     CodexAdapterRecoveryLifecycleDeps,
-    "pruneStalePendingCodexHerdInputs" | "setPendingCodexInputsCancelable" | "persistSession"
+    | "broadcastPendingCodexInputs"
+    | "broadcastToBrowsers"
+    | "pruneStalePendingCodexHerdInputs"
+    | "setPendingCodexInputsCancelable"
+    | "persistSession"
   >,
 ): void {
   if (isSessionPaused(session as any)) return;
+  holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const outcome = dispatchQueuedCodexTurnsState(session, reason, {
     pruneStalePendingCodexHerdInputs: (dispatchReason) =>
       deps.pruneStalePendingCodexHerdInputs(session, dispatchReason),
@@ -560,6 +565,7 @@ export function rebuildQueuedCodexPendingStartBatch(
   session: CodexRecoveryOrchestratorSessionLike,
   deps: CodexRecoveryOrchestratorDeps,
 ): void {
+  holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const head = deps.getCodexHeadTurn(session);
   const headBlocksQueuedFollowUps = !!head && head.status === "blocked_broken_session";
   const deliverable = getQueuedCodexPendingBatchInputs(session, deps);
@@ -780,6 +786,7 @@ export function trySteerPendingCodexInputs(
     deps.clearCodexFreshTurnRequirement(session, `${reason}_active_turn_changed`);
   }
   deps.pruneStalePendingCodexHerdInputs(session, `${reason}_before_steer`);
+  holdCodexAutoPausedQueuedBacklog(session as any, deps);
   const deliverable = getCancelablePendingCodexInputs(session);
   if (deliverable.length === 0) return false;
   const ids = deliverable.map((input) => input.id);
