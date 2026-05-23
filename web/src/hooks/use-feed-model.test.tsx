@@ -454,6 +454,96 @@ describe("leader mode segment-local needs-input preview selection", () => {
     expect(entryIds(turn.agentEntries)).toEqual([]);
   });
 
+  it("keeps a proposal visible when later approval-created bookkeeping follows the notify call", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "propose the quest", timestamp: 1 }),
+      makeMessage({
+        id: "a-setup",
+        role: "assistant",
+        content: "I’ll check the existing guidance first.",
+        timestamp: 2,
+      }),
+      makeMessage({
+        id: "a-tool",
+        role: "assistant",
+        content: "",
+        timestamp: 3,
+        contentBlocks: [
+          { type: "tool_use", id: "context-tool", name: "Bash", input: { command: "quest show q-1294" } },
+        ],
+      }),
+      makeMessage({
+        id: "a-proposal",
+        role: "assistant",
+        content: [
+          "Proposed Quest",
+          "",
+          "- Title: Make leader quest proposals human-readable",
+          "- Relationship: follow-up of [q-1294](quest:q-1294)",
+          "",
+          "Goal",
+          "Update `quest-design`, `leader-dispatch`, and related guidance so visible approval proposals are concise.",
+          "",
+          "Journey",
+          "alignment -> implement -> code-review -> mental-simulation -> port -> memory",
+        ].join("\n"),
+        timestamp: 4,
+      }),
+      makeNotifyToolMessage("a-notify", 5),
+      makeVisibleLeaderMessage(
+        "a-bookkeeping",
+        "Proposed the concise quest and created approval notification `292`.",
+        6,
+      ),
+    ];
+
+    const model = buildFeedModel(messages, true, 0, ["a-notify"]);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-proposal", "a-notify", "activity"]);
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-notify"]);
+    expect(entryIds(turn.agentEntries)).toContain("a-bookkeeping");
+  });
+
+  it("demotes concise approval-created bookkeeping even when it is the first visible entry after notify", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "propose the quest", timestamp: 1 }),
+      makeMessage({
+        id: "a-proposal",
+        role: "assistant",
+        content:
+          "Proposed Quest\n\n- Title: Fix collapsed previews\n- Goal / Acceptance: preserve needs-input proposal text.",
+        timestamp: 2,
+      }),
+      makeNotifyToolMessage("a-notify", 3),
+      makeVisibleLeaderMessage("a-bookkeeping", "Created approval notification `42` for the preview proposal.", 4),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["a-proposal", "activity"]);
+    expect(entryIds(turn.notificationEntries)).toEqual([]);
+    expect(entryIds(turn.agentEntries)).toContain("a-bookkeeping");
+  });
+
+  it("keeps approval-created bookkeeping visible when there is no substantive proposal to promote", () => {
+    const messages: ChatMessage[] = [
+      makeMessage({ id: "u1", role: "user", content: "open a decision prompt", timestamp: 1 }),
+      makeNotifyToolMessage("a-notify", 2),
+      makeVisibleLeaderMessage("a-bookkeeping", "Created approval notification `42` for the decision.", 3),
+    ];
+
+    const model = buildFeedModel(messages, true);
+    const turn = model.turns[0];
+
+    expect(collapsedEntryIds(turn)).toEqual(["activity", "a-bookkeeping"]);
+    expect(entryIds(turn.notificationEntries)).toEqual(["a-bookkeeping"]);
+    expect(turn.agentEntries.some((entry) => entry.kind === "tool_msg_group" && entry.firstId === "a-notify")).toBe(
+      true,
+    );
+  });
+
   it("falls back to the existing short status when the segment has no substantive proposal", () => {
     const messages: ChatMessage[] = [
       makeMessage({ id: "u1", role: "user", content: "open a decision prompt", timestamp: 1 }),

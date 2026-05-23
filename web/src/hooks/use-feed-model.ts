@@ -611,9 +611,25 @@ function isNeedsInputStatusText(text: string): boolean {
   return (
     /^approval notification `?\d+`? is open\b/i.test(normalized) ||
     /^waiting on confirmation\b/i.test(normalized) ||
+    isApprovalCreatedBookkeepingText(normalized) ||
     /\blinked .*needs-input `?\d+`?/i.test(normalized) ||
     /\bwaiting on your (choice|confirmation|decision)\b/i.test(normalized)
   );
+}
+
+function isApprovalCreatedBookkeepingText(text: string): boolean {
+  const normalized = text.trim();
+  if (!normalized || normalized.length > 240 || normalized.split("\n").length > 2) return false;
+  return /\bcreated\s+(?:an?\s+|the\s+)?(?:[^.\n]{0,80}\s+)?(?:approval|needs-input)\s+notification\s+`?\d+`?\b/i.test(
+    normalized,
+  );
+}
+
+function isApprovalCreatedBookkeepingEntry(entry: FeedEntry): boolean {
+  if (entry.kind !== "message" || entry.msg.role !== "assistant") return false;
+  if (entry.msg.metadata?.leaderUserMessage !== true) return false;
+  if (entry.msg.notification || entry.msg.metadata?.attentionRecord) return false;
+  return isApprovalCreatedBookkeepingText(messageText(entry.msg));
 }
 
 function scoreNeedsInputPreviewCandidate(entry: FeedEntry): number {
@@ -685,6 +701,43 @@ function chooseNeedsInputSegmentPreview(
     return b.index - a.index;
   });
   return hiddenEntries[candidates[0].index] ?? null;
+}
+
+function filterCollapsedVisibleEntriesForNeedsInputBookkeeping(
+  rawAgentEntries: FeedEntry[],
+  visibleEntries: FeedEntry[],
+  leaderMode: boolean,
+): FeedEntry[] {
+  if (!leaderMode || visibleEntries.length === 0) return visibleEntries;
+
+  const visibleEntryKeys = new Set(visibleEntries.map(getEntryId));
+  const retainedVisibleEntryKeys = new Set<string>();
+  let hiddenEntries: FeedEntry[] = [];
+  let previousVisibleEntry: FeedEntry | null = null;
+  let hasNeedsInputPreview = false;
+
+  for (const entry of rawAgentEntries) {
+    const key = getEntryId(entry);
+    if (!visibleEntryKeys.has(key)) {
+      hiddenEntries.push(entry);
+      continue;
+    }
+
+    const segmentPreview = chooseNeedsInputSegmentPreview(hiddenEntries, previousVisibleEntry, entry);
+    const hasCurrentNeedsInputPreview = segmentPreview !== null;
+    if (isApprovalCreatedBookkeepingEntry(entry) && (hasNeedsInputPreview || hasCurrentNeedsInputPreview)) {
+      if (hasCurrentNeedsInputPreview) hasNeedsInputPreview = true;
+      hiddenEntries.push(entry);
+      continue;
+    }
+
+    if (hasCurrentNeedsInputPreview) hasNeedsInputPreview = true;
+    retainedVisibleEntryKeys.add(key);
+    hiddenEntries = [];
+    previousVisibleEntry = entry;
+  }
+
+  return visibleEntries.filter((entry) => retainedVisibleEntryKeys.has(getEntryId(entry)));
 }
 
 function buildCollapsedTurnEntries(
@@ -775,12 +828,17 @@ function makeTurn(
   const s = countEntryStats(rawAgentEntries);
 
   // Extract messages with notification chips -- always visible like systemEntries.
-  const notificationEntries: FeedEntry[] = [];
+  const notificationEntryCandidates: FeedEntry[] = [];
   for (const e of rawAgentEntries) {
     if (entryIsCollapsedVisible(e, leaderMode, anchoredNotificationMessageIds)) {
-      notificationEntries.push(e);
+      notificationEntryCandidates.push(e);
     }
   }
+  const notificationEntries = filterCollapsedVisibleEntriesForNeedsInputBookkeeping(
+    rawAgentEntries,
+    notificationEntryCandidates,
+    leaderMode,
+  );
 
   // Extract the default-visible response entry (last assistant text message).
   // Leader sessions publish user-visible text through `leader_user_message`;
