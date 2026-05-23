@@ -4,6 +4,7 @@ import type {
   BrowserOutgoingMessage,
   CLIResultMessage,
   CodexLeaderRecycleTrigger,
+  CodexOutboundTurn,
   ContentBlock,
   PermissionRequest,
   ThreadRef,
@@ -239,6 +240,11 @@ export interface CodexAdapterBrowserMessageDeps {
     session: CodexBrowserMessageSessionLike,
     trigger: CodexLeaderRecycleTrigger,
   ) => Promise<{ ok: boolean; error?: string }>;
+  handleCodexResultErrorAutoPause: (
+    session: CodexBrowserMessageSessionLike,
+    msg: CLIResultMessage,
+    completedTurn: CodexOutboundTurn | null,
+  ) => Promise<void> | void;
 }
 
 export function isCodexContextWindowExhaustionMessage(message: unknown): boolean {
@@ -503,6 +509,12 @@ export async function handleCodexAdapterBrowserMessage(
     if (await maybeRecycleCodexLeaderForContextWindowExhaustion(session, outgoing, deps)) {
       return;
     }
+    const codexTurnId = typeof outgoing.data.codex_turn_id === "string" ? outgoing.data.codex_turn_id : null;
+    const completedTurn =
+      codexTurnId && Array.isArray(session.pendingCodexTurns)
+        ? ((session.pendingCodexTurns.find((turn: CodexOutboundTurn) => turn.turnId === codexTurnId) ??
+            null) as CodexOutboundTurn | null)
+        : ((session.pendingCodexTurns?.[0] ?? null) as CodexOutboundTurn | null);
     session.consecutiveAdapterFailures = 0;
     session.lastAdapterFailureAt = null;
     if (!deps.completeCodexTurnsForResult(session, outgoing.data, Date.now())) return;
@@ -510,6 +522,14 @@ export async function handleCodexAdapterBrowserMessage(
       completedTurnId: typeof outgoing.data.codex_turn_id === "string" ? outgoing.data.codex_turn_id : null,
     });
     deps.handleResultMessage(session, outgoing.data as CLIResultMessage);
+    const maybeAutoPause = deps.handleCodexResultErrorAutoPause(
+      session,
+      outgoing.data as CLIResultMessage,
+      completedTurn,
+    );
+    if (maybeAutoPause instanceof Promise) {
+      await maybeAutoPause;
+    }
     if (!session.isGenerating) {
       deps.queueCodexPendingStartBatch(session, "codex_turn_completed");
     }

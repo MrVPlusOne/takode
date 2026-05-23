@@ -25,6 +25,7 @@ export interface ProgrammaticPauseMessageInput {
     replyContext?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["replyContext"];
     sessionId?: string;
     vscodeSelection?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["vscodeSelection"];
+    autoPauseSourceKind?: Extract<BrowserOutgoingMessage, { type: "user_message" }>["autoPauseSourceKind"];
   };
 }
 
@@ -111,6 +112,7 @@ export function buildProgrammaticUserMessage(
     ...(input.options?.replyContext ? { replyContext: input.options.replyContext } : {}),
     ...(input.options?.sessionId ? { session_id: input.options.sessionId } : {}),
     ...(input.options?.vscodeSelection ? { vscodeSelection: input.options.vscodeSelection } : {}),
+    ...(input.options?.autoPauseSourceKind ? { autoPauseSourceKind: input.options.autoPauseSourceKind } : {}),
     ...(input.agentSource ? { agentSource: input.agentSource } : {}),
     ...(input.takodeHerdBatch ? { takodeHerdBatch: input.takodeHerdBatch } : {}),
     ...(input.threadRoute ? { threadKey: input.threadRoute.threadKey } : {}),

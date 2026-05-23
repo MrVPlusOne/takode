@@ -998,6 +998,11 @@ export function getCodexAdapterBrowserMessageDeps(host: any) {
       handleCodexPermissionRequestController(targetSession as Session, permission, host.getBrowserRoutingDeps()),
     requestCodexLeaderRecycle: async (targetSession: unknown, trigger: CodexLeaderRecycleTrigger) =>
       host.recycleCodexLeaderSession((targetSession as Session).id, trigger),
+    handleCodexResultErrorAutoPause: (
+      targetSession: unknown,
+      msg: CLIResultMessage,
+      completedTurn: CodexOutboundTurn | null,
+    ) => host.handleCodexResultErrorAutoPause(targetSession as Session, msg, completedTurn),
   };
 }
 

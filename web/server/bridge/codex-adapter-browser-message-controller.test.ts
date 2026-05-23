@@ -123,6 +123,7 @@ function makeDeps(broadcasts: BrowserIncomingMessage[]): CodexAdapterBrowserMess
     maybeFlushQueuedCodexMessages: vi.fn(),
     handleCodexPermissionRequest: vi.fn(),
     requestCodexLeaderRecycle: vi.fn(async () => ({ ok: true })),
+    handleCodexResultErrorAutoPause: vi.fn(),
   };
 }
 

@@ -22,6 +22,7 @@ import {
 } from "./adapter-browser-routing-needs-input-reminder.js";
 import { isRecoverableCodexInitError } from "../codex-adapter-utils.js";
 import { isActualHumanUserInput, isActualHumanUserMessage } from "../user-message-classification.js";
+import { determineCodexTurnSourceKind } from "../codex-result-error-auto-pause.js";
 import {
   armCodexFreshTurnRequirement as armCodexFreshTurnRequirementState,
   clearCodexFreshTurnRequirement as clearCodexFreshTurnRequirementState,
@@ -506,6 +507,7 @@ export function recordSteeredCodexTurn(
     turnId,
     disconnectedAt: null,
     resumeConfirmedAt: null,
+    autoPauseSourceKind: determineCodexTurnSourceKind(inputs),
   });
   for (const idx of committedHistoryIndexes) {
     deps.trackUserMessageForTurn(session, idx, "queued");
@@ -582,6 +584,7 @@ export function rebuildQueuedCodexPendingStartBatch(
     existingQueuedTurn.userContent = buildCodexPendingBatchRecoveryText(deliverable, deps);
     existingQueuedTurn.updatedAt = Date.now();
     existingQueuedTurn.lastError = null;
+    existingQueuedTurn.autoPauseSourceKind = determineCodexTurnSourceKind(deliverable);
     deps.persistSession(session);
     return;
   }
@@ -612,6 +615,7 @@ export function rebuildQueuedCodexPendingStartBatch(
     turnId: null,
     disconnectedAt: null,
     resumeConfirmedAt: null,
+    autoPauseSourceKind: determineCodexTurnSourceKind(deliverable),
   });
   deps.persistSession(session);
 }

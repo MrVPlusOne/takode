@@ -731,6 +731,12 @@ export function Composer({
         totalLinesRemoved: sessionData?.total_lines_removed,
         pause: sessionData?.pause ?? null,
         pausedInputQueueCount: sessionData?.pause?.queuedMessages.length ?? 0,
+        codexResultErrorAutoPause: sessionData?.codex_result_error_auto_pause ?? null,
+        codexAutoPausedInputCount:
+          sessionData?.codex_result_error_auto_pause?.heldInputs.reduce(
+            (total, item) => total + Math.max(1, item.count),
+            0,
+          ) ?? 0,
       };
     }),
   );
@@ -808,6 +814,8 @@ export function Composer({
   const pauseState = sessionView.pause as SessionPauseState | null;
   const isPaused = !!pauseState?.pausedAt;
   const pausedInputQueueCount = sessionView.pausedInputQueueCount;
+  const codexResultErrorAutoPause = sessionView.codexResultErrorAutoPause;
+  const codexAutoPausedInputCount = sessionView.codexAutoPausedInputCount;
   const codexModelOptions = dynamicCodexModels || getModelsForBackend("codex");
   // Resolve the "Default" option: replace the empty-value placeholder with
   // the user's actual configured model from ~/.claude/settings.json so we
@@ -1904,7 +1912,9 @@ export function Composer({
               />
               <PausedInputChip
                 pause={pauseState}
+                autoPause={codexResultErrorAutoPause}
                 heldCount={pausedInputQueueCount}
+                autoPausedHeldCount={codexAutoPausedInputCount}
                 directComposerMessagesSend={isConnected}
               />
               <ComposerReferencePreview references={plainReferencePreviews} />

@@ -1237,6 +1237,12 @@ export function createSessionsRoutes(ctx: RouteContext) {
       ...rest,
       pause: bridgeSession?.state.pause ?? null,
       pausedInputQueueCount: bridgeSession?.state.pause?.queuedMessages.length ?? 0,
+      codexResultErrorAutoPause: bridgeSession?.state.codex_result_error_auto_pause ?? null,
+      codexAutoPausedInputCount:
+        bridgeSession?.state.codex_result_error_auto_pause?.heldInputs.reduce(
+          (total, item) => total + Math.max(1, item.count),
+          0,
+        ) ?? 0,
       sessionLifecycleEvents: bridgeSession?.state.lifecycle_events ?? [],
       isGenerating: !!(bridgeSession?.isGenerating || bridgeSession?.pendingPermissions.size),
     });

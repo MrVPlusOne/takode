@@ -33,6 +33,12 @@ import {
   isSessionPaused,
   queuePausedUserMessage,
 } from "../session-pause.js";
+import {
+  buildCodexAutoPauseDiagnostic,
+  getActiveCodexResultErrorAutoPause,
+  isAutomaticCodexAutoPauseInput,
+  queueCodexAutoPausedInput,
+} from "../codex-result-error-auto-pause.js";
 import type {
   ActiveTurnRoute,
   BoardRow,
@@ -40,6 +46,7 @@ import type {
   BrowserIncomingMessage,
   BrowserOutgoingMessage,
   BufferedBrowserEvent,
+  CodexAutoPauseInputSourceKind,
   CodexOutboundTurn,
   PendingCodexInput,
   PermissionRequest,
@@ -65,6 +72,8 @@ export interface ProgrammaticUserMessageOptions {
   vscodeSelection?: ProgrammaticUserMessage["vscodeSelection"];
   /** Safe human controls, such as answering a pending prompt, may bypass pause. */
   bypassPause?: boolean;
+  /** Server-only source classification for Codex result-error auto-pause. */
+  autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
 }
 
 export interface BrowserTransportSocketLike {
@@ -334,6 +343,24 @@ export async function handleBrowserIngressMessage(
       deps.broadcastError(session, buildPausedDiagnostic(session));
       return;
     }
+  }
+  const codexAutoPause = getActiveCodexResultErrorAutoPause(session);
+  if (codexAutoPause && msg.type === "user_message" && isAutomaticCodexAutoPauseInput(msg)) {
+    if (!canQueuePausedUserMessage(msg)) {
+      deps.broadcastError(
+        session,
+        "Automatic Codex input delivery is paused. Raw image messages cannot be safely held; send a direct composer message to test recovery.",
+      );
+      return;
+    }
+    queueCodexAutoPausedInput(session, "browser", msg);
+    deps.persistSession(session);
+    deps.broadcastToBrowsers(session, {
+      type: "session_update",
+      session: { codex_result_error_auto_pause: session.state.codex_result_error_auto_pause },
+    } as BrowserIncomingMessage);
+    deps.broadcastError(session, buildCodexAutoPauseDiagnostic(session.state.codex_result_error_auto_pause!));
+    return;
   }
 
   const routeTask = async () => {

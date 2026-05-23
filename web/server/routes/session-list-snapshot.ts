@@ -200,6 +200,12 @@ export async function buildEnrichedSessionsSnapshot(
           pendingTimerCount,
           pause: bridge?.pause ?? null,
           pausedInputQueueCount: bridge?.pause?.queuedMessages.length ?? 0,
+          codexResultErrorAutoPause: bridge?.codex_result_error_auto_pause ?? null,
+          codexAutoPausedInputCount:
+            bridge?.codex_result_error_auto_pause?.heldInputs.reduce(
+              (total, item) => total + Math.max(1, item.count),
+              0,
+            ) ?? 0,
           ...notificationSummary,
           ...(attention ?? {}),
           ...(s.isWorktree && s.archived ? { worktreeExists: await archivedWorktreeExists(s.cwd) } : {}),

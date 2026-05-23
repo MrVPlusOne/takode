@@ -68,6 +68,7 @@ import {
   type ThreadRouteMetadata,
 } from "../thread-routing-metadata.js";
 import { isActualHumanUserMessage } from "../user-message-classification.js";
+import { determineUserMessageSourceKind } from "../codex-result-error-auto-pause.js";
 export {
   hasPendingForceCompact,
   isCliSlashCommand,
@@ -1672,11 +1673,14 @@ function normalizeAdapterUserMessage(
     delete (delivered as { draftImages?: unknown }).draftImages;
     delete (delivered as { imageRefs?: unknown }).imageRefs;
     delete (delivered as { images?: unknown }).images;
+    delete (delivered as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
     return delivered;
   }
   const resolvedImageRefs = userImageRefs ?? msg.imageRefs;
   if (!resolvedImageRefs?.length) {
-    return adapterMsg;
+    const stripped = { ...adapterMsg } as BrowserOutgoingMessage;
+    delete (stripped as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
+    return stripped;
   }
   let annotatedContent = msg.content || "";
   const resolvedPaths = deriveAttachmentPaths(session.id, resolvedImageRefs);
@@ -1689,6 +1693,7 @@ function normalizeAdapterUserMessage(
   delete (stripped as { draftImages?: unknown }).draftImages;
   delete (stripped as { imageRefs?: unknown }).imageRefs;
   delete (stripped as { images?: unknown }).images;
+  delete (stripped as { autoPauseSourceKind?: unknown }).autoPauseSourceKind;
   return stripped;
 }
 function queueAdapterMessage(session: AdapterBrowserRoutingSessionLike, raw: string): void {
@@ -1860,6 +1865,7 @@ export function routeAdapterBrowserMessage(
           ...(ingested.historyEntry.threadKey ? { threadKey: ingested.historyEntry.threadKey } : {}),
           ...(ingested.historyEntry.questId ? { questId: ingested.historyEntry.questId } : {}),
           ...(ingested.historyEntry.threadRefs ? { threadRefs: ingested.historyEntry.threadRefs } : {}),
+          autoPauseSourceKind: determineUserMessageSourceKind(msg),
         });
         markNeedsInputResolutionNoticesQueued(
           session,

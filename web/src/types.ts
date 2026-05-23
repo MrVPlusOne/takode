@@ -20,6 +20,7 @@ import type {
   LeaderProjectionThreadSummary,
   PendingCodexInput,
   PendingCodexInputImageDraft,
+  CodexAutoPauseHeldInput,
   VsCodeSelectionMetadata,
   VsCodeSelectionState,
   SessionNotification,
@@ -115,6 +116,7 @@ export type {
   ThreadRoutingError,
   PausedInboundMessage,
   SessionPauseState,
+  CodexAutoPauseHeldInput,
 };
 export type { TreeGroup, TreeGroupState } from "../server/tree-group-store.js";
 export type {
@@ -336,6 +338,10 @@ export interface SdkSessionInfo {
   pause?: SessionPauseState | null;
   /** Number of inputs held while this session is paused. */
   pausedInputQueueCount?: number;
+  /** Codex-only auto-pause state for repeated classified terminal result errors. */
+  codexResultErrorAutoPause?: SessionState["codex_result_error_auto_pause"];
+  /** Number of coalesced automatic inputs held by Codex result-error auto-pause. */
+  codexAutoPausedInputCount?: number;
   /** Truncated preview of the last user message */
   lastMessagePreview?: string;
   /** Whether the CLI process is currently connected (from REST API) */

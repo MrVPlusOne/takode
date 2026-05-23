@@ -240,6 +240,64 @@ export function PlaygroundInteractiveSections() {
             <PlaygroundComposerPermissionToolbar backend="codex" state="popover" />
           </Card>
           <div className="mt-4" />
+          <Card label="Codex backend-error auto-pause">
+            <div className="border-t border-cc-border bg-cc-card px-4 py-3">
+              <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-visible">
+                <PausedInputChip
+                  heldCount={0}
+                  autoPausedHeldCount={4}
+                  directComposerMessagesSend={true}
+                  pause={null}
+                  autoPause={{
+                    family: "model_backend_stream_error",
+                    fingerprint: "model_backend_stream_error:responses",
+                    streak: 3,
+                    threshold: 3,
+                    pausedAt: Date.now() - 45_000,
+                    lastError:
+                      "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+                    lastErrorAt: Date.now() - 45_000,
+                    lastSourceKind: "automatic",
+                    totalMatchingErrors: 3,
+                    heldInputs: [
+                      {
+                        id: "playground-auto-held-herd",
+                        queuedAt: Date.now() - 30_000,
+                        lastQueuedAt: Date.now() - 10_000,
+                        source: "programmatic",
+                        count: 3,
+                        message: {
+                          type: "user_message",
+                          content: "Board stalled wakeup held while the Codex backend is unhealthy",
+                          agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+                        },
+                      },
+                      {
+                        id: "playground-auto-held-timer",
+                        queuedAt: Date.now() - 20_000,
+                        lastQueuedAt: Date.now() - 20_000,
+                        source: "programmatic",
+                        count: 1,
+                        message: {
+                          type: "user_message",
+                          content: "Timer reminder held during Codex backend auto-pause",
+                          agentSource: { sessionId: "timer:t1", sessionLabel: "Timer t1" },
+                        },
+                      },
+                    ],
+                  }}
+                />
+                <textarea
+                  readOnly
+                  value="Manual composer messages can test whether the backend has recovered."
+                  rows={1}
+                  className="w-full px-4 pt-3 pb-1 text-sm bg-transparent resize-none text-cc-fg font-sans-ui"
+                  style={{ minHeight: "36px" }}
+                />
+              </div>
+            </div>
+          </Card>
+          <div className="mt-4" />
           <Card label="Paused other input sources">
             <div className="border-t border-cc-border bg-cc-card px-4 py-3">
               <div className="bg-cc-input-bg border border-cc-border rounded-[14px] overflow-visible">

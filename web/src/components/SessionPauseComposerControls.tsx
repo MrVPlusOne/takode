@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import type { PausedInboundMessage, SessionPauseState } from "../types.js";
+import type { CodexAutoPauseHeldInput, PausedInboundMessage, SessionPauseState, SessionState } from "../types.js";
 
 function PauseIcon({ className = "h-4 w-4" }: { className?: string }) {
   return (
@@ -17,14 +17,16 @@ function PlayIcon({ className = "h-4 w-4" }: { className?: string }) {
   );
 }
 
-function formatHeldSource(item: PausedInboundMessage): string {
+type HeldInputListItem = PausedInboundMessage | CodexAutoPauseHeldInput;
+
+function formatHeldSource(item: HeldInputListItem): string {
   if (item.message.agentSource?.sessionLabel) return item.message.agentSource.sessionLabel;
   if (item.message.agentSource?.sessionId) return item.message.agentSource.sessionId;
   if (item.message.takodeHerdBatch) return "Herd";
   return item.source === "programmatic" ? "External" : "Browser";
 }
 
-function formatHeldPreview(item: PausedInboundMessage): string {
+function formatHeldPreview(item: HeldInputListItem): string {
   const content = item.message.content.trim();
   if (content) return content;
   const imageCount = item.message.imageRefs?.length ?? 0;
@@ -32,8 +34,12 @@ function formatHeldPreview(item: PausedInboundMessage): string {
   return "Held input";
 }
 
-function formatHeldTime(item: PausedInboundMessage): string {
+function formatHeldTime(item: HeldInputListItem): string {
   return new Date(item.queuedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+}
+
+function getHeldCount(item: HeldInputListItem): number {
+  return "count" in item ? Math.max(1, item.count) : 1;
 }
 
 export function PauseOtherSourcesButton({
@@ -85,28 +91,41 @@ export function PauseOtherSourcesButton({
 
 export function PausedInputChip({
   pause,
+  autoPause,
   heldCount,
+  autoPausedHeldCount = 0,
   directComposerMessagesSend,
 }: {
   pause: SessionPauseState | null | undefined;
+  autoPause?: SessionState["codex_result_error_auto_pause"];
   heldCount: number;
+  autoPausedHeldCount?: number;
   directComposerMessagesSend: boolean;
 }) {
   const [open, setOpen] = useState(false);
-  const queued = pause?.queuedMessages ?? [];
-  const visibleCount = Math.max(heldCount, queued.length);
+  const isManualPause = !!pause?.pausedAt;
+  const isAutoPause = !isManualPause && !!autoPause?.pausedAt;
+  const queued: HeldInputListItem[] = isManualPause ? (pause?.queuedMessages ?? []) : (autoPause?.heldInputs ?? []);
+  const visibleCount = isManualPause
+    ? Math.max(heldCount, queued.length)
+    : Math.max(
+        autoPausedHeldCount,
+        queued.reduce((total, item) => total + getHeldCount(item), 0),
+      );
   const label = visibleCount === 1 ? "1 held input" : `${visibleCount} held inputs`;
   const listTitle = useMemo(
     () =>
       visibleCount > 0
-        ? `Other input sources are paused. ${label} will release after resume.`
+        ? isAutoPause
+          ? `Automatic input sources are paused after repeated Codex backend errors. ${label} will release after a successful manual test.`
+          : `Other input sources are paused. ${label} will release after resume.`
         : directComposerMessagesSend
           ? "Other input sources are paused. Direct composer messages still send."
           : "Other input sources are paused. Direct composer messages still need the session to resume.",
-    [directComposerMessagesSend, label, visibleCount],
+    [directComposerMessagesSend, isAutoPause, label, visibleCount],
   );
 
-  if (!pause?.pausedAt) return null;
+  if (!isManualPause && !isAutoPause) return null;
 
   return (
     <div className="px-4 pt-2">
@@ -121,13 +140,15 @@ export function PausedInputChip({
             className="inline-flex min-w-0 items-center gap-1.5 rounded-md px-1 py-0.5 text-left font-medium text-amber-200 transition-colors hover:bg-amber-400/10 cursor-pointer"
           >
             <PauseIcon className="h-3.5 w-3.5 shrink-0" />
-            <span className="shrink-0">Other sources paused</span>
+            <span className="shrink-0">{isAutoPause ? "Automatic sources paused" : "Other sources paused"}</span>
             <span className="rounded bg-amber-400/20 px-1.5 py-0.5 font-mono-code text-[10px]">{label}</span>
           </button>
           <span className="min-w-0 flex-1 text-amber-200/80">
-            {directComposerMessagesSend
-              ? "Direct composer messages still send. External input waits here."
-              : "Direct composer messages still need the session to resume. External input waits here."}
+            {isAutoPause
+              ? "Direct composer messages and explicit takode sends can test recovery."
+              : directComposerMessagesSend
+                ? "Direct composer messages still send. External input waits here."
+                : "Direct composer messages still need the session to resume. External input waits here."}
           </span>
         </div>
         {open && (
@@ -145,7 +166,12 @@ export function PausedInputChip({
                 >
                   <span className="font-medium text-amber-100">{formatHeldSource(item)}</span>
                   <span className="min-w-0 truncate text-amber-100/80">{formatHeldPreview(item)}</span>
-                  <span className="font-mono-code text-[10px] text-amber-100/60">{formatHeldTime(item)}</span>
+                  <span className="flex items-center gap-1 font-mono-code text-[10px] text-amber-100/60">
+                    {getHeldCount(item) > 1 && (
+                      <span className="rounded bg-amber-400/15 px-1">x{getHeldCount(item)}</span>
+                    )}
+                    {formatHeldTime(item)}
+                  </span>
                 </div>
               ))
             )}

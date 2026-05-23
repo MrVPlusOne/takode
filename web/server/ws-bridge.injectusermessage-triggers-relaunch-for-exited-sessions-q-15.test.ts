@@ -701,6 +701,115 @@ describe("injectUserMessage triggers relaunch for exited sessions (q-15)", () =>
     });
   });
 
+  it("holds automatic injected Codex messages during result-error auto-pause but lets explicit operator sends through", () => {
+    const sid = "s-codex-auto-paused";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "exited", killedByIdleManager: false })),
+    } as any);
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+    session.state.codex_result_error_auto_pause = {
+      family: "model_backend_stream_error",
+      fingerprint: "model_backend_stream_error:responses",
+      streak: 3,
+      threshold: 3,
+      pausedAt: 123,
+      lastError:
+        "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+      lastErrorAt: 123,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 3,
+      heldInputs: [],
+    };
+
+    const automaticDelivery = bridge.injectUserMessage(sid, "board wake", {
+      sessionId: "herd-events",
+      sessionLabel: "Herd Events",
+    });
+    const manualDelivery = bridge.injectUserMessage(sid, "operator test", {
+      sessionId: "operator-session",
+      sessionLabel: "Operator",
+    });
+
+    expect(automaticDelivery).toBe("paused_queued");
+    expect(manualDelivery).toBe("queued");
+    expect(session.state.codex_result_error_auto_pause.heldInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs.map((input: any) => input.content)).toContain("operator test");
+    expect(session.pendingCodexInputs.map((input: any) => input.content)).not.toContain("board wake");
+    expect(session.state.backend_state).not.toBe("recovery_suppressed");
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+  });
+
+  it("manual Codex success clears result-error auto-pause and drains coalesced held inputs deliberately", async () => {
+    const sid = "s-codex-auto-pause-drain";
+    const relaunchCb = vi.fn();
+    bridge.onCLIRelaunchNeededCallback(relaunchCb);
+    bridge.setLauncher({
+      touchActivity: vi.fn(),
+      touchUserMessage: vi.fn(),
+      getSession: vi.fn(() => ({ backendType: "codex", state: "exited", killedByIdleManager: false })),
+    } as any);
+    const session = bridge.getOrCreateSession(sid, "codex");
+    session.state.backend_state = "disconnected";
+    session.state.codex_result_error_auto_pause = {
+      family: "model_backend_stream_error",
+      fingerprint: "model_backend_stream_error:responses",
+      streak: 3,
+      threshold: 3,
+      pausedAt: 123,
+      lastError:
+        "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+      lastErrorAt: 123,
+      lastSourceKind: "automatic",
+      totalMatchingErrors: 3,
+      heldInputs: [
+        {
+          id: "held-herd",
+          queuedAt: 124,
+          lastQueuedAt: 125,
+          source: "programmatic",
+          count: 2,
+          message: {
+            type: "user_message",
+            content: "coalesced board wake",
+            agentSource: { sessionId: "herd-events", sessionLabel: "Herd Events" },
+          },
+        },
+      ],
+    };
+
+    await (bridge as any).handleCodexResultErrorAutoPause(
+      session,
+      {
+        type: "result",
+        subtype: "success",
+        is_error: false,
+        result: "ok",
+        duration_ms: 0,
+        duration_api_ms: 0,
+        num_turns: 1,
+        total_cost_usd: 0,
+        stop_reason: "end_turn",
+        usage: { input_tokens: 0, output_tokens: 0, cache_creation_input_tokens: 0, cache_read_input_tokens: 0 },
+        session_id: sid,
+        codex_turn_id: "manual-turn",
+        uuid: "manual-result",
+      },
+      { autoPauseSourceKind: "manual" },
+    );
+
+    expect(session.state.codex_result_error_auto_pause).toBeNull();
+    expect(session.pendingCodexInputs).toHaveLength(1);
+    expect(session.pendingCodexInputs[0]?.content).toContain("2 similar automatic inputs");
+    expect(session.pendingCodexInputs[0]?.content).toContain("coalesced board wake");
+    expect(session.state.backend_state).not.toBe("recovery_suppressed");
+    expect(relaunchCb).toHaveBeenCalledWith(sid);
+  });
+
   it("wakes an idle-killed session by clearing flag and requesting relaunch", () => {
     // When a leader sends a message to an idle-killed worker, the intent is
     // clear: wake the session. The killedByIdleManager flag should be cleared

@@ -443,6 +443,8 @@ export interface PendingCodexInput {
   threadKey?: string;
   questId?: string;
   threadRefs?: ThreadRef[];
+  /** Server-only source classification used by Codex result-error auto-pause. */
+  autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
 }
 
 export interface CodexPendingBatchInput {
@@ -465,7 +467,9 @@ export type BrowserOutgoingMessage =
       vscodeSelection?: VsCodeSelectionMetadata;
       client_msg_id?: string;
       /** Direct user entry point that should stay deliverable while other input sources are paused. */
-      inputSource?: "composer";
+      inputSource?: "composer" | "programmatic";
+      /** Server-only override for Codex result-error auto-pause source classification. */
+      autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
       /** UI-only thread routing metadata. Main is implicit; quest threads are optional projections. */
       threadKey?: string;
       questId?: string;
@@ -576,6 +580,31 @@ export interface SessionPauseState {
   reason?: string;
   queuedMessages: PausedInboundMessage[];
   lastQueuedAt?: number;
+}
+
+export type CodexResultErrorFamily = "model_backend_stream_error";
+export type CodexAutoPauseInputSourceKind = "manual" | "automatic";
+
+export interface CodexAutoPauseHeldInput {
+  id: string;
+  queuedAt: number;
+  lastQueuedAt: number;
+  source: PausedInboundSource;
+  message: Extract<BrowserOutgoingMessage, { type: "user_message" }>;
+  count: number;
+}
+
+export interface CodexResultErrorAutoPauseState {
+  family: CodexResultErrorFamily;
+  fingerprint: string;
+  streak: number;
+  threshold: number;
+  pausedAt: number | null;
+  lastError: string;
+  lastErrorAt: number;
+  lastSourceKind: CodexAutoPauseInputSourceKind;
+  totalMatchingErrors: number;
+  heldInputs: CodexAutoPauseHeldInput[];
 }
 
 // Quest Journey state machine -- canonical source in shared/quest-journey.ts
@@ -1113,6 +1142,8 @@ export interface CodexOutboundTurn {
   turnId: string | null;
   disconnectedAt: number | null;
   resumeConfirmedAt: number | null;
+  /** Server-only source classification used by Codex result-error auto-pause. */
+  autoPauseSourceKind?: CodexAutoPauseInputSourceKind;
 }
 
 export interface SessionState {
@@ -1236,6 +1267,8 @@ export interface SessionState {
   attentionReason?: "action" | "error" | "review" | null;
   /** Server-owned emergency pause state. While set, new user work is held or rejected. */
   pause?: SessionPauseState | null;
+  /** Codex-only auto-pause state for repeated classified terminal result errors. */
+  codex_result_error_auto_pause?: CodexResultErrorAutoPauseState | null;
   /** Questmaster: ID of the quest claimed by this session */
   claimedQuestId?: string;
   /** Questmaster: title of the claimed quest (for display without fetching) */

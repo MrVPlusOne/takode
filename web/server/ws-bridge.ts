@@ -12,7 +12,6 @@ import type {
   CLIControlResponseMessage,
   CLISystemCompactBoundaryMessage,
   CLIUserMessage,
-  BrowserOutgoingMessage,
   BrowserIncomingMessage,
   ReplayableBrowserIncomingMessage,
   BufferedBrowserEvent,
@@ -91,24 +90,19 @@ import {
   findMatchingPendingCodexInput as findMatchingPendingCodexInputBrowserTransportController,
   getPendingCodexInputDeliveryState as getPendingCodexInputDeliveryStateBrowserTransportController,
   handleBrowserClose as handleBrowserCloseController,
-  handleBrowserIngressMessage as handleBrowserIngressMessageTransportController,
   handleBrowserMessage as handleBrowserMessageTransportController,
   handleBrowserOpen as handleBrowserOpenController,
   isHerdEventSource as isHerdEventSourceBrowserTransportController,
-  injectUserMessage as injectUserMessageController,
   type ProgrammaticUserMessageOptions,
   isHistoryBackedEvent as isHistoryBackedEventController,
   sameAgentSource as sameAgentSourceBrowserTransportController,
   sendToBrowser as sendToBrowserController,
 } from "./bridge/browser-transport-controller.js";
-import {
-  buildProgrammaticUserMessage,
-  isSessionPaused,
-  pauseSessionState,
-  queuePausedUserMessage,
-  unpauseSessionState,
-} from "./session-pause.js";
+import { isSessionPaused } from "./session-pause.js";
 import type { BrowserTransportStateLike } from "./bridge/browser-transport-controller.js";
+import { handleCodexResultErrorAutoPause as handleCodexResultErrorAutoPauseDelivery } from "./bridge/codex-result-error-auto-pause-delivery.js";
+import { deliverProgrammaticUserMessage } from "./bridge/programmatic-user-message-delivery.js";
+import { pauseSessionForDelivery, unpauseSessionForDelivery } from "./bridge/session-pause-delivery.js";
 import {
   flushQueuedCliMessages as flushQueuedCliMessagesController,
   handleCLIClose as handleCLICloseTransportController,
@@ -799,30 +793,33 @@ export class WsBridge {
   pauseSession(sessionId: string, options?: { pausedBy?: string; reason?: string }) {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
-    const pause = pauseSessionState(session, options);
-    this.broadcastToBrowsers(session, { type: "session_update", session: { pause } } as any);
-    this.persistSession(session);
-    return pause;
+    return pauseSessionForDelivery(session, options, {
+      broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
+      persistSession: (targetSession) => this.persistSession(targetSession),
+    });
   }
 
   async unpauseSession(sessionId: string): Promise<{ queued: number } | null> {
     const session = this.sessions.get(sessionId);
     if (!session) return null;
-    const queued = unpauseSessionState(session);
-    this.broadcastToBrowsers(session, { type: "session_update", session: { pause: null } } as any);
-    this.persistSession(session);
-    for (const item of queued) {
-      await handleBrowserIngressMessageTransportController(
-        session,
-        item.message,
-        undefined,
-        this.getBrowserTransportDeps(),
-      );
-    }
-    if (queued.length === 0 && !backendAttachedController(session)) {
-      this.onCLIRelaunchNeeded?.(sessionId);
-    }
-    return { queued: queued.length };
+    return unpauseSessionForDelivery(session, {
+      broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
+      persistSession: (targetSession) => this.persistSession(targetSession),
+      getBrowserTransportDeps: () => this.getBrowserTransportDeps(),
+      onCLIRelaunchNeeded: this.onCLIRelaunchNeeded ?? undefined,
+    });
+  }
+
+  handleCodexResultErrorAutoPause(
+    session: Session,
+    msg: CLIResultMessage,
+    completedTurn: CodexOutboundTurn | null,
+  ): Promise<void> | void {
+    return handleCodexResultErrorAutoPauseDelivery(session, msg, completedTurn, {
+      broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
+      persistSession: (targetSession) => this.persistSession(targetSession),
+      getBrowserTransportDeps: () => this.getBrowserTransportDeps(),
+    });
   }
 
   private getSessionGitStateDeps() {
@@ -1500,41 +1497,14 @@ export class WsBridge {
       console.error(`[ws-bridge] Cannot inject message: session ${sessionId} not found`);
       return "no_session";
     }
-    let deliveryContent = content;
-    let deliveryBatch = takodeHerdBatch;
-    if (agentSource?.sessionId === "herd-events" && deliveryBatch) {
-      const pruned = this.pruneStaleBoardStalledHerdBatch(session, deliveryBatch);
-      if (pruned.changed) {
-        if (!pruned.content || !pruned.batch) {
-          return "dropped";
-        }
-        deliveryContent = pruned.content;
-        deliveryBatch = pruned.batch;
-      }
-    }
-    if (isSessionPaused(session) && !options?.bypassPause) {
-      const message = buildProgrammaticUserMessage({
-        content: deliveryContent,
-        agentSource,
-        takodeHerdBatch: deliveryBatch,
-        threadRoute,
-        options,
-      });
-      queuePausedUserMessage(session, "programmatic", message);
-      this.broadcastToBrowsers(session, { type: "session_update", session: { pause: session.state.pause } } as any);
-      this.persistSession(session);
-      return "paused_queued";
-    }
-    this.syncBackendTypeFromLauncher(session, "inject_user_message");
-    return injectUserMessageController(
-      session,
-      deliveryContent,
-      agentSource,
-      deliveryBatch,
-      this.getBrowserTransportDeps(),
-      threadRoute,
-      options,
-    );
+    return deliverProgrammaticUserMessage(session, content, agentSource, takodeHerdBatch, threadRoute, options, {
+      broadcastToBrowsers: (targetSession, message) => this.broadcastToBrowsers(targetSession, message),
+      persistSession: (targetSession) => this.persistSession(targetSession),
+      getBrowserTransportDeps: () => this.getBrowserTransportDeps(),
+      pruneStaleBoardStalledHerdBatch: (targetSession, batch) =>
+        this.pruneStaleBoardStalledHerdBatch(targetSession, batch),
+      syncBackendTypeFromLauncher: (targetSession, reason) => this.syncBackendTypeFromLauncher(targetSession, reason),
+    });
   }
 
   private isLiveBoardStalledEvent(session: Session, event: TakodeEvent): boolean {

@@ -1013,6 +1013,85 @@ describe("programmatic user message injection", () => {
     expect(deps.broadcastError).not.toHaveBeenCalled();
   });
 
+  it("holds automatic browser messages during Codex result-error auto-pause", async () => {
+    const deps = makeInjectDeps();
+    const session = makeSession({
+      state: {
+        permissionMode: "default",
+        codex_result_error_auto_pause: {
+          family: "model_backend_stream_error",
+          fingerprint: "model_backend_stream_error:responses",
+          streak: 3,
+          threshold: 3,
+          pausedAt: 123,
+          lastError:
+            "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+          lastErrorAt: 123,
+          lastSourceKind: "automatic",
+          totalMatchingErrors: 3,
+          heldInputs: [],
+        },
+      } as any,
+    });
+
+    await handleBrowserIngressMessage(
+      session,
+      {
+        type: "user_message",
+        content: "timer event",
+        agentSource: { sessionId: "timer:abc", sessionLabel: "Timer" },
+      },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(1);
+    expect(deps.routeBrowserMessage).not.toHaveBeenCalled();
+    expect(deps.persistSession).toHaveBeenCalledWith(session);
+    expect(deps.broadcastError).toHaveBeenCalledWith(
+      session,
+      expect.stringContaining("Automatic Codex input delivery paused"),
+    );
+  });
+
+  it("routes direct composer messages during Codex result-error auto-pause", async () => {
+    const routeBrowserMessage = vi.fn();
+    const deps = makeInjectDeps({ routeBrowserMessage });
+    const session = makeSession({
+      id: "session-1",
+      state: {
+        permissionMode: "default",
+        codex_result_error_auto_pause: {
+          family: "model_backend_stream_error",
+          fingerprint: "model_backend_stream_error:responses",
+          streak: 3,
+          threshold: 3,
+          pausedAt: 123,
+          lastError:
+            "stream disconnected before completion: error sending request for url (http://localhost:4000/responses)",
+          lastErrorAt: 123,
+          lastSourceKind: "automatic",
+          totalMatchingErrors: 3,
+          heldInputs: [],
+        },
+      } as any,
+    });
+
+    await handleBrowserIngressMessage(
+      session,
+      { type: "user_message", content: "manual test", session_id: "session-1", inputSource: "composer" },
+      undefined,
+      deps,
+    );
+
+    expect(session.state.codex_result_error_auto_pause?.heldInputs).toHaveLength(0);
+    expect(routeBrowserMessage).toHaveBeenCalledWith(
+      session,
+      expect.objectContaining({ type: "user_message", content: "manual test", inputSource: "composer" }),
+      undefined,
+    );
+  });
+
   it("rejects paused browser messages with raw images instead of silently processing them", async () => {
     const deps = makeInjectDeps();
     const session = makeSession({

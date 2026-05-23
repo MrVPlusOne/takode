@@ -1,5 +1,6 @@
 import type {
   BackendType,
+  CodexResultErrorAutoPauseState,
   CodexLeaderRecycleLineage,
   CodexLeaderRecycleTrigger,
   SessionPauseState,
@@ -84,6 +85,10 @@ export interface SdkSessionInfo {
   pause?: SessionPauseState | null;
   /** Number of inputs held while this session is paused. */
   pausedInputQueueCount?: number;
+  /** Codex-only auto-pause state for repeated classified terminal result errors. */
+  codexResultErrorAutoPause?: CodexResultErrorAutoPauseState | null;
+  /** Number of coalesced automatic inputs held by Codex result-error auto-pause. */
+  codexAutoPausedInputCount?: number;
   /** Highest active Takode notification urgency restored from the session inbox. */
   notificationUrgency?: "needs-input" | "review" | null;
   /** Number of unresolved Takode notifications for sidebar snapshots. */
