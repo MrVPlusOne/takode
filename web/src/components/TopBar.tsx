@@ -3,10 +3,11 @@ import { useShallow } from "zustand/react/shallow";
 import { useStore, countUserPermissions } from "../store.js";
 import { api } from "../api.js";
 import { SessionStatusDot } from "./SessionStatusDot.js";
-import { parseHash } from "../utils/routing.js";
+import { parseHash, threadRouteFromHash } from "../utils/routing.js";
 import { navigateTo } from "../utils/navigation.js";
 import { SessionInfoPopover } from "./SessionInfoPopover.js";
 import { coalesceSessionViewModel, type SessionViewModel } from "../utils/session-view-model.js";
+import { resolveDiffTarget } from "../utils/diff-target.js";
 import { questLabel } from "../utils/quest-helpers.js";
 import { getShortcutTitle } from "../shortcuts.js";
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
@@ -105,6 +106,10 @@ export function TopBar({
     () => window.location.hash,
   );
   const route = useMemo(() => parseHash(hash), [hash]);
+  const threadRoute = useMemo(
+    () => (route.page === "session" ? threadRouteFromHash(hash) : { hasThreadParam: false, threadKey: null }),
+    [hash, route.page],
+  );
   const isSessionView = route.page === "session" || route.page === "home";
   const isQuestmasterPage = route.page === "questmaster";
   const {
@@ -159,10 +164,26 @@ export function TopBar({
     questStatus,
     questReviewInboxUnread,
     idleKilled,
-    changedFilesCount,
     leaderProfilePortrait,
     pause,
   } = useStore(useShallow(getCurrentTopBarSessionState));
+  const diffChrome = useStore(
+    useShallow((s) => {
+      const target = resolveDiffTarget(s, s.currentSessionId, threadRoute.threadKey);
+      const targetSessionId = target?.kind === "session" ? target.sessionId : null;
+      const targetSession = targetSessionId != null ? (s.sessions.get(targetSessionId) ?? null) : null;
+      const targetSdkSession =
+        targetSessionId != null
+          ? (s.sdkSessions.find((session) => session.sessionId === targetSessionId) ?? null)
+          : null;
+      const targetSessionVm = coalesceSessionViewModel(targetSession, targetSdkSession);
+      return {
+        diffButtonTitle: activeTab === "diff" ? "Back to chat" : (target?.title ?? "Show diffs"),
+        changedFilesCount:
+          targetSessionId && targetSessionVm ? countScopedChangedFiles(s, targetSessionId, targetSessionVm) : 0,
+      };
+    }),
+  );
   const [infoOpen, setInfoOpen] = useState(false);
   const sessionInfoAnchorRef = useRef<HTMLDivElement | null>(null);
   const shortcutPlatform = typeof navigator === "undefined" ? undefined : navigator.platform;
@@ -417,14 +438,15 @@ export function TopBar({
                   ? "text-cc-primary bg-cc-active"
                   : "text-cc-muted hover:text-cc-fg hover:bg-cc-hover"
               }`}
-              title={activeTab === "diff" ? "Back to chat" : "Show diffs"}
+              title={diffChrome.diffButtonTitle}
+              aria-label={diffChrome.diffButtonTitle}
             >
               <svg viewBox="0 0 16 16" fill="currentColor" className="w-4 h-4">
                 <path d="M2.5 1A1.5 1.5 0 001 2.5v11A1.5 1.5 0 002.5 15h3a.5.5 0 000-1h-3a.5.5 0 01-.5-.5v-11a.5.5 0 01.5-.5h3a.5.5 0 000-1h-3zM10.5 1a.5.5 0 000 1h3a.5.5 0 01.5.5v11a.5.5 0 01-.5.5h-3a.5.5 0 000 1h3A1.5 1.5 0 0015 13.5v-11A1.5 1.5 0 0013.5 1h-3zM8 3.5a.5.5 0 01.5.5v8a.5.5 0 01-1 0V4a.5.5 0 01.5-.5zM5.5 6a.5.5 0 000 1h1a.5.5 0 000-1h-1zm4 0a.5.5 0 000 1h1a.5.5 0 000-1h-1zM5.5 9a.5.5 0 000 1h1a.5.5 0 000-1h-1zm4 0a.5.5 0 000 1h1a.5.5 0 000-1h-1z" />
               </svg>
-              {changedFilesCount > 0 && (
+              {diffChrome.changedFilesCount > 0 && (
                 <span className="absolute -top-1 -right-1 text-[8px] bg-cc-primary text-white rounded-full min-w-[14px] h-[14px] flex items-center justify-center font-semibold leading-none px-0.5">
-                  {changedFilesCount}
+                  {diffChrome.changedFilesCount}
                 </span>
               )}
             </button>

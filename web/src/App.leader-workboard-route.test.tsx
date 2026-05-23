@@ -42,7 +42,7 @@ vi.mock("./components/TaskPanel.js", () => ({
   TaskPanel: () => <div data-testid="task-panel" />,
 }));
 vi.mock("./components/DiffPanel.js", () => ({
-  DiffPanel: () => <div data-testid="diff-panel" />,
+  DiffPanel: ({ sessionId }: { sessionId: string }) => <div data-testid="diff-panel" data-session-id={sessionId} />,
 }));
 vi.mock("./components/EmptyState.js", () => ({
   EmptyState: () => <div data-testid="empty-state" />,
@@ -111,7 +111,7 @@ vi.mock("./components/QuestInlineLink.js", () => ({
 vi.mock("./components/SessionInlineLink.js", () => ({
   SessionInlineLink: ({ children }: { children: ReactNode }) => <span>{children}</span>,
 }));
-vi.mock("./components/CatIcons.js", () => ({ YarnBallDot: () => null }));
+vi.mock("./components/CatIcons.js", () => ({ PowerPlugDot: () => null, YarnBallDot: () => null }));
 vi.mock("./components/session-participant-status.js", () => ({ useParticipantSessionStatusDotProps: () => ({}) }));
 vi.mock("./utils/vscode-context.js", () => ({
   announceVsCodeReady: vi.fn(),
@@ -143,6 +143,15 @@ function seedLeaderRouteFixture({ sdkLeaderSession = true }: { sdkLeaderSession?
             sessionNum: 402,
             state: "connected",
           },
+          {
+            sessionId: "playground-worker",
+            createdAt: now - 50_000,
+            archived: false,
+            cwd: "/mock/worker",
+            name: "Quest Worker",
+            sessionNum: 403,
+            state: "connected",
+          },
         ]
       : [],
     sessions: new Map([
@@ -159,6 +168,18 @@ function seedLeaderRouteFixture({ sdkLeaderSession = true }: { sdkLeaderSession?
           sessionNum: 402,
         } as Partial<SessionState> as SessionState,
       ],
+      [
+        "playground-worker",
+        {
+          session_id: "playground-worker",
+          id: "playground-worker",
+          cwd: "/mock/worker",
+          backend_state: "connected",
+          backend_error: null,
+          name: "Quest Worker",
+          sessionNum: 403,
+        } as Partial<SessionState> as SessionState,
+      ],
     ]),
     sessionNames: new Map([[SESSION_ID, "Leader Route Fixture"]]),
     cliConnected: new Map([[SESSION_ID, true]]),
@@ -172,6 +193,8 @@ function seedLeaderRouteFixture({ sdkLeaderSession = true }: { sdkLeaderSession?
           {
             questId: "q-42",
             title: "Fix mobile sidebar overflow",
+            worker: "playground-worker",
+            workerNum: 403,
             status: "IMPLEMENTING",
             updatedAt: now - 1_000,
             journey: {
@@ -286,4 +309,42 @@ it("renders title-bar panels on a quest-thread route when leader metadata comes 
 
   await waitFor(() => expect(screen.getByTestId("workboard-panel")).toHaveAttribute("data-view", "completed"));
   expect(window.location.hash).toBe(`#/session/${SESSION_ID}?thread=q-42`);
+});
+
+it("targets the leader diff from the Main thread in a leader session", async () => {
+  useStore.setState({ activeTab: "diff" });
+  window.location.hash = `#/session/${SESSION_ID}?thread=main`;
+
+  render(<App />);
+
+  await waitFor(() => expect(screen.getByTestId("diff-panel")).toHaveAttribute("data-session-id", SESSION_ID));
+});
+
+it("targets the quest worker diff from a leader quest thread", async () => {
+  useStore.setState({ activeTab: "diff" });
+
+  render(<App />);
+
+  await waitFor(() => expect(screen.getByTestId("diff-panel")).toHaveAttribute("data-session-id", "playground-worker"));
+  expect(screen.getByTestId("diff-target-banner")).toHaveTextContent("q-42 worker diff");
+});
+
+it("shows an explicit unavailable state for quest threads without workers", async () => {
+  useStore.setState({
+    activeTab: "diff",
+    sessionBoards: new Map([
+      [
+        SESSION_ID,
+        [{ questId: "q-42", title: "Fix mobile sidebar overflow", status: "QUEUED", updatedAt: Date.now() }],
+      ],
+    ]),
+    sessionBoardRowStatuses: new Map(),
+    quests: [],
+  });
+
+  render(<App />);
+
+  await waitFor(() => expect(screen.getByTestId("diff-target-unavailable")).toBeInTheDocument());
+  expect(screen.getByText("No worker session is assigned to q-42.")).toBeInTheDocument();
+  expect(screen.queryByTestId("diff-panel")).not.toBeInTheDocument();
 });

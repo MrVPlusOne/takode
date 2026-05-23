@@ -108,7 +108,10 @@ interface MockStoreState {
   sessionNotifications: Map<string, Array<any>>;
   sessionNames: Map<string, string>;
   diffFileStats: Map<string, Map<string, { additions: number; deletions: number }>>;
-  sessionBoards: Map<string, Array<{ questId: string; status?: string; updatedAt: number }>>;
+  sessionBoards: Map<
+    string,
+    Array<{ questId: string; status?: string; updatedAt: number; worker?: string; workerNum?: number }>
+  >;
   sessionBoardRowStatuses: Map<string, Record<string, unknown>>;
   sessionCompletedBoards: Map<
     string,
@@ -457,6 +460,49 @@ describe("TopBar", () => {
     render(<TopBar />);
     expect(screen.getByText("#111")).toBeInTheDocument();
     expect(screen.getByText("Main Session")).toBeInTheDocument();
+  });
+
+  it("uses the selected quest worker as the diff button target in leader quest routes", () => {
+    window.location.hash = "#/session/s1?thread=q-42";
+    resetStore({
+      currentSessionId: "s1",
+      sessions: new Map([
+        ["s1", { cwd: "/repo/leader", isOrchestrator: true }],
+        ["worker", { cwd: "/repo/worker" }],
+      ]),
+      sdkSessions: [
+        { sessionId: "s1", createdAt: 1, sessionNum: 111, name: "Leader Session", isOrchestrator: true },
+        { sessionId: "worker", createdAt: 2, sessionNum: 222, name: "Worker Session", cwd: "/repo/worker" },
+      ],
+      sessionBoards: new Map([["s1", [{ questId: "q-42", status: "IMPLEMENTING", updatedAt: 1, worker: "worker" }]]]),
+      changedFiles: new Map([
+        ["s1", new Set(["/repo/leader/leader.ts"])],
+        ["worker", new Set(["/repo/worker/changed.ts", "/repo/worker/other.ts"])],
+      ]),
+    });
+
+    render(<TopBar />);
+
+    const diffButton = screen.getByRole("button", { name: "Show q-42 worker diff" });
+    expect(diffButton).toHaveAttribute("title", "Show q-42 worker diff");
+    expect(diffButton).toHaveTextContent("2");
+  });
+
+  it("keeps generic diff button copy for non-leader sessions", () => {
+    resetStore({
+      currentSessionId: "worker",
+      sessions: new Map([["worker", { cwd: "/repo/worker" }]]),
+      sdkSessions: [
+        { sessionId: "worker", createdAt: 2, sessionNum: 222, name: "Worker Session", cwd: "/repo/worker" },
+      ],
+      changedFiles: new Map([["worker", new Set(["/repo/worker/changed.ts"])]]),
+    });
+
+    render(<TopBar />);
+
+    const diffButton = screen.getByRole("button", { name: "Show diffs" });
+    expect(diffButton).toHaveAttribute("title", "Show diffs");
+    expect(screen.queryByRole("button", { name: "Show leader diffs" })).not.toBeInTheDocument();
   });
 
   it("shows a leader portrait before the leader session name and routes it to session info", async () => {
