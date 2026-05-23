@@ -419,9 +419,9 @@ describe("TopBar", () => {
 
     expect(screen.getByRole("dialog", { name: "Global needs-input notifications" })).toBeInTheDocument();
     expect(screen.getByText("#102 Worker Two")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open source message for Confirm rollback plan" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Go to source for Confirm rollback plan" })).toBeInTheDocument();
     expect(screen.getByText("#101 Worker One")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Open source message for Pick deployment window" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Go to source for Pick deployment window" })).toBeInTheDocument();
   });
 
   it("stops quest badge polling while the tab is hidden", async () => {
