@@ -673,6 +673,55 @@ describe("direct user needs-input reminders", () => {
     expect(session.notifications?.[0]?.resolutionNotice).toMatchObject({ status: "delivered" });
   });
 
+  it("preserves q-thread metadata on queued Codex resolution notice history", () => {
+    const session = makeSession([externallyResolvedNeedsInput("n-2", "Already handled", 200, "q-941")]);
+    session.backendType = "codex";
+    const deps = makeDeps({ isOrchestrator: true });
+    deps.addPendingCodexInput = vi.fn((targetSession, input) => {
+      targetSession.pendingCodexInputs.push(input);
+    });
+
+    routeAdapterBrowserMessage(
+      session,
+      userMessage({
+        content: "Fresh q-941 reply",
+        threadKey: "q-941",
+        questId: "q-941",
+      }),
+      null,
+      deps,
+    );
+
+    expect(session.pendingCodexInputs[0]).toMatchObject({
+      needsInputResolutionNoticeIds: ["n-2"],
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+
+    commitPendingCodexInputs(session as any, [session.pendingCodexInputs[0]!.id], {
+      broadcastPendingCodexInputs: vi.fn(),
+      broadcastToBrowsers: vi.fn(),
+      persistSession: vi.fn(),
+      touchUserMessage: vi.fn(),
+      onUserMessage: vi.fn(),
+    } as any);
+
+    expect(session.messageHistory[0]).toMatchObject({
+      content: expect.stringContaining("[Needs-input resolution notice]"),
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+    expect(session.messageHistory[1]).toMatchObject({
+      type: "user_message",
+      content: "Fresh q-941 reply",
+      threadKey: "q-941",
+      questId: "q-941",
+      threadRefs: [{ threadKey: "q-941", questId: "q-941", source: "explicit" }],
+    });
+  });
+
   it("restores queued Codex resolution notices when their pending input is cancelled", () => {
     const session = makeSession([externallyResolvedNeedsInput("n-2", "Already handled", 200)]);
     session.backendType = "codex";

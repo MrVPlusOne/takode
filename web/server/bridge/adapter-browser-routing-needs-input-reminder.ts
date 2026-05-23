@@ -281,7 +281,13 @@ export function commitQueuedNeedsInputResolutionNoticeHistoryEntry(
   session: Pick<AdapterBrowserRoutingSessionLike, "notifications" | "messageHistory">,
   pending: Pick<
     PendingCodexInput,
-    "id" | "timestamp" | "needsInputResolutionNoticeText" | "needsInputResolutionNoticeIds"
+    | "id"
+    | "timestamp"
+    | "needsInputResolutionNoticeText"
+    | "needsInputResolutionNoticeIds"
+    | "threadKey"
+    | "questId"
+    | "threadRefs"
   >,
   deps: { broadcastToBrowsers: (session: any, msg: BrowserIncomingMessage) => void },
 ): void {
@@ -295,6 +301,13 @@ export function commitQueuedNeedsInputResolutionNoticeHistoryEntry(
     pending.needsInputResolutionNoticeText,
     pending.timestamp,
     pending.id,
+    pending.threadKey
+      ? {
+          threadKey: pending.threadKey,
+          ...(pending.questId ? { questId: pending.questId } : {}),
+          ...(pending.threadRefs?.length ? { threadRefs: pending.threadRefs } : {}),
+        }
+      : undefined,
   );
   session.messageHistory.push(noticeHistoryEntry);
   deps.broadcastToBrowsers(session, noticeHistoryEntry);
