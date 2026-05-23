@@ -77,6 +77,7 @@ import {
   PLAYGROUND_HERD_GROUP_THEMES,
   PLAYGROUND_LOADING_SESSION_ID,
   PLAYGROUND_RECOVERING_SESSION_ID,
+  PLAYGROUND_REPEATED_ERROR_SESSION_ID,
   PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
   PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_REVIEWER_MAP,
@@ -805,6 +806,11 @@ export function PlaygroundOverviewSections() {
           </Card>
           <Card label="Error — generic">
             <MessageBubble message={MSG_ERROR_GENERIC} />
+          </Card>
+          <Card label="Grouped repeated error cards">
+            <div className="h-[260px] overflow-hidden rounded-lg border border-cc-border bg-cc-bg">
+              <MessageFeed sessionId={PLAYGROUND_REPEATED_ERROR_SESSION_ID} />
+            </div>
           </Card>
           <Card label="Background task completed">
             <MessageBubble message={MSG_TASK_COMPLETED} />

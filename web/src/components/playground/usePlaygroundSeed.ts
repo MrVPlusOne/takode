@@ -14,6 +14,7 @@ import {
   PLAYGROUND_DISCONNECTED_SESSION_ID,
   PLAYGROUND_LOADING_SESSION_ID,
   PLAYGROUND_RECOVERING_SESSION_ID,
+  PLAYGROUND_REPEATED_ERROR_SESSION_ID,
   PLAYGROUND_RECOVERY_SUPPRESSED_SESSION_ID,
   PLAYGROUND_RESUMING_SESSION_ID,
   PLAYGROUND_SECTIONED_SESSION_ID,
@@ -44,6 +45,7 @@ export function usePlaygroundSeed() {
       PLAYGROUND_LOADING_SESSION_ID,
       PLAYGROUND_CODEX_TERMINAL_SESSION_ID,
       PLAYGROUND_CODEX_PENDING_SESSION_ID,
+      PLAYGROUND_REPEATED_ERROR_SESSION_ID,
       PLAYGROUND_STARTING_SESSION_ID,
       PLAYGROUND_RESUMING_SESSION_ID,
       PLAYGROUND_DISCONNECTED_SESSION_ID,
@@ -735,6 +737,53 @@ export function usePlaygroundSeed() {
         cancelable: false,
         draftImages: [],
       },
+    ]);
+
+    const repeatedBackendError =
+      "Error: stream disconnected before completion: error sending request for url (http://localhost:4000/responses)";
+    store.addSession({
+      ...session,
+      session_id: PLAYGROUND_REPEATED_ERROR_SESSION_ID,
+      backend_type: "codex",
+      backend_state: "connected",
+      backend_error: null,
+      model: "gpt-5.5",
+      cwd: "/Users/stan/Dev/takode/repeated-error-feed",
+      is_containerized: false,
+      num_turns: 5,
+    });
+    store.setConnectionStatus(PLAYGROUND_REPEATED_ERROR_SESSION_ID, "connected");
+    store.setCliConnected(PLAYGROUND_REPEATED_ERROR_SESSION_ID, true);
+    store.setSessionStatus(PLAYGROUND_REPEATED_ERROR_SESSION_ID, "idle");
+    store.setMessages(PLAYGROUND_REPEATED_ERROR_SESSION_ID, [
+      makePlaygroundMessage({
+        id: "playground-repeated-error-user",
+        role: "user",
+        content: "Why did the leader stop responding?",
+        timestamp: Date.now() - 34_000,
+      }),
+      ...Array.from({ length: 4 }, (_, index) =>
+        makePlaygroundMessage({
+          id: `playground-repeated-error-${index + 1}`,
+          role: "system",
+          content: repeatedBackendError,
+          timestamp: Date.now() - 32_000 + index,
+          variant: "error",
+        }),
+      ),
+      makePlaygroundMessage({
+        id: "playground-repeated-error-boundary",
+        role: "system",
+        content: "Session restored after operator intervention",
+        timestamp: Date.now() - 27_000,
+      }),
+      makePlaygroundMessage({
+        id: "playground-repeated-error-later",
+        role: "system",
+        content: repeatedBackendError,
+        timestamp: Date.now() - 26_000,
+        variant: "error",
+      }),
     ]);
 
     // Mock tool results for ToolResultSection demo

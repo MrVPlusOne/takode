@@ -1087,6 +1087,64 @@ describe("MessageFeed - message rendering", () => {
     expect(screen.getByText("Continue")).toBeTruthy();
   });
 
+  it("groups consecutive identical system error cards into one counted card", () => {
+    const sid = "test-grouped-identical-errors";
+    const errorText =
+      "Error: stream disconnected before completion: error sending request for url (http://localhost:4000/responses)";
+    setStoreMessages(sid, [
+      makeMessage({ id: "e1", role: "system", content: errorText, variant: "error" }),
+      makeMessage({ id: "e2", role: "system", content: errorText, variant: "error" }),
+      makeMessage({ id: "e3", role: "system", content: errorText, variant: "error" }),
+      makeMessage({ id: "u1", role: "user", content: "Can you recover?" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    // The feed should show one readable error card plus a total repeat count,
+    // while keeping hidden anchors for duplicate message IDs scrollable.
+    expect(screen.getAllByText(errorText)).toHaveLength(1);
+    expect(screen.getByText("Same error happened 3 times")).toBeTruthy();
+    expect(screen.getAllByTestId("grouped-error-message")).toHaveLength(1);
+    expect(document.querySelector('[data-message-id="e2"]')).toBeTruthy();
+    expect(document.querySelector('[data-message-id="e3"]')).toBeTruthy();
+    expect(screen.getByText("Can you recover?")).toBeTruthy();
+  });
+
+  it("does not group non-consecutive repeated errors across intervening messages", () => {
+    const sid = "test-nonconsecutive-errors-stay-separate";
+    const errorText = "Error: API rate limit exceeded";
+    setStoreMessages(sid, [
+      makeMessage({ id: "e1", role: "system", content: errorText, variant: "error" }),
+      makeMessage({ id: "s1", role: "system", content: "Session restored" }),
+      makeMessage({ id: "e2", role: "system", content: errorText, variant: "error" }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getAllByText(errorText)).toHaveLength(2);
+    expect(screen.queryByText(/Same error happened/)).toBeNull();
+    expect(screen.getByText("Session restored")).toBeTruthy();
+  });
+
+  it("keeps distinct consecutive errors visible as separate cards", () => {
+    const sid = "test-distinct-errors-stay-separate";
+    setStoreMessages(sid, [
+      makeMessage({ id: "e1", role: "system", content: "Error: API rate limit exceeded", variant: "error" }),
+      makeMessage({
+        id: "e2",
+        role: "system",
+        content: "Error: stream disconnected before completion",
+        variant: "error",
+      }),
+    ]);
+
+    render(<MessageFeed sessionId={sid} />);
+
+    expect(screen.getByText("Error: API rate limit exceeded")).toBeTruthy();
+    expect(screen.getByText("Error: stream disconnected before completion")).toBeTruthy();
+    expect(screen.queryByText(/Same error happened/)).toBeNull();
+  });
+
   it("uses compact mobile feed gutters for collapsed turns while restoring desktop spacing at sm", () => {
     // Mobile width recovery is intentionally scoped to the feed and collapsed
     // activity chrome; the sm classes keep the existing tablet/desktop rhythm.

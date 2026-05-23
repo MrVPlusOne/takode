@@ -185,6 +185,62 @@ function isApprovalEntry(entry: FeedEntry): entry is { kind: "message"; msg: Cha
   return entry.kind === "message" && entry.msg.role === "system" && entry.msg.variant === "approved";
 }
 
+function getErrorMessageIdentity(entry: FeedEntry): string | null {
+  if (entry.kind !== "message") return null;
+  if (entry.msg.role !== "system" || entry.msg.variant !== "error") return null;
+  const normalized = entry.msg.content.replace(/\r\n?/g, "\n").trim();
+  return normalized.length > 0 ? normalized : null;
+}
+
+function GroupedErrorMessages({
+  messages,
+  sessionId,
+  currentThreadKey,
+  onSelectThread,
+}: {
+  messages: ChatMessage[];
+  sessionId: string;
+  currentThreadKey?: string;
+  onSelectThread?: (threadKey: string) => void;
+}) {
+  const first = messages[0];
+  if (!first) return null;
+  const countText = `Same error happened ${messages.length} times`;
+
+  return (
+    <div
+      data-testid="grouped-error-message"
+      data-message-id={first.id}
+      data-message-role={first.role}
+      data-feed-block-id={getMessageFeedBlockId(first.id)}
+      aria-label={`${countText}: ${first.content}`}
+      className="space-y-1.5"
+    >
+      <MessageBubble
+        message={first}
+        sessionId={sessionId}
+        currentThreadKey={currentThreadKey}
+        onSelectThread={onSelectThread}
+      />
+      <div className="flex justify-start pl-8 sm:pl-9">
+        <span className="inline-flex max-w-full items-center rounded-full border border-cc-error/20 bg-cc-error/8 px-2 py-0.5 text-[11px] font-medium text-cc-error">
+          {countText}
+        </span>
+      </div>
+      {messages.slice(1).map((message) => (
+        <span
+          key={message.id}
+          data-message-id={message.id}
+          data-message-role={message.role}
+          data-feed-block-id={getMessageFeedBlockId(message.id)}
+          aria-hidden="true"
+          className="sr-only"
+        />
+      ))}
+    </div>
+  );
+}
+
 function ApprovalBatchGroup({ messages, sessionId }: { messages: ChatMessage[]; sessionId: string }) {
   const [expanded, setExpanded] = useState(false);
   const count = messages.length;
@@ -911,6 +967,28 @@ export const FeedEntries = memo(function FeedEntries({
         }
         i = j;
         continue;
+      }
+      const errorIdentity = getErrorMessageIdentity(entry);
+      if (errorIdentity !== null) {
+        const batch: ChatMessage[] = [(entry as { kind: "message"; msg: ChatMessage }).msg];
+        let j = i + 1;
+        while (j < entries.length && getErrorMessageIdentity(entries[j]) === errorIdentity) {
+          batch.push((entries[j] as { kind: "message"; msg: ChatMessage }).msg);
+          j++;
+        }
+        if (batch.length >= 2) {
+          result.push(
+            <GroupedErrorMessages
+              key={`error-batch:${batch[0].id}`}
+              messages={batch}
+              sessionId={sessionId}
+              currentThreadKey={currentThreadKey}
+              onSelectThread={onSelectThread}
+            />,
+          );
+          i = j;
+          continue;
+        }
       }
       if (entry.kind === "message" && isAttentionLedgerMessage(entry.msg)) {
         const record = entry.msg.metadata?.attentionRecord;
