@@ -431,7 +431,7 @@ describe("NotificationChip", () => {
     render(<NotificationChip sessionId="s1" />);
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
 
-    const moreButton = screen.getByRole("button", { name: "More" });
+    const moreButton = screen.getByRole("button", { name: "Show more" });
     expect(moreButton).toHaveClass("cc-muted-readable");
     expect(moreButton).not.toHaveClass("text-cc-muted");
     expect(moreButton.className).not.toContain("text-cc-muted/80");
@@ -524,7 +524,7 @@ describe("NotificationChip", () => {
     expect(screen.queryByText("Jump")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Preview source message" })).not.toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByRole("button", { name: "Show more" }));
     expect(screen.getByTestId("notification-source-context").className).not.toContain("line-clamp-3");
     expect(mockRequestScrollToMessage).not.toHaveBeenCalled();
 
@@ -550,7 +550,7 @@ describe("NotificationChip", () => {
     fireEvent.click(screen.getByRole("button", { name: "Notification inbox: 1 needs-input notification" }));
 
     expect(screen.queryByTestId("notification-source-context")).toBeNull();
-    expect(screen.queryByRole("button", { name: "More" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Show more" })).toBeNull();
     expect(screen.getAllByText("Confirm scope")).toHaveLength(1);
   });
 

@@ -25,6 +25,8 @@ import {
 } from "../utils/global-needs-input.js";
 
 const MENU_TOP_PX = 44;
+const CHAT_FEED_WIDTH_SOURCE_SELECTOR = '[data-chat-feed-width-source="true"]';
+const MENU_DISMISS_CHAT_FEED_RATIO = 0.65;
 const EMPTY_MESSAGES: ChatMessage[] = [];
 
 export { getGlobalNeedsInputEntries } from "../utils/global-needs-input.js";
@@ -89,6 +91,18 @@ function jumpToNotification(entry: GlobalNeedsInputEntry, sdkSessions: SdkSessio
   navigateToSessionThread(entry.sessionId, threadKey, false, routeSessionId, { preserveMainThreadRoute: true });
 }
 
+function getCurrentChatFeedWidth(): number {
+  const feed = document.querySelector<HTMLElement>(CHAT_FEED_WIDTH_SOURCE_SELECTOR);
+  const feedWidth = feed?.getBoundingClientRect().width ?? 0;
+  return feedWidth > 0 ? feedWidth : window.innerWidth;
+}
+
+function shouldDismissAfterNavigation(popover: HTMLElement | null): boolean {
+  const menuWidth = popover?.getBoundingClientRect().width ?? 0;
+  const feedWidth = getCurrentChatFeedWidth();
+  return menuWidth > 0 && feedWidth > 0 && menuWidth / feedWidth > MENU_DISMISS_CHAT_FEED_RATIO;
+}
+
 function markLocalNotificationDone(sessionId: string, notificationId: string) {
   const store = useStore.getState();
   const notifications = store.sessionNotifications.get(sessionId);
@@ -118,7 +132,13 @@ function BellIcon({ className = "" }: { className?: string }) {
   );
 }
 
-function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEntry; sdkSessions: SdkSessionInfo[] }) {
+function GlobalNeedsInputRow({
+  entry,
+  onNavigate,
+}: {
+  entry: GlobalNeedsInputEntry;
+  onNavigate: (entry: GlobalNeedsInputEntry) => void;
+}) {
   const [answersByQuestion, setAnswersByQuestion] = useState<Record<string, string>>({});
   const [deliveryError, setDeliveryError] = useState<string | null>(null);
   const [remoteSourceContext, setRemoteSourceContext] = useState<{ key: string; value: string | null } | null>(null);
@@ -146,8 +166,8 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
   }, []);
 
   const jump = useCallback(() => {
-    jumpToNotification(entry, sdkSessions);
-  }, [entry, sdkSessions]);
+    onNavigate(entry);
+  }, [entry, onNavigate]);
 
   useEffect(() => {
     if (localSourceContext || !entry.notification.messageId) return;
@@ -193,20 +213,27 @@ function GlobalNeedsInputRow({ entry, sdkSessions }: { entry: GlobalNeedsInputEn
       <div className="flex items-start gap-2">
         <span className="mt-1 inline-block h-1.5 w-1.5 shrink-0 rounded-full bg-cc-attention" aria-hidden="true" />
         <div className="min-w-0 flex-1">
-          <div className="flex min-w-0 items-center gap-1.5">
-            <span className="truncate text-[11px] font-medium text-cc-muted" title={sessionLabel}>
-              {sessionLabel}
-            </span>
-            <span className="shrink-0 text-[10px] text-cc-muted/55">
-              {formatRelativeTime(entry.notification.timestamp)}
-            </span>
+          <div className="flex min-w-0 items-start gap-2">
+            <div className="min-w-0 flex-1">
+              <div className="flex min-w-0 items-center gap-1.5">
+                <span className="truncate text-[11px] font-medium text-cc-muted" title={sessionLabel}>
+                  {sessionLabel}
+                </span>
+                <span className="shrink-0 text-[10px] text-cc-muted/55">
+                  {formatRelativeTime(entry.notification.timestamp)}
+                </span>
+              </div>
+              <NeedsInputSourceTarget title={summary} sourceContext={sourceContext} testIdPrefix="global-needs-input" />
+            </div>
+            <button
+              type="button"
+              onClick={jump}
+              className="mt-4 inline-flex shrink-0 items-center rounded border border-cc-attention-border bg-cc-attention-bg px-2 py-0.5 text-[11px] font-medium text-cc-attention transition-colors hover:bg-cc-attention-bg/80 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
+              aria-label={`Go to source for ${summary}`}
+            >
+              Go to
+            </button>
           </div>
-          <NeedsInputSourceTarget
-            title={summary}
-            sourceContext={sourceContext}
-            onNavigate={jump}
-            testIdPrefix="global-needs-input"
-          />
         </div>
       </div>
 
@@ -282,6 +309,14 @@ function GlobalNeedsInputPopover({
   triggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   const popoverRef = useRef<HTMLDivElement>(null);
+  const navigate = useCallback(
+    (entry: GlobalNeedsInputEntry) => {
+      const shouldDismiss = shouldDismissAfterNavigation(popoverRef.current);
+      jumpToNotification(entry, sdkSessions);
+      if (shouldDismiss) onClose();
+    },
+    [onClose, sdkSessions],
+  );
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -335,7 +370,7 @@ function GlobalNeedsInputPopover({
           <GlobalNeedsInputRow
             key={`${entry.sessionId}:${entry.notification.id}`}
             entry={entry}
-            sdkSessions={sdkSessions}
+            onNavigate={navigate}
           />
         ))}
       </div>

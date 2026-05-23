@@ -51,6 +51,44 @@ vi.mock("../api.js", () => ({
 
 import { GlobalNeedsInputMenu } from "./GlobalNeedsInputMenu.js";
 
+function installChatFeedWidth(width: number): () => void {
+  const feed = document.createElement("div");
+  feed.setAttribute("data-chat-feed-width-source", "true");
+  Object.defineProperty(feed, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      x: 0,
+      y: 0,
+      top: 0,
+      right: width,
+      bottom: 800,
+      left: 0,
+      width,
+      height: 800,
+      toJSON: () => ({}),
+    }),
+  });
+  document.body.append(feed);
+  return () => feed.remove();
+}
+
+function setElementWidth(element: Element, width: number) {
+  Object.defineProperty(element, "getBoundingClientRect", {
+    configurable: true,
+    value: () => ({
+      x: 0,
+      y: 0,
+      top: 44,
+      right: width,
+      bottom: 600,
+      left: 0,
+      width,
+      height: 556,
+      toJSON: () => ({}),
+    }),
+  });
+}
+
 function resetStore(overrides: Partial<typeof mockStoreState> = {}) {
   mockStoreState.sessionNotifications = new Map();
   mockStoreState.sessionNames = new Map();
@@ -141,9 +179,9 @@ describe("GlobalNeedsInputMenu", () => {
     expect(dialog.className).toContain("w-[min(42rem,calc(100vw-1.5rem))]");
     expect(dialog.className).toContain("max-h-[min(78vh,38rem)]");
     expect(within(dialog).getByText("#22 Worker")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Open source message for Choose rollout" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Go to source for Choose rollout" })).toBeInTheDocument();
     expect(within(dialog).getByText("#21 Leader")).toBeInTheDocument();
-    expect(within(dialog).getByRole("button", { name: "Open source message for Pick model" })).toBeInTheDocument();
+    expect(within(dialog).getByRole("button", { name: "Go to source for Pick model" })).toBeInTheDocument();
     expect(within(dialog).queryByText("Review")).not.toBeInTheDocument();
   });
 
@@ -182,17 +220,125 @@ describe("GlobalNeedsInputMenu", () => {
     expect(screen.queryByText("Jump")).not.toBeInTheDocument();
     expect(screen.getByLabelText("Answer for approve backend SVG logo candidates")).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    const expandButton = screen.getByRole("button", { name: "Show more" });
+    expect(context.nextElementSibling).toBe(expandButton);
+    fireEvent.click(expandButton);
     expect(window.location.hash).toBe("#/session/current");
     expect(screen.getByTestId("global-needs-input-source-context").className).not.toContain("line-clamp-3");
 
-    fireEvent.click(
-      screen.getByRole("button", { name: "Open source message for approve backend SVG logo candidates" }),
-    );
+    fireEvent.click(screen.getByRole("button", { name: "Go to source for approve backend SVG logo candidates" }));
 
     expect(window.location.hash).toContain("#/session/31/msg/msg-context");
     expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-context");
     expect(mockSetExpandAllInTurn).toHaveBeenCalledWith("s1", "msg-context");
+  });
+
+  it("keeps global notification titles as content while Go to owns navigation", () => {
+    window.location.hash = "#/session/current";
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-go-to",
+              category: "needs-input",
+              summary: "choose validation path",
+              timestamp: Date.now(),
+              messageId: "msg-go-to",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 31, name: "Leader", createdAt: 1 }],
+    });
+
+    render(<GlobalNeedsInputMenu />);
+    fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+
+    const title = screen.getByTestId("global-needs-input-source-target");
+    expect(title).not.toHaveAttribute("aria-label");
+    expect(screen.queryByRole("button", { name: "Open source message for choose validation path" })).toBeNull();
+
+    fireEvent.click(screen.getByRole("button", { name: "Go to source for choose validation path" }));
+
+    expect(window.location.hash).toContain("#/session/31/msg/msg-go-to");
+    expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-go-to");
+  });
+
+  it("dismisses after Go to when the global menu covers more than 65 percent of the chat feed", () => {
+    const cleanupFeed = installChatFeedWidth(600);
+    window.location.hash = "#/session/current";
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-wide",
+              category: "needs-input",
+              summary: "open narrow feed target",
+              timestamp: Date.now(),
+              messageId: "msg-wide",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 41, name: "Worker", createdAt: 1 }],
+    });
+
+    try {
+      render(<GlobalNeedsInputMenu />);
+      fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+      const dialog = screen.getByRole("dialog", { name: "Global needs-input notifications" });
+      setElementWidth(dialog, 420);
+
+      fireEvent.click(screen.getByRole("button", { name: "Go to source for open narrow feed target" }));
+
+      expect(window.location.hash).toContain("#/session/41/msg/msg-wide");
+      expect(screen.queryByRole("dialog", { name: "Global needs-input notifications" })).toBeNull();
+    } finally {
+      cleanupFeed();
+    }
+  });
+
+  it("keeps the global menu open after Go to when it covers 65 percent or less of the chat feed", () => {
+    const cleanupFeed = installChatFeedWidth(600);
+    window.location.hash = "#/session/current";
+    resetStore({
+      sessionNotifications: new Map([
+        [
+          "s1",
+          [
+            {
+              id: "n-desktop",
+              category: "needs-input",
+              summary: "open desktop target",
+              timestamp: Date.now(),
+              messageId: "msg-desktop",
+              done: false,
+            },
+          ],
+        ],
+      ]),
+      sdkSessions: [{ sessionId: "s1", sessionNum: 51, name: "Worker", createdAt: 1 }],
+    });
+
+    try {
+      render(<GlobalNeedsInputMenu />);
+      fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
+      const dialog = screen.getByRole("dialog", { name: "Global needs-input notifications" });
+      setElementWidth(dialog, 390);
+
+      fireEvent.click(screen.getByRole("button", { name: "Go to source for open desktop target" }));
+
+      expect(window.location.hash).toContain("#/session/51/msg/msg-desktop");
+      expect(screen.getByRole("dialog", { name: "Global needs-input notifications" })).toBeInTheDocument();
+    } finally {
+      cleanupFeed();
+    }
   });
 
   it("uses an explicit Main thread route when opening a Main-owned notification", () => {
@@ -219,7 +365,7 @@ describe("GlobalNeedsInputMenu", () => {
 
     render(<GlobalNeedsInputMenu />);
     fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
-    fireEvent.click(screen.getByRole("button", { name: "Open source message for approve Main-thread checkpoint" }));
+    fireEvent.click(screen.getByRole("button", { name: "Go to source for approve Main-thread checkpoint" }));
 
     expect(window.location.hash).toBe("#/session/31/msg/msg-main?thread=main");
     expect(mockRequestScrollToMessage).toHaveBeenCalledWith("s1", "msg-main");
@@ -253,9 +399,7 @@ describe("GlobalNeedsInputMenu", () => {
     fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
 
     await screen.findByTestId("global-needs-input-source-context");
-    const sourceTarget = screen.getByRole("button", {
-      name: "Open source message for approve Universal Search query persistence quest",
-    });
+    const sourceTarget = screen.getByTestId("global-needs-input-source-target");
     expect(sourceTarget).not.toHaveAttribute("title");
 
     fireEvent.mouseEnter(sourceTarget);
@@ -299,7 +443,7 @@ describe("GlobalNeedsInputMenu", () => {
 
     await waitFor(() => expect(mockFetchNotificationContext).toHaveBeenCalledWith("s1", "n-duplicate"));
     expect(screen.queryByTestId("global-needs-input-source-context")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "More" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Show more" })).not.toBeInTheDocument();
     expect(screen.getAllByText("Confirm scope")).toHaveLength(1);
   });
 
@@ -356,9 +500,7 @@ describe("GlobalNeedsInputMenu", () => {
 
     const { rerender } = render(<GlobalNeedsInputMenu />);
     fireEvent.click(screen.getByRole("button", { name: "1 unresolved needs-input notification across sessions" }));
-    expect(
-      screen.getByRole("button", { name: "Open source message for Active session needs input" }),
-    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Go to source for Active session needs input" })).toBeInTheDocument();
     expect(screen.queryByText("Archived session should not count")).not.toBeInTheDocument();
     expect(screen.queryByText("Removed session should not count")).not.toBeInTheDocument();
 

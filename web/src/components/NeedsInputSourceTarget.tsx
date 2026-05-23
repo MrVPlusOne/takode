@@ -38,6 +38,7 @@ export function NeedsInputSourceTarget({
   const sourceText = sourceContext?.trim() ?? "";
   const hasContext = sourceText.length > 0;
   const sourceContextTestId = testIdPrefix ? `${testIdPrefix}-source-context` : undefined;
+  const sourceExpandTestId = testIdPrefix ? `${testIdPrefix}-source-expand` : undefined;
   const sourceTargetTestId = testIdPrefix ? `${testIdPrefix}-source-target` : undefined;
   const sourceContextClassName = [
     "mt-1 max-w-full text-[11px] leading-snug",
@@ -65,29 +66,30 @@ export function NeedsInputSourceTarget({
             <span className={`block max-w-full truncate text-[12px] leading-snug ${titleClassName}`}>{title}</span>
           </div>
         )}
-        {hasContext && (
+      </div>
+      {hasContext && (
+        <>
+          <MarkdownContent
+            id={contextId}
+            data-testid={sourceContextTestId}
+            text={sourceText}
+            size="sm"
+            variant="conservative"
+            wrapLongContent
+            className={sourceContextClassName}
+          />
           <button
             type="button"
             onClick={() => setExpanded((value) => !value)}
-            className="inline-flex shrink-0 items-center gap-0.5 rounded px-1 py-0.5 text-[10px] cc-muted-readable transition-colors hover:bg-cc-hover/60 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
+            className="mt-0.5 inline-flex items-center gap-0.5 rounded px-1 py-0.5 text-[10px] cc-muted-readable transition-colors hover:bg-cc-hover/60 hover:text-cc-fg focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-cc-attention/45 cursor-pointer"
             aria-expanded={expanded}
             aria-controls={contextId}
+            data-testid={sourceExpandTestId}
           >
-            {expanded ? "Less" : "More"}
+            {expanded ? "Show less" : "Show more"}
             <ChevronIcon expanded={expanded} />
           </button>
-        )}
-      </div>
-      {hasContext && (
-        <MarkdownContent
-          id={contextId}
-          data-testid={sourceContextTestId}
-          text={sourceText}
-          size="sm"
-          variant="conservative"
-          wrapLongContent
-          className={sourceContextClassName}
-        />
+        </>
       )}
     </div>
   );

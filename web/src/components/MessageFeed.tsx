@@ -1790,6 +1790,7 @@ export function MessageFeed({
       <div
         ref={overlayViewportRef}
         data-testid="message-feed-overlay"
+        data-chat-feed-width-source="true"
         className="relative flex-1 min-h-0 overflow-hidden"
       >
         <div
